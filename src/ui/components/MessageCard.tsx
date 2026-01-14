@@ -1,9 +1,6 @@
 import { useMemo } from 'react';
 import { MDContent } from '../render/markdown';
-import {
-  SystemInfoCard,
-  SessionResultCard,
-} from './EventCard';
+import { SessionResultCard } from './EventCard';
 import { DecisionPanel, getAskUserQuestionSignature } from './DecisionPanel';
 import { ToolGroup } from './ToolGroup';
 import type {
@@ -71,9 +68,7 @@ export function MessageCard({
       return <UserPromptCard prompt={message.prompt} />;
 
     case 'system':
-      if (message.subtype === 'init') {
-        return <SystemInfoCard message={message} />;
-      }
+      // 不再显示 Session Started 卡片，CWD 已移至右上角
       return null;
 
     case 'assistant':

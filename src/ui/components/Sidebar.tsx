@@ -100,12 +100,6 @@ export function Sidebar() {
                 </DropdownMenu.Portal>
               </DropdownMenu.Root>
             </div>
-
-            {session.cwd && (
-              <div className="text-xs text-[var(--text-muted)] mt-1 truncate">
-                {session.cwd}
-              </div>
-            )}
           </div>
         ))}
 

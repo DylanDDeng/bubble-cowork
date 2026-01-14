@@ -28,3 +28,6 @@ npm-debug.log*
 *.db
 *.db-wal
 *.db-shm
+
+# Documentation (internal)
+Cowork-需求文档.md
