@@ -88,7 +88,7 @@ function AssistantCard({
   onPermissionResult: (toolUseId: string, result: PermissionResult) => void;
 }) {
   return (
-    <div className="my-3">
+    <div className="my-3 min-w-0">
       {content.map((block, idx) => (
         <ContentBlockCard
           key={idx}
@@ -131,7 +131,7 @@ function ContentBlockCard({
   switch (block.type) {
     case 'text':
       return (
-        <div className="bg-[var(--bg-secondary)] rounded-lg p-4">
+        <div className="bg-[var(--bg-secondary)] rounded-lg p-4 min-w-0 overflow-x-auto">
           <MDContent content={block.text} />
         </div>
       );

@@ -153,7 +153,7 @@ export function App() {
           <div className="h-8 drag-region flex-shrink-0" />
 
           {/* 消息区域 */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-auto p-4">
             {/* 渲染消息 */}
             {activeSession.messages.map((message, idx) => (
               <MessageCard

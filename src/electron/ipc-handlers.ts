@@ -15,6 +15,7 @@ import type {
   SessionContinuePayload,
   PermissionResponsePayload,
   AskUserQuestionInput,
+  ModelId,
 } from './types';
 
 // Runner 句柄映射
@@ -139,7 +140,7 @@ async function handleSessionStart(
   mainWindow: BrowserWindow,
   payload: SessionStartPayload
 ): Promise<void> {
-  const { title, prompt, cwd, allowedTools } = payload;
+  const { title, prompt, cwd, model, allowedTools } = payload;
 
   // 创建会话
   const session = sessions.createSession({
@@ -173,7 +174,7 @@ async function handleSessionStart(
   sessions.addMessage(session.id, { type: 'user_prompt', prompt });
 
   // 启动 Runner
-  startRunner(mainWindow, session, prompt);
+  startRunner(mainWindow, session, prompt, undefined, model);
 }
 
 // 继续会话
@@ -228,7 +229,8 @@ function startRunner(
   mainWindow: BrowserWindow,
   session: ReturnType<typeof sessions.getSession>,
   prompt: string,
-  resumeSessionId?: string
+  resumeSessionId?: string,
+  model?: ModelId
 ): void {
   if (!session) return;
 
@@ -238,6 +240,7 @@ function startRunner(
     prompt,
     session,
     resumeSessionId,
+    model,
     onMessage: (message) => {
       // 提取并保存 claude session id
       if (message.type === 'system' && message.subtype === 'init') {

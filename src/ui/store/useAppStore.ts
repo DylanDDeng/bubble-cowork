@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type {
   AppState,
   AppActions,
@@ -7,20 +8,24 @@ import type {
   SessionInfo,
   StreamMessage,
 } from '../types';
+import { DEFAULT_MODEL } from '../types';
 
 type Store = AppState & AppActions;
 type SetState = (
   partial: Store | Partial<Store> | ((state: Store) => Store | Partial<Store>)
 ) => void;
 
-export const useAppStore = create<Store>((set, get) => ({
-  // 状态
-  connected: false,
-  sessions: {},
-  activeSessionId: null,
-  showNewSession: false,
-  globalError: null,
-  pendingStart: false,
+export const useAppStore = create<Store>()(
+  persist(
+    (set, get) => ({
+      // 状态
+      connected: false,
+      sessions: {},
+      activeSessionId: null,
+      showNewSession: false,
+      globalError: null,
+      pendingStart: false,
+      selectedModel: DEFAULT_MODEL,
 
   // Actions
   setConnected: (connected) => set({ connected }),
@@ -88,7 +93,15 @@ export const useAppStore = create<Store>((set, get) => ({
       };
     });
   },
-}));
+
+  setSelectedModel: (model) => set({ selectedModel: model }),
+    }),
+    {
+      name: 'cowork-app-storage',
+      partialize: (state) => ({ selectedModel: state.selectedModel }),
+    }
+  )
+);
 
 // 处理会话列表
 function handleSessionList(

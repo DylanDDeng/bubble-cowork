@@ -35,7 +35,7 @@ interface ContentBlock {
 
 // 运行 Claude Agent
 export function runClaude(options: RunnerOptions): RunnerHandle {
-  const { prompt, session, resumeSessionId, onMessage, onPermissionRequest } = options;
+  const { prompt, session, resumeSessionId, model, onMessage, onPermissionRequest } = options;
 
   const abortController = new AbortController();
 
@@ -47,7 +47,10 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         options: {
           cwd: session.cwd || process.cwd(),
           resume: resumeSessionId,
+          model,
           abortController,
+          // 从文件系统加载 Skills（~/.claude/skills/ 和 .claude/skills/）
+          settingSources: ['user', 'project'],
           // 自定义工具权限处理
           canUseTool: async (toolName: string, input: Record<string, unknown>) => {
             // 只对 AskUserQuestion 进行用户交互

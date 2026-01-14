@@ -10,9 +10,8 @@ export function Sidebar() {
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionView | null>(null);
 
-  const sessionList = Object.values(sessions).sort(
-    (a, b) => (sessions[b.id]?.claudeSessionId ? 1 : 0) - (sessions[a.id]?.claudeSessionId ? 1 : 0)
-  );
+  // 后端已按 updated_at DESC 排序，直接使用
+  const sessionList = Object.values(sessions);
 
   const handleDelete = (sessionId: string) => {
     sendEvent({ type: 'session.delete', payload: { sessionId } });
