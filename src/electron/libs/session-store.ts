@@ -116,6 +116,15 @@ export function updateLastPrompt(sessionId: string, prompt: string): void {
   stmt.run(prompt, now, sessionId);
 }
 
+// 更新会话标题
+export function updateSessionTitle(sessionId: string, title: string): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(title, now, sessionId);
+}
+
 // 删除会话
 export function deleteSession(sessionId: string): void {
   // 由于设置了 CASCADE，删除 session 会自动删除关联的 messages

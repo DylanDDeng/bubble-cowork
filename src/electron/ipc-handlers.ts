@@ -142,7 +142,7 @@ async function handleSessionStart(
 ): Promise<void> {
   const { title, prompt, cwd, model, allowedTools } = payload;
 
-  // 创建会话
+  // 创建会话（用临时标题）
   const session = sessions.createSession({
     title,
     cwd,
@@ -153,7 +153,7 @@ async function handleSessionStart(
   // 更新状态为 running
   sessions.updateSessionStatus(session.id, 'running');
 
-  // 广播状态
+  // 立即广播状态 -> 界面跳转
   broadcast(mainWindow, {
     type: 'session.status',
     payload: {
@@ -162,6 +162,21 @@ async function handleSessionStart(
       title: session.title,
       cwd: session.cwd || undefined,
     },
+  });
+
+  // 异步生成更好的标题（不阻塞）
+  generateSessionTitle(prompt).then((newTitle) => {
+    sessions.updateSessionTitle(session.id, newTitle);
+    broadcast(mainWindow, {
+      type: 'session.status',
+      payload: {
+        sessionId: session.id,
+        status: 'running',
+        title: newTitle,
+      },
+    });
+  }).catch((err) => {
+    console.error('Failed to generate title:', err);
   });
 
   // 广播用户 prompt

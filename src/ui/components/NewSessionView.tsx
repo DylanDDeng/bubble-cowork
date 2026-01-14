@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
+import { AVAILABLE_MODELS } from '../types';
+import type { ModelId } from '../types';
 
 export function NewSessionView() {
-  const { pendingStart, setPendingStart, selectedModel } = useAppStore();
+  const { pendingStart, setPendingStart, selectedModel, setSelectedModel } = useAppStore();
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
@@ -20,33 +22,28 @@ export function NewSessionView() {
     }
   };
 
-  const handleStart = async () => {
+  const handleStart = () => {
     if (!prompt.trim()) return;
 
     setPendingStart(true);
 
-    try {
-      // 生成标题
-      const title = await window.electron.generateSessionTitle(prompt);
+    // 用 prompt 前 30 字符作为临时标题（后台会异步生成更好的标题）
+    const tempTitle = prompt.trim().slice(0, 30) + (prompt.trim().length > 30 ? '...' : '');
 
-      // 发送开始会话事件
-      sendEvent({
-        type: 'session.start',
-        payload: {
-          title,
-          prompt: prompt.trim(),
-          cwd: cwd || undefined,
-          model: selectedModel,
-        },
-      });
+    // 立即发送开始会话事件
+    sendEvent({
+      type: 'session.start',
+      payload: {
+        title: tempTitle,
+        prompt: prompt.trim(),
+        cwd: cwd || undefined,
+        model: selectedModel,
+      },
+    });
 
-      // 清空输入
-      setPrompt('');
-      setCwd('');
-    } catch (error) {
-      console.error('Failed to start session:', error);
-      setPendingStart(false);
-    }
+    // 清空输入
+    setPrompt('');
+    setCwd('');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -107,34 +104,104 @@ export function NewSessionView() {
             )}
           </div>
 
-          {/* Prompt 输入 */}
+          {/* Composer - Prompt 输入 + 工具栏 */}
           <div className="mb-6">
             <label className="block text-sm text-[var(--text-secondary)] mb-2">
               What would you like to do?
             </label>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Describe your task..."
-              rows={5}
-              className="w-full bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm outline-none focus:border-[var(--accent)] resize-none no-drag"
-              autoFocus
-            />
-          </div>
-
-          {/* 按钮 */}
-          <div className="flex justify-center">
-            <button
-              onClick={handleStart}
-              disabled={!prompt.trim() || pendingStart}
-              className="px-8 py-3 rounded-lg text-sm bg-[var(--accent)] hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed no-drag"
-            >
-              {pendingStart ? 'Starting...' : 'Start Session'}
-            </button>
+            <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg focus-within:border-[var(--accent)] transition-colors">
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Describe your task..."
+                rows={5}
+                className="w-full bg-transparent px-4 py-3 text-sm outline-none resize-none no-drag"
+                autoFocus
+              />
+              {/* 底部工具栏 */}
+              <div className="flex items-center gap-3 px-3 py-2 border-t border-[var(--border)]">
+                <ModelPicker
+                  value={selectedModel}
+                  onChange={setSelectedModel}
+                />
+                <div className="flex-1" />
+                <button
+                  onClick={handleStart}
+                  disabled={!prompt.trim() || pendingStart}
+                  className="px-6 py-1.5 rounded-lg text-sm bg-[var(--accent)] hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed no-drag"
+                >
+                  {pendingStart ? 'Starting...' : 'Start Session'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+// Inline Model Picker 组件
+function ModelPicker({
+  value,
+  onChange,
+}: {
+  value: ModelId;
+  onChange: (m: ModelId) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const model = AVAILABLE_MODELS.find((m) => m.id === value);
+
+  return (
+    <div className="relative no-drag">
+      <button
+        onClick={() => setOpen(!open)}
+        className="px-3 py-2 rounded-lg text-sm bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border)] flex items-center gap-1.5 transition-colors"
+      >
+        <span className="text-[var(--text-secondary)]">{model?.displayName}</span>
+        <ChevronDownIcon />
+      </button>
+      {open && (
+        <>
+          {/* 点击外部关闭 */}
+          <div
+            className="fixed inset-0 z-10"
+            onClick={() => setOpen(false)}
+          />
+          <div className="absolute top-full mt-1 left-0 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-lg py-1 min-w-[180px] z-20">
+            {AVAILABLE_MODELS.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => {
+                  onChange(m.id);
+                  setOpen(false);
+                }}
+                className={`w-full px-3 py-2 text-left text-sm hover:bg-[var(--bg-tertiary)] transition-colors ${
+                  m.id === value ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'
+                }`}
+              >
+                {m.displayName}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// 下拉箭头图标
+function ChevronDownIcon() {
+  return (
+    <svg
+      className="w-3.5 h-3.5 text-[var(--text-muted)]"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+    </svg>
   );
 }
