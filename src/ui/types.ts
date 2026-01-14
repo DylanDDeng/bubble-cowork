@@ -31,7 +31,7 @@ export interface AppState {
   connected: boolean;
   sessions: Record<string, SessionView>;
   activeSessionId: string | null;
-  showStartModal: boolean;
+  showNewSession: boolean;
   globalError: string | null;
   pendingStart: boolean;
 }
@@ -41,7 +41,7 @@ export interface AppActions {
   setConnected: (connected: boolean) => void;
   handleServerEvent: (event: import('../shared/types').ServerEvent) => void;
   setActiveSession: (sessionId: string | null) => void;
-  setShowStartModal: (show: boolean) => void;
+  setShowNewSession: (show: boolean) => void;
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;
   removePermissionRequest: (sessionId: string, toolUseId: string) => void;

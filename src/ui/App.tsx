@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { useAppStore } from './store/useAppStore';
 import { useIPC, sendEvent } from './hooks/useIPC';
 import { Sidebar } from './components/Sidebar';
-import { StartSessionModal } from './components/StartSessionModal';
+import { NewSessionView } from './components/NewSessionView';
 import { PromptInput } from './components/PromptInput';
 import { MessageCard } from './components/MessageCard';
 import { MDContent } from './render/markdown';
@@ -16,6 +16,7 @@ export function App() {
     connected,
     sessions,
     activeSessionId,
+    showNewSession,
     globalError,
     clearGlobalError,
     removePermissionRequest,
@@ -146,64 +147,54 @@ export function App() {
       <Sidebar />
 
       {/* 主内容区 */}
-      <div className="flex-1 flex flex-col">
-        {/* 顶部拖拽区域 */}
-        <div className="h-8 drag-region flex-shrink-0" />
+      {activeSession && !showNewSession ? (
+        <div className="flex-1 flex flex-col">
+          {/* 顶部拖拽区域 */}
+          <div className="h-8 drag-region flex-shrink-0" />
 
-        {/* 消息区域 */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {activeSession ? (
-            <>
-              {/* 渲染消息 */}
-              {activeSession.messages.map((message, idx) => (
-                <MessageCard
-                  key={idx}
-                  message={message}
-                  toolStatusMap={toolStatusMap}
-                  permissionRequests={activeSession.permissionRequests}
-                  onPermissionResult={handlePermissionResult}
-                />
-              ))}
+          {/* 消息区域 */}
+          <div className="flex-1 overflow-y-auto p-4">
+            {/* 渲染消息 */}
+            {activeSession.messages.map((message, idx) => (
+              <MessageCard
+                key={idx}
+                message={message}
+                toolStatusMap={toolStatusMap}
+                permissionRequests={activeSession.permissionRequests}
+                onPermissionResult={handlePermissionResult}
+              />
+            ))}
 
-              {/* Partial streaming 显示 */}
-              {showPartialMessage && (
-                <div className="my-3">
-                  <div className="bg-[var(--bg-secondary)] rounded-lg p-4">
-                    {partialMessage ? (
-                      <MDContent content={partialMessage} />
-                    ) : (
-                      <div className="shimmer h-4 w-32 rounded" />
-                    )}
-                  </div>
+            {/* Partial streaming 显示 */}
+            {showPartialMessage && (
+              <div className="my-3">
+                <div className="bg-[var(--bg-secondary)] rounded-lg p-4">
+                  {partialMessage ? (
+                    <MDContent content={partialMessage} />
+                  ) : (
+                    <div className="shimmer h-4 w-32 rounded" />
+                  )}
                 </div>
-              )}
-
-              {/* 运行中指示器 */}
-              {activeSession.status === 'running' && !showPartialMessage && (
-                <div className="my-3 flex items-center gap-2 text-[var(--text-secondary)]">
-                  <div className="status-dot running" />
-                  <span className="text-sm">Processing...</span>
-                </div>
-              )}
-
-              <div ref={messagesEndRef} />
-            </>
-          ) : (
-            <div className="flex items-center justify-center h-full text-[var(--text-muted)]">
-              <div className="text-center">
-                <div className="text-4xl mb-4">Claude Cowork</div>
-                <div className="text-sm">Select a session or start a new one</div>
               </div>
-            </div>
-          )}
+            )}
+
+            {/* 运行中指示器 */}
+            {activeSession.status === 'running' && !showPartialMessage && (
+              <div className="my-3 flex items-center gap-2 text-[var(--text-secondary)]">
+                <div className="status-dot running" />
+                <span className="text-sm">Processing...</span>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* 输入区域 */}
+          <PromptInput />
         </div>
-
-        {/* 输入区域 */}
-        <PromptInput />
-      </div>
-
-      {/* 新建会话弹窗 */}
-      <StartSessionModal />
+      ) : (
+        <NewSessionView />
+      )}
 
       {/* 全局错误提示 */}
       {globalError && (

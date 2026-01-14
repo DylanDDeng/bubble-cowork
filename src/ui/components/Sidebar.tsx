@@ -6,7 +6,7 @@ import { sendEvent } from '../hooks/useIPC';
 import type { SessionView } from '../types';
 
 export function Sidebar() {
-  const { sessions, activeSessionId, setActiveSession, setShowStartModal } = useAppStore();
+  const { sessions, activeSessionId, setActiveSession, setShowNewSession } = useAppStore();
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionView | null>(null);
 
@@ -36,7 +36,10 @@ export function Sidebar() {
       <div className="px-4 pt-8 pb-4 border-b border-[var(--border)] flex items-center justify-between drag-region">
         <h1 className="font-semibold text-lg">Sessions</h1>
         <button
-          onClick={() => setShowStartModal(true)}
+          onClick={() => {
+            setActiveSession(null);
+            setShowNewSession(true);
+          }}
           className="w-8 h-8 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] flex items-center justify-center transition-colors no-drag"
         >
           <span className="text-xl leading-none">+</span>
@@ -53,7 +56,10 @@ export function Sidebar() {
                 ? 'bg-[var(--bg-tertiary)]'
                 : 'hover:bg-[var(--bg-tertiary)]'
             }`}
-            onClick={() => setActiveSession(session.id)}
+            onClick={() => {
+              setActiveSession(session.id);
+              setShowNewSession(false);
+            }}
           >
             <div className="flex items-center gap-2">
               <div className={`status-dot ${session.status}`} />

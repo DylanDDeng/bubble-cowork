@@ -3,7 +3,7 @@ import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 
 export function PromptInput() {
-  const { activeSessionId, sessions, setPendingStart, setShowStartModal } = useAppStore();
+  const { activeSessionId, sessions, setShowNewSession } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -32,8 +32,8 @@ export function PromptInput() {
       });
       setPrompt('');
     } else {
-      // 没有活动会话，打开新建弹窗
-      setShowStartModal(true);
+      // 没有活动会话，显示新建视图
+      setShowNewSession(true);
     }
   };
 

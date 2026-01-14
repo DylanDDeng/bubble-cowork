@@ -18,7 +18,7 @@ export const useAppStore = create<Store>((set, get) => ({
   connected: false,
   sessions: {},
   activeSessionId: null,
-  showStartModal: false,
+  showNewSession: false,
   globalError: null,
   pendingStart: false,
 
@@ -63,7 +63,7 @@ export const useAppStore = create<Store>((set, get) => ({
 
   setActiveSession: (sessionId) => set({ activeSessionId: sessionId }),
 
-  setShowStartModal: (show) => set({ showStartModal: show }),
+  setShowNewSession: (show) => set({ showNewSession: show }),
 
   clearGlobalError: () => set({ globalError: null }),
 
@@ -113,7 +113,7 @@ function handleSessionList(
   }
 
   // 如果没有会话，显示新建弹窗
-  const showStartModal = sessions.length === 0;
+  const showNewSession = sessions.length === 0;
 
   // 默认选中最新更新的会话
   let activeSessionId = get().activeSessionId;
@@ -123,7 +123,7 @@ function handleSessionList(
 
   set({
     sessions: sessionsMap,
-    showStartModal,
+    showNewSession,
     activeSessionId,
   });
 }
@@ -174,7 +174,7 @@ function handleSessionStatus(
         [sessionId]: newSession,
       },
       activeSessionId: sessionId,
-      showStartModal: false,
+      showNewSession: false,
       pendingStart: false,
     });
   }
@@ -229,7 +229,7 @@ function handleSessionDeleted(
   set({
     sessions: rest,
     activeSessionId: newActiveId,
-    showStartModal: Object.keys(rest).length === 0,
+    showNewSession: Object.keys(rest).length === 0,
   });
 }
 

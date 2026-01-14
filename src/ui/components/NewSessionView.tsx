@@ -1,20 +1,17 @@
 import { useState, useEffect } from 'react';
-import * as Dialog from '@radix-ui/react-dialog';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 
-export function StartSessionModal() {
-  const { showStartModal, setShowStartModal, pendingStart, setPendingStart } = useAppStore();
+export function NewSessionView() {
+  const { pendingStart, setPendingStart } = useAppStore();
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
 
   // 加载最近工作目录
   useEffect(() => {
-    if (showStartModal) {
-      window.electron.getRecentCwds(8).then(setRecentCwds);
-    }
-  }, [showStartModal]);
+    window.electron.getRecentCwds(8).then(setRecentCwds);
+  }, []);
 
   const handleBrowse = async () => {
     const selected = await window.electron.selectDirectory();
@@ -59,16 +56,17 @@ export function StartSessionModal() {
   };
 
   return (
-    <Dialog.Root open={showStartModal} onOpenChange={setShowStartModal}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg p-6 w-[560px] max-h-[90vh] overflow-y-auto shadow-xl">
-          <Dialog.Title className="text-xl font-semibold mb-4">
-            Start New Session
-          </Dialog.Title>
+    <div className="flex-1 flex flex-col">
+      {/* 顶部拖拽区域 */}
+      <div className="h-8 drag-region flex-shrink-0" />
+
+      {/* 内容区域 */}
+      <div className="flex-1 flex items-center justify-center p-8">
+        <div className="w-full max-w-xl">
+          <h1 className="text-2xl font-semibold mb-8 text-center">Start New Session</h1>
 
           {/* 工作目录 */}
-          <div className="mb-4">
+          <div className="mb-6">
             <label className="block text-sm text-[var(--text-secondary)] mb-2">
               Working Directory
             </label>
@@ -78,11 +76,11 @@ export function StartSessionModal() {
                 value={cwd}
                 onChange={(e) => setCwd(e.target.value)}
                 placeholder="/path/to/project (optional)"
-                className="flex-1 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+                className="flex-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm outline-none focus:border-[var(--accent)] no-drag"
               />
               <button
                 onClick={handleBrowse}
-                className="px-4 py-2 rounded-lg text-sm bg-[var(--bg-tertiary)] border border-[var(--border)] hover:bg-[var(--border)] transition-colors"
+                className="px-4 py-3 rounded-lg text-sm bg-[var(--bg-secondary)] border border-[var(--border)] hover:bg-[var(--bg-tertiary)] transition-colors no-drag"
               >
                 Browse...
               </button>
@@ -90,14 +88,14 @@ export function StartSessionModal() {
 
             {/* 最近目录 */}
             {recentCwds.length > 0 && (
-              <div className="mt-2">
-                <div className="text-xs text-[var(--text-muted)] mb-1">Recent:</div>
-                <div className="flex flex-wrap gap-1">
+              <div className="mt-3">
+                <div className="text-xs text-[var(--text-muted)] mb-2">Recent:</div>
+                <div className="flex flex-wrap gap-2">
                   {recentCwds.map((dir) => (
                     <button
                       key={dir}
                       onClick={() => setCwd(dir)}
-                      className="text-xs px-2 py-1 rounded bg-[var(--bg-tertiary)] hover:bg-[var(--border)] transition-colors truncate max-w-[200px]"
+                      className="text-xs px-3 py-1.5 rounded-lg bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors truncate max-w-[200px] no-drag"
                       title={dir}
                     >
                       {dir.split('/').pop() || dir}
@@ -118,30 +116,24 @@ export function StartSessionModal() {
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Describe your task..."
-              rows={4}
-              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm outline-none focus:border-[var(--accent)] resize-none"
+              rows={5}
+              className="w-full bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm outline-none focus:border-[var(--accent)] resize-none no-drag"
               autoFocus
             />
           </div>
 
           {/* 按钮 */}
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={() => setShowStartModal(false)}
-              className="px-4 py-2 rounded-lg text-sm hover:bg-[var(--bg-tertiary)] transition-colors"
-            >
-              Cancel
-            </button>
+          <div className="flex justify-center">
             <button
               onClick={handleStart}
               disabled={!prompt.trim() || pendingStart}
-              className="px-4 py-2 rounded-lg text-sm bg-[var(--accent)] hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-8 py-3 rounded-lg text-sm bg-[var(--accent)] hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed no-drag"
             >
               {pendingStart ? 'Starting...' : 'Start Session'}
             </button>
           </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+        </div>
+      </div>
+    </div>
   );
 }
