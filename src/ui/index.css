@@ -27,6 +27,7 @@ body,
   height: 100%;
   margin: 0;
   padding: 0;
+  overflow-x: hidden; /* 禁止页面级水平滚动，防止 macOS 双指滑动移动界面 */
 }
 
 body {
