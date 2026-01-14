@@ -33,7 +33,7 @@ export function Sidebar() {
   return (
     <div className="w-64 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col h-full">
       {/* Header */}
-      <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
+      <div className="px-4 pt-8 pb-4 border-b border-[var(--border)] flex items-center justify-between">
         <h1 className="font-semibold text-lg">Sessions</h1>
         <button
           onClick={() => setShowStartModal(true)}
