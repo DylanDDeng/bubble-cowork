@@ -1,0 +1,28 @@
+{
+  "appId": "com.claude.cowork",
+  "productName": "Claude Cowork",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist-electron/**/*",
+    "dist-react/**/*"
+  ],
+  "extraResources": [
+    {
+      "from": "dist-electron/preload.cjs",
+      "to": "preload.cjs"
+    }
+  ],
+  "mac": {
+    "target": ["dmg"],
+    "category": "public.app-category.developer-tools"
+  },
+  "win": {
+    "target": ["portable", "nsis"]
+  },
+  "linux": {
+    "target": ["AppImage"],
+    "category": "Development"
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "name": "claude-cowork",
+  "version": "0.0.1",
+  "description": "Claude Code Desktop Application",
+  "main": "dist-electron/electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",
+    "dev:react": "PORT=10087 vite",
+    "dev:electron": "npm run transpile:electron && electron .",
+    "transpile:electron": "tsc -p src/electron/tsconfig.json",
+    "build": "npm run transpile:electron && vite build",
+    "build:electron": "electron-builder",
+    "dist": "npm run build && npm run build:electron"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.6",
+    "@radix-ui/react-dialog": "^1.1.4",
+    "@radix-ui/react-dropdown-menu": "^2.1.4",
+    "better-sqlite3": "^11.7.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^9.0.3",
+    "rehype-highlight": "^7.0.2",
+    "rehype-raw": "^7.0.0",
+    "remark-gfm": "^4.0.0",
+    "uuid": "^11.0.5",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.7",
+    "@types/react": "^19.0.7",
+    "@types/react-dom": "^19.0.3",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "electron": "^34.0.1",
+    "electron-builder": "^25.1.8",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7",
+    "vite-tsconfig-paths": "^5.1.4"
+  }
+}
