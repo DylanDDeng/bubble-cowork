@@ -1,12 +1,11 @@
 import { useMemo } from 'react';
 import { MDContent } from '../render/markdown';
 import {
-  ToolUseCard,
-  ToolResultCard,
   SystemInfoCard,
   SessionResultCard,
 } from './EventCard';
 import { DecisionPanel, getAskUserQuestionSignature } from './DecisionPanel';
+import { ToolGroup } from './ToolGroup';
 import type {
   StreamMessage,
   ContentBlock,
@@ -16,9 +15,46 @@ import type {
   PermissionResult,
 } from '../types';
 
+// 工具使用块类型
+type ToolUseBlock = ContentBlock & { type: 'tool_use' };
+// 工具结果块类型
+type ToolResultBlock = ContentBlock & { type: 'tool_result' };
+
+// 内容分组类型
+type ContentGroup =
+  | { type: 'tool_group'; blocks: ToolUseBlock[] }
+  | { type: 'single'; block: ContentBlock };
+
+// 将内容块分组：连续的 tool_use 合并为一组
+function groupContentBlocks(content: ContentBlock[]): ContentGroup[] {
+  const groups: ContentGroup[] = [];
+  let currentToolGroup: ToolUseBlock[] = [];
+
+  for (const block of content) {
+    if (block.type === 'tool_use') {
+      currentToolGroup.push(block as ToolUseBlock);
+    } else {
+      // 遇到非 tool_use，先保存当前工具组
+      if (currentToolGroup.length > 0) {
+        groups.push({ type: 'tool_group', blocks: currentToolGroup });
+        currentToolGroup = [];
+      }
+      groups.push({ type: 'single', block });
+    }
+  }
+
+  // 处理末尾的工具组
+  if (currentToolGroup.length > 0) {
+    groups.push({ type: 'tool_group', blocks: currentToolGroup });
+  }
+
+  return groups;
+}
+
 interface MessageCardProps {
   message: StreamMessage;
   toolStatusMap: Map<string, ToolStatus>;
+  toolResultsMap: Map<string, ToolResultBlock>;
   permissionRequests: PermissionRequestPayload[];
   onPermissionResult: (toolUseId: string, result: PermissionResult) => void;
 }
@@ -26,6 +62,7 @@ interface MessageCardProps {
 export function MessageCard({
   message,
   toolStatusMap,
+  toolResultsMap,
   permissionRequests,
   onPermissionResult,
 }: MessageCardProps) {
@@ -44,13 +81,15 @@ export function MessageCard({
         <AssistantCard
           content={message.message.content}
           toolStatusMap={toolStatusMap}
+          toolResultsMap={toolResultsMap}
           permissionRequests={permissionRequests}
           onPermissionResult={onPermissionResult}
         />
       );
 
     case 'user':
-      return <UserMessageCard content={message.message.content} />;
+      // user 消息中的 tool_result 已经在 ToolGroup 中显示，这里不再单独渲染
+      return null;
 
     case 'result':
       return <SessionResultCard message={message} />;
@@ -79,49 +118,73 @@ function UserPromptCard({ prompt }: { prompt: string }) {
 function AssistantCard({
   content,
   toolStatusMap,
+  toolResultsMap,
   permissionRequests,
   onPermissionResult,
 }: {
   content: ContentBlock[];
   toolStatusMap: Map<string, ToolStatus>;
+  toolResultsMap: Map<string, ToolResultBlock>;
   permissionRequests: PermissionRequestPayload[];
   onPermissionResult: (toolUseId: string, result: PermissionResult) => void;
 }) {
+  // 将内容分组：连续的 tool_use 合并为一组
+  const groups = useMemo(() => groupContentBlocks(content), [content]);
+
   return (
     <div className="my-3 min-w-0">
-      {content.map((block, idx) => (
-        <ContentBlockCard
-          key={idx}
-          block={block}
-          toolStatusMap={toolStatusMap}
-          permissionRequests={permissionRequests}
-          onPermissionResult={onPermissionResult}
-        />
-      ))}
-    </div>
-  );
-}
+      {groups.map((group, idx) => {
+        if (group.type === 'tool_group') {
+          // 检查是否有 AskUserQuestion 需要特殊处理
+          const askUserBlock = group.blocks.find(
+            (b) => b.name === 'AskUserQuestion'
+          );
+          const matchingRequest = askUserBlock
+            ? permissionRequests.find((req) => {
+                const input = askUserBlock.input as unknown as AskUserQuestionInput;
+                const reqSignature = getAskUserQuestionSignature(req.input);
+                const blockSignature = getAskUserQuestionSignature(input);
+                return reqSignature === blockSignature;
+              })
+            : null;
 
-// 用户消息卡片（包含 tool_result）
-function UserMessageCard({ content }: { content: ContentBlock[] }) {
-  return (
-    <div className="my-3">
-      {content.map((block, idx) => {
-        if (block.type === 'tool_result') {
-          return <ToolResultCard key={idx} block={block} />;
+          return (
+            <div key={idx}>
+              <ToolGroup
+                toolUseBlocks={group.blocks}
+                toolResults={toolResultsMap}
+                toolStatusMap={toolStatusMap}
+              />
+              {matchingRequest && (
+                <DecisionPanel
+                  input={matchingRequest.input}
+                  onSubmit={(result) =>
+                    onPermissionResult(matchingRequest.toolUseId, result)
+                  }
+                />
+              )}
+            </div>
+          );
         }
-        return null;
+        // text, thinking 块单独渲染
+        return (
+          <ContentBlockCard
+            key={idx}
+            block={group.block}
+            toolStatusMap={toolStatusMap}
+            permissionRequests={permissionRequests}
+            onPermissionResult={onPermissionResult}
+          />
+        );
       })}
     </div>
   );
 }
 
-// 内容块卡片
+
+// 内容块卡片（仅处理 text 和 thinking，tool_use 由 ToolGroup 处理）
 function ContentBlockCard({
   block,
-  toolStatusMap,
-  permissionRequests,
-  onPermissionResult,
 }: {
   block: ContentBlock;
   toolStatusMap: Map<string, ToolStatus>;
@@ -145,35 +208,6 @@ function ContentBlockCard({
           </div>
         </div>
       );
-
-    case 'tool_use':
-      const status = toolStatusMap.get(block.id) || 'pending';
-
-      // 检查是否为 AskUserQuestion 且有对应的 permission.request
-      if (block.name === 'AskUserQuestion') {
-        const input = block.input as unknown as AskUserQuestionInput;
-        const signature = getAskUserQuestionSignature(input);
-
-        // 查找匹配的 permission request
-        const matchingRequest = permissionRequests.find((req) => {
-          const reqSignature = getAskUserQuestionSignature(req.input);
-          return reqSignature === signature;
-        });
-
-        if (matchingRequest) {
-          return (
-            <>
-              <ToolUseCard block={block} status={status} />
-              <DecisionPanel
-                input={matchingRequest.input}
-                onSubmit={(result) => onPermissionResult(matchingRequest.toolUseId, result)}
-              />
-            </>
-          );
-        }
-      }
-
-      return <ToolUseCard block={block} status={status} />;
 
     default:
       return null;

@@ -6,7 +6,10 @@ import { NewSessionView } from './components/NewSessionView';
 import { PromptInput } from './components/PromptInput';
 import { MessageCard } from './components/MessageCard';
 import { MDContent } from './render/markdown';
-import type { ToolStatus, PermissionResult, StreamMessage } from './types';
+import type { ToolStatus, PermissionResult, StreamMessage, ContentBlock } from './types';
+
+// 工具结果块类型
+type ToolResultBlock = ContentBlock & { type: 'tool_result' };
 
 export function App() {
   // 初始化 IPC 通信
@@ -33,29 +36,31 @@ export function App() {
   // 消息列表引用（用于滚动）
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // 工具状态映射
-  const toolStatusMap = useMemo(() => {
-    const map = new Map<string, ToolStatus>();
+  // 工具状态映射和结果映射
+  const { toolStatusMap, toolResultsMap } = useMemo(() => {
+    const statusMap = new Map<string, ToolStatus>();
+    const resultsMap = new Map<string, ToolResultBlock>();
     const session = activeSessionId ? sessions[activeSessionId] : null;
-    if (!session) return map;
+    if (!session) return { toolStatusMap: statusMap, toolResultsMap: resultsMap };
 
     for (const msg of session.messages) {
       if (msg.type === 'assistant') {
         for (const block of msg.message.content) {
           if (block.type === 'tool_use') {
-            map.set(block.id, 'pending');
+            statusMap.set(block.id, 'pending');
           }
         }
       } else if (msg.type === 'user') {
         for (const block of msg.message.content) {
           if (block.type === 'tool_result') {
-            map.set(block.tool_use_id, block.is_error ? 'error' : 'success');
+            statusMap.set(block.tool_use_id, block.is_error ? 'error' : 'success');
+            resultsMap.set(block.tool_use_id, block as ToolResultBlock);
           }
         }
       }
     }
 
-    return map;
+    return { toolStatusMap: statusMap, toolResultsMap: resultsMap };
   }, [activeSessionId, sessions]);
 
   // 连接后请求会话列表
@@ -154,39 +159,43 @@ export function App() {
 
           {/* 消息区域 */}
           <div className="flex-1 overflow-auto p-4">
-            {/* 渲染消息 */}
-            {activeSession.messages.map((message, idx) => (
-              <MessageCard
-                key={idx}
-                message={message}
-                toolStatusMap={toolStatusMap}
-                permissionRequests={activeSession.permissionRequests}
-                onPermissionResult={handlePermissionResult}
-              />
-            ))}
+            {/* 居中容器 */}
+            <div className="max-w-4xl mx-auto">
+              {/* 渲染消息 */}
+              {activeSession.messages.map((message, idx) => (
+                <MessageCard
+                  key={idx}
+                  message={message}
+                  toolStatusMap={toolStatusMap}
+                  toolResultsMap={toolResultsMap}
+                  permissionRequests={activeSession.permissionRequests}
+                  onPermissionResult={handlePermissionResult}
+                />
+              ))}
 
-            {/* Partial streaming 显示 */}
-            {showPartialMessage && (
-              <div className="my-3">
-                <div className="bg-[var(--bg-secondary)] rounded-lg p-4">
-                  {partialMessage ? (
-                    <MDContent content={partialMessage} />
-                  ) : (
-                    <div className="shimmer h-4 w-32 rounded" />
-                  )}
+              {/* Partial streaming 显示 */}
+              {showPartialMessage && (
+                <div className="my-3">
+                  <div className="bg-[var(--bg-secondary)] rounded-lg p-4">
+                    {partialMessage ? (
+                      <MDContent content={partialMessage} />
+                    ) : (
+                      <div className="shimmer h-4 w-32 rounded" />
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* 运行中指示器 */}
-            {activeSession.status === 'running' && !showPartialMessage && (
-              <div className="my-3 flex items-center gap-2 text-[var(--text-secondary)]">
-                <div className="status-dot running" />
-                <span className="text-sm">Processing...</span>
-              </div>
-            )}
+              {/* 运行中指示器 */}
+              {activeSession.status === 'running' && !showPartialMessage && (
+                <div className="my-3 flex items-center gap-2 text-[var(--text-secondary)]">
+                  <div className="status-dot running" />
+                  <span className="text-sm">Processing...</span>
+                </div>
+              )}
 
-            <div ref={messagesEndRef} />
+              <div ref={messagesEndRef} />
+            </div>
           </div>
 
           {/* 输入区域 */}

@@ -146,8 +146,8 @@ export function SessionResultCard({ message }: SessionResultCardProps) {
   );
 }
 
-// 获取工具调用摘要
-function getToolSummary(name: string, input: Record<string, unknown>): string {
+// 获取工具调用摘要（导出供 ToolGroup 使用）
+export function getToolSummary(name: string, input: Record<string, unknown>): string {
   switch (name) {
     case 'Bash':
       return (input.command as string) || '';
