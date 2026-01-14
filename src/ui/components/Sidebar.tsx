@@ -33,11 +33,11 @@ export function Sidebar() {
   return (
     <div className="w-64 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col h-full">
       {/* Header */}
-      <div className="px-4 pt-8 pb-4 border-b border-[var(--border)] flex items-center justify-between">
+      <div className="px-4 pt-8 pb-4 border-b border-[var(--border)] flex items-center justify-between drag-region">
         <h1 className="font-semibold text-lg">Sessions</h1>
         <button
           onClick={() => setShowStartModal(true)}
-          className="w-8 h-8 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] flex items-center justify-center transition-colors"
+          className="w-8 h-8 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] flex items-center justify-center transition-colors no-drag"
         >
           <span className="text-xl leading-none">+</span>
         </button>

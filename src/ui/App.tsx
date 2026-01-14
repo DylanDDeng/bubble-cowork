@@ -147,6 +147,9 @@ export function App() {
 
       {/* 主内容区 */}
       <div className="flex-1 flex flex-col">
+        {/* 顶部拖拽区域 */}
+        <div className="h-8 drag-region flex-shrink-0" />
+
         {/* 消息区域 */}
         <div className="flex-1 overflow-y-auto p-4">
           {activeSession ? (
