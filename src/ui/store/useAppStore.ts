@@ -122,6 +122,7 @@ function handleSessionList(
       messages: existing?.messages || [],
       hydrated: existing?.hydrated || false,
       permissionRequests: existing?.permissionRequests || [],
+      updatedAt: session.updatedAt,
     };
   }
 
@@ -166,6 +167,7 @@ function handleSessionStatus(
           status,
           title: title || session.title,
           cwd: cwd || session.cwd,
+          updatedAt: Date.now(),
         },
       },
     });
@@ -179,6 +181,7 @@ function handleSessionStatus(
       messages: [],
       hydrated: true, // 新会话不需要 hydration
       permissionRequests: [],
+      updatedAt: Date.now(),
     };
 
     set({

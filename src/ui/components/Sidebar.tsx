@@ -10,8 +10,8 @@ export function Sidebar() {
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionView | null>(null);
 
-  // 后端已按 updated_at DESC 排序，直接使用
-  const sessionList = Object.values(sessions);
+  // 按 updatedAt 降序排序（最新的在最上面）
+  const sessionList = Object.values(sessions).sort((a, b) => b.updatedAt - a.updatedAt);
 
   const handleDelete = (sessionId: string) => {
     sendEvent({ type: 'session.delete', payload: { sessionId } });

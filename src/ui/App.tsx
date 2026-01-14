@@ -5,11 +5,71 @@ import { Sidebar } from './components/Sidebar';
 import { NewSessionView } from './components/NewSessionView';
 import { PromptInput } from './components/PromptInput';
 import { MessageCard } from './components/MessageCard';
+import { ToolExecutionBatch } from './components/ToolExecutionBatch';
 import { MDContent } from './render/markdown';
 import type { ToolStatus, PermissionResult, StreamMessage, ContentBlock } from './types';
 
 // 工具结果块类型
 type ToolResultBlock = ContentBlock & { type: 'tool_result' };
+
+// 聚合项类型
+type AggregatedItem =
+  | { type: 'message'; message: StreamMessage }
+  | { type: 'tool_batch'; messages: (StreamMessage & { type: 'assistant' })[] };
+
+// 判断消息是否包含工具调用（可以有文本内容）
+function hasToolUse(msg: StreamMessage): msg is StreamMessage & { type: 'assistant' } {
+  if (msg.type !== 'assistant') return false;
+  const content = msg.message.content;
+  // 只要包含 tool_use 就算（允许混合 text + tool_use）
+  return content.some((block) => block.type === 'tool_use');
+}
+
+// 判断是否为 tool_result-only 的 user 消息（这类消息不应该打断聚合）
+function isToolResultOnlyMessage(msg: StreamMessage): boolean {
+  if (msg.type !== 'user') return false;
+  const content = msg.message.content;
+  return content.length > 0 && content.every((block) => block.type === 'tool_result');
+}
+
+// 聚合连续的工具执行消息
+function aggregateMessages(messages: StreamMessage[]): AggregatedItem[] {
+  const items: AggregatedItem[] = [];
+  let currentBatch: StreamMessage[] = [];
+
+  for (const msg of messages) {
+    if (hasToolUse(msg) || isToolResultOnlyMessage(msg)) {
+      // 包含 tool_use 的 assistant 或 tool_result-only 的 user，加入批次
+      currentBatch.push(msg);
+    } else {
+      // 遇到非工具消息，先结束当前批次
+      const assistantMsgs = currentBatch.filter(
+        (m): m is StreamMessage & { type: 'assistant' } => m.type === 'assistant'
+      );
+      if (assistantMsgs.length >= 3) {
+        // 3个以上才聚合
+        items.push({ type: 'tool_batch', messages: assistantMsgs });
+      } else {
+        // 批次太小，单独显示
+        currentBatch.forEach((m) => items.push({ type: 'message', message: m }));
+      }
+      currentBatch = [];
+      items.push({ type: 'message', message: msg });
+    }
+  }
+
+  // 处理末尾的批次
+  const assistantMsgs = currentBatch.filter(
+    (m): m is StreamMessage & { type: 'assistant' } => m.type === 'assistant'
+  );
+  if (assistantMsgs.length >= 3) {
+    items.push({ type: 'tool_batch', messages: assistantMsgs });
+  } else {
+    currentBatch.forEach((m) => items.push({ type: 'message', message: m }));
+  }
+
+  return items;
+}
 
 export function App() {
   // 初始化 IPC 通信
@@ -161,17 +221,29 @@ export function App() {
           <div className="flex-1 overflow-auto p-4">
             {/* 居中容器 */}
             <div className="max-w-4xl mx-auto">
-              {/* 渲染消息 */}
-              {activeSession.messages.map((message, idx) => (
-                <MessageCard
-                  key={idx}
-                  message={message}
-                  toolStatusMap={toolStatusMap}
-                  toolResultsMap={toolResultsMap}
-                  permissionRequests={activeSession.permissionRequests}
-                  onPermissionResult={handlePermissionResult}
-                />
-              ))}
+              {/* 渲染消息（聚合连续的工具执行） */}
+              {aggregateMessages(activeSession.messages).map((item, idx) => {
+                if (item.type === 'tool_batch') {
+                  return (
+                    <ToolExecutionBatch
+                      key={`batch-${idx}`}
+                      messages={item.messages}
+                      toolStatusMap={toolStatusMap}
+                      toolResultsMap={toolResultsMap}
+                    />
+                  );
+                }
+                return (
+                  <MessageCard
+                    key={idx}
+                    message={item.message}
+                    toolStatusMap={toolStatusMap}
+                    toolResultsMap={toolResultsMap}
+                    permissionRequests={activeSession.permissionRequests}
+                    onPermissionResult={handlePermissionResult}
+                  />
+                );
+              })}
 
               {/* Partial streaming 显示 */}
               {showPartialMessage && (

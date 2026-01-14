@@ -1,19 +1,19 @@
 @import 'tailwindcss';
 
-/* 自定义主题变量 */
+/* 自定义主题变量 - 浅色主题 */
 :root {
-  --bg-primary: #1a1a1a;
-  --bg-secondary: #242424;
-  --bg-tertiary: #2d2d2d;
-  --text-primary: #ffffff;
-  --text-secondary: #a0a0a0;
-  --text-muted: #666666;
-  --accent: #7c3aed;
-  --accent-hover: #6d28d9;
+  --bg-primary: #F9F8F7;      /* 主背景：奶油白 */
+  --bg-secondary: #FFFFFF;     /* 次背景：纯白 */
+  --bg-tertiary: #F0EFEE;      /* 第三背景：浅灰 */
+  --text-primary: #1a1a1a;     /* 主文本：深色 */
+  --text-secondary: #666666;   /* 次文本：灰色 */
+  --text-muted: #999999;       /* 弱化文本 */
+  --accent: #CD6F4F;           /* 强调色：陶土色 */
+  --accent-hover: #B85A3C;     /* 强调色悬停：深一点 */
   --success: #22c55e;
   --error: #ef4444;
   --warning: #f59e0b;
-  --border: #333333;
+  --border: #E5E4E3;           /* 边框：浅灰 */
 }
 
 /* 基础样式 */

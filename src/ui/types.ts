@@ -28,6 +28,7 @@ export interface SessionView {
   messages: import('../shared/types').StreamMessage[];
   hydrated: boolean;
   permissionRequests: import('../shared/types').PermissionRequestPayload[];
+  updatedAt: number;
 }
 
 // Store 状态

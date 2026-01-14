@@ -12,6 +12,7 @@ interface ToolGroupProps {
   toolResults: Map<string, ToolResultBlock>;
   toolStatusMap: Map<string, ToolStatus>;
   defaultExpanded?: boolean;
+  hideTodoWrite?: boolean; // 是否隐藏 TodoWrite 工具
 }
 
 // 获取工具组摘要（基于第一个工具或 Task 工具的描述）
@@ -55,18 +56,38 @@ export function ToolGroup({
   toolResults,
   toolStatusMap,
   defaultExpanded = false,
+  hideTodoWrite = true,
 }: ToolGroupProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
+  // 过滤 TodoWrite 工具（如果启用）
+  const visibleBlocks = useMemo(
+    () => hideTodoWrite ? toolUseBlocks.filter((b) => b.name !== 'TodoWrite') : toolUseBlocks,
+    [toolUseBlocks, hideTodoWrite]
+  );
+  const todoWriteCount = toolUseBlocks.length - visibleBlocks.length;
+
   const summary = useMemo(
-    () => getGroupSummary(toolUseBlocks),
+    () => getGroupSummary(toolUseBlocks), // 用原始块获取摘要
     [toolUseBlocks]
   );
   const groupStatus = useMemo(
-    () => getGroupStatus(toolUseBlocks, toolStatusMap),
+    () => getGroupStatus(toolUseBlocks, toolStatusMap), // 状态计算用全部
     [toolUseBlocks, toolStatusMap]
   );
-  const toolCount = toolUseBlocks.length;
+  const toolCount = visibleBlocks.length;
+
+  // 如果没有可见工具（全是 TodoWrite），显示简化版本
+  if (toolCount === 0 && todoWriteCount > 0) {
+    return (
+      <div className="my-2 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)]/50 px-3 py-2">
+        <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
+          <div className={`status-dot ${groupStatus === 'pending' ? 'running' : groupStatus === 'success' ? 'completed' : 'error'}`} />
+          <span>Updated todo list ({todoWriteCount} times)</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="my-2 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)]/50 overflow-hidden">
@@ -82,22 +103,33 @@ export function ToolGroup({
           {summary || 'Tool execution'}
         </span>
         <span className="text-xs text-[var(--text-muted)]">
-          Used {toolCount} tool{toolCount > 1 ? 's' : ''}
+          {toolCount > 0 ? `Used ${toolCount} tool${toolCount > 1 ? 's' : ''}` : ''}
+          {todoWriteCount > 0 && toolCount > 0 && ' • '}
+          {todoWriteCount > 0 && <span className="opacity-60">+{todoWriteCount} todo</span>}
         </span>
       </button>
 
       {/* 展开内容 - Tree 风格 */}
       {expanded && (
         <div className="px-3 pb-2">
-          {toolUseBlocks.map((block, idx) => (
+          {visibleBlocks.map((block, idx) => (
             <ToolInvocation
               key={block.id}
               block={block}
               result={toolResults.get(block.id)}
               status={toolStatusMap.get(block.id) || 'pending'}
-              isLast={idx === toolUseBlocks.length - 1}
+              isLast={idx === visibleBlocks.length - 1 && todoWriteCount === 0}
             />
           ))}
+          {/* TodoWrite 汇总 */}
+          {todoWriteCount > 0 && (
+            <div className="tree-item tree-item-last">
+              <div className="flex items-center gap-2 py-1 text-xs text-[var(--text-muted)]">
+                <div className="status-dot-sm completed" />
+                <span>Updated todo list ({todoWriteCount} times)</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
