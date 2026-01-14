@@ -48,6 +48,7 @@ export interface SessionStartPayload {
 export interface SessionContinuePayload {
   sessionId: string;
   prompt: string;
+  model?: ModelId;  // per-message 模型覆盖
 }
 
 export interface SessionInfo {

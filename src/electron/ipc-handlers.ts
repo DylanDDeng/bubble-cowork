@@ -182,7 +182,7 @@ async function handleSessionContinue(
   mainWindow: BrowserWindow,
   payload: SessionContinuePayload
 ): Promise<void> {
-  const { sessionId, prompt } = payload;
+  const { sessionId, prompt, model } = payload;
 
   const session = sessions.getSession(sessionId);
   if (!session) {
@@ -221,7 +221,7 @@ async function handleSessionContinue(
   sessions.addMessage(sessionId, { type: 'user_prompt', prompt });
 
   // 启动 Runner（带 resume）
-  startRunner(mainWindow, session, prompt, session.claude_session_id);
+  startRunner(mainWindow, session, prompt, session.claude_session_id, model);
 }
 
 // 启动 Runner

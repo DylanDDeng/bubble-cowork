@@ -1,15 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import { AVAILABLE_MODELS } from '../types';
-import type { ModelId } from '../types';
 
 export function NewSessionView() {
-  const { pendingStart, setPendingStart, selectedModel, setSelectedModel } = useAppStore();
+  const { pendingStart, setPendingStart, selectedModel } = useAppStore();
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
-  const [model, setModel] = useState<ModelId>(selectedModel);
 
   // 加载最近工作目录
   useEffect(() => {
@@ -21,11 +18,6 @@ export function NewSessionView() {
     if (selected) {
       setCwd(selected);
     }
-  };
-
-  const handleModelChange = (newModel: ModelId) => {
-    setModel(newModel);
-    setSelectedModel(newModel);
   };
 
   const handleStart = async () => {
@@ -44,7 +36,7 @@ export function NewSessionView() {
           title,
           prompt: prompt.trim(),
           cwd: cwd || undefined,
-          model,
+          model: selectedModel,
         },
       });
 
@@ -73,28 +65,6 @@ export function NewSessionView() {
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-xl">
           <h1 className="text-2xl font-semibold mb-8 text-center">Start New Session</h1>
-
-          {/* 模型选择 */}
-          <div className="mb-6">
-            <label className="block text-sm text-[var(--text-secondary)] mb-2">
-              Model
-            </label>
-            <div className="flex gap-2">
-              {AVAILABLE_MODELS.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => handleModelChange(m.id)}
-                  className={`flex-1 px-4 py-3 rounded-lg text-sm border transition-colors no-drag ${
-                    model === m.id
-                      ? 'bg-[var(--accent)] border-[var(--accent)]'
-                      : 'bg-[var(--bg-secondary)] border-[var(--border)] hover:bg-[var(--bg-tertiary)]'
-                  }`}
-                >
-                  {m.displayName}
-                </button>
-              ))}
-            </div>
-          </div>
 
           {/* 工作目录 */}
           <div className="mb-6">
