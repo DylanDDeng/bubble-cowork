@@ -15,13 +15,6 @@ export function NewSessionView() {
     window.electron.getRecentCwds(8).then(setRecentCwds);
   }, []);
 
-  const handleBrowse = async () => {
-    const selected = await window.electron.selectDirectory();
-    if (selected) {
-      setCwd(selected);
-    }
-  };
-
   const handleStart = () => {
     if (!prompt.trim()) return;
 
@@ -60,89 +53,166 @@ export function NewSessionView() {
 
       {/* 内容区域 */}
       <div className="flex-1 flex items-center justify-center p-8">
-        <div className="w-full max-w-xl">
-          <h1 className="text-2xl font-semibold mb-8 text-center">Start New Session</h1>
+        <div className="w-full max-w-2xl">
+          {/* 标题 */}
+          <h1 className="text-xl font-medium mb-6 text-center text-[var(--text-secondary)]">
+            What can I help you with?
+          </h1>
 
-          {/* 工作目录 */}
-          <div className="mb-6">
-            <label className="block text-sm text-[var(--text-secondary)] mb-2">
-              Working Directory
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
+          {/* Composer */}
+          <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl focus-within:border-[var(--accent)] shadow-sm transition-colors">
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Describe your task..."
+              rows={4}
+              className="w-full bg-transparent px-4 py-3 text-sm outline-none resize-none no-drag"
+              autoFocus
+            />
+
+            {/* 底部工具栏 */}
+            <div className="flex items-center gap-2 px-3 py-2 border-t border-[var(--border)]">
+              <CwdPicker
                 value={cwd}
-                onChange={(e) => setCwd(e.target.value)}
-                placeholder="/path/to/project (optional)"
-                className="flex-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg px-4 py-3 text-sm outline-none focus:border-[var(--accent)] no-drag"
+                onChange={setCwd}
+                recentCwds={recentCwds}
               />
+              <ModelPicker
+                value={selectedModel}
+                onChange={setSelectedModel}
+              />
+              <div className="flex-1" />
               <button
-                onClick={handleBrowse}
-                className="px-4 py-3 rounded-lg text-sm bg-[var(--bg-secondary)] border border-[var(--border)] hover:bg-[var(--bg-tertiary)] transition-colors no-drag"
+                onClick={handleStart}
+                disabled={!prompt.trim() || pendingStart}
+                className="px-5 py-1.5 rounded-lg text-sm bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed no-drag"
               >
-                Browse...
+                {pendingStart ? 'Starting...' : 'Send'}
               </button>
             </div>
-
-            {/* 最近目录 */}
-            {recentCwds.length > 0 && (
-              <div className="mt-3">
-                <div className="text-xs text-[var(--text-muted)] mb-2">Recent:</div>
-                <div className="flex flex-wrap gap-2">
-                  {recentCwds.map((dir) => (
-                    <button
-                      key={dir}
-                      onClick={() => setCwd(dir)}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors truncate max-w-[200px] no-drag"
-                      title={dir}
-                    >
-                      {dir.split('/').pop() || dir}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
 
-          {/* Composer - Prompt 输入 + 工具栏 */}
-          <div className="mb-6">
-            <label className="block text-sm text-[var(--text-secondary)] mb-2">
-              What would you like to do?
-            </label>
-            <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg focus-within:border-[var(--accent)] transition-colors">
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Describe your task..."
-                rows={5}
-                className="w-full bg-transparent px-4 py-3 text-sm outline-none resize-none no-drag"
-                autoFocus
-              />
-              {/* 底部工具栏 */}
-              <div className="flex items-center gap-3 px-3 py-2 border-t border-[var(--border)]">
-                <ModelPicker
-                  value={selectedModel}
-                  onChange={setSelectedModel}
-                />
-                <div className="flex-1" />
+          {/* Recent Projects */}
+          {recentCwds.length > 0 && (
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              {recentCwds.slice(0, 6).map((dir) => (
                 <button
-                  onClick={handleStart}
-                  disabled={!prompt.trim() || pendingStart}
-                  className="px-6 py-1.5 rounded-lg text-sm bg-[var(--accent)] hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed no-drag"
+                  key={dir}
+                  onClick={() => setCwd(dir)}
+                  className={`text-xs px-3 py-1.5 rounded-full transition-colors no-drag ${
+                    cwd === dir
+                      ? 'bg-[var(--accent-light)] text-[var(--accent)]'
+                      : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--border)]'
+                  }`}
+                  title={dir}
                 >
-                  {pendingStart ? 'Starting...' : 'Start Session'}
+                  {dir.split('/').pop() || dir}
                 </button>
-              </div>
+              ))}
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// Inline Model Picker 组件
+// CWD Picker 组件
+function CwdPicker({
+  value,
+  onChange,
+  recentCwds,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  recentCwds: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const displayName = value ? value.split('/').pop() : 'No folder';
+
+  const handleBrowse = async () => {
+    const selected = await window.electron.selectDirectory();
+    if (selected) {
+      onChange(selected);
+    }
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative no-drag">
+      <button
+        onClick={() => setOpen(!open)}
+        className="px-3 py-2 rounded-lg text-sm bg-[var(--bg-tertiary)] hover:bg-[var(--border)] border border-transparent flex items-center gap-1.5 transition-colors"
+      >
+        <FolderIcon />
+        <span className="text-[var(--text-secondary)] max-w-[120px] truncate">
+          {displayName}
+        </span>
+        <ChevronDownIcon />
+      </button>
+
+      {open && (
+        <>
+          {/* 点击外部关闭 */}
+          <div
+            className="fixed inset-0 z-10"
+            onClick={() => setOpen(false)}
+          />
+          <div className="absolute bottom-full mb-1 left-0 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-lg py-1 min-w-[220px] max-h-[300px] overflow-y-auto z-20">
+            {/* Browse 选项 */}
+            <button
+              onClick={handleBrowse}
+              className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--bg-tertiary)] transition-colors flex items-center gap-2"
+            >
+              <FolderPlusIcon />
+              <span>Browse...</span>
+            </button>
+
+            {recentCwds.length > 0 && (
+              <>
+                <div className="border-t border-[var(--border)] my-1" />
+                <div className="px-3 py-1 text-xs text-[var(--text-muted)]">Recent</div>
+                {recentCwds.map((dir) => (
+                  <button
+                    key={dir}
+                    onClick={() => {
+                      onChange(dir);
+                      setOpen(false);
+                    }}
+                    className={`w-full px-3 py-2 text-left text-sm hover:bg-[var(--bg-tertiary)] transition-colors truncate ${
+                      dir === value ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'
+                    }`}
+                    title={dir}
+                  >
+                    {dir}
+                  </button>
+                ))}
+              </>
+            )}
+
+            {value && (
+              <>
+                <div className="border-t border-[var(--border)] my-1" />
+                <button
+                  onClick={() => {
+                    onChange('');
+                    setOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-muted)]"
+                >
+                  Clear selection
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Model Picker 组件
 function ModelPicker({
   value,
   onChange,
@@ -157,7 +227,7 @@ function ModelPicker({
     <div className="relative no-drag">
       <button
         onClick={() => setOpen(!open)}
-        className="px-3 py-2 rounded-lg text-sm bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border)] flex items-center gap-1.5 transition-colors"
+        className="px-3 py-2 rounded-lg text-sm bg-[var(--bg-tertiary)] hover:bg-[var(--border)] border border-transparent flex items-center gap-1.5 transition-colors"
       >
         <span className="text-[var(--text-secondary)]">{model?.displayName}</span>
         <ChevronDownIcon />
@@ -169,7 +239,7 @@ function ModelPicker({
             className="fixed inset-0 z-10"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute top-full mt-1 left-0 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-lg py-1 min-w-[180px] z-20">
+          <div className="absolute bottom-full mb-1 left-0 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-lg py-1 min-w-[180px] z-20">
             {AVAILABLE_MODELS.map((m) => (
               <button
                 key={m.id}
@@ -191,7 +261,43 @@ function ModelPicker({
   );
 }
 
-// 下拉箭头图标
+// Icons
+function FolderIcon() {
+  return (
+    <svg
+      className="w-4 h-4 text-[var(--text-muted)]"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"
+      />
+    </svg>
+  );
+}
+
+function FolderPlusIcon() {
+  return (
+    <svg
+      className="w-4 h-4 text-[var(--text-muted)]"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 10.5v6m3-3H9m4.06-7.19l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"
+      />
+    </svg>
+  );
+}
+
 function ChevronDownIcon() {
   return (
     <svg

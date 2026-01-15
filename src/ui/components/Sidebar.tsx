@@ -31,76 +31,42 @@ export function Sidebar() {
 
   return (
     <div className="w-64 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col h-full">
-      {/* Header */}
-      <div className="px-4 pt-8 pb-4 border-b border-[var(--border)] flex items-center justify-between drag-region">
-        <h1 className="font-semibold text-lg">Sessions</h1>
-        <button
-          onClick={() => {
-            setActiveSession(null);
-            setShowNewSession(true);
-          }}
-          className="w-8 h-8 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] flex items-center justify-center transition-colors no-drag"
-        >
-          <span className="text-xl leading-none">+</span>
-        </button>
+      {/* 拖拽区域 */}
+      <div className="h-8 drag-region" />
+
+      {/* New Session 按钮 */}
+      <button
+        onClick={() => {
+          setActiveSession(null);
+          setShowNewSession(true);
+        }}
+        className="group mx-4 mb-4 flex items-center gap-3 text-left no-drag"
+      >
+        <div className="w-10 h-10 rounded-full bg-[var(--accent)] group-hover:bg-[var(--accent-hover)] flex items-center justify-center transition-colors">
+          <span className="text-white text-2xl leading-none">+</span>
+        </div>
+        <span className="text-base font-medium">New session</span>
+      </button>
+
+      {/* Sessions 标题栏 */}
+      <div className="px-4 py-2 flex items-center justify-between">
+        <span className="text-sm text-[var(--text-muted)]">Sessions</span>
       </div>
 
       {/* Session List */}
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className="flex-1 overflow-y-auto px-2">
         {sessionList.map((session) => (
-          <div
+          <SessionItem
             key={session.id}
-            className={`group relative rounded-lg p-3 mb-1 cursor-pointer transition-colors ${
-              activeSessionId === session.id
-                ? 'bg-[var(--bg-tertiary)]'
-                : 'hover:bg-[var(--bg-tertiary)]'
-            }`}
+            session={session}
+            isActive={activeSessionId === session.id}
             onClick={() => {
               setActiveSession(session.id);
               setShowNewSession(false);
             }}
-          >
-            <div className="flex items-center gap-2">
-              <div className={`status-dot ${session.status}`} />
-              <span className="flex-1 truncate text-sm">{session.title}</span>
-
-              {/* Dropdown Menu */}
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild>
-                  <button
-                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--border)] transition-opacity"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <MoreIcon />
-                  </button>
-                </DropdownMenu.Trigger>
-
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content
-                    className="bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg p-1 min-w-[160px] shadow-lg"
-                    sideOffset={5}
-                  >
-                    {session.claudeSessionId && (
-                      <DropdownMenu.Item
-                        className="flex items-center gap-2 px-3 py-2 text-sm rounded cursor-pointer hover:bg-[var(--border)] outline-none"
-                        onClick={() => handleResumeCommand(session)}
-                      >
-                        <CopyIcon />
-                        Copy Resume Command
-                      </DropdownMenu.Item>
-                    )}
-                    <DropdownMenu.Item
-                      className="flex items-center gap-2 px-3 py-2 text-sm rounded cursor-pointer hover:bg-[var(--border)] outline-none text-red-400"
-                      onClick={() => handleDelete(session.id)}
-                    >
-                      <TrashIcon />
-                      Delete
-                    </DropdownMenu.Item>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
-            </div>
-          </div>
+            onDelete={() => handleDelete(session.id)}
+            onCopyResume={() => handleResumeCommand(session)}
+          />
         ))}
 
         {sessionList.length === 0 && (
@@ -143,6 +109,91 @@ export function Sidebar() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+    </div>
+  );
+}
+
+// SessionItem 组件
+function SessionItem({
+  session,
+  isActive,
+  onClick,
+  onDelete,
+  onCopyResume,
+}: {
+  session: SessionView;
+  isActive: boolean;
+  onClick: () => void;
+  onDelete: () => void;
+  onCopyResume: () => void;
+}) {
+  // 格式化时间：4:36 pm
+  const formattedTime = new Date(session.updatedAt).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  // 生成短 ID（如果有 claudeSessionId）
+  const shortId = session.claudeSessionId
+    ? session.claudeSessionId.slice(0, 14)
+    : null;
+
+  return (
+    <div
+      className={`group relative rounded-xl p-3 mb-1 cursor-pointer transition-colors ${
+        isActive
+          ? 'bg-[var(--accent-light)]'
+          : 'hover:bg-[var(--bg-tertiary)]'
+      }`}
+      onClick={onClick}
+    >
+      {/* 标题 */}
+      <div className="text-sm font-medium truncate pr-6">
+        {session.title}
+      </div>
+
+      {/* 副标题：session-id · 时间 */}
+      <div className="text-xs text-[var(--text-muted)] mt-1 truncate">
+        {shortId && <span>{shortId} · </span>}
+        {formattedTime}
+      </div>
+
+      {/* 更多菜单 - hover 显示 */}
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button
+            className="absolute top-3 right-2 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--border)] transition-opacity"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <MoreIcon />
+          </button>
+        </DropdownMenu.Trigger>
+
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            className="bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg p-1 min-w-[160px] shadow-lg z-50"
+            sideOffset={5}
+          >
+            {session.claudeSessionId && (
+              <DropdownMenu.Item
+                className="flex items-center gap-2 px-3 py-2 text-sm rounded cursor-pointer hover:bg-[var(--border)] outline-none"
+                onClick={onCopyResume}
+              >
+                <CopyIcon />
+                Copy Resume Command
+              </DropdownMenu.Item>
+            )}
+            <DropdownMenu.Item
+              className="flex items-center gap-2 px-3 py-2 text-sm rounded cursor-pointer hover:bg-[var(--border)] outline-none text-red-400"
+              onClick={onDelete}
+            >
+              <TrashIcon />
+              Delete
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
     </div>
   );
 }

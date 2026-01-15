@@ -10,6 +10,7 @@
   --text-muted: #999999;       /* 弱化文本 */
   --accent: #CD6F4F;           /* 强调色：陶土色 */
   --accent-hover: #B85A3C;     /* 强调色悬停：深一点 */
+  --accent-light: rgba(205, 111, 79, 0.15); /* 强调色浅色：选中高亮 */
   --success: #22c55e;
   --error: #ef4444;
   --warning: #f59e0b;
