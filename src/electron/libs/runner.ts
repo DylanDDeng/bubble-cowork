@@ -1,9 +1,8 @@
 import { query, type McpServerConfig as SDKMcpServerConfig } from '@anthropic-ai/claude-agent-sdk';
-import fs from 'fs';
-import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { RunnerOptions, RunnerHandle, StreamMessage, PermissionResult } from '../types';
 import { getClaudeEnv, getClaudeSettings, getMcpServers } from './claude-settings';
+import { getClaudeCodeRuntime } from './claude-runtime';
 
 // MCP 服务器状态
 interface McpServerStatus {
@@ -74,46 +73,6 @@ function isStreamEventType(value: string): value is StreamEventType {
     value === 'content_block_delta' ||
     value === 'content_block_stop'
   );
-}
-
-function ensureNodeInPath(pathValue?: string): string | undefined {
-  const existing = (pathValue || '').split(path.delimiter).filter(Boolean);
-  const candidates = [
-    '/opt/homebrew/bin',
-    '/usr/local/bin',
-    '/usr/bin',
-    '/bin',
-  ];
-
-  const toAdd = candidates.filter((dir) => {
-    if (existing.includes(dir)) return false;
-    return fs.existsSync(path.join(dir, 'node'));
-  });
-
-  if (toAdd.length === 0) {
-    return pathValue;
-  }
-
-  return [...toAdd, ...existing].join(path.delimiter);
-}
-
-// 查找系统 Node.js 路径
-function findNodePath(): string | undefined {
-  const candidates = [
-    '/opt/homebrew/bin/node',      // macOS ARM (Homebrew)
-    '/usr/local/bin/node',          // macOS Intel (Homebrew)
-    '/usr/bin/node',                // Linux
-    `${process.env.HOME}/.nvm/versions/node/current/bin/node`,  // nvm
-    `${process.env.HOME}/.volta/bin/node`,        // volta
-  ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return undefined;
 }
 
 class AsyncMessageQueue<T> implements AsyncIterable<T> {
@@ -210,14 +169,14 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       if (settings?.apiKey && !env.ANTHROPIC_API_KEY) {
         env.ANTHROPIC_API_KEY = settings.apiKey;
       }
-      env.PATH = ensureNodeInPath(env.PATH);
-
-      // 查找系统 Node.js
-      const nodePath = findNodePath();
+      const { executable, executableArgs, env: runtimeEnv, pathToClaudeCodeExecutable } = getClaudeCodeRuntime();
+      Object.assign(env, runtimeEnv);
 
       // 调试日志
       console.log('[Runner Debug]', {
-        nodePath,
+        executable,
+        executableArgs,
+        pathToClaudeCodeExecutable,
         hasApiKey: !!env.ANTHROPIC_API_KEY,
         apiKeyPrefix: env.ANTHROPIC_API_KEY?.substring(0, 10),
         cwd: session.cwd || process.cwd(),
@@ -225,10 +184,6 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         isPackaged: !process.defaultApp,
         resourcesPath: process.resourcesPath,
       });
-
-      if (!nodePath) {
-        throw new Error('Node.js not found. Please install Node.js.');
-      }
 
       const result = query({
         prompt: inputQueue,
@@ -239,7 +194,9 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           abortController,
           includePartialMessages: true,
           env,
-          executable: nodePath as unknown as 'node',
+          executable: executable as unknown as 'node',
+          executableArgs,
+          pathToClaudeCodeExecutable,
           // 从文件系统加载 Skills（~/.claude/skills/ 和 .claude/skills/）
           settingSources: ['user', 'project'],
           // 加载 MCP 服务器配置（合并全局和项目级）

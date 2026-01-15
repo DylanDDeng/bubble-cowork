@@ -1,5 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { getClaudeEnv } from './claude-settings';
+import { getClaudeEnv, getClaudeSettings } from './claude-settings';
+import { getClaudeCodeRuntime } from './claude-runtime';
 
 // SDK 消息类型
 interface SDKMessage {
@@ -11,8 +12,17 @@ interface SDKMessage {
 
 // 使用 Claude SDK 生成会话标题
 export async function generateSessionTitle(prompt: string): Promise<string> {
-  const env = getClaudeEnv();
+  const env = {
+    ...process.env,
+    ...getClaudeEnv(),
+  };
+  const settings = getClaudeSettings();
+  if (settings?.apiKey && !env.ANTHROPIC_API_KEY) {
+    env.ANTHROPIC_API_KEY = settings.apiKey;
+  }
   const model = env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
+  const { executable, executableArgs, env: runtimeEnv, pathToClaudeCodeExecutable } = getClaudeCodeRuntime();
+  Object.assign(env, runtimeEnv);
 
   try {
     const titlePrompt = `Based on this user request, generate a very short title (3-6 words, no quotes):
@@ -26,6 +36,10 @@ Just output the title, nothing else.`;
         model,
         maxTurns: 1,
         allowedTools: [],
+        env,
+        executable: executable as unknown as 'node',
+        executableArgs,
+        pathToClaudeCodeExecutable,
       },
     });
 
