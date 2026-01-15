@@ -1,7 +1,8 @@
 {
-  "name": "claude-cowork",
+  "name": "bubble-cowork",
   "version": "0.0.1",
-  "description": "Claude Code Desktop Application",
+  "description": "Bubble Cowork Desktop Application",
+  "author": "Your Name",
   "main": "dist-electron/electron/main.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",

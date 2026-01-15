@@ -16,7 +16,7 @@ export function getPreloadPath(): string {
 
 // 获取 UI 入口文件路径（生产环境）
 export function getUIPath(): string {
-  return path.join(__dirname, '../dist-react/index.html');
+  return path.join(app.getAppPath(), 'dist-react', 'index.html');
 }
 
 // 开发服务器 URL

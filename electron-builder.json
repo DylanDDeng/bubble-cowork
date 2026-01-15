@@ -1,8 +1,9 @@
 {
-  "appId": "com.claude.cowork",
-  "productName": "Claude Cowork",
+  "appId": "com.bubble.cowork",
+  "productName": "Bubble Cowork",
   "directories": {
-    "output": "release"
+    "output": "release",
+    "buildResources": "build"
   },
   "files": [
     "dist-electron/**/*",
@@ -10,7 +11,7 @@
   ],
   "extraResources": [
     {
-      "from": "dist-electron/preload.cjs",
+      "from": "dist-electron/electron/preload.cjs",
       "to": "preload.cjs"
     }
   ],
