@@ -27,6 +27,8 @@ export function ipcMainHandle<T>(
   channel: string,
   handler: (event: IpcMainInvokeEvent, ...args: any[]) => Promise<T> | T
 ): void {
+  // 先移除旧的 handler（避免 macOS 上窗口重新激活时重复注册）
+  ipcMain.removeHandler(channel);
   ipcMain.handle(channel, async (event, ...args) => {
     // Frame 校验
     const frame = event.senderFrame;

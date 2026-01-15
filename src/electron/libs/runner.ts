@@ -1,6 +1,14 @@
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query, type McpServerConfig as SDKMcpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import { v4 as uuidv4 } from 'uuid';
 import type { RunnerOptions, RunnerHandle, StreamMessage, PermissionResult } from '../types';
+import { getMcpServers } from './claude-settings';
+
+// MCP 服务器状态
+interface McpServerStatus {
+  name: string;
+  status: 'connected' | 'failed' | 'pending';
+  error?: string;
+}
 
 // SDK 消息类型定义
 interface SDKMessage {
@@ -21,6 +29,7 @@ interface SDKMessage {
   model?: string;
   permissionMode?: string;
   tools?: string[];
+  mcp_servers?: McpServerStatus[];
   result?: string;
 }
 
@@ -51,6 +60,8 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           abortController,
           // 从文件系统加载 Skills（~/.claude/skills/ 和 .claude/skills/）
           settingSources: ['user', 'project'],
+          // 加载 MCP 服务器配置（合并全局和项目级）
+          mcpServers: getMcpServers(session.cwd ?? undefined) as Record<string, SDKMcpServerConfig>,
           // 自定义工具权限处理
           canUseTool: async (toolName: string, input: Record<string, unknown>) => {
             // 只对 AskUserQuestion 进行用户交互
@@ -119,6 +130,7 @@ function convertSDKMessage(message: SDKMessage): StreamMessage | null {
           permissionMode: message.permissionMode || '',
           cwd: message.cwd || '',
           tools: message.tools || [],
+          mcp_servers: message.mcp_servers,
         };
       }
       return null;

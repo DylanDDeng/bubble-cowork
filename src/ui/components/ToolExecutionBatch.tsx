@@ -195,7 +195,11 @@ function ToolInvocationCompact({
 }) {
   const [showDetails, setShowDetails] = useState(false);
   const summary = getToolSummary(block.name, block.input);
-  const hasOutput = result && result.content;
+  // 安全检查：确保 content 是字符串
+  const contentStr = result?.content != null
+    ? (typeof result.content === 'string' ? result.content : JSON.stringify(result.content))
+    : '';
+  const hasOutput = contentStr.length > 0;
 
   return (
     <div className={`${isLast ? '' : 'border-b border-[var(--border)]/30'} py-1`}>
@@ -230,15 +234,15 @@ function ToolInvocationCompact({
           {/* 输出 */}
           {hasOutput && (
             <div>
-              <span className={result.is_error ? 'text-red-400' : 'text-[var(--text-muted)]'}>
+              <span className={result?.is_error ? 'text-red-400' : 'text-[var(--text-muted)]'}>
                 Output:
               </span>
               <pre
                 className={`mt-0.5 p-2 bg-[var(--bg-tertiary)] rounded whitespace-pre-wrap break-all max-h-32 overflow-auto ${
-                  result.is_error ? 'text-red-400' : 'text-[var(--text-secondary)]'
+                  result?.is_error ? 'text-red-400' : 'text-[var(--text-secondary)]'
                 }`}
               >
-                {result.content}
+                {contentStr}
               </pre>
             </div>
           )}

@@ -2,7 +2,7 @@ import { ipcMain, BrowserWindow, dialog } from 'electron';
 import * as sessions from './libs/session-store';
 import { runClaude } from './libs/runner';
 import { generateSessionTitle } from './libs/util';
-import { loadClaudeSettings } from './libs/claude-settings';
+import { loadClaudeSettings, getClaudeSettings, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
 import { ipcMainHandle } from './util';
 import type {
   ClientEvent,
@@ -112,6 +112,14 @@ async function handleClientEvent(
 
     case 'permission.response':
       handlePermissionResponse(event.payload);
+      break;
+
+    case 'mcp.get-config':
+      handleMcpGetConfig(mainWindow, event.payload?.projectPath);
+      break;
+
+    case 'mcp.save-config':
+      handleMcpSaveConfig(mainWindow, event.payload);
       break;
   }
 }
@@ -391,6 +399,61 @@ function handlePermissionResponse(
     pending.resolve(result);
     state.pendingPermissions.delete(toolUseId);
   }
+}
+
+// 获取 MCP 配置（返回全局和项目级分开）
+function handleMcpGetConfig(mainWindow: BrowserWindow, projectPath?: string): void {
+  const globalServers = getGlobalMcpServers();
+  const projectServers = projectPath ? getProjectMcpServers(projectPath) : {};
+
+  // 合并用于向后兼容
+  const mergedServers = { ...globalServers, ...projectServers };
+
+  broadcast(mainWindow, {
+    type: 'mcp.config',
+    payload: {
+      servers: mergedServers,  // 向后兼容
+      globalServers,
+      projectServers,
+    },
+  });
+}
+
+// 保存 MCP 配置
+function handleMcpSaveConfig(
+  mainWindow: BrowserWindow,
+  payload: {
+    servers?: Record<string, McpServerConfig>;
+    globalServers?: Record<string, McpServerConfig>;
+    projectServers?: Record<string, McpServerConfig>;
+    projectPath?: string;
+  }
+): void {
+  // 保存全局配置
+  if (payload.globalServers !== undefined) {
+    saveMcpServers(payload.globalServers);
+  } else if (payload.servers !== undefined) {
+    // 向后兼容
+    saveMcpServers(payload.servers);
+  }
+
+  // 保存项目级配置
+  if (payload.projectPath && payload.projectServers !== undefined) {
+    saveProjectMcpServers(payload.projectPath, payload.projectServers);
+  }
+
+  // 返回更新后的配置
+  const globalServers = getGlobalMcpServers();
+  const projectServers = payload.projectPath ? getProjectMcpServers(payload.projectPath) : {};
+
+  broadcast(mainWindow, {
+    type: 'mcp.config',
+    payload: {
+      servers: globalServers,
+      globalServers,
+      projectServers,
+    },
+  });
 }
 
 // 清理资源

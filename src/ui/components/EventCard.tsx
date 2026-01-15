@@ -42,10 +42,14 @@ export function ToolUseCard({ block, status }: ToolUseCardProps) {
 export function ToolResultCard({ block }: ToolResultCardProps) {
   const [expanded, setExpanded] = useState(false);
 
-  const lines = block.content.split('\n');
+  // 安全检查：确保 content 是字符串
+  const contentStr = block.content != null
+    ? (typeof block.content === 'string' ? block.content : JSON.stringify(block.content))
+    : '';
+  const lines = contentStr.split('\n');
   const isLong = lines.length > MAX_VISIBLE_LINES;
   const displayContent = expanded
-    ? block.content
+    ? contentStr
     : lines
         .slice(0, MAX_VISIBLE_LINES)
         .map((line) =>

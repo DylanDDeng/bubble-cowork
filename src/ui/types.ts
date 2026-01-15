@@ -14,6 +14,8 @@ export type {
   ServerEvent,
   ModelId,
   ModelOption,
+  McpServerConfig,
+  McpServerStatus,
 } from '../shared/types';
 
 export { AVAILABLE_MODELS, DEFAULT_MODEL } from '../shared/types';
@@ -47,6 +49,12 @@ export interface AppState {
   inSessionSearchQuery: string;
   inSessionSearchResults: SearchMatch[];
   inSessionSearchCurrentIndex: number;
+  // MCP 状态
+  mcpServers: Record<string, import('../shared/types').McpServerConfig>;
+  mcpGlobalServers: Record<string, import('../shared/types').McpServerConfig>;
+  mcpProjectServers: Record<string, import('../shared/types').McpServerConfig>;
+  mcpServerStatus: import('../shared/types').McpServerStatus[];
+  showMcpSettings: boolean;
 }
 
 // Store Actions
@@ -68,6 +76,10 @@ export interface AppActions {
   setInSessionSearchQuery: (query: string) => void;
   setInSessionSearchResults: (results: SearchMatch[]) => void;
   navigateSearchResult: (direction: 'next' | 'prev') => void;
+  // MCP Actions
+  setMcpServers: (servers: Record<string, import('../shared/types').McpServerConfig>) => void;
+  setMcpServerStatus: (status: import('../shared/types').McpServerStatus[]) => void;
+  setShowMcpSettings: (show: boolean) => void;
 }
 
 // 工具状态映射（用于显示 pending/success/error）

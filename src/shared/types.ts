@@ -1,5 +1,22 @@
 // 共享类型定义（可导出）
 
+// MCP 服务器配置类型
+export interface McpServerConfig {
+  type?: 'stdio' | 'http' | 'sse';
+  command?: string;
+  args?: string[];
+  url?: string;
+  headers?: Record<string, string>;
+  env?: Record<string, string>;
+}
+
+// MCP 服务器状态
+export interface McpServerStatus {
+  name: string;
+  status: 'connected' | 'failed' | 'pending';
+  error?: string;
+}
+
 // 模型配置
 export type ModelId = 'claude-opus-4-5-20251101' | 'claude-sonnet-4-5-20250929';
 
@@ -23,7 +40,15 @@ export type ClientEvent =
   | { type: 'session.history'; payload: { sessionId: string } }
   | { type: 'session.stop'; payload: { sessionId: string } }
   | { type: 'session.delete'; payload: { sessionId: string } }
-  | { type: 'permission.response'; payload: PermissionResponsePayload };
+  | { type: 'permission.response'; payload: PermissionResponsePayload }
+  // MCP 事件
+  | { type: 'mcp.get-config'; payload?: { projectPath?: string } }
+  | { type: 'mcp.save-config'; payload: {
+      servers?: Record<string, McpServerConfig>;
+      globalServers?: Record<string, McpServerConfig>;
+      projectServers?: Record<string, McpServerConfig>;
+      projectPath?: string;
+    } };
 
 // Server -> Client 事件
 export type ServerEvent =
@@ -34,7 +59,14 @@ export type ServerEvent =
   | { type: 'stream.user_prompt'; payload: { sessionId: string; prompt: string } }
   | { type: 'stream.message'; payload: { sessionId: string; message: StreamMessage } }
   | { type: 'permission.request'; payload: PermissionRequestPayload }
-  | { type: 'runner.error'; payload: { message: string; sessionId?: string } };
+  | { type: 'runner.error'; payload: { message: string; sessionId?: string } }
+  // MCP 事件
+  | { type: 'mcp.config'; payload: {
+      servers: Record<string, McpServerConfig>;
+      globalServers?: Record<string, McpServerConfig>;
+      projectServers?: Record<string, McpServerConfig>;
+    } }
+  | { type: 'mcp.status'; payload: { servers: McpServerStatus[] } };
 
 // Payload 类型
 export interface SessionStartPayload {
@@ -120,6 +152,7 @@ export type StreamMessage =
       permissionMode: string;
       cwd: string;
       tools: string[];
+      mcp_servers?: McpServerStatus[];
     }
   | { type: 'assistant'; uuid: string; message: AssistantMessage }
   | { type: 'user'; uuid: string; message: UserMessage }
@@ -130,7 +163,8 @@ export type StreamMessage =
       total_cost_usd: number;
       usage: Usage;
     }
-  | { type: 'stream_event'; event: StreamEvent };
+  | { type: 'stream_event'; event: StreamEvent }
+  | { type: 'mcp_status'; servers: McpServerStatus[] };
 
 // 简化的 Anthropic API 类型
 export interface AssistantMessage {

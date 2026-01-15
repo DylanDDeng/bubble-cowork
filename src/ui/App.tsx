@@ -8,6 +8,7 @@ import { PromptInput } from './components/PromptInput';
 import { MessageCard } from './components/MessageCard';
 import { ToolExecutionBatch } from './components/ToolExecutionBatch';
 import { InSessionSearch } from './components/search/InSessionSearch';
+import { McpSettings } from './components/settings/McpSettings';
 import { MDContent } from './render/markdown';
 import type { ToolStatus, PermissionResult, StreamMessage, ContentBlock } from './types';
 
@@ -143,10 +144,11 @@ export function App() {
     return { toolStatusMap: statusMap, toolResultsMap: resultsMap };
   }, [activeSessionId, sessions]);
 
-  // 连接后请求会话列表
+  // 连接后请求会话列表和 MCP 配置
   useEffect(() => {
     if (connected) {
       sendEvent({ type: 'session.list' });
+      sendEvent({ type: 'mcp.get-config' });
     }
   }, [connected]);
 
@@ -327,6 +329,9 @@ export function App() {
           </button>
         </div>
       )}
+
+      {/* MCP 设置面板 */}
+      <McpSettings />
     </div>
   );
 }

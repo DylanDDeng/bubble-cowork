@@ -152,8 +152,12 @@ function ToolInvocation({
   const [showOutput, setShowOutput] = useState(false);
 
   const hasArgs = Object.keys(block.input).length > 0;
-  const hasOutput = result && result.content;
-  const outputLines = hasOutput ? result.content.split('\n').length : 0;
+  // 安全检查：确保 content 是字符串
+  const contentStr = result?.content != null
+    ? (typeof result.content === 'string' ? result.content : JSON.stringify(result.content))
+    : '';
+  const hasOutput = contentStr.length > 0;
+  const outputLines = hasOutput ? contentStr.split('\n').length : 0;
   const summary = getToolSummary(block.name, block.input);
 
   return (
@@ -189,14 +193,14 @@ function ToolInvocation({
           label={`Output (${outputLines} line${outputLines > 1 ? 's' : ''})`}
           expanded={showOutput}
           onToggle={() => setShowOutput(!showOutput)}
-          isError={result.is_error}
+          isError={result?.is_error}
         >
           <pre
             className={`text-xs font-mono whitespace-pre-wrap break-all ${
-              result.is_error ? 'text-red-400' : 'text-[var(--text-secondary)]'
+              result?.is_error ? 'text-red-400' : 'text-[var(--text-secondary)]'
             }`}
           >
-            {result.content}
+            {contentStr}
           </pre>
         </CollapsibleSection>
       )}

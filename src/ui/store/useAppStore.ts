@@ -35,6 +35,12 @@ export const useAppStore = create<Store>()(
       inSessionSearchQuery: '',
       inSessionSearchResults: [],
       inSessionSearchCurrentIndex: 0,
+      // MCP 状态
+      mcpServers: {},
+      mcpGlobalServers: {},
+      mcpProjectServers: {},
+      mcpServerStatus: [],
+      showMcpSettings: false,
 
   // Actions
   setConnected: (connected) => set({ connected }),
@@ -71,6 +77,18 @@ export const useAppStore = create<Store>()(
 
       case 'runner.error':
         set({ globalError: event.payload.message });
+        break;
+
+      case 'mcp.config':
+        set({
+          mcpServers: event.payload.servers,
+          mcpGlobalServers: event.payload.globalServers || event.payload.servers,
+          mcpProjectServers: event.payload.projectServers || {},
+        });
+        break;
+
+      case 'mcp.status':
+        set({ mcpServerStatus: event.payload.servers });
         break;
     }
   },
@@ -143,6 +161,11 @@ export const useAppStore = create<Store>()(
       }
       return { inSessionSearchCurrentIndex: newIndex };
     }),
+
+  // MCP Actions
+  setMcpServers: (servers) => set({ mcpServers: servers }),
+  setMcpServerStatus: (status) => set({ mcpServerStatus: status }),
+  setShowMcpSettings: (show) => set({ showMcpSettings: show }),
     }),
     {
       name: 'cowork-app-storage',
