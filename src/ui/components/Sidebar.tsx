@@ -1,17 +1,28 @@
-import { useState } from 'react';
+import { useState, forwardRef, useMemo } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
+import { SidebarSearch } from './search/SidebarSearch';
 import type { SessionView } from '../types';
 
 export function Sidebar() {
-  const { sessions, activeSessionId, setActiveSession, setShowNewSession } = useAppStore();
+  const { sessions, activeSessionId, setActiveSession, setShowNewSession, sidebarSearchQuery } = useAppStore();
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionView | null>(null);
 
-  // 按 updatedAt 降序排序（最新的在最上面）
-  const sessionList = Object.values(sessions).sort((a, b) => b.updatedAt - a.updatedAt);
+  // 按 updatedAt 降序排序并过滤
+  const sessionList = useMemo(() => {
+    const sorted = Object.values(sessions).sort((a, b) => b.updatedAt - a.updatedAt);
+    if (!sidebarSearchQuery.trim()) return sorted;
+
+    const query = sidebarSearchQuery.toLowerCase();
+    return sorted.filter(
+      (session) =>
+        session.title.toLowerCase().includes(query) ||
+        session.cwd?.toLowerCase().includes(query)
+    );
+  }, [sessions, sidebarSearchQuery]);
 
   const handleDelete = (sessionId: string) => {
     sendEvent({ type: 'session.delete', payload: { sessionId } });
@@ -24,7 +35,7 @@ export function Sidebar() {
 
   const copyResumeCommand = () => {
     if (selectedSession?.claudeSessionId) {
-      navigator.clipboard.writeText(`claude --resume ${selectedSession.claudeSessionId}`);
+      navigator.clipboard.writeText(`claude --teleport ${selectedSession.claudeSessionId}`);
     }
     setResumeDialogOpen(false);
   };
@@ -53,6 +64,11 @@ export function Sidebar() {
         <span className="text-sm text-[var(--text-muted)]">Sessions</span>
       </div>
 
+      {/* 搜索框 */}
+      <div className="px-4 pb-3">
+        <SidebarSearch />
+      </div>
+
       {/* Session List */}
       <div className="flex-1 overflow-y-auto px-2">
         {sessionList.map((session) => (
@@ -71,7 +87,7 @@ export function Sidebar() {
 
         {sessionList.length === 0 && (
           <div className="text-center text-[var(--text-muted)] py-8 text-sm">
-            No sessions yet
+            {sidebarSearchQuery ? 'No matching sessions' : 'No sessions yet'}
           </div>
         )}
       </div>
@@ -89,7 +105,7 @@ export function Sidebar() {
             </Dialog.Description>
 
             <div className="bg-[var(--bg-tertiary)] rounded-lg p-3 font-mono text-sm mb-4 break-all">
-              claude --resume {selectedSession?.claudeSessionId}
+              claude --teleport {selectedSession?.claudeSessionId}
             </div>
 
             <div className="flex justify-end gap-2">

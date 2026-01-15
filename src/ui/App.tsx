@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { useAppStore } from './store/useAppStore';
 import { useIPC, sendEvent } from './hooks/useIPC';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { Sidebar } from './components/Sidebar';
 import { NewSessionView } from './components/NewSessionView';
 import { PromptInput } from './components/PromptInput';
 import { MessageCard } from './components/MessageCard';
 import { ToolExecutionBatch } from './components/ToolExecutionBatch';
+import { InSessionSearch } from './components/search/InSessionSearch';
 import { MDContent } from './render/markdown';
 import type { ToolStatus, PermissionResult, StreamMessage, ContentBlock } from './types';
 
@@ -14,8 +16,8 @@ type ToolResultBlock = ContentBlock & { type: 'tool_result' };
 
 // 聚合项类型
 type AggregatedItem =
-  | { type: 'message'; message: StreamMessage }
-  | { type: 'tool_batch'; messages: (StreamMessage & { type: 'assistant' })[] };
+  | { type: 'message'; message: StreamMessage; originalIndex: number }
+  | { type: 'tool_batch'; messages: (StreamMessage & { type: 'assistant' })[]; originalIndices: number[] };
 
 // 判断消息是否包含工具调用（可以有文本内容）
 function hasToolUse(msg: StreamMessage): msg is StreamMessage & { type: 'assistant' } {
@@ -35,37 +37,52 @@ function isToolResultOnlyMessage(msg: StreamMessage): boolean {
 // 聚合连续的工具执行消息
 function aggregateMessages(messages: StreamMessage[]): AggregatedItem[] {
   const items: AggregatedItem[] = [];
-  let currentBatch: StreamMessage[] = [];
+  let currentBatch: { msg: StreamMessage; index: number }[] = [];
 
-  for (const msg of messages) {
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
     if (hasToolUse(msg) || isToolResultOnlyMessage(msg)) {
       // 包含 tool_use 的 assistant 或 tool_result-only 的 user，加入批次
-      currentBatch.push(msg);
+      currentBatch.push({ msg, index: i });
     } else {
       // 遇到非工具消息，先结束当前批次
-      const assistantMsgs = currentBatch.filter(
-        (m): m is StreamMessage & { type: 'assistant' } => m.type === 'assistant'
+      const assistantItems = currentBatch.filter(
+        (item): item is { msg: StreamMessage & { type: 'assistant' }; index: number } =>
+          item.msg.type === 'assistant'
       );
-      if (assistantMsgs.length >= 3) {
+      if (assistantItems.length >= 3) {
         // 3个以上才聚合
-        items.push({ type: 'tool_batch', messages: assistantMsgs });
+        items.push({
+          type: 'tool_batch',
+          messages: assistantItems.map((item) => item.msg),
+          originalIndices: assistantItems.map((item) => item.index),
+        });
       } else {
         // 批次太小，单独显示
-        currentBatch.forEach((m) => items.push({ type: 'message', message: m }));
+        currentBatch.forEach((item) =>
+          items.push({ type: 'message', message: item.msg, originalIndex: item.index })
+        );
       }
       currentBatch = [];
-      items.push({ type: 'message', message: msg });
+      items.push({ type: 'message', message: msg, originalIndex: i });
     }
   }
 
   // 处理末尾的批次
-  const assistantMsgs = currentBatch.filter(
-    (m): m is StreamMessage & { type: 'assistant' } => m.type === 'assistant'
+  const assistantItems = currentBatch.filter(
+    (item): item is { msg: StreamMessage & { type: 'assistant' }; index: number } =>
+      item.msg.type === 'assistant'
   );
-  if (assistantMsgs.length >= 3) {
-    items.push({ type: 'tool_batch', messages: assistantMsgs });
+  if (assistantItems.length >= 3) {
+    items.push({
+      type: 'tool_batch',
+      messages: assistantItems.map((item) => item.msg),
+      originalIndices: assistantItems.map((item) => item.index),
+    });
   } else {
-    currentBatch.forEach((m) => items.push({ type: 'message', message: m }));
+    currentBatch.forEach((item) =>
+      items.push({ type: 'message', message: item.msg, originalIndex: item.index })
+    );
   }
 
   return items;
@@ -74,6 +91,9 @@ function aggregateMessages(messages: StreamMessage[]): AggregatedItem[] {
 export function App() {
   // 初始化 IPC 通信
   useIPC();
+
+  // 初始化全局快捷键
+  useKeyboardShortcuts();
 
   const {
     connected,
@@ -218,7 +238,10 @@ export function App() {
           <div className="h-8 drag-region flex-shrink-0" />
 
           {/* 消息区域 */}
-          <div className="flex-1 overflow-auto p-4">
+          <div className="flex-1 overflow-auto p-4 relative">
+            {/* 会话内搜索 */}
+            <InSessionSearch />
+
             {/* CWD 显示栏 - 右上角 */}
             {activeSession.cwd && (
               <div className="flex justify-end mb-2">
@@ -235,23 +258,28 @@ export function App() {
               {aggregateMessages(activeSession.messages).map((item, idx) => {
                 if (item.type === 'tool_batch') {
                   return (
-                    <ToolExecutionBatch
+                    <div
                       key={`batch-${idx}`}
-                      messages={item.messages}
-                      toolStatusMap={toolStatusMap}
-                      toolResultsMap={toolResultsMap}
-                    />
+                      data-message-index={item.originalIndices[0]}
+                    >
+                      <ToolExecutionBatch
+                        messages={item.messages}
+                        toolStatusMap={toolStatusMap}
+                        toolResultsMap={toolResultsMap}
+                      />
+                    </div>
                   );
                 }
                 return (
-                  <MessageCard
-                    key={idx}
-                    message={item.message}
-                    toolStatusMap={toolStatusMap}
-                    toolResultsMap={toolResultsMap}
-                    permissionRequests={activeSession.permissionRequests}
-                    onPermissionResult={handlePermissionResult}
-                  />
+                  <div key={idx} data-message-index={item.originalIndex}>
+                    <MessageCard
+                      message={item.message}
+                      toolStatusMap={toolStatusMap}
+                      toolResultsMap={toolResultsMap}
+                      permissionRequests={activeSession.permissionRequests}
+                      onPermissionResult={handlePermissionResult}
+                    />
+                  </div>
                 );
               })}
 

@@ -40,6 +40,13 @@ export interface AppState {
   globalError: string | null;
   pendingStart: boolean;
   selectedModel: import('../shared/types').ModelId;
+  // 搜索状态
+  sidebarSearchQuery: string;
+  activeFilters: SearchFilters;
+  inSessionSearchOpen: boolean;
+  inSessionSearchQuery: string;
+  inSessionSearchResults: SearchMatch[];
+  inSessionSearchCurrentIndex: number;
 }
 
 // Store Actions
@@ -52,7 +59,51 @@ export interface AppActions {
   setPendingStart: (pending: boolean) => void;
   removePermissionRequest: (sessionId: string, toolUseId: string) => void;
   setSelectedModel: (model: import('../shared/types').ModelId) => void;
+  // 搜索 Actions
+  setSidebarSearchQuery: (query: string) => void;
+  setActiveFilters: (filters: Partial<SearchFilters>) => void;
+  clearFilters: () => void;
+  openInSessionSearch: () => void;
+  closeInSessionSearch: () => void;
+  setInSessionSearchQuery: (query: string) => void;
+  setInSessionSearchResults: (results: SearchMatch[]) => void;
+  navigateSearchResult: (direction: 'next' | 'prev') => void;
 }
 
 // 工具状态映射（用于显示 pending/success/error）
 export type ToolStatus = 'pending' | 'success' | 'error';
+
+// 搜索匹配结果
+export interface SearchMatch {
+  messageIndex: number;
+  snippet: string;
+  createdAt?: number;
+}
+
+// 搜索过滤器
+export interface SearchFilters {
+  timeRange: 'all' | 'today' | 'week' | 'month';
+  cwd?: string;
+}
+
+// 搜索状态
+export interface SearchState {
+  sidebarSearchQuery: string;
+  activeFilters: SearchFilters;
+  inSessionSearchOpen: boolean;
+  inSessionSearchQuery: string;
+  inSessionSearchResults: SearchMatch[];
+  inSessionSearchCurrentIndex: number;
+}
+
+// 搜索 Actions
+export interface SearchActions {
+  setSidebarSearchQuery: (query: string) => void;
+  setActiveFilters: (filters: Partial<SearchFilters>) => void;
+  clearFilters: () => void;
+  openInSessionSearch: () => void;
+  closeInSessionSearch: () => void;
+  setInSessionSearchQuery: (query: string) => void;
+  setInSessionSearchResults: (results: SearchMatch[]) => void;
+  navigateSearchResult: (direction: 'next' | 'prev') => void;
+}

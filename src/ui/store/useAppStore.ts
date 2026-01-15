@@ -7,6 +7,8 @@ import type {
   ServerEvent,
   SessionInfo,
   StreamMessage,
+  SearchFilters,
+  SearchMatch,
 } from '../types';
 import { DEFAULT_MODEL } from '../types';
 
@@ -26,6 +28,13 @@ export const useAppStore = create<Store>()(
       globalError: null,
       pendingStart: false,
       selectedModel: DEFAULT_MODEL,
+      // 搜索状态
+      sidebarSearchQuery: '',
+      activeFilters: { timeRange: 'all' },
+      inSessionSearchOpen: false,
+      inSessionSearchQuery: '',
+      inSessionSearchResults: [],
+      inSessionSearchCurrentIndex: 0,
 
   // Actions
   setConnected: (connected) => set({ connected }),
@@ -95,6 +104,45 @@ export const useAppStore = create<Store>()(
   },
 
   setSelectedModel: (model) => set({ selectedModel: model }),
+
+  // 搜索 Actions
+  setSidebarSearchQuery: (query) => set({ sidebarSearchQuery: query }),
+
+  setActiveFilters: (filters) =>
+    set((state) => ({
+      activeFilters: { ...state.activeFilters, ...filters },
+    })),
+
+  clearFilters: () => set({ activeFilters: { timeRange: 'all' } }),
+
+  openInSessionSearch: () => set({ inSessionSearchOpen: true }),
+
+  closeInSessionSearch: () =>
+    set({
+      inSessionSearchOpen: false,
+      inSessionSearchQuery: '',
+      inSessionSearchResults: [],
+      inSessionSearchCurrentIndex: 0,
+    }),
+
+  setInSessionSearchQuery: (query) => set({ inSessionSearchQuery: query }),
+
+  setInSessionSearchResults: (results) =>
+    set({ inSessionSearchResults: results, inSessionSearchCurrentIndex: 0 }),
+
+  navigateSearchResult: (direction) =>
+    set((state) => {
+      const total = state.inSessionSearchResults.length;
+      if (total === 0) return state;
+
+      let newIndex = state.inSessionSearchCurrentIndex;
+      if (direction === 'next') {
+        newIndex = (newIndex + 1) % total;
+      } else {
+        newIndex = (newIndex - 1 + total) % total;
+      }
+      return { inSessionSearchCurrentIndex: newIndex };
+    }),
     }),
     {
       name: 'cowork-app-storage',
