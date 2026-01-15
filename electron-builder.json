@@ -9,6 +9,9 @@
     "dist-electron/**/*",
     "dist-react/**/*"
   ],
+  "asarUnpack": [
+    "node_modules/@anthropic-ai/**/*"
+  ],
   "extraResources": [
     {
       "from": "dist-electron/electron/preload.cjs",

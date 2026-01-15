@@ -216,7 +216,14 @@ async function handleSessionContinue(
     return;
   }
 
-  if (!session.claude_session_id) {
+  let existingRunner = runnerHandles.get(sessionId);
+  if (existingRunner && model && existingRunner.model && existingRunner.model !== model) {
+    existingRunner.abort();
+    runnerHandles.delete(sessionId);
+    existingRunner = undefined;
+  }
+
+  if (!existingRunner && !session.claude_session_id) {
     broadcast(mainWindow, {
       type: 'runner.error',
       payload: { message: 'Session has no resume id yet.', sessionId },
@@ -243,8 +250,19 @@ async function handleSessionContinue(
   // 保存 user_prompt
   sessions.addMessage(sessionId, { type: 'user_prompt', prompt });
 
+  if (existingRunner) {
+    existingRunner.send(prompt);
+    return;
+  }
+
   // 启动 Runner（带 resume）
-  startRunner(mainWindow, session, prompt, session.claude_session_id, model);
+  startRunner(
+    mainWindow,
+    session,
+    prompt,
+    session.claude_session_id ?? undefined,
+    model
+  );
 }
 
 // 启动 Runner
@@ -287,10 +305,23 @@ function startRunner(
           type: 'session.status',
           payload: { sessionId: session.id, status },
         });
-
-        // 清理
-        runnerHandles.delete(session.id);
       }
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('Runner error:', error);
+
+      sessions.updateSessionStatus(session.id, 'error');
+      broadcast(mainWindow, {
+        type: 'session.status',
+        payload: { sessionId: session.id, status: 'error' },
+      });
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: { message, sessionId: session.id },
+      });
+
+      runnerHandles.delete(session.id);
     },
     onPermissionRequest: async (toolUseId, toolName, input) => {
       // 广播权限请求

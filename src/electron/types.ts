@@ -43,6 +43,7 @@ export interface RunnerOptions {
   resumeSessionId?: string;
   model?: import('../shared/types').ModelId;
   onMessage: (message: import('../shared/types').StreamMessage) => void;
+  onError?: (error: Error) => void;
   onPermissionRequest: (
     toolUseId: string,
     toolName: string,
@@ -52,6 +53,8 @@ export interface RunnerOptions {
 
 export interface RunnerHandle {
   abort: () => void;
+  send: (prompt: string) => void;
+  model?: import('../shared/types').ModelId;
 }
 
 // 内部会话状态

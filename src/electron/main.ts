@@ -1,8 +1,58 @@
 import { app, BrowserWindow } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import { setupIPCHandlers, cleanup } from './ipc-handlers';
 import { isDev, getPreloadPath, getUIPath, DEV_SERVER_URL } from './util';
+
+// 修复打包后的环境变量问题（macOS/Linux GUI 应用无法继承 shell 的环境变量）
+function fixEnvironment(): void {
+  if (process.platform === 'darwin' || process.platform === 'linux') {
+    try {
+      // 从用户的默认 shell 获取完整环境变量
+      const shell = process.env.SHELL || '/bin/zsh';
+      const envOutput = execSync(`${shell} -ilc 'env'`, {
+        encoding: 'utf-8',
+        timeout: 5000,
+      });
+
+      // 解析并注入关键环境变量
+      for (const line of envOutput.split('\n')) {
+        const idx = line.indexOf('=');
+        if (idx > 0) {
+          const key = line.substring(0, idx);
+          const value = line.substring(idx + 1);
+          // 注入关键变量
+          if (['PATH', 'ANTHROPIC_API_KEY', 'HOME', 'USER', 'LANG'].includes(key)) {
+            process.env[key] = value;
+          }
+        }
+      }
+
+      console.log('[Environment] Loaded from shell:', {
+        hasPath: !!process.env.PATH,
+        hasApiKey: !!process.env.ANTHROPIC_API_KEY,
+        apiKeyPrefix: process.env.ANTHROPIC_API_KEY?.substring(0, 15),
+      });
+    } catch (error) {
+      console.warn('[Environment] Failed to load from shell:', error);
+      // 如果失败，添加常见的 node 安装路径
+      const commonPaths = [
+        '/usr/local/bin',
+        '/opt/homebrew/bin',
+        '/usr/bin',
+        '/bin',
+        `${process.env.HOME}/.nvm/versions/node/current/bin`,
+        `${process.env.HOME}/.volta/bin`,
+        `${process.env.HOME}/.local/bin`,
+      ];
+      process.env.PATH = `${commonPaths.join(':')}:${process.env.PATH || ''}`;
+    }
+  }
+}
+
+// 在应用启动前修复环境变量
+fixEnvironment();
 
 let mainWindow: BrowserWindow | null = null;
 

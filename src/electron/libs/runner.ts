@@ -1,7 +1,9 @@
 import { query, type McpServerConfig as SDKMcpServerConfig } from '@anthropic-ai/claude-agent-sdk';
+import fs from 'fs';
+import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { RunnerOptions, RunnerHandle, StreamMessage, PermissionResult } from '../types';
-import { getMcpServers } from './claude-settings';
+import { getClaudeEnv, getClaudeSettings, getMcpServers } from './claude-settings';
 
 // MCP 服务器状态
 interface McpServerStatus {
@@ -31,6 +33,15 @@ interface SDKMessage {
   tools?: string[];
   mcp_servers?: McpServerStatus[];
   result?: string;
+  event?: {
+    type?: string;
+    index?: number;
+    delta?: {
+      type?: string;
+      text?: string;
+      thinking?: string;
+    };
+  };
 }
 
 interface ContentBlock {
@@ -42,22 +53,193 @@ interface ContentBlock {
   thinking?: string;
 }
 
+interface SDKUserMessage {
+  type: 'user';
+  session_id: string;
+  parent_tool_use_id: null;
+  message: {
+    role: 'user';
+    content: Array<{ type: 'text'; text: string }>;
+  };
+}
+
+type StreamEventType =
+  | 'content_block_start'
+  | 'content_block_delta'
+  | 'content_block_stop';
+
+function isStreamEventType(value: string): value is StreamEventType {
+  return (
+    value === 'content_block_start' ||
+    value === 'content_block_delta' ||
+    value === 'content_block_stop'
+  );
+}
+
+function ensureNodeInPath(pathValue?: string): string | undefined {
+  const existing = (pathValue || '').split(path.delimiter).filter(Boolean);
+  const candidates = [
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    '/usr/bin',
+    '/bin',
+  ];
+
+  const toAdd = candidates.filter((dir) => {
+    if (existing.includes(dir)) return false;
+    return fs.existsSync(path.join(dir, 'node'));
+  });
+
+  if (toAdd.length === 0) {
+    return pathValue;
+  }
+
+  return [...toAdd, ...existing].join(path.delimiter);
+}
+
+// 查找系统 Node.js 路径
+function findNodePath(): string | undefined {
+  const candidates = [
+    '/opt/homebrew/bin/node',      // macOS ARM (Homebrew)
+    '/usr/local/bin/node',          // macOS Intel (Homebrew)
+    '/usr/bin/node',                // Linux
+    `${process.env.HOME}/.nvm/versions/node/current/bin/node`,  // nvm
+    `${process.env.HOME}/.volta/bin/node`,        // volta
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+class AsyncMessageQueue<T> implements AsyncIterable<T> {
+  private readonly queue: T[] = [];
+  private readonly resolvers: Array<(result: IteratorResult<T>) => void> = [];
+  private closed = false;
+
+  push(value: T): void {
+    if (this.closed) {
+      return;
+    }
+
+    const resolver = this.resolvers.shift();
+    if (resolver) {
+      resolver({ value, done: false });
+      return;
+    }
+
+    this.queue.push(value);
+  }
+
+  close(): void {
+    if (this.closed) {
+      return;
+    }
+
+    this.closed = true;
+    while (this.resolvers.length > 0) {
+      const resolver = this.resolvers.shift();
+      if (resolver) {
+        resolver({ value: undefined as unknown as T, done: true });
+      }
+    }
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<T> {
+    return {
+      next: () => {
+        if (this.queue.length > 0) {
+          const value = this.queue.shift() as T;
+          return Promise.resolve({ value, done: false });
+        }
+
+        if (this.closed) {
+          return Promise.resolve({ value: undefined as unknown as T, done: true });
+        }
+
+        return new Promise<IteratorResult<T>>((resolve) => {
+          this.resolvers.push(resolve);
+        });
+      },
+    };
+  }
+}
+
+function buildUserMessage(prompt: string, sessionId: string): SDKUserMessage {
+  return {
+    type: 'user',
+    session_id: sessionId,
+    parent_tool_use_id: null,
+    message: {
+      role: 'user',
+      content: [{ type: 'text', text: prompt }],
+    },
+  };
+}
+
 // 运行 Claude Agent
 export function runClaude(options: RunnerOptions): RunnerHandle {
-  const { prompt, session, resumeSessionId, model, onMessage, onPermissionRequest } = options;
+  const { prompt, session, resumeSessionId, model, onMessage, onPermissionRequest, onError } = options;
 
   const abortController = new AbortController();
+  const inputQueue = new AsyncMessageQueue<SDKUserMessage>();
+  let currentSessionId = resumeSessionId || '';
+
+  const enqueuePrompt = (text: string) => {
+    if (!text) {
+      return;
+    }
+
+    inputQueue.push(buildUserMessage(text, currentSessionId));
+  };
+
+  enqueuePrompt(prompt);
 
   // 异步执行
   (async () => {
     try {
+      const env = {
+        ...process.env,
+        ...getClaudeEnv(),
+      };
+      const settings = getClaudeSettings();
+      if (settings?.apiKey && !env.ANTHROPIC_API_KEY) {
+        env.ANTHROPIC_API_KEY = settings.apiKey;
+      }
+      env.PATH = ensureNodeInPath(env.PATH);
+
+      // 查找系统 Node.js
+      const nodePath = findNodePath();
+
+      // 调试日志
+      console.log('[Runner Debug]', {
+        nodePath,
+        hasApiKey: !!env.ANTHROPIC_API_KEY,
+        apiKeyPrefix: env.ANTHROPIC_API_KEY?.substring(0, 10),
+        cwd: session.cwd || process.cwd(),
+        PATH: env.PATH?.split(':').slice(0, 5),
+        isPackaged: !process.defaultApp,
+        resourcesPath: process.resourcesPath,
+      });
+
+      if (!nodePath) {
+        throw new Error('Node.js not found. Please install Node.js.');
+      }
+
       const result = query({
-        prompt,
+        prompt: inputQueue,
         options: {
           cwd: session.cwd || process.cwd(),
           resume: resumeSessionId,
           model,
           abortController,
+          includePartialMessages: true,
+          env,
+          executable: nodePath as unknown as 'node',
           // 从文件系统加载 Skills（~/.claude/skills/ 和 .claude/skills/）
           settingSources: ['user', 'project'],
           // 加载 MCP 服务器配置（合并全局和项目级）
@@ -100,6 +282,9 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         // 转换 SDK 消息为内部格式并发送
         const streamMessage = convertSDKMessage(message as SDKMessage);
         if (streamMessage) {
+          if (streamMessage.type === 'system' && streamMessage.subtype === 'init') {
+            currentSessionId = streamMessage.session_id || currentSessionId;
+          }
           onMessage(streamMessage);
         }
       }
@@ -108,12 +293,20 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       if (error instanceof Error && error.name === 'AbortError') {
         return;
       }
-      throw error;
+      const err = error instanceof Error ? error : new Error(String(error));
+      onError?.(err);
+    } finally {
+      inputQueue.close();
     }
   })();
 
   return {
-    abort: () => abortController.abort(),
+    abort: () => {
+      abortController.abort();
+      inputQueue.close();
+    },
+    send: enqueuePrompt,
+    model,
   };
 }
 
@@ -157,6 +350,39 @@ function convertSDKMessage(message: SDKMessage): StreamMessage | null {
         total_cost_usd: message.total_cost_usd || 0,
         usage: message.usage || { input_tokens: 0, output_tokens: 0 },
       };
+
+    case 'stream_event': {
+      const rawEvent = message.event;
+      if (!rawEvent || typeof rawEvent.type !== 'string') {
+        return null;
+      }
+
+      if (!isStreamEventType(rawEvent.type)) {
+        return null;
+      }
+
+      const eventType = rawEvent.type;
+      const event = {
+        type: eventType,
+        index: typeof rawEvent.index === 'number' ? rawEvent.index : undefined,
+        delta:
+          eventType === 'content_block_delta' && rawEvent.delta
+            ? {
+                type: typeof rawEvent.delta.type === 'string' ? rawEvent.delta.type : '',
+                text: typeof rawEvent.delta.text === 'string' ? rawEvent.delta.text : undefined,
+                thinking:
+                  typeof rawEvent.delta.thinking === 'string'
+                    ? rawEvent.delta.thinking
+                    : undefined,
+              }
+            : undefined,
+      };
+
+      return {
+        type: 'stream_event',
+        event,
+      };
+    }
 
     default:
       return null;
