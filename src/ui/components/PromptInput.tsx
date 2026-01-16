@@ -1,11 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import { AVAILABLE_MODELS } from '../types';
-import type { ModelId } from '../types';
 
 export function PromptInput() {
-  const { activeSessionId, sessions, setShowNewSession, selectedModel, setSelectedModel } = useAppStore();
+  const { activeSessionId, sessions, setShowNewSession } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -30,7 +28,6 @@ export function PromptInput() {
         payload: {
           sessionId: activeSessionId,
           prompt: prompt.trim(),
-          model: selectedModel,
         },
       });
       setPrompt('');
@@ -81,13 +78,6 @@ export function PromptInput() {
         />
 
         <div className="flex items-center gap-2">
-          {/* Inline Model Picker */}
-          <ModelPicker
-            value={selectedModel}
-            onChange={setSelectedModel}
-            disabled={isRunning}
-          />
-
           <div className="flex-1" />
 
           {isRunning ? (
@@ -115,72 +105,5 @@ export function PromptInput() {
           : 'Press Enter to send, Shift+Enter for new line'}
       </div>
     </div>
-  );
-}
-
-// Inline Model Picker 组件
-function ModelPicker({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: ModelId;
-  onChange: (m: ModelId) => void;
-  disabled?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const model = AVAILABLE_MODELS.find((m) => m.id === value);
-
-  return (
-    <div className="relative">
-      <button
-        onClick={() => !disabled && setOpen(!open)}
-        disabled={disabled}
-        className="px-3 py-1.5 rounded-lg text-xs bg-[var(--bg-tertiary)] hover:bg-[var(--bg-primary)] border border-[var(--border)] flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <span className="text-[var(--text-secondary)]">{model?.displayName}</span>
-        <ChevronDownIcon />
-      </button>
-      {open && (
-        <>
-          {/* 点击外部关闭 */}
-          <div
-            className="fixed inset-0 z-10"
-            onClick={() => setOpen(false)}
-          />
-          <div className="absolute bottom-full mb-1 left-0 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-lg py-1 min-w-[180px] z-20">
-            {AVAILABLE_MODELS.map((m) => (
-              <button
-                key={m.id}
-                onClick={() => {
-                  onChange(m.id);
-                  setOpen(false);
-                }}
-                className={`w-full px-3 py-2 text-left text-sm hover:bg-[var(--bg-tertiary)] transition-colors ${
-                  m.id === value ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'
-                }`}
-              >
-                {m.displayName}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// 下拉箭头图标
-function ChevronDownIcon() {
-  return (
-    <svg
-      className="w-3 h-3 text-[var(--text-muted)]"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={2}
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-    </svg>
   );
 }

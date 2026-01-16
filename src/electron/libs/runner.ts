@@ -142,7 +142,7 @@ function buildUserMessage(prompt: string, sessionId: string): SDKUserMessage {
 
 // 运行 Claude Agent
 export function runClaude(options: RunnerOptions): RunnerHandle {
-  const { prompt, session, resumeSessionId, model, onMessage, onPermissionRequest, onError } = options;
+  const { prompt, session, resumeSessionId, onMessage, onPermissionRequest, onError } = options;
 
   const abortController = new AbortController();
   const inputQueue = new AsyncMessageQueue<SDKUserMessage>();
@@ -190,7 +190,6 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         options: {
           cwd: session.cwd || process.cwd(),
           resume: resumeSessionId,
-          model,
           abortController,
           includePartialMessages: true,
           env,
@@ -263,7 +262,6 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       inputQueue.close();
     },
     send: enqueuePrompt,
-    model,
   };
 }
 

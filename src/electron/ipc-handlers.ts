@@ -15,7 +15,6 @@ import type {
   SessionContinuePayload,
   PermissionResponsePayload,
   AskUserQuestionInput,
-  ModelId,
 } from './types';
 
 // Runner 句柄映射
@@ -148,7 +147,7 @@ async function handleSessionStart(
   mainWindow: BrowserWindow,
   payload: SessionStartPayload
 ): Promise<void> {
-  const { title, prompt, cwd, model, allowedTools } = payload;
+  const { title, prompt, cwd, allowedTools } = payload;
 
   // 创建会话（用临时标题）
   const session = sessions.createSession({
@@ -197,7 +196,7 @@ async function handleSessionStart(
   sessions.addMessage(session.id, { type: 'user_prompt', prompt });
 
   // 启动 Runner
-  startRunner(mainWindow, session, prompt, undefined, model);
+  startRunner(mainWindow, session, prompt, undefined);
 }
 
 // 继续会话
@@ -205,7 +204,7 @@ async function handleSessionContinue(
   mainWindow: BrowserWindow,
   payload: SessionContinuePayload
 ): Promise<void> {
-  const { sessionId, prompt, model } = payload;
+  const { sessionId, prompt } = payload;
 
   const session = sessions.getSession(sessionId);
   if (!session) {
@@ -216,12 +215,7 @@ async function handleSessionContinue(
     return;
   }
 
-  let existingRunner = runnerHandles.get(sessionId);
-  if (existingRunner && model && existingRunner.model && existingRunner.model !== model) {
-    existingRunner.abort();
-    runnerHandles.delete(sessionId);
-    existingRunner = undefined;
-  }
+  const existingRunner = runnerHandles.get(sessionId);
 
   if (!existingRunner && !session.claude_session_id) {
     broadcast(mainWindow, {
@@ -260,8 +254,7 @@ async function handleSessionContinue(
     mainWindow,
     session,
     prompt,
-    session.claude_session_id ?? undefined,
-    model
+    session.claude_session_id ?? undefined
   );
 }
 
@@ -270,8 +263,7 @@ function startRunner(
   mainWindow: BrowserWindow,
   session: ReturnType<typeof sessions.getSession>,
   prompt: string,
-  resumeSessionId?: string,
-  model?: ModelId
+  resumeSessionId?: string
 ): void {
   if (!session) return;
 
@@ -281,7 +273,6 @@ function startRunner(
     prompt,
     session,
     resumeSessionId,
-    model,
     onMessage: (message) => {
       // 提取并保存 claude session id
       if (message.type === 'system' && message.subtype === 'init') {

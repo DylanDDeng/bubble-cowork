@@ -17,21 +17,6 @@ export interface McpServerStatus {
   error?: string;
 }
 
-// 模型配置
-export type ModelId = 'claude-opus-4-5-20251101' | 'claude-sonnet-4-5-20250929';
-
-export interface ModelOption {
-  id: ModelId;
-  displayName: string;
-}
-
-export const AVAILABLE_MODELS: ModelOption[] = [
-  { id: 'claude-opus-4-5-20251101', displayName: 'claude-opus-4-5' },
-  { id: 'claude-sonnet-4-5-20250929', displayName: 'claude-sonnet-4-5' },
-];
-
-export const DEFAULT_MODEL: ModelId = 'claude-sonnet-4-5-20250929';
-
 // Client -> Server 事件
 export type ClientEvent =
   | { type: 'session.list' }
@@ -73,14 +58,12 @@ export interface SessionStartPayload {
   title: string;
   prompt: string;
   cwd?: string;
-  model?: ModelId;
   allowedTools?: string;
 }
 
 export interface SessionContinuePayload {
   sessionId: string;
   prompt: string;
-  model?: ModelId;  // per-message 模型覆盖
 }
 
 export interface SessionInfo {

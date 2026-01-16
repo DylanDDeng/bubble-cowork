@@ -13,7 +13,6 @@ export type {
   SessionStartPayload,
   SessionContinuePayload,
   PermissionResponsePayload,
-  ModelId,
 } from '../shared/types';
 
 // 数据库行类型
@@ -41,7 +40,6 @@ export interface RunnerOptions {
   prompt: string;
   session: SessionRow;
   resumeSessionId?: string;
-  model?: import('../shared/types').ModelId;
   onMessage: (message: import('../shared/types').StreamMessage) => void;
   onError?: (error: Error) => void;
   onPermissionRequest: (
@@ -54,7 +52,6 @@ export interface RunnerOptions {
 export interface RunnerHandle {
   abort: () => void;
   send: (prompt: string) => void;
-  model?: import('../shared/types').ModelId;
 }
 
 // 内部会话状态

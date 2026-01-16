@@ -1,11 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import { AVAILABLE_MODELS } from '../types';
-import type { ModelId } from '../types';
 
 export function NewSessionView() {
-  const { pendingStart, setPendingStart, selectedModel, setSelectedModel } = useAppStore();
+  const { pendingStart, setPendingStart } = useAppStore();
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
@@ -30,7 +28,6 @@ export function NewSessionView() {
         title: tempTitle,
         prompt: prompt.trim(),
         cwd: cwd || undefined,
-        model: selectedModel,
       },
     });
 
@@ -77,10 +74,6 @@ export function NewSessionView() {
                 value={cwd}
                 onChange={setCwd}
                 recentCwds={recentCwds}
-              />
-              <ModelPicker
-                value={selectedModel}
-                onChange={setSelectedModel}
               />
               <div className="flex-1" />
               <button
@@ -205,55 +198,6 @@ function CwdPicker({
                 </button>
               </>
             )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// Model Picker 组件
-function ModelPicker({
-  value,
-  onChange,
-}: {
-  value: ModelId;
-  onChange: (m: ModelId) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const model = AVAILABLE_MODELS.find((m) => m.id === value);
-
-  return (
-    <div className="relative no-drag">
-      <button
-        onClick={() => setOpen(!open)}
-        className="px-3 py-2 rounded-lg text-sm bg-[var(--bg-tertiary)] hover:bg-[var(--border)] border border-transparent flex items-center gap-1.5 transition-colors"
-      >
-        <span className="text-[var(--text-secondary)]">{model?.displayName}</span>
-        <ChevronDownIcon />
-      </button>
-      {open && (
-        <>
-          {/* 点击外部关闭 */}
-          <div
-            className="fixed inset-0 z-10"
-            onClick={() => setOpen(false)}
-          />
-          <div className="absolute bottom-full mb-1 left-0 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-lg py-1 min-w-[180px] z-20">
-            {AVAILABLE_MODELS.map((m) => (
-              <button
-                key={m.id}
-                onClick={() => {
-                  onChange(m.id);
-                  setOpen(false);
-                }}
-                className={`w-full px-3 py-2 text-left text-sm hover:bg-[var(--bg-tertiary)] transition-colors ${
-                  m.id === value ? 'text-[var(--accent)]' : 'text-[var(--text-primary)]'
-                }`}
-              >
-                {m.displayName}
-              </button>
-            ))}
           </div>
         </>
       )}

@@ -12,13 +12,9 @@ export type {
   PermissionResult,
   ClientEvent,
   ServerEvent,
-  ModelId,
-  ModelOption,
   McpServerConfig,
   McpServerStatus,
 } from '../shared/types';
-
-export { AVAILABLE_MODELS, DEFAULT_MODEL } from '../shared/types';
 
 // UI 会话视图状态
 export interface SessionView {
@@ -41,7 +37,6 @@ export interface AppState {
   showNewSession: boolean;
   globalError: string | null;
   pendingStart: boolean;
-  selectedModel: import('../shared/types').ModelId;
   // 搜索状态
   sidebarSearchQuery: string;
   activeFilters: SearchFilters;
@@ -66,7 +61,6 @@ export interface AppActions {
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;
   removePermissionRequest: (sessionId: string, toolUseId: string) => void;
-  setSelectedModel: (model: import('../shared/types').ModelId) => void;
   // 搜索 Actions
   setSidebarSearchQuery: (query: string) => void;
   setActiveFilters: (filters: Partial<SearchFilters>) => void;

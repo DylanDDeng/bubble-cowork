@@ -10,7 +10,6 @@ import type {
   SearchFilters,
   SearchMatch,
 } from '../types';
-import { DEFAULT_MODEL } from '../types';
 
 type Store = AppState & AppActions;
 type SetState = (
@@ -27,7 +26,6 @@ export const useAppStore = create<Store>()(
       showNewSession: false,
       globalError: null,
       pendingStart: false,
-      selectedModel: DEFAULT_MODEL,
       // 搜索状态
       sidebarSearchQuery: '',
       activeFilters: { timeRange: 'all' },
@@ -121,8 +119,6 @@ export const useAppStore = create<Store>()(
     });
   },
 
-  setSelectedModel: (model) => set({ selectedModel: model }),
-
   // 搜索 Actions
   setSidebarSearchQuery: (query) => set({ sidebarSearchQuery: query }),
 
@@ -169,7 +165,7 @@ export const useAppStore = create<Store>()(
     }),
     {
       name: 'cowork-app-storage',
-      partialize: (state) => ({ selectedModel: state.selectedModel }),
+      partialize: () => ({}),
     }
   )
 );
