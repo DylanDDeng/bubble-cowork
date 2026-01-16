@@ -172,14 +172,19 @@ async function handleSessionStart(
   });
 
   // 异步生成更好的标题（不阻塞）
-  generateSessionTitle(prompt).then((newTitle) => {
-    sessions.updateSessionTitle(session.id, newTitle);
+  generateSessionTitle(prompt, cwd).then((newTitle) => {
+    const trimmedTitle = newTitle.trim();
+    if (!trimmedTitle) {
+      return;
+    }
+
+    sessions.updateSessionTitle(session.id, trimmedTitle);
     broadcast(mainWindow, {
       type: 'session.status',
       payload: {
         sessionId: session.id,
         status: 'running',
-        title: newTitle,
+        title: trimmedTitle,
       },
     });
   }).catch((err) => {

@@ -11,7 +11,7 @@ interface SDKMessage {
 }
 
 // 使用 Claude SDK 生成会话标题
-export async function generateSessionTitle(prompt: string): Promise<string> {
+export async function generateSessionTitle(prompt: string, cwd?: string): Promise<string> {
   const env = {
     ...process.env,
     ...getClaudeEnv(),
@@ -20,7 +20,6 @@ export async function generateSessionTitle(prompt: string): Promise<string> {
   if (settings?.apiKey && !env.ANTHROPIC_API_KEY) {
     env.ANTHROPIC_API_KEY = settings.apiKey;
   }
-  const model = env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
   const { executable, executableArgs, env: runtimeEnv, pathToClaudeCodeExecutable } = getClaudeCodeRuntime();
   Object.assign(env, runtimeEnv);
 
@@ -33,13 +32,15 @@ Just output the title, nothing else.`;
     const result = query({
       prompt: titlePrompt,
       options: {
-        model,
         maxTurns: 1,
         allowedTools: [],
         env,
+        cwd: cwd || process.cwd(),
         executable: executable as unknown as 'node',
         executableArgs,
         pathToClaudeCodeExecutable,
+        // 与 Runner 保持一致：优先读取 user/project 设置与 Skills
+        settingSources: ['user', 'project'],
       },
     });
 
@@ -56,9 +57,9 @@ Just output the title, nothing else.`;
       }
     }
 
-    return title.trim().slice(0, 50) || 'New Session';
+    return title.trim().slice(0, 50);
   } catch (error) {
     console.error('Failed to generate title:', error);
-    return 'New Session';
+    return '';
   }
 }
