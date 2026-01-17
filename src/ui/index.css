@@ -39,6 +39,47 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Serif display heading (cross-platform system font stack) */
+.serif-display {
+  font-family:
+    ui-serif,
+    'New York',
+    'Iowan Old Style',
+    'Palatino Linotype',
+    Palatino,
+    Georgia,
+    Cambria,
+    'Times New Roman',
+    Times,
+    serif;
+  letter-spacing: -0.02em;
+}
+
+/* Subtle dotted background (for landing/new session view) */
+.dot-pattern {
+  position: relative;
+  overflow: hidden;
+  --dot-color: rgba(0, 0, 0, 0.22);
+  --dot-size: 1.8px;
+  --dot-gap: 25px;
+}
+
+.dot-pattern::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  /* Use a fixed alpha so dots remain visible on light backgrounds */
+  background-image: radial-gradient(circle, var(--dot-color) var(--dot-size), transparent var(--dot-size));
+  background-size: var(--dot-gap) var(--dot-gap);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.dot-pattern > * {
+  position: relative;
+  z-index: 1;
+}
+
 /* 自定义滚动条 */
 ::-webkit-scrollbar {
   width: 8px;

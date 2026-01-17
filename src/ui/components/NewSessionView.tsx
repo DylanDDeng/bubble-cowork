@@ -44,17 +44,17 @@ export function NewSessionView() {
   };
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col dot-pattern">
       {/* 顶部拖拽区域 */}
       <div className="h-8 drag-region flex-shrink-0" />
 
       {/* 内容区域 */}
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-2xl">
-          {/* 标题 */}
-          <h1 className="text-xl font-medium mb-6 text-center text-[var(--text-secondary)]">
-            What can I help you with?
-          </h1>
+	          {/* 标题 */}
+	          <h1 className="text-4xl font-bold serif-display leading-tight mb-6 text-center text-[var(--text-primary)]">
+	            What can I help you with?
+	          </h1>
 
           {/* Composer */}
           <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl focus-within:border-[var(--accent)] shadow-sm transition-colors">
@@ -76,13 +76,20 @@ export function NewSessionView() {
                 recentCwds={recentCwds}
               />
               <div className="flex-1" />
-              <button
-                onClick={handleStart}
-                disabled={!prompt.trim() || pendingStart}
-                className="px-5 py-1.5 rounded-lg text-sm bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed no-drag"
-              >
-                {pendingStart ? 'Starting...' : 'Send'}
-              </button>
+	              <button
+	                onClick={handleStart}
+	                disabled={!prompt.trim() || pendingStart}
+	                className="px-5 py-1.5 rounded-lg text-sm bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed no-drag inline-flex items-center gap-1.5"
+	              >
+	                {pendingStart ? (
+	                  'Starting...'
+	                ) : (
+	                  <>
+	                    <span>Let&apos;s Go</span>
+	                    <ArrowRightIcon />
+	                  </>
+	                )}
+	              </button>
             </div>
           </div>
 
@@ -252,6 +259,22 @@ function ChevronDownIcon() {
       strokeWidth={2}
     >
       <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+    </svg>
+  );
+}
+
+function ArrowRightIcon() {
+  return (
+    <svg
+      className="w-4 h-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden="true"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5-5 5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 12h12" />
     </svg>
   );
 }
