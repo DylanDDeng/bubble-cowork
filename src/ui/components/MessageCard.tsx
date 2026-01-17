@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { MDContent } from '../render/markdown';
-import { SessionResultCard } from './EventCard';
 import { DecisionPanel, getAskUserQuestionSignature } from './DecisionPanel';
 import { ToolGroup } from './ToolGroup';
 import { AttachmentChips } from './AttachmentChips';
@@ -103,7 +102,8 @@ export function MessageCard({
       return null;
 
     case 'result':
-      return <SessionResultCard message={message} />;
+      // Hide session summary (duration/cost/tokens) to avoid confusing pricing across providers.
+      return null;
 
     case 'stream_event':
       // stream_event 消息在 App.tsx 中单独处理 partial streaming
