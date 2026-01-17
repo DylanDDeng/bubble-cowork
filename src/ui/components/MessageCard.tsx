@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { MDContent } from '../render/markdown';
 import { SessionResultCard } from './EventCard';
 import { DecisionPanel, getAskUserQuestionSignature } from './DecisionPanel';
@@ -54,6 +54,11 @@ interface MessageCardProps {
   toolResultsMap: Map<string, ToolResultBlock>;
   permissionRequests: PermissionRequestPayload[];
   onPermissionResult: (toolUseId: string, result: PermissionResult) => void;
+  userPromptActions?: {
+    canEditAndRetry: boolean;
+    isSessionRunning: boolean;
+    onResend: (prompt: string) => void;
+  };
 }
 
 export function MessageCard({
@@ -62,10 +67,17 @@ export function MessageCard({
   toolResultsMap,
   permissionRequests,
   onPermissionResult,
+  userPromptActions,
 }: MessageCardProps) {
   switch (message.type) {
     case 'user_prompt':
-      return <UserPromptCard prompt={message.prompt} />;
+      return (
+        <UserPromptCard
+          prompt={message.prompt}
+          createdAt={message.createdAt}
+          actions={userPromptActions}
+        />
+      );
 
     case 'system':
       // 不再显示 Session Started 卡片，CWD 已移至右上角
@@ -99,13 +111,237 @@ export function MessageCard({
 }
 
 // 用户 prompt 卡片
-function UserPromptCard({ prompt }: { prompt: string }) {
+function UserPromptCard({
+  prompt,
+  createdAt,
+  actions,
+}: {
+  prompt: string;
+  createdAt?: number;
+  actions?: {
+    canEditAndRetry: boolean;
+    isSessionRunning: boolean;
+    onResend: (prompt: string) => void;
+  };
+}) {
+  const [copied, setCopied] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(prompt);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!isEditing) {
+      return;
+    }
+
+    const raf = requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      const len = el.value.length;
+      el.setSelectionRange(len, len);
+    });
+
+    return () => {
+      cancelAnimationFrame(raf);
+    };
+  }, [isEditing]);
+
+  const canEditAndRetry = !!actions?.canEditAndRetry && !actions?.isSessionRunning;
+
+  const copyTitle = copied ? 'Copied' : 'Copy';
+  const editTitle = actions?.isSessionRunning
+    ? 'Stop the session to edit'
+    : actions?.canEditAndRetry
+      ? 'Edit'
+      : 'Only the latest message can be edited';
+  const retryTitle = actions?.isSessionRunning
+    ? 'Stop the session to retry'
+    : actions?.canEditAndRetry
+      ? 'Retry'
+      : 'Only the latest message can be retried';
+
+  const timestampLabel =
+    typeof createdAt === 'number'
+      ? new Date(createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+      : '';
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleRetry = () => {
+    if (!canEditAndRetry) return;
+    actions?.onResend(prompt);
+  };
+
+  const handleEdit = () => {
+    if (!canEditAndRetry) return;
+    setDraft(prompt);
+    setIsEditing(true);
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setDraft(prompt);
+  };
+
+  const handleSaveAndRetry = () => {
+    const nextPrompt = draft.trim();
+    if (!nextPrompt) return;
+    actions?.onResend(nextPrompt);
+    setIsEditing(false);
+  };
+
   return (
     <div className="flex justify-end my-3">
-      <div className="max-w-[80%] bg-white border border-[var(--border)] rounded-lg rounded-br-sm px-4 py-2">
-        <div className="text-sm whitespace-pre-wrap">{prompt}</div>
+      <div className="max-w-[80%] flex flex-col items-end group">
+        <div className="w-full bg-white border border-[var(--border)] rounded-lg rounded-br-sm px-4 py-2">
+          {isEditing ? (
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={Math.min(8, Math.max(2, draft.split('\n').length))}
+              className="w-full bg-transparent text-sm outline-none resize-none whitespace-pre-wrap"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  handleCancelEdit();
+                  return;
+                }
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSaveAndRetry();
+                }
+              }}
+            />
+          ) : (
+            <div className="text-sm whitespace-pre-wrap">{prompt}</div>
+          )}
+        </div>
+
+        {/* Action bar (appears below bubble) */}
+        <div
+          className={`mt-1 h-6 flex items-center justify-end gap-3 text-xs text-[var(--text-muted)] transition-opacity ${
+            isEditing
+              ? 'opacity-100 pointer-events-auto'
+              : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto'
+          }`}
+        >
+          {timestampLabel && <span className="tabular-nums">{timestampLabel}</span>}
+
+          {isEditing ? (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleCancelEdit}
+                className="px-2 py-0.5 text-xs rounded hover:bg-[var(--bg-tertiary)] transition-colors"
+                title="Cancel"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveAndRetry}
+                disabled={!draft.trim()}
+                className="px-2 py-0.5 text-xs rounded bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Save & Retry"
+              >
+                Save & Retry
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <IconButton
+                onClick={handleRetry}
+                title={retryTitle}
+                ariaLabel="Retry"
+                disabled={!actions || !canEditAndRetry}
+              >
+                <RetryIcon />
+              </IconButton>
+              <IconButton
+                onClick={handleEdit}
+                title={editTitle}
+                ariaLabel="Edit"
+                disabled={!actions || !canEditAndRetry}
+              >
+                <EditIcon />
+              </IconButton>
+              <IconButton onClick={handleCopy} title={copyTitle} ariaLabel="Copy">
+                {copied ? <CheckIcon /> : <CopyIcon />}
+              </IconButton>
+            </div>
+          )}
+        </div>
       </div>
     </div>
+  );
+}
+
+function IconButton({
+  children,
+  onClick,
+  title,
+  ariaLabel,
+  disabled,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  title: string;
+  ariaLabel: string;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      className="p-1 rounded transition-colors hover:text-[var(--text-secondary)] disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      {children}
+    </button>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  );
+}
+
+function RetryIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M21 12a9 9 0 1 1-3-6.7" />
+      <polyline points="21 3 21 9 15 9" />
+    </svg>
   );
 }
 

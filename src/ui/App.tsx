@@ -227,6 +227,15 @@ export function App() {
   };
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
+  const lastUserPromptIndex = useMemo(() => {
+    if (!activeSession) return -1;
+    for (let i = activeSession.messages.length - 1; i >= 0; i--) {
+      if (activeSession.messages[i]?.type === 'user_prompt') {
+        return i;
+      }
+    }
+    return -1;
+  }, [activeSession?.messages]);
 
   return (
     <div className="flex h-full">
@@ -280,6 +289,27 @@ export function App() {
                       toolResultsMap={toolResultsMap}
                       permissionRequests={activeSession.permissionRequests}
                       onPermissionResult={handlePermissionResult}
+                      userPromptActions={
+                        item.message.type === 'user_prompt'
+                          ? {
+                              canEditAndRetry: item.originalIndex === lastUserPromptIndex,
+                              isSessionRunning: activeSession.status === 'running',
+                              onResend: (prompt: string) => {
+                                if (!activeSessionId) return;
+                                if (!prompt.trim()) return;
+                                if (activeSession.status === 'running') return;
+
+                                sendEvent({
+                                  type: 'session.continue',
+                                  payload: {
+                                    sessionId: activeSessionId,
+                                    prompt: prompt.trim(),
+                                  },
+                                });
+                              },
+                            }
+                          : undefined
+                      }
                     />
                   </div>
                 );

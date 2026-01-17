@@ -125,9 +125,13 @@ export interface AskUserQuestion {
 }
 
 // StreamMessage 类型（SDK 消息或内部消息）
+export type StreamMessageBase = {
+  createdAt?: number;
+};
+
 export type StreamMessage =
-  | { type: 'user_prompt'; prompt: string }
-  | {
+  | (StreamMessageBase & { type: 'user_prompt'; prompt: string })
+  | (StreamMessageBase & {
       type: 'system';
       subtype: 'init';
       session_id: string;
@@ -136,18 +140,18 @@ export type StreamMessage =
       cwd: string;
       tools: string[];
       mcp_servers?: McpServerStatus[];
-    }
-  | { type: 'assistant'; uuid: string; message: AssistantMessage }
-  | { type: 'user'; uuid: string; message: UserMessage }
-  | {
+    })
+  | (StreamMessageBase & { type: 'assistant'; uuid: string; message: AssistantMessage })
+  | (StreamMessageBase & { type: 'user'; uuid: string; message: UserMessage })
+  | (StreamMessageBase & {
       type: 'result';
       subtype: 'success' | string;
       duration_ms: number;
       total_cost_usd: number;
       usage: Usage;
-    }
-  | { type: 'stream_event'; event: StreamEvent }
-  | { type: 'mcp_status'; servers: McpServerStatus[] };
+    })
+  | (StreamMessageBase & { type: 'stream_event'; event: StreamEvent })
+  | (StreamMessageBase & { type: 'mcp_status'; servers: McpServerStatus[] });
 
 // 简化的 Anthropic API 类型
 export interface AssistantMessage {

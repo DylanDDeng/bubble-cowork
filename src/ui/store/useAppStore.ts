@@ -327,7 +327,7 @@ function handleUserPrompt(
     const session = state.sessions[sessionId];
     if (!session) return state;
 
-    const userMessage: StreamMessage = { type: 'user_prompt', prompt };
+    const userMessage: StreamMessage = { type: 'user_prompt', prompt, createdAt: Date.now() };
 
     return {
       ...state,

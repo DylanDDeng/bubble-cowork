@@ -148,10 +148,17 @@ export function addMessage(sessionId: string, message: StreamMessage): void {
 // 获取会话历史消息
 export function getSessionHistory(sessionId: string): StreamMessage[] {
   const stmt = getDb().prepare(`
-    SELECT data FROM messages WHERE session_id = ? ORDER BY created_at ASC
+    SELECT data, created_at FROM messages WHERE session_id = ? ORDER BY created_at ASC
   `);
-  const rows = stmt.all(sessionId) as { data: string }[];
-  return rows.map((row) => JSON.parse(row.data));
+  const rows = stmt.all(sessionId) as { data: string; created_at: number }[];
+
+  return rows.map((row) => {
+    const message = JSON.parse(row.data) as StreamMessage;
+    if (typeof (message as StreamMessage & { createdAt?: number }).createdAt !== 'number') {
+      (message as StreamMessage & { createdAt?: number }).createdAt = row.created_at;
+    }
+    return message;
+  });
 }
 
 // 获取最近使用的工作目录
