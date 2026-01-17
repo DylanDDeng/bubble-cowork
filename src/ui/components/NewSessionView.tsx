@@ -9,6 +9,7 @@ export function NewSessionView() {
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
 
   // 加载最近工作目录
@@ -20,6 +21,7 @@ export function NewSessionView() {
     if (!prompt.trim()) return;
 
     setPendingStart(true);
+    setMenuOpen(false);
 
     // 用 prompt 前 30 字符作为临时标题（后台会异步生成更好的标题）
     const tempTitle = prompt.trim().slice(0, 30) + (prompt.trim().length > 30 ? '...' : '');
@@ -79,9 +81,9 @@ export function NewSessionView() {
           </h1>
 
           {/* Composer */}
-          <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl focus-within:border-[var(--accent)] shadow-sm transition-colors">
+          <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-3xl shadow-sm transition-colors">
             {attachments.length > 0 && (
-              <div className="px-4 pt-3">
+              <div className="px-5 pt-4">
                 <AttachmentChips
                   attachments={attachments}
                   onRemove={(id) =>
@@ -96,30 +98,56 @@ export function NewSessionView() {
               onKeyDown={handleKeyDown}
               placeholder="Describe your task..."
               rows={4}
-              className="w-full bg-transparent px-4 py-3 text-sm outline-none resize-none no-drag"
+              className="w-full bg-transparent px-5 pt-4 pb-3 text-[15px] outline-none resize-none no-drag"
               autoFocus
             />
 
             {/* 底部工具栏 */}
-            <div className="flex items-center gap-2 px-3 py-2 border-t border-[var(--border)]">
+            <div className="flex items-center gap-2 px-4 pb-4">
               <CwdPicker
                 value={cwd}
                 onChange={setCwd}
                 recentCwds={recentCwds}
               />
+
+              <div className="relative no-drag">
+                <button
+                  onClick={() => setMenuOpen((v) => !v)}
+                  disabled={pendingStart}
+                  className="p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Add"
+                  aria-label="Add"
+                >
+                  <PlusIcon />
+                </button>
+
+                {menuOpen && !pendingStart && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-20"
+                      onClick={() => setMenuOpen(false)}
+                    />
+                    <div className="absolute bottom-full mb-2 left-0 z-30 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-lg p-1 min-w-[220px]">
+                      <button
+                        onClick={async () => {
+                          setMenuOpen(false);
+                          await handleAddAttachments();
+                        }}
+                        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors text-sm text-[var(--text-primary)]"
+                      >
+                        <PaperclipIcon />
+                        <span>Add files or photos</span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
               <div className="flex-1" />
-              <button
-                onClick={handleAddAttachments}
-                disabled={pendingStart}
-                className="p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed no-drag"
-                title="Add files or photos"
-              >
-                <PaperclipIcon />
-              </button>
               <button
                 onClick={handleStart}
                 disabled={!prompt.trim() || pendingStart}
-                className="px-5 py-1.5 rounded-lg text-sm bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed no-drag inline-flex items-center gap-1.5"
+                className="h-11 px-5 rounded-xl text-[15px] bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed no-drag inline-flex items-center gap-2"
               >
                 {pendingStart ? (
                   'Starting...'
@@ -334,6 +362,21 @@ function PaperclipIcon() {
         strokeLinejoin="round"
         d="M21.44 11.05l-8.49 8.49a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.19 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.49"
       />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      className="w-5 h-5"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
     </svg>
   );
 }
