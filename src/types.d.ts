@@ -1,7 +1,7 @@
 // 全局类型声明（Window 扩展）
 // 实际类型定义在 src/shared/types.ts
 
-import type { ClientEvent, ServerEvent, StatisticsData, StaticData } from './shared/types';
+import type { ClientEvent, ServerEvent, StatisticsData, StaticData, Attachment } from './shared/types';
 
 declare global {
   interface ElectronAPI {
@@ -10,6 +10,8 @@ declare global {
     generateSessionTitle: (prompt: string) => Promise<string>;
     getRecentCwds: (limit?: number) => Promise<string[]>;
     selectDirectory: () => Promise<string | null>;
+    selectAttachments: () => Promise<Attachment[]>;
+    readAttachmentPreview: (filePath: string) => Promise<string | null>;
     subscribeStatistics: (callback: (data: StatisticsData) => void) => () => void;
     getStaticData: () => Promise<StaticData>;
   }

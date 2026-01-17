@@ -17,6 +17,18 @@ export interface McpServerStatus {
   error?: string;
 }
 
+// 附件类型（文件/图片）
+export type AttachmentKind = 'file' | 'image';
+
+export interface Attachment {
+  id: string;
+  path: string;
+  name: string;
+  size: number;
+  mimeType: string;
+  kind: AttachmentKind;
+}
+
 // Client -> Server 事件
 export type ClientEvent =
   | { type: 'session.list' }
@@ -41,7 +53,10 @@ export type ServerEvent =
   | { type: 'session.status'; payload: SessionStatusPayload }
   | { type: 'session.history'; payload: SessionHistoryPayload }
   | { type: 'session.deleted'; payload: { sessionId: string } }
-  | { type: 'stream.user_prompt'; payload: { sessionId: string; prompt: string } }
+  | {
+      type: 'stream.user_prompt';
+      payload: { sessionId: string; prompt: string; attachments?: Attachment[]; createdAt?: number };
+    }
   | { type: 'stream.message'; payload: { sessionId: string; message: StreamMessage } }
   | { type: 'permission.request'; payload: PermissionRequestPayload }
   | { type: 'runner.error'; payload: { message: string; sessionId?: string } }
@@ -59,11 +74,13 @@ export interface SessionStartPayload {
   prompt: string;
   cwd?: string;
   allowedTools?: string;
+  attachments?: Attachment[];
 }
 
 export interface SessionContinuePayload {
   sessionId: string;
   prompt: string;
+  attachments?: Attachment[];
 }
 
 export interface SessionInfo {
@@ -130,7 +147,7 @@ export type StreamMessageBase = {
 };
 
 export type StreamMessage =
-  | (StreamMessageBase & { type: 'user_prompt'; prompt: string })
+  | (StreamMessageBase & { type: 'user_prompt'; prompt: string; attachments?: Attachment[] })
   | (StreamMessageBase & {
       type: 'system';
       subtype: 'init';

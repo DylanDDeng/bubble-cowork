@@ -1,6 +1,8 @@
-import { query, type McpServerConfig as SDKMcpServerConfig } from '@anthropic-ai/claude-agent-sdk';
+import { query, type McpServerConfig as SDKMcpServerConfig, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { readFile } from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
-import type { RunnerOptions, RunnerHandle, StreamMessage, PermissionResult } from '../types';
+import type { Base64ImageSource, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages';
+import type { RunnerOptions, RunnerHandle, StreamMessage, PermissionResult, Attachment } from '../types';
 import { getClaudeEnv, getClaudeSettings, getMcpServers } from './claude-settings';
 import { getClaudeCodeRuntime } from './claude-runtime';
 
@@ -50,16 +52,6 @@ interface ContentBlock {
   name?: string;
   input?: unknown;
   thinking?: string;
-}
-
-interface SDKUserMessage {
-  type: 'user';
-  session_id: string;
-  parent_tool_use_id: null;
-  message: {
-    role: 'user';
-    content: Array<{ type: 'text'; text: string }>;
-  };
 }
 
 type StreamEventType =
@@ -128,35 +120,89 @@ class AsyncMessageQueue<T> implements AsyncIterable<T> {
   }
 }
 
-function buildUserMessage(prompt: string, sessionId: string): SDKUserMessage {
+async function buildUserMessage(
+  prompt: string,
+  sessionId: string,
+  attachments?: Attachment[]
+): Promise<SDKUserMessage> {
+  const allAttachments = attachments?.filter((a) => a && a.path) || [];
+  const attachmentLines =
+    allAttachments.length > 0
+      ? [
+          '',
+          'Attachments:',
+          ...allAttachments.map((a) => `- ${a.name}: ${a.path}`),
+          '',
+        ].join('\n')
+      : '';
+
+  const content: ContentBlockParam[] = [
+    {
+      type: 'text',
+      text: `${prompt}${attachmentLines ? `\n\n${attachmentLines}` : ''}`,
+    },
+  ];
+
+  const imageAttachments = allAttachments.filter((a) => a.kind === 'image');
+  for (const image of imageAttachments) {
+    try {
+      const buffer = await readFile(image.path);
+      const mediaType: Base64ImageSource['media_type'] =
+        image.mimeType === 'image/jpeg' ? 'image/jpeg' : 'image/png';
+      content.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: mediaType,
+          data: buffer.toString('base64'),
+        },
+      });
+    } catch (error) {
+      console.warn('Failed to read image attachment:', image.path, error);
+    }
+  }
+
   return {
     type: 'user',
     session_id: sessionId,
     parent_tool_use_id: null,
-    message: {
-      role: 'user',
-      content: [{ type: 'text', text: prompt }],
-    },
+    message: { role: 'user', content },
   };
 }
 
 // 运行 Claude Agent
 export function runClaude(options: RunnerOptions): RunnerHandle {
-  const { prompt, session, resumeSessionId, onMessage, onPermissionRequest, onError } = options;
+  const { prompt, attachments, session, resumeSessionId, onMessage, onPermissionRequest, onError } = options;
 
   const abortController = new AbortController();
   const inputQueue = new AsyncMessageQueue<SDKUserMessage>();
   let currentSessionId = resumeSessionId || '';
+  let enqueueChain: Promise<void> = Promise.resolve();
 
-  const enqueuePrompt = (text: string) => {
-    if (!text) {
+  const enqueuePrompt = (text: string, promptAttachments?: Attachment[]) => {
+    const trimmed = text.trim();
+    if (!trimmed) {
       return;
     }
 
-    inputQueue.push(buildUserMessage(text, currentSessionId));
+    enqueueChain = enqueueChain
+      .then(async () => {
+        if (abortController.signal.aborted) {
+          return;
+        }
+        const message = await buildUserMessage(trimmed, currentSessionId, promptAttachments);
+        if (abortController.signal.aborted) {
+          return;
+        }
+        inputQueue.push(message);
+      })
+      .catch((error) => {
+        const err = error instanceof Error ? error : new Error(String(error));
+        onError?.(err);
+      });
   };
 
-  enqueuePrompt(prompt);
+  enqueuePrompt(prompt, attachments);
 
   // 异步执行
   (async () => {

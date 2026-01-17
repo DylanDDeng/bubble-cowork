@@ -5,6 +5,7 @@ export type {
   SessionInfo,
   SessionStatus,
   StreamMessage,
+  Attachment,
   AskUserQuestionInput,
   AskUserQuestion,
   ContentBlock,

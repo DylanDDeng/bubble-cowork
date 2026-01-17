@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
+import type { Attachment } from '../types';
+import { AttachmentChips } from './AttachmentChips';
 
 export function NewSessionView() {
   const { pendingStart, setPendingStart } = useAppStore();
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
 
   // 加载最近工作目录
@@ -28,12 +31,31 @@ export function NewSessionView() {
         title: tempTitle,
         prompt: prompt.trim(),
         cwd: cwd || undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
       },
     });
 
     // 清空输入
     setPrompt('');
     setCwd('');
+    setAttachments([]);
+  };
+
+  const handleAddAttachments = async () => {
+    if (pendingStart) return;
+    const selected = await window.electron.selectAttachments();
+    if (!selected || selected.length === 0) return;
+
+    setAttachments((prev) => {
+      const existingPaths = new Set(prev.map((a) => a.path));
+      const next = [...prev];
+      for (const a of selected) {
+        if (!existingPaths.has(a.path)) {
+          next.push(a);
+        }
+      }
+      return next;
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -51,13 +73,23 @@ export function NewSessionView() {
       {/* 内容区域 */}
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-2xl">
-	          {/* 标题 */}
-	          <h1 className="text-4xl font-bold serif-display leading-tight mb-6 text-center text-[var(--text-primary)]">
-	            What can I help you with?
-	          </h1>
+          {/* 标题 */}
+          <h1 className="text-4xl font-bold serif-display leading-tight mb-6 text-center text-[var(--text-primary)]">
+            What can I help you with?
+          </h1>
 
           {/* Composer */}
           <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl focus-within:border-[var(--accent)] shadow-sm transition-colors">
+            {attachments.length > 0 && (
+              <div className="px-4 pt-3">
+                <AttachmentChips
+                  attachments={attachments}
+                  onRemove={(id) =>
+                    setAttachments((prev) => prev.filter((a) => a.id !== id))
+                  }
+                />
+              </div>
+            )}
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -76,20 +108,28 @@ export function NewSessionView() {
                 recentCwds={recentCwds}
               />
               <div className="flex-1" />
-	              <button
-	                onClick={handleStart}
-	                disabled={!prompt.trim() || pendingStart}
-	                className="px-5 py-1.5 rounded-lg text-sm bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed no-drag inline-flex items-center gap-1.5"
-	              >
-	                {pendingStart ? (
-	                  'Starting...'
-	                ) : (
-	                  <>
-	                    <span>Let&apos;s Go</span>
-	                    <ArrowRightIcon />
-	                  </>
-	                )}
-	              </button>
+              <button
+                onClick={handleAddAttachments}
+                disabled={pendingStart}
+                className="p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed no-drag"
+                title="Add files or photos"
+              >
+                <PaperclipIcon />
+              </button>
+              <button
+                onClick={handleStart}
+                disabled={!prompt.trim() || pendingStart}
+                className="px-5 py-1.5 rounded-lg text-sm bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed no-drag inline-flex items-center gap-1.5"
+              >
+                {pendingStart ? (
+                  'Starting...'
+                ) : (
+                  <>
+                    <span>Let&apos;s Go</span>
+                    <ArrowRightIcon />
+                  </>
+                )}
+              </button>
             </div>
           </div>
 
@@ -275,6 +315,25 @@ function ArrowRightIcon() {
     >
       <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5-5 5" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M6 12h12" />
+    </svg>
+  );
+}
+
+function PaperclipIcon() {
+  return (
+    <svg
+      className="w-4 h-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M21.44 11.05l-8.49 8.49a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.19 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.49"
+      />
     </svg>
   );
 }

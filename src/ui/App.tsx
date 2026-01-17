@@ -294,7 +294,7 @@ export function App() {
                           ? {
                               canEditAndRetry: item.originalIndex === lastUserPromptIndex,
                               isSessionRunning: activeSession.status === 'running',
-                              onResend: (prompt: string) => {
+                              onResend: (prompt: string, attachments) => {
                                 if (!activeSessionId) return;
                                 if (!prompt.trim()) return;
                                 if (activeSession.status === 'running') return;
@@ -304,6 +304,7 @@ export function App() {
                                   payload: {
                                     sessionId: activeSessionId,
                                     prompt: prompt.trim(),
+                                    attachments: attachments && attachments.length > 0 ? attachments : undefined,
                                   },
                                 });
                               },
@@ -317,14 +318,12 @@ export function App() {
 
               {/* Partial streaming 显示 */}
               {showPartialMessage && (
-                <div className="my-3">
-                  <div className="bg-[var(--bg-secondary)] rounded-lg p-4">
-                    {partialMessage ? (
-                      <MDContent content={partialMessage} />
-                    ) : (
-                      <div className="shimmer h-4 w-32 rounded" />
-                    )}
-                  </div>
+                <div className="my-3 min-w-0 overflow-x-auto">
+                  {partialMessage ? (
+                    <MDContent content={partialMessage} />
+                  ) : (
+                    <div className="shimmer h-4 w-32 rounded" />
+                  )}
                 </div>
               )}
 

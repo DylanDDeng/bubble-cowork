@@ -1,10 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
+import type { Attachment } from '../types';
+import { AttachmentChips } from './AttachmentChips';
 
 export function PromptInput() {
   const { activeSessionId, sessions, setShowNewSession } = useAppStore();
   const [prompt, setPrompt] = useState('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
@@ -28,9 +31,11 @@ export function PromptInput() {
         payload: {
           sessionId: activeSessionId,
           prompt: prompt.trim(),
+          attachments: attachments.length > 0 ? attachments : undefined,
         },
       });
       setPrompt('');
+      setAttachments([]);
     } else {
       // 没有活动会话，显示新建视图
       setShowNewSession(true);
@@ -44,6 +49,23 @@ export function PromptInput() {
         payload: { sessionId: activeSessionId },
       });
     }
+  };
+
+  const handleAddAttachments = async () => {
+    if (isRunning) return;
+    const selected = await window.electron.selectAttachments();
+    if (!selected || selected.length === 0) return;
+
+    setAttachments((prev) => {
+      const existingPaths = new Set(prev.map((a) => a.path));
+      const next = [...prev];
+      for (const a of selected) {
+        if (!existingPaths.has(a.path)) {
+          next.push(a);
+        }
+      }
+      return next;
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -60,6 +82,12 @@ export function PromptInput() {
   return (
     <div className="border-t border-[var(--border)] p-4 bg-[var(--bg-secondary)]">
       <div className="flex flex-col gap-2">
+        {attachments.length > 0 && (
+          <AttachmentChips
+            attachments={attachments}
+            onRemove={(id) => setAttachments((prev) => prev.filter((a) => a.id !== id))}
+          />
+        )}
         <textarea
           ref={textareaRef}
           value={prompt}
@@ -78,6 +106,14 @@ export function PromptInput() {
         />
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleAddAttachments}
+            disabled={isRunning}
+            className="p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Add files or photos"
+          >
+            <PaperclipIcon />
+          </button>
           <div className="flex-1" />
 
           {isRunning ? (
@@ -105,5 +141,24 @@ export function PromptInput() {
           : 'Press Enter to send, Shift+Enter for new line'}
       </div>
     </div>
+  );
+}
+
+function PaperclipIcon() {
+  return (
+    <svg
+      className="w-4 h-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M21.44 11.05l-8.49 8.49a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.19 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.49"
+      />
+    </svg>
   );
 }

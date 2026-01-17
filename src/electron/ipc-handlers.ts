@@ -1,4 +1,7 @@
-import { ipcMain, BrowserWindow, dialog } from 'electron';
+import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { readFileSync, statSync } from 'fs';
+import { basename, extname } from 'path';
+import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
 import { runClaude } from './libs/runner';
 import { generateSessionTitle } from './libs/util';
@@ -15,7 +18,61 @@ import type {
   SessionContinuePayload,
   PermissionResponsePayload,
   AskUserQuestionInput,
+  Attachment,
 } from './types';
+
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
+
+const ATTACHMENT_MIME_TYPES: Record<string, string> = {
+  '.txt': 'text/plain',
+  '.md': 'text/markdown',
+  '.json': 'application/json',
+  '.log': 'text/plain',
+  '.pdf': 'application/pdf',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+};
+
+function getAttachmentSpec(filePath: string): { kind: Attachment['kind']; mimeType: string } | null {
+  const ext = extname(filePath).toLowerCase();
+  const mimeType = ATTACHMENT_MIME_TYPES[ext];
+  if (!mimeType) {
+    return null;
+  }
+
+  const kind: Attachment['kind'] = ext === '.png' || ext === '.jpg' || ext === '.jpeg' ? 'image' : 'file';
+  return { kind, mimeType };
+}
+
+function toAttachment(filePath: string): Attachment | null {
+  const spec = getAttachmentSpec(filePath);
+  if (!spec) {
+    return null;
+  }
+
+  try {
+    const stat = statSync(filePath);
+    if (!stat.isFile()) {
+      return null;
+    }
+    if (stat.size > MAX_ATTACHMENT_BYTES) {
+      return null;
+    }
+
+    return {
+      id: uuidv4(),
+      path: filePath,
+      name: basename(filePath),
+      size: stat.size,
+      mimeType: spec.mimeType,
+      kind: spec.kind,
+    };
+  } catch {
+    return null;
+  }
+}
 
 // Runner 句柄映射
 const runnerHandles = new Map<string, RunnerHandle>();
@@ -76,6 +133,65 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       properties: ['openDirectory'],
     });
     return result.canceled ? null : result.filePaths[0];
+  });
+
+  // RPC: 选择附件（文件/图片）
+  ipcMainHandle('select-attachments', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        {
+          name: 'Supported',
+          extensions: ['txt', 'md', 'json', 'log', 'pdf', 'docx', 'png', 'jpg', 'jpeg'],
+        },
+      ],
+    });
+
+    if (result.canceled) {
+      return [] as Attachment[];
+    }
+
+    const attachments: Attachment[] = [];
+    let skipped = 0;
+
+    for (const filePath of result.filePaths) {
+      const attachment = toAttachment(filePath);
+      if (attachment) {
+        attachments.push(attachment);
+      } else {
+        skipped += 1;
+      }
+    }
+
+    if (skipped > 0) {
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: `Skipped ${skipped} file(s): only .txt/.md/.json/.log/.pdf/.docx/.png/.jpg are supported (<=10MB).`,
+        },
+      });
+    }
+
+    return attachments;
+  });
+
+  // RPC: 读取图片预览（data URL）
+  ipcMainHandle('read-attachment-preview', async (_event, filePath: string) => {
+    const spec = getAttachmentSpec(filePath);
+    if (!spec || spec.kind !== 'image') {
+      return null;
+    }
+
+    try {
+      const stat = statSync(filePath);
+      if (!stat.isFile() || stat.size > MAX_ATTACHMENT_BYTES) {
+        return null;
+      }
+      const buffer = readFileSync(filePath);
+      return `data:${spec.mimeType};base64,${buffer.toString('base64')}`;
+    } catch {
+      return null;
+    }
   });
 }
 
@@ -147,7 +263,7 @@ async function handleSessionStart(
   mainWindow: BrowserWindow,
   payload: SessionStartPayload
 ): Promise<void> {
-  const { title, prompt, cwd, allowedTools } = payload;
+  const { title, prompt, cwd, allowedTools, attachments } = payload;
 
   // 创建会话（用临时标题）
   const session = sessions.createSession({
@@ -192,16 +308,17 @@ async function handleSessionStart(
   });
 
   // 广播用户 prompt
+  const createdAt = Date.now();
   broadcast(mainWindow, {
     type: 'stream.user_prompt',
-    payload: { sessionId: session.id, prompt },
+    payload: { sessionId: session.id, prompt, attachments, createdAt },
   });
 
   // 保存 user_prompt 到消息历史
-  sessions.addMessage(session.id, { type: 'user_prompt', prompt });
+  sessions.addMessage(session.id, { type: 'user_prompt', prompt, attachments, createdAt });
 
   // 启动 Runner
-  startRunner(mainWindow, session, prompt, undefined);
+  startRunner(mainWindow, session, prompt, undefined, attachments);
 }
 
 // 继续会话
@@ -209,7 +326,7 @@ async function handleSessionContinue(
   mainWindow: BrowserWindow,
   payload: SessionContinuePayload
 ): Promise<void> {
-  const { sessionId, prompt } = payload;
+  const { sessionId, prompt, attachments } = payload;
 
   const session = sessions.getSession(sessionId);
   if (!session) {
@@ -241,16 +358,17 @@ async function handleSessionContinue(
   });
 
   // 广播用户 prompt
+  const createdAt = Date.now();
   broadcast(mainWindow, {
     type: 'stream.user_prompt',
-    payload: { sessionId, prompt },
+    payload: { sessionId, prompt, attachments, createdAt },
   });
 
   // 保存 user_prompt
-  sessions.addMessage(sessionId, { type: 'user_prompt', prompt });
+  sessions.addMessage(sessionId, { type: 'user_prompt', prompt, attachments, createdAt });
 
   if (existingRunner) {
-    existingRunner.send(prompt);
+    existingRunner.send(prompt, attachments);
     return;
   }
 
@@ -259,7 +377,8 @@ async function handleSessionContinue(
     mainWindow,
     session,
     prompt,
-    session.claude_session_id ?? undefined
+    session.claude_session_id ?? undefined,
+    attachments
   );
 }
 
@@ -268,7 +387,8 @@ function startRunner(
   mainWindow: BrowserWindow,
   session: ReturnType<typeof sessions.getSession>,
   prompt: string,
-  resumeSessionId?: string
+  resumeSessionId?: string,
+  attachments?: Attachment[]
 ): void {
   if (!session) return;
 
@@ -276,6 +396,7 @@ function startRunner(
 
   const handle = runClaude({
     prompt,
+    attachments,
     session,
     resumeSessionId,
     onMessage: (message) => {

@@ -7,6 +7,7 @@ import type {
   ServerEvent,
   SessionInfo,
   StreamMessage,
+  Attachment,
   SearchFilters,
   SearchMatch,
 } from '../types';
@@ -318,16 +319,21 @@ function handleSessionDeleted(
 
 // 处理用户 prompt
 function handleUserPrompt(
-  payload: { sessionId: string; prompt: string },
+  payload: { sessionId: string; prompt: string; attachments?: Attachment[]; createdAt?: number },
   set: SetState
 ) {
-  const { sessionId, prompt } = payload;
+  const { sessionId, prompt, attachments, createdAt } = payload;
 
   set((state) => {
     const session = state.sessions[sessionId];
     if (!session) return state;
 
-    const userMessage: StreamMessage = { type: 'user_prompt', prompt, createdAt: Date.now() };
+    const userMessage: StreamMessage = {
+      type: 'user_prompt',
+      prompt,
+      attachments,
+      createdAt: typeof createdAt === 'number' ? createdAt : Date.now(),
+    };
 
     return {
       ...state,

@@ -3,8 +3,11 @@ import { MDContent } from '../render/markdown';
 import { SessionResultCard } from './EventCard';
 import { DecisionPanel, getAskUserQuestionSignature } from './DecisionPanel';
 import { ToolGroup } from './ToolGroup';
+import { AttachmentChips } from './AttachmentChips';
+import { AttachmentPreviewGrid } from './AttachmentPreviewGrid';
 import type {
   StreamMessage,
+  Attachment,
   ContentBlock,
   ToolStatus,
   PermissionRequestPayload,
@@ -57,7 +60,7 @@ interface MessageCardProps {
   userPromptActions?: {
     canEditAndRetry: boolean;
     isSessionRunning: boolean;
-    onResend: (prompt: string) => void;
+    onResend: (prompt: string, attachments?: Attachment[]) => void;
   };
 }
 
@@ -74,6 +77,7 @@ export function MessageCard({
       return (
         <UserPromptCard
           prompt={message.prompt}
+          attachments={message.attachments}
           createdAt={message.createdAt}
           actions={userPromptActions}
         />
@@ -113,15 +117,17 @@ export function MessageCard({
 // 用户 prompt 卡片
 function UserPromptCard({
   prompt,
+  attachments,
   createdAt,
   actions,
 }: {
   prompt: string;
+  attachments?: Attachment[];
   createdAt?: number;
   actions?: {
     canEditAndRetry: boolean;
     isSessionRunning: boolean;
-    onResend: (prompt: string) => void;
+    onResend: (prompt: string, attachments?: Attachment[]) => void;
   };
 }) {
   const [copied, setCopied] = useState(false);
@@ -178,7 +184,7 @@ function UserPromptCard({
 
   const handleRetry = () => {
     if (!canEditAndRetry) return;
-    actions?.onResend(prompt);
+    actions?.onResend(prompt, attachments);
   };
 
   const handleEdit = () => {
@@ -195,13 +201,26 @@ function UserPromptCard({
   const handleSaveAndRetry = () => {
     const nextPrompt = draft.trim();
     if (!nextPrompt) return;
-    actions?.onResend(nextPrompt);
+    actions?.onResend(nextPrompt, attachments);
     setIsEditing(false);
   };
+
+  const imageAttachments = (attachments || []).filter((a) => a.kind === 'image');
+  const fileAttachments = (attachments || []).filter((a) => a.kind !== 'image');
 
   return (
     <div className="flex justify-end my-3">
       <div className="max-w-[80%] flex flex-col items-end group">
+        {attachments && attachments.length > 0 && (
+          <div className="w-full flex flex-col items-end gap-2 mb-1">
+            <AttachmentPreviewGrid attachments={imageAttachments} />
+            {fileAttachments.length > 0 && (
+              <div className="flex justify-end">
+                <AttachmentChips attachments={fileAttachments} variant="message" />
+              </div>
+            )}
+          </div>
+        )}
         <div className="w-full bg-white border border-[var(--border)] rounded-lg rounded-br-sm px-4 py-2">
           {isEditing ? (
             <textarea
@@ -425,7 +444,7 @@ function ContentBlockCard({
   switch (block.type) {
     case 'text':
       return (
-        <div className="bg-[var(--bg-secondary)] rounded-lg p-4 min-w-0 overflow-x-auto">
+        <div className="min-w-0 overflow-x-auto">
           <MDContent content={block.text} />
         </div>
       );

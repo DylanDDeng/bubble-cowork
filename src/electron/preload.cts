@@ -41,6 +41,16 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('select-directory');
   },
 
+  // 选择附件（文件/图片）
+  selectAttachments: () => {
+    return ipcRenderer.invoke('select-attachments');
+  },
+
+  // 读取图片预览（data URL）
+  readAttachmentPreview: (filePath: string) => {
+    return ipcRenderer.invoke('read-attachment-preview', filePath);
+  },
+
   // 订阅系统统计（预留）
   subscribeStatistics: (callback: (data: unknown) => void) => {
     const handler = (_: unknown, data: unknown) => {

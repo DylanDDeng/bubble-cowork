@@ -7,6 +7,7 @@ export type {
   SessionInfo,
   SessionStatus,
   StreamMessage,
+  Attachment,
   PermissionResult,
   AskUserQuestionInput,
   ContentBlock,
@@ -38,6 +39,7 @@ export interface MessageRow {
 // Runner 相关类型
 export interface RunnerOptions {
   prompt: string;
+  attachments?: import('../shared/types').Attachment[];
   session: SessionRow;
   resumeSessionId?: string;
   onMessage: (message: import('../shared/types').StreamMessage) => void;
@@ -51,7 +53,7 @@ export interface RunnerOptions {
 
 export interface RunnerHandle {
   abort: () => void;
-  send: (prompt: string) => void;
+  send: (prompt: string, attachments?: import('../shared/types').Attachment[]) => void;
 }
 
 // 内部会话状态
