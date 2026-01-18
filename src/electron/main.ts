@@ -1,4 +1,5 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Menu, dialog } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
@@ -55,6 +56,7 @@ function fixEnvironment(): void {
 fixEnvironment();
 
 let mainWindow: BrowserWindow | null = null;
+let updaterInitialized = false;
 
 // 窗口状态持久化
 interface WindowState {
@@ -137,8 +139,155 @@ function createWindow(): void {
   });
 }
 
+function setupAutoUpdater(): void {
+  if (!app.isPackaged || updaterInitialized) {
+    return;
+  }
+  updaterInitialized = true;
+  autoUpdater.autoDownload = false;
+
+  autoUpdater.on('error', (error) => {
+    dialog.showMessageBox({
+      type: 'error',
+      title: 'Update error',
+      message: 'Failed to check for updates.',
+      detail: error?.message || String(error),
+    });
+  });
+
+  autoUpdater.on('update-available', async () => {
+    const result = await dialog.showMessageBox({
+      type: 'info',
+      title: 'Update available',
+      message: 'A new version is available. Do you want to download it now?',
+      buttons: ['Download', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (result.response === 0) {
+      autoUpdater.downloadUpdate();
+    }
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Up to date',
+      message: 'You are already using the latest version.',
+    });
+  });
+
+  autoUpdater.on('update-downloaded', async () => {
+    const result = await dialog.showMessageBox({
+      type: 'info',
+      title: 'Update ready',
+      message: 'The update has been downloaded. Restart to install now?',
+      buttons: ['Restart', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (result.response === 0) {
+      autoUpdater.quitAndInstall();
+    }
+  });
+}
+
+function checkForUpdates(): void {
+  if (!app.isPackaged) {
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Updates',
+      message: 'Updates are only available in the packaged app.',
+    });
+    return;
+  }
+  autoUpdater.checkForUpdates();
+}
+
+function setupMenu(): void {
+  const isMac = process.platform === 'darwin';
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: 'about' },
+              {
+                label: 'Check for Updates...',
+                click: () => checkForUpdates(),
+              },
+              { type: 'separator' },
+              { role: 'services' },
+              { type: 'separator' },
+              { role: 'hide' },
+              { role: 'hideOthers' },
+              { role: 'unhide' },
+              { type: 'separator' },
+              { role: 'quit' },
+            ],
+          },
+        ]
+      : []),
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        ...(isMac
+          ? [{ role: 'pasteAndMatchStyle' }, { role: 'delete' }, { role: 'selectAll' }]
+          : [{ role: 'delete' }, { role: 'selectAll' }]),
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        ...(isMac ? [{ type: 'separator' }, { role: 'front' }, { role: 'window' }] : [{ role: 'close' }]),
+      ],
+    },
+    ...(!isMac
+      ? [
+          {
+            label: 'Help',
+            submenu: [
+              {
+                label: 'Check for Updates...',
+                click: () => checkForUpdates(),
+              },
+            ],
+          },
+        ]
+      : []),
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
 // 应用启动
 app.whenReady().then(() => {
+  setupMenu();
+  setupAutoUpdater();
   createWindow();
 
   app.on('activate', () => {

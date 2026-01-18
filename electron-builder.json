@@ -28,5 +28,10 @@
   "linux": {
     "target": ["AppImage"],
     "category": "Development"
-  }
+  },
+  "publish": [
+    {
+      "provider": "github"
+    }
+  ]
 }
