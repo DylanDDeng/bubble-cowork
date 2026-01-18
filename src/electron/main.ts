@@ -206,79 +206,95 @@ function checkForUpdates(): void {
 
 function setupMenu(): void {
   const isMac = process.platform === 'darwin';
+  const role = (
+    value: Electron.MenuItemConstructorOptions['role']
+  ): Electron.MenuItemConstructorOptions => ({ role: value });
+  const separator = (): Electron.MenuItemConstructorOptions => ({ type: 'separator' });
   const template: Electron.MenuItemConstructorOptions[] = [];
 
   if (isMac) {
+    const appSubmenu: Electron.MenuItemConstructorOptions[] = [
+      role('about'),
+      {
+        label: 'Check for Updates...',
+        click: () => checkForUpdates(),
+      },
+      separator(),
+      role('services'),
+      separator(),
+      role('hide'),
+      role('hideOthers'),
+      role('unhide'),
+      separator(),
+      role('quit'),
+    ];
     template.push({
       label: app.name,
-      submenu: [
-        { role: 'about' },
-        {
-          label: 'Check for Updates...',
-          click: () => checkForUpdates(),
-        },
-        { type: 'separator' },
-        { role: 'services' },
-        { type: 'separator' },
-        { role: 'hide' },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
-        { type: 'separator' },
-        { role: 'quit' },
-      ],
+      submenu: appSubmenu,
     });
+  }
+
+  const editSubmenu: Electron.MenuItemConstructorOptions[] = [
+    role('undo'),
+    role('redo'),
+    separator(),
+    role('cut'),
+    role('copy'),
+    role('paste'),
+  ];
+  if (isMac) {
+    editSubmenu.push(role('pasteAndMatchStyle'), role('delete'), role('selectAll'));
+  } else {
+    editSubmenu.push(role('delete'), role('selectAll'));
   }
 
   template.push({
     label: 'Edit',
-    submenu: [
-      { role: 'undo' },
-      { role: 'redo' },
-      { type: 'separator' },
-      { role: 'cut' },
-      { role: 'copy' },
-      { role: 'paste' },
-      ...(isMac
-        ? [{ role: 'pasteAndMatchStyle' }, { role: 'delete' }, { role: 'selectAll' }]
-        : [{ role: 'delete' }, { role: 'selectAll' }]),
-    ],
+    submenu: editSubmenu,
   });
+
+  const viewSubmenu: Electron.MenuItemConstructorOptions[] = [
+    role('reload'),
+    role('forceReload'),
+    role('toggleDevTools'),
+    separator(),
+    role('resetZoom'),
+    role('zoomIn'),
+    role('zoomOut'),
+    separator(),
+    role('togglefullscreen'),
+  ];
 
   template.push({
     label: 'View',
-    submenu: [
-      { role: 'reload' },
-      { role: 'forceReload' },
-      { role: 'toggleDevTools' },
-      { type: 'separator' },
-      { role: 'resetZoom' },
-      { role: 'zoomIn' },
-      { role: 'zoomOut' },
-      { type: 'separator' },
-      { role: 'togglefullscreen' },
-    ],
+    submenu: viewSubmenu,
   });
+
+  const windowSubmenu: Electron.MenuItemConstructorOptions[] = [
+    role('minimize'),
+    role('zoom'),
+  ];
+  if (isMac) {
+    windowSubmenu.push(separator(), role('front'), role('window'));
+  } else {
+    windowSubmenu.push(role('close'));
+  }
 
   template.push({
     label: 'Window',
-    submenu: [
-      { role: 'minimize' },
-      { role: 'zoom' },
-      ...(isMac
-        ? [{ type: 'separator' }, { role: 'front' }, { role: 'window' }]
-        : [{ role: 'close' }]),
-    ],
+    submenu: windowSubmenu,
   });
 
   if (!isMac) {
+    const helpSubmenu: Electron.MenuItemConstructorOptions[] = [
+      {
+        label: 'Check for Updates...',
+        click: () => checkForUpdates(),
+      },
+    ];
     template.push({
       label: 'Help',
-      submenu: [
-        {
-          label: 'Check for Updates...',
-          click: () => checkForUpdates(),
-        },
-      ],
+      submenu: helpSubmenu,
     });
   }
 
