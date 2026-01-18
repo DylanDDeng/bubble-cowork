@@ -206,79 +206,81 @@ function checkForUpdates(): void {
 
 function setupMenu(): void {
   const isMac = process.platform === 'darwin';
-  const template: Electron.MenuItemConstructorOptions[] = [
-    ...(isMac
-      ? [
-          {
-            label: app.name,
-            submenu: [
-              { role: 'about' },
-              {
-                label: 'Check for Updates...',
-                click: () => checkForUpdates(),
-              },
-              { type: 'separator' },
-              { role: 'services' },
-              { type: 'separator' },
-              { role: 'hide' },
-              { role: 'hideOthers' },
-              { role: 'unhide' },
-              { type: 'separator' },
-              { role: 'quit' },
-            ],
-          },
-        ]
-      : []),
-    {
-      label: 'Edit',
+  const template: Electron.MenuItemConstructorOptions[] = [];
+
+  if (isMac) {
+    template.push({
+      label: app.name,
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        { role: 'about' },
+        {
+          label: 'Check for Updates...',
+          click: () => checkForUpdates(),
+        },
         { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        ...(isMac
-          ? [{ role: 'pasteAndMatchStyle' }, { role: 'delete' }, { role: 'selectAll' }]
-          : [{ role: 'delete' }, { role: 'selectAll' }]),
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
       ],
-    },
-    {
-      label: 'View',
+    });
+  }
+
+  template.push({
+    label: 'Edit',
+    submenu: [
+      { role: 'undo' },
+      { role: 'redo' },
+      { type: 'separator' },
+      { role: 'cut' },
+      { role: 'copy' },
+      { role: 'paste' },
+      ...(isMac
+        ? [{ role: 'pasteAndMatchStyle' }, { role: 'delete' }, { role: 'selectAll' }]
+        : [{ role: 'delete' }, { role: 'selectAll' }]),
+    ],
+  });
+
+  template.push({
+    label: 'View',
+    submenu: [
+      { role: 'reload' },
+      { role: 'forceReload' },
+      { role: 'toggleDevTools' },
+      { type: 'separator' },
+      { role: 'resetZoom' },
+      { role: 'zoomIn' },
+      { role: 'zoomOut' },
+      { type: 'separator' },
+      { role: 'togglefullscreen' },
+    ],
+  });
+
+  template.push({
+    label: 'Window',
+    submenu: [
+      { role: 'minimize' },
+      { role: 'zoom' },
+      ...(isMac
+        ? [{ type: 'separator' }, { role: 'front' }, { role: 'window' }]
+        : [{ role: 'close' }]),
+    ],
+  });
+
+  if (!isMac) {
+    template.push({
+      label: 'Help',
       submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
+        {
+          label: 'Check for Updates...',
+          click: () => checkForUpdates(),
+        },
       ],
-    },
-    {
-      label: 'Window',
-      submenu: [
-        { role: 'minimize' },
-        { role: 'zoom' },
-        ...(isMac ? [{ type: 'separator' }, { role: 'front' }, { role: 'window' }] : [{ role: 'close' }]),
-      ],
-    },
-    ...(!isMac
-      ? [
-          {
-            label: 'Help',
-            submenu: [
-              {
-                label: 'Check for Updates...',
-                click: () => checkForUpdates(),
-              },
-            ],
-          },
-        ]
-      : []),
-  ];
+    });
+  }
 
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
