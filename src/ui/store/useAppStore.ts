@@ -25,6 +25,7 @@ export const useAppStore = create<Store>()(
       sessions: {},
       activeSessionId: null,
       showNewSession: false,
+      sidebarCollapsed: false,
       globalError: null,
       pendingStart: false,
       // 搜索状态
@@ -95,6 +96,8 @@ export const useAppStore = create<Store>()(
   setActiveSession: (sessionId) => set({ activeSessionId: sessionId }),
 
   setShowNewSession: (show) => set({ showNewSession: show }),
+
+  setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
 
   clearGlobalError: () => set({ globalError: null }),
 

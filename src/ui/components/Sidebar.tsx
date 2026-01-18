@@ -51,12 +51,10 @@ export function Sidebar() {
           setActiveSession(null);
           setShowNewSession(true);
         }}
-        className="group mx-2 mt-2 mb-4 px-2 py-2 flex items-center gap-3 text-left no-drag rounded-xl hover:bg-[var(--bg-tertiary)] transition-colors"
+        className="group mx-2 mt-4 mb-4 px-2 py-2 flex items-center gap-3 text-left no-drag rounded-xl hover:bg-[var(--bg-tertiary)] transition-colors"
       >
-        <div className="w-7 h-7 rounded-full bg-[#E6E5E1] group-hover:bg-[#D9D8D4] flex items-center justify-center transition-colors">
-          <span className="text-[#92918E] text-[22px] font-normal leading-none">+</span>
-        </div>
-        <span className="text-base font-medium">New session</span>
+        <span className="text-[#92918E] text-[22px] font-normal leading-none">+</span>
+        <span className="text-base font-medium">New Task</span>
       </button>
 
       {/* Sessions 标题栏 */}

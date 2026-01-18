@@ -36,6 +36,7 @@ export interface AppState {
   sessions: Record<string, SessionView>;
   activeSessionId: string | null;
   showNewSession: boolean;
+  sidebarCollapsed: boolean;
   globalError: string | null;
   pendingStart: boolean;
   // 搜索状态
@@ -59,6 +60,7 @@ export interface AppActions {
   handleServerEvent: (event: import('../shared/types').ServerEvent) => void;
   setActiveSession: (sessionId: string | null) => void;
   setShowNewSession: (show: boolean) => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;
   removePermissionRequest: (sessionId: string, toolUseId: string) => void;

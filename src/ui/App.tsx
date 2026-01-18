@@ -101,6 +101,8 @@ export function App() {
     sessions,
     activeSessionId,
     showNewSession,
+    sidebarCollapsed,
+    setSidebarCollapsed,
     globalError,
     clearGlobalError,
     removePermissionRequest,
@@ -237,10 +239,30 @@ export function App() {
     return -1;
   }, [activeSession?.messages]);
 
+  const isMacOS = useMemo(() => {
+    try {
+      return typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
+    } catch {
+      return false;
+    }
+  }, []);
+
   return (
     <div className="flex h-full">
+      {/* Sidebar toggle */}
+      <button
+        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        className={`fixed z-50 no-drag cursor-pointer w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:border-[var(--border)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)] ${
+          isMacOS ? 'top-[8px] left-[92px]' : 'top-3 left-3'
+        }`}
+        title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+        aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+      >
+        <SidebarToggleIcon />
+      </button>
+
       {/* 侧边栏 */}
-      <Sidebar />
+      {!sidebarCollapsed && <Sidebar />}
 
       {/* 主内容区 */}
       {activeSession && !showNewSession ? (
@@ -370,6 +392,26 @@ function CloseIcon() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <line x1="18" y1="6" x2="6" y2="18" />
       <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function SidebarToggleIcon() {
+  return (
+    <svg
+      className="w-5 h-5 pointer-events-none"
+      viewBox="0 0 64 64"
+      fill="#73726C"
+      stroke="#73726C"
+      style={{
+        fillRule: 'evenodd',
+        clipRule: 'evenodd',
+        strokeLinejoin: 'round',
+        strokeMiterlimit: 2,
+      }}
+      aria-hidden="true"
+    >
+      <path d="M50.01,56.074l-35.989,0c-3.309,0 -5.995,-2.686 -5.995,-5.995l0,-36.011c0,-3.308 2.686,-5.994 5.995,-5.994l35.989,0c3.309,0 5.995,2.686 5.995,5.994l0,36.011c0,3.309 -2.686,5.995 -5.995,5.995Zm-25.984,-4l0,-40l-9.012,0c-1.65,0.001 -2.989,1.34 -2.989,2.989l0,34.022c0,1.649 1.339,2.989 2.989,2.989l9.012,0Zm24.991,-40l-20.991,0l0,40l20.991,0c1.65,0 2.989,-1.34 2.989,-2.989l0,-34.022c0,-1.649 -1.339,-2.988 -2.989,-2.989Z" />
     </svg>
   );
 }
