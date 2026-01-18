@@ -43,7 +43,6 @@ export interface AppState {
   projectCwd: string | null;
   projectTreeCwd: string | null;
   projectTree: ProjectTreeNode | null;
-  projectTreeSearch: string;
   // 搜索状态
   sidebarSearchQuery: string;
   activeFilters: SearchFilters;
@@ -68,7 +67,6 @@ export interface AppActions {
   setSidebarCollapsed: (collapsed: boolean) => void;
   setProjectCwd: (cwd: string | null) => void;
   setProjectTree: (cwd: string | null, tree: ProjectTreeNode | null) => void;
-  setProjectTreeSearch: (query: string) => void;
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;
   removePermissionRequest: (sessionId: string, toolUseId: string) => void;
