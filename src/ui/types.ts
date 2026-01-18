@@ -6,6 +6,7 @@ export type {
   SessionStatus,
   StreamMessage,
   Attachment,
+  ProjectTreeNode,
   AskUserQuestionInput,
   AskUserQuestion,
   ContentBlock,
@@ -39,6 +40,10 @@ export interface AppState {
   sidebarCollapsed: boolean;
   globalError: string | null;
   pendingStart: boolean;
+  projectCwd: string | null;
+  projectTreeCwd: string | null;
+  projectTree: ProjectTreeNode | null;
+  projectTreeSearch: string;
   // 搜索状态
   sidebarSearchQuery: string;
   activeFilters: SearchFilters;
@@ -61,6 +66,9 @@ export interface AppActions {
   setActiveSession: (sessionId: string | null) => void;
   setShowNewSession: (show: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
+  setProjectCwd: (cwd: string | null) => void;
+  setProjectTree: (cwd: string | null, tree: ProjectTreeNode | null) => void;
+  setProjectTreeSearch: (query: string) => void;
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;
   removePermissionRequest: (sessionId: string, toolUseId: string) => void;

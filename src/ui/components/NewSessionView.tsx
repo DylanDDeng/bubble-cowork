@@ -5,7 +5,7 @@ import type { Attachment } from '../types';
 import { AttachmentChips } from './AttachmentChips';
 
 export function NewSessionView() {
-  const { pendingStart, setPendingStart } = useAppStore();
+  const { pendingStart, setPendingStart, setProjectCwd } = useAppStore();
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -41,6 +41,13 @@ export function NewSessionView() {
     setPrompt('');
     setCwd('');
     setAttachments([]);
+  };
+
+  const handleCwdChange = (next: string) => {
+    setCwd(next);
+    if (next) {
+      setProjectCwd(next);
+    }
   };
 
   const handleAddAttachments = async () => {
@@ -106,7 +113,7 @@ export function NewSessionView() {
             <div className="flex items-center gap-2 px-4 pb-4">
               <CwdPicker
                 value={cwd}
-                onChange={setCwd}
+                onChange={handleCwdChange}
                 recentCwds={recentCwds}
               />
 
@@ -167,7 +174,7 @@ export function NewSessionView() {
               {recentCwds.slice(0, 6).map((dir) => (
                 <button
                   key={dir}
-                  onClick={() => setCwd(dir)}
+                  onClick={() => handleCwdChange(dir)}
                   className={`text-xs px-3 py-1.5 rounded-full transition-colors no-drag ${
                     cwd === dir
                       ? 'bg-[var(--accent-light)] text-[var(--accent)]'

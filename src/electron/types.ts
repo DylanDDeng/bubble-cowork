@@ -8,6 +8,7 @@ export type {
   SessionStatus,
   StreamMessage,
   Attachment,
+  ProjectTreeNode,
   PermissionResult,
   AskUserQuestionInput,
   ContentBlock,

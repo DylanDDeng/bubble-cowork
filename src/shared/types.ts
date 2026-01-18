@@ -29,6 +29,14 @@ export interface Attachment {
   kind: AttachmentKind;
 }
 
+// 项目文件树节点
+export interface ProjectTreeNode {
+  name: string;
+  path: string;
+  kind: 'file' | 'dir';
+  children?: ProjectTreeNode[];
+}
+
 // Client -> Server 事件
 export type ClientEvent =
   | { type: 'session.list' }
@@ -60,6 +68,7 @@ export type ServerEvent =
   | { type: 'stream.message'; payload: { sessionId: string; message: StreamMessage } }
   | { type: 'permission.request'; payload: PermissionRequestPayload }
   | { type: 'runner.error'; payload: { message: string; sessionId?: string } }
+  | { type: 'project.tree'; payload: { cwd: string; tree: ProjectTreeNode } }
   // MCP 事件
   | { type: 'mcp.config'; payload: {
       servers: Record<string, McpServerConfig>;

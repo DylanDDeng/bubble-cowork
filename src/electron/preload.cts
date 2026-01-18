@@ -51,6 +51,21 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('read-attachment-preview', filePath);
   },
 
+  // 获取项目文件树
+  getProjectTree: (cwd: string) => {
+    return ipcRenderer.invoke('get-project-tree', cwd);
+  },
+
+  // 订阅项目文件树更新
+  watchProjectTree: (cwd: string) => {
+    return ipcRenderer.invoke('watch-project-tree', cwd);
+  },
+
+  // 取消订阅项目文件树更新
+  unwatchProjectTree: (cwd: string) => {
+    return ipcRenderer.invoke('unwatch-project-tree', cwd);
+  },
+
   // 订阅系统统计（预留）
   subscribeStatistics: (callback: (data: unknown) => void) => {
     const handler = (_: unknown, data: unknown) => {

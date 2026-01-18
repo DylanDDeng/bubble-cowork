@@ -9,6 +9,7 @@ import { MessageCard } from './components/MessageCard';
 import { ToolExecutionBatch } from './components/ToolExecutionBatch';
 import { InSessionSearch } from './components/search/InSessionSearch';
 import { McpSettings } from './components/settings/McpSettings';
+import { ProjectTreePanel } from './components/ProjectTreePanel';
 import { MDContent } from './render/markdown';
 import type { ToolStatus, PermissionResult, StreamMessage, ContentBlock } from './types';
 
@@ -367,6 +368,9 @@ export function App() {
       ) : (
         <NewSessionView />
       )}
+
+      {/* 右侧项目文件树 */}
+      <ProjectTreePanel />
 
       {/* 全局错误提示 */}
       {globalError && (

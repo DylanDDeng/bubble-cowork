@@ -1,10 +1,11 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron';
-import { readFileSync, statSync } from 'fs';
+import { readFileSync, statSync, watch, type FSWatcher } from 'fs';
 import { basename, extname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
 import { runClaude } from './libs/runner';
 import { generateSessionTitle } from './libs/util';
+import { readProjectTree } from './libs/project-tree';
 import { loadClaudeSettings, getClaudeSettings, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
 import { ipcMainHandle } from './util';
 import type {
@@ -34,6 +35,11 @@ const ATTACHMENT_MIME_TYPES: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
 };
+
+const projectWatchers = new Map<
+  string,
+  { watcher: FSWatcher; timer?: NodeJS.Timeout }
+>();
 
 function getAttachmentSpec(filePath: string): { kind: Attachment['kind']; mimeType: string } | null {
   const ext = extname(filePath).toLowerCase();
@@ -93,6 +99,30 @@ function getSessionState(sessionId: string): SessionState {
 // 广播事件到渲染进程
 function broadcast(mainWindow: BrowserWindow, event: ServerEvent): void {
   mainWindow.webContents.send('server-event', JSON.stringify(event));
+}
+
+async function emitProjectTree(mainWindow: BrowserWindow, cwd: string): Promise<void> {
+  try {
+    const tree = await readProjectTree(cwd);
+    broadcast(mainWindow, { type: 'project.tree', payload: { cwd, tree } });
+  } catch (error) {
+    console.error('Failed to read project tree:', error);
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: `Failed to read project tree: ${String(error)}` },
+    });
+  }
+}
+
+function scheduleProjectTree(mainWindow: BrowserWindow, cwd: string): void {
+  const entry = projectWatchers.get(cwd);
+  if (!entry) return;
+  if (entry.timer) {
+    clearTimeout(entry.timer);
+  }
+  entry.timer = setTimeout(() => {
+    emitProjectTree(mainWindow, cwd);
+  }, 200);
 }
 
 // 初始化 IPC 处理器
@@ -192,6 +222,55 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     } catch {
       return null;
     }
+  });
+
+  // RPC: 获取项目文件树
+  ipcMainHandle('get-project-tree', async (_event, cwd: string) => {
+    if (!cwd) {
+      return null;
+    }
+    return readProjectTree(cwd);
+  });
+
+  // RPC: 订阅项目文件树更新
+  ipcMainHandle('watch-project-tree', async (_event, cwd: string) => {
+    if (!cwd) {
+      return false;
+    }
+    if (projectWatchers.has(cwd)) {
+      scheduleProjectTree(mainWindow, cwd);
+      return true;
+    }
+    try {
+      const watcher = watch(
+        cwd,
+        { recursive: true },
+        () => scheduleProjectTree(mainWindow, cwd)
+      );
+      projectWatchers.set(cwd, { watcher });
+      scheduleProjectTree(mainWindow, cwd);
+      return true;
+    } catch (error) {
+      console.error('Failed to watch project tree:', error);
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: { message: `Failed to watch project tree: ${String(error)}` },
+      });
+      return false;
+    }
+  });
+
+  // RPC: 取消订阅项目文件树更新
+  ipcMainHandle('unwatch-project-tree', async (_event, cwd: string) => {
+    const entry = projectWatchers.get(cwd);
+    if (entry) {
+      if (entry.timer) {
+        clearTimeout(entry.timer);
+      }
+      entry.watcher.close();
+      projectWatchers.delete(cwd);
+    }
+    return true;
   });
 }
 

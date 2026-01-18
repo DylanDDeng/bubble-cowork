@@ -28,6 +28,10 @@ export const useAppStore = create<Store>()(
       sidebarCollapsed: false,
       globalError: null,
       pendingStart: false,
+      projectCwd: null,
+      projectTreeCwd: null,
+      projectTree: null,
+      projectTreeSearch: '',
       // 搜索状态
       sidebarSearchQuery: '',
       activeFilters: { timeRange: 'all' },
@@ -79,6 +83,13 @@ export const useAppStore = create<Store>()(
         set({ globalError: event.payload.message });
         break;
 
+      case 'project.tree':
+        set({
+          projectTreeCwd: event.payload.cwd,
+          projectTree: event.payload.tree,
+        });
+        break;
+
       case 'mcp.config':
         set({
           mcpServers: event.payload.servers,
@@ -98,6 +109,12 @@ export const useAppStore = create<Store>()(
   setShowNewSession: (show) => set({ showNewSession: show }),
 
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
+
+  setProjectCwd: (cwd) => set({ projectCwd: cwd }),
+
+  setProjectTree: (cwd, tree) => set({ projectTreeCwd: cwd, projectTree: tree }),
+
+  setProjectTreeSearch: (query) => set({ projectTreeSearch: query }),
 
   clearGlobalError: () => set({ globalError: null }),
 
