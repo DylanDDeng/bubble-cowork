@@ -29,6 +29,9 @@ export interface Attachment {
   kind: AttachmentKind;
 }
 
+// Agent 提供商
+export type AgentProvider = 'claude' | 'codex';
+
 // 项目文件树节点
 export interface ProjectTreeNode {
   name: string;
@@ -84,12 +87,14 @@ export interface SessionStartPayload {
   cwd?: string;
   allowedTools?: string;
   attachments?: Attachment[];
+  provider?: AgentProvider;
 }
 
 export interface SessionContinuePayload {
   sessionId: string;
   prompt: string;
   attachments?: Attachment[];
+  provider?: AgentProvider;
 }
 
 export interface SessionInfo {
@@ -98,6 +103,7 @@ export interface SessionInfo {
   status: SessionStatus;
   cwd?: string;
   claudeSessionId?: string;
+  provider?: AgentProvider;
   createdAt: number;
   updatedAt: number;
 }
@@ -110,6 +116,7 @@ export interface SessionStatusPayload {
   title?: string;
   cwd?: string;
   error?: string;
+  provider?: AgentProvider;
 }
 
 export interface SessionHistoryPayload {

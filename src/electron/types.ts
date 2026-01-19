@@ -22,6 +22,8 @@ export interface SessionRow {
   id: string;
   title: string;
   claude_session_id: string | null;
+  codex_session_id: string | null;
+  provider: 'claude' | 'codex';
   status: string;
   cwd: string | null;
   allowed_tools: string | null;

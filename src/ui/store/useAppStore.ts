@@ -208,6 +208,7 @@ function handleSessionList(
       status: session.status,
       cwd: session.cwd,
       claudeSessionId: session.claudeSessionId,
+      provider: session.provider || 'claude',
       messages: existing?.messages || [],
       hydrated: existing?.hydrated || false,
       permissionRequests: existing?.permissionRequests || [],
@@ -238,11 +239,12 @@ function handleSessionStatus(
     status: SessionInfo['status'];
     title?: string;
     cwd?: string;
+    provider?: SessionInfo['provider'];
   },
   set: SetState,
   get: () => Store
 ) {
-  const { sessionId, status, title, cwd } = payload;
+  const { sessionId, status, title, cwd, provider } = payload;
   const state = get();
   const session = state.sessions[sessionId];
 
@@ -256,6 +258,7 @@ function handleSessionStatus(
           status,
           title: title || session.title,
           cwd: cwd || session.cwd,
+          provider: provider || session.provider,
           updatedAt: Date.now(),
         },
       },
@@ -267,6 +270,7 @@ function handleSessionStatus(
       title: title || 'New Session',
       status,
       cwd,
+      provider: provider || 'claude',
       messages: [],
       hydrated: true, // 新会话不需要 hydration
       permissionRequests: [],

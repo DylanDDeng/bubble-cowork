@@ -3,16 +3,26 @@ import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import type { Attachment } from '../types';
 import { AttachmentChips } from './AttachmentChips';
+import { ProviderPicker } from './ProviderPicker';
+import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 
 export function PromptInput() {
   const { activeSessionId, sessions, setShowNewSession } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [provider, setProvider] = useState(loadPreferredProvider());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const isRunning = activeSession?.status === 'running';
+
+  useEffect(() => {
+    if (activeSession?.provider) {
+      setProvider(activeSession.provider);
+      savePreferredProvider(activeSession.provider);
+    }
+  }, [activeSessionId, activeSession?.provider]);
 
   // 自动调整高度
   useEffect(() => {
@@ -34,6 +44,7 @@ export function PromptInput() {
           sessionId: activeSessionId,
           prompt: prompt.trim(),
           attachments: attachments.length > 0 ? attachments : undefined,
+          provider,
         },
       });
       setPrompt('');
@@ -115,6 +126,15 @@ export function PromptInput() {
           />
 
           <div className="flex items-center gap-2 px-4 pb-4">
+            <ProviderPicker
+              value={provider}
+              onChange={(next) => {
+                setProvider(next);
+                savePreferredProvider(next);
+              }}
+              disabled={isRunning}
+            />
+
             <div className="relative">
               <button
                 onClick={() => setMenuOpen((v) => !v)}

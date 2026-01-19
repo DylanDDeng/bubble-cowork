@@ -11,6 +11,7 @@ import { InSessionSearch } from './components/search/InSessionSearch';
 import { McpSettings } from './components/settings/McpSettings';
 import { ProjectTreePanel } from './components/ProjectTreePanel';
 import { MDContent } from './render/markdown';
+import { loadPreferredProvider } from './utils/provider';
 import type { ToolStatus, PermissionResult, StreamMessage, ContentBlock } from './types';
 
 // 工具结果块类型
@@ -342,6 +343,7 @@ export function App() {
                                     sessionId: activeSessionId,
                                     prompt: prompt.trim(),
                                     attachments: attachments && attachments.length > 0 ? attachments : undefined,
+                                    provider: loadPreferredProvider(),
                                   },
                                 });
                               },

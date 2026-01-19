@@ -3,6 +3,8 @@ import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import type { Attachment } from '../types';
 import { AttachmentChips } from './AttachmentChips';
+import { ProviderPicker } from './ProviderPicker';
+import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 
 export function NewSessionView() {
   const { pendingStart, setPendingStart, setProjectCwd } = useAppStore();
@@ -11,6 +13,7 @@ export function NewSessionView() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
+  const [provider, setProvider] = useState(loadPreferredProvider());
 
   // 加载最近工作目录
   useEffect(() => {
@@ -34,6 +37,7 @@ export function NewSessionView() {
         prompt: prompt.trim(),
         cwd: cwd || undefined,
         attachments: attachments.length > 0 ? attachments : undefined,
+        provider,
       },
     });
 
@@ -65,6 +69,11 @@ export function NewSessionView() {
       }
       return next;
     });
+  };
+
+  const handleProviderChange = (next: typeof provider) => {
+    setProvider(next);
+    savePreferredProvider(next);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -115,6 +124,12 @@ export function NewSessionView() {
                 value={cwd}
                 onChange={handleCwdChange}
                 recentCwds={recentCwds}
+              />
+
+              <ProviderPicker
+                value={provider}
+                onChange={handleProviderChange}
+                disabled={pendingStart}
               />
 
               <div className="relative no-drag">

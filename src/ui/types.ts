@@ -16,6 +16,7 @@ export type {
   ServerEvent,
   McpServerConfig,
   McpServerStatus,
+  AgentProvider,
 } from '../shared/types';
 
 // UI 会话视图状态
@@ -25,6 +26,7 @@ export interface SessionView {
   status: import('../shared/types').SessionStatus;
   cwd?: string;
   claudeSessionId?: string;
+  provider?: AgentProvider;
   messages: import('../shared/types').StreamMessage[];
   hydrated: boolean;
   permissionRequests: import('../shared/types').PermissionRequestPayload[];

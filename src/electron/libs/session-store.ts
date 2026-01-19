@@ -20,6 +20,8 @@ export function initialize(): void {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       claude_session_id TEXT,
+      codex_session_id TEXT,
+      provider TEXT NOT NULL DEFAULT 'claude',
       status TEXT NOT NULL DEFAULT 'idle',
       cwd TEXT,
       allowed_tools TEXT,
@@ -39,6 +41,17 @@ export function initialize(): void {
     CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
     CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
   `);
+
+  ensureColumn('sessions', 'codex_session_id', 'TEXT');
+  ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
+}
+
+function ensureColumn(table: string, column: string, definition: string): void {
+  const rows = getDb().prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (rows.some((row) => row.name === column)) {
+    return;
+  }
+  getDb().exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 
 // 获取数据库实例
@@ -55,18 +68,20 @@ export function createSession(params: {
   cwd?: string;
   allowedTools?: string;
   prompt?: string;
+  provider?: 'claude' | 'codex';
 }): SessionRow {
   const now = Date.now();
   const id = uuidv4();
 
   const stmt = getDb().prepare(`
-    INSERT INTO sessions (id, title, cwd, allowed_tools, last_prompt, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'idle', ?, ?)
+    INSERT INTO sessions (id, title, provider, cwd, allowed_tools, last_prompt, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, 'idle', ?, ?)
   `);
 
   stmt.run(
     id,
     params.title,
+    params.provider || 'claude',
     params.cwd || null,
     params.allowedTools || null,
     params.prompt || null,
@@ -105,6 +120,24 @@ export function updateClaudeSessionId(sessionId: string, claudeSessionId: string
     UPDATE sessions SET claude_session_id = ?, updated_at = ? WHERE id = ?
   `);
   stmt.run(claudeSessionId, now, sessionId);
+}
+
+// 更新 Codex Session ID
+export function updateCodexSessionId(sessionId: string, codexSessionId: string): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET codex_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(codexSessionId, now, sessionId);
+}
+
+// 更新 Session Provider
+export function updateSessionProvider(sessionId: string, provider: 'claude' | 'codex'): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET provider = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(provider, now, sessionId);
 }
 
 // 更新最后的 prompt

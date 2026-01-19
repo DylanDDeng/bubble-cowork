@@ -4,10 +4,11 @@ import { basename, extname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
 import { runClaude } from './libs/runner';
+import { runCodex } from './libs/codex-runner';
 import { generateSessionTitle } from './libs/util';
 import { readProjectTree } from './libs/project-tree';
 import { loadClaudeSettings, getClaudeSettings, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
-import { ipcMainHandle } from './util';
+import { ipcMainHandle, isDev } from './util';
 import type {
   ClientEvent,
   ServerEvent,
@@ -20,6 +21,7 @@ import type {
   PermissionResponsePayload,
   AskUserQuestionInput,
   Attachment,
+  SessionStatus,
 } from './types';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
@@ -80,8 +82,8 @@ function toAttachment(filePath: string): Attachment | null {
   }
 }
 
-// Runner 句柄映射
-const runnerHandles = new Map<string, RunnerHandle>();
+// Runner 句柄映射（带 Provider）
+const runnerHandles = new Map<string, { handle: RunnerHandle; provider: 'claude' | 'codex' }>();
 
 // 会话状态映射（包含 pending permissions）
 const sessionStates = new Map<string, SessionState>();
@@ -327,6 +329,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     status: row.status as SessionInfo['status'],
     cwd: row.cwd || undefined,
     claudeSessionId: row.claude_session_id || undefined,
+    provider: row.provider || 'claude',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -342,7 +345,11 @@ async function handleSessionStart(
   mainWindow: BrowserWindow,
   payload: SessionStartPayload
 ): Promise<void> {
-  const { title, prompt, cwd, allowedTools, attachments } = payload;
+  const { title, prompt, cwd, allowedTools, attachments, provider } = payload;
+  const chosenProvider = provider || 'claude';
+  if (isDev()) {
+    console.log('[Session Start]', { provider: chosenProvider, cwd: cwd || undefined });
+  }
 
   // 创建会话（用临时标题）
   const session = sessions.createSession({
@@ -350,6 +357,7 @@ async function handleSessionStart(
     cwd,
     allowedTools,
     prompt,
+    provider: chosenProvider,
   });
 
   // 更新状态为 running
@@ -363,28 +371,31 @@ async function handleSessionStart(
       status: 'running',
       title: session.title,
       cwd: session.cwd || undefined,
+      provider: chosenProvider,
     },
   });
 
-  // 异步生成更好的标题（不阻塞）
-  generateSessionTitle(prompt, cwd).then((newTitle) => {
-    const trimmedTitle = newTitle.trim();
-    if (!trimmedTitle) {
-      return;
-    }
+  if (chosenProvider === 'claude') {
+    // 异步生成更好的标题（不阻塞）
+    generateSessionTitle(prompt, cwd).then((newTitle) => {
+      const trimmedTitle = newTitle.trim();
+      if (!trimmedTitle) {
+        return;
+      }
 
-    sessions.updateSessionTitle(session.id, trimmedTitle);
-    broadcast(mainWindow, {
-      type: 'session.status',
-      payload: {
-        sessionId: session.id,
-        status: 'running',
-        title: trimmedTitle,
-      },
+      sessions.updateSessionTitle(session.id, trimmedTitle);
+      broadcast(mainWindow, {
+        type: 'session.status',
+        payload: {
+          sessionId: session.id,
+          status: 'running',
+          title: trimmedTitle,
+        },
+      });
+    }).catch((err) => {
+      console.error('Failed to generate title:', err);
     });
-  }).catch((err) => {
-    console.error('Failed to generate title:', err);
-  });
+  }
 
   // 广播用户 prompt
   const createdAt = Date.now();
@@ -397,7 +408,7 @@ async function handleSessionStart(
   sessions.addMessage(session.id, { type: 'user_prompt', prompt, attachments, createdAt });
 
   // 启动 Runner
-  startRunner(mainWindow, session, prompt, undefined, attachments);
+  startRunner(mainWindow, session, prompt, undefined, attachments, chosenProvider);
 }
 
 // 继续会话
@@ -405,7 +416,7 @@ async function handleSessionContinue(
   mainWindow: BrowserWindow,
   payload: SessionContinuePayload
 ): Promise<void> {
-  const { sessionId, prompt, attachments } = payload;
+  const { sessionId, prompt, attachments, provider } = payload;
 
   const session = sessions.getSession(sessionId);
   if (!session) {
@@ -416,14 +427,24 @@ async function handleSessionContinue(
     return;
   }
 
-  const existingRunner = runnerHandles.get(sessionId);
+  const existingEntry = runnerHandles.get(sessionId);
+  const previousProvider = session.provider || 'claude';
+  const nextProvider = provider || previousProvider;
+  const providerChanged = nextProvider !== previousProvider;
 
-  if (!existingRunner && !session.claude_session_id) {
-    broadcast(mainWindow, {
-      type: 'runner.error',
-      payload: { message: 'Session has no resume id yet.', sessionId },
+  if (isDev()) {
+    console.log('[Session Continue]', {
+      sessionId,
+      payloadProvider: provider,
+      previousProvider,
+      nextProvider,
+      providerChanged,
+      hasExistingRunner: !!existingEntry,
     });
-    return;
+  }
+
+  if (providerChanged) {
+    sessions.updateSessionProvider(sessionId, nextProvider);
   }
 
   // 更新状态
@@ -433,7 +454,7 @@ async function handleSessionContinue(
   // 广播状态
   broadcast(mainWindow, {
     type: 'session.status',
-    payload: { sessionId, status: 'running' },
+    payload: { sessionId, status: 'running', provider: nextProvider },
   });
 
   // 广播用户 prompt
@@ -446,19 +467,25 @@ async function handleSessionContinue(
   // 保存 user_prompt
   sessions.addMessage(sessionId, { type: 'user_prompt', prompt, attachments, createdAt });
 
-  if (existingRunner) {
-    existingRunner.send(prompt, attachments);
+  if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
+    existingEntry.handle.send(prompt, attachments);
     return;
   }
 
+  if (existingEntry && providerChanged) {
+    existingEntry.handle.abort();
+    runnerHandles.delete(sessionId);
+  }
+
   // 启动 Runner（带 resume）
-  startRunner(
-    mainWindow,
-    session,
-    prompt,
-    session.claude_session_id ?? undefined,
-    attachments
-  );
+  const resumeSessionId =
+    providerChanged
+      ? undefined
+      : nextProvider === 'claude'
+        ? session.claude_session_id ?? undefined
+        : session.codex_session_id ?? undefined;
+
+  startRunner(mainWindow, session, prompt, resumeSessionId, attachments, nextProvider);
 }
 
 // 启动 Runner
@@ -467,13 +494,26 @@ function startRunner(
   session: ReturnType<typeof sessions.getSession>,
   prompt: string,
   resumeSessionId?: string,
-  attachments?: Attachment[]
+  attachments?: Attachment[],
+  providerOverride?: 'claude' | 'codex'
 ): void {
   if (!session) return;
 
   const sessionState = getSessionState(session.id);
+  const provider = providerOverride || session.provider || 'claude';
 
-  const handle = runClaude({
+  const runner = provider === 'codex' ? runCodex : runClaude;
+  if (isDev()) {
+    console.log('[Runner Select]', {
+      sessionId: session.id,
+      provider,
+      runner: provider === 'codex' ? 'codex-acp' : 'claude-agent-sdk',
+      cwd: session.cwd || process.cwd(),
+      hasResume: !!resumeSessionId,
+    });
+  }
+
+  const handle = runner({
     prompt,
     attachments,
     session,
@@ -481,7 +521,11 @@ function startRunner(
     onMessage: (message) => {
       // 提取并保存 claude session id
       if (message.type === 'system' && message.subtype === 'init') {
-        sessions.updateClaudeSessionId(session.id, message.session_id);
+        if (provider === 'codex') {
+          sessions.updateCodexSessionId(session.id, message.session_id);
+        } else {
+          sessions.updateClaudeSessionId(session.id, message.session_id);
+        }
       }
 
       // 保存消息
@@ -495,11 +539,11 @@ function startRunner(
 
       // 检查是否为 result 消息，更新状态
       if (message.type === 'result') {
-        const status = message.subtype === 'success' ? 'completed' : 'error';
+        const status: SessionStatus = message.subtype === 'success' ? 'completed' : 'error';
         sessions.updateSessionStatus(session.id, status);
         broadcast(mainWindow, {
           type: 'session.status',
-          payload: { sessionId: session.id, status },
+          payload: { sessionId: session.id, status, provider },
         });
       }
     },
@@ -538,7 +582,7 @@ function startRunner(
     },
   });
 
-  runnerHandles.set(session.id, handle);
+  runnerHandles.set(session.id, { handle, provider });
 }
 
 // 获取会话历史
@@ -566,9 +610,9 @@ function handleSessionHistory(mainWindow: BrowserWindow, sessionId: string): voi
 
 // 停止会话
 function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
-  const handle = runnerHandles.get(sessionId);
-  if (handle) {
-    handle.abort();
+  const entry = runnerHandles.get(sessionId);
+  if (entry) {
+    entry.handle.abort();
     runnerHandles.delete(sessionId);
   }
 
@@ -593,9 +637,9 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
 // 删除会话
 function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void {
   // 先停止运行中的会话
-  const handle = runnerHandles.get(sessionId);
-  if (handle) {
-    handle.abort();
+  const entry = runnerHandles.get(sessionId);
+  if (entry) {
+    entry.handle.abort();
     runnerHandles.delete(sessionId);
   }
 
@@ -686,8 +730,8 @@ function handleMcpSaveConfig(
 // 清理资源
 export function cleanup(): void {
   // 停止所有运行中的 runner
-  for (const [, handle] of runnerHandles) {
-    handle.abort();
+  for (const [, entry] of runnerHandles) {
+    entry.handle.abort();
   }
   runnerHandles.clear();
   sessionStates.clear();
