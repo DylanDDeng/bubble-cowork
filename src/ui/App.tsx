@@ -104,6 +104,8 @@ export function App() {
     showNewSession,
     sidebarCollapsed,
     setSidebarCollapsed,
+    projectTreeCollapsed,
+    setProjectTreeCollapsed,
     globalError,
     clearGlobalError,
     removePermissionRequest,
@@ -262,6 +264,18 @@ export function App() {
         <SidebarToggleIcon />
       </button>
 
+      {/* Right panel toggle */}
+      <button
+        onClick={() => setProjectTreeCollapsed(!projectTreeCollapsed)}
+        className={`fixed z-50 no-drag cursor-pointer w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:border-[var(--border)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)] ${
+          isMacOS ? 'top-[8px] right-[16px]' : 'top-3 right-3'
+        }`}
+        title={projectTreeCollapsed ? 'Show project files' : 'Hide project files'}
+        aria-label={projectTreeCollapsed ? 'Show project files' : 'Hide project files'}
+      >
+        <SidebarToggleIcon />
+      </button>
+
       {/* 侧边栏 */}
       {!sidebarCollapsed && <Sidebar />}
 
@@ -370,7 +384,7 @@ export function App() {
       )}
 
       {/* 右侧项目文件树 */}
-      <ProjectTreePanel />
+      {!projectTreeCollapsed && <ProjectTreePanel />}
 
       {/* 全局错误提示 */}
       {globalError && (

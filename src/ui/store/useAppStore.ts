@@ -31,6 +31,7 @@ export const useAppStore = create<Store>()(
       projectCwd: null,
       projectTreeCwd: null,
       projectTree: null,
+      projectTreeCollapsed: false,
       // 搜索状态
       sidebarSearchQuery: '',
       activeFilters: { timeRange: 'all' },
@@ -112,6 +113,8 @@ export const useAppStore = create<Store>()(
   setProjectCwd: (cwd) => set({ projectCwd: cwd }),
 
   setProjectTree: (cwd, tree) => set({ projectTreeCwd: cwd, projectTree: tree }),
+
+  setProjectTreeCollapsed: (collapsed) => set({ projectTreeCollapsed: collapsed }),
 
 
   clearGlobalError: () => set({ globalError: null }),
