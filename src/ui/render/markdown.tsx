@@ -7,6 +7,7 @@ import type { Components } from 'react-markdown';
 interface MDContentProps {
   content: string;
   className?: string;
+  allowHtml?: boolean;
 }
 
 // 自定义组件映射
@@ -80,12 +81,12 @@ const components: Components = {
   ),
 };
 
-export function MDContent({ content, className = '' }: MDContentProps) {
+export function MDContent({ content, className = '', allowHtml = true }: MDContentProps) {
   return (
     <div className={`markdown-content ${className}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw, rehypeHighlight]}
+        rehypePlugins={allowHtml ? [rehypeRaw, rehypeHighlight] : [rehypeHighlight]}
         components={components}
       >
         {content}

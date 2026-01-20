@@ -1,6 +1,8 @@
 // UI 层类型定义
 
 // 从共享类型导入
+import type { AgentProvider, ProjectTreeNode } from '../shared/types';
+
 export type {
   SessionInfo,
   SessionStatus,

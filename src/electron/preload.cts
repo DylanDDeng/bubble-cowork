@@ -51,6 +51,26 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('read-attachment-preview', filePath);
   },
 
+  // 读取项目文件预览
+  readProjectFilePreview: (cwd: string, filePath: string) => {
+    return ipcRenderer.invoke('read-project-file-preview', cwd, filePath);
+  },
+
+  // 保存项目文本文件（仅 .txt）
+  writeProjectTextFile: (cwd: string, filePath: string, content: string) => {
+    return ipcRenderer.invoke('write-project-text-file', cwd, filePath, content);
+  },
+
+  // 用系统默认应用打开文件
+  openPath: (filePath: string) => {
+    return ipcRenderer.invoke('open-path', filePath);
+  },
+
+  // 在文件管理器中展示文件
+  revealPath: (filePath: string) => {
+    return ipcRenderer.invoke('reveal-path', filePath);
+  },
+
   // 获取项目文件树
   getProjectTree: (cwd: string) => {
     return ipcRenderer.invoke('get-project-tree', cwd);

@@ -12,6 +12,10 @@ declare global {
     selectDirectory: () => Promise<string | null>;
     selectAttachments: () => Promise<Attachment[]>;
     readAttachmentPreview: (filePath: string) => Promise<string | null>;
+    readProjectFilePreview: (cwd: string, filePath: string) => Promise<unknown>;
+    writeProjectTextFile: (cwd: string, filePath: string, content: string) => Promise<{ ok: boolean; message?: string }>;
+    openPath: (filePath: string) => Promise<{ ok: boolean; message?: string }>;
+    revealPath: (filePath: string) => Promise<{ ok: boolean; message?: string }>;
     getProjectTree: (cwd: string) => Promise<ProjectTreeNode | null>;
     watchProjectTree: (cwd: string) => Promise<boolean>;
     unwatchProjectTree: (cwd: string) => Promise<boolean>;

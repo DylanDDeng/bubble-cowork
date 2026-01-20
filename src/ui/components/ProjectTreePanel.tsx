@@ -1,44 +1,98 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { MDContent } from '../render/markdown';
 import type { ProjectTreeNode } from '../types';
+
+type ProjectFilePreview =
+  | {
+      kind: 'text' | 'markdown';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      text: string;
+      editable: boolean;
+    }
+  | {
+      kind: 'image';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      dataUrl: string;
+    }
+  | {
+      kind: 'binary' | 'unsupported';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+    }
+  | {
+      kind: 'too_large';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      maxBytes: number;
+    }
+  | {
+      kind: 'error';
+      path: string;
+      name: string;
+      ext: string;
+      message: string;
+    };
 
 function TreeNode({
   node,
   depth,
   expandedPaths,
   onToggle,
+  onSelectFile,
+  selectedFilePath,
   forceExpand,
 }: {
   node: ProjectTreeNode;
   depth: number;
   expandedPaths: Set<string>;
   onToggle: (path: string) => void;
+  onSelectFile: (node: ProjectTreeNode) => void;
+  selectedFilePath: string | null;
   forceExpand: boolean;
 }) {
   const isDir = node.kind === 'dir';
   const isExpanded = forceExpand || expandedPaths.has(node.path);
   const chevron = isDir ? (isExpanded ? 'v' : '>') : '';
   const isImageFile = !isDir && isImageName(node.name);
+  const isSelected = !isDir && !!selectedFilePath && node.path === selectedFilePath;
 
   return (
     <>
       <div
         className={`flex items-center gap-2 py-0.5 text-sm rounded-md ${
-          isDir ? 'cursor-pointer hover:bg-[var(--bg-tertiary)]' : ''
-        }`}
+          isDir
+            ? 'cursor-pointer hover:bg-[var(--bg-tertiary)]'
+            : 'cursor-pointer hover:bg-[var(--bg-tertiary)]'
+        } ${isSelected ? 'bg-[var(--bg-tertiary)]' : ''}`}
         style={{ paddingLeft: depth * 12 }}
         onClick={() => {
           if (isDir) {
             onToggle(node.path);
+          } else {
+            onSelectFile(node);
           }
         }}
-        role={isDir ? 'button' : undefined}
-        tabIndex={isDir ? 0 : -1}
+        role="button"
+        tabIndex={0}
         onKeyDown={(e) => {
-          if (!isDir) return;
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            onToggle(node.path);
+            if (isDir) {
+              onToggle(node.path);
+            } else {
+              onSelectFile(node);
+            }
           }
         }}
       >
@@ -68,6 +122,8 @@ function TreeNode({
             depth={depth + 1}
             expandedPaths={expandedPaths}
             onToggle={onToggle}
+            onSelectFile={onSelectFile}
+            selectedFilePath={selectedFilePath}
             forceExpand={forceExpand}
           />
         ))}
@@ -144,9 +200,9 @@ function ImageFileIcon() {
 }
 
 export function ProjectTreePanel() {
-  const defaultWidth = 288;
-  const minWidth = 220;
-  const maxWidth = 520;
+  const defaultWidth = 520;
+  const minWidth = 320;
+  const maxWidth = 720;
   const {
     activeSessionId,
     sessions,
@@ -164,6 +220,15 @@ export function ProjectTreePanel() {
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
   const latestWidthRef = useRef(panelWidth);
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+  const [selectedPreview, setSelectedPreview] = useState<ProjectFilePreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const previewRequestIdRef = useRef(0);
+  const [draftText, setDraftText] = useState('');
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const copiedTimerRef = useRef<number | null>(null);
+  const [copiedPath, setCopiedPath] = useState(false);
 
   const activeCwd = activeSessionId ? sessions[activeSessionId]?.cwd : null;
   const cwd = activeCwd || projectCwd || null;
@@ -234,6 +299,12 @@ export function ProjectTreePanel() {
   useEffect(() => {
     setExpandedPaths(new Set());
     initRootRef.current = null;
+    setSelectedFilePath(null);
+    setSelectedPreview(null);
+    setPreviewLoading(false);
+    setDraftText('');
+    setSaveState('idle');
+    setSaveError(null);
   }, [cwd]);
 
   useEffect(() => {
@@ -253,6 +324,111 @@ export function ProjectTreePanel() {
       }
       return next;
     });
+  };
+
+  const selectFile = async (node: ProjectTreeNode) => {
+    if (node.kind !== 'file') return;
+    if (!cwd) return;
+
+    setSelectedFilePath(node.path);
+    setPreviewLoading(true);
+    setSelectedPreview(null);
+    setDraftText('');
+    setSaveState('idle');
+    setSaveError(null);
+
+    const reader = window.electron.readProjectFilePreview;
+    if (typeof reader !== 'function') {
+      setPreviewLoading(false);
+      setSelectedPreview({
+        kind: 'error',
+        path: node.path,
+        name: node.name,
+        ext: '',
+        message:
+          'File preview API is not available. Please restart the app (or re-run `npm run transpile:electron`).',
+      });
+      return;
+    }
+
+    const requestId = (previewRequestIdRef.current += 1);
+    try {
+      const preview = (await reader(cwd, node.path)) as ProjectFilePreview;
+      if (previewRequestIdRef.current !== requestId) return;
+      setSelectedPreview(preview);
+      if (preview.kind === 'text' && preview.editable) {
+        setDraftText(preview.text);
+      }
+    } catch (error) {
+      if (previewRequestIdRef.current !== requestId) return;
+      setSelectedPreview({
+        kind: 'error',
+        path: node.path,
+        name: node.name,
+        ext: '',
+        message: String(error),
+      });
+    } finally {
+      if (previewRequestIdRef.current === requestId) {
+        setPreviewLoading(false);
+      }
+    }
+  };
+
+  const handleCopyPath = async (path: string) => {
+    try {
+      await navigator.clipboard.writeText(path);
+      setCopiedPath(true);
+      if (copiedTimerRef.current) {
+        window.clearTimeout(copiedTimerRef.current);
+      }
+      copiedTimerRef.current = window.setTimeout(() => setCopiedPath(false), 1500);
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) {
+        window.clearTimeout(copiedTimerRef.current);
+      }
+    };
+  }, []);
+
+  const canSaveTxt =
+    !!cwd &&
+    !!selectedPreview &&
+    selectedPreview.kind === 'text' &&
+    selectedPreview.editable &&
+    draftText !== selectedPreview.text;
+
+  const handleSaveTxt = async () => {
+    if (!cwd) return;
+    if (!selectedPreview || selectedPreview.kind !== 'text' || !selectedPreview.editable) return;
+    if (!selectedFilePath) return;
+    if (!canSaveTxt) return;
+
+    setSaveState('saving');
+    setSaveError(null);
+    try {
+      const result = (await window.electron.writeProjectTextFile(
+        cwd,
+        selectedFilePath,
+        draftText
+      )) as { ok: boolean; message?: string };
+      if (!result?.ok) {
+        setSaveState('error');
+        setSaveError(result?.message || 'Failed to save');
+        return;
+      }
+      setSelectedPreview({ ...selectedPreview, text: draftText });
+      setSaveState('saved');
+      window.setTimeout(() => setSaveState('idle'), 1200);
+    } catch (error) {
+      setSaveState('error');
+      setSaveError(String(error));
+    }
   };
 
   useEffect(() => {
@@ -313,32 +489,244 @@ export function ProjectTreePanel() {
         )}
       </div>
 
-      <div className="flex-1 overflow-auto px-3 pb-3">
-        {!cwd && (
-          <div className="text-sm text-[var(--text-muted)] px-1 py-2">
-            Select a folder to view files.
-          </div>
-        )}
-        {cwd && loading && !visibleTree && (
-          <div className="text-sm text-[var(--text-muted)] px-1 py-2">
-            Loading files...
-          </div>
-        )}
-        {cwd && visibleTree && (
-          <TreeNode
-            node={visibleTree}
-            depth={0}
-            expandedPaths={expandedPaths}
-            onToggle={togglePath}
-            forceExpand={false}
-          />
-        )}
-        {cwd && !loading && !visibleTree && (
-          <div className="text-sm text-[var(--text-muted)] px-1 py-2">
-            No files found.
-          </div>
-        )}
+      <div className="flex-1 min-h-0 flex">
+        {/* Tree */}
+        <div className="flex-[0_0_240px] min-w-[190px] max-w-[320px] overflow-auto px-3 pb-3">
+          {!cwd && (
+            <div className="text-sm text-[var(--text-muted)] px-1 py-2">
+              Select a folder to view files.
+            </div>
+          )}
+          {cwd && loading && !visibleTree && (
+            <div className="text-sm text-[var(--text-muted)] px-1 py-2">
+              Loading files...
+            </div>
+          )}
+          {cwd && visibleTree && (
+            <TreeNode
+              node={visibleTree}
+              depth={0}
+              expandedPaths={expandedPaths}
+              onToggle={togglePath}
+              onSelectFile={selectFile}
+              selectedFilePath={selectedFilePath}
+              forceExpand={false}
+            />
+          )}
+          {cwd && !loading && !visibleTree && (
+            <div className="text-sm text-[var(--text-muted)] px-1 py-2">
+              No files found.
+            </div>
+          )}
+        </div>
+
+        <div className="w-px bg-[var(--border)]" />
+
+        {/* Preview (right side) */}
+        <div className="flex-1 min-w-0 flex flex-col px-3 py-3">
+          {!cwd && (
+            <div className="text-sm text-[var(--text-muted)]">No preview.</div>
+          )}
+
+          {cwd && !selectedFilePath && (
+            <div className="text-sm text-[var(--text-muted)]">
+              Click a file to preview.
+            </div>
+          )}
+
+          {cwd && selectedFilePath && (
+            <>
+              <div className="flex items-center justify-between gap-2 pb-2">
+                <div className="min-w-0">
+                  <div className="text-xs text-[var(--text-muted)]">Preview</div>
+                  <div
+                    className="text-sm font-medium text-[var(--text-primary)] truncate"
+                    title={selectedFilePath}
+                  >
+                    {selectedPreview?.name ||
+                      selectedFilePath.split('/').pop() ||
+                      selectedFilePath}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 flex-shrink-0 no-drag">
+                  {canSaveTxt && (
+                    <button
+                      onClick={handleSaveTxt}
+                      disabled={saveState === 'saving'}
+                      className="px-2 py-1 text-xs rounded-md bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Save"
+                    >
+                      {saveState === 'saving'
+                        ? 'Saving...'
+                        : saveState === 'saved'
+                          ? 'Saved'
+                          : 'Save'}
+                    </button>
+                  )}
+
+                  <IconSquareButton
+                    onClick={() => window.electron.openPath(selectedFilePath)}
+                    title="Open"
+                    ariaLabel="Open"
+                  >
+                    <OpenIcon />
+                  </IconSquareButton>
+                  <IconSquareButton
+                    onClick={() => window.electron.revealPath(selectedFilePath)}
+                    title="Reveal"
+                    ariaLabel="Reveal"
+                  >
+                    <RevealIcon />
+                  </IconSquareButton>
+                  <IconSquareButton
+                    onClick={() => handleCopyPath(selectedFilePath)}
+                    title={copiedPath ? 'Copied' : 'Copy path'}
+                    ariaLabel="Copy path"
+                  >
+                    {copiedPath ? <CheckIcon /> : <CopyIcon />}
+                  </IconSquareButton>
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-auto rounded-lg border border-[var(--border)] bg-white p-3">
+                {previewLoading && (
+                  <div className="text-sm text-[var(--text-muted)]">Loading...</div>
+                )}
+
+                {!previewLoading && selectedPreview?.kind === 'error' && (
+                  <div className="text-sm text-[var(--error)]">{selectedPreview.message}</div>
+                )}
+
+                {!previewLoading && selectedPreview?.kind === 'too_large' && (
+                  <div className="text-sm text-[var(--text-muted)]">
+                    File is larger than {formatBytes(selectedPreview.maxBytes)} and cannot be previewed.
+                  </div>
+                )}
+
+                {!previewLoading && selectedPreview?.kind === 'unsupported' && (
+                  <div className="text-sm text-[var(--text-muted)]">
+                    Preview not supported for this file type. Click “Open” to view it.
+                  </div>
+                )}
+
+                {!previewLoading && selectedPreview?.kind === 'binary' && (
+                  <div className="text-sm text-[var(--text-muted)]">
+                    This file can be opened with your system viewer.
+                  </div>
+                )}
+
+                {!previewLoading && selectedPreview?.kind === 'image' && (
+                  <img
+                    src={selectedPreview.dataUrl}
+                    alt={selectedPreview.name}
+                    className="max-w-full rounded-md"
+                  />
+                )}
+
+                {!previewLoading && selectedPreview?.kind === 'markdown' && (
+                  <div className="text-sm">
+                    <MDContent content={selectedPreview.text} allowHtml={false} />
+                  </div>
+                )}
+
+                {!previewLoading && selectedPreview?.kind === 'text' && (
+                  <>
+                    {selectedPreview.editable ? (
+                      <textarea
+                        value={draftText}
+                        onChange={(e) => setDraftText(e.target.value)}
+                        className="w-full h-full min-h-[220px] resize-none bg-transparent outline-none font-mono text-sm whitespace-pre-wrap"
+                        spellCheck={false}
+                      />
+                    ) : (
+                      <pre className="whitespace-pre-wrap break-words font-mono text-sm text-[var(--text-primary)]">
+                        {selectedPreview.text}
+                      </pre>
+                    )}
+                    {saveState === 'error' && saveError && (
+                      <div className="mt-2 text-xs text-[var(--error)]">{saveError}</div>
+                    )}
+                  </>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = bytes;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  const rounded = unit === 0 ? String(Math.round(size)) : size.toFixed(1);
+  return `${rounded} ${units[unit]}`;
+}
+
+function IconSquareButton({
+  children,
+  onClick,
+  title,
+  ariaLabel,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  title: string;
+  ariaLabel: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      aria-label={ariaLabel}
+      className="w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:border-[var(--border)] transition-colors"
+    >
+      {children}
+    </button>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function OpenIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M14 3h7v7" />
+      <path d="M10 14L21 3" />
+      <path d="M21 14v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6" />
+    </svg>
+  );
+}
+
+function RevealIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M3 7.5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      <path d="M12 10v6" />
+      <path d="M9.5 13l2.5 3 2.5-3" />
+    </svg>
   );
 }

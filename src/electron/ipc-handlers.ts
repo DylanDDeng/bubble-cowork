@@ -1,6 +1,6 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron';
-import { readFileSync, statSync, watch, type FSWatcher } from 'fs';
-import { basename, extname } from 'path';
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { readFileSync, statSync, watch, type FSWatcher, promises as fsPromises } from 'fs';
+import { basename, extname, resolve, relative, isAbsolute } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
 import { runClaude } from './libs/runner';
@@ -25,6 +25,7 @@ import type {
 } from './types';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_PREVIEW_BYTES = 5 * 1024 * 1024; // 5MB
 
 const ATTACHMENT_MIME_TYPES: Record<string, string> = {
   '.txt': 'text/plain',
@@ -42,6 +43,81 @@ const projectWatchers = new Map<
   string,
   { watcher: FSWatcher; timer?: NodeJS.Timeout }
 >();
+
+type ProjectFilePreview =
+  | {
+      kind: 'text' | 'markdown';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      text: string;
+      editable: boolean;
+    }
+  | {
+      kind: 'image';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      dataUrl: string;
+    }
+  | {
+      kind: 'binary' | 'unsupported';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+    }
+  | {
+      kind: 'too_large';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      maxBytes: number;
+    }
+  | {
+      kind: 'error';
+      path: string;
+      name: string;
+      ext: string;
+      message: string;
+    };
+
+function isPathWithinRoot(rootPath: string, filePath: string): boolean {
+  const root = resolve(rootPath);
+  const target = resolve(filePath);
+  const rel = relative(root, target);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+async function validateProjectFilePath(
+  cwd: string,
+  filePath: string
+): Promise<{ ok: true; rootReal: string; targetReal: string } | { ok: false; message: string }> {
+  if (!cwd || !filePath) {
+    return { ok: false, message: 'Missing cwd or file path' };
+  }
+
+  if (!isPathWithinRoot(cwd, filePath)) {
+    return { ok: false, message: 'File is outside the selected project folder' };
+  }
+
+  try {
+    const [rootReal, targetReal] = await Promise.all([
+      fsPromises.realpath(cwd),
+      fsPromises.realpath(filePath),
+    ]);
+    if (!isPathWithinRoot(rootReal, targetReal)) {
+      return { ok: false, message: 'File is outside the selected project folder' };
+    }
+    return { ok: true, rootReal, targetReal };
+  } catch (error) {
+    // realpath fails if file is missing; still keep the basic path containment check above.
+    return { ok: true, rootReal: resolve(cwd), targetReal: resolve(filePath) };
+  }
+}
 
 function getAttachmentSpec(filePath: string): { kind: Attachment['kind']; mimeType: string } | null {
   const ext = extname(filePath).toLowerCase();
@@ -232,6 +308,164 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       return null;
     }
     return readProjectTree(cwd);
+  });
+
+  // RPC: 读取项目文件预览（安全：仅允许 cwd 内的文件，<=5MB）
+  ipcMainHandle(
+    'read-project-file-preview',
+    async (_event, cwd: string, filePath: string): Promise<ProjectFilePreview> => {
+      const resolved = resolve(filePath || '');
+      const name = basename(resolved) || resolved;
+      const ext = extname(resolved).toLowerCase();
+
+      const validation = await validateProjectFilePath(cwd, resolved);
+      if (!validation.ok) {
+        return { kind: 'error', path: resolved, name, ext, message: validation.message };
+      }
+
+      let stat;
+      try {
+        stat = await fsPromises.stat(validation.targetReal);
+      } catch (error) {
+        return { kind: 'error', path: validation.targetReal, name, ext, message: 'File not found' };
+      }
+
+      if (!stat.isFile()) {
+        return { kind: 'error', path: validation.targetReal, name, ext, message: 'Not a file' };
+      }
+
+      if (stat.size > MAX_FILE_PREVIEW_BYTES) {
+        return {
+          kind: 'too_large',
+          path: validation.targetReal,
+          name,
+          ext,
+          size: stat.size,
+          maxBytes: MAX_FILE_PREVIEW_BYTES,
+        };
+      }
+
+      // Images
+      if (ext === '.png' || ext === '.jpg' || ext === '.jpeg') {
+        try {
+          const buffer = await fsPromises.readFile(validation.targetReal);
+          const mimeType = ATTACHMENT_MIME_TYPES[ext] || 'application/octet-stream';
+          return {
+            kind: 'image',
+            path: validation.targetReal,
+            name,
+            ext,
+            size: stat.size,
+            dataUrl: `data:${mimeType};base64,${buffer.toString('base64')}`,
+          };
+        } catch (error) {
+          return {
+            kind: 'error',
+            path: validation.targetReal,
+            name,
+            ext,
+            message: `Failed to read image: ${String(error)}`,
+          };
+        }
+      }
+
+      // Markdown + text preview
+      if (ext === '.md' || ext === '.txt' || ext === '.json' || ext === '.log') {
+        try {
+          const text = await fsPromises.readFile(validation.targetReal, 'utf8');
+          return {
+            kind: ext === '.md' ? 'markdown' : 'text',
+            path: validation.targetReal,
+            name,
+            ext,
+            size: stat.size,
+            text,
+            editable: ext === '.txt',
+          };
+        } catch (error) {
+          return {
+            kind: 'error',
+            path: validation.targetReal,
+            name,
+            ext,
+            message: `Failed to read file: ${String(error)}`,
+          };
+        }
+      }
+
+      // Binary files (open only)
+      if (ext === '.pdf' || ext === '.docx') {
+        return { kind: 'binary', path: validation.targetReal, name, ext, size: stat.size };
+      }
+
+      return { kind: 'unsupported', path: validation.targetReal, name, ext, size: stat.size };
+    }
+  );
+
+  // RPC: 写入项目文本文件（仅允许写 .txt，安全：cwd 内，<=5MB）
+  ipcMainHandle(
+    'write-project-text-file',
+    async (
+      _event,
+      cwd: string,
+      filePath: string,
+      content: string
+    ): Promise<{ ok: true } | { ok: false; message: string }> => {
+      const resolved = resolve(filePath || '');
+      const ext = extname(resolved).toLowerCase();
+
+      if (ext !== '.txt') {
+        return { ok: false, message: 'Only .txt files are editable right now.' };
+      }
+
+      const validation = await validateProjectFilePath(cwd, resolved);
+      if (!validation.ok) {
+        return { ok: false, message: validation.message };
+      }
+
+      let stat;
+      try {
+        stat = await fsPromises.stat(validation.targetReal);
+      } catch {
+        return { ok: false, message: 'File not found' };
+      }
+
+      if (!stat.isFile()) {
+        return { ok: false, message: 'Not a file' };
+      }
+
+      const bytes = Buffer.byteLength(content ?? '', 'utf8');
+      if (bytes > MAX_FILE_PREVIEW_BYTES) {
+        return { ok: false, message: 'File content is too large to save (max 5MB).' };
+      }
+
+      try {
+        await fsPromises.writeFile(validation.targetReal, content ?? '', 'utf8');
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, message: `Failed to save file: ${String(error)}` };
+      }
+    }
+  );
+
+  // RPC: 用系统默认应用打开文件
+  ipcMainHandle('open-path', async (_event, filePath: string) => {
+    try {
+      const errMsg = await shell.openPath(filePath);
+      return errMsg ? { ok: false, message: errMsg } : { ok: true };
+    } catch (error) {
+      return { ok: false, message: String(error) };
+    }
+  });
+
+  // RPC: 在文件管理器中展示文件
+  ipcMainHandle('reveal-path', async (_event, filePath: string) => {
+    try {
+      shell.showItemInFolder(filePath);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: String(error) };
+    }
   });
 
   // RPC: 订阅项目文件树更新
