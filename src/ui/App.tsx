@@ -233,6 +233,8 @@ export function App() {
   };
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
+  const hasPendingPermissionRequests =
+    (activeSession?.permissionRequests?.length ?? 0) > 0;
   const lastUserPromptIndex = useMemo(() => {
     if (!activeSession) return -1;
     for (let i = activeSession.messages.length - 1; i >= 0; i--) {
@@ -367,9 +369,15 @@ export function App() {
               )}
 
               {/* 运行中指示器 */}
-              {activeSession.status === 'running' && !showPartialMessage && (
-                <div className="my-3 flex items-center gap-2 text-[var(--text-secondary)]">
-                  <div className="status-dot running" />
+              {activeSession.status === 'running' &&
+                !showPartialMessage &&
+                !hasPendingPermissionRequests && (
+                <div
+                  className="my-3 flex items-center gap-2 text-[var(--text-secondary)]"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <LoadingDots />
                   <span className="text-sm">Processing...</span>
                 </div>
               )}
@@ -433,6 +441,25 @@ function SidebarToggleIcon() {
     >
       <path d="M50.01,56.074l-35.989,0c-3.309,0 -5.995,-2.686 -5.995,-5.995l0,-36.011c0,-3.308 2.686,-5.994 5.995,-5.994l35.989,0c3.309,0 5.995,2.686 5.995,5.994l0,36.011c0,3.309 -2.686,5.995 -5.995,5.995Zm-25.984,-4l0,-40l-9.012,0c-1.65,0.001 -2.989,1.34 -2.989,2.989l0,34.022c0,1.649 1.339,2.989 2.989,2.989l9.012,0Zm24.991,-40l-20.991,0l0,40l20.991,0c1.65,0 2.989,-1.34 2.989,-2.989l0,-34.022c0,-1.649 -1.339,-2.988 -2.989,-2.989Z" />
     </svg>
+  );
+}
+
+function LoadingDots() {
+  return (
+    <span className="inline-flex items-center gap-1" aria-label="Processing">
+      <span
+        className="h-1.5 w-1.5 animate-bounce rounded-full bg-current"
+        style={{ animationDelay: '0ms' }}
+      />
+      <span
+        className="h-1.5 w-1.5 animate-bounce rounded-full bg-current"
+        style={{ animationDelay: '150ms' }}
+      />
+      <span
+        className="h-1.5 w-1.5 animate-bounce rounded-full bg-current"
+        style={{ animationDelay: '300ms' }}
+      />
+    </span>
   );
 }
 

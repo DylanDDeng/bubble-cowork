@@ -161,6 +161,8 @@ export function getToolSummary(name: string, input: Record<string, unknown>): st
       return (input.file_path as string) || '';
     case 'Edit':
       return (input.file_path as string) || '';
+    case 'Delete':
+      return (input.file_path as string) || '';
     case 'Glob':
       return (input.pattern as string) || '';
     case 'Grep':

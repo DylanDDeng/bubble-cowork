@@ -196,6 +196,9 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
   let assistantBuffer = '';
   let resultEmitted = false;
   let promptCapabilities: PromptCapabilities = {};
+  const toolNameById = new Map<string, string>();
+  const toolKindById = new Map<string, string>();
+  let pendingFinalizeOnSessionInfo = false;
 
   const proc = spawn('codex-acp', [], {
     cwd: session.cwd || process.cwd(),
@@ -355,6 +358,9 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
     assistantBuffer = '';
     streamingStarted = false;
     resultEmitted = false;
+    toolNameById.clear();
+    toolKindById.clear();
+    pendingFinalizeOnSessionInfo = false;
 
     let result: Record<string, unknown> | undefined;
     try {
@@ -388,7 +394,10 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
       return;
     }
 
-    emitResult('success');
+    // Some ACP agents may resolve the prompt request before sending a final
+    // completion update. Wait for `session_info_update` to avoid losing the
+    // streamed output when reloading a session.
+    pendingFinalizeOnSessionInfo = true;
   }
 
   function handleSessionUpdate(params?: Record<string, unknown>): void {
@@ -442,14 +451,103 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
       if (text) {
         assistantBuffer += text;
       }
-      emitResult('success');
       return;
     }
 
-    const completion = updateSignalsCompletion(update as Record<string, unknown>);
-    if (completion) {
-      emitResult(completion === 'cancelled' ? 'cancelled' : 'success');
+    if (updateType === 'tool_call') {
+      handleToolCall(update as Record<string, unknown>);
+      return;
     }
+
+    if (updateType === 'tool_call_update') {
+      handleToolCallUpdate(update as Record<string, unknown>);
+      return;
+    }
+
+    if (updateType === 'session_info_update') {
+      const completion = updateSignalsCompletion(update as Record<string, unknown>);
+      if (completion) {
+        pendingFinalizeOnSessionInfo = false;
+        emitResult(completion === 'cancelled' ? 'cancelled' : 'success');
+        return;
+      }
+
+      if (pendingFinalizeOnSessionInfo) {
+        pendingFinalizeOnSessionInfo = false;
+        emitResult('success');
+      }
+      return;
+    }
+
+    // Other ACP updates: user_message_chunk, session_info_update, etc. Ignored for now.
+  }
+
+  function handleToolCall(update: Record<string, unknown>): void {
+    const toolCallId = getToolCallId(update);
+    if (!toolCallId) return;
+
+    const rawKind = typeof update.kind === 'string' ? update.kind : '';
+    const rawTitle = typeof update.title === 'string' ? update.title : '';
+    const rawInput = update.rawInput ?? update.input ?? update.arguments ?? update.params;
+
+    const { name, input } = mapToolCallToToolUse(rawKind, rawTitle, rawInput);
+    toolNameById.set(toolCallId, name);
+    toolKindById.set(toolCallId, rawKind);
+
+    onMessage({
+      type: 'assistant',
+      uuid: uuidv4(),
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: toolCallId,
+            name,
+            input,
+          },
+        ],
+      },
+    });
+  }
+
+  function handleToolCallUpdate(update: Record<string, unknown>): void {
+    const toolCallId = getToolCallId(update);
+    if (!toolCallId) return;
+
+    const status = typeof update.status === 'string' ? update.status : '';
+    const statusLower = status.toLowerCase();
+    if (statusLower === 'in_progress' || statusLower === 'running' || statusLower === 'pending') {
+      return;
+    }
+
+    const isError = statusLower.includes('fail') || statusLower.includes('error');
+    const output =
+      update.output ??
+      update.rawOutput ??
+      update.result ??
+      update.message ??
+      update.content ??
+      (isError ? update.error : undefined);
+
+    const content = formatToolOutput(output) || (isError ? 'Tool failed' : 'Done');
+
+    onMessage({
+      type: 'user',
+      uuid: uuidv4(),
+      message: {
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: toolCallId,
+            content,
+            ...(isError ? { is_error: true } : {}),
+          },
+        ],
+      },
+    });
+
+    toolNameById.delete(toolCallId);
+    toolKindById.delete(toolCallId);
   }
 
   function handlePermissionRequest(id: number, params?: Record<string, unknown>): void {
@@ -489,6 +587,156 @@ function safeStringify(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function getToolCallId(update: Record<string, unknown>): string | null {
+  const candidate =
+    update.toolCallId ??
+    update.tool_call_id ??
+    update.toolUseId ??
+    update.tool_use_id;
+  if (typeof candidate === 'string' && candidate.trim()) return candidate;
+  return null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function getFirstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return null;
+}
+
+function mapToolCallToToolUse(
+  kind: string,
+  title: string,
+  rawInput: unknown
+): { name: string; input: Record<string, unknown> } {
+  const kindLower = kind.toLowerCase();
+  const titleLower = title.toLowerCase();
+  const inputRecord = asRecord(rawInput);
+
+  const maybeCommand =
+    inputRecord
+      ? getFirstString(
+          inputRecord.command,
+          inputRecord.cmd,
+          inputRecord.shellCommand,
+          inputRecord.shell_command
+        )
+      : null;
+
+  const maybePath =
+    inputRecord
+      ? getFirstString(
+          inputRecord.file_path,
+          inputRecord.path,
+          inputRecord.file,
+          inputRecord.filename,
+          inputRecord.absolute_file_path
+        )
+      : null;
+
+  if (
+    kindLower.includes('execute') ||
+    kindLower.includes('command') ||
+    titleLower.includes('command') ||
+    titleLower.includes('shell')
+  ) {
+    const command =
+      maybeCommand ||
+      (typeof rawInput === 'string' ? rawInput : null) ||
+      (title ? title : '');
+    const merged: Record<string, unknown> = inputRecord ? { ...inputRecord } : {};
+    if (command) merged.command = command;
+    return { name: 'Bash', input: merged };
+  }
+
+  if (kindLower.includes('read')) {
+    const filePath = maybePath || (typeof rawInput === 'string' ? rawInput : null) || '';
+    const merged: Record<string, unknown> = inputRecord ? { ...inputRecord } : {};
+    if (filePath) merged.file_path = filePath;
+    return { name: 'Read', input: merged };
+  }
+
+  if (kindLower.includes('write')) {
+    const filePath = maybePath || '';
+    const merged: Record<string, unknown> = inputRecord ? { ...inputRecord } : {};
+    if (filePath) merged.file_path = filePath;
+    return { name: 'Write', input: merged };
+  }
+
+  if (kindLower.includes('edit')) {
+    const filePath = maybePath || '';
+    const merged: Record<string, unknown> = inputRecord ? { ...inputRecord } : {};
+    if (filePath) merged.file_path = filePath;
+    return { name: 'Edit', input: merged };
+  }
+
+  if (kindLower.includes('delete') || kindLower.includes('remove')) {
+    const filePath = maybePath || '';
+    const merged: Record<string, unknown> = inputRecord ? { ...inputRecord } : {};
+    if (filePath) merged.file_path = filePath;
+    return { name: 'Delete', input: merged };
+  }
+
+  if (kindLower.includes('grep') || titleLower.includes('grep')) {
+    const pattern =
+      inputRecord ? getFirstString(inputRecord.pattern, inputRecord.query) : null;
+    const merged: Record<string, unknown> = inputRecord ? { ...inputRecord } : {};
+    if (pattern) merged.pattern = pattern;
+    return { name: 'Grep', input: merged };
+  }
+
+  if (kindLower.includes('glob') || titleLower.includes('glob')) {
+    const pattern =
+      inputRecord ? getFirstString(inputRecord.pattern, inputRecord.glob) : null;
+    const merged: Record<string, unknown> = inputRecord ? { ...inputRecord } : {};
+    if (pattern) merged.pattern = pattern;
+    return { name: 'Glob', input: merged };
+  }
+
+  const fallback: Record<string, unknown> = inputRecord ? { ...inputRecord } : {};
+  if (!fallback.kind && kind) fallback.kind = kind;
+  if (!fallback.title && title) fallback.title = title;
+  if (!fallback.rawInput && rawInput !== undefined) fallback.rawInput = rawInput as any;
+  return { name: kind || title || 'Tool', input: fallback };
+}
+
+function formatToolOutput(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+
+  if (Array.isArray(value)) {
+    const parts = value.map((item) => formatToolOutput(item)).filter(Boolean);
+    return parts.join('\n');
+  }
+
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const stdout = typeof obj.stdout === 'string' ? obj.stdout : null;
+    const stderr = typeof obj.stderr === 'string' ? obj.stderr : null;
+    const exitCode = obj.exitCode ?? obj.exit_code ?? obj.code ?? obj.status;
+
+    const lines: string[] = [];
+    if (exitCode !== undefined && exitCode !== null) lines.push(`exitCode: ${String(exitCode)}`);
+    if (stdout) lines.push(`stdout:\n${stdout}`);
+    if (stderr) lines.push(`stderr:\n${stderr}`);
+    if (lines.length > 0) return lines.join('\n');
+
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  }
+
+  return String(value);
 }
 
 function extractText(update: Record<string, unknown>): string | null {
