@@ -70,11 +70,9 @@ function TreeNode({
   return (
     <>
       <div
-        className={`flex items-center gap-2 py-0.5 text-sm rounded-md ${
-          isDir
-            ? 'cursor-pointer hover:bg-[var(--bg-tertiary)]'
-            : 'cursor-pointer hover:bg-[var(--bg-tertiary)]'
-        } ${isSelected ? 'bg-[var(--bg-tertiary)]' : ''}`}
+        className={`flex items-center gap-2 py-0.5 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 transition-colors duration-150 ${
+          isSelected ? 'bg-[var(--text-primary)]/[0.07]' : ''
+        }`}
         style={{ paddingLeft: depth * 12 }}
         onClick={() => {
           if (isDir) {
@@ -330,6 +328,13 @@ export function ProjectTreePanel() {
     if (node.kind !== 'file') return;
     if (!cwd) return;
 
+    // Toggle: 如果点击的是已选中的文件，取消选中
+    if (selectedFilePath === node.path) {
+      setSelectedFilePath(null);
+      setSelectedPreview(null);
+      return;
+    }
+
     setSelectedFilePath(node.path);
     setPreviewLoading(true);
     setSelectedPreview(null);
@@ -491,7 +496,7 @@ export function ProjectTreePanel() {
 
       <div className="flex-1 min-h-0 flex">
         {/* Tree */}
-        <div className="flex-[0_0_240px] min-w-[190px] max-w-[320px] overflow-auto px-3 pb-3">
+        <div className={`${selectedFilePath ? 'flex-[0_0_240px] min-w-[190px] max-w-[320px]' : 'flex-1'} overflow-auto px-3 pb-3`}>
           {!cwd && (
             <div className="text-sm text-[var(--text-muted)] px-1 py-2">
               Select a folder to view files.
@@ -520,22 +525,13 @@ export function ProjectTreePanel() {
           )}
         </div>
 
-        <div className="w-px bg-[var(--border)]" />
+        {/* Divider and Preview - only shown when a file is selected */}
+        {selectedFilePath && (
+          <>
+            <div className="w-px bg-[var(--border)]" />
 
-        {/* Preview (right side) */}
-        <div className="flex-1 min-w-0 flex flex-col px-3 py-3">
-          {!cwd && (
-            <div className="text-sm text-[var(--text-muted)]">No preview.</div>
-          )}
-
-          {cwd && !selectedFilePath && (
-            <div className="text-sm text-[var(--text-muted)]">
-              Click a file to preview.
-            </div>
-          )}
-
-          {cwd && selectedFilePath && (
-            <>
+            {/* Preview (right side) */}
+            <div className="flex-1 min-w-0 flex flex-col px-3 py-3">
               <div className="flex items-center justify-between gap-2 pb-2">
                 <div className="min-w-0">
                   <div className="text-xs text-[var(--text-muted)]">Preview</div>
@@ -650,9 +646,9 @@ export function ProjectTreePanel() {
                   </>
                 )}
               </div>
-            </>
-          )}
-        </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -687,7 +683,7 @@ function IconSquareButton({
       onClick={onClick}
       title={title}
       aria-label={ariaLabel}
-      className="w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:border-[var(--border)] transition-colors"
+      className="w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 hover:border-[var(--text-primary)]/10 transition-all duration-150"
     >
       {children}
     </button>

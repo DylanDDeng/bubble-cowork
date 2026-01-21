@@ -169,15 +169,16 @@ export function NewSessionView() {
               <button
                 onClick={handleStart}
                 disabled={!prompt.trim() || pendingStart}
-                className="h-11 px-5 rounded-xl text-[15px] bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed no-drag inline-flex items-center gap-2"
+                className="w-10 h-10 rounded-full flex items-center justify-center transition-colors no-drag disabled:cursor-not-allowed"
+                style={{
+                  backgroundColor: (!prompt.trim() || pendingStart) ? '#848588' : '#000000',
+                  color: '#FFFFFF'
+                }}
               >
                 {pendingStart ? (
-                  'Starting...'
+                  <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 ) : (
-                  <>
-                    <span>Let&apos;s Go</span>
-                    <ArrowRightIcon />
-                  </>
+                  <ArrowUpIcon />
                 )}
               </button>
             </div>
@@ -353,18 +354,17 @@ function ChevronDownIcon() {
   );
 }
 
-function ArrowRightIcon() {
+function ArrowUpIcon() {
   return (
     <svg
-      className="w-4 h-4"
+      className="w-5 h-5"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
-      strokeWidth={2}
+      strokeWidth={2.5}
       aria-hidden="true"
     >
-      <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5-5 5" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6 12h12" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 19V5m0 0l-6 6m6-6l6 6" />
     </svg>
   );
 }

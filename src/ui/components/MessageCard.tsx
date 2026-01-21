@@ -221,7 +221,7 @@ function UserPromptCard({
             )}
           </div>
         )}
-        <div className="w-full bg-white border border-[var(--border)] rounded-lg rounded-br-sm px-4 py-2">
+        <div className="w-full bg-white border border-[var(--border)] rounded-2xl rounded-br-md px-4 py-3">
           {isEditing ? (
             <textarea
               ref={textareaRef}

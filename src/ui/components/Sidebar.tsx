@@ -6,22 +6,65 @@ import { sendEvent } from '../hooks/useIPC';
 import { SidebarSearch } from './search/SidebarSearch';
 import type { SessionView } from '../types';
 
+// 时间分组类型
+type TimeGroup = 'today' | 'yesterday' | 'previous7Days' | 'previous30Days' | 'earlier';
+
+// 分组显示名称
+const TIME_GROUP_LABELS: Record<TimeGroup, string> = {
+  today: 'Today',
+  yesterday: 'Yesterday',
+  previous7Days: 'Previous 7 Days',
+  previous30Days: 'Previous 30 Days',
+  earlier: 'Earlier',
+};
+
+// 根据时间戳判断所属分组
+function getTimeGroup(timestamp: number): TimeGroup {
+  const now = new Date();
+
+  // 获取今天的开始时间 (00:00:00)
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
+  const days7Start = todayStart - 7 * 24 * 60 * 60 * 1000;
+  const days30Start = todayStart - 30 * 24 * 60 * 60 * 1000;
+
+  if (timestamp >= todayStart) return 'today';
+  if (timestamp >= yesterdayStart) return 'yesterday';
+  if (timestamp >= days7Start) return 'previous7Days';
+  if (timestamp >= days30Start) return 'previous30Days';
+  return 'earlier';
+}
+
 export function Sidebar() {
   const { sessions, activeSessionId, setActiveSession, setShowNewSession, sidebarSearchQuery, setShowMcpSettings } = useAppStore();
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionView | null>(null);
 
-  // 按 updatedAt 降序排序并过滤
-  const sessionList = useMemo(() => {
-    const sorted = Object.values(sessions).sort((a, b) => b.updatedAt - a.updatedAt);
-    if (!sidebarSearchQuery.trim()) return sorted;
+  // 按 updatedAt 降序排序、过滤并分组
+  const groupedSessions = useMemo(() => {
+    let sorted = Object.values(sessions).sort((a, b) => b.updatedAt - a.updatedAt);
 
-    const query = sidebarSearchQuery.toLowerCase();
-    return sorted.filter(
-      (session) =>
-        session.title.toLowerCase().includes(query) ||
-        session.cwd?.toLowerCase().includes(query)
-    );
+    if (sidebarSearchQuery.trim()) {
+      const query = sidebarSearchQuery.toLowerCase();
+      sorted = sorted.filter(
+        (session) =>
+          session.title.toLowerCase().includes(query) ||
+          session.cwd?.toLowerCase().includes(query)
+      );
+    }
+
+    // 按时间分组
+    const groups: { group: TimeGroup; sessions: SessionView[] }[] = [];
+    const groupOrder: TimeGroup[] = ['today', 'yesterday', 'previous7Days', 'previous30Days', 'earlier'];
+
+    for (const group of groupOrder) {
+      const sessionsInGroup = sorted.filter((s) => getTimeGroup(s.updatedAt) === group);
+      if (sessionsInGroup.length > 0) {
+        groups.push({ group, sessions: sessionsInGroup });
+      }
+    }
+
+    return groups;
   }, [sessions, sidebarSearchQuery]);
 
   const handleDelete = (sessionId: string) => {
@@ -51,7 +94,7 @@ export function Sidebar() {
           setActiveSession(null);
           setShowNewSession(true);
         }}
-        className="group mx-2 mt-4 mb-4 px-2 py-2 flex items-center gap-3 text-left no-drag rounded-xl hover:bg-[var(--bg-tertiary)] transition-colors"
+        className="group mx-2 mt-4 mb-4 px-2 py-2 flex items-center gap-3 text-left no-drag rounded-xl hover:bg-[var(--text-primary)]/5 transition-colors duration-150"
       >
         <span className="text-[#92918E] text-[22px] font-normal leading-none">+</span>
         <span className="text-base font-medium">New Task</span>
@@ -69,21 +112,26 @@ export function Sidebar() {
 
       {/* Session List */}
       <div className="flex-1 overflow-y-auto px-2">
-        {sessionList.map((session) => (
-          <SessionItem
-            key={session.id}
-            session={session}
-            isActive={activeSessionId === session.id}
-            onClick={() => {
-              setActiveSession(session.id);
-              setShowNewSession(false);
-            }}
-            onDelete={() => handleDelete(session.id)}
-            onCopyResume={() => handleResumeCommand(session)}
-          />
+        {groupedSessions.map(({ group, sessions: groupSessions }) => (
+          <div key={group}>
+            <GroupHeader label={TIME_GROUP_LABELS[group]} />
+            {groupSessions.map((session) => (
+              <SessionItem
+                key={session.id}
+                session={session}
+                isActive={activeSessionId === session.id}
+                onClick={() => {
+                  setActiveSession(session.id);
+                  setShowNewSession(false);
+                }}
+                onDelete={() => handleDelete(session.id)}
+                onCopyResume={() => handleResumeCommand(session)}
+              />
+            ))}
+          </div>
         ))}
 
-        {sessionList.length === 0 && (
+        {groupedSessions.length === 0 && (
           <div className="text-center text-[var(--text-muted)] py-8 text-sm">
             {sidebarSearchQuery ? 'No matching sessions' : 'No sessions yet'}
           </div>
@@ -94,7 +142,7 @@ export function Sidebar() {
       <div className="p-4 border-t border-[var(--border)]">
         <button
           onClick={() => setShowMcpSettings(true)}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 transition-colors duration-150"
         >
           <SettingsIcon />
           <span>MCP Settings</span>
@@ -138,6 +186,15 @@ export function Sidebar() {
   );
 }
 
+// GroupHeader 组件
+function GroupHeader({ label }: { label: string }) {
+  return (
+    <div className="px-2 pt-4 pb-2 text-xs text-[var(--text-muted)] font-medium">
+      {label}
+    </div>
+  );
+}
+
 // SessionItem 组件
 function SessionItem({
   session,
@@ -166,10 +223,10 @@ function SessionItem({
 
   return (
     <div
-      className={`group relative rounded-xl p-3 mb-1 cursor-pointer transition-colors ${
+      className={`group relative rounded-xl p-3 mb-1 cursor-pointer transition-colors duration-150 ${
         isActive
           ? 'bg-[var(--accent-light)]'
-          : 'hover:bg-[var(--bg-tertiary)]'
+          : 'hover:bg-[var(--text-primary)]/5'
       }`}
       onClick={onClick}
     >
@@ -188,7 +245,7 @@ function SessionItem({
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button
-            className="absolute top-3 right-2 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--border)] transition-opacity"
+            className="absolute top-3 right-2 w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-md hover:bg-[var(--text-primary)]/5 transition-all duration-150"
             onClick={(e) => e.stopPropagation()}
           >
             <MoreIcon />
@@ -202,7 +259,7 @@ function SessionItem({
           >
             {session.claudeSessionId && (
               <DropdownMenu.Item
-                className="flex items-center gap-2 px-3 py-2 text-sm rounded cursor-pointer hover:bg-[var(--border)] outline-none"
+                className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150"
                 onClick={onCopyResume}
               >
                 <CopyIcon />
@@ -210,7 +267,7 @@ function SessionItem({
               </DropdownMenu.Item>
             )}
             <DropdownMenu.Item
-              className="flex items-center gap-2 px-3 py-2 text-sm rounded cursor-pointer hover:bg-[var(--border)] outline-none text-red-400"
+              className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150 text-red-400"
               onClick={onDelete}
             >
               <TrashIcon />

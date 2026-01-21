@@ -183,7 +183,11 @@ export function PromptInput() {
               <button
                 onClick={handleSend}
                 disabled={!prompt.trim()}
-                className="w-11 h-11 rounded-xl bg-[var(--accent)] hover:bg-[var(--accent-hover)] transition-colors flex items-center justify-center text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-10 h-10 rounded-full flex items-center justify-center transition-colors disabled:cursor-not-allowed"
+                style={{
+                  backgroundColor: !prompt.trim() ? '#848588' : '#000000',
+                  color: '#FFFFFF'
+                }}
                 title="Send"
                 aria-label="Send"
               >

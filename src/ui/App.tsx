@@ -280,7 +280,7 @@ export function App() {
       {/* Sidebar toggle */}
       <button
         onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-        className={`fixed z-50 no-drag cursor-pointer w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:border-[var(--border)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)] ${
+        className={`fixed z-50 no-drag cursor-pointer w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 hover:border-[var(--text-primary)]/10 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)] ${
           isMacOS ? 'top-[8px] left-[92px]' : 'top-3 left-3'
         }`}
         title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
@@ -292,7 +292,7 @@ export function App() {
       {/* Right panel toggle */}
       <button
         onClick={() => setProjectTreeCollapsed(!projectTreeCollapsed)}
-        className={`fixed z-50 no-drag cursor-pointer w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:border-[var(--border)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)] ${
+        className={`fixed z-50 no-drag cursor-pointer w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 hover:border-[var(--text-primary)]/10 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)] ${
           isMacOS ? 'top-[8px] right-[16px]' : 'top-3 right-3'
         }`}
         title={projectTreeCollapsed ? 'Show project files' : 'Hide project files'}
