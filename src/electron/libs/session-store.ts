@@ -44,6 +44,7 @@ export function initialize(): void {
 
   ensureColumn('sessions', 'codex_session_id', 'TEXT');
   ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
+  ensureColumn('sessions', 'todo_state', "TEXT DEFAULT 'todo'");
 }
 
 function ensureColumn(table: string, column: string, definition: string): void {
@@ -138,6 +139,15 @@ export function updateSessionProvider(sessionId: string, provider: 'claude' | 'c
     UPDATE sessions SET provider = ?, updated_at = ? WHERE id = ?
   `);
   stmt.run(provider, now, sessionId);
+}
+
+// 更新 Session TodoState
+export function updateSessionTodoState(sessionId: string, todoState: string): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET todo_state = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(todoState, now, sessionId);
 }
 
 // 更新最后的 prompt

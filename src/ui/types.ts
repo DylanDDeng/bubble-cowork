@@ -1,7 +1,7 @@
 // UI 层类型定义
 
 // 从共享类型导入
-import type { AgentProvider, ProjectTreeNode } from '../shared/types';
+import type { AgentProvider, ProjectTreeNode, TodoState, StatusConfig } from '../shared/types';
 
 export type {
   SessionInfo,
@@ -19,6 +19,11 @@ export type {
   McpServerConfig,
   McpServerStatus,
   AgentProvider,
+  TodoState,
+  StatusConfig,
+  StatusCategory,
+  CreateStatusInput,
+  UpdateStatusInput,
 } from '../shared/types';
 
 // UI 会话视图状态
@@ -29,6 +34,7 @@ export interface SessionView {
   cwd?: string;
   claudeSessionId?: string;
   provider?: AgentProvider;
+  todoState?: TodoState;
   messages: import('../shared/types').StreamMessage[];
   hydrated: boolean;
   permissionRequests: import('../shared/types').PermissionRequestPayload[];
@@ -61,6 +67,9 @@ export interface AppState {
   mcpProjectServers: Record<string, import('../shared/types').McpServerConfig>;
   mcpServerStatus: import('../shared/types').McpServerStatus[];
   showMcpSettings: boolean;
+  // 状态配置
+  statusConfigs: StatusConfig[];
+  statusFilter: TodoState | 'all' | 'open' | 'closed';
 }
 
 // Store Actions
@@ -89,6 +98,9 @@ export interface AppActions {
   setMcpServers: (servers: Record<string, import('../shared/types').McpServerConfig>) => void;
   setMcpServerStatus: (status: import('../shared/types').McpServerStatus[]) => void;
   setShowMcpSettings: (show: boolean) => void;
+  // 状态配置 Actions
+  setStatusConfigs: (configs: StatusConfig[]) => void;
+  setStatusFilter: (filter: TodoState | 'all' | 'open' | 'closed') => void;
 }
 
 // 工具状态映射（用于显示 pending/success/error）

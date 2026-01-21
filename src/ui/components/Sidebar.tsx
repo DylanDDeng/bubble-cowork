@@ -1,10 +1,13 @@
-import { useState, forwardRef, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { SidebarSearch } from './search/SidebarSearch';
-import type { SessionView } from '../types';
+import { StatusFilter } from './StatusFilter';
+import { StatusIcon } from './StatusIcon';
+import { StatusMenu } from './StatusMenu';
+import type { SessionView, StatusConfig } from '../types';
 
 // 时间分组类型
 type TimeGroup = 'today' | 'yesterday' | 'previous7Days' | 'previous30Days' | 'earlier';
@@ -36,7 +39,7 @@ function getTimeGroup(timestamp: number): TimeGroup {
 }
 
 export function Sidebar() {
-  const { sessions, activeSessionId, setActiveSession, setShowNewSession, sidebarSearchQuery, setShowMcpSettings } = useAppStore();
+  const { sessions, activeSessionId, setActiveSession, setShowNewSession, sidebarSearchQuery, setShowMcpSettings, statusFilter, statusConfigs } = useAppStore();
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionView | null>(null);
 
@@ -44,6 +47,7 @@ export function Sidebar() {
   const groupedSessions = useMemo(() => {
     let sorted = Object.values(sessions).sort((a, b) => b.updatedAt - a.updatedAt);
 
+    // 搜索过滤
     if (sidebarSearchQuery.trim()) {
       const query = sidebarSearchQuery.toLowerCase();
       sorted = sorted.filter(
@@ -51,6 +55,19 @@ export function Sidebar() {
           session.title.toLowerCase().includes(query) ||
           session.cwd?.toLowerCase().includes(query)
       );
+    }
+
+    // 状态过滤
+    if (statusFilter !== 'all') {
+      if (statusFilter === 'open') {
+        const openIds = new Set(statusConfigs.filter(s => s.category === 'open').map(s => s.id));
+        sorted = sorted.filter(s => openIds.has(s.todoState || 'todo'));
+      } else if (statusFilter === 'closed') {
+        const closedIds = new Set(statusConfigs.filter(s => s.category === 'closed').map(s => s.id));
+        sorted = sorted.filter(s => closedIds.has(s.todoState || 'todo'));
+      } else {
+        sorted = sorted.filter(s => (s.todoState || 'todo') === statusFilter);
+      }
     }
 
     // 按时间分组
@@ -65,7 +82,7 @@ export function Sidebar() {
     }
 
     return groups;
-  }, [sessions, sidebarSearchQuery]);
+  }, [sessions, sidebarSearchQuery, statusFilter, statusConfigs]);
 
   const handleDelete = (sessionId: string) => {
     sendEvent({ type: 'session.delete', payload: { sessionId } });
@@ -103,6 +120,7 @@ export function Sidebar() {
       {/* Sessions 标题栏 */}
       <div className="px-4 py-2 flex items-center justify-between">
         <span className="text-sm text-[var(--text-muted)]">Sessions</span>
+        <StatusFilter />
       </div>
 
       {/* 搜索框 */}
@@ -120,6 +138,7 @@ export function Sidebar() {
                 key={session.id}
                 session={session}
                 isActive={activeSessionId === session.id}
+                statusConfigs={statusConfigs}
                 onClick={() => {
                   setActiveSession(session.id);
                   setShowNewSession(false);
@@ -199,12 +218,14 @@ function GroupHeader({ label }: { label: string }) {
 function SessionItem({
   session,
   isActive,
+  statusConfigs,
   onClick,
   onDelete,
   onCopyResume,
 }: {
   session: SessionView;
   isActive: boolean;
+  statusConfigs: StatusConfig[];
   onClick: () => void;
   onDelete: () => void;
   onCopyResume: () => void;
@@ -221,6 +242,10 @@ function SessionItem({
     ? session.claudeSessionId.slice(0, 14)
     : null;
 
+  // 获取当前状态配置
+  const currentTodoState = session.todoState || 'todo';
+  const currentStatusConfig = statusConfigs.find(s => s.id === currentTodoState);
+
   return (
     <div
       className={`group relative rounded-xl p-3 mb-1 cursor-pointer transition-colors duration-150 ${
@@ -230,13 +255,16 @@ function SessionItem({
       }`}
       onClick={onClick}
     >
-      {/* 标题 */}
-      <div className="text-sm font-medium truncate pr-6">
-        {session.title}
+      {/* 标题行：状态图标 + 标题 */}
+      <div className="flex items-center gap-2 pr-6">
+        {currentStatusConfig && (
+          <StatusIcon status={currentStatusConfig} className="flex-shrink-0" />
+        )}
+        <span className="text-sm font-medium truncate">{session.title}</span>
       </div>
 
       {/* 副标题：session-id · 时间 */}
-      <div className="text-xs text-[var(--text-muted)] mt-1 truncate">
+      <div className="text-xs text-[var(--text-muted)] mt-1 truncate pl-5">
         {shortId && <span>{shortId} · </span>}
         {formattedTime}
       </div>
@@ -257,6 +285,8 @@ function SessionItem({
             className="bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg p-1 min-w-[160px] shadow-lg z-50"
             sideOffset={5}
           >
+            <StatusMenu sessionId={session.id} currentStatus={currentTodoState} />
+            <DropdownMenu.Separator className="h-px bg-[var(--border)] my-1" />
             {session.claudeSessionId && (
               <DropdownMenu.Item
                 className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150"

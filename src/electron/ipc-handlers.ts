@@ -8,6 +8,7 @@ import { runCodex } from './libs/codex-runner';
 import { generateSessionTitle } from './libs/util';
 import { readProjectTree } from './libs/project-tree';
 import { loadClaudeSettings, getClaudeSettings, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
+import * as statusConfig from './libs/status-config';
 import { ipcMainHandle, isDev } from './util';
 import type {
   ClientEvent,
@@ -23,6 +24,11 @@ import type {
   Attachment,
   SessionStatus,
 } from './types';
+import type {
+  CreateStatusInput,
+  UpdateStatusInput,
+  TodoState,
+} from '../shared/types';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
 const MAX_FILE_PREVIEW_BYTES = 5 * 1024 * 1024; // 5MB
@@ -555,6 +561,30 @@ async function handleClientEvent(
     case 'mcp.save-config':
       handleMcpSaveConfig(mainWindow, event.payload);
       break;
+
+    case 'session.setTodoState':
+      handleSessionSetTodoState(mainWindow, event.payload);
+      break;
+
+    case 'status.list':
+      handleStatusList(mainWindow);
+      break;
+
+    case 'status.create':
+      handleStatusCreate(mainWindow, event.payload);
+      break;
+
+    case 'status.update':
+      handleStatusUpdate(mainWindow, event.payload);
+      break;
+
+    case 'status.delete':
+      handleStatusDelete(mainWindow, event.payload);
+      break;
+
+    case 'status.reorder':
+      handleStatusReorder(mainWindow, event.payload);
+      break;
   }
 }
 
@@ -568,6 +598,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     cwd: row.cwd || undefined,
     claudeSessionId: row.claude_session_id || undefined,
     provider: row.provider || 'claude',
+    todoState: row.todo_state || 'todo',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -575,6 +606,13 @@ function handleSessionList(mainWindow: BrowserWindow): void {
   broadcast(mainWindow, {
     type: 'session.list',
     payload: { sessions: sessionInfos },
+  });
+
+  // 同时发送状态配置列表
+  const statuses = statusConfig.listStatuses();
+  broadcast(mainWindow, {
+    type: 'status.list',
+    payload: { statuses },
   });
 }
 
@@ -962,6 +1000,72 @@ function handleMcpSaveConfig(
       globalServers,
       projectServers,
     },
+  });
+}
+
+// 设置会话 TodoState
+function handleSessionSetTodoState(
+  mainWindow: BrowserWindow,
+  payload: { sessionId: string; todoState: TodoState }
+): void {
+  sessions.updateSessionTodoState(payload.sessionId, payload.todoState);
+  broadcast(mainWindow, {
+    type: 'session.todoStateChanged',
+    payload: { sessionId: payload.sessionId, todoState: payload.todoState },
+  });
+}
+
+// 状态列表
+function handleStatusList(mainWindow: BrowserWindow): void {
+  const statuses = statusConfig.listStatuses();
+  broadcast(mainWindow, {
+    type: 'status.list',
+    payload: { statuses },
+  });
+}
+
+// 创建状态
+function handleStatusCreate(
+  mainWindow: BrowserWindow,
+  payload: CreateStatusInput
+): void {
+  statusConfig.createStatus(payload);
+  broadcastStatusChanged(mainWindow);
+}
+
+// 更新状态
+function handleStatusUpdate(
+  mainWindow: BrowserWindow,
+  payload: { id: string; updates: UpdateStatusInput }
+): void {
+  statusConfig.updateStatus(payload.id, payload.updates);
+  broadcastStatusChanged(mainWindow);
+}
+
+// 删除状态
+function handleStatusDelete(
+  mainWindow: BrowserWindow,
+  payload: { id: string }
+): void {
+  statusConfig.deleteStatus(payload.id);
+  broadcastStatusChanged(mainWindow);
+}
+
+// 重排序状态
+function handleStatusReorder(
+  mainWindow: BrowserWindow,
+  payload: { orderedIds: string[] }
+): void {
+  statusConfig.reorderStatuses(payload.orderedIds);
+  broadcastStatusChanged(mainWindow);
+}
+
+// 广播状态变更
+function broadcastStatusChanged(mainWindow: BrowserWindow): void {
+  const statuses = statusConfig.listStatuses();
+  broadcast(mainWindow, {
+    type: 'status.changed',
+    payload: { statuses },
   });
 }
 

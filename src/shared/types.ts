@@ -1,5 +1,45 @@
 // 共享类型定义（可导出）
 
+// ===== 状态分类 =====
+export type StatusCategory = 'open' | 'closed';
+
+// ===== 状态配置 =====
+export interface StatusConfig {
+  id: string;              // 唯一标识 slug: 'todo', 'my-status'
+  label: string;           // 显示名称
+  color?: string;          // 颜色 (hex 或 Tailwind class)
+  icon?: string;           // 图标 (emoji 或 SVG 标识)
+  category: StatusCategory;
+  isFixed: boolean;        // 固定状态，不可删除/改分类
+  isDefault: boolean;      // 默认状态，不可删除但可修改
+  order: number;           // 显示顺序
+}
+
+// ===== 状态配置文件结构 =====
+export interface StatusConfigFile {
+  version: number;
+  statuses: StatusConfig[];
+  defaultStatusId: string;
+}
+
+// ===== 会话的工作流状态 =====
+export type TodoState = string;  // 动态引用 StatusConfig.id
+
+// ===== 状态输入类型 =====
+export interface CreateStatusInput {
+  label: string;
+  color?: string;
+  icon?: string;
+  category: StatusCategory;
+}
+
+export interface UpdateStatusInput {
+  label?: string;
+  color?: string;
+  icon?: string;
+  category?: StatusCategory;
+}
+
 // MCP 服务器配置类型
 export interface McpServerConfig {
   type?: 'stdio' | 'http' | 'sse';
@@ -48,6 +88,7 @@ export type ClientEvent =
   | { type: 'session.history'; payload: { sessionId: string } }
   | { type: 'session.stop'; payload: { sessionId: string } }
   | { type: 'session.delete'; payload: { sessionId: string } }
+  | { type: 'session.setTodoState'; payload: { sessionId: string; todoState: TodoState } }
   | { type: 'permission.response'; payload: PermissionResponsePayload }
   // MCP 事件
   | { type: 'mcp.get-config'; payload?: { projectPath?: string } }
@@ -56,7 +97,13 @@ export type ClientEvent =
       globalServers?: Record<string, McpServerConfig>;
       projectServers?: Record<string, McpServerConfig>;
       projectPath?: string;
-    } };
+    } }
+  // 状态配置事件
+  | { type: 'status.list' }
+  | { type: 'status.create'; payload: CreateStatusInput }
+  | { type: 'status.update'; payload: { id: string; updates: UpdateStatusInput } }
+  | { type: 'status.delete'; payload: { id: string } }
+  | { type: 'status.reorder'; payload: { orderedIds: string[] } };
 
 // Server -> Client 事件
 export type ServerEvent =
@@ -64,6 +111,7 @@ export type ServerEvent =
   | { type: 'session.status'; payload: SessionStatusPayload }
   | { type: 'session.history'; payload: SessionHistoryPayload }
   | { type: 'session.deleted'; payload: { sessionId: string } }
+  | { type: 'session.todoStateChanged'; payload: { sessionId: string; todoState: TodoState } }
   | {
       type: 'stream.user_prompt';
       payload: { sessionId: string; prompt: string; attachments?: Attachment[]; createdAt?: number };
@@ -78,7 +126,10 @@ export type ServerEvent =
       globalServers?: Record<string, McpServerConfig>;
       projectServers?: Record<string, McpServerConfig>;
     } }
-  | { type: 'mcp.status'; payload: { servers: McpServerStatus[] } };
+  | { type: 'mcp.status'; payload: { servers: McpServerStatus[] } }
+  // 状态配置事件
+  | { type: 'status.list'; payload: { statuses: StatusConfig[] } }
+  | { type: 'status.changed'; payload: { statuses: StatusConfig[] } };
 
 // Payload 类型
 export interface SessionStartPayload {
@@ -104,6 +155,7 @@ export interface SessionInfo {
   cwd?: string;
   claudeSessionId?: string;
   provider?: AgentProvider;
+  todoState?: TodoState;
   createdAt: number;
   updatedAt: number;
 }

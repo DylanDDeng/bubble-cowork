@@ -10,6 +10,8 @@ import type {
   Attachment,
   SearchFilters,
   SearchMatch,
+  StatusConfig,
+  TodoState,
 } from '../types';
 
 type Store = AppState & AppActions;
@@ -45,6 +47,9 @@ export const useAppStore = create<Store>()(
       mcpProjectServers: {},
       mcpServerStatus: [],
       showMcpSettings: false,
+      // 状态配置
+      statusConfigs: [],
+      statusFilter: 'all',
 
   // Actions
   setConnected: (connected) => set({ connected }),
@@ -100,6 +105,15 @@ export const useAppStore = create<Store>()(
 
       case 'mcp.status':
         set({ mcpServerStatus: event.payload.servers });
+        break;
+
+      case 'status.list':
+      case 'status.changed':
+        set({ statusConfigs: event.payload.statuses });
+        break;
+
+      case 'session.todoStateChanged':
+        handleTodoStateChanged(event.payload, set, get);
         break;
     }
   },
@@ -184,6 +198,10 @@ export const useAppStore = create<Store>()(
   setMcpServers: (servers) => set({ mcpServers: servers }),
   setMcpServerStatus: (status) => set({ mcpServerStatus: status }),
   setShowMcpSettings: (show) => set({ showMcpSettings: show }),
+
+  // 状态配置 Actions
+  setStatusConfigs: (configs) => set({ statusConfigs: configs }),
+  setStatusFilter: (filter) => set({ statusFilter: filter }),
     }),
     {
       name: 'cowork-app-storage',
@@ -209,6 +227,7 @@ function handleSessionList(
       cwd: session.cwd,
       claudeSessionId: session.claudeSessionId,
       provider: session.provider || 'claude',
+      todoState: session.todoState || 'todo',
       messages: existing?.messages || [],
       hydrated: existing?.hydrated || false,
       permissionRequests: existing?.permissionRequests || [],
@@ -424,5 +443,27 @@ function handlePermissionRequest(
         },
       },
     };
+  });
+}
+
+// 处理 TodoState 变更
+function handleTodoStateChanged(
+  payload: { sessionId: string; todoState: TodoState },
+  set: SetState,
+  get: () => Store
+) {
+  const { sessionId, todoState } = payload;
+  const session = get().sessions[sessionId];
+  if (!session) return;
+
+  set({
+    sessions: {
+      ...get().sessions,
+      [sessionId]: {
+        ...session,
+        todoState,
+        updatedAt: Date.now(),
+      },
+    },
   });
 }

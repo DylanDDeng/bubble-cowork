@@ -28,6 +28,7 @@ export interface SessionRow {
   cwd: string | null;
   allowed_tools: string | null;
   last_prompt: string | null;
+  todo_state: string | null;
   created_at: number;
   updated_at: number;
 }
