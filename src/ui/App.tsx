@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { useAppStore } from './store/useAppStore';
 import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useSmartBuffer } from './hooks/useSmartBuffer';
 import { Sidebar } from './components/Sidebar';
 import { NewSessionView } from './components/NewSessionView';
 import { PromptInput } from './components/PromptInput';
@@ -10,8 +11,14 @@ import { ToolExecutionBatch } from './components/ToolExecutionBatch';
 import { InSessionSearch } from './components/search/InSessionSearch';
 import { McpSettings } from './components/settings/McpSettings';
 import { ProjectTreePanel } from './components/ProjectTreePanel';
+import { ThinkingIndicator } from './components/ThinkingIndicator';
 import { MDContent } from './render/markdown';
 import { loadPreferredProvider } from './utils/provider';
+import {
+  deriveTurnPhase,
+  shouldShowThinkingIndicator,
+  hasRunningToolInMessages,
+} from './utils/turn-utils';
 import type { ToolStatus, PermissionResult, StreamMessage, ContentBlock } from './types';
 
 // 工具结果块类型
@@ -120,6 +127,9 @@ export function App() {
   const [showPartialMessage, setShowPartialMessage] = useState(false);
   const partialMessageRef = useRef('');
 
+  // 智能缓冲
+  const isBuffering = useSmartBuffer(partialMessage, showPartialMessage);
+
   // 消息列表引用（用于滚动）
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -149,6 +159,18 @@ export function App() {
 
     return { toolStatusMap: statusMap, toolResultsMap: resultsMap };
   }, [activeSessionId, sessions]);
+
+  // 计算当前 Turn 阶段
+  const turnPhase = useMemo(() => {
+    const session = activeSessionId ? sessions[activeSessionId] : null;
+    if (!session) return 'complete' as const;
+
+    const isRunning = session.status === 'running';
+    const hasRunningTool = hasRunningToolInMessages(session.messages, toolStatusMap);
+    const isStreaming = showPartialMessage;
+
+    return deriveTurnPhase(session.messages, isRunning, hasRunningTool, isStreaming);
+  }, [activeSessionId, sessions, toolStatusMap, showPartialMessage]);
 
   // 连接后请求会话列表和 MCP 配置
   useEffect(() => {
@@ -357,29 +379,17 @@ export function App() {
                 );
               })}
 
-              {/* Partial streaming 显示 */}
-              {showPartialMessage && (
-                <div className="my-3 min-w-0 overflow-x-auto">
-                  {partialMessage ? (
-                    <MDContent content={partialMessage} />
-                  ) : (
-                    <div className="shimmer h-4 w-32 rounded" />
-                  )}
+              {/* Partial streaming 显示（仅在非缓冲状态且有内容时显示） */}
+              {showPartialMessage && !isBuffering && partialMessage && (
+                <div className="my-3 min-w-0 overflow-x-auto streaming-content">
+                  <MDContent content={partialMessage} />
                 </div>
               )}
 
-              {/* 运行中指示器 */}
-              {activeSession.status === 'running' &&
-                !showPartialMessage &&
-                !hasPendingPermissionRequests && (
-                <div
-                  className="my-3 flex items-center gap-2 text-[var(--text-secondary)]"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <LoadingDots />
-                  <span className="text-sm">Processing...</span>
-                </div>
+              {/* Thinking/Preparing 指示器 */}
+              {!hasPendingPermissionRequests &&
+                shouldShowThinkingIndicator(turnPhase, isBuffering) && (
+                <ThinkingIndicator phase={turnPhase} isBuffering={isBuffering} />
               )}
 
               <div ref={messagesEndRef} />
@@ -441,25 +451,6 @@ function SidebarToggleIcon() {
     >
       <path d="M50.01,56.074l-35.989,0c-3.309,0 -5.995,-2.686 -5.995,-5.995l0,-36.011c0,-3.308 2.686,-5.994 5.995,-5.994l35.989,0c3.309,0 5.995,2.686 5.995,5.994l0,36.011c0,3.309 -2.686,5.995 -5.995,5.995Zm-25.984,-4l0,-40l-9.012,0c-1.65,0.001 -2.989,1.34 -2.989,2.989l0,34.022c0,1.649 1.339,2.989 2.989,2.989l9.012,0Zm24.991,-40l-20.991,0l0,40l20.991,0c1.65,0 2.989,-1.34 2.989,-2.989l0,-34.022c0,-1.649 -1.339,-2.988 -2.989,-2.989Z" />
     </svg>
-  );
-}
-
-function LoadingDots() {
-  return (
-    <span className="inline-flex items-center gap-1" aria-label="Processing">
-      <span
-        className="h-1.5 w-1.5 animate-bounce rounded-full bg-current"
-        style={{ animationDelay: '0ms' }}
-      />
-      <span
-        className="h-1.5 w-1.5 animate-bounce rounded-full bg-current"
-        style={{ animationDelay: '150ms' }}
-      />
-      <span
-        className="h-1.5 w-1.5 animate-bounce rounded-full bg-current"
-        style={{ animationDelay: '300ms' }}
-      />
-    </span>
   );
 }
 

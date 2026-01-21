@@ -128,3 +128,27 @@ export interface SearchActions {
   setInSessionSearchResults: (results: SearchMatch[]) => void;
   navigateSearchResult: (direction: 'next' | 'prev') => void;
 }
+
+// Turn Phase 状态机类型
+export type TurnPhase =
+  | 'pending'      // 刚开始，无任何输出
+  | 'awaiting'     // 工具完成，等待下一步
+  | 'tool_active'  // 工具正在执行
+  | 'streaming'    // 最终回复正在流式输出
+  | 'complete';    // 回合完成
+
+// 缓冲配置
+export interface BufferConfig {
+  MIN_BUFFER_MS: number;
+  MAX_BUFFER_MS: number;
+  MIN_WORDS_STANDARD: number;
+  MIN_WORDS_STRUCTURED: number;
+}
+
+// 默认缓冲配置
+export const DEFAULT_BUFFER_CONFIG: BufferConfig = {
+  MIN_BUFFER_MS: 500,
+  MAX_BUFFER_MS: 2500,
+  MIN_WORDS_STANDARD: 15,
+  MIN_WORDS_STRUCTURED: 8,
+};

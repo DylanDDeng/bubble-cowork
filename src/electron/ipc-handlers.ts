@@ -176,6 +176,10 @@ function getSessionState(sessionId: string): SessionState {
 
 // 广播事件到渲染进程
 function broadcast(mainWindow: BrowserWindow, event: ServerEvent): void {
+  // 检查窗口和 webContents 是否已销毁
+  if (mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+    return;
+  }
   mainWindow.webContents.send('server-event', JSON.stringify(event));
 }
 
