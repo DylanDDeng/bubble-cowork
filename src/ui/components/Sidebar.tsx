@@ -10,10 +10,11 @@ import { StatusMenu } from './StatusMenu';
 import type { SessionView, StatusConfig } from '../types';
 
 // 时间分组类型
-type TimeGroup = 'today' | 'yesterday' | 'previous7Days' | 'previous30Days' | 'earlier';
+type TimeGroup = 'pinned' | 'today' | 'yesterday' | 'previous7Days' | 'previous30Days' | 'earlier';
 
 // 分组显示名称
 const TIME_GROUP_LABELS: Record<TimeGroup, string> = {
+  pinned: 'Pinned',
   today: 'Today',
   yesterday: 'Yesterday',
   previous7Days: 'Previous 7 Days',
@@ -70,12 +71,23 @@ export function Sidebar() {
       }
     }
 
-    // 按时间分组
+    // 分离置顶和非置顶的 session
+    const pinnedSessions = sorted.filter((s) => s.pinned);
+    const unpinnedSessions = sorted.filter((s) => !s.pinned);
+
+    // 按时间分组（只对非置顶的 session）
     const groups: { group: TimeGroup; sessions: SessionView[] }[] = [];
+
+    // 先添加置顶分组
+    if (pinnedSessions.length > 0) {
+      groups.push({ group: 'pinned', sessions: pinnedSessions });
+    }
+
+    // 再按时间分组
     const groupOrder: TimeGroup[] = ['today', 'yesterday', 'previous7Days', 'previous30Days', 'earlier'];
 
     for (const group of groupOrder) {
-      const sessionsInGroup = sorted.filter((s) => getTimeGroup(s.updatedAt) === group);
+      const sessionsInGroup = unpinnedSessions.filter((s) => getTimeGroup(s.updatedAt) === group);
       if (sessionsInGroup.length > 0) {
         groups.push({ group, sessions: sessionsInGroup });
       }
@@ -145,6 +157,7 @@ export function Sidebar() {
                 }}
                 onDelete={() => handleDelete(session.id)}
                 onCopyResume={() => handleResumeCommand(session)}
+                onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
               />
             ))}
           </div>
@@ -222,6 +235,7 @@ function SessionItem({
   onClick,
   onDelete,
   onCopyResume,
+  onTogglePin,
 }: {
   session: SessionView;
   isActive: boolean;
@@ -229,6 +243,7 @@ function SessionItem({
   onClick: () => void;
   onDelete: () => void;
   onCopyResume: () => void;
+  onTogglePin: () => void;
 }) {
   // 格式化时间：4:36 pm
   const formattedTime = new Date(session.updatedAt).toLocaleTimeString('en-US', {
@@ -255,10 +270,15 @@ function SessionItem({
       }`}
       onClick={onClick}
     >
-      {/* 标题行：状态图标 + 标题 */}
+      {/* 标题行：状态图标 + 置顶图标 + 标题 */}
       <div className="flex items-center gap-2 pr-6">
         {currentStatusConfig && (
           <StatusIcon status={currentStatusConfig} className="flex-shrink-0" />
+        )}
+        {session.pinned && (
+          <span className="flex-shrink-0 text-[var(--text-muted)]">
+            <PinIcon />
+          </span>
         )}
         <span className="text-sm font-medium truncate">{session.title}</span>
       </div>
@@ -285,6 +305,14 @@ function SessionItem({
             className="bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg p-1 min-w-[160px] shadow-lg z-50"
             sideOffset={5}
           >
+            <DropdownMenu.Item
+              className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150"
+              onClick={onTogglePin}
+            >
+              <PinIcon />
+              {session.pinned ? 'Unpin' : 'Pin to Top'}
+            </DropdownMenu.Item>
+            <DropdownMenu.Separator className="h-px bg-[var(--border)] my-1" />
             <StatusMenu sessionId={session.id} currentStatus={currentTodoState} />
             <DropdownMenu.Separator className="h-px bg-[var(--border)] my-1" />
             {session.claudeSessionId && (
@@ -335,6 +363,15 @@ function TrashIcon() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <polyline points="3 6 5 6 21 6" />
       <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </svg>
+  );
+}
+
+function PinIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 17v5" />
+      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
     </svg>
   );
 }

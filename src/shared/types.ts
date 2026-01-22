@@ -89,6 +89,7 @@ export type ClientEvent =
   | { type: 'session.stop'; payload: { sessionId: string } }
   | { type: 'session.delete'; payload: { sessionId: string } }
   | { type: 'session.setTodoState'; payload: { sessionId: string; todoState: TodoState } }
+  | { type: 'session.togglePin'; payload: { sessionId: string } }
   | { type: 'permission.response'; payload: PermissionResponsePayload }
   // MCP 事件
   | { type: 'mcp.get-config'; payload?: { projectPath?: string } }
@@ -112,6 +113,7 @@ export type ServerEvent =
   | { type: 'session.history'; payload: SessionHistoryPayload }
   | { type: 'session.deleted'; payload: { sessionId: string } }
   | { type: 'session.todoStateChanged'; payload: { sessionId: string; todoState: TodoState } }
+  | { type: 'session.pinned'; payload: { sessionId: string; pinned: boolean } }
   | {
       type: 'stream.user_prompt';
       payload: { sessionId: string; prompt: string; attachments?: Attachment[]; createdAt?: number };
@@ -156,6 +158,7 @@ export interface SessionInfo {
   claudeSessionId?: string;
   provider?: AgentProvider;
   todoState?: TodoState;
+  pinned?: boolean;
   createdAt: number;
   updatedAt: number;
 }

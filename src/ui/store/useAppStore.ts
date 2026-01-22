@@ -118,6 +118,10 @@ export const useAppStore = create<Store>()(
       case 'session.todoStateChanged':
         handleTodoStateChanged(event.payload, set, get);
         break;
+
+      case 'session.pinned':
+        handleSessionPinned(event.payload, set, get);
+        break;
     }
   },
 
@@ -233,6 +237,7 @@ function handleSessionList(
       claudeSessionId: session.claudeSessionId,
       provider: session.provider || 'claude',
       todoState: session.todoState || 'todo',
+      pinned: session.pinned || false,
       messages: existing?.messages || [],
       hydrated: existing?.hydrated || false,
       permissionRequests: existing?.permissionRequests || [],
@@ -467,6 +472,28 @@ function handleTodoStateChanged(
       [sessionId]: {
         ...session,
         todoState,
+        updatedAt: Date.now(),
+      },
+    },
+  });
+}
+
+// 处理置顶状态变更
+function handleSessionPinned(
+  payload: { sessionId: string; pinned: boolean },
+  set: SetState,
+  get: () => Store
+) {
+  const { sessionId, pinned } = payload;
+  const session = get().sessions[sessionId];
+  if (!session) return;
+
+  set({
+    sessions: {
+      ...get().sessions,
+      [sessionId]: {
+        ...session,
+        pinned,
         updatedAt: Date.now(),
       },
     },

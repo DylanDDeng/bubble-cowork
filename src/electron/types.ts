@@ -29,6 +29,7 @@ export interface SessionRow {
   allowed_tools: string | null;
   last_prompt: string | null;
   todo_state: string | null;
+  pinned: number | null;
   created_at: number;
   updated_at: number;
 }

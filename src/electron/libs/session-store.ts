@@ -45,6 +45,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'codex_session_id', 'TEXT');
   ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
   ensureColumn('sessions', 'todo_state', "TEXT DEFAULT 'todo'");
+  ensureColumn('sessions', 'pinned', 'INTEGER DEFAULT 0');
 }
 
 function ensureColumn(table: string, column: string, definition: string): void {
@@ -148,6 +149,20 @@ export function updateSessionTodoState(sessionId: string, todoState: string): vo
     UPDATE sessions SET todo_state = ?, updated_at = ? WHERE id = ?
   `);
   stmt.run(todoState, now, sessionId);
+}
+
+// 切换 Session Pinned 状态
+export function toggleSessionPinned(sessionId: string): boolean {
+  const session = getSession(sessionId);
+  if (!session) return false;
+
+  const newPinned = session.pinned ? 0 : 1;
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET pinned = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(newPinned, now, sessionId);
+  return newPinned === 1;
 }
 
 // 更新最后的 prompt

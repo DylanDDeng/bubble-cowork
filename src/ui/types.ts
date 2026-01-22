@@ -38,6 +38,7 @@ export interface SessionView {
   claudeSessionId?: string;
   provider?: AgentProvider;
   todoState?: TodoState;
+  pinned?: boolean;
   messages: import('../shared/types').StreamMessage[];
   hydrated: boolean;
   permissionRequests: import('../shared/types').PermissionRequestPayload[];

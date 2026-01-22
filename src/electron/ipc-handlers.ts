@@ -566,6 +566,10 @@ async function handleClientEvent(
       handleSessionSetTodoState(mainWindow, event.payload);
       break;
 
+    case 'session.togglePin':
+      handleSessionTogglePin(mainWindow, event.payload);
+      break;
+
     case 'status.list':
       handleStatusList(mainWindow);
       break;
@@ -599,6 +603,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     claudeSessionId: row.claude_session_id || undefined,
     provider: row.provider || 'claude',
     todoState: row.todo_state || 'todo',
+    pinned: row.pinned === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -1012,6 +1017,18 @@ function handleSessionSetTodoState(
   broadcast(mainWindow, {
     type: 'session.todoStateChanged',
     payload: { sessionId: payload.sessionId, todoState: payload.todoState },
+  });
+}
+
+// 切换会话置顶状态
+function handleSessionTogglePin(
+  mainWindow: BrowserWindow,
+  payload: { sessionId: string }
+): void {
+  const newPinned = sessions.toggleSessionPinned(payload.sessionId);
+  broadcast(mainWindow, {
+    type: 'session.pinned',
+    payload: { sessionId: payload.sessionId, pinned: newPinned },
   });
 }
 
