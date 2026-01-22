@@ -30,6 +30,7 @@ export interface SessionRow {
   last_prompt: string | null;
   todo_state: string | null;
   pinned: number | null;
+  folder_path: string | null;
   created_at: number;
   updated_at: number;
 }

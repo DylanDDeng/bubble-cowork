@@ -9,6 +9,7 @@ import { generateSessionTitle } from './libs/util';
 import { readProjectTree } from './libs/project-tree';
 import { loadClaudeSettings, getClaudeSettings, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
 import * as statusConfig from './libs/status-config';
+import * as folderConfig from './libs/folder-config';
 import { ipcMainHandle, isDev } from './util';
 import type {
   ClientEvent,
@@ -28,6 +29,7 @@ import type {
   CreateStatusInput,
   UpdateStatusInput,
   TodoState,
+  FolderConfig,
 } from '../shared/types';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
@@ -589,6 +591,30 @@ async function handleClientEvent(
     case 'status.reorder':
       handleStatusReorder(mainWindow, event.payload);
       break;
+
+    case 'folder.list':
+      handleFolderList(mainWindow);
+      break;
+
+    case 'folder.create':
+      handleFolderCreate(mainWindow, event.payload);
+      break;
+
+    case 'folder.update':
+      handleFolderUpdate(mainWindow, event.payload);
+      break;
+
+    case 'folder.delete':
+      handleFolderDelete(mainWindow, event.payload);
+      break;
+
+    case 'folder.move':
+      handleFolderMove(mainWindow, event.payload);
+      break;
+
+    case 'session.setFolder':
+      handleSessionSetFolder(mainWindow, event.payload);
+      break;
   }
 }
 
@@ -604,6 +630,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     provider: row.provider || 'claude',
     todoState: row.todo_state || 'todo',
     pinned: row.pinned === 1,
+    folderPath: row.folder_path || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -618,6 +645,13 @@ function handleSessionList(mainWindow: BrowserWindow): void {
   broadcast(mainWindow, {
     type: 'status.list',
     payload: { statuses },
+  });
+
+  // 同时发送文件夹列表
+  const folders = folderConfig.listFolders();
+  broadcast(mainWindow, {
+    type: 'folder.list',
+    payload: { folders },
   });
 }
 
@@ -1083,6 +1117,125 @@ function broadcastStatusChanged(mainWindow: BrowserWindow): void {
   broadcast(mainWindow, {
     type: 'status.changed',
     payload: { statuses },
+  });
+}
+
+// 文件夹列表
+function handleFolderList(mainWindow: BrowserWindow): void {
+  const folders = folderConfig.listFolders();
+  broadcast(mainWindow, {
+    type: 'folder.list',
+    payload: { folders },
+  });
+}
+
+// 创建文件夹
+function handleFolderCreate(
+  mainWindow: BrowserWindow,
+  payload: { path: string; displayName?: string }
+): void {
+  try {
+    folderConfig.createFolder(payload.path, payload.displayName);
+    broadcastFolderChanged(mainWindow);
+  } catch (error) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: `Failed to create folder: ${String(error)}` },
+    });
+  }
+}
+
+// 更新文件夹
+function handleFolderUpdate(
+  mainWindow: BrowserWindow,
+  payload: { path: string; updates: Partial<FolderConfig> }
+): void {
+  try {
+    folderConfig.updateFolder(payload.path, payload.updates);
+    broadcastFolderChanged(mainWindow);
+  } catch (error) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: `Failed to update folder: ${String(error)}` },
+    });
+  }
+}
+
+// 删除文件夹
+function handleFolderDelete(
+  mainWindow: BrowserWindow,
+  payload: { path: string }
+): void {
+  try {
+    folderConfig.deleteFolder(payload.path);
+    // 清除该文件夹下所有 session 的文件夹路径
+    sessions.clearSessionsFolderPath(payload.path);
+    broadcastFolderChanged(mainWindow);
+    // 重新发送 session 列表以更新 folderPath
+    handleSessionList(mainWindow);
+  } catch (error) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: `Failed to delete folder: ${String(error)}` },
+    });
+  }
+}
+
+// 移动/重命名文件夹
+function handleFolderMove(
+  mainWindow: BrowserWindow,
+  payload: { oldPath: string; newPath: string }
+): void {
+  try {
+    const { oldPaths, newPaths } = folderConfig.moveFolder(payload.oldPath, payload.newPath);
+    // 更新 session 的文件夹路径
+    for (let i = 0; i < oldPaths.length; i++) {
+      sessions.updateSessionsInFolder(oldPaths[i], newPaths[i]);
+    }
+    broadcastFolderChanged(mainWindow);
+    // 重新发送 session 列表以更新 folderPath
+    handleSessionList(mainWindow);
+  } catch (error) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: `Failed to move folder: ${String(error)}` },
+    });
+  }
+}
+
+// 设置 session 文件夹
+function handleSessionSetFolder(
+  mainWindow: BrowserWindow,
+  payload: { sessionId: string; folderPath: string | null }
+): void {
+  try {
+    // 如果设置了文件夹路径，确保文件夹存在
+    if (payload.folderPath) {
+      folderConfig.ensureFolderExists(payload.folderPath);
+    }
+    sessions.updateSessionFolderPath(payload.sessionId, payload.folderPath);
+    broadcast(mainWindow, {
+      type: 'session.folderChanged',
+      payload: { sessionId: payload.sessionId, folderPath: payload.folderPath },
+    });
+    // 如果创建了新文件夹，广播文件夹变更
+    if (payload.folderPath) {
+      broadcastFolderChanged(mainWindow);
+    }
+  } catch (error) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: `Failed to set session folder: ${String(error)}` },
+    });
+  }
+}
+
+// 广播文件夹变更
+function broadcastFolderChanged(mainWindow: BrowserWindow): void {
+  const folders = folderConfig.listFolders();
+  broadcast(mainWindow, {
+    type: 'folder.changed',
+    payload: { folders },
   });
 }
 

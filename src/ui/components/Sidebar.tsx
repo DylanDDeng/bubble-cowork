@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useAppStore } from '../store/useAppStore';
@@ -7,6 +7,10 @@ import { SidebarSearch } from './search/SidebarSearch';
 import { StatusFilter } from './StatusFilter';
 import { StatusIcon } from './StatusIcon';
 import { StatusMenu } from './StatusMenu';
+import { FolderMenu } from './FolderMenu';
+import { ViewModeToggle } from './ViewModeToggle';
+import { FolderTreeView } from './FolderTreeView';
+import { NewFolderDialog } from './NewFolderDialog';
 import type { SessionView, StatusConfig } from '../types';
 
 // 时间分组类型
@@ -40,9 +44,16 @@ function getTimeGroup(timestamp: number): TimeGroup {
 }
 
 export function Sidebar() {
-  const { sessions, activeSessionId, setActiveSession, setShowNewSession, sidebarSearchQuery, setShowSettings, statusFilter, statusConfigs } = useAppStore();
+  const { sessions, activeSessionId, setActiveSession, setShowNewSession, sidebarSearchQuery, setShowSettings, statusFilter, statusConfigs, sidebarViewMode } = useAppStore();
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionView | null>(null);
+  const [newFolderDialogOpen, setNewFolderDialogOpen] = useState(false);
+  const [newFolderSessionId, setNewFolderSessionId] = useState<string | null>(null);
+
+  const handleNewFolderRequest = useCallback((sessionId: string) => {
+    setNewFolderSessionId(sessionId);
+    setNewFolderDialogOpen(true);
+  }, []);
 
   // 按 updatedAt 降序排序、过滤并分组
   const groupedSessions = useMemo(() => {
@@ -130,9 +141,12 @@ export function Sidebar() {
       </button>
 
       {/* Sessions 标题栏 */}
-      <div className="px-4 py-2 flex items-center justify-between">
+      <div className="px-4 py-2 flex items-center justify-between gap-2">
         <span className="text-sm text-[var(--text-muted)]">Sessions</span>
-        <StatusFilter />
+        <div className="flex items-center gap-2">
+          <ViewModeToggle />
+          <StatusFilter />
+        </div>
       </div>
 
       {/* 搜索框 */}
@@ -142,31 +156,48 @@ export function Sidebar() {
 
       {/* Session List */}
       <div className="flex-1 overflow-y-auto px-2">
-        {groupedSessions.map(({ group, sessions: groupSessions }) => (
-          <div key={group}>
-            <GroupHeader label={TIME_GROUP_LABELS[group]} />
-            {groupSessions.map((session) => (
-              <SessionItem
-                key={session.id}
-                session={session}
-                isActive={activeSessionId === session.id}
-                statusConfigs={statusConfigs}
-                onClick={() => {
-                  setActiveSession(session.id);
-                  setShowNewSession(false);
-                }}
-                onDelete={() => handleDelete(session.id)}
-                onCopyResume={() => handleResumeCommand(session)}
-                onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
-              />
+        {sidebarViewMode === 'time' ? (
+          // 时间视图
+          <>
+            {groupedSessions.map(({ group, sessions: groupSessions }) => (
+              <div key={group}>
+                <GroupHeader label={TIME_GROUP_LABELS[group]} />
+                {groupSessions.map((session) => (
+                  <SessionItem
+                    key={session.id}
+                    session={session}
+                    isActive={activeSessionId === session.id}
+                    statusConfigs={statusConfigs}
+                    onClick={() => {
+                      setActiveSession(session.id);
+                      setShowNewSession(false);
+                    }}
+                    onDelete={() => handleDelete(session.id)}
+                    onCopyResume={() => handleResumeCommand(session)}
+                    onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
+                    onNewFolderRequest={handleNewFolderRequest}
+                  />
+                ))}
+              </div>
             ))}
-          </div>
-        ))}
 
-        {groupedSessions.length === 0 && (
-          <div className="text-center text-[var(--text-muted)] py-8 text-sm">
-            {sidebarSearchQuery ? 'No matching sessions' : 'No sessions yet'}
-          </div>
+            {groupedSessions.length === 0 && (
+              <div className="text-center text-[var(--text-muted)] py-8 text-sm">
+                {sidebarSearchQuery ? 'No matching sessions' : 'No sessions yet'}
+              </div>
+            )}
+          </>
+        ) : (
+          // 文件夹视图
+          <FolderTreeView
+            onSessionClick={(sessionId) => {
+              setActiveSession(sessionId);
+              setShowNewSession(false);
+            }}
+            onSessionDelete={handleDelete}
+            onCopyResume={handleResumeCommand}
+            onNewFolderRequest={handleNewFolderRequest}
+          />
         )}
       </div>
 
@@ -214,6 +245,13 @@ export function Sidebar() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      {/* New Folder Dialog */}
+      <NewFolderDialog
+        open={newFolderDialogOpen}
+        sessionId={newFolderSessionId}
+        onOpenChange={setNewFolderDialogOpen}
+      />
     </div>
   );
 }
@@ -236,6 +274,7 @@ function SessionItem({
   onDelete,
   onCopyResume,
   onTogglePin,
+  onNewFolderRequest,
 }: {
   session: SessionView;
   isActive: boolean;
@@ -244,6 +283,7 @@ function SessionItem({
   onDelete: () => void;
   onCopyResume: () => void;
   onTogglePin: () => void;
+  onNewFolderRequest: (sessionId: string) => void;
 }) {
   // 格式化时间：4:36 pm
   const formattedTime = new Date(session.updatedAt).toLocaleTimeString('en-US', {
@@ -314,6 +354,7 @@ function SessionItem({
             </DropdownMenu.Item>
             <DropdownMenu.Separator className="h-px bg-[var(--border)] my-1" />
             <StatusMenu sessionId={session.id} currentStatus={currentTodoState} />
+            <FolderMenu sessionId={session.id} currentFolderPath={session.folderPath} onNewFolderRequest={onNewFolderRequest} />
             <DropdownMenu.Separator className="h-px bg-[var(--border)] my-1" />
             {session.claudeSessionId && (
               <DropdownMenu.Item

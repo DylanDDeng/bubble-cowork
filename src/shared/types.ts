@@ -40,6 +40,20 @@ export interface UpdateStatusInput {
   category?: StatusCategory;
 }
 
+// ===== 文件夹配置 =====
+export interface FolderConfig {
+  path: string;           // "Work/ProjectA"
+  displayName?: string;
+  color?: string;
+  collapsed?: boolean;
+  order: number;
+}
+
+export interface FolderConfigFile {
+  version: number;
+  folders: FolderConfig[];
+}
+
 // MCP 服务器配置类型
 export interface McpServerConfig {
   type?: 'stdio' | 'http' | 'sse';
@@ -104,7 +118,14 @@ export type ClientEvent =
   | { type: 'status.create'; payload: CreateStatusInput }
   | { type: 'status.update'; payload: { id: string; updates: UpdateStatusInput } }
   | { type: 'status.delete'; payload: { id: string } }
-  | { type: 'status.reorder'; payload: { orderedIds: string[] } };
+  | { type: 'status.reorder'; payload: { orderedIds: string[] } }
+  // 文件夹事件
+  | { type: 'folder.list' }
+  | { type: 'folder.create'; payload: { path: string; displayName?: string } }
+  | { type: 'folder.update'; payload: { path: string; updates: Partial<FolderConfig> } }
+  | { type: 'folder.delete'; payload: { path: string } }
+  | { type: 'folder.move'; payload: { oldPath: string; newPath: string } }
+  | { type: 'session.setFolder'; payload: { sessionId: string; folderPath: string | null } };
 
 // Server -> Client 事件
 export type ServerEvent =
@@ -131,7 +152,11 @@ export type ServerEvent =
   | { type: 'mcp.status'; payload: { servers: McpServerStatus[] } }
   // 状态配置事件
   | { type: 'status.list'; payload: { statuses: StatusConfig[] } }
-  | { type: 'status.changed'; payload: { statuses: StatusConfig[] } };
+  | { type: 'status.changed'; payload: { statuses: StatusConfig[] } }
+  // 文件夹事件
+  | { type: 'folder.list'; payload: { folders: FolderConfig[] } }
+  | { type: 'folder.changed'; payload: { folders: FolderConfig[] } }
+  | { type: 'session.folderChanged'; payload: { sessionId: string; folderPath: string | null } };
 
 // Payload 类型
 export interface SessionStartPayload {
@@ -159,6 +184,7 @@ export interface SessionInfo {
   provider?: AgentProvider;
   todoState?: TodoState;
   pinned?: boolean;
+  folderPath?: string | null;
   createdAt: number;
   updatedAt: number;
 }

@@ -46,6 +46,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
   ensureColumn('sessions', 'todo_state', "TEXT DEFAULT 'todo'");
   ensureColumn('sessions', 'pinned', 'INTEGER DEFAULT 0');
+  ensureColumn('sessions', 'folder_path', 'TEXT');
 }
 
 function ensureColumn(table: string, column: string, definition: string): void {
@@ -163,6 +164,55 @@ export function toggleSessionPinned(sessionId: string): boolean {
   `);
   stmt.run(newPinned, now, sessionId);
   return newPinned === 1;
+}
+
+// 更新 Session 文件夹路径
+export function updateSessionFolderPath(sessionId: string, folderPath: string | null): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET folder_path = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(folderPath, now, sessionId);
+}
+
+// 批量更新指定文件夹（及其子文件夹）下的 session 的路径（用于文件夹重命名）
+export function updateSessionsInFolder(oldPath: string, newPath: string): number {
+  const now = Date.now();
+
+  // 更新精确匹配的路径
+  const stmt1 = getDb().prepare(`
+    UPDATE sessions SET folder_path = ?, updated_at = ? WHERE folder_path = ?
+  `);
+  const result1 = stmt1.run(newPath, now, oldPath);
+
+  // 更新所有子路径（oldPath/ 开头的）
+  const stmt2 = getDb().prepare(`
+    UPDATE sessions
+    SET folder_path = ? || substr(folder_path, ?), updated_at = ?
+    WHERE folder_path LIKE ?
+  `);
+  const result2 = stmt2.run(newPath, oldPath.length + 1, now, oldPath + '/%');
+
+  return (result1.changes || 0) + (result2.changes || 0);
+}
+
+// 清除指定文件夹（及其子文件夹）下所有 session 的文件夹路径（用于文件夹删除）
+export function clearSessionsFolderPath(folderPath: string): number {
+  const now = Date.now();
+
+  // 清除精确匹配的路径
+  const stmt1 = getDb().prepare(`
+    UPDATE sessions SET folder_path = NULL, updated_at = ? WHERE folder_path = ?
+  `);
+  const result1 = stmt1.run(now, folderPath);
+
+  // 清除所有子路径
+  const stmt2 = getDb().prepare(`
+    UPDATE sessions SET folder_path = NULL, updated_at = ? WHERE folder_path LIKE ?
+  `);
+  const result2 = stmt2.run(now, folderPath + '/%');
+
+  return (result1.changes || 0) + (result2.changes || 0);
 }
 
 // 更新最后的 prompt

@@ -13,6 +13,8 @@ import type {
   StatusConfig,
   TodoState,
   SettingsTab,
+  FolderConfig,
+  SidebarViewMode,
 } from '../types';
 
 type Store = AppState & AppActions;
@@ -53,6 +55,10 @@ export const useAppStore = create<Store>()(
       // 状态配置
       statusConfigs: [],
       statusFilter: 'all',
+      // 文件夹
+      sidebarViewMode: 'time' as SidebarViewMode,
+      folderConfigs: [],
+      expandedFolders: new Set<string>(),
 
   // Actions
   setConnected: (connected) => set({ connected }),
@@ -121,6 +127,15 @@ export const useAppStore = create<Store>()(
 
       case 'session.pinned':
         handleSessionPinned(event.payload, set, get);
+        break;
+
+      case 'folder.list':
+      case 'folder.changed':
+        set({ folderConfigs: event.payload.folders });
+        break;
+
+      case 'session.folderChanged':
+        handleSessionFolderChanged(event.payload, set, get);
         break;
     }
   },
@@ -211,10 +226,36 @@ export const useAppStore = create<Store>()(
   // 状态配置 Actions
   setStatusConfigs: (configs) => set({ statusConfigs: configs }),
   setStatusFilter: (filter) => set({ statusFilter: filter }),
+
+  // 文件夹 Actions
+  setSidebarViewMode: (mode) => set({ sidebarViewMode: mode }),
+  setFolderConfigs: (configs) => set({ folderConfigs: configs }),
+  toggleFolderExpanded: (folderPath) =>
+    set((state) => {
+      const newExpanded = new Set(state.expandedFolders);
+      if (newExpanded.has(folderPath)) {
+        newExpanded.delete(folderPath);
+      } else {
+        newExpanded.add(folderPath);
+      }
+      return { expandedFolders: newExpanded };
+    }),
+  setExpandedFolders: (folders) => set({ expandedFolders: folders }),
     }),
     {
       name: 'cowork-app-storage',
-      partialize: () => ({}),
+      partialize: (state) => ({
+        sidebarViewMode: state.sidebarViewMode,
+        expandedFolders: Array.from(state.expandedFolders),
+      }),
+      merge: (persistedState: unknown, currentState: Store) => {
+        const persisted = persistedState as { sidebarViewMode?: SidebarViewMode; expandedFolders?: string[] } | undefined;
+        return {
+          ...currentState,
+          sidebarViewMode: persisted?.sidebarViewMode || currentState.sidebarViewMode,
+          expandedFolders: new Set(persisted?.expandedFolders || []),
+        };
+      },
     }
   )
 );
@@ -238,6 +279,7 @@ function handleSessionList(
       provider: session.provider || 'claude',
       todoState: session.todoState || 'todo',
       pinned: session.pinned || false,
+      folderPath: session.folderPath || null,
       messages: existing?.messages || [],
       hydrated: existing?.hydrated || false,
       permissionRequests: existing?.permissionRequests || [],
@@ -494,6 +536,28 @@ function handleSessionPinned(
       [sessionId]: {
         ...session,
         pinned,
+        updatedAt: Date.now(),
+      },
+    },
+  });
+}
+
+// 处理 Session 文件夹变更
+function handleSessionFolderChanged(
+  payload: { sessionId: string; folderPath: string | null },
+  set: SetState,
+  get: () => Store
+) {
+  const { sessionId, folderPath } = payload;
+  const session = get().sessions[sessionId];
+  if (!session) return;
+
+  set({
+    sessions: {
+      ...get().sessions,
+      [sessionId]: {
+        ...session,
+        folderPath,
         updatedAt: Date.now(),
       },
     },

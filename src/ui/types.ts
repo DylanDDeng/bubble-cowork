@@ -4,7 +4,7 @@
 export type SettingsTab = 'mcp' | 'general';
 
 // 从共享类型导入
-import type { AgentProvider, ProjectTreeNode, TodoState, StatusConfig } from '../shared/types';
+import type { AgentProvider, ProjectTreeNode, TodoState, StatusConfig, FolderConfig } from '../shared/types';
 
 export type {
   SessionInfo,
@@ -27,7 +27,11 @@ export type {
   StatusCategory,
   CreateStatusInput,
   UpdateStatusInput,
+  FolderConfig,
 } from '../shared/types';
+
+// 侧边栏视图模式
+export type SidebarViewMode = 'time' | 'folder';
 
 // UI 会话视图状态
 export interface SessionView {
@@ -39,6 +43,7 @@ export interface SessionView {
   provider?: AgentProvider;
   todoState?: TodoState;
   pinned?: boolean;
+  folderPath?: string | null;
   messages: import('../shared/types').StreamMessage[];
   hydrated: boolean;
   permissionRequests: import('../shared/types').PermissionRequestPayload[];
@@ -76,6 +81,10 @@ export interface AppState {
   // 状态配置
   statusConfigs: StatusConfig[];
   statusFilter: TodoState | 'all' | 'open' | 'closed';
+  // 文件夹
+  sidebarViewMode: SidebarViewMode;
+  folderConfigs: FolderConfig[];
+  expandedFolders: Set<string>;
 }
 
 // Store Actions
@@ -109,6 +118,11 @@ export interface AppActions {
   // 状态配置 Actions
   setStatusConfigs: (configs: StatusConfig[]) => void;
   setStatusFilter: (filter: TodoState | 'all' | 'open' | 'closed') => void;
+  // 文件夹 Actions
+  setSidebarViewMode: (mode: SidebarViewMode) => void;
+  setFolderConfigs: (configs: FolderConfig[]) => void;
+  toggleFolderExpanded: (folderPath: string) => void;
+  setExpandedFolders: (folders: Set<string>) => void;
 }
 
 // 工具状态映射（用于显示 pending/success/error）
