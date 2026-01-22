@@ -39,7 +39,7 @@ function getTimeGroup(timestamp: number): TimeGroup {
 }
 
 export function Sidebar() {
-  const { sessions, activeSessionId, setActiveSession, setShowNewSession, sidebarSearchQuery, setShowMcpSettings, statusFilter, statusConfigs } = useAppStore();
+  const { sessions, activeSessionId, setActiveSession, setShowNewSession, sidebarSearchQuery, setShowSettings, statusFilter, statusConfigs } = useAppStore();
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionView | null>(null);
 
@@ -160,11 +160,11 @@ export function Sidebar() {
       {/* Settings Button */}
       <div className="p-4 border-t border-[var(--border)]">
         <button
-          onClick={() => setShowMcpSettings(true)}
+          onClick={() => setShowSettings(true)}
           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 transition-colors duration-150"
         >
           <SettingsIcon />
-          <span>MCP Settings</span>
+          <span>Settings</span>
         </button>
       </div>
 
@@ -250,7 +250,7 @@ function SessionItem({
     <div
       className={`group relative rounded-xl p-3 mb-1 cursor-pointer transition-colors duration-150 ${
         isActive
-          ? 'bg-[var(--accent-light)]'
+          ? 'bg-[var(--text-primary)]/10'
           : 'hover:bg-[var(--text-primary)]/5'
       }`}
       onClick={onClick}

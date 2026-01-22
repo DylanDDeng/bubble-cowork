@@ -9,7 +9,7 @@ import { PromptInput } from './components/PromptInput';
 import { MessageCard } from './components/MessageCard';
 import { ToolExecutionBatch } from './components/ToolExecutionBatch';
 import { InSessionSearch } from './components/search/InSessionSearch';
-import { McpSettings } from './components/settings/McpSettings';
+import { Settings } from './components/settings/Settings';
 import { ProjectTreePanel } from './components/ProjectTreePanel';
 import { ThinkingIndicator } from './components/ThinkingIndicator';
 import { MDContent } from './render/markdown';
@@ -419,8 +419,8 @@ export function App() {
         </div>
       )}
 
-      {/* MCP 设置面板 */}
-      <McpSettings />
+      {/* Settings 面板 */}
+      <Settings />
     </div>
   );
 }

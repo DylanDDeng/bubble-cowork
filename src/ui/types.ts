@@ -1,5 +1,8 @@
 // UI 层类型定义
 
+// Settings 标签类型
+export type SettingsTab = 'mcp' | 'general';
+
 // 从共享类型导入
 import type { AgentProvider, ProjectTreeNode, TodoState, StatusConfig } from '../shared/types';
 
@@ -66,7 +69,9 @@ export interface AppState {
   mcpGlobalServers: Record<string, import('../shared/types').McpServerConfig>;
   mcpProjectServers: Record<string, import('../shared/types').McpServerConfig>;
   mcpServerStatus: import('../shared/types').McpServerStatus[];
-  showMcpSettings: boolean;
+  // Settings 状态
+  showSettings: boolean;
+  activeSettingsTab: SettingsTab;
   // 状态配置
   statusConfigs: StatusConfig[];
   statusFilter: TodoState | 'all' | 'open' | 'closed';
@@ -97,7 +102,9 @@ export interface AppActions {
   // MCP Actions
   setMcpServers: (servers: Record<string, import('../shared/types').McpServerConfig>) => void;
   setMcpServerStatus: (status: import('../shared/types').McpServerStatus[]) => void;
-  setShowMcpSettings: (show: boolean) => void;
+  // Settings Actions
+  setShowSettings: (show: boolean) => void;
+  setActiveSettingsTab: (tab: SettingsTab) => void;
   // 状态配置 Actions
   setStatusConfigs: (configs: StatusConfig[]) => void;
   setStatusFilter: (filter: TodoState | 'all' | 'open' | 'closed') => void;

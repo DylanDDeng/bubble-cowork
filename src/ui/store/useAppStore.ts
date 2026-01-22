@@ -12,6 +12,7 @@ import type {
   SearchMatch,
   StatusConfig,
   TodoState,
+  SettingsTab,
 } from '../types';
 
 type Store = AppState & AppActions;
@@ -46,7 +47,9 @@ export const useAppStore = create<Store>()(
       mcpGlobalServers: {},
       mcpProjectServers: {},
       mcpServerStatus: [],
-      showMcpSettings: false,
+      // Settings 状态
+      showSettings: false,
+      activeSettingsTab: 'mcp' as SettingsTab,
       // 状态配置
       statusConfigs: [],
       statusFilter: 'all',
@@ -197,7 +200,9 @@ export const useAppStore = create<Store>()(
   // MCP Actions
   setMcpServers: (servers) => set({ mcpServers: servers }),
   setMcpServerStatus: (status) => set({ mcpServerStatus: status }),
-  setShowMcpSettings: (show) => set({ showMcpSettings: show }),
+  // Settings Actions
+  setShowSettings: (show) => set({ showSettings: show }),
+  setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
 
   // 状态配置 Actions
   setStatusConfigs: (configs) => set({ statusConfigs: configs }),

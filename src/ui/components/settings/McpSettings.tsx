@@ -5,14 +5,13 @@ import type { McpServerConfig, McpServerStatus } from '../../types';
 
 type ServerScope = 'global' | 'project';
 
-// MCP 设置面板
-export function McpSettings() {
+// MCP 设置内容组件（用于嵌入 Settings 面板）
+export function McpSettingsContent() {
   const {
     mcpGlobalServers,
     mcpProjectServers,
     mcpServerStatus,
-    showMcpSettings,
-    setShowMcpSettings,
+    showSettings,
     activeSessionId,
     sessions,
   } = useAppStore();
@@ -29,13 +28,13 @@ export function McpSettings() {
 
   // 请求 MCP 配置
   useEffect(() => {
-    if (showMcpSettings) {
+    if (showSettings) {
       sendEvent({
         type: 'mcp.get-config',
         payload: { projectPath: currentProjectPath },
       });
     }
-  }, [showMcpSettings, currentProjectPath]);
+  }, [showSettings, currentProjectPath]);
 
   // 获取服务器状态
   const getServerStatus = (name: string): McpServerStatus | undefined => {
@@ -90,96 +89,81 @@ export function McpSettings() {
     setIsAddingNew(null);
   };
 
-  if (!showMcpSettings) return null;
-
   const hasGlobalServers = Object.keys(mcpGlobalServers).length > 0;
   const hasProjectServers = Object.keys(mcpProjectServers).length > 0;
   const hasNoServers = !hasGlobalServers && !hasProjectServers && isAddingNew === null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-[var(--bg-primary)] rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-[var(--border-primary)]">
-          <h2 className="text-lg font-semibold">MCP Servers</h2>
-          <button
-            onClick={() => setShowMcpSettings(false)}
-            className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors"
-          >
-            <CloseIcon />
-          </button>
-        </div>
+    <div className="flex flex-col h-full">
+      {/* Content */}
+      <div className="flex-1 overflow-auto p-4">
+        {hasNoServers ? (
+          <div className="text-center py-8 text-[var(--text-muted)]">
+            <p>No MCP servers configured</p>
+            <p className="text-sm mt-2">
+              Add MCP servers to extend Claude's capabilities
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {/* 全局服务器 */}
+            <ServerSection
+              title="Global Servers"
+              description="Available in all projects"
+              servers={mcpGlobalServers}
+              scope="global"
+              editingServer={editingServer}
+              isAddingNew={isAddingNew === 'global'}
+              getServerStatus={getServerStatus}
+              onEdit={(name, config) => setEditingServer({ name, config, scope: 'global' })}
+              onDelete={(name) => handleDelete(name, 'global')}
+              onSave={(name, config) => handleSave(name, config, 'global')}
+              onCancelEdit={() => setEditingServer(null)}
+              onAddNew={() => setIsAddingNew('global')}
+              onCancelAdd={() => setIsAddingNew(null)}
+            />
 
-        {/* Content */}
-        <div className="flex-1 overflow-auto p-4">
-          {hasNoServers ? (
-            <div className="text-center py-8 text-[var(--text-muted)]">
-              <p>No MCP servers configured</p>
-              <p className="text-sm mt-2">
-                Add MCP servers to extend Claude's capabilities
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {/* 全局服务器 */}
+            {/* 项目级服务器 */}
+            {currentProjectPath && (
               <ServerSection
-                title="Global Servers"
-                description="Available in all projects"
-                servers={mcpGlobalServers}
-                scope="global"
+                title="Project Servers"
+                description={`Only available in ${currentProjectPath.split('/').pop()}`}
+                servers={mcpProjectServers}
+                scope="project"
                 editingServer={editingServer}
-                isAddingNew={isAddingNew === 'global'}
+                isAddingNew={isAddingNew === 'project'}
                 getServerStatus={getServerStatus}
-                onEdit={(name, config) => setEditingServer({ name, config, scope: 'global' })}
-                onDelete={(name) => handleDelete(name, 'global')}
-                onSave={(name, config) => handleSave(name, config, 'global')}
+                onEdit={(name, config) => setEditingServer({ name, config, scope: 'project' })}
+                onDelete={(name) => handleDelete(name, 'project')}
+                onSave={(name, config) => handleSave(name, config, 'project')}
                 onCancelEdit={() => setEditingServer(null)}
-                onAddNew={() => setIsAddingNew('global')}
+                onAddNew={() => setIsAddingNew('project')}
                 onCancelAdd={() => setIsAddingNew(null)}
               />
-
-              {/* 项目级服务器 */}
-              {currentProjectPath && (
-                <ServerSection
-                  title="Project Servers"
-                  description={`Only available in ${currentProjectPath.split('/').pop()}`}
-                  servers={mcpProjectServers}
-                  scope="project"
-                  editingServer={editingServer}
-                  isAddingNew={isAddingNew === 'project'}
-                  getServerStatus={getServerStatus}
-                  onEdit={(name, config) => setEditingServer({ name, config, scope: 'project' })}
-                  onDelete={(name) => handleDelete(name, 'project')}
-                  onSave={(name, config) => handleSave(name, config, 'project')}
-                  onCancelEdit={() => setEditingServer(null)}
-                  onAddNew={() => setIsAddingNew('project')}
-                  onCancelAdd={() => setIsAddingNew(null)}
-                />
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        {hasNoServers && (
-          <div className="p-4 border-t border-[var(--border-primary)] flex gap-2">
-            <button
-              onClick={() => setIsAddingNew('global')}
-              className="px-4 py-2 bg-[var(--accent)] text-white rounded-lg hover:bg-[var(--accent-hover)] transition-colors"
-            >
-              + Add Global Server
-            </button>
-            {currentProjectPath && (
-              <button
-                onClick={() => setIsAddingNew('project')}
-                className="px-4 py-2 border border-[var(--border-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
-              >
-                + Add Project Server
-              </button>
             )}
           </div>
         )}
       </div>
+
+      {/* Footer */}
+      {hasNoServers && (
+        <div className="p-4 border-t border-[var(--border-primary)] flex gap-2">
+          <button
+            onClick={() => setIsAddingNew('global')}
+            className="px-4 py-2 bg-[var(--accent)] text-white rounded-lg hover:bg-[var(--accent-hover)] transition-colors"
+          >
+            + Add Global Server
+          </button>
+          {currentProjectPath && (
+            <button
+              onClick={() => setIsAddingNew('project')}
+              className="px-4 py-2 border border-[var(--border-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+            >
+              + Add Project Server
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -540,15 +524,6 @@ function McpServerForm({
 }
 
 // Icons
-function CloseIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-}
-
 function EditIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
