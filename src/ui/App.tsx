@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { useAppStore } from './store/useAppStore';
 import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
-import { useSmartBuffer } from './hooks/useSmartBuffer';
 import { Sidebar } from './components/Sidebar';
 import { NewSessionView } from './components/NewSessionView';
 import { PromptInput } from './components/PromptInput';
@@ -123,32 +122,68 @@ export function App() {
   // 历史请求记录（防止重复请求）
   const historyRequested = useRef(new Set<string>());
 
-  // Partial streaming 状态
-  const [partialMessage, setPartialMessage] = useState('');
-  const [partialThinking, setPartialThinking] = useState('');
-  const [showPartialMessage, setShowPartialMessage] = useState(false);
-  const partialMessageRef = useRef('');
-  const partialThinkingRef = useRef('');
-  const [streamCounter, setStreamCounter] = useState(0);
-  const lastStreamIndexRef = useRef(-1);
-  const lastStreamSessionRef = useRef<string | null>(null);
-
-  // 智能缓冲
-  const combinedPartial = partialMessage + partialThinking;
-  const isBuffering = useSmartBuffer(combinedPartial, showPartialMessage, undefined, true);
-
-  // 切换会话时重置流式状态，并跳过已存在的历史 stream_event
-  useEffect(() => {
+  // 流式状态：通过 useMemo 从 session.messages 派生，实现打字机效果
+  const { partialMessage, partialThinking, isStreaming: showPartialMessage } = useMemo(() => {
     const session = activeSessionId ? sessions[activeSessionId] : null;
-    if (activeSessionId !== lastStreamSessionRef.current) {
-      lastStreamSessionRef.current = activeSessionId;
-      lastStreamIndexRef.current = session ? session.messages.length - 1 : -1;
-      partialMessageRef.current = '';
-      partialThinkingRef.current = '';
-      setPartialMessage('');
-      setPartialThinking('');
-      setShowPartialMessage(false);
+    if (!session) return { partialMessage: '', partialThinking: '', isStreaming: false };
+
+    const messages = session.messages;
+    let text = '';
+    let thinking = '';
+    let streaming = false;
+
+    // 从后往前找最后一个 content_block_start 或正在进行的流
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+
+      // 遇到完整消息就停止搜索（说明没有进行中的流）
+      if (msg.type === 'assistant' || msg.type === 'result') {
+        break;
+      }
+
+      // 找到 content_block_start，从这里开始累积
+      if (msg.type === 'stream_event' && msg.event.type === 'content_block_start') {
+        streaming = true;
+        // 从 start 位置往后累积所有 delta
+        for (let j = i; j < messages.length; j++) {
+          const m = messages[j];
+          if (m.type === 'stream_event') {
+            const event = m.event;
+            if (event.type === 'content_block_delta' && event.delta) {
+              const deltaType = event.delta.type;
+              if (deltaType === 'text_delta') {
+                text += typeof event.delta.text === 'string' ? event.delta.text : '';
+              } else if (deltaType === 'thinking_delta') {
+                thinking += typeof event.delta.thinking === 'string' ? event.delta.thinking : '';
+              } else {
+                // 处理其他类型的 delta
+                const prefix = deltaType.replace('_delta', '');
+                const rawContent = (event.delta as Record<string, unknown>)[prefix];
+                const content = typeof rawContent === 'string' ? rawContent : '';
+                if (prefix === 'thinking') {
+                  thinking += content;
+                } else {
+                  text += content;
+                }
+              }
+            } else if (event.type === 'content_block_stop') {
+              // 遇到 stop，流结束
+              streaming = false;
+              text = '';
+              thinking = '';
+            }
+          } else if (m.type === 'assistant' || m.type === 'result') {
+            // 安全兜底：若未收到 stop，收到最终消息也结束流式
+            streaming = false;
+            text = '';
+            thinking = '';
+          }
+        }
+        break;
+      }
     }
+
+    return { partialMessage: text, partialThinking: thinking, isStreaming: streaming };
   }, [activeSessionId, sessions]);
 
   // 消息列表引用（用于滚动）
@@ -217,106 +252,6 @@ export function App() {
       });
     }
   }, [activeSessionId, sessions]);
-
-  // 处理 stream_event（partial streaming）
-  useEffect(() => {
-    const session = activeSessionId ? sessions[activeSessionId] : null;
-    if (!session) return;
-
-    let startIndex = lastStreamIndexRef.current + 1;
-    if (startIndex < 0) startIndex = 0;
-    if (startIndex >= session.messages.length) return;
-
-    let nextText = partialMessageRef.current;
-    let nextThinking = partialThinkingRef.current;
-    let nextShow = showPartialMessage;
-    let shouldBumpCounter = false;
-
-    for (let i = startIndex; i < session.messages.length; i++) {
-      const msg = session.messages[i];
-      if (msg.type === 'stream_event') {
-        const event = msg.event;
-        switch (event.type) {
-          case 'content_block_start':
-            nextText = '';
-            nextThinking = '';
-            nextShow = true;
-            shouldBumpCounter = true;
-            break;
-
-          case 'content_block_delta':
-            if (event.delta) {
-              const deltaType = event.delta.type;
-              if (deltaType === 'text_delta') {
-                if (!nextShow) {
-                  nextText = '';
-                  nextThinking = '';
-                  nextShow = true;
-                  shouldBumpCounter = true;
-                }
-                const content = typeof event.delta.text === 'string' ? event.delta.text : '';
-                nextText += content;
-              } else if (deltaType === 'thinking_delta') {
-                if (!nextShow) {
-                  nextText = '';
-                  nextThinking = '';
-                  nextShow = true;
-                  shouldBumpCounter = true;
-                }
-                const content = typeof event.delta.thinking === 'string' ? event.delta.thinking : '';
-                nextThinking += content;
-              } else {
-                const prefix = deltaType.replace('_delta', '');
-                const rawContent = (event.delta as Record<string, unknown>)[prefix];
-                const content = typeof rawContent === 'string' ? rawContent : '';
-                if (content) {
-                  if (!nextShow) {
-                    nextText = '';
-                    nextThinking = '';
-                    nextShow = true;
-                    shouldBumpCounter = true;
-                  }
-                  if (prefix === 'thinking') {
-                    nextThinking += content;
-                  } else {
-                    nextText += content;
-                  }
-                }
-              }
-            }
-            break;
-
-          case 'content_block_stop':
-            nextShow = false;
-            nextText = '';
-            nextThinking = '';
-            break;
-        }
-      } else if ((msg.type === 'assistant' || msg.type === 'result') && nextShow) {
-        // 安全兜底：若未收到 stop，收到最终消息也结束流式
-        nextShow = false;
-        nextText = '';
-        nextThinking = '';
-      }
-    }
-
-    lastStreamIndexRef.current = session.messages.length - 1;
-
-    if (shouldBumpCounter) {
-      setStreamCounter((prev) => prev + 1);
-    }
-    if (partialMessageRef.current !== nextText) {
-      partialMessageRef.current = nextText;
-      setPartialMessage(nextText);
-    }
-    if (partialThinkingRef.current !== nextThinking) {
-      partialThinkingRef.current = nextThinking;
-      setPartialThinking(nextThinking);
-    }
-    if (showPartialMessage !== nextShow) {
-      setShowPartialMessage(nextShow);
-    }
-  }, [activeSessionId, sessions, showPartialMessage]);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -464,8 +399,8 @@ export function App() {
                 );
               })}
 
-              {/* Partial streaming 显示（仅在非缓冲状态且有内容时显示） */}
-              {showPartialMessage && !isBuffering && (partialMessage || partialThinking) && (
+              {/* Partial streaming 显示 */}
+              {showPartialMessage && (partialMessage || partialThinking) && (
                 <div className="my-3 min-w-0 overflow-x-auto streaming-content">
                   {partialThinking && (
                     <div className="mb-3 bg-[var(--bg-tertiary)] rounded-lg p-4 border-l-2 border-purple-500/50">
@@ -477,7 +412,7 @@ export function App() {
                   )}
                   {partialMessage && (
                     <ErrorBoundary
-                      resetKey={streamCounter}
+                      resetKey={partialMessage}
                       fallback={
                         <div className="p-3 bg-gray-800 rounded-lg">
                           <pre className="text-sm text-gray-300 whitespace-pre-wrap break-words">
@@ -494,8 +429,8 @@ export function App() {
 
               {/* Thinking/Preparing 指示器 */}
               {!hasPendingPermissionRequests &&
-                shouldShowThinkingIndicator(turnPhase, isBuffering) && (
-                <ThinkingIndicator phase={turnPhase} isBuffering={isBuffering} />
+                shouldShowThinkingIndicator(turnPhase, false) && (
+                <ThinkingIndicator phase={turnPhase} isBuffering={false} />
               )}
 
               <div ref={messagesEndRef} />
