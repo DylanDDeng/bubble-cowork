@@ -247,8 +247,9 @@ export function addMessage(sessionId: string, message: StreamMessage): void {
   const id = (message as { uuid?: string }).uuid || uuidv4();
 
   const stmt = getDb().prepare(`
-    INSERT OR IGNORE INTO messages (id, session_id, data, created_at)
+    INSERT INTO messages (id, session_id, data, created_at)
     VALUES (?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET data = excluded.data
   `);
   stmt.run(id, sessionId, JSON.stringify(message), now);
 }

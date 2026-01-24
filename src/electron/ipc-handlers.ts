@@ -699,11 +699,13 @@ async function handleSessionStart(
       }
 
       sessions.updateSessionTitle(session.id, trimmedTitle);
+      const latest = sessions.getSession(session.id);
+      const currentStatus = latest?.status || session.status || 'running';
       broadcast(mainWindow, {
         type: 'session.status',
         payload: {
           sessionId: session.id,
-          status: 'running',
+          status: currentStatus as SessionStatus,
           title: trimmedTitle,
         },
       });

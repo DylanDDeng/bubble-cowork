@@ -11,7 +11,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist-react',
-    emptyOutDir: true,
+    emptyOutDir: process.env.VITE_BUILD_WATCH !== '1',
   },
   base: './',
 });

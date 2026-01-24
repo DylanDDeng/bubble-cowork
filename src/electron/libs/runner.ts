@@ -59,6 +59,20 @@ type StreamEventType =
   | 'content_block_delta'
   | 'content_block_stop';
 
+const DEFAULT_MAX_THINKING_TOKENS = 64000;
+
+function resolveMaxThinkingTokens(): number {
+  const raw = process.env.CLAUDE_CODE_MAX_THINKING_TOKENS;
+  if (!raw) {
+    return DEFAULT_MAX_THINKING_TOKENS;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_MAX_THINKING_TOKENS;
+  }
+  return Math.floor(parsed);
+}
+
 function isStreamEventType(value: string): value is StreamEventType {
   return (
     value === 'content_block_start' ||
@@ -231,6 +245,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         resourcesPath: process.resourcesPath,
       });
 
+      const maxThinkingTokens = resolveMaxThinkingTokens();
       const result = query({
         prompt: inputQueue,
         options: {
@@ -238,6 +253,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           resume: resumeSessionId,
           abortController,
           includePartialMessages: true,
+          maxThinkingTokens,
           env,
           executable: executable as unknown as 'node',
           executableArgs,
@@ -274,6 +290,13 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           },
         },
       });
+
+      // 确保运行中也设置 maxThinkingTokens
+      try {
+        await result.setMaxThinkingTokens(maxThinkingTokens);
+      } catch (error) {
+        console.warn('Failed to set maxThinkingTokens:', error);
+      }
 
       // 流式处理消息
       for await (const message of result) {

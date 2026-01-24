@@ -455,6 +455,33 @@ function handleStreamMessage(
     const session = state.sessions[sessionId];
     if (!session) return state;
 
+    // Claude Agent SDK may emit partial updates for the same message UUID.
+    // Replace existing messages instead of appending duplicates.
+    const maybeUuid = (message as { uuid?: unknown }).uuid;
+    if (
+      (message.type === 'assistant' || message.type === 'user') &&
+      typeof maybeUuid === 'string' &&
+      maybeUuid.length > 0
+    ) {
+      const existingIndex = session.messages.findIndex(
+        (m) => (m as { uuid?: unknown }).uuid === maybeUuid
+      );
+      if (existingIndex >= 0) {
+        const nextMessages = session.messages.slice();
+        nextMessages[existingIndex] = message;
+        return {
+          ...state,
+          sessions: {
+            ...state.sessions,
+            [sessionId]: {
+              ...session,
+              messages: nextMessages,
+            },
+          },
+        };
+      }
+    }
+
     return {
       ...state,
       sessions: {

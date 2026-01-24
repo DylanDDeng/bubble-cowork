@@ -12,6 +12,7 @@ import { InSessionSearch } from './components/search/InSessionSearch';
 import { Settings } from './components/settings/Settings';
 import { ProjectTreePanel } from './components/ProjectTreePanel';
 import { ThinkingIndicator } from './components/ThinkingIndicator';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { MDContent } from './render/markdown';
 import { loadPreferredProvider } from './utils/provider';
 import {
@@ -124,11 +125,31 @@ export function App() {
 
   // Partial streaming 状态
   const [partialMessage, setPartialMessage] = useState('');
+  const [partialThinking, setPartialThinking] = useState('');
   const [showPartialMessage, setShowPartialMessage] = useState(false);
   const partialMessageRef = useRef('');
+  const partialThinkingRef = useRef('');
+  const [streamCounter, setStreamCounter] = useState(0);
+  const lastStreamIndexRef = useRef(-1);
+  const lastStreamSessionRef = useRef<string | null>(null);
 
   // 智能缓冲
-  const isBuffering = useSmartBuffer(partialMessage, showPartialMessage);
+  const combinedPartial = partialMessage + partialThinking;
+  const isBuffering = useSmartBuffer(combinedPartial, showPartialMessage, undefined, true);
+
+  // 切换会话时重置流式状态，并跳过已存在的历史 stream_event
+  useEffect(() => {
+    const session = activeSessionId ? sessions[activeSessionId] : null;
+    if (activeSessionId !== lastStreamSessionRef.current) {
+      lastStreamSessionRef.current = activeSessionId;
+      lastStreamIndexRef.current = session ? session.messages.length - 1 : -1;
+      partialMessageRef.current = '';
+      partialThinkingRef.current = '';
+      setPartialMessage('');
+      setPartialThinking('');
+      setShowPartialMessage(false);
+    }
+  }, [activeSessionId, sessions]);
 
   // 消息列表引用（用于滚动）
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -202,41 +223,105 @@ export function App() {
     const session = activeSessionId ? sessions[activeSessionId] : null;
     if (!session) return;
 
-    const lastMessage = session.messages[session.messages.length - 1];
-    if (!lastMessage || lastMessage.type !== 'stream_event') return;
+    let startIndex = lastStreamIndexRef.current + 1;
+    if (startIndex < 0) startIndex = 0;
+    if (startIndex >= session.messages.length) return;
 
-    const event = (lastMessage as StreamMessage & { type: 'stream_event' }).event;
+    let nextText = partialMessageRef.current;
+    let nextThinking = partialThinkingRef.current;
+    let nextShow = showPartialMessage;
+    let shouldBumpCounter = false;
 
-    switch (event.type) {
-      case 'content_block_start':
-        partialMessageRef.current = '';
-        setPartialMessage('');
-        setShowPartialMessage(true);
-        break;
+    for (let i = startIndex; i < session.messages.length; i++) {
+      const msg = session.messages[i];
+      if (msg.type === 'stream_event') {
+        const event = msg.event;
+        switch (event.type) {
+          case 'content_block_start':
+            nextText = '';
+            nextThinking = '';
+            nextShow = true;
+            shouldBumpCounter = true;
+            break;
 
-      case 'content_block_delta':
-        if (event.delta) {
-          const deltaType = event.delta.type;
-          // text_delta -> text, thinking_delta -> thinking
-          const prefix = deltaType.replace('_delta', '');
-          const content = (event.delta as Record<string, string>)[prefix] || '';
-          partialMessageRef.current += content;
-          setPartialMessage(partialMessageRef.current);
+          case 'content_block_delta':
+            if (event.delta) {
+              const deltaType = event.delta.type;
+              if (deltaType === 'text_delta') {
+                if (!nextShow) {
+                  nextText = '';
+                  nextThinking = '';
+                  nextShow = true;
+                  shouldBumpCounter = true;
+                }
+                const content = typeof event.delta.text === 'string' ? event.delta.text : '';
+                nextText += content;
+              } else if (deltaType === 'thinking_delta') {
+                if (!nextShow) {
+                  nextText = '';
+                  nextThinking = '';
+                  nextShow = true;
+                  shouldBumpCounter = true;
+                }
+                const content = typeof event.delta.thinking === 'string' ? event.delta.thinking : '';
+                nextThinking += content;
+              } else {
+                const prefix = deltaType.replace('_delta', '');
+                const rawContent = (event.delta as Record<string, unknown>)[prefix];
+                const content = typeof rawContent === 'string' ? rawContent : '';
+                if (content) {
+                  if (!nextShow) {
+                    nextText = '';
+                    nextThinking = '';
+                    nextShow = true;
+                    shouldBumpCounter = true;
+                  }
+                  if (prefix === 'thinking') {
+                    nextThinking += content;
+                  } else {
+                    nextText += content;
+                  }
+                }
+              }
+            }
+            break;
+
+          case 'content_block_stop':
+            nextShow = false;
+            nextText = '';
+            nextThinking = '';
+            break;
         }
-        break;
-
-      case 'content_block_stop':
-        setShowPartialMessage(false);
-        partialMessageRef.current = '';
-        setPartialMessage('');
-        break;
+      } else if ((msg.type === 'assistant' || msg.type === 'result') && nextShow) {
+        // 安全兜底：若未收到 stop，收到最终消息也结束流式
+        nextShow = false;
+        nextText = '';
+        nextThinking = '';
+      }
     }
-  }, [activeSessionId, sessions]);
+
+    lastStreamIndexRef.current = session.messages.length - 1;
+
+    if (shouldBumpCounter) {
+      setStreamCounter((prev) => prev + 1);
+    }
+    if (partialMessageRef.current !== nextText) {
+      partialMessageRef.current = nextText;
+      setPartialMessage(nextText);
+    }
+    if (partialThinkingRef.current !== nextThinking) {
+      partialThinkingRef.current = nextThinking;
+      setPartialThinking(nextThinking);
+    }
+    if (showPartialMessage !== nextShow) {
+      setShowPartialMessage(nextShow);
+    }
+  }, [activeSessionId, sessions, showPartialMessage]);
 
   // 自动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeSessionId, sessions, partialMessage]);
+  }, [activeSessionId, sessions, partialMessage, partialThinking]);
 
   // 处理权限响应
   const handlePermissionResult = (toolUseId: string, result: PermissionResult) => {
@@ -380,9 +465,30 @@ export function App() {
               })}
 
               {/* Partial streaming 显示（仅在非缓冲状态且有内容时显示） */}
-              {showPartialMessage && !isBuffering && partialMessage && (
+              {showPartialMessage && !isBuffering && (partialMessage || partialThinking) && (
                 <div className="my-3 min-w-0 overflow-x-auto streaming-content">
-                  <MDContent content={partialMessage} />
+                  {partialThinking && (
+                    <div className="mb-3 bg-[var(--bg-tertiary)] rounded-lg p-4 border-l-2 border-purple-500/50">
+                      <div className="text-xs text-[var(--text-muted)] mb-2">Thinking...</div>
+                      <div className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">
+                        {partialThinking}
+                      </div>
+                    </div>
+                  )}
+                  {partialMessage && (
+                    <ErrorBoundary
+                      resetKey={streamCounter}
+                      fallback={
+                        <div className="p-3 bg-gray-800 rounded-lg">
+                          <pre className="text-sm text-gray-300 whitespace-pre-wrap break-words">
+                            {partialMessage}
+                          </pre>
+                        </div>
+                      }
+                    >
+                      <MDContent content={partialMessage} />
+                    </ErrorBoundary>
+                  )}
                 </div>
               )}
 

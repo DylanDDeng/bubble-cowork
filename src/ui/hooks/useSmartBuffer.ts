@@ -47,11 +47,36 @@ function countWords(content: string): number {
 export function useSmartBuffer(
   content: string,
   isStreaming: boolean,
-  config: BufferConfig = DEFAULT_BUFFER_CONFIG
+  config: BufferConfig = DEFAULT_BUFFER_CONFIG,
+  immediate: boolean = false
 ): boolean {
   const [isBuffering, setIsBuffering] = useState(false);
+  const isBufferingRef = useRef(false);
   const streamStartTimeRef = useRef<number | null>(null);
   const timerRef = useRef<number | null>(null);
+  const lastDecisionRef = useRef<boolean>(false);
+
+  const {
+    MIN_BUFFER_MS,
+    MAX_BUFFER_MS,
+    MIN_WORDS_STRUCTURED,
+    MIN_WORDS_STANDARD,
+  } = config;
+
+  // 保持 ref 与 state 同步（避免 HMR 时 Hook 顺序变化）
+  useEffect(() => {
+    isBufferingRef.current = isBuffering;
+  }, [isBuffering]);
+
+  const updateBuffering = (next: boolean) => {
+    lastDecisionRef.current = next;
+    if (isBufferingRef.current === next) {
+      return;
+    }
+    // 同步更新 ref，避免在同一轮 effect/回调里重复触发 setState
+    isBufferingRef.current = next;
+    setIsBuffering(next);
+  };
 
   useEffect(() => {
     // 清理定时器
@@ -63,14 +88,24 @@ export function useSmartBuffer(
     // 不在流式输出，重置状态
     if (!isStreaming) {
       streamStartTimeRef.current = null;
-      setIsBuffering(false);
+      updateBuffering(false);
+      return;
+    }
+
+    // 立即显示模式：一旦有内容就放开
+    if (immediate) {
+      if (content && content.length > 0) {
+        updateBuffering(false);
+      } else {
+        updateBuffering(true);
+      }
       return;
     }
 
     // 开始流式输出，记录开始时间
     if (streamStartTimeRef.current === null) {
       streamStartTimeRef.current = Date.now();
-      setIsBuffering(true);
+      updateBuffering(true);
     }
 
     const elapsed = Date.now() - streamStartTimeRef.current;
@@ -80,22 +115,22 @@ export function useSmartBuffer(
     // 检查是否应该放开缓冲
     const shouldRelease = () => {
       // 超过最大等待时间，强制放开
-      if (elapsed >= config.MAX_BUFFER_MS) {
+      if (elapsed >= MAX_BUFFER_MS) {
         return true;
       }
 
       // 未达到最小等待时间，继续缓冲
-      if (elapsed < config.MIN_BUFFER_MS) {
+      if (elapsed < MIN_BUFFER_MS) {
         return false;
       }
 
       // 结构化内容，较低词数阈值
-      if (isStructured && wordCount >= config.MIN_WORDS_STRUCTURED) {
+      if (isStructured && wordCount >= MIN_WORDS_STRUCTURED) {
         return true;
       }
 
       // 普通内容，较高词数阈值
-      if (wordCount >= config.MIN_WORDS_STANDARD) {
+      if (wordCount >= MIN_WORDS_STANDARD) {
         return true;
       }
 
@@ -103,22 +138,25 @@ export function useSmartBuffer(
     };
 
     if (shouldRelease()) {
-      setIsBuffering(false);
+      updateBuffering(false);
     } else {
+      if (!lastDecisionRef.current) {
+        updateBuffering(true);
+      }
       // 设置定时器在最小缓冲时间后重新检查
-      const remainingMinTime = Math.max(0, config.MIN_BUFFER_MS - elapsed);
+      const remainingMinTime = Math.max(0, MIN_BUFFER_MS - elapsed);
       timerRef.current = window.setTimeout(() => {
         // 在定时器触发时重新评估
         const newElapsed = Date.now() - (streamStartTimeRef.current ?? 0);
-        if (newElapsed >= config.MIN_BUFFER_MS) {
+        if (newElapsed >= MIN_BUFFER_MS) {
           const newWordCount = countWords(content);
           const newIsStructured = hasStructuredContent(content);
           if (
-            newElapsed >= config.MAX_BUFFER_MS ||
-            (newIsStructured && newWordCount >= config.MIN_WORDS_STRUCTURED) ||
-            newWordCount >= config.MIN_WORDS_STANDARD
+            newElapsed >= MAX_BUFFER_MS ||
+            (newIsStructured && newWordCount >= MIN_WORDS_STRUCTURED) ||
+            newWordCount >= MIN_WORDS_STANDARD
           ) {
-            setIsBuffering(false);
+            updateBuffering(false);
           }
         }
       }, remainingMinTime + 50); // 加一点余量
@@ -130,7 +168,15 @@ export function useSmartBuffer(
         timerRef.current = null;
       }
     };
-  }, [content, isStreaming, config]);
+  }, [
+    content,
+    isStreaming,
+    immediate,
+    MIN_BUFFER_MS,
+    MAX_BUFFER_MS,
+    MIN_WORDS_STRUCTURED,
+    MIN_WORDS_STANDARD,
+  ]);
 
   return isBuffering;
 }

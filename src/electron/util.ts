@@ -20,7 +20,16 @@ export function getUIPath(): string {
 }
 
 // 开发服务器 URL
-export const DEV_SERVER_URL = 'http://localhost:10087';
+export function getDevServerUrl(): string {
+  const explicit = process.env.DEV_SERVER_URL || process.env.VITE_DEV_SERVER_URL;
+  if (explicit) {
+    return explicit;
+  }
+  const port = process.env.PORT || '10087';
+  return `http://localhost:${port}`;
+}
+
+export const DEV_SERVER_URL = getDevServerUrl();
 
 // IPC invoke 包装器（带 frame 校验）
 export function ipcMainHandle<T>(
@@ -37,11 +46,10 @@ export function ipcMainHandle<T>(
     }
 
     const frameUrl = frame.url;
-    const isValidDev = isDev() && frameUrl.startsWith(DEV_SERVER_URL);
-    const isValidProd =
-      !isDev() && frameUrl.startsWith('file://') && frameUrl.includes('dist-react');
+    const isValidDev = frameUrl.startsWith(getDevServerUrl());
+    const isValidFileUi = frameUrl.startsWith('file://') && frameUrl.includes('dist-react');
 
-    if (!isValidDev && !isValidProd) {
+    if (!isValidDev && !isValidFileUi) {
       throw new Error(`Unauthorized frame: ${frameUrl}`);
     }
 

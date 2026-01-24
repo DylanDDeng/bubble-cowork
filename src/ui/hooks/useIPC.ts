@@ -9,7 +9,12 @@ export function useIPC() {
   useEffect(() => {
     // 订阅服务器事件
     const unsubscribe = window.electron.onServerEvent((event: ServerEvent) => {
-      handleServerEvent(event);
+      try {
+        handleServerEvent(event);
+      } catch (error) {
+        console.error('[IPC] Server event handling error:', error);
+        // 错误不会传播到 React，防止全局崩溃
+      }
     });
 
     // 标记已连接

@@ -1,8 +1,10 @@
+import { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import rehypeHighlight from 'rehype-highlight';
 import type { Components } from 'react-markdown';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 interface MDContentProps {
   content: string;
@@ -81,16 +83,41 @@ const components: Components = {
   ),
 };
 
-export function MDContent({ content, className = '', allowHtml = true }: MDContentProps) {
+export function MDContent({ content, className = '', allowHtml = false }: MDContentProps) {
+  const disallowedElements = ['script', 'style', 'iframe', 'object', 'embed', 'link', 'meta', 'base'];
+
+  // 配置 rehype-highlight，忽略缺失的语言
+  const rehypePlugins = useMemo(() => {
+    const plugins: Parameters<typeof ReactMarkdown>[0]['rehypePlugins'] = allowHtml
+      ? [rehypeRaw, [rehypeHighlight, { ignoreMissing: true, detect: true }]]
+      : [[rehypeHighlight, { ignoreMissing: true, detect: true }]];
+    return plugins;
+  }, [allowHtml]);
+
+  const fallback = (
+    <div className="p-3 bg-gray-800 rounded-lg">
+      <pre className="text-sm text-gray-300 whitespace-pre-wrap break-words">{content}</pre>
+    </div>
+  );
+
+  // 处理空内容
+  if (!content || content.trim() === '') {
+    return null;
+  }
+
   return (
     <div className={`markdown-content ${className}`}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={allowHtml ? [rehypeRaw, rehypeHighlight] : [rehypeHighlight]}
-        components={components}
-      >
-        {content}
-      </ReactMarkdown>
+      <ErrorBoundary fallback={fallback} resetKey={content}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={rehypePlugins}
+          disallowedElements={disallowedElements}
+          unwrapDisallowed={true}
+          components={components}
+        >
+          {content}
+        </ReactMarkdown>
+      </ErrorBoundary>
     </div>
   );
 }

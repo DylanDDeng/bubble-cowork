@@ -57,6 +57,7 @@ fixEnvironment();
 
 let mainWindow: BrowserWindow | null = null;
 let updaterInitialized = false;
+let devFileWatcher: fs.FSWatcher | null = null;
 
 // 窗口状态持久化
 interface WindowState {
@@ -91,6 +92,44 @@ function saveWindowState(win: BrowserWindow): void {
   }
 }
 
+async function waitForUiFile(filePath: string, timeoutMs = 15000): Promise<void> {
+  const startedAt = Date.now();
+  while (!fs.existsSync(filePath)) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error(`UI file not found after ${timeoutMs}ms: ${filePath}`);
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
+function startDevFileReloadWatcher(win: BrowserWindow): void {
+  if (devFileWatcher) {
+    return;
+  }
+
+  const distDir = path.join(app.getAppPath(), 'dist-react');
+  if (!fs.existsSync(distDir)) {
+    return;
+  }
+
+  let reloadTimer: NodeJS.Timeout | null = null;
+
+  try {
+    devFileWatcher = fs.watch(distDir, { recursive: true }, () => {
+      if (reloadTimer) {
+        clearTimeout(reloadTimer);
+      }
+      reloadTimer = setTimeout(() => {
+        if (!win.isDestroyed()) {
+          win.webContents.reloadIgnoringCache();
+        }
+      }, 150);
+    });
+  } catch (error) {
+    console.warn('[Dev] Failed to watch dist-react for reload:', error);
+  }
+}
+
 function createWindow(): void {
   const windowState = loadWindowState();
 
@@ -121,7 +160,21 @@ function createWindow(): void {
 
   // 加载页面
   if (isDev()) {
-    mainWindow.loadURL(DEV_SERVER_URL);
+    mainWindow
+      .loadURL(DEV_SERVER_URL)
+      .catch(async (error) => {
+        console.warn('[Dev] Failed to load Vite dev server, falling back to dist-react:', error);
+        try {
+          const uiPath = getUIPath();
+          await waitForUiFile(uiPath);
+          await mainWindow?.loadFile(uiPath);
+          if (mainWindow) {
+            startDevFileReloadWatcher(mainWindow);
+          }
+        } catch (fallbackError) {
+          console.error('[Dev] Failed to load dist-react fallback UI:', fallbackError);
+        }
+      });
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(getUIPath());
@@ -324,5 +377,7 @@ app.on('window-all-closed', () => {
 
 // 应用退出前清理
 app.on('before-quit', () => {
+  devFileWatcher?.close();
+  devFileWatcher = null;
   cleanup();
 });

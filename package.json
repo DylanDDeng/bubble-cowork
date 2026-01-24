@@ -6,7 +6,7 @@
   "main": "dist-electron/electron/main.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",
-    "dev:react": "PORT=10087 vite",
+    "dev:react": "node scripts/dev-react.mjs",
     "dev:electron": "npm run transpile:electron && electron .",
     "transpile:electron": "tsc -p src/electron/tsconfig.json",
     "build": "npm run transpile:electron && vite build",

@@ -1,6 +1,10 @@
 import { useState, useMemo } from 'react';
 import type { ContentBlock, ToolStatus } from '../types';
-import { getToolSummary } from './EventCard';
+import { getToolSummary, safeJsonStringify } from '../utils/tool-summary';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
 
 // 工具使用块类型
 type ToolUseBlock = ContentBlock & { type: 'tool_use' };
@@ -22,8 +26,8 @@ function getGroupSummary(blocks: ToolUseBlock[]): string {
   // 查找 Task 工具，它通常有描述
   const taskBlock = blocks.find((b) => b.name === 'Task');
   if (taskBlock) {
-    const desc = taskBlock.input.description as string;
-    if (desc) return desc;
+    const summary = getToolSummary('Task', taskBlock.input);
+    if (summary) return summary;
   }
 
   // 否则使用第一个工具的信息
@@ -151,10 +155,11 @@ function ToolInvocation({
   const [showArgs, setShowArgs] = useState(false);
   const [showOutput, setShowOutput] = useState(false);
 
-  const hasArgs = Object.keys(block.input).length > 0;
+  const inputObj = isRecord(block.input) ? block.input : {};
+  const hasArgs = Object.keys(inputObj).length > 0;
   // 安全检查：确保 content 是字符串
   const contentStr = result?.content != null
-    ? (typeof result.content === 'string' ? result.content : JSON.stringify(result.content))
+    ? (typeof result.content === 'string' ? result.content : safeJsonStringify(result.content))
     : '';
   const hasOutput = contentStr.length > 0;
   const outputLines = hasOutput ? contentStr.split('\n').length : 0;
@@ -182,7 +187,7 @@ function ToolInvocation({
           onToggle={() => setShowArgs(!showArgs)}
         >
           <pre className="text-xs font-mono text-[var(--text-secondary)] whitespace-pre-wrap break-all">
-            {JSON.stringify(block.input, null, 2)}
+            {safeJsonStringify(block.input, 2)}
           </pre>
         </CollapsibleSection>
       )}

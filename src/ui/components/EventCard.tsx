@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import type { ContentBlock, StreamMessage, ToolStatus } from '../types';
+import { getToolSummary, safeJsonStringify } from '../utils/tool-summary';
 
 interface ToolUseCardProps {
   block: ContentBlock & { type: 'tool_use' };
@@ -44,7 +45,7 @@ export function ToolResultCard({ block }: ToolResultCardProps) {
 
   // 安全检查：确保 content 是字符串
   const contentStr = block.content != null
-    ? (typeof block.content === 'string' ? block.content : JSON.stringify(block.content))
+    ? (typeof block.content === 'string' ? block.content : safeJsonStringify(block.content))
     : '';
   const lines = contentStr.split('\n');
   const isLong = lines.length > MAX_VISIBLE_LINES;
@@ -148,29 +149,4 @@ export function SessionResultCard({ message }: SessionResultCardProps) {
       </div>
     </div>
   );
-}
-
-// 获取工具调用摘要（导出供 ToolGroup 使用）
-export function getToolSummary(name: string, input: Record<string, unknown>): string {
-  switch (name) {
-    case 'Bash':
-      return (input.command as string) || '';
-    case 'Read':
-      return (input.file_path as string) || '';
-    case 'Write':
-      return (input.file_path as string) || '';
-    case 'Edit':
-      return (input.file_path as string) || '';
-    case 'Delete':
-      return (input.file_path as string) || '';
-    case 'Glob':
-      return (input.pattern as string) || '';
-    case 'Grep':
-      return (input.pattern as string) || '';
-    case 'AskUserQuestion':
-      const questions = input.questions as Array<{ question: string }>;
-      return questions?.[0]?.question || '';
-    default:
-      return JSON.stringify(input).slice(0, 100);
-  }
 }

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { ContentBlock, ToolStatus, StreamMessage } from '../types';
 import { ToolGroup } from './ToolGroup';
+import { getToolSummary, safeJsonStringify } from '../utils/tool-summary';
 
 // 工具使用块类型
 type ToolUseBlock = ContentBlock & { type: 'tool_use' };
@@ -63,8 +64,8 @@ function getBatchSummary(blocks: ToolUseBlock[]): string {
   // 查找 Task 工具的 description
   const taskBlock = blocks.find((b) => b.name === 'Task');
   if (taskBlock) {
-    const desc = taskBlock.input.description as string;
-    if (desc) return desc;
+    const summary = getToolSummary('Task', taskBlock.input);
+    if (summary) return summary;
   }
 
   // 否则返回空（使用默认文案）
@@ -197,7 +198,7 @@ function ToolInvocationCompact({
   const summary = getToolSummary(block.name, block.input);
   // 安全检查：确保 content 是字符串
   const contentStr = result?.content != null
-    ? (typeof result.content === 'string' ? result.content : JSON.stringify(result.content))
+    ? (typeof result.content === 'string' ? result.content : safeJsonStringify(result.content))
     : '';
   const hasOutput = contentStr.length > 0;
 
@@ -227,7 +228,7 @@ function ToolInvocationCompact({
           <div className="mb-1">
             <span className="text-[var(--text-muted)]">Args:</span>
             <pre className="mt-0.5 p-2 bg-[var(--bg-tertiary)] rounded text-[var(--text-secondary)] whitespace-pre-wrap break-all max-h-32 overflow-auto">
-              {JSON.stringify(block.input, null, 2)}
+              {safeJsonStringify(block.input, 2)}
             </pre>
           </div>
 
@@ -250,28 +251,6 @@ function ToolInvocationCompact({
       )}
     </div>
   );
-}
-
-// 工具摘要生成
-function getToolSummary(name: string, input: Record<string, unknown>): string {
-  switch (name) {
-    case 'Bash':
-      return (input.command as string) || '';
-    case 'Read':
-      return (input.file_path as string) || '';
-    case 'Write':
-      return (input.file_path as string) || '';
-    case 'Edit':
-      return (input.file_path as string) || '';
-    case 'Glob':
-      return (input.pattern as string) || '';
-    case 'Grep':
-      return (input.pattern as string) || '';
-    case 'Task':
-      return (input.description as string) || (input.prompt as string)?.slice(0, 50) || '';
-    default:
-      return JSON.stringify(input).slice(0, 80);
-  }
 }
 
 // 状态点组件
