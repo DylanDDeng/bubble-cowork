@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Check } from 'lucide-react';
 import type { AskUserQuestionInput, AskUserQuestion, PermissionResult } from '../types';
 
 interface DecisionPanelProps {
@@ -118,7 +119,7 @@ export function DecisionPanel({ input, onSubmit }: DecisionPanelProps) {
                         }`}
                       >
                         {isOptionSelected(question, option.label) && (
-                          <CheckIcon />
+                          <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />
                         )}
                       </div>
                     ) : (
@@ -182,13 +183,6 @@ export function DecisionPanel({ input, onSubmit }: DecisionPanelProps) {
   );
 }
 
-function CheckIcon() {
-  return (
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
-}
 
 // 生成问题签名（用于匹配 permission.request 和 tool_use）
 export function getAskUserQuestionSignature(input: AskUserQuestionInput): string {

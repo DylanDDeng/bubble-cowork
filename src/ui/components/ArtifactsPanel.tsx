@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Copy, Check, ExternalLink, FolderSearch } from 'lucide-react';
 import type { StreamMessage } from '../types';
 import { MDContent } from '../render/markdown';
 import { extractArtifactsFromMessages, type ArtifactItem, type ArtifactKind } from '../utils/artifacts';
@@ -245,7 +246,7 @@ export function ArtifactsPanel({
                   ariaLabel="Open"
                   disabled={!cwd}
                 >
-                  <OpenIcon />
+                  <ExternalLink className="w-4 h-4" />
                 </IconSquareButton>
                 <IconSquareButton
                   onClick={handleReveal}
@@ -253,14 +254,14 @@ export function ArtifactsPanel({
                   ariaLabel="Reveal"
                   disabled={!cwd}
                 >
-                  <RevealIcon />
+                  <FolderSearch className="w-4 h-4" />
                 </IconSquareButton>
                 <IconSquareButton
                   onClick={() => handleCopyPath(selectedArtifact.filePath)}
                   title={copiedPath ? 'Copied' : 'Copy path'}
                   ariaLabel="Copy path"
                 >
-                  {copiedPath ? <CheckIcon /> : <CopyIcon />}
+                  {copiedPath ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                 </IconSquareButton>
               </div>
             </div>
@@ -476,40 +477,4 @@ function IconSquareButton({
   );
 }
 
-function CopyIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
-}
-
-function OpenIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M14 3h7v7" />
-      <path d="M10 14L21 3" />
-      <path d="M21 14v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6" />
-    </svg>
-  );
-}
-
-function RevealIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M3 7.5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-      <path d="M12 10v6" />
-      <path d="M9.5 13l2.5 3 2.5-3" />
-    </svg>
-  );
-}
 

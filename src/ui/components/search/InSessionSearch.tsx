@@ -1,4 +1,5 @@
-import { useEffect, useRef, useMemo } from 'react';
+import { useEffect, useRef } from 'react';
+import { Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { useDebounce } from '../../hooks/useDebounce';
 import type { SearchMatch } from '../../types';
@@ -113,7 +114,7 @@ export function InSessionSearch() {
       <div className="flex items-center gap-2">
         <div className="flex-1 relative">
           <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
-            <SearchIcon />
+            <Search className="w-3.5 h-3.5" />
           </div>
           <input
             ref={inputRef}
@@ -137,7 +138,7 @@ export function InSessionSearch() {
             className="p-1.5 rounded hover:bg-[var(--bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             title="Previous (Shift+Enter)"
           >
-            <ChevronUpIcon />
+            <ChevronUp className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => navigateSearchResult('next')}
@@ -145,7 +146,7 @@ export function InSessionSearch() {
             className="p-1.5 rounded hover:bg-[var(--bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             title="Next (Enter)"
           >
-            <ChevronDownIcon />
+            <ChevronDown className="w-3.5 h-3.5" />
           </button>
         </div>
 
@@ -155,43 +156,10 @@ export function InSessionSearch() {
           className="p-1.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
           title="Close (Escape)"
         >
-          <CloseIcon />
+          <X className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>
   );
 }
 
-function SearchIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="11" cy="11" r="8" />
-      <path d="m21 21-4.35-4.35" />
-    </svg>
-  );
-}
-
-function ChevronUpIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="18 15 12 9 6 15" />
-    </svg>
-  );
-}
-
-function ChevronDownIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-}

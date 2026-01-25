@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
 
 /* 自定义主题变量 - 浅色主题 */
 :root {
@@ -15,6 +16,43 @@
   --error: #ef4444;
   --warning: #f59e0b;
   --border: #E5E4E3;           /* 边框：浅灰 */
+
+  /* Tool 状态颜色 */
+  --tool-pending: #f59e0b;    /* 同 --warning */
+  --tool-running: #CD6F4F;    /* 同 --accent */
+  --tool-success: #22c55e;    /* 同 --success */
+  --tool-error: #ef4444;      /* 同 --error */
+
+  /* 圆角系统 */
+  --radius: 0.5rem;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+}
+
+/* 暗色主题 */
+.dark {
+  --bg-primary: #1a1a1a;       /* 主背景：深灰 */
+  --bg-secondary: #242424;     /* 次背景：稍浅 */
+  --bg-tertiary: #2e2e2e;      /* 第三背景：更浅 */
+  --text-primary: #f5f5f5;     /* 主文本：浅色 */
+  --text-secondary: #a0a0a0;   /* 次文本：灰色 */
+  --text-muted: #707070;       /* 弱化文本 */
+  --accent: #E07B5B;           /* 强调色：陶土色（稍亮） */
+  --accent-hover: #F08B6B;     /* 强调色悬停：更亮 */
+  --accent-light: rgba(224, 123, 91, 0.2); /* 强调色浅色 */
+  --success: #4ade80;
+  --error: #f87171;
+  --warning: #fbbf24;
+  --border: rgba(255, 255, 255, 0.1); /* 边框：半透明白 */
+
+  /* Tool 状态颜色 */
+  --tool-pending: #fbbf24;
+  --tool-running: #E07B5B;
+  --tool-success: #4ade80;
+  --tool-error: #f87171;
 }
 
 /* 基础样式 */
@@ -313,15 +351,19 @@ body {
 }
 
 .tool-status.pending {
-  background-color: var(--warning);
+  background-color: var(--tool-pending);
+}
+
+.tool-status.running {
+  background-color: var(--tool-running);
 }
 
 .tool-status.success {
-  background-color: var(--success);
+  background-color: var(--tool-success);
 }
 
 .tool-status.error {
-  background-color: var(--error);
+  background-color: var(--tool-error);
 }
 
 /* 代码高亮主题覆盖 */
@@ -417,15 +459,19 @@ body {
 }
 
 .status-dot-sm.pending {
-  background-color: var(--warning);
+  background-color: var(--tool-pending);
+}
+
+.status-dot-sm.running {
+  background-color: var(--tool-running);
 }
 
 .status-dot-sm.success {
-  background-color: var(--success);
+  background-color: var(--tool-success);
 }
 
 .status-dot-sm.error {
-  background-color: var(--error);
+  background-color: var(--tool-error);
 }
 
 /* 小箭头 */

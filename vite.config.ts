@@ -9,6 +9,9 @@ export default defineConfig({
     port: parseInt(process.env.PORT || '10087'),
     strictPort: true,
   },
+  optimizeDeps: {
+    include: ['sonner'],
+  },
   build: {
     outDir: 'dist-react',
     emptyOutDir: process.env.VITE_BUILD_WATCH !== '1',

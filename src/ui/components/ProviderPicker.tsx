@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import type { AgentProvider } from '../types';
 import { PROVIDERS } from '../utils/provider';
 
@@ -20,7 +21,7 @@ export function ProviderPicker({ value, onChange, disabled }: ProviderPickerProp
         className="px-3 py-2 rounded-lg text-sm bg-[var(--bg-tertiary)] hover:bg-[var(--border)] border border-transparent flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <span className="text-[var(--text-secondary)]">{current.label}</span>
-        <ChevronDownIcon />
+        <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" />
       </button>
 
       {open && !disabled && (
@@ -47,20 +48,5 @@ export function ProviderPicker({ value, onChange, disabled }: ProviderPickerProp
         </>
       )}
     </div>
-  );
-}
-
-function ChevronDownIcon() {
-  return (
-    <svg
-      className="w-4 h-4 text-[var(--text-muted)]"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
-    </svg>
   );
 }

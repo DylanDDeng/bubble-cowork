@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { ChevronRight, Folder, FolderOpen, MoreVertical, Pin, Copy, Trash2 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import {
@@ -86,9 +87,9 @@ export function FolderTreeView({
           onClick={() => toggleFolderExpanded(node.path)}
         >
           <span className={`transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}>
-            <ChevronIcon />
+            <ChevronRight className="w-3 h-3" />
           </span>
-          <FolderIcon open={expanded && hasContent} />
+          {expanded && hasContent ? <FolderOpen className="w-3.5 h-3.5" /> : <Folder className="w-3.5 h-3.5" />}
           <span className="text-sm font-medium truncate flex-1">
             {getFolderDisplayName(node)}
           </span>
@@ -218,7 +219,7 @@ function SessionItem({
         )}
         {session.pinned && (
           <span className="flex-shrink-0 text-[var(--text-muted)]">
-            <PinIcon />
+            <Pin className="w-3.5 h-3.5" />
           </span>
         )}
         <span className="text-sm font-medium truncate">{session.title}</span>
@@ -237,7 +238,7 @@ function SessionItem({
             className="absolute top-3 right-2 w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-md hover:bg-[var(--text-primary)]/5 transition-all duration-150"
             onClick={(e) => e.stopPropagation()}
           >
-            <MoreIcon />
+            <MoreVertical className="w-4 h-4" />
           </button>
         </DropdownMenu.Trigger>
 
@@ -250,7 +251,7 @@ function SessionItem({
               className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150"
               onClick={onTogglePin}
             >
-              <PinIcon />
+              <Pin className="w-3.5 h-3.5" />
               {session.pinned ? 'Unpin' : 'Pin to Top'}
             </DropdownMenu.Item>
             <DropdownMenu.Separator className="h-px bg-[var(--border)] my-1" />
@@ -262,7 +263,7 @@ function SessionItem({
                 className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150"
                 onClick={onCopyResume}
               >
-                <CopyIcon />
+                <Copy className="w-3.5 h-3.5" />
                 Copy Resume Command
               </DropdownMenu.Item>
             )}
@@ -270,7 +271,7 @@ function SessionItem({
               className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150 text-red-400"
               onClick={onDelete}
             >
-              <TrashIcon />
+              <Trash2 className="w-3.5 h-3.5" />
               Delete
             </DropdownMenu.Item>
           </DropdownMenu.Content>
@@ -280,64 +281,3 @@ function SessionItem({
   );
 }
 
-// Icons
-function ChevronIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  );
-}
-
-function FolderIcon({ open = false }: { open?: boolean }) {
-  if (open) {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-        <line x1="2" y1="10" x2="22" y2="10" />
-      </svg>
-    );
-  }
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-
-function MoreIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-      <circle cx="8" cy="3" r="1.5" />
-      <circle cx="8" cy="8" r="1.5" />
-      <circle cx="8" cy="13" r="1.5" />
-    </svg>
-  );
-}
-
-function PinIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M12 17v5" />
-      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
-    </svg>
-  );
-}
-
-function CopyIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
-}
-
-function TrashIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    </svg>
-  );
-}

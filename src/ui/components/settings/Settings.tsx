@@ -1,6 +1,7 @@
+import { X, Server, Settings as SettingsIcon, Sun, Moon, Monitor } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { McpSettingsContent } from './McpSettings';
-import type { SettingsTab } from '../../types';
+import type { Theme } from '../../types';
 
 // Settings 面板
 export function Settings() {
@@ -9,6 +10,8 @@ export function Settings() {
     setShowSettings,
     activeSettingsTab,
     setActiveSettingsTab,
+    theme,
+    setTheme,
   } = useAppStore();
 
   if (!showSettings) return null;
@@ -21,13 +24,17 @@ export function Settings() {
           <div className="text-sm font-semibold mb-4 text-[var(--text-muted)]">Settings</div>
           <ul className="space-y-1">
             <SettingsNavItem
+              label="General"
+              icon={<SettingsIcon className="w-4 h-4" />}
+              active={activeSettingsTab === 'general'}
+              onClick={() => setActiveSettingsTab('general')}
+            />
+            <SettingsNavItem
               label="MCP Servers"
-              icon={<McpIcon />}
+              icon={<Server className="w-4 h-4" />}
               active={activeSettingsTab === 'mcp'}
               onClick={() => setActiveSettingsTab('mcp')}
             />
-            {/* 未来可添加更多标签 */}
-            {/* <SettingsNavItem label="General" icon={<GeneralIcon />} ... /> */}
           </ul>
         </nav>
 
@@ -43,12 +50,15 @@ export function Settings() {
               onClick={() => setShowSettings(false)}
               className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors"
             >
-              <CloseIcon />
+              <X className="w-5 h-5" />
             </button>
           </header>
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto">
+            {activeSettingsTab === 'general' && (
+              <GeneralSettingsContent theme={theme} setTheme={setTheme} />
+            )}
             {activeSettingsTab === 'mcp' && <McpSettingsContent />}
           </div>
         </div>
@@ -86,23 +96,74 @@ function SettingsNavItem({
   );
 }
 
-// Icons
-function CloseIcon() {
+// General Settings Content
+function GeneralSettingsContent({
+  theme,
+  setTheme,
+}: {
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
+}) {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
+    <div className="p-6 space-y-6">
+      {/* Theme Section */}
+      <div>
+        <h3 className="text-sm font-medium text-[var(--text-primary)] mb-3">Appearance</h3>
+        <div className="flex gap-2">
+          <ThemeButton
+            label="Light"
+            value="light"
+            current={theme}
+            onClick={() => setTheme('light')}
+            icon={<Sun className="w-4 h-4" />}
+          />
+          <ThemeButton
+            label="Dark"
+            value="dark"
+            current={theme}
+            onClick={() => setTheme('dark')}
+            icon={<Moon className="w-4 h-4" />}
+          />
+          <ThemeButton
+            label="System"
+            value="system"
+            current={theme}
+            onClick={() => setTheme('system')}
+            icon={<Monitor className="w-4 h-4" />}
+          />
+        </div>
+      </div>
+    </div>
   );
 }
 
-function McpIcon() {
+// Theme Button
+function ThemeButton({
+  label,
+  value,
+  current,
+  onClick,
+  icon,
+}: {
+  label: string;
+  value: Theme;
+  current: Theme;
+  onClick: () => void;
+  icon: React.ReactNode;
+}) {
+  const isActive = current === value;
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
-      <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
-      <line x1="6" y1="6" x2="6.01" y2="6" />
-      <line x1="6" y1="18" x2="6.01" y2="18" />
-    </svg>
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
+        isActive
+          ? 'border-[var(--accent)] bg-[var(--accent-light)] text-[var(--text-primary)]'
+          : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
+      }`}
+    >
+      {icon}
+      <span className="text-sm">{label}</span>
+    </button>
   );
 }
+

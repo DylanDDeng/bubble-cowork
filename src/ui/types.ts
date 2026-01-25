@@ -33,6 +33,9 @@ export type {
 // 侧边栏视图模式
 export type SidebarViewMode = 'time' | 'folder';
 
+// 主题类型
+export type Theme = 'light' | 'dark' | 'system';
+
 // UI 会话视图状态
 export interface SessionView {
   id: string;
@@ -85,6 +88,8 @@ export interface AppState {
   sidebarViewMode: SidebarViewMode;
   folderConfigs: FolderConfig[];
   expandedFolders: Set<string>;
+  // 主题
+  theme: Theme;
 }
 
 // Store Actions
@@ -123,6 +128,8 @@ export interface AppActions {
   setFolderConfigs: (configs: FolderConfig[]) => void;
   toggleFolderExpanded: (folderPath: string) => void;
   setExpandedFolders: (folders: Set<string>) => void;
+  // 主题 Actions
+  setTheme: (theme: Theme) => void;
 }
 
 // 工具状态映射（用于显示 pending/success/error）

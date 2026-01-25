@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useMemo, useState } from 'react';
+import { Toaster, toast } from 'sonner';
+import { PanelLeft, Copy, Check } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
 import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -258,6 +260,17 @@ export function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeSessionId, sessions, partialMessage, partialThinking]);
 
+  // 全局错误通知
+  useEffect(() => {
+    if (globalError) {
+      toast.error(globalError, {
+        duration: 5000,
+        onDismiss: clearGlobalError,
+        onAutoClose: clearGlobalError,
+      });
+    }
+  }, [globalError, clearGlobalError]);
+
   // 处理权限响应
   const handlePermissionResult = (toolUseId: string, result: PermissionResult) => {
     if (!activeSessionId) return;
@@ -447,18 +460,17 @@ export function App() {
       {/* 右侧项目文件树 */}
       {!projectTreeCollapsed && <ProjectTreePanel />}
 
-      {/* 全局错误提示 */}
-      {globalError && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-red-500/90 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-3 max-w-md">
-          <span className="text-sm flex-1">{globalError}</span>
-          <button
-            onClick={clearGlobalError}
-            className="text-white/80 hover:text-white"
-          >
-            <CloseIcon />
-          </button>
-        </div>
-      )}
+      {/* Toast 通知 */}
+      <Toaster
+        position="bottom-center"
+        toastOptions={{
+          style: {
+            background: 'var(--bg-secondary)',
+            color: 'var(--text-primary)',
+            border: '1px solid var(--border)',
+          },
+        }}
+      />
 
       {/* Settings 面板 */}
       <Settings />
@@ -466,33 +478,8 @@ export function App() {
   );
 }
 
-function CloseIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-}
-
 function SidebarToggleIcon() {
-  return (
-    <svg
-      className="w-5 h-5 pointer-events-none"
-      viewBox="0 0 64 64"
-      fill="#73726C"
-      stroke="#73726C"
-      style={{
-        fillRule: 'evenodd',
-        clipRule: 'evenodd',
-        strokeLinejoin: 'round',
-        strokeMiterlimit: 2,
-      }}
-      aria-hidden="true"
-    >
-      <path d="M50.01,56.074l-35.989,0c-3.309,0 -5.995,-2.686 -5.995,-5.995l0,-36.011c0,-3.308 2.686,-5.994 5.995,-5.994l35.989,0c3.309,0 5.995,2.686 5.995,5.994l0,36.011c0,3.309 -2.686,5.995 -5.995,5.995Zm-25.984,-4l0,-40l-9.012,0c-1.65,0.001 -2.989,1.34 -2.989,2.989l0,34.022c0,1.649 1.339,2.989 2.989,2.989l9.012,0Zm24.991,-40l-20.991,0l0,40l20.991,0c1.65,0 2.989,-1.34 2.989,-2.989l0,-34.022c0,-1.649 -1.339,-2.988 -2.989,-2.989Z" />
-    </svg>
-  );
+  return <PanelLeft className="w-5 h-5 pointer-events-none" aria-hidden="true" />;
 }
 
 // 简化路径显示
@@ -531,14 +518,9 @@ function CopyButton({ text }: { text: string }) {
       title="Copy full path"
     >
       {copied ? (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
+        <Check className="w-3.5 h-3.5" />
       ) : (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-        </svg>
+        <Copy className="w-3.5 h-3.5" />
       )}
     </button>
   );

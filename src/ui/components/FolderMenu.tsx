@@ -1,4 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { Folder, ChevronRight, Check, Plus, XSquare } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { buildFolderTree, getFolderDisplayName, type FolderTreeNode } from '../utils/folder-utils';
@@ -33,9 +34,9 @@ export function FolderMenu({ sessionId, currentFolderPath, onNewFolderRequest }:
           }`}
           style={{ paddingLeft: `${12 + depth * 16}px` }}
         >
-          <FolderIcon />
+          <Folder className="w-3.5 h-3.5" />
           <span className="truncate">{getFolderDisplayName(node)}</span>
-          {isSelected && <CheckIcon className="ml-auto flex-shrink-0" />}
+          {isSelected && <Check className="w-3.5 h-3.5 ml-auto flex-shrink-0" />}
         </DropdownMenu.Item>
         {hasChildren && node.children.map(child => renderFolderItem(child, depth + 1))}
       </div>
@@ -45,9 +46,9 @@ export function FolderMenu({ sessionId, currentFolderPath, onNewFolderRequest }:
   return (
     <DropdownMenu.Sub>
       <DropdownMenu.SubTrigger className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150 data-[state=open]:bg-[var(--text-primary)]/5">
-        <FolderIcon />
+        <Folder className="w-3.5 h-3.5" />
         Move to Folder
-        <ChevronRightIcon className="ml-auto" />
+        <ChevronRight className="w-3.5 h-3.5 ml-auto" />
       </DropdownMenu.SubTrigger>
       <DropdownMenu.Portal>
         <DropdownMenu.SubContent
@@ -64,9 +65,9 @@ export function FolderMenu({ sessionId, currentFolderPath, onNewFolderRequest }:
                 : 'hover:bg-[var(--text-primary)]/5'
             }`}
           >
-            <UncategorizedIcon />
+            <XSquare className="w-3.5 h-3.5" />
             <span>Uncategorized</span>
-            {!currentFolderPath && <CheckIcon className="ml-auto" />}
+            {!currentFolderPath && <Check className="w-3.5 h-3.5 ml-auto" />}
           </DropdownMenu.Item>
 
           {folderTree.length > 0 && (
@@ -83,7 +84,7 @@ export function FolderMenu({ sessionId, currentFolderPath, onNewFolderRequest }:
             onSelect={() => onNewFolderRequest?.(sessionId)}
             className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150 text-[var(--accent)]"
           >
-            <PlusIcon />
+            <Plus className="w-3.5 h-3.5" />
             <span>New Folder...</span>
           </DropdownMenu.Item>
         </DropdownMenu.SubContent>
@@ -92,46 +93,3 @@ export function FolderMenu({ sessionId, currentFolderPath, onNewFolderRequest }:
   );
 }
 
-// Icons
-function FolderIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-
-function UncategorizedIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-      <line x1="9" y1="9" x2="15" y2="15" />
-      <line x1="15" y1="9" x2="9" y2="15" />
-    </svg>
-  );
-}
-
-function ChevronRightIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  );
-}
-
-function CheckIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
-    </svg>
-  );
-}

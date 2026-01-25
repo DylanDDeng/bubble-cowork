@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { File, X } from 'lucide-react';
 import type { Attachment } from '../types';
 
 function formatBytes(bytes: number): string {
@@ -95,7 +96,9 @@ export function AttachmentChips({
                 )}
               </div>
             ) : (
-              <FileIcon />
+              <div className="w-8 h-8 p-1.5 rounded-md border border-[var(--border)] bg-white text-[var(--text-muted)] flex-shrink-0 flex items-center justify-center">
+                <File className="w-full h-full" />
+              </div>
             )}
 
             <div className="min-w-0">
@@ -112,7 +115,7 @@ export function AttachmentChips({
                 title="Remove"
                 aria-label="Remove attachment"
               >
-                <CloseIcon />
+                <X className="w-3.5 h-3.5 text-[var(--text-muted)]" />
               </button>
             )}
           </div>
@@ -122,34 +125,3 @@ export function AttachmentChips({
   );
 }
 
-function FileIcon() {
-  return (
-    <svg
-      className="w-8 h-8 p-1.5 rounded-md border border-[var(--border)] bg-white text-[var(--text-muted)] flex-shrink-0"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      aria-hidden="true"
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M14 2v6h6" />
-    </svg>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg
-      className="w-3.5 h-3.5 text-[var(--text-muted)]"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-    >
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-}

@@ -15,7 +15,22 @@ import type {
   SettingsTab,
   FolderConfig,
   SidebarViewMode,
+  Theme,
 } from '../types';
+
+// 应用主题到 DOM
+function applyTheme(theme: Theme) {
+  const root = document.documentElement;
+  const isDark =
+    theme === 'dark' ||
+    (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+  if (isDark) {
+    root.classList.add('dark');
+  } else {
+    root.classList.remove('dark');
+  }
+}
 
 type Store = AppState & AppActions;
 type SetState = (
@@ -59,6 +74,8 @@ export const useAppStore = create<Store>()(
       sidebarViewMode: 'time' as SidebarViewMode,
       folderConfigs: [],
       expandedFolders: new Set<string>(),
+      // 主题
+      theme: 'system' as const,
 
   // Actions
   setConnected: (connected) => set({ connected }),
@@ -241,24 +258,50 @@ export const useAppStore = create<Store>()(
       return { expandedFolders: newExpanded };
     }),
   setExpandedFolders: (folders) => set({ expandedFolders: folders }),
+
+  // 主题
+  setTheme: (theme) => {
+    set({ theme });
+    // 同步应用到 DOM
+    applyTheme(theme);
+  },
     }),
     {
       name: 'cowork-app-storage',
       partialize: (state) => ({
         sidebarViewMode: state.sidebarViewMode,
         expandedFolders: Array.from(state.expandedFolders),
+        theme: state.theme,
       }),
       merge: (persistedState: unknown, currentState: Store) => {
-        const persisted = persistedState as { sidebarViewMode?: SidebarViewMode; expandedFolders?: string[] } | undefined;
+        const persisted = persistedState as {
+          sidebarViewMode?: SidebarViewMode;
+          expandedFolders?: string[];
+          theme?: Theme;
+        } | undefined;
+        const theme = persisted?.theme || currentState.theme;
+        // 初始化时应用主题
+        applyTheme(theme);
         return {
           ...currentState,
           sidebarViewMode: persisted?.sidebarViewMode || currentState.sidebarViewMode,
           expandedFolders: new Set(persisted?.expandedFolders || []),
+          theme,
         };
       },
     }
   )
 );
+
+// 监听系统主题变化
+if (typeof window !== 'undefined') {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    const { theme } = useAppStore.getState();
+    if (theme === 'system') {
+      applyTheme('system');
+    }
+  });
+}
 
 // 处理会话列表
 function handleSessionList(

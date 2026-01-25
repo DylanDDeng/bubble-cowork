@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { ChevronRight } from 'lucide-react';
 import type { ContentBlock, ToolStatus } from '../types';
 import { getToolSummary, safeJsonStringify } from '../utils/tool-summary';
 
@@ -100,7 +101,7 @@ export function ToolGroup({
         onClick={() => setExpanded(!expanded)}
         className="w-full px-3 py-2 flex items-center gap-2 hover:bg-[var(--bg-tertiary)]/30 transition-colors text-left"
       >
-        <ChevronIcon expanded={expanded} />
+        <ChevronRight className={`w-4 h-4 text-[var(--text-muted)] flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} />
         <StatusDot status={groupStatus} />
         <span className="font-medium text-sm">Task</span>
         <span className="text-sm text-[var(--text-secondary)] truncate flex-1">
@@ -235,7 +236,7 @@ function CollapsibleSection({
           isError ? 'text-red-400/70' : 'text-[var(--text-muted)]'
         }`}
       >
-        <ChevronIconSm expanded={expanded} />
+        <ChevronRight className={`w-3 h-3 text-[var(--text-muted)] flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} />
         <span>{label}</span>
       </button>
       {expanded && (
@@ -254,36 +255,3 @@ function StatusDot({ status }: { status: ToolStatus }) {
   return <div className={`status-dot ${statusClass}`} />;
 }
 
-// 展开/折叠箭头图标
-function ChevronIcon({ expanded }: { expanded: boolean }) {
-  return (
-    <svg
-      className={`chevron-icon w-4 h-4 text-[var(--text-muted)] flex-shrink-0 ${
-        expanded ? 'expanded' : ''
-      }`}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={2}
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-    </svg>
-  );
-}
-
-// 小箭头图标
-function ChevronIconSm({ expanded }: { expanded: boolean }) {
-  return (
-    <svg
-      className={`chevron-icon-sm text-[var(--text-muted)] flex-shrink-0 ${
-        expanded ? 'expanded' : ''
-      }`}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-      strokeWidth={2}
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-    </svg>
-  );
-}
