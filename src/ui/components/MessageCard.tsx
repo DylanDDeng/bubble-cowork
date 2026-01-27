@@ -5,6 +5,7 @@ import { DecisionPanel, getAskUserQuestionSignature } from './DecisionPanel';
 import { ToolGroup } from './ToolGroup';
 import { AttachmentChips } from './AttachmentChips';
 import { AttachmentPreviewGrid } from './AttachmentPreviewGrid';
+import { ThinkingBlock } from './ThinkingBlock';
 import type {
   StreamMessage,
   Attachment,
@@ -417,14 +418,7 @@ function ContentBlockCard({
       );
 
     case 'thinking':
-      return (
-        <div className="bg-[var(--bg-tertiary)] rounded-lg p-4 border-l-2 border-purple-500/50">
-          <div className="text-xs text-[var(--text-muted)] mb-2">Thinking...</div>
-          <div className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">
-            {block.thinking}
-          </div>
-        </div>
-      );
+      return <ThinkingBlock content={block.thinking} />;
 
     default:
       return null;
