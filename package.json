@@ -1,6 +1,6 @@
 {
   "name": "bubble-cowork",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Bubble Cowork Desktop Application",
   "author": "Your Name",
   "main": "dist-electron/electron/main.js",
