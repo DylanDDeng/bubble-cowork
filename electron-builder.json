@@ -7,10 +7,13 @@
   },
   "files": [
     "dist-electron/**/*",
-    "dist-react/**/*"
+    "dist-react/**/*",
+    "package.json",
+    "node_modules/**/*"
   ],
   "asarUnpack": [
-    "node_modules/@anthropic-ai/**/*"
+    "node_modules/@anthropic-ai/**/*",
+    "node_modules/better-sqlite3/**/*"
   ],
   "extraResources": [
     {
