@@ -5,7 +5,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import './index.css';
 
 // 导入 highlight.js 样式
-import 'highlight.js/styles/github-dark.css';
+import 'highlight.js/styles/atom-one-dark.css';
 
 // 全局错误处理 - 捕获未处理的 Promise 错误
 window.addEventListener('unhandledrejection', (event) => {

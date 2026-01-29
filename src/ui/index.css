@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import 'katex/dist/katex.min.css';
 
 /* 自定义主题变量 - 浅色主题 */
 :root {
@@ -185,7 +186,7 @@ body {
 .markdown-content pre {
   margin: 0.75rem 0;
   padding: 1rem;
-  background: var(--bg-tertiary);
+  background: #282c34;  /* Atom One Dark 背景色 */
   border-radius: 8px;
   overflow-x: auto;
 }
@@ -368,7 +369,7 @@ body {
 
 /* 代码高亮主题覆盖 */
 .hljs {
-  background: transparent !important;
+  background: #282c34 !important;  /* Atom One Dark 背景色 */
 }
 
 /* 窗口拖拽区域 */

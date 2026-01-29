@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import rehypeRaw from 'rehype-raw';
+import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
 import type { Components } from 'react-markdown';
 import { ErrorBoundary } from '../components/ErrorBoundary';
@@ -49,7 +51,7 @@ const components: Components = {
     if (isInline) {
       return (
         <code
-          className="bg-gray-800 px-1.5 py-0.5 rounded text-sm font-mono"
+          className="px-1.5 py-0.5 rounded text-sm font-mono"
           {...props}
         >
           {children}
@@ -64,7 +66,7 @@ const components: Components = {
     );
   },
   pre: ({ children }) => (
-    <pre className="bg-gray-800 rounded-lg p-4 my-3 overflow-x-auto text-sm">
+    <pre className="rounded-lg p-4 my-3 overflow-x-auto text-sm">
       {children}
     </pre>
   ),
@@ -86,11 +88,11 @@ const components: Components = {
 export function MDContent({ content, className = '', allowHtml = false }: MDContentProps) {
   const disallowedElements = ['script', 'style', 'iframe', 'object', 'embed', 'link', 'meta', 'base'];
 
-  // 配置 rehype-highlight，忽略缺失的语言
+  // 配置 rehype-highlight 和 rehype-katex
   const rehypePlugins = useMemo(() => {
     const plugins: Parameters<typeof ReactMarkdown>[0]['rehypePlugins'] = allowHtml
-      ? [rehypeRaw, [rehypeHighlight, { ignoreMissing: true, detect: true }]]
-      : [[rehypeHighlight, { ignoreMissing: true, detect: true }]];
+      ? [rehypeRaw, rehypeKatex, [rehypeHighlight, { ignoreMissing: true, detect: true }]]
+      : [rehypeKatex, [rehypeHighlight, { ignoreMissing: true, detect: true }]];
     return plugins;
   }, [allowHtml]);
 
@@ -109,7 +111,7 @@ export function MDContent({ content, className = '', allowHtml = false }: MDCont
     <div className={`markdown-content ${className}`}>
       <ErrorBoundary fallback={fallback} resetKey={content}>
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={rehypePlugins}
           disallowedElements={disallowedElements}
           unwrapDisallowed={true}

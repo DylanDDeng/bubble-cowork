@@ -1,5 +1,6 @@
 import { query, type McpServerConfig as SDKMcpServerConfig, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { readFile } from 'fs/promises';
+import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { Base64ImageSource, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages';
 import type { RunnerOptions, RunnerHandle, StreamMessage, PermissionResult, Attachment } from '../types';
@@ -60,6 +61,7 @@ type StreamEventType =
   | 'content_block_stop';
 
 const DEFAULT_MAX_THINKING_TOKENS = 64000;
+const CWD_HINT_PREFIX = '[Working Directory:';
 
 function resolveMaxThinkingTokens(): number {
   const raw = process.env.CLAUDE_CODE_MAX_THINKING_TOKENS;
@@ -71,6 +73,39 @@ function resolveMaxThinkingTokens(): number {
     return DEFAULT_MAX_THINKING_TOKENS;
   }
   return Math.floor(parsed);
+}
+
+function applyCwdHint(cwd: string | null | undefined, prompt: string): string {
+  if (!cwd) {
+    return prompt;
+  }
+  const trimmed = prompt.trimStart();
+  if (trimmed.startsWith(CWD_HINT_PREFIX)) {
+    return prompt;
+  }
+  return `[Working Directory: ${cwd}]\n\n${prompt}`;
+}
+
+function normalizeToolFilePath(cwd: string, filePath: string): { resolved: string; isWithin: boolean } | null {
+  const raw = filePath.trim();
+  if (!raw) {
+    return null;
+  }
+
+  let expanded = raw;
+  if (raw.startsWith('~/')) {
+    const home = process.env.HOME;
+    if (home) {
+      expanded = path.join(home, raw.slice(2));
+    }
+  }
+
+  const resolvedPath = path.isAbsolute(expanded) ? path.normalize(expanded) : path.resolve(cwd, expanded);
+  const resolvedCwd = path.resolve(cwd);
+  const isWithin =
+    resolvedPath === resolvedCwd || resolvedPath.startsWith(`${resolvedCwd}${path.sep}`);
+
+  return { resolved: resolvedPath, isWithin };
 }
 
 function isStreamEventType(value: string): value is StreamEventType {
@@ -216,7 +251,9 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       });
   };
 
-  enqueuePrompt(prompt, attachments);
+  // Inject working directory context to ensure Claude executes commands in the correct directory
+  // This is needed because the SDK's cwd option may not be inherited by Bash tool subprocesses
+  enqueuePrompt(applyCwdHint(session.cwd, prompt), attachments);
 
   // 异步执行
   (async () => {
@@ -264,7 +301,47 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           mcpServers: getMcpServers(session.cwd ?? undefined) as Record<string, SDKMcpServerConfig>,
           // 自定义工具权限处理
           canUseTool: async (toolName: string, input: Record<string, unknown>) => {
-            // 只对 AskUserQuestion 进行用户交互
+            // 修正文件路径：如果路径不在 session.cwd 下，尝试修正
+            if (session.cwd) {
+              // 文件操作工具的路径修正
+              const fileTools = ['Write', 'Edit', 'Read'];
+              if (fileTools.includes(toolName)) {
+                const filePath = input.file_path as string | undefined;
+                if (filePath) {
+                  const normalized = normalizeToolFilePath(session.cwd, filePath);
+                  if (normalized && !normalized.isWithin) {
+                    return {
+                      behavior: 'deny' as const,
+                      message: `File path must be inside the working directory: ${session.cwd}`,
+                    };
+                  }
+                  if (normalized && normalized.resolved !== filePath) {
+                    console.log(`[CWD Fix] ${toolName}: ${filePath} -> ${normalized.resolved}`);
+                    return {
+                      behavior: 'allow' as const,
+                      updatedInput: { ...input, file_path: normalized.resolved },
+                    };
+                  }
+                }
+              }
+
+              // Bash 命令前置 cd
+              if (toolName === 'Bash') {
+                const command = input.command as string | undefined;
+                if (command) {
+                  const cdPrefix = `cd "${session.cwd}" && `;
+                  if (!command.startsWith(cdPrefix) && !command.startsWith('cd ')) {
+                    console.log(`[CWD Fix] Bash: prepending cd to command`);
+                    return {
+                      behavior: 'allow' as const,
+                      updatedInput: { ...input, command: cdPrefix + command },
+                    };
+                  }
+                }
+              }
+            }
+
+            // AskUserQuestion 用户交互处理
             if (toolName === 'AskUserQuestion') {
               const toolUseId = uuidv4();
               const permResult = await onPermissionRequest(toolUseId, toolName, input);
@@ -330,7 +407,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       abortController.abort();
       inputQueue.close();
     },
-    send: enqueuePrompt,
+    send: (text, promptAttachments) => enqueuePrompt(applyCwdHint(session.cwd, text), promptAttachments),
   };
 }
 
