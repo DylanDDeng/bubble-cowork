@@ -22,6 +22,7 @@
     }
   ],
   "mac": {
+    "artifactName": "Bubble-Cowork-${version}-${arch}-mac.${ext}",
     "target": [
       { "target": "dmg", "arch": ["x64", "arm64"] },
       { "target": "zip", "arch": ["x64", "arm64"] }
@@ -31,9 +32,18 @@
   "win": {
     "target": ["portable", "nsis"]
   },
+  "nsis": {
+    "artifactName": "Bubble-Cowork-${version}-win-${arch}-setup.${ext}"
+  },
+  "portable": {
+    "artifactName": "Bubble-Cowork-${version}-win-${arch}-portable.${ext}"
+  },
   "linux": {
     "target": ["AppImage"],
     "category": "Development"
+  },
+  "appImage": {
+    "artifactName": "Bubble-Cowork-${version}-linux-${arch}.${ext}"
   },
   "publish": [
     {
