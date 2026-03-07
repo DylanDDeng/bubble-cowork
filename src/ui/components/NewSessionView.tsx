@@ -3,9 +3,8 @@ import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import type { Attachment } from '../types';
+import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
-import { ClaudeModelPicker } from './ClaudeModelPicker';
-import { ProviderPicker } from './ProviderPicker';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
@@ -253,24 +252,20 @@ export function NewSessionView() {
 
             {/* 底部工具栏 */}
             <div className="flex items-center gap-2 px-4 pb-4">
-              <ProviderPicker
-                value={provider}
-                onChange={handleProviderChange}
+              <AgentModelPicker
+                provider={provider}
+                onProviderChange={handleProviderChange}
                 disabled={pendingStart}
-              />
-
-              {provider === 'claude' && (
-                <ClaudeModelPicker
-                  value={selectedClaudeModel}
-                  config={claudeModelConfig}
-                  runtimeModel={recentClaudeModel}
-                  onChange={(model) => {
+                claudeModel={{
+                  value: selectedClaudeModel,
+                  config: claudeModelConfig,
+                  runtimeModel: recentClaudeModel,
+                  onChange: (model) => {
                     setSelectedClaudeModel(model);
                     savePreferredClaudeModel(model);
-                  }}
-                  disabled={pendingStart}
-                />
-              )}
+                  },
+                }}
+              />
 
               <div className="relative no-drag">
                 <button

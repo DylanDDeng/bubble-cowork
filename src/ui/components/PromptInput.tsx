@@ -3,9 +3,8 @@ import { Paperclip, Plus, ArrowUp, Square } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import type { Attachment } from '../types';
+import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
-import { ClaudeModelPicker } from './ClaudeModelPicker';
-import { ProviderPicker } from './ProviderPicker';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
@@ -224,27 +223,23 @@ export function PromptInput() {
           )}
 
           <div className="flex items-center gap-2 px-4 pb-4">
-            <ProviderPicker
-              value={provider}
-              onChange={(next) => {
+            <AgentModelPicker
+              provider={provider}
+              onProviderChange={(next) => {
                 setProvider(next);
                 savePreferredProvider(next);
               }}
               disabled={isRunning}
-            />
-
-            {provider === 'claude' && (
-              <ClaudeModelPicker
-                value={selectedClaudeModel}
-                config={claudeModelConfig}
-                runtimeModel={activeClaudeModel}
-                onChange={(model) => {
+              claudeModel={{
+                value: selectedClaudeModel,
+                config: claudeModelConfig,
+                runtimeModel: activeClaudeModel,
+                onChange: (model) => {
                   setSelectedClaudeModel(model);
                   savePreferredClaudeModel(model);
-                }}
-                disabled={isRunning}
-              />
-            )}
+                },
+              }}
+            />
 
             <div className="relative">
               <button

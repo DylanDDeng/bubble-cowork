@@ -9,6 +9,7 @@ interface ClaudeModelPickerProps {
   runtimeModel?: string | null;
   onChange: (model: string) => void;
   disabled?: boolean;
+  embedded?: boolean;
 }
 
 export function ClaudeModelPicker({
@@ -17,6 +18,7 @@ export function ClaudeModelPicker({
   runtimeModel,
   onChange,
   disabled,
+  embedded = false,
 }: ClaudeModelPickerProps) {
   const [open, setOpen] = useState(false);
   const options = useMemo(
@@ -32,7 +34,15 @@ export function ClaudeModelPicker({
       <button
         onClick={() => setOpen((current) => !current)}
         disabled={disabled}
-        className="flex min-w-[156px] max-w-[196px] items-center justify-between gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5 text-sm shadow-sm transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50"
+        className={`flex items-center justify-between gap-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          embedded
+            ? `min-w-[150px] max-w-[190px] rounded-lg px-3 py-2 ${
+                open
+                  ? 'bg-[var(--bg-tertiary)]'
+                  : 'bg-transparent hover:bg-[var(--bg-tertiary)]'
+              }`
+            : 'min-w-[156px] max-w-[196px] rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5 shadow-sm hover:bg-[var(--bg-tertiary)]'
+        }`}
         title={currentLabel}
       >
         <span className="truncate text-[var(--text-secondary)]">{currentLabel}</span>

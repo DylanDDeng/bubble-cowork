@@ -21,9 +21,10 @@ interface ProviderPickerProps {
   value: AgentProvider;
   onChange: (provider: AgentProvider) => void;
   disabled?: boolean;
+  embedded?: boolean;
 }
 
-export function ProviderPicker({ value, onChange, disabled }: ProviderPickerProps) {
+export function ProviderPicker({ value, onChange, disabled, embedded = false }: ProviderPickerProps) {
   const [open, setOpen] = useState(false);
   const current = PROVIDERS.find((p) => p.id === value) || PROVIDERS[0];
 
@@ -32,7 +33,15 @@ export function ProviderPicker({ value, onChange, disabled }: ProviderPickerProp
       <button
         onClick={() => setOpen(!open)}
         disabled={disabled}
-        className="px-3 py-2 rounded-lg text-sm bg-[var(--bg-tertiary)] hover:bg-[var(--border)] border border-transparent flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className={`flex items-center gap-1.5 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+          embedded
+            ? `rounded-lg px-3 py-2 ${
+                open
+                  ? 'bg-[var(--bg-tertiary)]'
+                  : 'bg-transparent hover:bg-[var(--bg-tertiary)]'
+              }`
+            : 'rounded-lg border border-transparent bg-[var(--bg-tertiary)] px-3 py-2 hover:bg-[var(--border)]'
+        }`}
       >
         <ProviderIcon provider={current.id} />
         <span className="text-[var(--text-secondary)]">{current.label}</span>
