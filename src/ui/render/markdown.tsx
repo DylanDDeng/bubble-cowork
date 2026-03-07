@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -6,12 +6,84 @@ import rehypeRaw from 'rehype-raw';
 import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
 import type { Components } from 'react-markdown';
+import { Check, Copy } from 'lucide-react';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 
 interface MDContentProps {
   content: string;
   className?: string;
   allowHtml?: boolean;
+}
+
+function extractTextContent(node: ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') {
+    return String(node);
+  }
+
+  if (Array.isArray(node)) {
+    return node.map((child) => extractTextContent(child)).join('');
+  }
+
+  if (node && typeof node === 'object' && 'props' in node) {
+    const childNode = (node as { props?: { children?: ReactNode } }).props?.children;
+    return extractTextContent(childNode ?? '');
+  }
+
+  return '';
+}
+
+function formatLanguageLabel(language: string): string {
+  if (language.toLowerCase() === 'javascript') return 'JavaScript';
+  if (language.toLowerCase() === 'typescript') return 'TypeScript';
+  if (language.toLowerCase() === 'bash') return 'Bash';
+  if (language.toLowerCase() === 'shell') return 'Shell';
+  if (language.toLowerCase() === 'json') return 'JSON';
+  if (language.toLowerCase() === 'diff') return 'Diff';
+  return language.replace(/[-_]/g, ' ');
+}
+
+function CodeBlock({
+  language,
+  className,
+  children,
+}: {
+  language: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const [copied, setCopied] = useState(false);
+  const rawCode = extractTextContent(children).replace(/\n$/, '');
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(rawCode);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignore clipboard failures
+    }
+  };
+
+  return (
+    <div className="md-code-block">
+      <div className="md-code-header">
+        <span className="md-code-language">{formatLanguageLabel(language)}</span>
+        <button
+          type="button"
+          onClick={() => void handleCopy()}
+          className="md-code-copy"
+          title={copied ? 'Copied' : 'Copy code'}
+          aria-label={copied ? 'Copied' : 'Copy code'}
+        >
+          {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+        </button>
+      </div>
+
+      <pre className="md-code-content">
+        <code className={className}>{children}</code>
+      </pre>
+    </div>
+  );
 }
 
 // 自定义组件映射
@@ -32,7 +104,7 @@ const components: Components = {
   a: ({ href, children }) => (
     <a
       href={href}
-      className="text-purple-400 hover:underline"
+      className="text-[var(--accent)] hover:underline"
       target="_blank"
       rel="noopener noreferrer"
     >
@@ -40,18 +112,18 @@ const components: Components = {
     </a>
   ),
   blockquote: ({ children }) => (
-    <blockquote className="border-l-3 border-gray-600 pl-4 my-2 text-gray-400">
+    <blockquote className="border-l-[3px] border-[var(--border)] pl-4 my-2 text-[var(--text-secondary)]">
       {children}
     </blockquote>
   ),
   code: ({ className, children, ...props }) => {
-    const match = /language-(\w+)/.exec(className || '');
+    const match = /language-([\w-]+)/.exec(className || '');
     const isInline = !match;
 
     if (isInline) {
       return (
         <code
-          className="px-1.5 py-0.5 rounded text-sm font-mono"
+          className="md-inline-code"
           {...props}
         >
           {children}
@@ -60,28 +132,24 @@ const components: Components = {
     }
 
     return (
-      <code className={className} {...props}>
+      <CodeBlock language={match[1]} className={className}>
         {children}
-      </code>
+      </CodeBlock>
     );
   },
-  pre: ({ children }) => (
-    <pre className="rounded-lg p-4 my-3 overflow-x-auto text-sm">
-      {children}
-    </pre>
-  ),
+  pre: ({ children }) => <>{children}</>,
   table: ({ children }) => (
     <div className="overflow-x-auto my-3">
       <table className="w-full border-collapse">{children}</table>
     </div>
   ),
   th: ({ children }) => (
-    <th className="border border-gray-700 bg-gray-800 px-3 py-2 text-left">
+    <th className="border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-2 text-left">
       {children}
     </th>
   ),
   td: ({ children }) => (
-    <td className="border border-gray-700 px-3 py-2">{children}</td>
+    <td className="border border-[var(--border)] px-3 py-2">{children}</td>
   ),
 };
 
@@ -97,8 +165,8 @@ export function MDContent({ content, className = '', allowHtml = false }: MDCont
   }, [allowHtml]);
 
   const fallback = (
-    <div className="p-3 bg-gray-800 rounded-lg">
-      <pre className="text-sm text-gray-300 whitespace-pre-wrap break-words">{content}</pre>
+    <div className="md-code-block">
+      <pre className="md-code-content whitespace-pre-wrap break-words">{content}</pre>
     </div>
   );
 

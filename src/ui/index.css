@@ -24,6 +24,24 @@
   --tool-success: #22c55e;    /* 同 --success */
   --tool-error: #ef4444;      /* 同 --error */
 
+  /* Markdown / code */
+  --code-inline-bg: #F0F0F2;
+  --code-inline-border: #E3E3E7;
+  --code-inline-text: #4B5563;
+  --code-block-bg: #F3F3F5;
+  --code-block-header-bg: #F3F3F5;
+  --code-block-border: #E6E6EA;
+  --code-block-text: #1F2937;
+  --code-copy-bg: transparent;
+  --code-copy-hover: rgba(17, 24, 39, 0.05);
+  --code-token-comment: #9CA3AF;
+  --code-token-keyword: #C24D84;
+  --code-token-string: #1F8C5B;
+  --code-token-function: #6B46C1;
+  --code-token-number: #D97706;
+  --code-token-operator: #6B7280;
+  --code-token-variable: #111827;
+
   /* 圆角系统 */
   --radius: 0.5rem;
   --radius-sm: calc(var(--radius) - 4px);
@@ -54,6 +72,24 @@
   --tool-running: #E07B5B;
   --tool-success: #4ade80;
   --tool-error: #f87171;
+
+  /* Markdown / code */
+  --code-inline-bg: #303237;
+  --code-inline-border: #41454D;
+  --code-inline-text: #E5E7EB;
+  --code-block-bg: #2A2D33;
+  --code-block-header-bg: #2A2D33;
+  --code-block-border: #3B4048;
+  --code-block-text: #F3F4F6;
+  --code-copy-bg: rgba(255, 255, 255, 0.06);
+  --code-copy-hover: rgba(255, 255, 255, 0.1);
+  --code-token-comment: #9CA3AF;
+  --code-token-keyword: #F472B6;
+  --code-token-string: #4ADE80;
+  --code-token-function: #A78BFA;
+  --code-token-number: #F59E0B;
+  --code-token-operator: #CBD5E1;
+  --code-token-variable: #F3F4F6;
 }
 
 /* 基础样式 */
@@ -175,25 +211,130 @@ body {
   margin: 0.25rem 0;
 }
 
-.markdown-content code {
+.markdown-content .md-inline-code {
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
   font-size: 0.9em;
-  background: var(--bg-tertiary);
-  padding: 0.1rem 0.3rem;
-  border-radius: 4px;
+  color: var(--code-inline-text);
+  background: var(--code-inline-bg);
+  border: 1px solid var(--code-inline-border);
+  padding: 0.12rem 0.38rem;
+  border-radius: 6px;
 }
 
-.markdown-content pre {
-  margin: 0.75rem 0;
-  padding: 1rem;
-  background: #282c34;  /* Atom One Dark 背景色 */
-  border-radius: 8px;
+.markdown-content .md-code-block {
+  margin: 0.9rem 0;
+  border-radius: 22px;
+  overflow: hidden;
+  border: 1px solid var(--code-block-border);
+  background: var(--code-block-bg);
+}
+
+.markdown-content .md-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1.15rem 0.35rem;
+  background: var(--code-block-header-bg);
+}
+
+.markdown-content .md-code-language {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-primary);
+}
+
+.markdown-content .md-code-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  background: var(--code-copy-bg);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 0;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.markdown-content .md-code-copy:hover {
+  background: var(--code-copy-hover);
+  color: var(--text-primary);
+}
+
+.markdown-content .md-code-content {
+  margin: 0;
+  padding: 0.2rem 1.15rem 1.2rem;
   overflow-x: auto;
+  background: transparent;
+  color: var(--code-block-text);
+  font-size: 0.92rem;
+  line-height: 1.7;
 }
 
-.markdown-content pre code {
+.markdown-content .md-code-content code {
+  display: block;
+  min-width: max-content;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  color: inherit;
   background: transparent;
   padding: 0;
+  border: 0;
+  font-size: inherit;
+}
+
+.markdown-content .md-code-content .hljs {
+  display: block;
+  background: transparent !important;
+  color: var(--code-block-text);
+}
+
+.markdown-content .md-code-content .hljs-comment,
+.markdown-content .md-code-content .hljs-quote {
+  color: var(--code-token-comment);
+  font-style: italic;
+}
+
+.markdown-content .md-code-content .hljs-keyword,
+.markdown-content .md-code-content .hljs-selector-tag,
+.markdown-content .md-code-content .hljs-literal,
+.markdown-content .md-code-content .hljs-title.class_,
+.markdown-content .md-code-content .hljs-type {
+  color: var(--code-token-keyword);
+}
+
+.markdown-content .md-code-content .hljs-string,
+.markdown-content .md-code-content .hljs-attr,
+.markdown-content .md-code-content .hljs-template-tag,
+.markdown-content .md-code-content .hljs-template-variable {
+  color: var(--code-token-string);
+}
+
+.markdown-content .md-code-content .hljs-title.function_,
+.markdown-content .md-code-content .hljs-function .hljs-title,
+.markdown-content .md-code-content .hljs-section {
+  color: var(--code-token-function);
+}
+
+.markdown-content .md-code-content .hljs-number,
+.markdown-content .md-code-content .hljs-symbol,
+.markdown-content .md-code-content .hljs-bullet {
+  color: var(--code-token-number);
+}
+
+.markdown-content .md-code-content .hljs-operator,
+.markdown-content .md-code-content .hljs-punctuation {
+  color: var(--code-token-operator);
+}
+
+.markdown-content .md-code-content .hljs-variable,
+.markdown-content .md-code-content .hljs-params,
+.markdown-content .md-code-content .hljs-property {
+  color: var(--code-token-variable);
 }
 
 .markdown-content a {
@@ -365,11 +506,6 @@ body {
 
 .tool-status.error {
   background-color: var(--tool-error);
-}
-
-/* 代码高亮主题覆盖 */
-.hljs {
-  background: #282c34 !important;  /* Atom One Dark 背景色 */
 }
 
 /* 窗口拖拽区域 */
