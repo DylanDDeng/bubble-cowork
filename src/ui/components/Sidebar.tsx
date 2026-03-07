@@ -136,7 +136,13 @@ export function Sidebar() {
           setActiveSession(null);
           setShowNewSession(true);
         }}
-        className="group mx-2 mt-4 mb-4 px-2 py-2 flex items-center gap-3 text-left no-drag rounded-xl hover:bg-[var(--bg-secondary)] transition-colors duration-150"
+        className="group mx-2 mt-4 mb-4 px-2 py-2 flex items-center gap-3 text-left no-drag rounded-xl transition-colors duration-150"
+        onMouseEnter={(event) => {
+          event.currentTarget.style.backgroundColor = '#EEEEEE';
+        }}
+        onMouseLeave={(event) => {
+          event.currentTarget.style.backgroundColor = '';
+        }}
       >
         <span className="text-[#92918E] text-[22px] font-normal leading-none">+</span>
         <span className="text-base font-medium">New Task</span>
@@ -209,7 +215,13 @@ export function Sidebar() {
       <div className="p-4 border-t border-[var(--border)]/80">
         <button
           onClick={() => setShowSettings(true)}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors duration-150"
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150"
+          onMouseEnter={(event) => {
+            event.currentTarget.style.backgroundColor = '#EEEEEE';
+          }}
+          onMouseLeave={(event) => {
+            event.currentTarget.style.backgroundColor = '';
+          }}
         >
           <Settings className="w-4 h-4" />
           <span>Settings</span>
@@ -289,25 +301,13 @@ function SessionItem({
   onTogglePin: () => void;
   onNewFolderRequest: (sessionId: string) => void;
 }) {
-  // 格式化时间：4:36 pm
-  const formattedTime = new Date(session.updatedAt).toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
-
-  // 生成短 ID（如果有 claudeSessionId）
-  const shortId = session.claudeSessionId
-    ? session.claudeSessionId.slice(0, 14)
-    : null;
-
   // 获取当前状态配置
   const currentTodoState = session.todoState || 'todo';
   const currentStatusConfig = statusConfigs.find(s => s.id === currentTodoState);
 
   return (
     <div
-      className={`group relative mb-1 cursor-pointer rounded-2xl border p-3 transition-colors duration-150 ${
+      className={`group relative mb-1 cursor-pointer rounded-xl border px-3 py-1.5 transition-colors duration-150 ${
         isActive
           ? 'border-[var(--border)] shadow-[0_1px_2px_rgba(0,0,0,0.03)]'
           : 'bg-transparent border-transparent hover:border-[var(--border)]/70'
@@ -328,7 +328,7 @@ function SessionItem({
       }}
     >
       {/* 标题行：状态图标 + 置顶图标 + 标题 */}
-      <div className="flex items-center gap-2 pr-6">
+      <div className="flex items-center gap-2 pr-6 min-h-[20px]">
         {currentStatusConfig && (
           <StatusIcon status={currentStatusConfig} className="flex-shrink-0" />
         )}
@@ -337,20 +337,14 @@ function SessionItem({
             <Pin className="w-3.5 h-3.5" />
           </span>
         )}
-        <span className="text-sm font-medium truncate">{session.title}</span>
-      </div>
-
-      {/* 副标题：session-id · 时间 */}
-      <div className="text-xs text-[var(--text-muted)] mt-1 truncate pl-5">
-        {shortId && <span>{shortId} · </span>}
-        {formattedTime}
+        <span className="text-[15px] font-medium leading-[1.25] truncate">{session.title}</span>
       </div>
 
       {/* 更多菜单 - hover 显示 */}
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button
-            className="absolute top-3 right-2 w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-md hover:bg-[var(--bg-tertiary)] transition-all duration-150"
+            className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-md hover:bg-[var(--bg-tertiary)] transition-all duration-150"
             onClick={(e) => e.stopPropagation()}
           >
             <MoreVertical className="w-4 h-4" />
