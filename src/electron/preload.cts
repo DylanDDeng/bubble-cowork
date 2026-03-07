@@ -36,6 +36,11 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-recent-cwds', limit);
   },
 
+  // 获取 Claude 模型配置
+  getClaudeModelConfig: () => {
+    return ipcRenderer.invoke('get-claude-model-config');
+  },
+
   // 选择目录
   selectDirectory: () => {
     return ipcRenderer.invoke('select-directory');

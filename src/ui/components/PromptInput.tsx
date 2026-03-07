@@ -1,14 +1,18 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Paperclip, Plus, ArrowUp, Square } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import type { Attachment } from '../types';
 import { AttachmentChips } from './AttachmentChips';
+import { ClaudeModelPicker } from './ClaudeModelPicker';
 import { ProviderPicker } from './ProviderPicker';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
+import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
+import { getSessionModel } from '../utils/session-model';
+import { formatClaudeModelLabel, loadPreferredClaudeModel, savePreferredClaudeModel } from '../utils/claude-model';
 
 export function PromptInput() {
   const { activeSessionId, sessions, setShowNewSession } = useAppStore();
@@ -16,10 +20,18 @@ export function PromptInput() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [provider, setProvider] = useState(loadPreferredProvider());
+  const [selectedClaudeModel, setSelectedClaudeModel] = useState<string | null>(
+    loadPreferredClaudeModel()
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const isRunning = activeSession?.status === 'running';
+  const claudeModelConfig = useClaudeModelConfig();
+  const activeClaudeModel = useMemo(
+    () => (provider === 'claude' ? getSessionModel(activeSession?.messages) : null),
+    [provider, activeSession?.messages]
+  );
   const skillAutocomplete = useClaudeSkillAutocomplete({
     enabled: provider === 'claude',
     prompt,
@@ -34,6 +46,25 @@ export function PromptInput() {
       savePreferredProvider(activeSession.provider);
     }
   }, [activeSessionId, activeSession?.provider]);
+
+  useEffect(() => {
+    if (activeSession?.provider !== 'claude') {
+      return;
+    }
+
+    const nextModel =
+      activeSession.model ||
+      activeClaudeModel ||
+      loadPreferredClaudeModel() ||
+      claudeModelConfig.defaultModel;
+    setSelectedClaudeModel(nextModel || null);
+  }, [
+    activeSessionId,
+    activeSession?.provider,
+    activeSession?.model,
+    activeClaudeModel,
+    claudeModelConfig.defaultModel,
+  ]);
 
   // 自动调整高度
   useEffect(() => {
@@ -56,6 +87,10 @@ export function PromptInput() {
           prompt: prompt.trim(),
           attachments: attachments.length > 0 ? attachments : undefined,
           provider,
+          model:
+            provider === 'claude'
+              ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
+              : undefined,
         },
       });
       setPrompt('');
@@ -198,6 +233,19 @@ export function PromptInput() {
               disabled={isRunning}
             />
 
+            {provider === 'claude' && (
+              <ClaudeModelPicker
+                value={selectedClaudeModel}
+                config={claudeModelConfig}
+                runtimeModel={activeClaudeModel}
+                onChange={(model) => {
+                  setSelectedClaudeModel(model);
+                  savePreferredClaudeModel(model);
+                }}
+                disabled={isRunning}
+              />
+            )}
+
             <div className="relative">
               <button
                 onClick={() => setMenuOpen((v) => !v)}
@@ -266,6 +314,9 @@ export function PromptInput() {
             : provider === 'claude'
               ? 'Press Enter to send, Shift+Enter for new line. Type / to insert a Claude skill.'
               : 'Press Enter to send, Shift+Enter for new line'}
+          {provider === 'claude' && activeClaudeModel
+            ? ` Current model: ${formatClaudeModelLabel(activeClaudeModel)}`
+            : ''}
         </div>
       </div>
     </div>

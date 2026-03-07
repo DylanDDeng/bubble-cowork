@@ -22,6 +22,7 @@ export type {
   McpServerConfig,
   McpServerStatus,
   ClaudeSkillSummary,
+  ClaudeModelConfig,
   AgentProvider,
   TodoState,
   StatusConfig,
@@ -42,6 +43,7 @@ export interface SessionView {
   cwd?: string;
   claudeSessionId?: string;
   provider?: AgentProvider;
+  model?: string;
   todoState?: TodoState;
   pinned?: boolean;
   folderPath?: string | null;

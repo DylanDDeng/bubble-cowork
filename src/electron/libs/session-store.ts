@@ -22,6 +22,7 @@ export function initialize(): void {
       claude_session_id TEXT,
       codex_session_id TEXT,
       provider TEXT NOT NULL DEFAULT 'claude',
+      model TEXT,
       status TEXT NOT NULL DEFAULT 'idle',
       cwd TEXT,
       allowed_tools TEXT,
@@ -44,6 +45,7 @@ export function initialize(): void {
 
   ensureColumn('sessions', 'codex_session_id', 'TEXT');
   ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
+  ensureColumn('sessions', 'model', 'TEXT');
   ensureColumn('sessions', 'todo_state', "TEXT DEFAULT 'todo'");
   ensureColumn('sessions', 'pinned', 'INTEGER DEFAULT 0');
   ensureColumn('sessions', 'folder_path', 'TEXT');
@@ -72,19 +74,21 @@ export function createSession(params: {
   allowedTools?: string;
   prompt?: string;
   provider?: 'claude' | 'codex';
+  model?: string;
 }): SessionRow {
   const now = Date.now();
   const id = uuidv4();
 
   const stmt = getDb().prepare(`
-    INSERT INTO sessions (id, title, provider, cwd, allowed_tools, last_prompt, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, 'idle', ?, ?)
+    INSERT INTO sessions (id, title, provider, model, cwd, allowed_tools, last_prompt, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
   `);
 
   stmt.run(
     id,
     params.title,
     params.provider || 'claude',
+    params.model || null,
     params.cwd || null,
     params.allowedTools || null,
     params.prompt || null,
@@ -141,6 +145,14 @@ export function updateSessionProvider(sessionId: string, provider: 'claude' | 'c
     UPDATE sessions SET provider = ?, updated_at = ? WHERE id = ?
   `);
   stmt.run(provider, now, sessionId);
+}
+
+export function updateSessionModel(sessionId: string, model: string | null): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET model = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(model, now, sessionId);
 }
 
 // 更新 Session TodoState

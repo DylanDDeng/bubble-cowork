@@ -7,7 +7,7 @@ import { runClaude } from './libs/runner';
 import { runCodex } from './libs/codex-runner';
 import { generateSessionTitle } from './libs/util';
 import { readProjectTree } from './libs/project-tree';
-import { loadClaudeSettings, getClaudeSettings, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
+import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfig, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
 import { listClaudeSkills } from './libs/claude-skills';
 import * as statusConfig from './libs/status-config';
 import * as folderConfig from './libs/folder-config';
@@ -139,6 +139,12 @@ function getAttachmentSpec(filePath: string): { kind: Attachment['kind']; mimeTy
   return { kind, mimeType };
 }
 
+function normalizeModel(model?: string | null): string | undefined {
+  if (typeof model !== 'string') return undefined;
+  const trimmed = model.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 function toAttachment(filePath: string): Attachment | null {
   const spec = getAttachmentSpec(filePath);
   if (!spec) {
@@ -246,6 +252,11 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // RPC: 获取最近工作目录
   ipcMainHandle('get-recent-cwds', async (_, limit?: number) => {
     return sessions.listRecentCwds(limit);
+  });
+
+  // RPC: 获取 Claude 模型配置
+  ipcMainHandle('get-claude-model-config', async () => {
+    return getClaudeModelConfig();
   });
 
   // RPC: 选择目录
@@ -633,6 +644,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     cwd: row.cwd || undefined,
     claudeSessionId: row.claude_session_id || undefined,
     provider: row.provider || 'claude',
+    model: row.model || undefined,
     todoState: row.todo_state || 'todo',
     pinned: row.pinned === 1,
     folderPath: row.folder_path || null,
@@ -665,7 +677,7 @@ async function handleSessionStart(
   mainWindow: BrowserWindow,
   payload: SessionStartPayload
 ): Promise<void> {
-  const { title, prompt, cwd, allowedTools, attachments, provider } = payload;
+  const { title, prompt, cwd, allowedTools, attachments, provider, model } = payload;
   if (!cwd?.trim()) {
     broadcast(mainWindow, {
       type: 'runner.error',
@@ -674,8 +686,13 @@ async function handleSessionStart(
     return;
   }
   const chosenProvider = provider || 'claude';
+  const selectedModel = chosenProvider === 'claude' ? normalizeModel(model) : undefined;
   if (isDev()) {
-    console.log('[Session Start]', { provider: chosenProvider, cwd: cwd || undefined });
+    console.log('[Session Start]', {
+      provider: chosenProvider,
+      model: selectedModel,
+      cwd: cwd || undefined,
+    });
   }
 
   // 创建会话（用临时标题）
@@ -685,6 +702,7 @@ async function handleSessionStart(
     allowedTools,
     prompt,
     provider: chosenProvider,
+    model: selectedModel,
   });
 
   // 更新状态为 running
@@ -699,6 +717,7 @@ async function handleSessionStart(
       title: session.title,
       cwd: session.cwd || undefined,
       provider: chosenProvider,
+      model: selectedModel,
     },
   });
 
@@ -737,7 +756,7 @@ async function handleSessionStart(
   sessions.addMessage(session.id, { type: 'user_prompt', prompt, attachments, createdAt });
 
   // 启动 Runner
-  startRunner(mainWindow, session, prompt, undefined, attachments, chosenProvider);
+  startRunner(mainWindow, session, prompt, undefined, attachments, chosenProvider, selectedModel);
 }
 
 // 继续会话
@@ -745,7 +764,7 @@ async function handleSessionContinue(
   mainWindow: BrowserWindow,
   payload: SessionContinuePayload
 ): Promise<void> {
-  const { sessionId, prompt, attachments, provider } = payload;
+  const { sessionId, prompt, attachments, provider, model } = payload;
 
   const session = sessions.getSession(sessionId);
   if (!session) {
@@ -759,6 +778,7 @@ async function handleSessionContinue(
   const existingEntry = runnerHandles.get(sessionId);
   const previousProvider = session.provider || 'claude';
   const nextProvider = provider || previousProvider;
+  const nextModel = nextProvider === 'claude' ? normalizeModel(model ?? session.model ?? undefined) : undefined;
   const providerChanged = nextProvider !== previousProvider;
 
   if (isDev()) {
@@ -767,6 +787,7 @@ async function handleSessionContinue(
       payloadProvider: provider,
       previousProvider,
       nextProvider,
+      nextModel,
       providerChanged,
       hasExistingRunner: !!existingEntry,
     });
@@ -774,6 +795,9 @@ async function handleSessionContinue(
 
   if (providerChanged) {
     sessions.updateSessionProvider(sessionId, nextProvider);
+  }
+  if (nextProvider === 'claude') {
+    sessions.updateSessionModel(sessionId, nextModel || null);
   }
 
   // 更新状态
@@ -783,7 +807,12 @@ async function handleSessionContinue(
   // 广播状态
   broadcast(mainWindow, {
     type: 'session.status',
-    payload: { sessionId, status: 'running', provider: nextProvider },
+    payload: {
+      sessionId,
+      status: 'running',
+      provider: nextProvider,
+      model: nextProvider === 'claude' ? nextModel ?? '' : undefined,
+    },
   });
 
   // 广播用户 prompt
@@ -797,7 +826,7 @@ async function handleSessionContinue(
   sessions.addMessage(sessionId, { type: 'user_prompt', prompt, attachments, createdAt });
 
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
-    existingEntry.handle.send(prompt, attachments);
+    existingEntry.handle.send(prompt, attachments, nextModel);
     return;
   }
 
@@ -814,7 +843,7 @@ async function handleSessionContinue(
         ? session.claude_session_id ?? undefined
         : session.codex_session_id ?? undefined;
 
-  startRunner(mainWindow, session, prompt, resumeSessionId, attachments, nextProvider);
+  startRunner(mainWindow, session, prompt, resumeSessionId, attachments, nextProvider, nextModel);
 }
 
 // 启动 Runner
@@ -824,7 +853,8 @@ function startRunner(
   prompt: string,
   resumeSessionId?: string,
   attachments?: Attachment[],
-  providerOverride?: 'claude' | 'codex'
+  providerOverride?: 'claude' | 'codex',
+  modelOverride?: string
 ): void {
   if (!session) return;
 
@@ -837,6 +867,7 @@ function startRunner(
       sessionId: session.id,
       provider,
       runner: provider === 'codex' ? 'codex-acp' : 'claude-agent-sdk',
+      model: modelOverride,
       cwd: session.cwd || process.cwd(),
       hasResume: !!resumeSessionId,
     });
@@ -847,6 +878,7 @@ function startRunner(
     attachments,
     session,
     resumeSessionId,
+    model: provider === 'claude' ? modelOverride : undefined,
     onMessage: (message) => {
       // 提取并保存 claude session id
       if (message.type === 'system' && message.subtype === 'init') {
@@ -854,7 +886,20 @@ function startRunner(
           sessions.updateCodexSessionId(session.id, message.session_id);
         } else {
           sessions.updateClaudeSessionId(session.id, message.session_id);
+          if (message.model) {
+            sessions.updateSessionModel(session.id, message.model);
+          }
         }
+
+        broadcast(mainWindow, {
+          type: 'session.status',
+          payload: {
+            sessionId: session.id,
+            status: (sessions.getSession(session.id)?.status || 'running') as SessionStatus,
+            provider,
+            model: provider === 'claude' ? message.model || modelOverride : undefined,
+          },
+        });
       }
 
       // 保存消息
@@ -872,7 +917,12 @@ function startRunner(
         sessions.updateSessionStatus(session.id, status);
         broadcast(mainWindow, {
           type: 'session.status',
-          payload: { sessionId: session.id, status, provider },
+          payload: {
+            sessionId: session.id,
+            status,
+            provider,
+            model: provider === 'claude' ? sessions.getSession(session.id)?.model || modelOverride : undefined,
+          },
         });
       }
     },

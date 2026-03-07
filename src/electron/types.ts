@@ -24,6 +24,7 @@ export interface SessionRow {
   claude_session_id: string | null;
   codex_session_id: string | null;
   provider: 'claude' | 'codex';
+  model: string | null;
   status: string;
   cwd: string | null;
   allowed_tools: string | null;
@@ -48,6 +49,7 @@ export interface RunnerOptions {
   attachments?: import('../shared/types').Attachment[];
   session: SessionRow;
   resumeSessionId?: string;
+  model?: string;
   onMessage: (message: import('../shared/types').StreamMessage) => void;
   onError?: (error: Error) => void;
   onPermissionRequest: (
@@ -59,7 +61,7 @@ export interface RunnerOptions {
 
 export interface RunnerHandle {
   abort: () => void;
-  send: (prompt: string, attachments?: import('../shared/types').Attachment[]) => void;
+  send: (prompt: string, attachments?: import('../shared/types').Attachment[], model?: string) => void;
 }
 
 // 内部会话状态

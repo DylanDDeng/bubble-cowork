@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import type { ClaudeModelConfig } from '../../shared/types';
 
 // Claude Code 主配置文件路径
 const CLAUDE_JSON_PATH = join(homedir(), '.claude.json');
@@ -30,6 +31,7 @@ interface ClaudeJsonConfig {
 interface ClaudeSettings {
   env?: Record<string, string>;
   apiKey?: string;
+  model?: string;
   mcpServers?: Record<string, McpServerConfig>;
   [key: string]: unknown;
 }
@@ -110,6 +112,21 @@ export function getClaudeSettings(): { apiKey?: string } | null {
   }
 
   return { apiKey };
+}
+
+export function getClaudeModelConfig(): ClaudeModelConfig {
+  const s = loadClaudeSettings();
+  const defaultModel =
+    typeof s.model === 'string' && s.model.trim().length > 0 ? s.model.trim() : null;
+  const options = Array.from(
+    new Set(
+      [defaultModel, 'haiku', 'sonnet', 'sonnet[1m]', 'opus', 'opus[1m]'].filter(
+        (value): value is string => Boolean(value)
+      )
+    )
+  );
+
+  return { defaultModel, options };
 }
 
 // 获取 MCP 服务器配置（合并全局和项目级配置）

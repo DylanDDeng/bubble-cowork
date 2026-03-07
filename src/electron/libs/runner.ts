@@ -1,4 +1,4 @@
-import { query, type McpServerConfig as SDKMcpServerConfig, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query, type McpServerConfig as SDKMcpServerConfig, type Query as ClaudeQuery, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { readFile } from 'fs/promises';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -223,23 +223,34 @@ async function buildUserMessage(
 
 // 运行 Claude Agent
 export function runClaude(options: RunnerOptions): RunnerHandle {
-  const { prompt, attachments, session, resumeSessionId, onMessage, onPermissionRequest, onError } = options;
+  const { prompt, attachments, session, resumeSessionId, model, onMessage, onPermissionRequest, onError } = options;
 
   const abortController = new AbortController();
   const inputQueue = new AsyncMessageQueue<SDKUserMessage>();
   let currentSessionId = resumeSessionId || '';
   let enqueueChain: Promise<void> = Promise.resolve();
+  let currentModel = typeof model === 'string' && model.trim().length > 0 ? model.trim() : undefined;
+  let activeQuery: ClaudeQuery | null = null;
 
-  const enqueuePrompt = (text: string, promptAttachments?: Attachment[]) => {
+  const enqueuePrompt = (text: string, promptAttachments?: Attachment[], requestedModel?: string) => {
     const trimmed = text.trim();
     if (!trimmed) {
       return;
     }
 
+    const normalizedModel =
+      typeof requestedModel === 'string' && requestedModel.trim().length > 0
+        ? requestedModel.trim()
+        : undefined;
+
     enqueueChain = enqueueChain
       .then(async () => {
         if (abortController.signal.aborted) {
           return;
+        }
+        if (activeQuery && normalizedModel !== currentModel) {
+          await activeQuery.setModel(normalizedModel);
+          currentModel = normalizedModel;
         }
         const message = await buildUserMessage(trimmed, currentSessionId, promptAttachments);
         if (abortController.signal.aborted) {
@@ -294,6 +305,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           includePartialMessages: true,
           maxThinkingTokens,
           env,
+          model: currentModel,
           executable: executable as unknown as 'node',
           executableArgs,
           pathToClaudeCodeExecutable,
@@ -369,6 +381,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           },
         },
       });
+      activeQuery = result;
 
       // 确保运行中也设置 maxThinkingTokens
       try {
@@ -409,7 +422,8 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       abortController.abort();
       inputQueue.close();
     },
-    send: (text, promptAttachments) => enqueuePrompt(applyCwdHint(session.cwd, text), promptAttachments),
+    send: (text, promptAttachments, requestedModel) =>
+      enqueuePrompt(applyCwdHint(session.cwd, text), promptAttachments, requestedModel),
   };
 }
 

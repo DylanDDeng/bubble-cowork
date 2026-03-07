@@ -1,7 +1,7 @@
 // 全局类型声明（Window 扩展）
 // 实际类型定义在 src/shared/types.ts
 
-import type { ClientEvent, ServerEvent, StatisticsData, StaticData, Attachment, ProjectTreeNode } from './shared/types';
+import type { ClientEvent, ServerEvent, StatisticsData, StaticData, Attachment, ProjectTreeNode, ClaudeModelConfig } from './shared/types';
 
 declare global {
   interface ElectronAPI {
@@ -9,6 +9,7 @@ declare global {
     sendClientEvent: (event: ClientEvent) => void;
     generateSessionTitle: (prompt: string) => Promise<string>;
     getRecentCwds: (limit?: number) => Promise<string[]>;
+    getClaudeModelConfig: () => Promise<ClaudeModelConfig>;
     selectDirectory: () => Promise<string | null>;
     selectAttachments: () => Promise<Attachment[]>;
     readAttachmentPreview: (filePath: string) => Promise<string | null>;

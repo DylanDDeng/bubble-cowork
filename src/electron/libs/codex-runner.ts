@@ -576,7 +576,9 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
       }
       proc.kill();
     },
-    send: enqueuePrompt,
+    send: (text, promptAttachments) => {
+      enqueuePrompt(text, promptAttachments);
+    },
   };
 }
 

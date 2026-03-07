@@ -80,6 +80,11 @@ export interface ClaudeSkillSummary {
   source: 'user' | 'project';
 }
 
+export interface ClaudeModelConfig {
+  defaultModel: string | null;
+  options: string[];
+}
+
 // 附件类型（文件/图片）
 export type AttachmentKind = 'file' | 'image';
 
@@ -183,6 +188,7 @@ export interface SessionStartPayload {
   allowedTools?: string;
   attachments?: Attachment[];
   provider?: AgentProvider;
+  model?: string;
 }
 
 export interface SessionContinuePayload {
@@ -190,6 +196,7 @@ export interface SessionContinuePayload {
   prompt: string;
   attachments?: Attachment[];
   provider?: AgentProvider;
+  model?: string;
 }
 
 export interface SessionInfo {
@@ -199,6 +206,7 @@ export interface SessionInfo {
   cwd?: string;
   claudeSessionId?: string;
   provider?: AgentProvider;
+  model?: string;
   todoState?: TodoState;
   pinned?: boolean;
   folderPath?: string | null;
@@ -215,6 +223,7 @@ export interface SessionStatusPayload {
   cwd?: string;
   error?: string;
   provider?: AgentProvider;
+  model?: string;
 }
 
 export interface SessionHistoryPayload {

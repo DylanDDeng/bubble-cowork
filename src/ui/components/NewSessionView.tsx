@@ -1,25 +1,37 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import type { Attachment } from '../types';
 import { AttachmentChips } from './AttachmentChips';
+import { ClaudeModelPicker } from './ClaudeModelPicker';
 import { ProviderPicker } from './ProviderPicker';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
+import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
+import { getLatestProviderModel } from '../utils/session-model';
+import { formatClaudeModelLabel, loadPreferredClaudeModel, savePreferredClaudeModel } from '../utils/claude-model';
 
 export function NewSessionView() {
-  const { pendingStart, setPendingStart, setProjectCwd } = useAppStore();
+  const { pendingStart, sessions, setPendingStart, setProjectCwd } = useAppStore();
   const [cwd, setCwd] = useState('');
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
   const [provider, setProvider] = useState(loadPreferredProvider());
+  const [selectedClaudeModel, setSelectedClaudeModel] = useState<string | null>(
+    loadPreferredClaudeModel()
+  );
   const [showCwdHint, setShowCwdHint] = useState(false);
   const hasSelectedCwd = cwd.trim().length > 0;
+  const claudeModelConfig = useClaudeModelConfig();
+  const recentClaudeModel = useMemo(
+    () => getLatestProviderModel(sessions, 'claude'),
+    [sessions]
+  );
   const skillAutocomplete = useClaudeSkillAutocomplete({
     enabled: provider === 'claude',
     prompt,
@@ -37,6 +49,13 @@ export function NewSessionView() {
     const timer = window.setTimeout(() => setShowCwdHint(false), 1800);
     return () => window.clearTimeout(timer);
   }, [showCwdHint]);
+
+  useEffect(() => {
+    if (selectedClaudeModel || !claudeModelConfig.defaultModel) {
+      return;
+    }
+    setSelectedClaudeModel(claudeModelConfig.defaultModel);
+  }, [claudeModelConfig.defaultModel, selectedClaudeModel]);
 
   const handleStart = () => {
     if (!prompt.trim()) return;
@@ -61,6 +80,10 @@ export function NewSessionView() {
         cwd: cwd || undefined,
         attachments: attachments.length > 0 ? attachments : undefined,
         provider,
+        model:
+          provider === 'claude'
+            ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
+            : undefined,
       },
     });
 
@@ -137,7 +160,7 @@ export function NewSessionView() {
   };
 
   return (
-    <div className="flex-1 flex flex-col dot-pattern">
+    <div className="flex-1 flex flex-col">
       {/* 顶部拖拽区域 */}
       <div className="h-8 drag-region flex-shrink-0" />
 
@@ -221,6 +244,19 @@ export function NewSessionView() {
                 disabled={pendingStart}
               />
 
+              {provider === 'claude' && (
+                <ClaudeModelPicker
+                  value={selectedClaudeModel}
+                  config={claudeModelConfig}
+                  runtimeModel={recentClaudeModel}
+                  onChange={(model) => {
+                    setSelectedClaudeModel(model);
+                    savePreferredClaudeModel(model);
+                  }}
+                  disabled={pendingStart}
+                />
+              )}
+
               <div className="relative no-drag">
                 <button
                   onClick={() => setMenuOpen((v) => !v)}
@@ -296,6 +332,7 @@ export function NewSessionView() {
           {provider === 'claude' && (
             <div className="mt-4 text-center text-xs text-[var(--text-muted)]">
               Type <span className="font-mono">/</span> to browse Claude skills for this session.
+              {recentClaudeModel ? ` Last detected model: ${formatClaudeModelLabel(recentClaudeModel)}.` : ''}
             </div>
           )}
 
