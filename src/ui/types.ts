@@ -88,7 +88,6 @@ export interface AppState {
   statusFilter: TodoState | 'all' | 'open' | 'closed';
   // 文件夹
   folderConfigs: FolderConfig[];
-  expandedFolders: Set<string>;
   // 主题
   theme: Theme;
 }
@@ -126,8 +125,6 @@ export interface AppActions {
   setStatusFilter: (filter: TodoState | 'all' | 'open' | 'closed') => void;
   // 文件夹 Actions
   setFolderConfigs: (configs: FolderConfig[]) => void;
-  toggleFolderExpanded: (folderPath: string) => void;
-  setExpandedFolders: (folders: Set<string>) => void;
   // 主题 Actions
   setTheme: (theme: Theme) => void;
 }

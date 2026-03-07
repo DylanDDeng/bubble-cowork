@@ -75,7 +75,6 @@ export const useAppStore = create<Store>()(
       statusFilter: 'all',
       // 文件夹
       folderConfigs: [],
-      expandedFolders: new Set<string>(),
       // 主题
       theme: 'system' as const,
 
@@ -257,17 +256,6 @@ export const useAppStore = create<Store>()(
 
   // 文件夹 Actions
   setFolderConfigs: (configs) => set({ folderConfigs: configs }),
-  toggleFolderExpanded: (folderPath) =>
-    set((state) => {
-      const newExpanded = new Set(state.expandedFolders);
-      if (newExpanded.has(folderPath)) {
-        newExpanded.delete(folderPath);
-      } else {
-        newExpanded.add(folderPath);
-      }
-      return { expandedFolders: newExpanded };
-    }),
-  setExpandedFolders: (folders) => set({ expandedFolders: folders }),
 
   // 主题
   setTheme: (theme) => {
@@ -279,12 +267,10 @@ export const useAppStore = create<Store>()(
     {
       name: 'cowork-app-storage',
       partialize: (state) => ({
-        expandedFolders: Array.from(state.expandedFolders),
         theme: state.theme,
       }),
       merge: (persistedState: unknown, currentState: Store) => {
         const persisted = persistedState as {
-          expandedFolders?: string[];
           theme?: Theme;
         } | undefined;
         const theme = persisted?.theme || currentState.theme;
@@ -292,7 +278,6 @@ export const useAppStore = create<Store>()(
         applyTheme(theme);
         return {
           ...currentState,
-          expandedFolders: new Set(persisted?.expandedFolders || []),
           theme,
         };
       },

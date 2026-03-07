@@ -28,12 +28,11 @@ export function FolderTreeView({
   const {
     sessions,
     activeSessionId,
-    expandedFolders,
-    toggleFolderExpanded,
     sidebarSearchQuery,
     statusFilter,
     statusConfigs,
   } = useAppStore();
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
 
   const projectGroups = useMemo(() => {
     let sessionList = Object.values(sessions);
@@ -95,7 +94,19 @@ export function FolderTreeView({
       });
   }, [sessions, sidebarSearchQuery, statusFilter, statusConfigs]);
 
-  const isExpanded = (key: string) => expandedFolders.size === 0 || expandedFolders.has(key);
+  const isExpanded = (key: string) => !collapsedGroups.has(key);
+
+  const toggleGroupExpanded = (key: string) => {
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
 
   return (
     <div>
@@ -105,7 +116,7 @@ export function FolderTreeView({
           <div key={group.key}>
             <div
               className="flex items-center gap-2 px-2 py-2 cursor-pointer hover:bg-[var(--bg-secondary)] rounded-lg transition-colors duration-150"
-              onClick={() => toggleFolderExpanded(group.key)}
+              onClick={() => toggleGroupExpanded(group.key)}
               title={group.fullPath || 'Sessions without a project folder'}
             >
               <span className={`transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}>
