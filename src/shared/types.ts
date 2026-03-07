@@ -71,6 +71,15 @@ export interface McpServerStatus {
   error?: string;
 }
 
+// Claude Skills 摘要
+export interface ClaudeSkillSummary {
+  name: string;
+  title: string;
+  description?: string;
+  path: string;
+  source: 'user' | 'project';
+}
+
 // 附件类型（文件/图片）
 export type AttachmentKind = 'file' | 'image';
 
@@ -113,6 +122,8 @@ export type ClientEvent =
       projectServers?: Record<string, McpServerConfig>;
       projectPath?: string;
     } }
+  // Skills 事件
+  | { type: 'skills.list'; payload?: { projectPath?: string } }
   // 状态配置事件
   | { type: 'status.list' }
   | { type: 'status.create'; payload: CreateStatusInput }
@@ -150,6 +161,12 @@ export type ServerEvent =
       projectServers?: Record<string, McpServerConfig>;
     } }
   | { type: 'mcp.status'; payload: { servers: McpServerStatus[] } }
+  | { type: 'skills.list'; payload: {
+      userRoot: string;
+      projectRoot?: string;
+      userSkills: ClaudeSkillSummary[];
+      projectSkills: ClaudeSkillSummary[];
+    } }
   // 状态配置事件
   | { type: 'status.list'; payload: { statuses: StatusConfig[] } }
   | { type: 'status.changed'; payload: { statuses: StatusConfig[] } }

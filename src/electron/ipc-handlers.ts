@@ -8,6 +8,7 @@ import { runCodex } from './libs/codex-runner';
 import { generateSessionTitle } from './libs/util';
 import { readProjectTree } from './libs/project-tree';
 import { loadClaudeSettings, getClaudeSettings, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
+import { listClaudeSkills } from './libs/claude-skills';
 import * as statusConfig from './libs/status-config';
 import * as folderConfig from './libs/folder-config';
 import { ipcMainHandle, isDev } from './util';
@@ -564,6 +565,10 @@ async function handleClientEvent(
       handleMcpSaveConfig(mainWindow, event.payload);
       break;
 
+    case 'skills.list':
+      handleSkillsList(mainWindow, event.payload?.projectPath);
+      break;
+
     case 'session.setTodoState':
       handleSessionSetTodoState(mainWindow, event.payload);
       break;
@@ -1041,6 +1046,13 @@ function handleMcpSaveConfig(
       globalServers,
       projectServers,
     },
+  });
+}
+
+function handleSkillsList(mainWindow: BrowserWindow, projectPath?: string): void {
+  broadcast(mainWindow, {
+    type: 'skills.list',
+    payload: listClaudeSkills(projectPath),
   });
 }
 

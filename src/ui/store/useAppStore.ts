@@ -64,6 +64,10 @@ export const useAppStore = create<Store>()(
       mcpGlobalServers: {},
       mcpProjectServers: {},
       mcpServerStatus: [],
+      claudeUserSkills: [],
+      claudeProjectSkills: [],
+      claudeSkillsUserRoot: '',
+      claudeSkillsProjectRoot: undefined,
       // Settings 状态
       showSettings: false,
       activeSettingsTab: 'mcp' as SettingsTab,
@@ -131,6 +135,15 @@ export const useAppStore = create<Store>()(
 
       case 'mcp.status':
         set({ mcpServerStatus: event.payload.servers });
+        break;
+
+      case 'skills.list':
+        set({
+          claudeUserSkills: event.payload.userSkills,
+          claudeProjectSkills: event.payload.projectSkills,
+          claudeSkillsUserRoot: event.payload.userRoot,
+          claudeSkillsProjectRoot: event.payload.projectRoot,
+        });
         break;
 
       case 'status.list':

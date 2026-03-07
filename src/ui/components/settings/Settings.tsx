@@ -1,6 +1,7 @@
-import { X, Server, Settings as SettingsIcon, Sun, Moon, Monitor } from 'lucide-react';
+import { X, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { McpSettingsContent } from './McpSettings';
+import { SkillsSettingsContent } from './SkillsSettings';
 import type { Theme } from '../../types';
 
 // Settings 面板
@@ -35,6 +36,12 @@ export function Settings() {
               active={activeSettingsTab === 'mcp'}
               onClick={() => setActiveSettingsTab('mcp')}
             />
+            <SettingsNavItem
+              label="Claude Skills"
+              icon={<BookOpen className="w-4 h-4" />}
+              active={activeSettingsTab === 'skills'}
+              onClick={() => setActiveSettingsTab('skills')}
+            />
           </ul>
         </nav>
 
@@ -45,6 +52,7 @@ export function Settings() {
             <h2 className="text-lg font-semibold">
               {activeSettingsTab === 'mcp' && 'MCP Servers'}
               {activeSettingsTab === 'general' && 'General'}
+              {activeSettingsTab === 'skills' && 'Claude Skills'}
             </h2>
             <button
               onClick={() => setShowSettings(false)}
@@ -60,6 +68,7 @@ export function Settings() {
               <GeneralSettingsContent theme={theme} setTheme={setTheme} />
             )}
             {activeSettingsTab === 'mcp' && <McpSettingsContent />}
+            {activeSettingsTab === 'skills' && <SkillsSettingsContent />}
           </div>
         </div>
       </div>
@@ -166,4 +175,3 @@ function ThemeButton({
     </button>
   );
 }
-

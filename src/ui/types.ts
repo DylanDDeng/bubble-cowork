@@ -1,7 +1,7 @@
 // UI 层类型定义
 
 // Settings 标签类型
-export type SettingsTab = 'mcp' | 'general';
+export type SettingsTab = 'mcp' | 'general' | 'skills';
 
 // 从共享类型导入
 import type { AgentProvider, ProjectTreeNode, TodoState, StatusConfig, FolderConfig } from '../shared/types';
@@ -21,6 +21,7 @@ export type {
   ServerEvent,
   McpServerConfig,
   McpServerStatus,
+  ClaudeSkillSummary,
   AgentProvider,
   TodoState,
   StatusConfig,
@@ -78,6 +79,10 @@ export interface AppState {
   mcpGlobalServers: Record<string, import('../shared/types').McpServerConfig>;
   mcpProjectServers: Record<string, import('../shared/types').McpServerConfig>;
   mcpServerStatus: import('../shared/types').McpServerStatus[];
+  claudeUserSkills: import('../shared/types').ClaudeSkillSummary[];
+  claudeProjectSkills: import('../shared/types').ClaudeSkillSummary[];
+  claudeSkillsUserRoot: string;
+  claudeSkillsProjectRoot?: string;
   // Settings 状态
   showSettings: boolean;
   activeSettingsTab: SettingsTab;
