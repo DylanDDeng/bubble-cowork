@@ -96,15 +96,15 @@ export function ToolGroup({
   }
 
   return (
-    <div className="my-2 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)]/50 overflow-hidden">
+    <div className="my-2 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)]/70">
       {/* 折叠头部 */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full px-3 py-2 flex items-center gap-2 hover:bg-[var(--bg-tertiary)]/30 transition-colors text-left"
+        className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-[var(--bg-tertiary)]/25"
       >
         <ChevronRight className={`w-4 h-4 text-[var(--text-muted)] flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} />
         <StatusDot status={groupStatus} />
-        <span className="font-medium text-sm">Task</span>
+        <span className="font-medium text-sm text-[var(--text-primary)]">Task</span>
         <span className="text-sm text-[var(--text-secondary)] truncate flex-1">
           {summary || 'Tool execution'}
         </span>
@@ -130,7 +130,6 @@ export function ToolGroup({
               block={block}
               result={toolResults.get(block.id)}
               status={toolStatusMap.get(block.id) || 'pending'}
-              isLast={idx === visibleBlocks.length - 1 && todoWriteCount === 0}
             />
           ))}
         </div>
@@ -144,12 +143,10 @@ function ToolInvocation({
   block,
   result,
   status,
-  isLast,
 }: {
   block: ToolUseBlock;
   result?: ToolResultBlock;
   status: ToolStatus;
-  isLast: boolean;
 }) {
   const [showArgs, setShowArgs] = useState(false);
   const [showOutput, setShowOutput] = useState(false);
@@ -165,9 +162,9 @@ function ToolInvocation({
   const summary = getToolSummary(block.name, block.input);
 
   return (
-    <div className={`tree-item ${isLast ? 'tree-item-last' : ''}`}>
+    <div className="mb-1.5 rounded-lg border border-[var(--border)]/70 bg-[var(--bg-primary)]/80 px-3 py-2">
       {/* 工具头部 */}
-      <div className="flex items-center gap-2 py-1">
+      <div className="flex items-center gap-2">
         <div className={`status-dot-sm ${status}`} />
         <span className="font-medium text-sm text-[var(--accent)]">{block.name}</span>
         <span className="text-xs text-[var(--text-secondary)] font-mono truncate flex-1">
@@ -238,7 +235,7 @@ function CollapsibleSection({
         <span>{label}</span>
       </button>
       {expanded && (
-        <div className="mt-1 p-2 bg-[var(--bg-tertiary)] rounded max-h-48 overflow-auto">
+        <div className="mt-1 rounded bg-[var(--bg-tertiary)] p-2 max-h-48 overflow-auto">
           {children}
         </div>
       )}

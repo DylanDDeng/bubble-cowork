@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
-import { MDContent } from '../render/markdown';
+import { Brain, ChevronRight } from 'lucide-react';
 
 interface ThinkingBlockProps {
   content: string;
@@ -12,39 +11,27 @@ export function ThinkingBlock({ content }: ThinkingBlockProps) {
   // Skip empty content
   if (!content || !content.trim()) return null;
 
-  const isLong = content.length > 200;
+  const preview = content.length > 160 ? `${content.slice(0, 160).trimEnd()}...` : content;
 
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-tertiary)]/50 p-3">
-      {/* Header - clickable to expand/collapse */}
+    <div className="rounded-lg border border-[var(--border)]/70 bg-[var(--bg-primary)]/80">
       <button
-        onClick={() => isLong && setIsExpanded(!isExpanded)}
-        className={`flex w-full items-center gap-2 text-left text-sm text-[var(--text-muted)] ${
-          isLong ? 'cursor-pointer' : 'cursor-default'
-        }`}
+        onClick={() => setIsExpanded((value) => !value)}
+        className="flex w-full items-start gap-2 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-[var(--bg-tertiary)]/20"
       >
-        <span className="opacity-60">⊛</span>
-        <span className="font-medium">Thinking</span>
-        {isLong && (
-          <ChevronDown
-            className={`ml-auto w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-          />
-        )}
+        <ChevronRight
+          className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)] transition-transform ${
+            isExpanded ? 'rotate-90' : ''
+          }`}
+        />
+        <Brain className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--text-muted)]" />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-[var(--text-primary)]">Thinking</div>
+          <div className="mt-0.5 text-sm leading-5 text-[var(--text-secondary)]">
+            {isExpanded ? content : preview}
+          </div>
+        </div>
       </button>
-
-      {/* Content area */}
-      {(isExpanded || !isLong) && (
-        <div className="mt-2 text-sm text-[var(--text-secondary)]">
-          <MDContent content={content} />
-        </div>
-      )}
-
-      {/* Collapsed preview */}
-      {!isExpanded && isLong && (
-        <div className="mt-2 text-sm text-[var(--text-secondary)] line-clamp-3">
-          <MDContent content={content} />
-        </div>
-      )}
     </div>
   );
 }

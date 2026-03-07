@@ -32,12 +32,14 @@ type AggregatedItem =
   | { type: 'message'; message: StreamMessage; originalIndex: number }
   | { type: 'tool_batch'; messages: (StreamMessage & { type: 'assistant' })[]; originalIndices: number[] };
 
-// 判断消息是否包含工具调用（可以有文本内容）
-function hasToolUse(msg: StreamMessage): msg is StreamMessage & { type: 'assistant' } {
+// 判断消息是否包含可折叠的执行痕迹（thinking / tool_use）
+function hasTraceAssistantContent(
+  msg: StreamMessage
+): msg is StreamMessage & { type: 'assistant' } {
   if (msg.type !== 'assistant') return false;
   const content = getMessageContentBlocks(msg);
-  // 只要包含 tool_use 就算（允许混合 text + tool_use）
-  return content.some((block) => block.type === 'tool_use');
+  if (content.length === 0) return false;
+  return content.some((block) => block.type === 'thinking' || block.type === 'tool_use');
 }
 
 // 判断是否为 tool_result-only 的 user 消息（这类消息不应该打断聚合）
@@ -47,56 +49,69 @@ function isToolResultOnlyMessage(msg: StreamMessage): boolean {
   return content.length > 0 && content.every((block) => block.type === 'tool_result');
 }
 
-// 聚合连续的工具执行消息
-function aggregateMessages(messages: StreamMessage[]): AggregatedItem[] {
-  const items: AggregatedItem[] = [];
-  let currentBatch: { msg: StreamMessage; index: number }[] = [];
+function pushSegment(
+  items: AggregatedItem[],
+  segment: Array<{ message: StreamMessage; index: number }>
+) {
+  if (segment.length === 0) return;
 
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    if (hasToolUse(msg) || isToolResultOnlyMessage(msg)) {
-      // 包含 tool_use 的 assistant 或 tool_result-only 的 user，加入批次
-      currentBatch.push({ msg, index: i });
-    } else {
-      // 遇到非工具消息，先结束当前批次
-      const assistantItems = currentBatch.filter(
-        (item): item is { msg: StreamMessage & { type: 'assistant' }; index: number } =>
-          item.msg.type === 'assistant'
-      );
-      if (assistantItems.length >= 3) {
-        // 3个以上才聚合
-        items.push({
-          type: 'tool_batch',
-          messages: assistantItems.map((item) => item.msg),
-          originalIndices: assistantItems.map((item) => item.index),
-        });
-      } else {
-        // 批次太小，单独显示
-        currentBatch.forEach((item) =>
-          items.push({ type: 'message', message: item.msg, originalIndex: item.index })
-        );
-      }
-      currentBatch = [];
-      items.push({ type: 'message', message: msg, originalIndex: i });
+  const lastTraceIndex = segment.reduce((lastIndex, entry, index) => {
+    if (hasTraceAssistantContent(entry.message) || isToolResultOnlyMessage(entry.message)) {
+      return index;
     }
+    return lastIndex;
+  }, -1);
+
+  if (lastTraceIndex === -1) {
+    segment.forEach((entry) =>
+      items.push({ type: 'message', message: entry.message, originalIndex: entry.index })
+    );
+    return;
   }
 
-  // 处理末尾的批次
-  const assistantItems = currentBatch.filter(
-    (item): item is { msg: StreamMessage & { type: 'assistant' }; index: number } =>
-      item.msg.type === 'assistant'
-  );
-  if (assistantItems.length >= 3) {
+  const traceAssistantEntries = segment
+    .slice(0, lastTraceIndex + 1)
+    .filter(
+      (
+        entry
+      ): entry is {
+        message: StreamMessage & { type: 'assistant' };
+        index: number;
+      } => entry.message.type === 'assistant'
+    );
+
+  if (traceAssistantEntries.length > 0) {
     items.push({
       type: 'tool_batch',
-      messages: assistantItems.map((item) => item.msg),
-      originalIndices: assistantItems.map((item) => item.index),
+      messages: traceAssistantEntries.map((entry) => entry.message),
+      originalIndices: traceAssistantEntries.map((entry) => entry.index),
     });
-  } else {
-    currentBatch.forEach((item) =>
-      items.push({ type: 'message', message: item.msg, originalIndex: item.index })
-    );
   }
+
+  segment.slice(lastTraceIndex + 1).forEach((entry) =>
+    items.push({ type: 'message', message: entry.message, originalIndex: entry.index })
+  );
+}
+
+// 按 turn 聚合执行过程：把最终回答之前的 thinking / tool / 中间说明文字收进一个面板
+function aggregateMessages(messages: StreamMessage[]): AggregatedItem[] {
+  const items: AggregatedItem[] = [];
+  let currentSegment: Array<{ message: StreamMessage; index: number }> = [];
+
+  for (let i = 0; i < messages.length; i += 1) {
+    const message = messages[i];
+
+    if (message.type === 'user_prompt') {
+      pushSegment(items, currentSegment);
+      currentSegment = [];
+      items.push({ type: 'message', message, originalIndex: i });
+      continue;
+    }
+
+    currentSegment.push({ message, index: i });
+  }
+
+  pushSegment(items, currentSegment);
 
   return items;
 }
