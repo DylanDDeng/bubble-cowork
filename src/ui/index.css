@@ -349,6 +349,12 @@ body {
   color: var(--text-secondary);
 }
 
+.markdown-content hr {
+  margin: 1.25rem 0;
+  border: 0;
+  border-top: 1px solid #e9e9ec;
+}
+
 .markdown-content table {
   border-collapse: collapse;
   margin: 0.75rem 0;
