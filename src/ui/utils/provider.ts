@@ -1,7 +1,7 @@
 import type { AgentProvider } from '../types';
 
 export const PROVIDERS: Array<{ id: AgentProvider; label: string }> = [
-  { id: 'claude', label: 'Claude' },
+  { id: 'claude', label: 'Claude Code' },
   { id: 'codex', label: 'Codex' },
 ];
 

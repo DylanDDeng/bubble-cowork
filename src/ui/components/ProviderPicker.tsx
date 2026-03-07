@@ -2,6 +2,20 @@ import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { AgentProvider } from '../types';
 import { PROVIDERS } from '../utils/provider';
+import claudeLogo from '../assets/claude-color.svg';
+import openaiLogo from '../assets/openai.svg';
+
+function ProviderIcon({ provider }: { provider: AgentProvider }) {
+  if (provider === 'claude') {
+    return <img src={claudeLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
+  }
+
+  if (provider === 'codex') {
+    return <img src={openaiLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
+  }
+
+  return null;
+}
 
 interface ProviderPickerProps {
   value: AgentProvider;
@@ -20,6 +34,7 @@ export function ProviderPicker({ value, onChange, disabled }: ProviderPickerProp
         disabled={disabled}
         className="px-3 py-2 rounded-lg text-sm bg-[var(--bg-tertiary)] hover:bg-[var(--border)] border border-transparent flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
+        <ProviderIcon provider={current.id} />
         <span className="text-[var(--text-secondary)]">{current.label}</span>
         <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" />
       </button>
@@ -41,7 +56,10 @@ export function ProviderPicker({ value, onChange, disabled }: ProviderPickerProp
                     : 'text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
                 }`}
               >
-                {provider.label}
+                <span className="flex items-center gap-2">
+                  <ProviderIcon provider={provider.id} />
+                  <span>{provider.label}</span>
+                </span>
               </button>
             ))}
           </div>
