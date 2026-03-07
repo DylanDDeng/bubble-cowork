@@ -165,25 +165,43 @@ export function NewSessionView() {
       <div className="h-8 drag-region flex-shrink-0" />
 
       {/* 内容区域 */}
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="w-full max-w-2xl">
-          {/* 标题 */}
-          <h1 className="text-4xl font-bold serif-display leading-tight mb-6 text-center text-[var(--text-primary)]">
-            What can I help you with?
-          </h1>
+      <div className="flex-1 flex justify-center px-8 pb-10 pt-16">
+        <div className="flex h-full w-full max-w-2xl flex-col">
+          <div className="flex flex-1 items-center justify-center text-center">
+            <div className="-translate-y-12">
+            {/* 标题 */}
+              <h1 className="text-4xl font-bold serif-display leading-tight text-[var(--text-primary)]">
+                What can I help you with?
+              </h1>
 
-          <div
-            className={`mb-3 flex justify-center transition-all duration-200 ${
-              showCwdHint ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-1 pointer-events-none'
-            }`}
-          >
-            <div className="rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-primary)] shadow-sm">
-              Select a project folder before starting a new task.
+              {provider === 'claude' && (
+                <div className="mt-4 text-xs text-[var(--text-muted)]">
+                  Type <span className="font-mono">/</span> to browse Claude skills for this session.
+                  {recentClaudeModel ? ` Last detected model: ${formatClaudeModelLabel(recentClaudeModel)}.` : ''}
+                </div>
+              )}
+
+              {!hasSelectedCwd && (
+                <div className="mt-3 text-xs text-[var(--text-secondary)]">
+                  Select a project folder to enable starting a new task.
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Composer */}
-          <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-3xl shadow-sm transition-colors">
+          <div className="mt-auto">
+            <div
+              className={`mb-3 flex justify-center transition-all duration-200 ${
+                showCwdHint ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-1 pointer-events-none'
+              }`}
+            >
+              <div className="rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-primary)] shadow-sm">
+                Select a project folder before starting a new task.
+              </div>
+            </div>
+
+            {/* Composer */}
+            <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-3xl shadow-sm transition-colors">
             {attachments.length > 0 && (
               <div className="px-5 pt-4">
                 <AttachmentChips
@@ -307,40 +325,28 @@ export function NewSessionView() {
                 )}
               </button>
             </div>
+            </div>
+
+            {/* Recent Projects */}
+            {recentCwds.length > 0 && (
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                {recentCwds.slice(0, 6).map((dir) => (
+                  <button
+                    key={dir}
+                    onClick={() => handleCwdChange(dir)}
+                    className={`text-xs px-3 py-1.5 rounded-full transition-colors no-drag ${
+                      cwd === dir
+                        ? 'bg-[var(--accent-light)] text-[var(--accent)]'
+                        : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--border)]'
+                    }`}
+                    title={dir}
+                  >
+                    {dir.split('/').pop() || dir}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-
-          {/* Recent Projects */}
-          {recentCwds.length > 0 && (
-            <div className="mt-4 flex flex-wrap justify-center gap-2">
-              {recentCwds.slice(0, 6).map((dir) => (
-                <button
-                  key={dir}
-                  onClick={() => handleCwdChange(dir)}
-                  className={`text-xs px-3 py-1.5 rounded-full transition-colors no-drag ${
-                    cwd === dir
-                      ? 'bg-[var(--accent-light)] text-[var(--accent)]'
-                      : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--border)]'
-                  }`}
-                  title={dir}
-                >
-                  {dir.split('/').pop() || dir}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {provider === 'claude' && (
-            <div className="mt-4 text-center text-xs text-[var(--text-muted)]">
-              Type <span className="font-mono">/</span> to browse Claude skills for this session.
-              {recentClaudeModel ? ` Last detected model: ${formatClaudeModelLabel(recentClaudeModel)}.` : ''}
-            </div>
-          )}
-
-          {!hasSelectedCwd && (
-            <div className="mt-3 text-center text-xs text-[var(--text-secondary)]">
-              Select a project folder to enable starting a new task.
-            </div>
-          )}
         </div>
       </div>
     </div>
