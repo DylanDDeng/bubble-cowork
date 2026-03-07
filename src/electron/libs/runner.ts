@@ -33,6 +33,8 @@ interface SDKMessage {
   model?: string;
   permissionMode?: string;
   tools?: string[];
+  slash_commands?: string[];
+  skills?: string[];
   mcp_servers?: McpServerStatus[];
   result?: string;
   event?: {
@@ -80,7 +82,7 @@ function applyCwdHint(cwd: string | null | undefined, prompt: string): string {
     return prompt;
   }
   const trimmed = prompt.trimStart();
-  if (trimmed.startsWith(CWD_HINT_PREFIX)) {
+  if (trimmed.startsWith(CWD_HINT_PREFIX) || trimmed.startsWith('/')) {
     return prompt;
   }
   return `[Working Directory: ${cwd}]\n\n${prompt}`;
@@ -424,6 +426,8 @@ function convertSDKMessage(message: SDKMessage): StreamMessage | null {
           permissionMode: message.permissionMode || '',
           cwd: message.cwd || '',
           tools: message.tools || [],
+          slash_commands: message.slash_commands,
+          skills: message.skills,
           mcp_servers: message.mcp_servers,
         };
       }

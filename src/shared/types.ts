@@ -270,6 +270,8 @@ export type StreamMessage =
       permissionMode: string;
       cwd: string;
       tools: string[];
+      slash_commands?: string[];
+      skills?: string[];
       mcp_servers?: McpServerStatus[];
     })
   | (StreamMessageBase & { type: 'assistant'; uuid: string; message: AssistantMessage })

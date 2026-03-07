@@ -4,6 +4,8 @@ import { sendEvent } from '../hooks/useIPC';
 import type { Attachment } from '../types';
 import { AttachmentChips } from './AttachmentChips';
 import { ProviderPicker } from './ProviderPicker';
+import { ClaudeSkillMenu } from './ClaudeSkillMenu';
+import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 
 export function NewSessionView() {
@@ -14,6 +16,12 @@ export function NewSessionView() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
   const [provider, setProvider] = useState(loadPreferredProvider());
+  const skillAutocomplete = useClaudeSkillAutocomplete({
+    enabled: provider === 'claude',
+    prompt,
+    projectPath: cwd || undefined,
+    setPrompt,
+  });
 
   // 加载最近工作目录
   useEffect(() => {
@@ -77,6 +85,26 @@ export function NewSessionView() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (skillAutocomplete.hasSlashQuery) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        skillAutocomplete.moveSelection(1);
+        return;
+      }
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        skillAutocomplete.moveSelection(-1);
+        return;
+      }
+
+      if ((e.key === 'Enter' || e.key === 'Tab') && skillAutocomplete.suggestions.length > 0) {
+        e.preventDefault();
+        skillAutocomplete.selectCurrentSkill();
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey && prompt.trim() && !pendingStart) {
       e.preventDefault();
       handleStart();
@@ -117,6 +145,15 @@ export function NewSessionView() {
               className="w-full bg-transparent px-5 pt-4 pb-3 text-[15px] outline-none resize-none no-drag"
               autoFocus
             />
+
+            {provider === 'claude' && skillAutocomplete.hasSlashQuery && (
+              <ClaudeSkillMenu
+                suggestions={skillAutocomplete.suggestions}
+                selectedIndex={skillAutocomplete.selectedIndex}
+                empty={skillAutocomplete.suggestions.length === 0}
+                onSelect={skillAutocomplete.selectSkill}
+              />
+            )}
 
             {/* 底部工具栏 */}
             <div className="flex items-center gap-2 px-4 pb-4">
@@ -201,6 +238,12 @@ export function NewSessionView() {
                   {dir.split('/').pop() || dir}
                 </button>
               ))}
+            </div>
+          )}
+
+          {provider === 'claude' && (
+            <div className="mt-4 text-center text-xs text-[var(--text-muted)]">
+              Type <span className="font-mono">/</span> to browse Claude skills for this session.
             </div>
           )}
         </div>

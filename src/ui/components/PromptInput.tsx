@@ -5,6 +5,8 @@ import { sendEvent } from '../hooks/useIPC';
 import type { Attachment } from '../types';
 import { AttachmentChips } from './AttachmentChips';
 import { ProviderPicker } from './ProviderPicker';
+import { ClaudeSkillMenu } from './ClaudeSkillMenu';
+import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 
 export function PromptInput() {
@@ -17,6 +19,13 @@ export function PromptInput() {
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const isRunning = activeSession?.status === 'running';
+  const skillAutocomplete = useClaudeSkillAutocomplete({
+    enabled: provider === 'claude',
+    prompt,
+    projectPath: activeSession?.cwd,
+    sessionMessages: activeSession?.messages || [],
+    setPrompt,
+  });
 
   useEffect(() => {
     if (activeSession?.provider) {
@@ -84,6 +93,26 @@ export function PromptInput() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (skillAutocomplete.hasSlashQuery) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        skillAutocomplete.moveSelection(1);
+        return;
+      }
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        skillAutocomplete.moveSelection(-1);
+        return;
+      }
+
+      if ((e.key === 'Enter' || e.key === 'Tab') && skillAutocomplete.suggestions.length > 0) {
+        e.preventDefault();
+        skillAutocomplete.selectCurrentSkill();
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (isRunning) {
@@ -125,6 +154,15 @@ export function PromptInput() {
             disabled={isRunning}
             className="w-full bg-transparent px-5 pt-4 pb-3 text-[15px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50"
           />
+
+          {provider === 'claude' && skillAutocomplete.hasSlashQuery && (
+            <ClaudeSkillMenu
+              suggestions={skillAutocomplete.suggestions}
+              selectedIndex={skillAutocomplete.selectedIndex}
+              empty={skillAutocomplete.suggestions.length === 0}
+              onSelect={skillAutocomplete.selectSkill}
+            />
+          )}
 
           <div className="flex items-center gap-2 px-4 pb-4">
             <ProviderPicker
@@ -201,10 +239,11 @@ export function PromptInput() {
         <div className="text-xs text-[var(--text-muted)] mt-2 px-1">
           {isRunning
             ? 'Session is running. Press Enter or click Stop to abort.'
-            : 'Press Enter to send, Shift+Enter for new line'}
+            : provider === 'claude'
+              ? 'Press Enter to send, Shift+Enter for new line. Type / to insert a Claude skill.'
+              : 'Press Enter to send, Shift+Enter for new line'}
         </div>
       </div>
     </div>
   );
 }
-
