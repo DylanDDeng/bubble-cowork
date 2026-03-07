@@ -1,4 +1,4 @@
-import { Sparkles } from 'lucide-react';
+import { Boxes, Search } from 'lucide-react';
 import type { ClaudeSkillSummary } from '../types';
 
 export function ClaudeSkillMenu({
@@ -13,22 +13,20 @@ export function ClaudeSkillMenu({
   onSelect: (skill: ClaudeSkillSummary) => void;
 }) {
   return (
-    <div className="mx-4 mb-3 rounded-2xl border border-[var(--border)] bg-[var(--bg-primary)] shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--border)] text-xs text-[var(--text-muted)]">
-        <Sparkles className="w-3.5 h-3.5" />
-        <span>Claude Skills</span>
-        <span className="font-mono">Tab</span>
-        <span>or</span>
-        <span className="font-mono">Enter</span>
-        <span>to insert</span>
+    <div className="mx-4 mb-3 rounded-[28px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_8px_24px_rgba(0,0,0,0.04)] overflow-hidden">
+      <div className="px-4 pt-3 pb-2">
+        <div className="flex items-center gap-2 text-[13px] text-[var(--text-muted)]">
+          <Search className="w-3.5 h-3.5" />
+          <span>Skills</span>
+        </div>
       </div>
 
       {empty ? (
-        <div className="px-4 py-3 text-sm text-[var(--text-muted)]">
+        <div className="px-4 pb-4 text-sm text-[var(--text-muted)]">
           No matching Claude skills.
         </div>
       ) : (
-        <div className="max-h-64 overflow-y-auto py-1">
+        <div className="max-h-72 overflow-y-auto px-2 pb-2">
           {suggestions.map((skill, index) => {
             const selected = index === selectedIndex;
             return (
@@ -38,21 +36,28 @@ export function ClaudeSkillMenu({
                   event.preventDefault();
                   onSelect(skill);
                 }}
-                className={`w-full px-4 py-3 text-left transition-colors ${
-                  selected ? 'bg-[var(--accent-light)]' : 'hover:bg-[var(--bg-tertiary)]'
+                className={`w-full flex items-center gap-3 rounded-2xl px-3 py-2 text-left transition-colors ${
+                  selected ? 'bg-[var(--bg-tertiary)]' : 'hover:bg-[var(--bg-tertiary)]/80'
                 }`}
               >
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-mono text-sm text-[var(--text-primary)]">/{skill.name}</span>
-                  <span className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5 text-[11px] text-[var(--text-muted)]">
-                    {skill.source === 'project' ? 'Project' : 'User'}
-                  </span>
+                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">
+                  <Boxes className="w-4 h-4" />
                 </div>
-                {skill.description && (
-                  <div className="mt-1 text-sm text-[var(--text-secondary)] break-words">
-                    {skill.description}
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="truncate font-mono text-[13px] font-semibold text-[var(--text-primary)]">
+                      {skill.title}
+                    </span>
+                    <span className="truncate text-[13px] text-[var(--text-muted)]">
+                      {skill.description || `/${skill.name}`}
+                    </span>
                   </div>
-                )}
+                </div>
+
+                <div className="flex-shrink-0 text-[12px] text-[var(--text-muted)]">
+                  {skill.source === 'project' ? 'Workspace' : 'Personal'}
+                </div>
               </button>
             );
           })}
