@@ -3,6 +3,8 @@ import type { ContentBlock, ToolStatus, StreamMessage } from '../types';
 import { ToolGroup } from './ToolGroup';
 import { getToolSummary, safeJsonStringify } from '../utils/tool-summary';
 import { getMessageContentBlocks } from '../utils/message-content';
+import { extractLatestTodoProgress } from '../utils/todo-progress';
+import { TodoProgressCard } from './TodoProgressCard';
 
 // 工具使用块类型
 type ToolUseBlock = ContentBlock & { type: 'tool_use' };
@@ -93,6 +95,10 @@ export function ToolExecutionBatch({
     [allBlocks]
   );
   const todoWriteCount = allBlocks.length - visibleBlocks.length;
+  const todoProgress = useMemo(
+    () => extractLatestTodoProgress(allBlocks),
+    [allBlocks]
+  );
 
   // 统计工具类型（不含 TodoWrite）
   const toolCounts = useMemo(
@@ -112,14 +118,9 @@ export function ToolExecutionBatch({
   const totalTools = visibleBlocks.length;
 
   // 如果没有可见工具（全是 TodoWrite），显示简化版本
-  if (totalTools === 0 && todoWriteCount > 0) {
+  if (totalTools === 0 && todoProgress) {
     return (
-      <div className="my-2 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)]/50 px-3 py-2">
-        <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-          <StatusDot status={batchStatus} />
-          <span>Updated todo list ({todoWriteCount} times)</span>
-        </div>
-      </div>
+      <TodoProgressCard state={todoProgress} className="my-2" />
     );
   }
 
@@ -157,9 +158,15 @@ export function ToolExecutionBatch({
         </div>
       </button>
 
+      {todoProgress && (
+        <div className="px-3 pb-3">
+          <TodoProgressCard state={todoProgress} />
+        </div>
+      )}
+
       {/* 展开内容 */}
       {expanded && (
-        <div className="border-t border-[var(--border)] px-3 py-2">
+        <div className={`px-3 py-2 ${todoProgress ? 'border-t border-[var(--border)]' : ''}`}>
           {/* 显示每个工具调用 */}
           {visibleBlocks.map((block, idx) => (
             <ToolInvocationCompact
@@ -170,13 +177,6 @@ export function ToolExecutionBatch({
               isLast={idx === visibleBlocks.length - 1}
             />
           ))}
-
-          {/* TodoWrite 汇总 */}
-          {todoWriteCount > 0 && (
-            <div className="mt-2 pt-2 border-t border-[var(--border)]/50 text-xs text-[var(--text-muted)]">
-              + Updated todo list ({todoWriteCount} times)
-            </div>
-          )}
         </div>
       )}
     </div>

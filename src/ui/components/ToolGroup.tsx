@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react';
 import { ChevronRight } from 'lucide-react';
 import type { ContentBlock, ToolStatus } from '../types';
 import { getToolSummary, safeJsonStringify } from '../utils/tool-summary';
+import { extractLatestTodoProgress } from '../utils/todo-progress';
+import { TodoProgressCard } from './TodoProgressCard';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -71,6 +73,10 @@ export function ToolGroup({
     [toolUseBlocks, hideTodoWrite]
   );
   const todoWriteCount = toolUseBlocks.length - visibleBlocks.length;
+  const todoProgress = useMemo(
+    () => extractLatestTodoProgress(toolUseBlocks),
+    [toolUseBlocks]
+  );
 
   const summary = useMemo(
     () => getGroupSummary(toolUseBlocks), // 用原始块获取摘要
@@ -83,14 +89,9 @@ export function ToolGroup({
   const toolCount = visibleBlocks.length;
 
   // 如果没有可见工具（全是 TodoWrite），显示简化版本
-  if (toolCount === 0 && todoWriteCount > 0) {
+  if (toolCount === 0 && todoProgress) {
     return (
-      <div className="my-2 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)]/50 px-3 py-2">
-        <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-          <div className={`status-dot ${groupStatus === 'pending' ? 'running' : groupStatus === 'success' ? 'completed' : 'error'}`} />
-          <span>Updated todo list ({todoWriteCount} times)</span>
-        </div>
-      </div>
+      <TodoProgressCard state={todoProgress} className="my-2" />
     );
   }
 
@@ -114,9 +115,15 @@ export function ToolGroup({
         </span>
       </button>
 
+      {todoProgress && (
+        <div className="px-3 pb-3">
+          <TodoProgressCard state={todoProgress} />
+        </div>
+      )}
+
       {/* 展开内容 - Tree 风格 */}
       {expanded && (
-        <div className="px-3 pb-2">
+        <div className={`px-3 pb-2 ${todoProgress ? 'border-t border-[var(--border)]/60 pt-2' : ''}`}>
           {visibleBlocks.map((block, idx) => (
             <ToolInvocation
               key={block.id}
@@ -126,15 +133,6 @@ export function ToolGroup({
               isLast={idx === visibleBlocks.length - 1 && todoWriteCount === 0}
             />
           ))}
-          {/* TodoWrite 汇总 */}
-          {todoWriteCount > 0 && (
-            <div className="tree-item tree-item-last">
-              <div className="flex items-center gap-2 py-1 text-xs text-[var(--text-muted)]">
-                <div className="status-dot-sm completed" />
-                <span>Updated todo list ({todoWriteCount} times)</span>
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -254,4 +252,3 @@ function StatusDot({ status }: { status: ToolStatus }) {
     status === 'pending' ? 'running' : status === 'success' ? 'completed' : 'error';
   return <div className={`status-dot ${statusClass}`} />;
 }
-
