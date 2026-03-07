@@ -55,7 +55,7 @@ const projectWatchers = new Map<
 
 type ProjectFilePreview =
   | {
-      kind: 'text' | 'markdown';
+      kind: 'text' | 'markdown' | 'html';
       path: string;
       name: string;
       ext: string;
@@ -382,12 +382,12 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         }
       }
 
-      // Markdown + text preview
-      if (ext === '.md' || ext === '.txt' || ext === '.json' || ext === '.log') {
+      // Markdown + text-like preview
+      if (ext === '.md' || ext === '.txt' || ext === '.json' || ext === '.log' || ext === '.html' || ext === '.htm') {
         try {
           const text = await fsPromises.readFile(validation.targetReal, 'utf8');
           return {
-            kind: ext === '.md' ? 'markdown' : 'text',
+            kind: ext === '.md' ? 'markdown' : ext === '.html' || ext === '.htm' ? 'html' : 'text',
             path: validation.targetReal,
             name,
             ext,

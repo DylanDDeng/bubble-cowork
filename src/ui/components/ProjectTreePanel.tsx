@@ -6,7 +6,7 @@ import type { ProjectTreeNode } from '../types';
 
 type ProjectFilePreview =
   | {
-      kind: 'text' | 'markdown';
+      kind: 'text' | 'markdown' | 'html';
       path: string;
       name: string;
       ext: string;
@@ -169,6 +169,7 @@ export function ProjectTreePanel() {
   const latestWidthRef = useRef(panelWidth);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [selectedPreview, setSelectedPreview] = useState<ProjectFilePreview | null>(null);
+  const [htmlMode, setHtmlMode] = useState<'view' | 'code'>('view');
   const [previewLoading, setPreviewLoading] = useState(false);
   const previewRequestIdRef = useRef(0);
   const [draftText, setDraftText] = useState('');
@@ -248,6 +249,7 @@ export function ProjectTreePanel() {
     initRootRef.current = null;
     setSelectedFilePath(null);
     setSelectedPreview(null);
+    setHtmlMode('view');
     setPreviewLoading(false);
     setDraftText('');
     setSaveState('idle');
@@ -285,6 +287,7 @@ export function ProjectTreePanel() {
     }
 
     setSelectedFilePath(node.path);
+    setHtmlMode('view');
     setPreviewLoading(true);
     setSelectedPreview(null);
     setDraftText('');
@@ -506,6 +509,10 @@ export function ProjectTreePanel() {
               </div>
 
               <div className="flex items-center gap-1 flex-shrink-0 no-drag">
+                {selectedPreview?.kind === 'html' && (
+                  <HtmlModeToggle value={htmlMode} onChange={setHtmlMode} />
+                )}
+
                 {canSaveTxt && (
                   <button
                     onClick={handleSaveTxt}
@@ -593,6 +600,21 @@ export function ProjectTreePanel() {
                 </div>
               )}
 
+              {!previewLoading && selectedPreview?.kind === 'html' && (
+                htmlMode === 'code' ? (
+                  <pre className="whitespace-pre-wrap break-words font-mono text-sm text-[var(--text-primary)]">
+                    {selectedPreview.text}
+                  </pre>
+                ) : (
+                  <iframe
+                    title={selectedPreview.name}
+                    sandbox="allow-scripts"
+                    srcDoc={selectedPreview.text}
+                    className="w-full h-full min-h-[320px] rounded-md border border-[var(--border)] bg-white"
+                  />
+                )
+              )}
+
               {!previewLoading && selectedPreview?.kind === 'text' && (
                 <>
                   {selectedPreview.editable ? (
@@ -653,5 +675,40 @@ function IconSquareButton({
     >
       {children}
     </button>
+  );
+}
+
+function HtmlModeToggle({
+  value,
+  onChange,
+}: {
+  value: 'view' | 'code';
+  onChange: (next: 'view' | 'code') => void;
+}) {
+  return (
+    <div className="mr-1 flex items-center overflow-hidden rounded-lg border border-[var(--border)]">
+      <button
+        onClick={() => onChange('view')}
+        className={`px-2 py-1 text-xs ${
+          value === 'view'
+            ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+            : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+        }`}
+        title="View"
+      >
+        View
+      </button>
+      <button
+        onClick={() => onChange('code')}
+        className={`px-2 py-1 text-xs ${
+          value === 'code'
+            ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+            : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+        }`}
+        title="Code"
+      >
+        Code
+      </button>
+    </div>
   );
 }
