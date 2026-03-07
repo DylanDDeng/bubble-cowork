@@ -309,10 +309,23 @@ function SessionItem({
     <div
       className={`group relative mb-1 cursor-pointer rounded-2xl border p-3 transition-colors duration-150 ${
         isActive
-          ? 'bg-[var(--bg-secondary)] border-[var(--border)] shadow-[0_1px_2px_rgba(0,0,0,0.03)]'
-          : 'bg-transparent border-transparent hover:bg-[var(--bg-secondary)]/72 hover:border-[var(--border)]/70'
+          ? 'border-[var(--border)] shadow-[0_1px_2px_rgba(0,0,0,0.03)]'
+          : 'bg-transparent border-transparent hover:border-[var(--border)]/70'
       }`}
+      style={{
+        backgroundColor: isActive ? '#EEEEEE' : undefined,
+      }}
       onClick={onClick}
+      onMouseEnter={(event) => {
+        if (!isActive) {
+          event.currentTarget.style.backgroundColor = '#EEEEEE';
+        }
+      }}
+      onMouseLeave={(event) => {
+        if (!isActive) {
+          event.currentTarget.style.backgroundColor = '';
+        }
+      }}
     >
       {/* 标题行：状态图标 + 置顶图标 + 标题 */}
       <div className="flex items-center gap-2 pr-6">
