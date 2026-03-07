@@ -58,6 +58,7 @@ export interface AppState {
   activeSessionId: string | null;
   showNewSession: boolean;
   sidebarCollapsed: boolean;
+  sidebarWidth: number;
   globalError: string | null;
   pendingStart: boolean;
   projectCwd: string | null;
@@ -99,6 +100,7 @@ export interface AppActions {
   setActiveSession: (sessionId: string | null) => void;
   setShowNewSession: (show: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
+  setSidebarWidth: (width: number) => void;
   setProjectCwd: (cwd: string | null) => void;
   setProjectTree: (cwd: string | null, tree: ProjectTreeNode | null) => void;
   setProjectTreeCollapsed: (collapsed: boolean) => void;

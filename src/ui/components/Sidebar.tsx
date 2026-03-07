@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Settings } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
@@ -8,10 +8,63 @@ import { StatusFilter } from './StatusFilter';
 import { FolderTreeView } from './FolderTreeView';
 import type { SessionView } from '../types';
 
+const MIN_SIDEBAR_WIDTH = 220;
+const MAX_SIDEBAR_WIDTH = 420;
+
 export function Sidebar() {
-  const { setActiveSession, setShowNewSession, setShowSettings } = useAppStore();
+  const { sidebarWidth, setSidebarWidth, setActiveSession, setShowNewSession, setShowSettings } = useAppStore();
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionView | null>(null);
+  const [isSidebarResizing, setIsSidebarResizing] = useState(false);
+  const sidebarResizingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(sidebarWidth);
+
+  const finishSidebarResize = () => {
+    if (!sidebarResizingRef.current) return;
+    sidebarResizingRef.current = false;
+    setIsSidebarResizing(false);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  };
+
+  const handleSidebarResizeMove = (clientX: number) => {
+    if (!sidebarResizingRef.current) return;
+    const delta = clientX - startXRef.current;
+    const nextWidth = Math.min(
+      MAX_SIDEBAR_WIDTH,
+      Math.max(MIN_SIDEBAR_WIDTH, startWidthRef.current + delta)
+    );
+    setSidebarWidth(nextWidth);
+  };
+
+  const handleSidebarResizeStart = (event: ReactMouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    sidebarResizingRef.current = true;
+    setIsSidebarResizing(true);
+    startXRef.current = event.clientX;
+    startWidthRef.current = sidebarWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  useEffect(() => {
+    if (!isSidebarResizing) return;
+
+    const handleWindowBlur = () => finishSidebarResize();
+    window.addEventListener('blur', handleWindowBlur);
+    return () => {
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, [isSidebarResizing]);
+
+  useEffect(() => {
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, []);
 
   const handleDelete = (sessionId: string) => {
     sendEvent({ type: 'session.delete', payload: { sessionId } });
@@ -30,70 +83,90 @@ export function Sidebar() {
   };
 
   return (
-    <div className="w-64 bg-[var(--bg-tertiary)] border-r border-[var(--border)] flex flex-col h-full">
-      {/* 拖拽区域 */}
-      <div className="h-8 drag-region" />
-
-      {/* New Session 按钮 */}
-      <div className="px-2 mt-4 mb-4">
-        <button
-          onClick={() => {
-            setShowSettings(false);
-            setActiveSession(null);
-            setShowNewSession(true);
-          }}
-          className="group flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left no-drag transition-colors duration-150"
-          onMouseEnter={(event) => {
-            event.currentTarget.style.backgroundColor = '#EEEEEE';
-          }}
-          onMouseLeave={(event) => {
-            event.currentTarget.style.backgroundColor = '';
-          }}
-        >
-          <span className="text-[#92918E] text-[22px] font-normal leading-none">+</span>
-          <span className="text-base font-medium">New Task</span>
-        </button>
-      </div>
-
-      {/* Sessions 标题栏 */}
-      <div className="px-4 py-2 flex items-center justify-between gap-2">
-        <span className="text-sm text-[var(--text-muted)]">Sessions</span>
-        <StatusFilter />
-      </div>
-
-      {/* 搜索框 */}
-      <div className="px-4 pb-3">
-        <SidebarSearch />
-      </div>
-
-      {/* Session List */}
-      <div className="flex-1 overflow-y-auto px-2">
-        <FolderTreeView
-          onSessionClick={(sessionId) => {
-            setShowSettings(false);
-            setActiveSession(sessionId);
-            setShowNewSession(false);
-          }}
-          onSessionDelete={handleDelete}
-          onCopyResume={handleResumeCommand}
+    <>
+      {isSidebarResizing && (
+        <div
+          className="fixed inset-0 z-[70] cursor-col-resize no-drag bg-transparent"
+          onMouseMove={(event) => handleSidebarResizeMove(event.clientX)}
+          onMouseUp={finishSidebarResize}
         />
-      </div>
+      )}
 
-      {/* Settings Button */}
-      <div className="p-4">
-        <button
-          onClick={() => setShowSettings(true)}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150"
-          onMouseEnter={(event) => {
-            event.currentTarget.style.backgroundColor = '#EEEEEE';
-          }}
-          onMouseLeave={(event) => {
-            event.currentTarget.style.backgroundColor = '';
-          }}
+      <div
+        className="relative flex h-full flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-tertiary)]"
+        style={{ width: sidebarWidth }}
+      >
+        {/* 拖拽区域 */}
+        <div className="h-8 drag-region" />
+
+        {/* New Session 按钮 */}
+        <div className="px-2 mt-4 mb-4">
+          <button
+            onClick={() => {
+              setShowSettings(false);
+              setActiveSession(null);
+              setShowNewSession(true);
+            }}
+            className="group flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left no-drag transition-colors duration-150"
+            onMouseEnter={(event) => {
+              event.currentTarget.style.backgroundColor = '#EEEEEE';
+            }}
+            onMouseLeave={(event) => {
+              event.currentTarget.style.backgroundColor = '';
+            }}
+          >
+            <span className="text-[#92918E] text-[22px] font-normal leading-none">+</span>
+            <span className="text-base font-medium">New Task</span>
+          </button>
+        </div>
+
+        {/* Sessions 标题栏 */}
+        <div className="px-4 py-2 flex items-center justify-between gap-2">
+          <span className="text-sm text-[var(--text-muted)]">Sessions</span>
+          <StatusFilter />
+        </div>
+
+        {/* 搜索框 */}
+        <div className="px-4 pb-3">
+          <SidebarSearch />
+        </div>
+
+        {/* Session List */}
+        <div className="flex-1 overflow-y-auto px-2">
+          <FolderTreeView
+            onSessionClick={(sessionId) => {
+              setShowSettings(false);
+              setActiveSession(sessionId);
+              setShowNewSession(false);
+            }}
+            onSessionDelete={handleDelete}
+            onCopyResume={handleResumeCommand}
+          />
+        </div>
+
+        {/* Settings Button */}
+        <div className="p-4">
+          <button
+            onClick={() => setShowSettings(true)}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150"
+            onMouseEnter={(event) => {
+              event.currentTarget.style.backgroundColor = '#EEEEEE';
+            }}
+            onMouseLeave={(event) => {
+              event.currentTarget.style.backgroundColor = '';
+            }}
+          >
+            <Settings className="w-4 h-4" />
+            <span>Settings</span>
+          </button>
+        </div>
+
+        <div
+          className="group absolute right-0 top-0 bottom-0 w-3 translate-x-1/2 cursor-col-resize no-drag"
+          onMouseDown={handleSidebarResizeStart}
         >
-          <Settings className="w-4 h-4" />
-          <span>Settings</span>
-        </button>
+          <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
+        </div>
       </div>
 
       {/* Resume Command Dialog */}
@@ -129,6 +202,6 @@ export function Sidebar() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
-    </div>
+    </>
   );
 }

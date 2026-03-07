@@ -36,6 +36,11 @@ type SetState = (
   partial: Store | Partial<Store> | ((state: Store) => Store | Partial<Store>)
 ) => void;
 
+function sanitizeSidebarWidth(width: number | undefined, fallback: number): number {
+  if (typeof width !== 'number' || Number.isNaN(width)) return fallback;
+  return Math.min(420, Math.max(220, Math.round(width)));
+}
+
 export const useAppStore = create<Store>()(
   persist(
     (set, get) => ({
@@ -45,6 +50,7 @@ export const useAppStore = create<Store>()(
       activeSessionId: null,
       showNewSession: false,
       sidebarCollapsed: false,
+      sidebarWidth: 256,
       globalError: null,
       pendingStart: false,
       projectCwd: null,
@@ -173,6 +179,10 @@ export const useAppStore = create<Store>()(
 
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
 
+  setSidebarWidth: (width) => set((state) => ({
+    sidebarWidth: sanitizeSidebarWidth(width, state.sidebarWidth),
+  })),
+
   setProjectCwd: (cwd) => set({ projectCwd: cwd }),
 
   setProjectTree: (cwd, tree) => set({ projectTreeCwd: cwd, projectTree: tree }),
@@ -267,10 +277,12 @@ export const useAppStore = create<Store>()(
     {
       name: 'cowork-app-storage',
       partialize: (state) => ({
+        sidebarWidth: state.sidebarWidth,
         theme: state.theme,
       }),
       merge: (persistedState: unknown, currentState: Store) => {
         const persisted = persistedState as {
+          sidebarWidth?: number;
           theme?: Theme;
         } | undefined;
         const theme = persisted?.theme || currentState.theme;
@@ -278,6 +290,7 @@ export const useAppStore = create<Store>()(
         applyTheme(theme);
         return {
           ...currentState,
+          sidebarWidth: sanitizeSidebarWidth(persisted?.sidebarWidth, currentState.sidebarWidth),
           theme,
         };
       },
