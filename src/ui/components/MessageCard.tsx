@@ -213,7 +213,7 @@ function UserPromptCard({
 
   return (
     <div className="flex justify-end my-3">
-      <div className="max-w-[82%] flex flex-col items-end group">
+      <div className="max-w-[78%] flex flex-col items-end group">
         {attachments && attachments.length > 0 && (
           <div className="w-full flex flex-col items-end gap-2 mb-1">
             <AttachmentPreviewGrid attachments={imageAttachments} />
@@ -225,7 +225,7 @@ function UserPromptCard({
           </div>
         )}
         <div
-          className="w-full rounded-[26px] px-4 py-2.5"
+          className={`${isEditing ? 'w-full px-4 py-3 rounded-[22px]' : 'max-w-full px-5 py-2.5 rounded-[18px]'}`}
           style={{
             background: 'var(--user-bubble-bg)',
             border: '1px solid var(--user-bubble-border)',
@@ -238,7 +238,7 @@ function UserPromptCard({
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               rows={Math.min(8, Math.max(2, draft.split('\n').length))}
-              className="w-full bg-transparent text-sm text-[var(--text-primary)] leading-6 outline-none resize-none whitespace-pre-wrap"
+              className="w-full min-w-[320px] bg-transparent text-[15px] text-[var(--text-primary)] leading-6 outline-none resize-none whitespace-pre-wrap"
               onKeyDown={(e) => {
                 if (e.key === 'Escape') {
                   e.preventDefault();
@@ -252,7 +252,7 @@ function UserPromptCard({
               }}
             />
           ) : (
-            <div className="text-sm leading-6 whitespace-pre-wrap text-[var(--text-primary)]">
+            <div className="text-[15px] leading-[1.45] whitespace-pre-wrap text-[var(--text-primary)]">
               {prompt}
             </div>
           )}
