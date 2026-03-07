@@ -140,11 +140,7 @@ export function Sidebar() {
             onClick={() => {
               void handleProjectFolderSelect();
             }}
-            className={`flex h-10 w-10 items-center justify-center rounded-xl border no-drag transition-colors duration-150 ${
-              projectCwd
-                ? 'border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-primary)]'
-                : 'border-transparent bg-transparent text-[var(--text-secondary)] hover:bg-[#EEEEEE]'
-            }`}
+            className="flex h-10 w-10 items-center justify-center rounded-xl no-drag text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[#EEEEEE] hover:text-[var(--text-primary)]"
             title={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
             aria-label="Select project folder"
           >
