@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
 import { runClaude } from './libs/runner';
 import { runCodex } from './libs/codex-runner';
-import { generateSessionTitle } from './libs/util';
+import { generateSessionTitle, runClaudeOneShot } from './libs/util';
 import { readProjectTree } from './libs/project-tree';
 import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfig, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
 import { getCodexModelConfig } from './libs/codex-settings';
@@ -175,6 +175,16 @@ function buildLocalAssistantMessage(text: string): StreamMessage {
   };
 }
 
+function buildLocalAssistantMessageWithUuid(text: string, uuid: string): StreamMessage {
+  return {
+    type: 'assistant',
+    uuid,
+    message: {
+      content: [{ type: 'text', text }],
+    },
+  };
+}
+
 function buildSessionCostSummary(session: ReturnType<typeof sessions.getSession>): string {
   if (!session) {
     return 'No active session found.';
@@ -235,12 +245,250 @@ function buildUnsupportedSlashCommandMessage(commandName: string): string {
   ].join('\n');
 }
 
-function maybeHandleLocalSlashCommand(
+function extractAssistantText(message: StreamMessage): string {
+  if (message.type !== 'assistant' || !message.message || !Array.isArray(message.message.content)) {
+    return '';
+  }
+
+  return message.message.content
+    .filter((block): block is { type: 'text'; text: string } => block.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text.trim())
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
+}
+
+function isLocalUtilityAssistantText(text: string): boolean {
+  return (
+    text.startsWith('**Session usage**') ||
+    text.startsWith('**Context compacted**') ||
+    text.startsWith('Compacting conversation...') ||
+    text.startsWith('Failed to compact conversation') ||
+    text.includes('Bubble Cowork yet.')
+  );
+}
+
+function buildCompactSummaryPrompt(extraInstructions?: string): string {
+  const lines = [
+    'You are helping Bubble Cowork compact an existing Claude Code conversation.',
+    'Do not continue the task. Do not ask clarifying questions. Do not use tools.',
+    'Write a continuation summary that lets a fresh Claude session continue the work with minimal loss of context.',
+    '',
+    'Preserve:',
+    '- the user goal and expected deliverable',
+    '- current state and completed work',
+    '- important decisions, preferences, and constraints',
+    '- relevant file paths, commands, and technical details',
+    '- blockers, open questions, and concrete next steps',
+  ];
+
+  if (extraInstructions) {
+    lines.push('', `Additional instructions: ${extraInstructions}`);
+  }
+
+  lines.push(
+    '',
+    'Return only a summary wrapped in <summary></summary>.',
+    'Do not include any text outside the summary tags.'
+  );
+
+  return lines.join('\n');
+}
+
+function extractSummaryContent(text: string): string {
+  const match = text.match(/<summary>([\s\S]*?)<\/summary>/i);
+  return (match ? match[1] : text).trim();
+}
+
+function buildRecentConversationContext(history: StreamMessage[]): string {
+  const recentEntries: string[] = [];
+
+  for (let index = history.length - 1; index >= 0 && recentEntries.length < 4; index -= 1) {
+    const message = history[index];
+    if (message.type === 'user_prompt') {
+      const prompt = message.prompt.trim();
+      if (prompt && !prompt.startsWith('/')) {
+        recentEntries.unshift(`[user]\n${prompt}`);
+      }
+      continue;
+    }
+
+    const assistantText = extractAssistantText(message);
+    if (assistantText && !isLocalUtilityAssistantText(assistantText)) {
+      recentEntries.unshift(`[assistant]\n${assistantText}`);
+    }
+  }
+
+  return recentEntries.join('\n\n').trim();
+}
+
+function buildCompactBootstrapPrompt(params: {
+  summary: string;
+  cwd?: string | null;
+  recentConversation?: string;
+}): string {
+  const lines = [
+    'You are resuming a Bubble Cowork Claude Code conversation after local compaction.',
+    'Adopt the following summary as the current session context and continue from it on future turns.',
+  ];
+
+  if (params.cwd) {
+    lines.push(`Project working directory: ${params.cwd}`);
+  }
+
+  lines.push('', '<summary>', params.summary, '</summary>');
+
+  if (params.recentConversation) {
+    lines.push(
+      '',
+      'Recent verbatim turns to preserve if useful:',
+      params.recentConversation
+    );
+  }
+
+  lines.push(
+    '',
+    'Do not repeat the summary back to the user.',
+    'Do not start working yet.',
+    'Reply with exactly READY.'
+  );
+
+  return lines.join('\n');
+}
+
+function buildCompactSuccessMessage(): string {
+  return [
+    '**Context compacted**',
+    '',
+    'Future turns in this session will continue from a summarized Claude context.',
+    'The full original message history remains visible above.',
+  ].join('\n');
+}
+
+async function handleLocalCompactCommand(
+  mainWindow: BrowserWindow,
+  session: NonNullable<ReturnType<typeof sessions.getSession>>,
+  prompt: string,
+  attachments: Attachment[] | undefined,
+  extraInstructions: string
+): Promise<boolean> {
+  const createdAt = Date.now();
+  const previousStatus = (session.status as SessionStatus) || 'completed';
+  const restoreStatus: SessionStatus = previousStatus === 'running' ? 'completed' : previousStatus;
+  const previousModel = normalizeModel(session.model ?? undefined);
+  const historyBeforeCompact = sessions.getSessionHistory(session.id);
+
+  sessions.updateLastPrompt(session.id, prompt);
+  sessions.updateSessionStatus(session.id, 'running');
+  broadcast(mainWindow, {
+    type: 'session.status',
+    payload: {
+      sessionId: session.id,
+      status: 'running',
+      provider: session.provider,
+      model: previousModel ?? '',
+    },
+  });
+
+  broadcast(mainWindow, {
+    type: 'stream.user_prompt',
+    payload: { sessionId: session.id, prompt, attachments, createdAt },
+  });
+  sessions.addMessage(session.id, { type: 'user_prompt', prompt, attachments, createdAt });
+
+  const placeholderUuid = uuidv4();
+  const placeholderMessage = buildLocalAssistantMessageWithUuid(
+    'Compacting conversation...',
+    placeholderUuid
+  );
+  sessions.addMessage(session.id, placeholderMessage);
+  broadcast(mainWindow, {
+    type: 'stream.message',
+    payload: { sessionId: session.id, message: placeholderMessage },
+  });
+
+  const finalize = (text: string, status: SessionStatus, model = previousModel) => {
+    const assistantMessage = buildLocalAssistantMessageWithUuid(text, placeholderUuid);
+    sessions.addMessage(session.id, assistantMessage);
+    broadcast(mainWindow, {
+      type: 'stream.message',
+      payload: { sessionId: session.id, message: assistantMessage },
+    });
+
+    sessions.updateSessionStatus(session.id, status);
+    broadcast(mainWindow, {
+      type: 'session.status',
+      payload: {
+        sessionId: session.id,
+        status,
+        provider: session.provider,
+        model: model ?? '',
+      },
+    });
+  };
+
+  if (session.provider !== 'claude') {
+    finalize('`/compact` is currently available only for Claude Code sessions.', restoreStatus);
+    return true;
+  }
+
+  if (!session.claude_session_id) {
+    finalize('This session does not have a Claude backend session to compact yet.', restoreStatus);
+    return true;
+  }
+
+  const existingEntry = runnerHandles.get(session.id);
+  if (existingEntry) {
+    existingEntry.handle.abort();
+    runnerHandles.delete(session.id);
+  }
+
+  try {
+    const summaryResult = await runClaudeOneShot({
+      prompt: buildCompactSummaryPrompt(extraInstructions),
+      cwd: session.cwd ?? undefined,
+      resumeSessionId: session.claude_session_id,
+      model: previousModel,
+    });
+
+    const summary = extractSummaryContent(summaryResult.text);
+    if (!summary) {
+      throw new Error('Claude returned an empty compaction summary.');
+    }
+
+    const bootstrapResult = await runClaudeOneShot({
+      prompt: buildCompactBootstrapPrompt({
+        summary,
+        cwd: session.cwd,
+        recentConversation: buildRecentConversationContext(historyBeforeCompact),
+      }),
+      cwd: session.cwd ?? undefined,
+      model: summaryResult.model || previousModel,
+    });
+
+    if (!bootstrapResult.sessionId) {
+      throw new Error('Claude did not return a new session id for the compacted context.');
+    }
+
+    const resolvedModel = normalizeModel(bootstrapResult.model || summaryResult.model || previousModel);
+    sessions.updateClaudeSessionId(session.id, bootstrapResult.sessionId);
+    sessions.updateSessionModel(session.id, resolvedModel || null);
+
+    finalize(buildCompactSuccessMessage(), 'completed', resolvedModel);
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    finalize(`Failed to compact conversation: ${message}`, restoreStatus, previousModel);
+    return true;
+  }
+}
+
+async function maybeHandleLocalSlashCommand(
   mainWindow: BrowserWindow,
   session: ReturnType<typeof sessions.getSession>,
   prompt: string,
   attachments?: Attachment[]
-): boolean {
+): Promise<boolean> {
   if (!session) return false;
 
   const parsed = parseSlashCommand(prompt);
@@ -250,7 +498,15 @@ function maybeHandleLocalSlashCommand(
 
   if (parsed.name === 'cost') {
     responseText = buildSessionCostSummary(session);
-  } else if (parsed.name === 'plan' || parsed.name === 'compact') {
+  } else if (parsed.name === 'compact') {
+    return handleLocalCompactCommand(
+      mainWindow,
+      session,
+      prompt,
+      attachments,
+      parsed.args
+    );
+  } else if (parsed.name === 'plan') {
     responseText = buildUnsupportedSlashCommandMessage(parsed.name);
   }
 
@@ -912,7 +1168,7 @@ async function handleSessionContinue(
     return;
   }
 
-  if (maybeHandleLocalSlashCommand(mainWindow, session, prompt, attachments)) {
+  if (await maybeHandleLocalSlashCommand(mainWindow, session, prompt, attachments)) {
     return;
   }
 

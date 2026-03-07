@@ -5,13 +5,20 @@ import { getClaudeCodeRuntime } from './claude-runtime';
 // SDK 消息类型
 interface SDKMessage {
   type: string;
+  subtype?: string;
+  session_id?: string;
+  model?: string;
   message?: {
     content: Array<{ type: string; text?: string }>;
   };
 }
 
-// 使用 Claude SDK 生成会话标题
-export async function generateSessionTitle(prompt: string, cwd?: string): Promise<string> {
+export async function runClaudeOneShot(params: {
+  prompt: string;
+  cwd?: string;
+  resumeSessionId?: string;
+  model?: string;
+}): Promise<{ text: string; sessionId?: string; model?: string }> {
   const env = {
     ...process.env,
     ...getClaudeEnv(),
@@ -23,41 +30,60 @@ export async function generateSessionTitle(prompt: string, cwd?: string): Promis
   const { executable, executableArgs, env: runtimeEnv, pathToClaudeCodeExecutable } = getClaudeCodeRuntime();
   Object.assign(env, runtimeEnv);
 
+  const result = query({
+    prompt: params.prompt,
+    options: {
+      maxTurns: 1,
+      allowedTools: [],
+      env,
+      cwd: params.cwd || process.cwd(),
+      resume: params.resumeSessionId,
+      model: params.model,
+      executable: executable as unknown as 'node',
+      executableArgs,
+      pathToClaudeCodeExecutable,
+      settingSources: ['user', 'project'],
+    },
+  });
+
+  let text = '';
+  let sessionId = params.resumeSessionId;
+  let resolvedModel = params.model;
+
+  for await (const message of result) {
+    const msg = message as SDKMessage;
+    if (msg.type === 'system' && msg.subtype === 'init') {
+      sessionId = msg.session_id || sessionId;
+      resolvedModel = msg.model || resolvedModel;
+      continue;
+    }
+
+    if (msg.type === 'assistant' && msg.message) {
+      for (const block of msg.message.content) {
+        if (block.type === 'text' && block.text) {
+          text += block.text;
+        }
+      }
+    }
+  }
+
+  return {
+    text: text.trim(),
+    sessionId,
+    model: resolvedModel,
+  };
+}
+
+// 使用 Claude SDK 生成会话标题
+export async function generateSessionTitle(prompt: string, cwd?: string): Promise<string> {
   try {
     const titlePrompt = `Based on this user request, generate a very short title (3-6 words, no quotes):
 "${prompt.slice(0, 500)}"
 
 Just output the title, nothing else.`;
 
-    const result = query({
-      prompt: titlePrompt,
-      options: {
-        maxTurns: 1,
-        allowedTools: [],
-        env,
-        cwd: cwd || process.cwd(),
-        executable: executable as unknown as 'node',
-        executableArgs,
-        pathToClaudeCodeExecutable,
-        // 与 Runner 保持一致：优先读取 user/project 设置与 Skills
-        settingSources: ['user', 'project'],
-      },
-    });
-
-    let title = '';
-    for await (const message of result) {
-      const msg = message as SDKMessage;
-      if (msg.type === 'assistant' && msg.message) {
-        const content = msg.message.content;
-        for (const block of content) {
-          if (block.type === 'text' && block.text) {
-            title += block.text;
-          }
-        }
-      }
-    }
-
-    return title.trim().slice(0, 50);
+    const result = await runClaudeOneShot({ prompt: titlePrompt, cwd });
+    return result.text.slice(0, 50);
   } catch (error) {
     console.error('Failed to generate title:', error);
     return '';
