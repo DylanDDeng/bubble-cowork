@@ -35,23 +35,25 @@ export function Sidebar() {
       <div className="h-8 drag-region" />
 
       {/* New Session 按钮 */}
-      <button
-        onClick={() => {
-          setShowSettings(false);
-          setActiveSession(null);
-          setShowNewSession(true);
-        }}
-        className="group mx-2 mt-4 mb-4 px-2 py-2 flex items-center gap-3 text-left no-drag rounded-xl transition-colors duration-150"
-        onMouseEnter={(event) => {
-          event.currentTarget.style.backgroundColor = '#EEEEEE';
-        }}
-        onMouseLeave={(event) => {
-          event.currentTarget.style.backgroundColor = '';
-        }}
-      >
-        <span className="text-[#92918E] text-[22px] font-normal leading-none">+</span>
-        <span className="text-base font-medium">New Task</span>
-      </button>
+      <div className="px-2 mt-4 mb-4">
+        <button
+          onClick={() => {
+            setShowSettings(false);
+            setActiveSession(null);
+            setShowNewSession(true);
+          }}
+          className="group flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left no-drag transition-colors duration-150"
+          onMouseEnter={(event) => {
+            event.currentTarget.style.backgroundColor = '#EEEEEE';
+          }}
+          onMouseLeave={(event) => {
+            event.currentTarget.style.backgroundColor = '';
+          }}
+        >
+          <span className="text-[#92918E] text-[22px] font-normal leading-none">+</span>
+          <span className="text-base font-medium">New Task</span>
+        </button>
+      </div>
 
       {/* Sessions 标题栏 */}
       <div className="px-4 py-2 flex items-center justify-between gap-2">
@@ -78,7 +80,7 @@ export function Sidebar() {
       </div>
 
       {/* Settings Button */}
-      <div className="p-4 border-t border-[var(--border)]/80">
+      <div className="p-4">
         <button
           onClick={() => setShowSettings(true)}
           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150"

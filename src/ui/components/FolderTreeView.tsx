@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ChevronRight, Folder, FolderOpen, MoreVertical, Pin, Copy, Trash2 } from 'lucide-react';
+import { FolderClosed, FolderOpen, MoreVertical, Pin, Copy, Trash2 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { StatusIcon } from './StatusIcon';
@@ -121,10 +121,7 @@ export function FolderTreeView({
               title={group.fullPath || 'Sessions without a project folder'}
               aria-expanded={expanded}
             >
-              <span className={`transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}>
-                <ChevronRight className="w-3 h-3" />
-              </span>
-              {expanded ? <FolderOpen className="w-3.5 h-3.5" /> : <Folder className="w-3.5 h-3.5" />}
+              {expanded ? <FolderOpen className="w-3.5 h-3.5" /> : <FolderClosed className="w-3.5 h-3.5" />}
               <span className="text-sm font-medium truncate flex-1">{group.label}</span>
               <span className="text-xs text-[var(--text-muted)]">{group.sessions.length}</span>
             </button>
