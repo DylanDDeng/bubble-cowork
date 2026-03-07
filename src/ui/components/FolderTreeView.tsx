@@ -116,7 +116,7 @@ export function FolderTreeView({
           <div key={group.key}>
             <button
               type="button"
-              className="flex w-full select-none items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-[var(--bg-secondary)]"
+              className="flex w-full select-none items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-[#EEEEEE]"
               onClick={() => toggleGroupExpanded(group.key)}
               title={group.fullPath || 'Sessions without a project folder'}
               aria-expanded={expanded}
