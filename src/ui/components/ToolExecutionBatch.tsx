@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { Brain, CheckCircle2, ChevronRight, Circle, LoaderCircle } from 'lucide-react';
 import type { ContentBlock, ToolStatus, StreamMessage } from '../types';
 import { getToolSummary, safeJsonStringify } from '../utils/tool-summary';
@@ -15,6 +15,7 @@ interface ToolExecutionBatchProps {
   messages: (StreamMessage & { type: 'assistant' })[];
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
+  isSessionRunning: boolean;
 }
 
 type TraceEntry =
@@ -120,6 +121,7 @@ export function ToolExecutionBatch({
   messages,
   toolStatusMap,
   toolResultsMap,
+  isSessionRunning,
 }: ToolExecutionBatchProps) {
   const allBlocks = useMemo(() => extractToolBlocks(messages), [messages]);
   const traceEntries = useMemo(() => extractTraceEntries(messages), [messages]);
@@ -129,12 +131,20 @@ export function ToolExecutionBatch({
     [allBlocks, toolStatusMap]
   );
   const [expanded, setExpanded] = useState(hasPendingTools);
+  const previousRunningRef = useRef(isSessionRunning);
 
   useEffect(() => {
     if (hasPendingTools) {
       setExpanded(true);
     }
   }, [hasPendingTools]);
+
+  useEffect(() => {
+    if (previousRunningRef.current && !isSessionRunning) {
+      setExpanded(false);
+    }
+    previousRunningRef.current = isSessionRunning;
+  }, [isSessionRunning]);
 
   // 过滤掉 TodoWrite（内部状态管理工具）
   const visibleBlocks = useMemo(

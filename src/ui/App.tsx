@@ -402,6 +402,7 @@ export function App() {
                         messages={item.messages}
                         toolStatusMap={toolStatusMap}
                         toolResultsMap={toolResultsMap}
+                        isSessionRunning={activeSession.status === 'running'}
                       />
                     </div>
                   );
