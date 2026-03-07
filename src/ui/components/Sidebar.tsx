@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Settings } from 'lucide-react';
+import { FolderOpen, Settings } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { SidebarSearch } from './search/SidebarSearch';
@@ -12,7 +12,15 @@ const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 420;
 
 export function Sidebar() {
-  const { sidebarWidth, setSidebarWidth, setActiveSession, setShowNewSession, setShowSettings } = useAppStore();
+  const {
+    sidebarWidth,
+    projectCwd,
+    setSidebarWidth,
+    setProjectCwd,
+    setActiveSession,
+    setShowNewSession,
+    setShowSettings,
+  } = useAppStore();
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionView | null>(null);
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
@@ -82,6 +90,15 @@ export function Sidebar() {
     setResumeDialogOpen(false);
   };
 
+  const handleProjectFolderSelect = async () => {
+    const selected = await window.electron.selectDirectory();
+    if (!selected) return;
+    setProjectCwd(selected);
+    setShowSettings(false);
+    setActiveSession(null);
+    setShowNewSession(true);
+  };
+
   return (
     <>
       {isSidebarResizing && (
@@ -100,14 +117,14 @@ export function Sidebar() {
         <div className="h-8 drag-region" />
 
         {/* New Session 按钮 */}
-        <div className="px-2 mt-4 mb-4">
+        <div className="mt-4 mb-4 flex items-center gap-2 px-2">
           <button
             onClick={() => {
               setShowSettings(false);
               setActiveSession(null);
               setShowNewSession(true);
             }}
-            className="group flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left no-drag transition-colors duration-150"
+            className="group flex flex-1 items-center gap-3 rounded-xl px-2 py-2 text-left no-drag transition-colors duration-150"
             onMouseEnter={(event) => {
               event.currentTarget.style.backgroundColor = '#EEEEEE';
             }}
@@ -117,6 +134,21 @@ export function Sidebar() {
           >
             <span className="text-[#92918E] text-[22px] font-normal leading-none">+</span>
             <span className="text-base font-medium">New Task</span>
+          </button>
+
+          <button
+            onClick={() => {
+              void handleProjectFolderSelect();
+            }}
+            className={`flex h-10 w-10 items-center justify-center rounded-xl border no-drag transition-colors duration-150 ${
+              projectCwd
+                ? 'border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-primary)]'
+                : 'border-transparent bg-transparent text-[var(--text-secondary)] hover:bg-[#EEEEEE]'
+            }`}
+            title={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
+            aria-label="Select project folder"
+          >
+            <FolderOpen className="h-4.5 w-4.5" />
           </button>
         </div>
 
