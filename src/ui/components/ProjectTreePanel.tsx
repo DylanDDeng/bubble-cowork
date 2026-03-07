@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Folder, File, Image, Copy, Check, ExternalLink, FolderSearch } from 'lucide-react';
+import { Folder, File, Image, Copy, Check, ExternalLink, FolderSearch, X } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { MDContent } from '../render/markdown';
 import type { ProjectTreeNode } from '../types';
@@ -146,9 +146,10 @@ function isImageName(name: string): boolean {
 
 
 export function ProjectTreePanel() {
-  const defaultWidth = 520;
-  const minWidth = 320;
-  const maxWidth = 720;
+  const defaultWidth = 280;
+  const minWidth = 220;
+  const maxWidth = 420;
+  const previewWidth = 'clamp(360px, 34vw, 520px)';
   const {
     activeSessionId,
     sessions,
@@ -349,6 +350,18 @@ export function ProjectTreePanel() {
     };
   }, []);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty(
+      '--project-preview-space',
+      selectedFilePath ? previewWidth : '0px'
+    );
+
+    return () => {
+      root.style.setProperty('--project-preview-space', '0px');
+    };
+  }, [selectedFilePath, previewWidth]);
+
   const canSaveTxt =
     !!cwd &&
     !!selectedPreview &&
@@ -443,8 +456,7 @@ export function ProjectTreePanel() {
       </div>
 
       <div className="flex-1 min-h-0 flex">
-        {/* Tree */}
-        <div className={`${selectedFilePath ? 'flex-[0_0_240px] min-w-[190px] max-w-[320px]' : 'flex-1'} overflow-auto px-3 pb-3`}>
+        <div className="flex-1 overflow-auto px-3 pb-3">
           {!cwd && (
             <div className="text-sm text-[var(--text-muted)] px-1 py-2">
               Select a folder to view files.
@@ -472,132 +484,138 @@ export function ProjectTreePanel() {
             </div>
           )}
         </div>
+      </div>
 
-        {/* Divider and Preview - only shown when a file is selected */}
-        {selectedFilePath && (
-          <>
-            <div className="w-px bg-[var(--border)]" />
-
-            {/* Preview (right side) */}
-            <div className="flex-1 min-w-0 flex flex-col px-3 py-3">
-              <div className="flex items-center justify-between gap-2 pb-2">
-                <div className="min-w-0">
-                  <div className="text-xs text-[var(--text-muted)]">Preview</div>
-                  <div
-                    className="text-sm font-medium text-[var(--text-primary)] truncate"
-                    title={selectedFilePath}
-                  >
-                    {selectedPreview?.name ||
-                      selectedFilePath.split('/').pop() ||
-                      selectedFilePath}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1 flex-shrink-0 no-drag">
-                  {canSaveTxt && (
-                    <button
-                      onClick={handleSaveTxt}
-                      disabled={saveState === 'saving'}
-                      className="px-2 py-1 text-xs rounded-md bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Save"
-                    >
-                      {saveState === 'saving'
-                        ? 'Saving...'
-                        : saveState === 'saved'
-                          ? 'Saved'
-                          : 'Save'}
-                    </button>
-                  )}
-
-                  <IconSquareButton
-                    onClick={() => window.electron.openPath(selectedFilePath)}
-                    title="Open"
-                    ariaLabel="Open"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                  </IconSquareButton>
-                  <IconSquareButton
-                    onClick={() => window.electron.revealPath(selectedFilePath)}
-                    title="Reveal"
-                    ariaLabel="Reveal"
-                  >
-                    <FolderSearch className="w-4 h-4" />
-                  </IconSquareButton>
-                  <IconSquareButton
-                    onClick={() => handleCopyPath(selectedFilePath)}
-                    title={copiedPath ? 'Copied' : 'Copy path'}
-                    ariaLabel="Copy path"
-                  >
-                    {copiedPath ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  </IconSquareButton>
+      {selectedFilePath && (
+        <div
+          className="absolute top-8 bottom-0 z-20 border-l border-[var(--border)] bg-[var(--bg-secondary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]"
+          style={{ right: 'calc(100% - 1px)', width: previewWidth }}
+        >
+          <div className="h-full min-w-0 flex flex-col px-3 py-3">
+            <div className="flex items-center justify-between gap-2 pb-2">
+              <div className="min-w-0">
+                <div className="text-xs text-[var(--text-muted)]">Preview</div>
+                <div
+                  className="text-sm font-medium text-[var(--text-primary)] truncate"
+                  title={selectedFilePath}
+                >
+                  {selectedPreview?.name ||
+                    selectedFilePath.split('/').pop() ||
+                    selectedFilePath}
                 </div>
               </div>
 
-              <div className="flex-1 min-h-0 overflow-auto rounded-lg border border-[var(--border)] bg-white p-3">
-                {previewLoading && (
-                  <div className="text-sm text-[var(--text-muted)]">Loading...</div>
+              <div className="flex items-center gap-1 flex-shrink-0 no-drag">
+                {canSaveTxt && (
+                  <button
+                    onClick={handleSaveTxt}
+                    disabled={saveState === 'saving'}
+                    className="px-2 py-1 text-xs rounded-md bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Save"
+                  >
+                    {saveState === 'saving'
+                      ? 'Saving...'
+                      : saveState === 'saved'
+                        ? 'Saved'
+                        : 'Save'}
+                  </button>
                 )}
 
-                {!previewLoading && selectedPreview?.kind === 'error' && (
-                  <div className="text-sm text-[var(--error)]">{selectedPreview.message}</div>
-                )}
-
-                {!previewLoading && selectedPreview?.kind === 'too_large' && (
-                  <div className="text-sm text-[var(--text-muted)]">
-                    File is larger than {formatBytes(selectedPreview.maxBytes)} and cannot be previewed.
-                  </div>
-                )}
-
-                {!previewLoading && selectedPreview?.kind === 'unsupported' && (
-                  <div className="text-sm text-[var(--text-muted)]">
-                    Preview not supported for this file type. Click “Open” to view it.
-                  </div>
-                )}
-
-                {!previewLoading && selectedPreview?.kind === 'binary' && (
-                  <div className="text-sm text-[var(--text-muted)]">
-                    This file can be opened with your system viewer.
-                  </div>
-                )}
-
-                {!previewLoading && selectedPreview?.kind === 'image' && (
-                  <img
-                    src={selectedPreview.dataUrl}
-                    alt={selectedPreview.name}
-                    className="max-w-full rounded-md"
-                  />
-                )}
-
-                {!previewLoading && selectedPreview?.kind === 'markdown' && (
-                  <div className="text-sm">
-                    <MDContent content={selectedPreview.text} allowHtml={false} />
-                  </div>
-                )}
-
-                {!previewLoading && selectedPreview?.kind === 'text' && (
-                  <>
-                    {selectedPreview.editable ? (
-                      <textarea
-                        value={draftText}
-                        onChange={(e) => setDraftText(e.target.value)}
-                        className="w-full h-full min-h-[220px] resize-none bg-transparent outline-none font-mono text-sm whitespace-pre-wrap"
-                        spellCheck={false}
-                      />
-                    ) : (
-                      <pre className="whitespace-pre-wrap break-words font-mono text-sm text-[var(--text-primary)]">
-                        {selectedPreview.text}
-                      </pre>
-                    )}
-                    {saveState === 'error' && saveError && (
-                      <div className="mt-2 text-xs text-[var(--error)]">{saveError}</div>
-                    )}
-                  </>
-                )}
+                <IconSquareButton
+                  onClick={() => setSelectedFilePath(null)}
+                  title="Close preview"
+                  ariaLabel="Close preview"
+                >
+                  <X className="w-4 h-4" />
+                </IconSquareButton>
+                <IconSquareButton
+                  onClick={() => window.electron.openPath(selectedFilePath)}
+                  title="Open"
+                  ariaLabel="Open"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                </IconSquareButton>
+                <IconSquareButton
+                  onClick={() => window.electron.revealPath(selectedFilePath)}
+                  title="Reveal"
+                  ariaLabel="Reveal"
+                >
+                  <FolderSearch className="w-4 h-4" />
+                </IconSquareButton>
+                <IconSquareButton
+                  onClick={() => handleCopyPath(selectedFilePath)}
+                  title={copiedPath ? 'Copied' : 'Copy path'}
+                  ariaLabel="Copy path"
+                >
+                  {copiedPath ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                </IconSquareButton>
               </div>
             </div>
-          </>
-        )}
-      </div>
+
+            <div className="flex-1 min-h-0 overflow-auto rounded-lg border border-[var(--border)] bg-white p-3">
+              {previewLoading && (
+                <div className="text-sm text-[var(--text-muted)]">Loading...</div>
+              )}
+
+              {!previewLoading && selectedPreview?.kind === 'error' && (
+                <div className="text-sm text-[var(--error)]">{selectedPreview.message}</div>
+              )}
+
+              {!previewLoading && selectedPreview?.kind === 'too_large' && (
+                <div className="text-sm text-[var(--text-muted)]">
+                  File is larger than {formatBytes(selectedPreview.maxBytes)} and cannot be previewed.
+                </div>
+              )}
+
+              {!previewLoading && selectedPreview?.kind === 'unsupported' && (
+                <div className="text-sm text-[var(--text-muted)]">
+                  Preview not supported for this file type. Click “Open” to view it.
+                </div>
+              )}
+
+              {!previewLoading && selectedPreview?.kind === 'binary' && (
+                <div className="text-sm text-[var(--text-muted)]">
+                  This file can be opened with your system viewer.
+                </div>
+              )}
+
+              {!previewLoading && selectedPreview?.kind === 'image' && (
+                <img
+                  src={selectedPreview.dataUrl}
+                  alt={selectedPreview.name}
+                  className="max-w-full rounded-md"
+                />
+              )}
+
+              {!previewLoading && selectedPreview?.kind === 'markdown' && (
+                <div className="text-sm">
+                  <MDContent content={selectedPreview.text} allowHtml={false} />
+                </div>
+              )}
+
+              {!previewLoading && selectedPreview?.kind === 'text' && (
+                <>
+                  {selectedPreview.editable ? (
+                    <textarea
+                      value={draftText}
+                      onChange={(e) => setDraftText(e.target.value)}
+                      className="w-full h-full min-h-[220px] resize-none bg-transparent outline-none font-mono text-sm whitespace-pre-wrap"
+                      spellCheck={false}
+                    />
+                  ) : (
+                    <pre className="whitespace-pre-wrap break-words font-mono text-sm text-[var(--text-primary)]">
+                      {selectedPreview.text}
+                    </pre>
+                  )}
+                  {saveState === 'error' && saveError && (
+                    <div className="mt-2 text-xs text-[var(--error)]">{saveError}</div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -637,4 +655,3 @@ function IconSquareButton({
     </button>
   );
 }
-

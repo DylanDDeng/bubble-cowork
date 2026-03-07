@@ -339,7 +339,10 @@ export function App() {
 
       {/* 主内容区 */}
       {activeSession && !showNewSession ? (
-        <div className="flex-1 flex flex-col">
+        <div
+          className="flex-1 min-w-0 flex flex-col transition-[padding] duration-200"
+          style={{ paddingRight: 'var(--project-preview-space, 0px)' }}
+        >
           {/* 顶部拖拽区域 */}
           <div className="h-8 drag-region flex-shrink-0" />
 
@@ -359,7 +362,7 @@ export function App() {
             )}
 
             {/* 居中容器 */}
-            <div className="max-w-4xl mx-auto">
+            <div className="message-container">
               {/* 渲染消息（聚合连续的工具执行） */}
               {aggregateMessages(activeSession.messages).map((item, idx) => {
                 if (item.type === 'tool_batch') {
