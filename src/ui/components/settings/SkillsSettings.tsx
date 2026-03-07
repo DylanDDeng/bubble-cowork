@@ -47,10 +47,13 @@ export function SkillsSettingsContent() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-8 pt-6 space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <h3 className="text-sm font-medium text-[var(--text-primary)]">Claude Code Skills</h3>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+            Discovery
+          </div>
+          <h3 className="text-lg font-semibold text-[var(--text-primary)]">Claude Code Skills</h3>
           <p className="text-sm text-[var(--text-secondary)] max-w-2xl">
             This list comes from the same user and project paths the Claude runner loads through
             <span className="font-mono"> settingSources: [user, project]</span>.
@@ -59,7 +62,7 @@ export function SkillsSettingsContent() {
 
         <button
           onClick={refreshSkills}
-          className="px-3 py-2 text-sm rounded-lg border border-[var(--border-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+          className="px-3 py-2 text-sm rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
         >
           Refresh
         </button>
@@ -117,10 +120,10 @@ function SkillsSection({
   onReveal: (filePath: string) => Promise<void>;
 }) {
   return (
-    <section className="space-y-3">
+    <section className="rounded-[24px] border border-[var(--border)] bg-[var(--bg-primary)]/82 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.04)] space-y-3">
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-4">
-          <h4 className="text-sm font-medium text-[var(--text-primary)]">{title}</h4>
+          <h4 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h4>
           <span className="text-xs text-[var(--text-muted)]">
             {skills.length} {skills.length === 1 ? 'skill' : 'skills'}
           </span>
@@ -132,7 +135,7 @@ function SkillsSection({
       </div>
 
       {skills.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-muted)]">
+        <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] p-4 text-sm text-[var(--text-muted)]">
           {emptyMessage}
         </div>
       ) : (
@@ -167,7 +170,7 @@ function SkillCard({
   onReveal: (filePath: string) => Promise<void>;
 }) {
   return (
-    <article className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
+    <article className="rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-4 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
@@ -185,7 +188,7 @@ function SkillCard({
         <button
           onClick={() => void onReveal(skill.path)}
           disabled={revealing}
-          className="flex-shrink-0 px-3 py-2 text-sm rounded-lg border border-[var(--border-primary)] hover:bg-[var(--bg-tertiary)] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          className="flex-shrink-0 px-3 py-2 text-sm rounded-xl border border-[var(--border)] hover:bg-[var(--bg-tertiary)] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {revealing ? 'Revealing...' : 'Reveal'}
         </button>

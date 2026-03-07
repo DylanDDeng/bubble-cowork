@@ -238,7 +238,7 @@ export function Sidebar() {
               </button>
               <button
                 onClick={copyResumeCommand}
-                className="px-4 py-2 rounded-lg text-sm bg-[var(--accent)] hover:bg-[var(--accent-hover)] transition-colors"
+                className="px-4 py-2 rounded-lg text-sm bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] transition-colors"
               >
                 Copy Command
               </button>
@@ -379,4 +379,3 @@ function SessionItem({
     </div>
   );
 }
-

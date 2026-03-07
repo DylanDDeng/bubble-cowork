@@ -94,77 +94,104 @@ export function McpSettingsContent() {
   const hasNoServers = !hasGlobalServers && !hasProjectServers && isAddingNew === null;
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Content */}
-      <div className="flex-1 overflow-auto p-4">
-        {hasNoServers ? (
-          <div className="text-center py-8 text-[var(--text-muted)]">
-            <p>No MCP servers configured</p>
-            <p className="text-sm mt-2">
-              Add MCP servers to extend Claude's capabilities
-            </p>
+    <div className="p-8 pt-6">
+      {hasNoServers ? (
+        <section className="rounded-[24px] border border-[var(--border)] bg-[var(--bg-primary)]/82 p-8 text-center shadow-[0_10px_30px_rgba(0,0,0,0.04)]">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+            MCP Setup
           </div>
-        ) : (
-          <div className="space-y-6">
-            {/* 全局服务器 */}
-            <ServerSection
-              title="Global Servers"
-              description="Available in all projects"
-              servers={mcpGlobalServers}
-              scope="global"
-              editingServer={editingServer}
-              isAddingNew={isAddingNew === 'global'}
-              getServerStatus={getServerStatus}
-              onEdit={(name, config) => setEditingServer({ name, config, scope: 'global' })}
-              onDelete={(name) => handleDelete(name, 'global')}
-              onSave={(name, config) => handleSave(name, config, 'global')}
-              onCancelEdit={() => setEditingServer(null)}
-              onAddNew={() => setIsAddingNew('global')}
-              onCancelAdd={() => setIsAddingNew(null)}
-            />
-
-            {/* 项目级服务器 */}
+          <div className="mt-3 text-xl font-semibold text-[var(--text-primary)]">
+            No MCP servers configured
+          </div>
+          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-[var(--text-secondary)]">
+            Add global servers for every project, or project servers for the active workspace only.
+          </p>
+          <div className="mt-6 flex justify-center gap-3">
+            <button
+              onClick={() => setIsAddingNew('global')}
+              className="px-4 py-2 bg-[var(--accent)] text-[var(--accent-foreground)] rounded-xl hover:bg-[var(--accent-hover)] transition-colors"
+            >
+              Add Global Server
+            </button>
             {currentProjectPath && (
-              <ServerSection
-                title="Project Servers"
-                description={`Only available in ${currentProjectPath.split('/').pop()}`}
-                servers={mcpProjectServers}
-                scope="project"
-                editingServer={editingServer}
-                isAddingNew={isAddingNew === 'project'}
-                getServerStatus={getServerStatus}
-                onEdit={(name, config) => setEditingServer({ name, config, scope: 'project' })}
-                onDelete={(name) => handleDelete(name, 'project')}
-                onSave={(name, config) => handleSave(name, config, 'project')}
-                onCancelEdit={() => setEditingServer(null)}
-                onAddNew={() => setIsAddingNew('project')}
-                onCancelAdd={() => setIsAddingNew(null)}
-              />
+              <button
+                onClick={() => setIsAddingNew('project')}
+                className="px-4 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+              >
+                Add Project Server
+              </button>
             )}
           </div>
-        )}
-      </div>
+        </section>
+      ) : (
+        <div className="space-y-5">
+          <ServerSection
+            title="Global Servers"
+            description="Available in all projects"
+            servers={mcpGlobalServers}
+            scope="global"
+            editingServer={editingServer}
+            isAddingNew={isAddingNew === 'global'}
+            getServerStatus={getServerStatus}
+            onEdit={(name, config) => setEditingServer({ name, config, scope: 'global' })}
+            onDelete={(name) => handleDelete(name, 'global')}
+            onSave={(name, config) => handleSave(name, config, 'global')}
+            onCancelEdit={() => setEditingServer(null)}
+            onAddNew={() => setIsAddingNew('global')}
+            onCancelAdd={() => setIsAddingNew(null)}
+          />
 
-      {/* Footer */}
-      {hasNoServers && (
-        <div className="p-4 border-t border-[var(--border-primary)] flex gap-2">
-          <button
-            onClick={() => setIsAddingNew('global')}
-            className="px-4 py-2 bg-[var(--accent)] text-white rounded-lg hover:bg-[var(--accent-hover)] transition-colors"
-          >
-            + Add Global Server
-          </button>
           {currentProjectPath && (
-            <button
-              onClick={() => setIsAddingNew('project')}
-              className="px-4 py-2 border border-[var(--border-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
-            >
-              + Add Project Server
-            </button>
+            <ServerSection
+              title="Project Servers"
+              description={`Only available in ${currentProjectPath.split('/').pop()}`}
+              servers={mcpProjectServers}
+              scope="project"
+              editingServer={editingServer}
+              isAddingNew={isAddingNew === 'project'}
+              getServerStatus={getServerStatus}
+              onEdit={(name, config) => setEditingServer({ name, config, scope: 'project' })}
+              onDelete={(name) => handleDelete(name, 'project')}
+              onSave={(name, config) => handleSave(name, config, 'project')}
+              onCancelEdit={() => setEditingServer(null)}
+              onAddNew={() => setIsAddingNew('project')}
+              onCancelAdd={() => setIsAddingNew(null)}
+            />
+          )}
+
+          {hasNoServers && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => setIsAddingNew('global')}
+                className="px-4 py-2 bg-[var(--accent)] text-[var(--accent-foreground)] rounded-lg hover:bg-[var(--accent-hover)] transition-colors"
+              >
+                + Add Global Server
+              </button>
+              {currentProjectPath && (
+                <button
+                  onClick={() => setIsAddingNew('project')}
+                  className="px-4 py-2 border border-[var(--border)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+                >
+                  + Add Project Server
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+function SectionCard({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-[24px] border border-[var(--border)] bg-[var(--bg-primary)]/82 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.04)]">
+      {children}
+    </section>
   );
 }
 
@@ -199,22 +226,25 @@ function ServerSection({
   onCancelAdd: () => void;
 }) {
   return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
+    <SectionCard>
+      <div className="mb-4 flex items-center justify-between gap-4">
         <div>
-          <h3 className="font-medium">{title}</h3>
-          <p className="text-xs text-[var(--text-muted)]">{description}</p>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+            {scope === 'global' ? 'Global Scope' : 'Project Scope'}
+          </div>
+          <h3 className="mt-2 text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">{description}</p>
         </div>
         <button
           onClick={onAddNew}
           disabled={isAddingNew || editingServer !== null}
-          className="text-sm text-[var(--accent)] hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+          className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          + Add
+          Add Server
         </button>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         {Object.entries(servers).map(([name, config]) => {
           const status = getServerStatus(name);
           const isEditing = editingServer?.name === name && editingServer?.scope === scope;
@@ -244,7 +274,7 @@ function ServerSection({
         })}
 
         {Object.keys(servers).length === 0 && !isAddingNew && (
-          <div className="text-sm text-[var(--text-muted)] py-2">
+          <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-5 text-sm text-[var(--text-muted)]">
             No servers configured
           </div>
         )}
@@ -256,7 +286,7 @@ function ServerSection({
           />
         )}
       </div>
-    </div>
+    </SectionCard>
   );
 }
 
@@ -284,7 +314,7 @@ function ServerCard({
     : 'bg-gray-500';
 
   return (
-    <div className="bg-[var(--bg-secondary)] rounded-lg p-4">
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-4 shadow-sm">
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           <div className={`w-2 h-2 rounded-full ${statusColor}`} />
@@ -387,7 +417,7 @@ function McpServerForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-[var(--bg-secondary)] rounded-lg p-4">
+    <form onSubmit={handleSubmit} className="rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-5 shadow-sm">
       <div className="space-y-4">
         {/* Name */}
         <div>
@@ -397,7 +427,7 @@ function McpServerForm({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. filesystem"
-            className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg focus:outline-none focus:border-[var(--accent)]"
+            className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-xl focus:outline-none focus:border-[var(--accent)]"
             disabled={!!initialName}
           />
         </div>
@@ -432,7 +462,7 @@ function McpServerForm({
                 value={command}
                 onChange={(e) => setCommand(e.target.value)}
                 placeholder="e.g. npx"
-                className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg focus:outline-none focus:border-[var(--accent)]"
+                className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-xl focus:outline-none focus:border-[var(--accent)]"
               />
             </div>
             <div>
@@ -442,7 +472,7 @@ function McpServerForm({
                 value={args}
                 onChange={(e) => setArgs(e.target.value)}
                 placeholder="e.g. @modelcontextprotocol/server-filesystem"
-                className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg focus:outline-none focus:border-[var(--accent)]"
+                className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-xl focus:outline-none focus:border-[var(--accent)]"
               />
             </div>
           </>
@@ -454,7 +484,7 @@ function McpServerForm({
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="e.g. http://localhost:3000/mcp"
-              className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg focus:outline-none focus:border-[var(--accent)]"
+              className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-xl focus:outline-none focus:border-[var(--accent)]"
             />
           </div>
         )}
@@ -480,14 +510,14 @@ function McpServerForm({
                     value={env.key}
                     onChange={(e) => updateEnvVar(index, 'key', e.target.value)}
                     placeholder="KEY"
-                    className="flex-1 px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg focus:outline-none focus:border-[var(--accent)] text-sm"
+                    className="flex-1 px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-xl focus:outline-none focus:border-[var(--accent)] text-sm"
                   />
                   <input
                     type="text"
                     value={env.value}
                     onChange={(e) => updateEnvVar(index, 'value', e.target.value)}
                     placeholder="value"
-                    className="flex-1 px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg focus:outline-none focus:border-[var(--accent)] text-sm"
+                    className="flex-1 px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-xl focus:outline-none focus:border-[var(--accent)] text-sm"
                   />
                   <button
                     type="button"
@@ -507,13 +537,13 @@ function McpServerForm({
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors"
+            className="px-4 py-2 text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded-xl transition-colors"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="px-4 py-2 bg-[var(--accent)] text-white rounded-lg hover:bg-[var(--accent-hover)] transition-colors"
+            className="px-4 py-2 bg-[var(--accent)] text-[var(--accent-foreground)] rounded-xl hover:bg-[var(--accent-hover)] transition-colors"
           >
             Save
           </button>

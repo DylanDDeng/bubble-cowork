@@ -61,7 +61,7 @@ export function NewFolderDialog({ open, sessionId, onOpenChange }: NewFolderDial
             <button
               onClick={handleCreate}
               disabled={!folderPath.trim()}
-              className="px-4 py-2 rounded-lg text-sm bg-[var(--accent)] hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 rounded-lg text-sm bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Create & Move
             </button>

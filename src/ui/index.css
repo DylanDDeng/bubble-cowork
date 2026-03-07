@@ -4,23 +4,24 @@
 
 /* 自定义主题变量 - 浅色主题 */
 :root {
-  --bg-primary: #F9F8F7;      /* 主背景：奶油白 */
+  --bg-primary: #F6F6F7;       /* 主背景：冷白灰 */
   --bg-secondary: #FFFFFF;     /* 次背景：纯白 */
-  --bg-tertiary: #F0EFEE;      /* 第三背景：浅灰 */
-  --text-primary: #1a1a1a;     /* 主文本：深色 */
-  --text-secondary: #666666;   /* 次文本：灰色 */
-  --text-muted: #999999;       /* 弱化文本 */
-  --accent: #CD6F4F;           /* 强调色：陶土色 */
-  --accent-hover: #B85A3C;     /* 强调色悬停：深一点 */
-  --accent-light: rgba(205, 111, 79, 0.15); /* 强调色浅色：选中高亮 */
+  --bg-tertiary: #F1F2F4;      /* 第三背景：浅灰 */
+  --text-primary: #111111;     /* 主文本：近黑 */
+  --text-secondary: #62646A;   /* 次文本：中灰 */
+  --text-muted: #989BA3;       /* 弱化文本 */
+  --accent: #111827;           /* 强调色：石墨黑 */
+  --accent-hover: #030712;     /* 强调色悬停：更深 */
+  --accent-light: rgba(17, 24, 39, 0.08); /* 强调色浅色：选中高亮 */
+  --accent-foreground: #F9FAFB; /* 强调色按钮文字 */
   --success: #22c55e;
   --error: #ef4444;
   --warning: #f59e0b;
-  --border: #E5E4E3;           /* 边框：浅灰 */
+  --border: #E5E7EB;           /* 边框：浅灰 */
 
   /* Tool 状态颜色 */
   --tool-pending: #f59e0b;    /* 同 --warning */
-  --tool-running: #CD6F4F;    /* 同 --accent */
+  --tool-running: #6B7280;    /* 中性灰 */
   --tool-success: #22c55e;    /* 同 --success */
   --tool-error: #ef4444;      /* 同 --error */
 
@@ -53,23 +54,24 @@
 
 /* 暗色主题 */
 .dark {
-  --bg-primary: #1a1a1a;       /* 主背景：深灰 */
-  --bg-secondary: #242424;     /* 次背景：稍浅 */
-  --bg-tertiary: #2e2e2e;      /* 第三背景：更浅 */
-  --text-primary: #f5f5f5;     /* 主文本：浅色 */
-  --text-secondary: #a0a0a0;   /* 次文本：灰色 */
-  --text-muted: #707070;       /* 弱化文本 */
-  --accent: #E07B5B;           /* 强调色：陶土色（稍亮） */
-  --accent-hover: #F08B6B;     /* 强调色悬停：更亮 */
-  --accent-light: rgba(224, 123, 91, 0.2); /* 强调色浅色 */
+  --bg-primary: #111214;       /* 主背景：炭黑 */
+  --bg-secondary: #17181B;     /* 次背景：深灰 */
+  --bg-tertiary: #22242A;      /* 第三背景：更浅 */
+  --text-primary: #F5F5F5;     /* 主文本：浅色 */
+  --text-secondary: #B2B5BB;   /* 次文本：灰色 */
+  --text-muted: #80838A;       /* 弱化文本 */
+  --accent: #E5E7EB;           /* 强调色：亮灰 */
+  --accent-hover: #F5F5F5;     /* 强调色悬停：白灰 */
+  --accent-light: rgba(229, 231, 235, 0.12); /* 强调色浅色 */
+  --accent-foreground: #111214; /* 强调色按钮文字 */
   --success: #4ade80;
   --error: #f87171;
   --warning: #fbbf24;
-  --border: rgba(255, 255, 255, 0.1); /* 边框：半透明白 */
+  --border: rgba(255, 255, 255, 0.12); /* 边框：半透明白 */
 
   /* Tool 状态颜色 */
   --tool-pending: #fbbf24;
-  --tool-running: #E07B5B;
+  --tool-running: #9CA3AF;
   --tool-success: #4ade80;
   --tool-error: #f87171;
 

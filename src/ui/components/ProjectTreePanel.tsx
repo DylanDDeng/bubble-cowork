@@ -510,7 +510,7 @@ export function ProjectTreePanel() {
                   <button
                     onClick={handleSaveTxt}
                     disabled={saveState === 'saving'}
-                    className="px-2 py-1 text-xs rounded-md bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-2 py-1 text-xs rounded-md bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Save"
                   >
                     {saveState === 'saving'

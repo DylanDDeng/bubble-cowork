@@ -270,7 +270,7 @@ function UserPromptCard({
               <button
                 onClick={handleSaveAndRetry}
                 disabled={!draft.trim()}
-                className="px-2 py-0.5 text-xs rounded bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-2 py-0.5 text-xs rounded bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Save & Retry"
               >
                 Save & Retry

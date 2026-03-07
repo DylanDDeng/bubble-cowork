@@ -119,7 +119,7 @@ export function DecisionPanel({ input, onSubmit }: DecisionPanelProps) {
                         }`}
                       >
                         {isOptionSelected(question, option.label) && (
-                          <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />
+                          <Check className="w-2.5 h-2.5 text-[var(--accent-foreground)]" strokeWidth={3} />
                         )}
                       </div>
                     ) : (
@@ -174,7 +174,7 @@ export function DecisionPanel({ input, onSubmit }: DecisionPanelProps) {
         <button
           onClick={handleSubmit}
           disabled={!hasAnswer}
-          className="px-4 py-2 rounded-lg text-sm bg-[var(--accent)] hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-4 py-2 rounded-lg text-sm bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Submit
         </button>
