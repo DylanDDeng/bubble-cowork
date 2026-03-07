@@ -4,7 +4,7 @@
 
 /* 自定义主题变量 - 浅色主题 */
 :root {
-  --bg-primary: #F6F6F7;       /* 主背景：冷白灰 */
+  --bg-primary: #FFFFFF;       /* 主背景：纯白 */
   --bg-secondary: #FFFFFF;     /* 次背景：纯白 */
   --bg-tertiary: #F1F2F4;      /* 第三背景：浅灰 */
   --text-primary: #111111;     /* 主文本：近黑 */
@@ -42,6 +42,11 @@
   --code-token-number: #D97706;
   --code-token-operator: #6B7280;
   --code-token-variable: #111827;
+
+  /* User prompt bubble */
+  --user-bubble-bg: #F2F3F5;
+  --user-bubble-border: #E5E7EB;
+  --user-bubble-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
 
   /* 圆角系统 */
   --radius: 0.5rem;
@@ -92,6 +97,11 @@
   --code-token-number: #F59E0B;
   --code-token-operator: #CBD5E1;
   --code-token-variable: #F3F4F6;
+
+  /* User prompt bubble */
+  --user-bubble-bg: #202329;
+  --user-bubble-border: rgba(255, 255, 255, 0.08);
+  --user-bubble-shadow: 0 4px 12px rgba(0, 0, 0, 0.24);
 }
 
 /* 基础样式 */

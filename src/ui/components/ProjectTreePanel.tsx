@@ -146,10 +146,10 @@ function isImageName(name: string): boolean {
 
 
 export function ProjectTreePanel() {
-  const defaultWidth = 280;
-  const minWidth = 220;
-  const maxWidth = 420;
-  const previewWidth = 'clamp(360px, 34vw, 520px)';
+  const railWidth = 280;
+  const defaultPreviewWidth = 520;
+  const minPreviewWidth = 340;
+  const maxPreviewWidth = 960;
   const {
     activeSessionId,
     sessions,
@@ -162,11 +162,11 @@ export function ProjectTreePanel() {
   const prevCwdRef = useRef<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const initRootRef = useRef<string | null>(null);
-  const [panelWidth, setPanelWidth] = useState(defaultWidth);
-  const resizingRef = useRef(false);
+  const [previewPanelWidth, setPreviewPanelWidth] = useState(defaultPreviewWidth);
+  const previewResizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
-  const latestWidthRef = useRef(panelWidth);
+  const latestPreviewWidthRef = useRef(previewPanelWidth);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [selectedPreview, setSelectedPreview] = useState<ProjectFilePreview | null>(null);
   const [htmlMode, setHtmlMode] = useState<'view' | 'code'>('view');
@@ -182,16 +182,16 @@ export function ProjectTreePanel() {
   const cwd = activeCwd || projectCwd || null;
 
   useEffect(() => {
-    latestWidthRef.current = panelWidth;
-  }, [panelWidth]);
+    latestPreviewWidthRef.current = previewPanelWidth;
+  }, [previewPanelWidth]);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem('cowork.projectTreeWidth');
+    const stored = window.localStorage.getItem('cowork.projectPreviewWidth');
     if (!stored) return;
     const parsed = Number(stored);
     if (!Number.isFinite(parsed)) return;
-    const clamped = Math.min(maxWidth, Math.max(minWidth, parsed));
-    setPanelWidth(clamped);
+    const clamped = Math.min(maxPreviewWidth, Math.max(minPreviewWidth, parsed));
+    setPreviewPanelWidth(clamped);
   }, []);
 
   useEffect(() => {
@@ -357,13 +357,13 @@ export function ProjectTreePanel() {
     const root = document.documentElement;
     root.style.setProperty(
       '--project-preview-space',
-      selectedFilePath ? previewWidth : '0px'
+      selectedFilePath ? `${previewPanelWidth}px` : '0px'
     );
 
     return () => {
       root.style.setProperty('--project-preview-space', '0px');
     };
-  }, [selectedFilePath, previewWidth]);
+  }, [selectedFilePath, previewPanelWidth]);
 
   const canSaveTxt =
     !!cwd &&
@@ -402,23 +402,23 @@ export function ProjectTreePanel() {
 
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
-      if (!resizingRef.current) return;
+      if (!previewResizingRef.current) return;
       const delta = startXRef.current - event.clientX;
-      const nextWidth = Math.min(
-        maxWidth,
-        Math.max(minWidth, startWidthRef.current + delta)
+      const nextPreviewWidth = Math.min(
+        maxPreviewWidth,
+        Math.max(minPreviewWidth, startWidthRef.current + delta)
       );
-      setPanelWidth(nextWidth);
+      setPreviewPanelWidth(nextPreviewWidth);
     };
 
     const handleUp = () => {
-      if (!resizingRef.current) return;
-      resizingRef.current = false;
+      if (!previewResizingRef.current) return;
+      previewResizingRef.current = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       window.localStorage.setItem(
-        'cowork.projectTreeWidth',
-        String(latestWidthRef.current)
+        'cowork.projectPreviewWidth',
+        String(latestPreviewWidthRef.current)
       );
     };
 
@@ -430,11 +430,11 @@ export function ProjectTreePanel() {
     };
   }, []);
 
-  const handleResizeStart = (event: React.MouseEvent) => {
+  const handlePreviewResizeStart = (event: React.MouseEvent) => {
     event.preventDefault();
-    resizingRef.current = true;
+    previewResizingRef.current = true;
     startXRef.current = event.clientX;
-    startWidthRef.current = panelWidth;
+    startWidthRef.current = previewPanelWidth;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   };
@@ -442,14 +442,8 @@ export function ProjectTreePanel() {
   return (
     <div
       className="relative flex-shrink-0 bg-[var(--bg-secondary)] border-l border-[var(--border)] flex flex-col h-full"
-      style={{ width: panelWidth }}
+      style={{ width: railWidth }}
     >
-      <div
-        className="group absolute left-0 top-0 bottom-0 w-2 cursor-col-resize no-drag"
-        onMouseDown={handleResizeStart}
-      >
-        <div className="absolute left-1 top-0 bottom-0 w-px bg-transparent group-hover:bg-[var(--border)]" />
-      </div>
       <div className="h-8 drag-region" />
       <div className="px-4 pt-2 pb-2">
         <div className="text-xs text-[var(--text-muted)]">Project files</div>
@@ -492,8 +486,15 @@ export function ProjectTreePanel() {
       {selectedFilePath && (
         <div
           className="absolute top-8 bottom-0 z-20 border-l border-[var(--border)] bg-[var(--bg-secondary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]"
-          style={{ right: 'calc(100% - 1px)', width: previewWidth }}
+          style={{ right: 'calc(100% - 1px)', width: previewPanelWidth }}
         >
+          <div
+            className="group absolute left-0 top-0 bottom-0 w-3 -translate-x-1/2 cursor-col-resize no-drag"
+            onMouseDown={handlePreviewResizeStart}
+          >
+            <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
+          </div>
+
           <div className="h-full min-w-0 flex flex-col px-3 py-3">
             <div className="flex items-center justify-between gap-2 pb-2">
               <div className="min-w-0">
