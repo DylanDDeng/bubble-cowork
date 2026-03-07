@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { isValidElement, useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -42,17 +42,63 @@ function formatLanguageLabel(language: string): string {
   return language.replace(/[-_]/g, ' ');
 }
 
+function shouldDisplayLanguageLabel(language?: string): boolean {
+  if (!language) {
+    return false;
+  }
+
+  const normalized = language.toLowerCase();
+  return !['diff', 'text', 'plaintext'].includes(normalized);
+}
+
+function normalizeLanguage(language?: string): string | undefined {
+  if (!language) {
+    return undefined;
+  }
+
+  const normalized = language.toLowerCase();
+  if (['diff', 'text', 'plaintext'].includes(normalized)) {
+    return undefined;
+  }
+
+  return language;
+}
+
+function extractCodeChild(children: ReactNode): {
+  className?: string;
+  codeChildren: ReactNode;
+} {
+  const codeElement =
+    isValidElement(children)
+      ? children
+      : Array.isArray(children) && children.length === 1 && isValidElement(children[0])
+        ? children[0]
+        : null;
+
+  if (!codeElement) {
+    return { codeChildren: children };
+  }
+
+  const props = codeElement.props as { className?: string; children?: ReactNode };
+  return {
+    className: props.className,
+    codeChildren: props.children,
+  };
+}
+
 function CodeBlock({
   language,
   className,
   children,
 }: {
-  language: string;
+  language?: string;
   className?: string;
   children: ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
   const rawCode = extractTextContent(children).replace(/\n$/, '');
+  const showLanguageLabel = shouldDisplayLanguageLabel(language);
+  const effectiveLanguage = normalizeLanguage(language);
 
   const handleCopy = async () => {
     try {
@@ -66,12 +112,16 @@ function CodeBlock({
 
   return (
     <div className="md-code-block">
-      <div className="md-code-header">
-        <span className="md-code-language">{formatLanguageLabel(language)}</span>
+      <div className={`md-code-header${showLanguageLabel ? '' : ' is-compact'}`}>
+        {showLanguageLabel ? (
+          <span className="md-code-language">{formatLanguageLabel(language!)}</span>
+        ) : (
+          <span />
+        )}
         <button
           type="button"
           onClick={() => void handleCopy()}
-          className="md-code-copy"
+          className={`md-code-copy${showLanguageLabel ? '' : ' is-floating'}`}
           title={copied ? 'Copied' : 'Copy code'}
           aria-label={copied ? 'Copied' : 'Copy code'}
         >
@@ -80,7 +130,7 @@ function CodeBlock({
       </div>
 
       <pre className="md-code-content">
-        <code className={className}>{children}</code>
+        <code className={effectiveLanguage ? className : undefined}>{children}</code>
       </pre>
     </div>
   );
@@ -117,27 +167,25 @@ const components: Components = {
     </blockquote>
   ),
   code: ({ className, children, ...props }) => {
+    return (
+      <code
+        className="md-inline-code"
+        {...props}
+      >
+        {children}
+      </code>
+    );
+  },
+  pre: ({ children }) => {
+    const { className, codeChildren } = extractCodeChild(children);
     const match = /language-([\w-]+)/.exec(className || '');
-    const isInline = !match;
-
-    if (isInline) {
-      return (
-        <code
-          className="md-inline-code"
-          {...props}
-        >
-          {children}
-        </code>
-      );
-    }
 
     return (
-      <CodeBlock language={match[1]} className={className}>
-        {children}
+      <CodeBlock language={match?.[1]} className={className}>
+        {codeChildren}
       </CodeBlock>
     );
   },
-  pre: ({ children }) => <>{children}</>,
   table: ({ children }) => (
     <div className="overflow-x-auto my-3">
       <table className="w-full border-collapse">{children}</table>
@@ -159,8 +207,8 @@ export function MDContent({ content, className = '', allowHtml = false }: MDCont
   // 配置 rehype-highlight 和 rehype-katex
   const rehypePlugins = useMemo(() => {
     const plugins: Parameters<typeof ReactMarkdown>[0]['rehypePlugins'] = allowHtml
-      ? [rehypeRaw, rehypeKatex, [rehypeHighlight, { ignoreMissing: true, detect: true }]]
-      : [rehypeKatex, [rehypeHighlight, { ignoreMissing: true, detect: true }]];
+      ? [rehypeRaw, rehypeKatex, [rehypeHighlight, { ignoreMissing: true }]]
+      : [rehypeKatex, [rehypeHighlight, { ignoreMissing: true }]];
     return plugins;
   }, [allowHtml]);
 

@@ -238,6 +238,11 @@ body {
   background: var(--code-block-header-bg);
 }
 
+.markdown-content .md-code-header.is-compact {
+  padding-bottom: 0;
+  min-height: 2.4rem;
+}
+
 .markdown-content .md-code-language {
   font-size: 0.95rem;
   font-weight: 600;
@@ -259,6 +264,10 @@ body {
   padding: 0;
   cursor: pointer;
   transition: background-color 150ms ease, color 150ms ease;
+}
+
+.markdown-content .md-code-copy.is-floating {
+  margin-left: auto;
 }
 
 .markdown-content .md-code-copy:hover {
