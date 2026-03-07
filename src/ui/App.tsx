@@ -112,6 +112,7 @@ export function App() {
     sessions,
     activeSessionId,
     showNewSession,
+    showSettings,
     sidebarCollapsed,
     setSidebarCollapsed,
     projectTreeCollapsed,
@@ -311,34 +312,44 @@ export function App() {
   return (
     <div className="flex h-full">
       {/* Sidebar toggle */}
-      <button
-        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-        className={`fixed z-50 no-drag cursor-pointer w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 hover:border-[var(--text-primary)]/10 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)] ${
-          isMacOS ? 'top-[8px] left-[92px]' : 'top-3 left-3'
-        }`}
-        title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-        aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-      >
-        <SidebarToggleIcon />
-      </button>
+      {!showSettings && (
+        <button
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          className={`fixed z-50 no-drag cursor-pointer w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 hover:border-[var(--text-primary)]/10 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)] ${
+            isMacOS ? 'top-[8px] left-[92px]' : 'top-3 left-3'
+          }`}
+          title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+          aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+        >
+          <SidebarToggleIcon />
+        </button>
+      )}
 
-      {/* Right panel toggle */}
-      <button
-        onClick={() => setProjectTreeCollapsed(!projectTreeCollapsed)}
-        className={`fixed z-50 no-drag cursor-pointer w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 hover:border-[var(--text-primary)]/10 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)] ${
-          isMacOS ? 'top-[8px] right-[16px]' : 'top-3 right-3'
-        }`}
-        title={projectTreeCollapsed ? 'Show project files' : 'Hide project files'}
-        aria-label={projectTreeCollapsed ? 'Show project files' : 'Hide project files'}
-      >
-        <SidebarToggleIcon />
-      </button>
+      {!showSettings && (
+        <button
+          onClick={() => setProjectTreeCollapsed(!projectTreeCollapsed)}
+          className={`fixed z-50 no-drag cursor-pointer w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 hover:border-[var(--text-primary)]/10 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)] ${
+            isMacOS ? 'top-[8px] right-[16px]' : 'top-3 right-3'
+          }`}
+          title={projectTreeCollapsed ? 'Show project files' : 'Hide project files'}
+          aria-label={projectTreeCollapsed ? 'Show project files' : 'Hide project files'}
+        >
+          <SidebarToggleIcon />
+        </button>
+      )}
 
       {/* 侧边栏 */}
-      {!sidebarCollapsed && <Sidebar />}
+      {!showSettings && !sidebarCollapsed && <Sidebar />}
 
       {/* 主内容区 */}
-      {activeSession && !showNewSession ? (
+      {showSettings ? (
+        <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
+          <div className="h-8 drag-region flex-shrink-0" />
+          <div className="flex-1 min-h-0">
+            <Settings />
+          </div>
+        </div>
+      ) : activeSession && !showNewSession ? (
         <div
           className="flex-1 min-w-0 flex flex-col transition-[padding] duration-200"
           style={{ paddingRight: 'var(--project-preview-space, 0px)' }}
@@ -461,7 +472,7 @@ export function App() {
       )}
 
       {/* 右侧项目文件树 */}
-      {!projectTreeCollapsed && <ProjectTreePanel />}
+      {!showSettings && !projectTreeCollapsed && <ProjectTreePanel />}
 
       {/* Toast 通知 */}
       <Toaster
@@ -475,8 +486,6 @@ export function App() {
         }}
       />
 
-      {/* Settings 面板 */}
-      <Settings />
     </div>
   );
 }

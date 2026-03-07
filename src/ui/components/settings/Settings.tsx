@@ -1,4 +1,4 @@
-import { X, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen } from 'lucide-react';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { McpSettingsContent } from './McpSettings';
 import { SkillsSettingsContent } from './SkillsSettings';
@@ -41,79 +41,60 @@ export function Settings() {
   const activeMeta = SETTINGS_TABS[activeSettingsTab];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/20 backdrop-blur-[2px]">
-      <div className="flex h-full items-center justify-center p-5">
-        <div className="flex h-[min(780px,calc(100vh-40px))] w-full max-w-6xl overflow-hidden rounded-[32px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_80px_rgba(0,0,0,0.18)]">
-          <aside className="w-[252px] flex-shrink-0 p-5">
-            <div className="flex h-full flex-col rounded-[28px] bg-[var(--bg-secondary)]/88 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
-              <div className="px-3 pb-4 pt-2">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                  Settings
-                </div>
-                <div className="mt-2 text-sm text-[var(--text-secondary)]">
-                  Keep your workspace calm, consistent, and project-aware.
-                </div>
-              </div>
+    <div className="flex h-full min-h-0 min-w-0 bg-[var(--bg-primary)]">
+      <aside className="w-[280px] flex-shrink-0 border-r border-[var(--border)] bg-[var(--bg-primary)]">
+        <div className="flex h-full flex-col px-3 pb-6 pt-4">
+          <button
+            onClick={() => setShowSettings(false)}
+            className="mb-5 flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to app</span>
+          </button>
 
-              <ul className="space-y-1.5">
-                {Object.entries(SETTINGS_TABS).map(([key, tab]) => (
-                  <SettingsNavItem
-                    key={key}
-                    label={tab.label}
-                    icon={tab.icon}
-                    active={activeSettingsTab === key}
-                    onClick={() => setActiveSettingsTab(key as keyof typeof SETTINGS_TABS)}
-                  />
-                ))}
-              </ul>
+          <ul className="space-y-1">
+            {Object.entries(SETTINGS_TABS).map(([key, tab]) => (
+              <SettingsNavItem
+                key={key}
+                label={tab.label}
+                icon={tab.icon}
+                active={activeSettingsTab === key}
+                onClick={() => setActiveSettingsTab(key as keyof typeof SETTINGS_TABS)}
+              />
+            ))}
+          </ul>
 
-              <div className="mt-auto px-3 pt-4 text-xs text-[var(--text-muted)]">
-                Changes apply immediately. The panel keeps a fixed workspace size across tabs.
-              </div>
-            </div>
-          </aside>
-
-          <div className="min-w-0 flex-1 p-5 pl-0">
-            <div className="flex h-full min-w-0 flex-col rounded-[28px] bg-[var(--bg-secondary)]/82 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]">
-              <header className="flex items-start justify-between gap-6 px-8 pb-4 pt-7">
-                <div className="min-w-0 space-y-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                    {activeMeta.label}
-                  </div>
-                  <div className="text-[28px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
-                    {activeMeta.title}
-                  </div>
-                  <p className="max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">
-                    {activeMeta.description}
-                  </p>
-                </div>
-
-                <button
-                  onClick={() => setShowSettings(false)}
-                  className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                >
-                  <X className="w-4.5 h-4.5" />
-                </button>
-              </header>
-
-              <div className="mx-8 h-px bg-[var(--border)]/55" />
-
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                {activeSettingsTab === 'general' && (
-                  <GeneralSettingsContent theme={theme} setTheme={setTheme} />
-                )}
-                {activeSettingsTab === 'mcp' && <McpSettingsContent />}
-                {activeSettingsTab === 'skills' && <SkillsSettingsContent />}
-              </div>
-            </div>
+          <div className="mt-auto px-3 pt-5 text-xs leading-5 text-[var(--text-muted)]">
+            Settings apply immediately and stay scoped to this desktop workspace.
           </div>
         </div>
-      </div>
+      </aside>
+
+      <main className="min-w-0 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-5xl px-12 py-12">
+          <header className="mb-10">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+              {activeMeta.label}
+            </div>
+            <h1 className="mt-3 text-[40px] font-semibold tracking-[-0.04em] text-[var(--text-primary)]">
+              {activeMeta.title}
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--text-secondary)]">
+              {activeMeta.description}
+            </p>
+          </header>
+
+          {activeSettingsTab === 'general' && (
+            <GeneralSettingsContent theme={theme} setTheme={setTheme} />
+          )}
+          {activeSettingsTab === 'mcp' && <McpSettingsContent />}
+          {activeSettingsTab === 'skills' && <SkillsSettingsContent />}
+        </div>
+      </main>
     </div>
   );
 }
 
-// 导航项组件
 function SettingsNavItem({
   label,
   icon,
@@ -129,19 +110,13 @@ function SettingsNavItem({
     <li>
       <button
         onClick={onClick}
-        className={`group flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-left text-sm transition-all ${
+        className={`group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm transition-colors ${
           active
-            ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-sm'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-primary)]/70 hover:text-[var(--text-primary)]'
+            ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/80 hover:text-[var(--text-primary)]'
         }`}
       >
-        <span
-          className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border transition-colors ${
-            active
-              ? 'border-[var(--accent)]/25 bg-[var(--accent-light)] text-[var(--accent)]'
-              : 'border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-muted)] group-hover:text-[var(--text-primary)]'
-          }`}
-        >
+        <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center text-[var(--text-muted)] group-hover:text-[var(--text-primary)]">
           {icon}
         </span>
         <span className="font-medium">{label}</span>
@@ -158,80 +133,88 @@ function GeneralSettingsContent({
   setTheme: (theme: Theme) => void;
 }) {
   return (
-    <div className="p-8 pt-6">
-      <SettingsCard
-        eyebrow="Appearance"
-        title="Theme"
-        description="Choose how the workspace should feel throughout the day."
-      >
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <ThemeButton
-            label="Light"
-            description="A calm, paper-like surface for daytime work."
-            value="light"
-            current={theme}
-            onClick={() => setTheme('light')}
-            icon={<Sun className="w-4 h-4" />}
-          />
-          <ThemeButton
-            label="Dark"
-            description="A lower-glare workspace for focus in dim environments."
-            value="dark"
-            current={theme}
-            onClick={() => setTheme('dark')}
-            icon={<Moon className="w-4 h-4" />}
-          />
-          <ThemeButton
-            label="System"
-            description="Follow the current operating system appearance automatically."
-            value="system"
-            current={theme}
-            onClick={() => setTheme('system')}
-            icon={<Monitor className="w-4 h-4" />}
-          />
-        </div>
-      </SettingsCard>
+    <div className="space-y-10 pb-16">
+      <SettingsSection title="Appearance">
+        <SettingsRow
+          label="Theme"
+          description="Use light, dark, or follow the current operating system appearance."
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <ThemeOption
+              label="Light"
+              value="light"
+              current={theme}
+              onClick={() => setTheme('light')}
+              icon={<Sun className="w-4 h-4" />}
+            />
+            <ThemeOption
+              label="Dark"
+              value="dark"
+              current={theme}
+              onClick={() => setTheme('dark')}
+              icon={<Moon className="w-4 h-4" />}
+            />
+            <ThemeOption
+              label="System"
+              value="system"
+              current={theme}
+              onClick={() => setTheme('system')}
+              icon={<Monitor className="w-4 h-4" />}
+            />
+          </div>
+        </SettingsRow>
+      </SettingsSection>
     </div>
   );
 }
 
-function SettingsCard({
-  eyebrow,
+function SettingsSection({
   title,
-  description,
   children,
 }: {
-  eyebrow: string;
   title: string;
-  description: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-[24px] border border-[var(--border)] bg-[var(--bg-primary)]/82 p-6 shadow-[0_10px_30px_rgba(0,0,0,0.04)]">
-      <div className="mb-5 space-y-2">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-          {eyebrow}
-        </div>
-        <div className="text-lg font-semibold text-[var(--text-primary)]">{title}</div>
-        <p className="max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">{description}</p>
+    <section>
+      <h2 className="mb-4 text-[28px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+        {title}
+      </h2>
+      <div className="overflow-hidden rounded-[24px] border border-[var(--border)] bg-[var(--bg-secondary)]">
+        {children}
       </div>
-
-      {children}
     </section>
   );
 }
 
-// Theme Button
-function ThemeButton({
+function SettingsRow({
   label,
   description,
+  children,
+}: {
+  label: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_320px] items-start gap-6 border-b border-[var(--border)] px-5 py-5 last:border-b-0">
+      <div className="space-y-1">
+        <div className="text-base font-medium text-[var(--text-primary)]">{label}</div>
+        <div className="text-sm leading-6 text-[var(--text-secondary)]">{description}</div>
+      </div>
+      <div className="flex justify-end">{children}</div>
+    </div>
+  );
+}
+
+function ThemeOption({
+  label,
   value,
   current,
   onClick,
   icon,
 }: {
   label: string;
-  description: string;
   value: Theme;
   current: Theme;
   onClick: () => void;
@@ -241,17 +224,14 @@ function ThemeButton({
   return (
     <button
       onClick={onClick}
-      className={`flex flex-col items-start gap-3 rounded-2xl border px-4 py-4 text-left transition-colors ${
+      className={`inline-flex items-center gap-2 rounded-xl border px-4 py-3 text-sm transition-colors ${
         isActive
           ? 'border-[var(--accent)] bg-[var(--accent-light)] text-[var(--text-primary)]'
-          : 'border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]'
+          : 'border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]'
       }`}
     >
-      <div className="flex items-center gap-2">
-        {icon}
-        <span className="text-sm font-medium">{label}</span>
-      </div>
-      <p className="text-sm leading-6 text-inherit/80">{description}</p>
+      {icon}
+      <span className="font-medium">{label}</span>
     </button>
   );
 }

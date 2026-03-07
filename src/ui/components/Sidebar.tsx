@@ -132,6 +132,7 @@ export function Sidebar() {
       {/* New Session 按钮 */}
       <button
         onClick={() => {
+          setShowSettings(false);
           setActiveSession(null);
           setShowNewSession(true);
         }}
@@ -170,6 +171,7 @@ export function Sidebar() {
                     isActive={activeSessionId === session.id}
                     statusConfigs={statusConfigs}
                     onClick={() => {
+                      setShowSettings(false);
                       setActiveSession(session.id);
                       setShowNewSession(false);
                     }}
@@ -192,6 +194,7 @@ export function Sidebar() {
           // 文件夹视图
           <FolderTreeView
             onSessionClick={(sessionId) => {
+              setShowSettings(false);
               setActiveSession(sessionId);
               setShowNewSession(false);
             }}
