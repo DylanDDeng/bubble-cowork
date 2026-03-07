@@ -114,10 +114,12 @@ export function FolderTreeView({
         const expanded = isExpanded(group.key);
         return (
           <div key={group.key}>
-            <div
-              className="flex items-center gap-2 px-2 py-2 cursor-pointer hover:bg-[var(--bg-secondary)] rounded-lg transition-colors duration-150"
+            <button
+              type="button"
+              className="flex w-full select-none items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-[var(--bg-secondary)]"
               onClick={() => toggleGroupExpanded(group.key)}
               title={group.fullPath || 'Sessions without a project folder'}
+              aria-expanded={expanded}
             >
               <span className={`transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}>
                 <ChevronRight className="w-3 h-3" />
@@ -125,7 +127,7 @@ export function FolderTreeView({
               {expanded ? <FolderOpen className="w-3.5 h-3.5" /> : <Folder className="w-3.5 h-3.5" />}
               <span className="text-sm font-medium truncate flex-1">{group.label}</span>
               <span className="text-xs text-[var(--text-muted)]">{group.sessions.length}</span>
-            </div>
+            </button>
 
             {expanded && group.fullPath && (
               <div className="px-7 pb-1 text-[11px] text-[var(--text-muted)] truncate" title={group.fullPath}>
