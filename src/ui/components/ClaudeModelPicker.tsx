@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 import type { ClaudeModelConfig } from '../types';
 import { buildClaudeModelOptions, formatClaudeModelLabel } from '../utils/claude-model';
 
@@ -32,7 +32,7 @@ export function ClaudeModelPicker({
       <button
         onClick={() => setOpen((current) => !current)}
         disabled={disabled}
-        className="flex max-w-[180px] items-center gap-1.5 rounded-lg border border-transparent bg-[var(--bg-tertiary)] px-3 py-2 text-sm transition-colors hover:bg-[var(--border)] disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex min-w-[156px] max-w-[196px] items-center justify-between gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5 text-sm shadow-sm transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50"
         title={currentLabel}
       >
         <span className="truncate text-[var(--text-secondary)]">{currentLabel}</span>
@@ -42,7 +42,10 @@ export function ClaudeModelPicker({
       {open && !disabled && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 z-20 mb-1 min-w-[220px] rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] py-1 shadow-lg">
+          <div className="absolute bottom-full left-0 z-20 mb-2 min-w-[208px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-[0_14px_32px_rgba(15,23,42,0.10)]">
+            <div className="px-2 py-1 text-[11px] font-medium text-[var(--text-muted)]">
+              Claude Code
+            </div>
             {options.map((model) => (
               <button
                 key={model}
@@ -50,16 +53,12 @@ export function ClaudeModelPicker({
                   onChange(model);
                   setOpen(false);
                 }}
-                className={`w-full px-3 py-2 text-left text-sm transition-colors ${
-                  resolvedValue === model
-                    ? 'bg-[var(--accent-light)] text-[var(--accent)]'
-                    : 'text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-                }`}
+                className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[#F3F3F3]"
                 title={model}
               >
-                <div className="truncate">{formatClaudeModelLabel(model)}</div>
-                {runtimeModel === model && (
-                  <div className="text-xs text-[var(--text-muted)]">Current runtime model</div>
+                <div className="min-w-0 truncate">{formatClaudeModelLabel(model)}</div>
+                {resolvedValue === model && (
+                  <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" />
                 )}
               </button>
             ))}
