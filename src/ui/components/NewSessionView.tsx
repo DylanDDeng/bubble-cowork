@@ -6,6 +6,7 @@ import type { Attachment } from '../types';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
+import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
 import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
@@ -170,12 +171,16 @@ export function NewSessionView() {
     }
 
     if (
-      skillAutocomplete.selectedSkill &&
+      (skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand) &&
       skillAutocomplete.displayPrompt.length === 0 &&
       e.key === 'Backspace'
     ) {
       e.preventDefault();
-      skillAutocomplete.clearSelectedSkill();
+      if (skillAutocomplete.selectedSkill) {
+        skillAutocomplete.clearSelectedSkill();
+      } else {
+        skillAutocomplete.clearSelectedCommand();
+      }
       return;
     }
 
@@ -254,6 +259,15 @@ export function NewSessionView() {
               </div>
             )}
 
+            {provider === 'claude' && !skillAutocomplete.selectedSkill && skillAutocomplete.selectedCommand && (
+              <div className="px-5 pt-4">
+                <SelectedClaudeCommandChip
+                  command={skillAutocomplete.selectedCommand}
+                  onClear={skillAutocomplete.clearSelectedCommand}
+                />
+              </div>
+            )}
+
             <textarea
               value={skillAutocomplete.displayPrompt}
               onChange={(e) => skillAutocomplete.setDisplayPrompt(e.target.value)}
@@ -261,11 +275,13 @@ export function NewSessionView() {
               placeholder={
                 skillAutocomplete.selectedSkill
                   ? `Add instructions for /${skillAutocomplete.selectedSkill.name}...`
+                  : skillAutocomplete.selectedCommand
+                    ? `Add instructions for ${skillAutocomplete.selectedCommand.title}...`
                   : 'Describe your task...'
               }
               rows={4}
               className={`w-full bg-transparent px-5 pb-3 text-[15px] outline-none resize-none no-drag ${
-                skillAutocomplete.selectedSkill ? 'pt-3' : 'pt-4'
+                skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-3' : 'pt-4'
               }`}
               autoFocus
             />

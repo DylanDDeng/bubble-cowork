@@ -13,9 +13,11 @@ import {
   mergeClaudeSkills,
 } from '../utils/claude-skills';
 import {
+  buildPromptWithSlashCommand,
   buildClaudeSlashCommands,
   filterClaudeSlashCommands,
   getSessionSlashCommands,
+  parseSelectedSlashCommandPrompt,
   shouldAutoSubmitSlashCommand,
 } from '../utils/claude-slash';
 
@@ -94,6 +96,11 @@ export function useClaudeSkillAutocomplete({
     [availableSkills, enabled, prompt]
   );
 
+  const selectedCommandState = useMemo(
+    () => (enabled ? parseSelectedSlashCommandPrompt(prompt, availableCommands) : null),
+    [availableCommands, enabled, prompt]
+  );
+
   useEffect(() => {
     setSelectedIndex(0);
   }, [query]);
@@ -132,6 +139,11 @@ export function useClaudeSkillAutocomplete({
       return;
     }
 
+    if (selectedCommandState) {
+      setPrompt(buildPromptWithSlashCommand(selectedCommandState.command.name, nextPrompt));
+      return;
+    }
+
     setPrompt(nextPrompt);
   };
 
@@ -143,7 +155,8 @@ export function useClaudeSkillAutocomplete({
     selectedIndex,
     setSelectedIndex,
     selectedSkill: selectedSkillState?.skill || null,
-    displayPrompt: selectedSkillState?.remainder ?? prompt,
+    selectedCommand: selectedCommandState?.command || null,
+    displayPrompt: selectedSkillState?.remainder ?? selectedCommandState?.remainder ?? prompt,
     moveSelection: (direction: 1 | -1) => {
       if (suggestions.length === 0) {
         return;
@@ -169,6 +182,9 @@ export function useClaudeSkillAutocomplete({
     setDisplayPrompt,
     clearSelectedSkill: () => {
       setPrompt(selectedSkillState?.remainder || '');
+    },
+    clearSelectedCommand: () => {
+      setPrompt(selectedCommandState?.remainder || '');
     },
     selectSkill,
     selectSuggestion,

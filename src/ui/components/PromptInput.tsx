@@ -6,6 +6,7 @@ import type { Attachment } from '../types';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
+import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
 import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
@@ -205,12 +206,16 @@ export function PromptInput() {
     }
 
     if (
-      skillAutocomplete.selectedSkill &&
+      (skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand) &&
       skillAutocomplete.displayPrompt.length === 0 &&
       e.key === 'Backspace'
     ) {
       e.preventDefault();
-      skillAutocomplete.clearSelectedSkill();
+      if (skillAutocomplete.selectedSkill) {
+        skillAutocomplete.clearSelectedSkill();
+      } else {
+        skillAutocomplete.clearSelectedCommand();
+      }
       return;
     }
 
@@ -248,6 +253,15 @@ export function PromptInput() {
             </div>
           )}
 
+          {provider === 'claude' && !skillAutocomplete.selectedSkill && skillAutocomplete.selectedCommand && (
+            <div className="px-5 pt-4">
+              <SelectedClaudeCommandChip
+                command={skillAutocomplete.selectedCommand}
+                onClear={skillAutocomplete.clearSelectedCommand}
+              />
+            </div>
+          )}
+
           <textarea
             ref={textareaRef}
             value={skillAutocomplete.displayPrompt}
@@ -258,6 +272,8 @@ export function PromptInput() {
                 ? 'Press Enter to stop...'
                 : skillAutocomplete.selectedSkill
                 ? `Add instructions for /${skillAutocomplete.selectedSkill.name}...`
+                : skillAutocomplete.selectedCommand
+                ? `Add instructions for ${skillAutocomplete.selectedCommand.title}...`
                 : activeSessionId
                 ? 'Continue the conversation...'
                 : 'Start a new session...'
@@ -265,7 +281,7 @@ export function PromptInput() {
             rows={1}
             disabled={isRunning}
             className={`w-full bg-transparent px-5 pb-3 text-[15px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50 ${
-              skillAutocomplete.selectedSkill ? 'pt-3' : 'pt-4'
+              skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-3' : 'pt-4'
             }`}
           />
 

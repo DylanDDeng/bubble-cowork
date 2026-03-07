@@ -73,6 +73,41 @@ export function buildClaudeSlashCommands(sessionCommands?: Set<string>): ClaudeS
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
+export function parseSelectedSlashCommandPrompt(
+  prompt: string,
+  commands: ClaudeSlashCommand[]
+): { command: ClaudeSlashCommand; remainder: string } | null {
+  const trimmed = prompt.trimStart();
+  if (!trimmed.startsWith('/')) {
+    return null;
+  }
+
+  const firstWhitespaceIndex = trimmed.search(/\s/);
+  const commandName =
+    firstWhitespaceIndex === -1
+      ? trimmed.slice(1)
+      : trimmed.slice(1, firstWhitespaceIndex);
+
+  if (!commandName) {
+    return null;
+  }
+
+  const command = commands.find((item) => item.name === commandName);
+  if (!command) {
+    return null;
+  }
+
+  const remainder =
+    firstWhitespaceIndex === -1 ? '' : trimmed.slice(firstWhitespaceIndex).replace(/^\s+/, '');
+
+  return { command, remainder };
+}
+
+export function buildPromptWithSlashCommand(commandName: string, remainder: string): string {
+  const trimmedRemainder = remainder.trimStart();
+  return trimmedRemainder ? `/${commandName} ${trimmedRemainder}` : `/${commandName}`;
+}
+
 export function filterClaudeSlashCommands(
   commands: ClaudeSlashCommand[],
   query: string,
