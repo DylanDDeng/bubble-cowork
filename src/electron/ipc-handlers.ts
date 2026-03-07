@@ -666,6 +666,13 @@ async function handleSessionStart(
   payload: SessionStartPayload
 ): Promise<void> {
   const { title, prompt, cwd, allowedTools, attachments, provider } = payload;
+  if (!cwd?.trim()) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'Select a project folder before starting a task.' },
+    });
+    return;
+  }
   const chosenProvider = provider || 'claude';
   if (isDev()) {
     console.log('[Session Start]', { provider: chosenProvider, cwd: cwd || undefined });

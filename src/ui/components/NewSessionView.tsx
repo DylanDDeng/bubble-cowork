@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import type { Attachment } from '../types';
@@ -17,6 +18,8 @@ export function NewSessionView() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
   const [provider, setProvider] = useState(loadPreferredProvider());
+  const [showCwdHint, setShowCwdHint] = useState(false);
+  const hasSelectedCwd = cwd.trim().length > 0;
   const skillAutocomplete = useClaudeSkillAutocomplete({
     enabled: provider === 'claude',
     prompt,
@@ -29,8 +32,19 @@ export function NewSessionView() {
     window.electron.getRecentCwds(8).then(setRecentCwds);
   }, []);
 
+  useEffect(() => {
+    if (!showCwdHint) return;
+    const timer = window.setTimeout(() => setShowCwdHint(false), 1800);
+    return () => window.clearTimeout(timer);
+  }, [showCwdHint]);
+
   const handleStart = () => {
     if (!prompt.trim()) return;
+    if (!hasSelectedCwd) {
+      toast.error('Select a project folder before starting a task.');
+      setShowCwdHint(true);
+      return;
+    }
 
     setPendingStart(true);
     setMenuOpen(false);
@@ -135,6 +149,16 @@ export function NewSessionView() {
             What can I help you with?
           </h1>
 
+          <div
+            className={`mb-3 flex justify-center transition-all duration-200 ${
+              showCwdHint ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-1 pointer-events-none'
+            }`}
+          >
+            <div className="rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-primary)] shadow-sm">
+              Select a project folder before starting a new task.
+            </div>
+          </div>
+
           {/* Composer */}
           <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-3xl shadow-sm transition-colors">
             {attachments.length > 0 && (
@@ -188,6 +212,7 @@ export function NewSessionView() {
                 value={cwd}
                 onChange={handleCwdChange}
                 recentCwds={recentCwds}
+                required={!hasSelectedCwd}
               />
 
               <ProviderPicker
@@ -232,10 +257,10 @@ export function NewSessionView() {
               <div className="flex-1" />
               <button
                 onClick={handleStart}
-                disabled={!prompt.trim() || pendingStart}
+                disabled={!prompt.trim() || pendingStart || !hasSelectedCwd}
                 className="w-10 h-10 rounded-full flex items-center justify-center transition-colors no-drag disabled:cursor-not-allowed"
                 style={{
-                  backgroundColor: (!prompt.trim() || pendingStart) ? '#848588' : '#000000',
+                  backgroundColor: (!prompt.trim() || pendingStart || !hasSelectedCwd) ? '#848588' : '#000000',
                   color: '#FFFFFF'
                 }}
               >
@@ -273,6 +298,12 @@ export function NewSessionView() {
               Type <span className="font-mono">/</span> to browse Claude skills for this session.
             </div>
           )}
+
+          {!hasSelectedCwd && (
+            <div className="mt-3 text-center text-xs text-[var(--text-secondary)]">
+              Select a project folder to enable starting a new task.
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -284,10 +315,12 @@ function CwdPicker({
   value,
   onChange,
   recentCwds,
+  required = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   recentCwds: string[];
+  required?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const displayName = value ? value.split('/').pop() : 'No folder';
@@ -304,7 +337,9 @@ function CwdPicker({
     <div className="relative no-drag">
       <button
         onClick={() => setOpen(!open)}
-        className="px-3 py-2 rounded-lg text-sm bg-[var(--bg-tertiary)] hover:bg-[var(--border)] border border-transparent flex items-center gap-1.5 transition-colors"
+        className={`px-3 py-2 rounded-lg text-sm bg-[var(--bg-tertiary)] hover:bg-[var(--border)] border flex items-center gap-1.5 transition-colors ${
+          required ? 'border-[var(--accent)]/35' : 'border-transparent'
+        }`}
       >
         <FolderIcon />
         <span className="text-[var(--text-secondary)] max-w-[120px] truncate">
