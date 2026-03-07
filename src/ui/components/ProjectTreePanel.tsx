@@ -164,6 +164,7 @@ export function ProjectTreePanel() {
   const initRootRef = useRef<string | null>(null);
   const [previewPanelWidth, setPreviewPanelWidth] = useState(defaultPreviewWidth);
   const previewResizingRef = useRef(false);
+  const [isPreviewResizing, setIsPreviewResizing] = useState(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
   const latestPreviewWidthRef = useRef(previewPanelWidth);
@@ -354,6 +355,13 @@ export function ProjectTreePanel() {
   }, []);
 
   useEffect(() => {
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, []);
+
+  useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty(
       '--project-preview-space',
@@ -400,39 +408,42 @@ export function ProjectTreePanel() {
     }
   };
 
+  const handlePreviewResizeMove = (clientX: number) => {
+    if (!previewResizingRef.current) return;
+    const delta = startXRef.current - clientX;
+    const nextPreviewWidth = Math.min(
+      maxPreviewWidth,
+      Math.max(minPreviewWidth, startWidthRef.current + delta)
+    );
+    setPreviewPanelWidth(nextPreviewWidth);
+  };
+
+  const finishPreviewResize = () => {
+    if (!previewResizingRef.current) return;
+    previewResizingRef.current = false;
+    setIsPreviewResizing(false);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    window.localStorage.setItem(
+      'cowork.projectPreviewWidth',
+      String(latestPreviewWidthRef.current)
+    );
+  };
+
   useEffect(() => {
-    const handleMove = (event: MouseEvent) => {
-      if (!previewResizingRef.current) return;
-      const delta = startXRef.current - event.clientX;
-      const nextPreviewWidth = Math.min(
-        maxPreviewWidth,
-        Math.max(minPreviewWidth, startWidthRef.current + delta)
-      );
-      setPreviewPanelWidth(nextPreviewWidth);
-    };
+    if (!isPreviewResizing) return;
 
-    const handleUp = () => {
-      if (!previewResizingRef.current) return;
-      previewResizingRef.current = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      window.localStorage.setItem(
-        'cowork.projectPreviewWidth',
-        String(latestPreviewWidthRef.current)
-      );
-    };
-
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
+    const handleWindowBlur = () => finishPreviewResize();
+    window.addEventListener('blur', handleWindowBlur);
     return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('blur', handleWindowBlur);
     };
-  }, []);
+  }, [isPreviewResizing]);
 
   const handlePreviewResizeStart = (event: React.MouseEvent) => {
     event.preventDefault();
     previewResizingRef.current = true;
+    setIsPreviewResizing(true);
     startXRef.current = event.clientX;
     startWidthRef.current = previewPanelWidth;
     document.body.style.cursor = 'col-resize';
@@ -440,206 +451,216 @@ export function ProjectTreePanel() {
   };
 
   return (
-    <div
-      className="relative flex-shrink-0 bg-[var(--bg-secondary)] border-l border-[var(--border)] flex flex-col h-full"
-      style={{ width: railWidth }}
-    >
-      <div className="h-8 drag-region" />
-      <div className="px-4 pt-2 pb-2">
-        <div className="text-xs text-[var(--text-muted)]">Project files</div>
-        {!cwd && (
-          <div className="text-xs text-[var(--text-muted)]">No folder selected</div>
-        )}
-      </div>
+    <>
+      {isPreviewResizing && (
+        <div
+          className="fixed inset-0 z-[70] cursor-col-resize no-drag bg-transparent"
+          onMouseMove={(event) => handlePreviewResizeMove(event.clientX)}
+          onMouseUp={finishPreviewResize}
+        />
+      )}
 
-      <div className="flex-1 min-h-0 flex">
-        <div className="flex-1 overflow-auto px-3 pb-3">
+      <div
+        className="relative flex-shrink-0 bg-[var(--bg-secondary)] border-l border-[var(--border)] flex flex-col h-full"
+        style={{ width: railWidth }}
+      >
+        <div className="h-8 drag-region" />
+        <div className="px-4 pt-2 pb-2">
+          <div className="text-xs text-[var(--text-muted)]">Project files</div>
           {!cwd && (
-            <div className="text-sm text-[var(--text-muted)] px-1 py-2">
-              Select a folder to view files.
-            </div>
-          )}
-          {cwd && loading && !visibleTree && (
-            <div className="text-sm text-[var(--text-muted)] px-1 py-2">
-              Loading files...
-            </div>
-          )}
-          {cwd && visibleTree && (
-            <TreeNode
-              node={visibleTree}
-              depth={0}
-              expandedPaths={expandedPaths}
-              onToggle={togglePath}
-              onSelectFile={selectFile}
-              selectedFilePath={selectedFilePath}
-              forceExpand={false}
-            />
-          )}
-          {cwd && !loading && !visibleTree && (
-            <div className="text-sm text-[var(--text-muted)] px-1 py-2">
-              No files found.
-            </div>
+            <div className="text-xs text-[var(--text-muted)]">No folder selected</div>
           )}
         </div>
-      </div>
 
-      {selectedFilePath && (
-        <div
-          className="absolute top-8 bottom-0 z-20 border-l border-[var(--border)] bg-[var(--bg-secondary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]"
-          style={{ right: 'calc(100% - 1px)', width: previewPanelWidth }}
-        >
-          <div
-            className="group absolute left-0 top-0 bottom-0 w-3 -translate-x-1/2 cursor-col-resize no-drag"
-            onMouseDown={handlePreviewResizeStart}
-          >
-            <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
+        <div className="flex-1 min-h-0 flex">
+          <div className="flex-1 overflow-auto px-3 pb-3">
+            {!cwd && (
+              <div className="text-sm text-[var(--text-muted)] px-1 py-2">
+                Select a folder to view files.
+              </div>
+            )}
+            {cwd && loading && !visibleTree && (
+              <div className="text-sm text-[var(--text-muted)] px-1 py-2">
+                Loading files...
+              </div>
+            )}
+            {cwd && visibleTree && (
+              <TreeNode
+                node={visibleTree}
+                depth={0}
+                expandedPaths={expandedPaths}
+                onToggle={togglePath}
+                onSelectFile={selectFile}
+                selectedFilePath={selectedFilePath}
+                forceExpand={false}
+              />
+            )}
+            {cwd && !loading && !visibleTree && (
+              <div className="text-sm text-[var(--text-muted)] px-1 py-2">
+                No files found.
+              </div>
+            )}
           </div>
+        </div>
 
-          <div className="h-full min-w-0 flex flex-col px-3 py-3">
-            <div className="flex items-center justify-between gap-2 pb-2">
-              <div className="min-w-0">
-                <div className="text-xs text-[var(--text-muted)]">Preview</div>
-                <div
-                  className="text-sm font-medium text-[var(--text-primary)] truncate"
-                  title={selectedFilePath}
-                >
-                  {selectedPreview?.name ||
-                    selectedFilePath.split('/').pop() ||
-                    selectedFilePath}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1 flex-shrink-0 no-drag">
-                {selectedPreview?.kind === 'html' && (
-                  <HtmlModeToggle value={htmlMode} onChange={setHtmlMode} />
-                )}
-
-                {canSaveTxt && (
-                  <button
-                    onClick={handleSaveTxt}
-                    disabled={saveState === 'saving'}
-                    className="px-2 py-1 text-xs rounded-md bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Save"
-                  >
-                    {saveState === 'saving'
-                      ? 'Saving...'
-                      : saveState === 'saved'
-                        ? 'Saved'
-                        : 'Save'}
-                  </button>
-                )}
-
-                <IconSquareButton
-                  onClick={() => setSelectedFilePath(null)}
-                  title="Close preview"
-                  ariaLabel="Close preview"
-                >
-                  <X className="w-4 h-4" />
-                </IconSquareButton>
-                <IconSquareButton
-                  onClick={() => window.electron.openPath(selectedFilePath)}
-                  title="Open"
-                  ariaLabel="Open"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                </IconSquareButton>
-                <IconSquareButton
-                  onClick={() => window.electron.revealPath(selectedFilePath)}
-                  title="Reveal"
-                  ariaLabel="Reveal"
-                >
-                  <FolderSearch className="w-4 h-4" />
-                </IconSquareButton>
-                <IconSquareButton
-                  onClick={() => handleCopyPath(selectedFilePath)}
-                  title={copiedPath ? 'Copied' : 'Copy path'}
-                  ariaLabel="Copy path"
-                >
-                  {copiedPath ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                </IconSquareButton>
-              </div>
+        {selectedFilePath && (
+          <div
+            className="absolute top-8 bottom-0 z-20 border-l border-[var(--border)] bg-[var(--bg-secondary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]"
+            style={{ right: 'calc(100% - 1px)', width: previewPanelWidth }}
+          >
+            <div
+              className="group absolute left-0 top-0 bottom-0 w-3 -translate-x-1/2 cursor-col-resize no-drag"
+              onMouseDown={handlePreviewResizeStart}
+            >
+              <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
             </div>
 
-            <div className="flex-1 min-h-0 overflow-auto rounded-lg border border-[var(--border)] bg-white p-3">
-              {previewLoading && (
-                <div className="text-sm text-[var(--text-muted)]">Loading...</div>
-              )}
-
-              {!previewLoading && selectedPreview?.kind === 'error' && (
-                <div className="text-sm text-[var(--error)]">{selectedPreview.message}</div>
-              )}
-
-              {!previewLoading && selectedPreview?.kind === 'too_large' && (
-                <div className="text-sm text-[var(--text-muted)]">
-                  File is larger than {formatBytes(selectedPreview.maxBytes)} and cannot be previewed.
+            <div className="h-full min-w-0 flex flex-col px-3 py-3">
+              <div className="flex items-center justify-between gap-2 pb-2">
+                <div className="min-w-0">
+                  <div className="text-xs text-[var(--text-muted)]">Preview</div>
+                  <div
+                    className="text-sm font-medium text-[var(--text-primary)] truncate"
+                    title={selectedFilePath}
+                  >
+                    {selectedPreview?.name ||
+                      selectedFilePath.split('/').pop() ||
+                      selectedFilePath}
+                  </div>
                 </div>
-              )}
 
-              {!previewLoading && selectedPreview?.kind === 'unsupported' && (
-                <div className="text-sm text-[var(--text-muted)]">
-                  Preview not supported for this file type. Click “Open” to view it.
+                <div className="flex items-center gap-1 flex-shrink-0 no-drag">
+                  {selectedPreview?.kind === 'html' && (
+                    <HtmlModeToggle value={htmlMode} onChange={setHtmlMode} />
+                  )}
+
+                  {canSaveTxt && (
+                    <button
+                      onClick={handleSaveTxt}
+                      disabled={saveState === 'saving'}
+                      className="px-2 py-1 text-xs rounded-md bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Save"
+                    >
+                      {saveState === 'saving'
+                        ? 'Saving...'
+                        : saveState === 'saved'
+                          ? 'Saved'
+                          : 'Save'}
+                    </button>
+                  )}
+
+                  <IconSquareButton
+                    onClick={() => setSelectedFilePath(null)}
+                    title="Close preview"
+                    ariaLabel="Close preview"
+                  >
+                    <X className="w-4 h-4" />
+                  </IconSquareButton>
+                  <IconSquareButton
+                    onClick={() => window.electron.openPath(selectedFilePath)}
+                    title="Open"
+                    ariaLabel="Open"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </IconSquareButton>
+                  <IconSquareButton
+                    onClick={() => window.electron.revealPath(selectedFilePath)}
+                    title="Reveal"
+                    ariaLabel="Reveal"
+                  >
+                    <FolderSearch className="w-4 h-4" />
+                  </IconSquareButton>
+                  <IconSquareButton
+                    onClick={() => handleCopyPath(selectedFilePath)}
+                    title={copiedPath ? 'Copied' : 'Copy path'}
+                    ariaLabel="Copy path"
+                  >
+                    {copiedPath ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  </IconSquareButton>
                 </div>
-              )}
+              </div>
 
-              {!previewLoading && selectedPreview?.kind === 'binary' && (
-                <div className="text-sm text-[var(--text-muted)]">
-                  This file can be opened with your system viewer.
-                </div>
-              )}
+              <div className="flex-1 min-h-0 overflow-auto rounded-lg border border-[var(--border)] bg-white p-3">
+                {previewLoading && (
+                  <div className="text-sm text-[var(--text-muted)]">Loading...</div>
+                )}
 
-              {!previewLoading && selectedPreview?.kind === 'image' && (
-                <img
-                  src={selectedPreview.dataUrl}
-                  alt={selectedPreview.name}
-                  className="max-w-full rounded-md"
-                />
-              )}
+                {!previewLoading && selectedPreview?.kind === 'error' && (
+                  <div className="text-sm text-[var(--error)]">{selectedPreview.message}</div>
+                )}
 
-              {!previewLoading && selectedPreview?.kind === 'markdown' && (
-                <div className="text-sm">
-                  <MDContent content={selectedPreview.text} allowHtml={false} />
-                </div>
-              )}
+                {!previewLoading && selectedPreview?.kind === 'too_large' && (
+                  <div className="text-sm text-[var(--text-muted)]">
+                    File is larger than {formatBytes(selectedPreview.maxBytes)} and cannot be previewed.
+                  </div>
+                )}
 
-              {!previewLoading && selectedPreview?.kind === 'html' && (
-                htmlMode === 'code' ? (
-                  <pre className="whitespace-pre-wrap break-words font-mono text-sm text-[var(--text-primary)]">
-                    {selectedPreview.text}
-                  </pre>
-                ) : (
-                  <iframe
-                    title={selectedPreview.name}
-                    sandbox="allow-scripts"
-                    srcDoc={selectedPreview.text}
-                    className="w-full h-full min-h-[320px] rounded-md border border-[var(--border)] bg-white"
+                {!previewLoading && selectedPreview?.kind === 'unsupported' && (
+                  <div className="text-sm text-[var(--text-muted)]">
+                    Preview not supported for this file type. Click “Open” to view it.
+                  </div>
+                )}
+
+                {!previewLoading && selectedPreview?.kind === 'binary' && (
+                  <div className="text-sm text-[var(--text-muted)]">
+                    This file can be opened with your system viewer.
+                  </div>
+                )}
+
+                {!previewLoading && selectedPreview?.kind === 'image' && (
+                  <img
+                    src={selectedPreview.dataUrl}
+                    alt={selectedPreview.name}
+                    className="max-w-full rounded-md"
                   />
-                )
-              )}
+                )}
 
-              {!previewLoading && selectedPreview?.kind === 'text' && (
-                <>
-                  {selectedPreview.editable ? (
-                    <textarea
-                      value={draftText}
-                      onChange={(e) => setDraftText(e.target.value)}
-                      className="w-full h-full min-h-[220px] resize-none bg-transparent outline-none font-mono text-sm whitespace-pre-wrap"
-                      spellCheck={false}
-                    />
-                  ) : (
+                {!previewLoading && selectedPreview?.kind === 'markdown' && (
+                  <div className="text-sm">
+                    <MDContent content={selectedPreview.text} allowHtml={false} />
+                  </div>
+                )}
+
+                {!previewLoading && selectedPreview?.kind === 'html' && (
+                  htmlMode === 'code' ? (
                     <pre className="whitespace-pre-wrap break-words font-mono text-sm text-[var(--text-primary)]">
                       {selectedPreview.text}
                     </pre>
-                  )}
-                  {saveState === 'error' && saveError && (
-                    <div className="mt-2 text-xs text-[var(--error)]">{saveError}</div>
-                  )}
-                </>
-              )}
+                  ) : (
+                    <iframe
+                      title={selectedPreview.name}
+                      sandbox="allow-scripts"
+                      srcDoc={selectedPreview.text}
+                      className="w-full h-full min-h-[320px] rounded-md border border-[var(--border)] bg-white"
+                    />
+                  )
+                )}
+
+                {!previewLoading && selectedPreview?.kind === 'text' && (
+                  <>
+                    {selectedPreview.editable ? (
+                      <textarea
+                        value={draftText}
+                        onChange={(e) => setDraftText(e.target.value)}
+                        className="w-full h-full min-h-[220px] resize-none bg-transparent outline-none font-mono text-sm whitespace-pre-wrap"
+                        spellCheck={false}
+                      />
+                    ) : (
+                      <pre className="whitespace-pre-wrap break-words font-mono text-sm text-[var(--text-primary)]">
+                        {selectedPreview.text}
+                      </pre>
+                    )}
+                    {saveState === 'error' && saveError && (
+                      <div className="mt-2 text-xs text-[var(--error)]">{saveError}</div>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </>
   );
 }
 

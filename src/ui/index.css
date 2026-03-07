@@ -6,7 +6,7 @@
 :root {
   --bg-primary: #FFFFFF;       /* 主背景：纯白 */
   --bg-secondary: #FFFFFF;     /* 次背景：纯白 */
-  --bg-tertiary: #F1F2F4;      /* 第三背景：浅灰 */
+  --bg-tertiary: #F8F7F8;      /* 第三背景：浅灰 */
   --text-primary: #111111;     /* 主文本：近黑 */
   --text-secondary: #62646A;   /* 次文本：中灰 */
   --text-muted: #989BA3;       /* 弱化文本 */
@@ -44,7 +44,7 @@
   --code-token-variable: #111827;
 
   /* User prompt bubble */
-  --user-bubble-bg: #F2F3F5;
+  --user-bubble-bg: #F8F7F8;
   --user-bubble-border: #E5E7EB;
   --user-bubble-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
 
