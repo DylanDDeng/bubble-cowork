@@ -13,8 +13,8 @@ import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import { getLatestProviderModel } from '../utils/session-model';
-import { formatClaudeModelLabel, loadPreferredClaudeModel, savePreferredClaudeModel } from '../utils/claude-model';
-import { buildCodexModelOptions, formatCodexModelLabel, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
+import { loadPreferredClaudeModel, savePreferredClaudeModel } from '../utils/claude-model';
+import { buildCodexModelOptions, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
 
 export function NewSessionView() {
   const { pendingStart, projectCwd, sessions, setPendingStart, setProjectCwd } = useAppStore();
@@ -196,30 +196,17 @@ export function NewSessionView() {
       <div className="h-8 drag-region flex-shrink-0" />
 
       {/* 内容区域 */}
-      <div className="flex-1 flex justify-center px-8 pb-10 pt-16">
-        <div className="flex h-full w-full max-w-2xl flex-col">
+      <div className="flex-1 flex justify-center px-8 pb-4 pt-16">
+        <div className="flex h-full w-full max-w-[920px] flex-col">
           <div className="flex flex-1 items-center justify-center text-center">
-            <div className="-translate-y-12">
+            <div className="-translate-y-6">
             {/* 标题 */}
               <h1 className="text-4xl font-bold serif-display leading-tight text-[var(--text-primary)]">
                 What can I help you with?
               </h1>
 
-              {provider === 'claude' && (
-                <div className="mt-4 text-xs text-[var(--text-muted)]">
-                  Type <span className="font-mono">/</span> to browse Claude skills for this session.
-                  {recentClaudeModel ? ` Last detected model: ${formatClaudeModelLabel(recentClaudeModel)}.` : ''}
-                </div>
-              )}
-
-              {provider === 'codex' && recentCodexModel && (
-                <div className="mt-4 text-xs text-[var(--text-muted)]">
-                  Last detected model: {formatCodexModelLabel(recentCodexModel)}.
-                </div>
-              )}
-
               {!hasSelectedCwd && (
-                <div className="mt-3 text-xs text-[var(--text-secondary)]">
+                <div className="mt-5 text-xs text-[var(--text-secondary)]">
                   Select a project folder to enable starting a new task.
                 </div>
               )}
@@ -279,9 +266,9 @@ export function NewSessionView() {
                     ? `Add instructions for ${skillAutocomplete.selectedCommand.title}...`
                   : 'Describe your task...'
               }
-              rows={4}
-              className={`w-full bg-transparent px-5 pb-3 text-[15px] outline-none resize-none no-drag ${
-                skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-3' : 'pt-4'
+              rows={3}
+              className={`w-full bg-transparent px-5 pb-2 text-[15px] outline-none resize-none no-drag ${
+                skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-3 min-h-[104px]' : 'pt-4 min-h-[112px]'
               }`}
               autoFocus
             />
@@ -373,25 +360,6 @@ export function NewSessionView() {
             </div>
             </div>
 
-            {/* Recent Projects */}
-            {recentProjectOptions.length > 0 && (
-              <div className="mt-4 flex flex-wrap justify-center gap-2">
-                {recentProjectOptions.map((dir) => (
-                  <button
-                    key={dir}
-                    onClick={() => handleCwdChange(dir)}
-                    className={`text-xs px-3 py-1.5 rounded-full transition-colors no-drag ${
-                      cwd === dir
-                        ? 'bg-[var(--accent-light)] text-[var(--accent)]'
-                        : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--border)]'
-                    }`}
-                    title={dir}
-                  >
-                    {dir.split('/').pop() || dir}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       </div>
