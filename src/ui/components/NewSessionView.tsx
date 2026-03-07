@@ -5,6 +5,7 @@ import type { Attachment } from '../types';
 import { AttachmentChips } from './AttachmentChips';
 import { ProviderPicker } from './ProviderPicker';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
+import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 
@@ -105,6 +106,16 @@ export function NewSessionView() {
       }
     }
 
+    if (
+      skillAutocomplete.selectedSkill &&
+      skillAutocomplete.displayPrompt.length === 0 &&
+      e.key === 'Backspace'
+    ) {
+      e.preventDefault();
+      skillAutocomplete.clearSelectedSkill();
+      return;
+    }
+
     if (e.key === 'Enter' && !e.shiftKey && prompt.trim() && !pendingStart) {
       e.preventDefault();
       handleStart();
@@ -136,13 +147,29 @@ export function NewSessionView() {
                 />
               </div>
             )}
+
+            {provider === 'claude' && skillAutocomplete.selectedSkill && (
+              <div className="px-5 pt-4">
+                <SelectedClaudeSkillChip
+                  skill={skillAutocomplete.selectedSkill}
+                  onClear={skillAutocomplete.clearSelectedSkill}
+                />
+              </div>
+            )}
+
             <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              value={skillAutocomplete.displayPrompt}
+              onChange={(e) => skillAutocomplete.setDisplayPrompt(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Describe your task..."
+              placeholder={
+                skillAutocomplete.selectedSkill
+                  ? `Add instructions for /${skillAutocomplete.selectedSkill.name}...`
+                  : 'Describe your task...'
+              }
               rows={4}
-              className="w-full bg-transparent px-5 pt-4 pb-3 text-[15px] outline-none resize-none no-drag"
+              className={`w-full bg-transparent px-5 pb-3 text-[15px] outline-none resize-none no-drag ${
+                skillAutocomplete.selectedSkill ? 'pt-3' : 'pt-4'
+              }`}
               autoFocus
             />
 

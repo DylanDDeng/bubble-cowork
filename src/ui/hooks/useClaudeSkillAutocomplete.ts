@@ -3,7 +3,9 @@ import { sendEvent } from './useIPC';
 import { useAppStore } from '../store/useAppStore';
 import type { ClaudeSkillSummary, StreamMessage } from '../types';
 import {
+  buildPromptWithSkill,
   filterClaudeSkills,
+  parseSelectedSkillPrompt,
   getSessionSkillNames,
   getSlashSkillQuery,
   insertSlashSkill,
@@ -53,6 +55,11 @@ export function useClaudeSkillAutocomplete({
     return filterClaudeSkills(availableSkills, query);
   }, [availableSkills, enabled, query]);
 
+  const selectedSkillState = useMemo(
+    () => (enabled ? parseSelectedSkillPrompt(prompt, availableSkills) : null),
+    [availableSkills, enabled, prompt]
+  );
+
   useEffect(() => {
     setSelectedIndex(0);
   }, [query]);
@@ -70,11 +77,23 @@ export function useClaudeSkillAutocomplete({
     setPrompt(insertSlashSkill(prompt, skill.name));
   };
 
+  const setDisplayPrompt = (nextPrompt: string) => {
+    if (selectedSkillState) {
+      setPrompt(buildPromptWithSkill(selectedSkillState.skill.name, nextPrompt));
+      return;
+    }
+
+    setPrompt(nextPrompt);
+  };
+
   return {
     hasSlashQuery,
     suggestions,
+    availableSkills,
     selectedIndex,
     setSelectedIndex,
+    selectedSkill: selectedSkillState?.skill || null,
+    displayPrompt: selectedSkillState?.remainder ?? prompt,
     moveSelection: (direction: 1 | -1) => {
       if (suggestions.length === 0) {
         return;
@@ -96,6 +115,10 @@ export function useClaudeSkillAutocomplete({
       if (skill) {
         selectSkill(skill);
       }
+    },
+    setDisplayPrompt,
+    clearSelectedSkill: () => {
+      setPrompt(selectedSkillState?.remainder || '');
     },
     selectSkill,
   };

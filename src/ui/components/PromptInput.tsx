@@ -6,6 +6,7 @@ import type { Attachment } from '../types';
 import { AttachmentChips } from './AttachmentChips';
 import { ProviderPicker } from './ProviderPicker';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
+import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 
@@ -113,6 +114,16 @@ export function PromptInput() {
       }
     }
 
+    if (
+      skillAutocomplete.selectedSkill &&
+      skillAutocomplete.displayPrompt.length === 0 &&
+      e.key === 'Backspace'
+    ) {
+      e.preventDefault();
+      skillAutocomplete.clearSelectedSkill();
+      return;
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (isRunning) {
@@ -138,21 +149,34 @@ export function PromptInput() {
             </div>
           )}
 
+          {provider === 'claude' && skillAutocomplete.selectedSkill && (
+            <div className="px-5 pt-4">
+              <SelectedClaudeSkillChip
+                skill={skillAutocomplete.selectedSkill}
+                onClear={skillAutocomplete.clearSelectedSkill}
+              />
+            </div>
+          )}
+
           <textarea
             ref={textareaRef}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
+            value={skillAutocomplete.displayPrompt}
+            onChange={(e) => skillAutocomplete.setDisplayPrompt(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
               isRunning
                 ? 'Press Enter to stop...'
+                : skillAutocomplete.selectedSkill
+                ? `Add instructions for /${skillAutocomplete.selectedSkill.name}...`
                 : activeSessionId
                 ? 'Continue the conversation...'
                 : 'Start a new session...'
             }
             rows={1}
             disabled={isRunning}
-            className="w-full bg-transparent px-5 pt-4 pb-3 text-[15px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50"
+            className={`w-full bg-transparent px-5 pb-3 text-[15px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50 ${
+              skillAutocomplete.selectedSkill ? 'pt-3' : 'pt-4'
+            }`}
           />
 
           {provider === 'claude' && skillAutocomplete.hasSlashQuery && (

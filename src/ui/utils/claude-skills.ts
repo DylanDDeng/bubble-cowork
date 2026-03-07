@@ -11,6 +11,41 @@ export function insertSlashSkill(prompt: string, skillName: string): string {
   return `${leadingWhitespace}/${skillName} `;
 }
 
+export function buildPromptWithSkill(skillName: string, remainder: string): string {
+  const trimmedRemainder = remainder.trimStart();
+  return trimmedRemainder ? `/${skillName} ${trimmedRemainder}` : `/${skillName}`;
+}
+
+export function parseSelectedSkillPrompt(
+  prompt: string,
+  skills: ClaudeSkillSummary[]
+): { skill: ClaudeSkillSummary; remainder: string } | null {
+  const trimmed = prompt.trimStart();
+  if (!trimmed.startsWith('/')) {
+    return null;
+  }
+
+  const firstWhitespaceIndex = trimmed.search(/\s/);
+  const skillName =
+    firstWhitespaceIndex === -1
+      ? trimmed.slice(1)
+      : trimmed.slice(1, firstWhitespaceIndex);
+
+  if (!skillName) {
+    return null;
+  }
+
+  const skill = skills.find((item) => item.name === skillName);
+  if (!skill) {
+    return null;
+  }
+
+  const remainder =
+    firstWhitespaceIndex === -1 ? '' : trimmed.slice(firstWhitespaceIndex).replace(/^\s+/, '');
+
+  return { skill, remainder };
+}
+
 export function getSessionSkillNames(messages: StreamMessage[]): Set<string> {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
