@@ -125,7 +125,7 @@ export function Sidebar() {
   };
 
   return (
-    <div className="w-64 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col h-full">
+    <div className="w-64 bg-[var(--bg-tertiary)] border-r border-[var(--border)] flex flex-col h-full">
       {/* 拖拽区域 */}
       <div className="h-8 drag-region" />
 
@@ -136,7 +136,7 @@ export function Sidebar() {
           setActiveSession(null);
           setShowNewSession(true);
         }}
-        className="group mx-2 mt-4 mb-4 px-2 py-2 flex items-center gap-3 text-left no-drag rounded-xl hover:bg-[var(--text-primary)]/5 transition-colors duration-150"
+        className="group mx-2 mt-4 mb-4 px-2 py-2 flex items-center gap-3 text-left no-drag rounded-xl hover:bg-[var(--bg-secondary)] transition-colors duration-150"
       >
         <span className="text-[#92918E] text-[22px] font-normal leading-none">+</span>
         <span className="text-base font-medium">New Task</span>
@@ -206,10 +206,10 @@ export function Sidebar() {
       </div>
 
       {/* Settings Button */}
-      <div className="p-4 border-t border-[var(--border)]">
+      <div className="p-4 border-t border-[var(--border)]/80">
         <button
           onClick={() => setShowSettings(true)}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 transition-colors duration-150"
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors duration-150"
         >
           <Settings className="w-4 h-4" />
           <span>Settings</span>
@@ -307,10 +307,10 @@ function SessionItem({
 
   return (
     <div
-      className={`group relative rounded-xl p-3 mb-1 cursor-pointer transition-colors duration-150 ${
+      className={`group relative mb-1 cursor-pointer rounded-2xl border p-3 transition-colors duration-150 ${
         isActive
-          ? 'bg-[var(--text-primary)]/10'
-          : 'hover:bg-[var(--text-primary)]/5'
+          ? 'bg-[var(--bg-secondary)] border-[var(--border)] shadow-[0_1px_2px_rgba(0,0,0,0.03)]'
+          : 'bg-transparent border-transparent hover:bg-[var(--bg-secondary)]/72 hover:border-[var(--border)]/70'
       }`}
       onClick={onClick}
     >
@@ -337,7 +337,7 @@ function SessionItem({
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button
-            className="absolute top-3 right-2 w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-md hover:bg-[var(--text-primary)]/5 transition-all duration-150"
+            className="absolute top-3 right-2 w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-md hover:bg-[var(--bg-tertiary)] transition-all duration-150"
             onClick={(e) => e.stopPropagation()}
           >
             <MoreVertical className="w-4 h-4" />
