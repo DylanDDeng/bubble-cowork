@@ -16,6 +16,7 @@ import { ThinkingIndicator } from './components/ThinkingIndicator';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MDContent } from './render/markdown';
 import { loadPreferredProvider } from './utils/provider';
+import { getMessageContentBlocks } from './utils/message-content';
 import {
   deriveTurnPhase,
   shouldShowThinkingIndicator,
@@ -34,7 +35,7 @@ type AggregatedItem =
 // 判断消息是否包含工具调用（可以有文本内容）
 function hasToolUse(msg: StreamMessage): msg is StreamMessage & { type: 'assistant' } {
   if (msg.type !== 'assistant') return false;
-  const content = msg.message.content;
+  const content = getMessageContentBlocks(msg);
   // 只要包含 tool_use 就算（允许混合 text + tool_use）
   return content.some((block) => block.type === 'tool_use');
 }
@@ -42,7 +43,7 @@ function hasToolUse(msg: StreamMessage): msg is StreamMessage & { type: 'assista
 // 判断是否为 tool_result-only 的 user 消息（这类消息不应该打断聚合）
 function isToolResultOnlyMessage(msg: StreamMessage): boolean {
   if (msg.type !== 'user') return false;
-  const content = msg.message.content;
+  const content = getMessageContentBlocks(msg);
   return content.length > 0 && content.every((block) => block.type === 'tool_result');
 }
 
@@ -201,13 +202,13 @@ export function App() {
 
     for (const msg of session.messages) {
       if (msg.type === 'assistant') {
-        for (const block of msg.message.content) {
+        for (const block of getMessageContentBlocks(msg)) {
           if (block.type === 'tool_use') {
             statusMap.set(block.id, 'pending');
           }
         }
       } else if (msg.type === 'user') {
-        for (const block of msg.message.content) {
+        for (const block of getMessageContentBlocks(msg)) {
           if (block.type === 'tool_result') {
             statusMap.set(block.tool_use_id, block.is_error ? 'error' : 'success');
             resultsMap.set(block.tool_use_id, block as ToolResultBlock);

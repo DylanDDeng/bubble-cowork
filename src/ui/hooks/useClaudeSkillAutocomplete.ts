@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { sendEvent } from './useIPC';
 import { useAppStore } from '../store/useAppStore';
 import type { ClaudeSkillSummary, StreamMessage } from '../types';
+import type { ClaudeSlashSuggestion } from '../utils/claude-slash';
 import {
   buildPromptWithSkill,
   filterClaudeSkills,
@@ -11,6 +12,11 @@ import {
   insertSlashSkill,
   mergeClaudeSkills,
 } from '../utils/claude-skills';
+import {
+  buildClaudeSlashCommands,
+  filterClaudeSlashCommands,
+  getSessionSlashCommands,
+} from '../utils/claude-slash';
 
 export function useClaudeSkillAutocomplete({
   enabled,
@@ -41,19 +47,44 @@ export function useClaudeSkillAutocomplete({
 
   const query = useMemo(() => getSlashSkillQuery(prompt), [prompt]);
   const sessionSkillNames = useMemo(() => getSessionSkillNames(sessionMessages), [sessionMessages]);
+  const sessionSlashCommands = useMemo(() => getSessionSlashCommands(sessionMessages), [sessionMessages]);
 
   const availableSkills = useMemo(
     () => mergeClaudeSkills(claudeUserSkills, claudeProjectSkills, sessionSkillNames),
     [claudeUserSkills, claudeProjectSkills, sessionSkillNames]
   );
 
-  const suggestions = useMemo(() => {
+  const availableCommands = useMemo(
+    () => buildClaudeSlashCommands(sessionSlashCommands),
+    [sessionSlashCommands]
+  );
+
+  const skillSuggestions = useMemo(() => {
     if (!enabled || query === null) {
       return [] as ClaudeSkillSummary[];
     }
 
     return filterClaudeSkills(availableSkills, query);
   }, [availableSkills, enabled, query]);
+
+  const commandSuggestions = useMemo(() => {
+    if (!enabled || query === null) {
+      return [] as ReturnType<typeof filterClaudeSlashCommands>;
+    }
+
+    return filterClaudeSlashCommands(availableCommands, query);
+  }, [availableCommands, enabled, query]);
+
+  const suggestions = useMemo(() => {
+    if (!enabled || query === null) {
+      return [] as ClaudeSlashSuggestion[];
+    }
+
+    return [
+      ...commandSuggestions.map((command) => ({ kind: 'command', command }) as ClaudeSlashSuggestion),
+      ...skillSuggestions.map((skill) => ({ kind: 'skill', skill }) as ClaudeSlashSuggestion),
+    ];
+  }, [commandSuggestions, enabled, query, skillSuggestions]);
 
   const selectedSkillState = useMemo(
     () => (enabled ? parseSelectedSkillPrompt(prompt, availableSkills) : null),
@@ -77,6 +108,15 @@ export function useClaudeSkillAutocomplete({
     setPrompt(insertSlashSkill(prompt, skill.name));
   };
 
+  const selectSuggestion = (suggestion: ClaudeSlashSuggestion) => {
+    if (suggestion.kind === 'command') {
+      setPrompt(insertSlashSkill(prompt, suggestion.command.name));
+      return;
+    }
+
+    selectSkill(suggestion.skill);
+  };
+
   const setDisplayPrompt = (nextPrompt: string) => {
     if (selectedSkillState) {
       setPrompt(buildPromptWithSkill(selectedSkillState.skill.name, nextPrompt));
@@ -90,6 +130,7 @@ export function useClaudeSkillAutocomplete({
     hasSlashQuery,
     suggestions,
     availableSkills,
+    availableCommands,
     selectedIndex,
     setSelectedIndex,
     selectedSkill: selectedSkillState?.skill || null,
@@ -110,10 +151,10 @@ export function useClaudeSkillAutocomplete({
         return next;
       });
     },
-    selectCurrentSkill: () => {
-      const skill = suggestions[selectedIndex];
-      if (skill) {
-        selectSkill(skill);
+    selectCurrentSuggestion: () => {
+      const suggestion = suggestions[selectedIndex];
+      if (suggestion) {
+        selectSuggestion(suggestion);
       }
     },
     setDisplayPrompt,
@@ -121,5 +162,6 @@ export function useClaudeSkillAutocomplete({
       setPrompt(selectedSkillState?.remainder || '');
     },
     selectSkill,
+    selectSuggestion,
   };
 }

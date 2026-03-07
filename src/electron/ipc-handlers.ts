@@ -8,6 +8,7 @@ import { runCodex } from './libs/codex-runner';
 import { generateSessionTitle } from './libs/util';
 import { readProjectTree } from './libs/project-tree';
 import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfig, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
+import { getCodexModelConfig } from './libs/codex-settings';
 import { listClaudeSkills } from './libs/claude-skills';
 import * as statusConfig from './libs/status-config';
 import * as folderConfig from './libs/folder-config';
@@ -16,6 +17,7 @@ import type {
   ClientEvent,
   ServerEvent,
   SessionInfo,
+  StreamMessage,
   RunnerHandle,
   SessionState,
   PermissionResult,
@@ -145,6 +147,136 @@ function normalizeModel(model?: string | null): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function parseSlashCommand(prompt: string): { name: string; args: string } | null {
+  const trimmed = prompt.trim();
+  const match = trimmed.match(/^\/([^\s]+)(?:\s+(.+))?$/);
+  if (!match) return null;
+  return {
+    name: match[1].toLowerCase(),
+    args: match[2]?.trim() || '',
+  };
+}
+
+function formatInteger(value: number): string {
+  return new Intl.NumberFormat('en-US').format(value);
+}
+
+function formatProviderLabel(provider: SessionInfo['provider']): string {
+  return provider === 'codex' ? 'Codex' : 'Claude Code';
+}
+
+function buildLocalAssistantMessage(text: string): StreamMessage {
+  return {
+    type: 'assistant',
+    uuid: uuidv4(),
+    message: {
+      content: [{ type: 'text', text }],
+    },
+  };
+}
+
+function buildSessionCostSummary(session: ReturnType<typeof sessions.getSession>): string {
+  if (!session) {
+    return 'No active session found.';
+  }
+
+  const history = sessions.getSessionHistory(session.id);
+  const resultMessages = history.filter(
+    (message): message is StreamMessage & { type: 'result' } => message.type === 'result'
+  );
+
+  if (resultMessages.length === 0) {
+    return [
+      '**Session usage**',
+      '',
+      `- Provider: ${formatProviderLabel(session.provider)}`,
+      `- Model: ${session.model || 'Unknown'}`,
+      '- No completed turns with usage data yet.',
+    ].join('\n');
+  }
+
+  const totalInputTokens = resultMessages.reduce(
+    (sum, message) => sum + (message.usage?.input_tokens || 0),
+    0
+  );
+  const totalOutputTokens = resultMessages.reduce(
+    (sum, message) => sum + (message.usage?.output_tokens || 0),
+    0
+  );
+  const totalTokens = totalInputTokens + totalOutputTokens;
+  const totalCostUsd = resultMessages.reduce(
+    (sum, message) => sum + (message.total_cost_usd || 0),
+    0
+  );
+  const totalDurationMs = resultMessages.reduce(
+    (sum, message) => sum + (message.duration_ms || 0),
+    0
+  );
+
+  return [
+    '**Session usage**',
+    '',
+    `- Provider: ${formatProviderLabel(session.provider)}`,
+    `- Model: ${session.model || 'Unknown'}`,
+    `- Completed turns: ${formatInteger(resultMessages.length)}`,
+    `- Input tokens: ${formatInteger(totalInputTokens)}`,
+    `- Output tokens: ${formatInteger(totalOutputTokens)}`,
+    `- Total tokens: ${formatInteger(totalTokens)}`,
+    `- Total duration: ${(totalDurationMs / 1000).toFixed(1)}s`,
+    `- Total cost: $${totalCostUsd.toFixed(4)}`,
+  ].join('\n');
+}
+
+function buildUnsupportedSlashCommandMessage(commandName: string): string {
+  return [
+    `\`/${commandName}\` is not implemented in Bubble Cowork yet.`,
+    '',
+    'This command is advertised from Claude Code slash commands, but this desktop app does not execute that built-in command yet.',
+  ].join('\n');
+}
+
+function maybeHandleLocalSlashCommand(
+  mainWindow: BrowserWindow,
+  session: ReturnType<typeof sessions.getSession>,
+  prompt: string,
+  attachments?: Attachment[]
+): boolean {
+  if (!session) return false;
+
+  const parsed = parseSlashCommand(prompt);
+  if (!parsed) return false;
+
+  let responseText: string | null = null;
+
+  if (parsed.name === 'cost') {
+    responseText = buildSessionCostSummary(session);
+  } else if (parsed.name === 'plan' || parsed.name === 'compact') {
+    responseText = buildUnsupportedSlashCommandMessage(parsed.name);
+  }
+
+  if (!responseText) {
+    return false;
+  }
+
+  const createdAt = Date.now();
+  sessions.updateLastPrompt(session.id, prompt);
+
+  broadcast(mainWindow, {
+    type: 'stream.user_prompt',
+    payload: { sessionId: session.id, prompt, attachments, createdAt },
+  });
+  sessions.addMessage(session.id, { type: 'user_prompt', prompt, attachments, createdAt });
+
+  const assistantMessage = buildLocalAssistantMessage(responseText);
+  sessions.addMessage(session.id, assistantMessage);
+  broadcast(mainWindow, {
+    type: 'stream.message',
+    payload: { sessionId: session.id, message: assistantMessage },
+  });
+
+  return true;
+}
+
 function toAttachment(filePath: string): Attachment | null {
   const spec = getAttachmentSpec(filePath);
   if (!spec) {
@@ -257,6 +389,11 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // RPC: 获取 Claude 模型配置
   ipcMainHandle('get-claude-model-config', async () => {
     return getClaudeModelConfig();
+  });
+
+  // RPC: 获取 Codex 模型配置
+  ipcMainHandle('get-codex-model-config', async () => {
+    return getCodexModelConfig();
   });
 
   // RPC: 选择目录
@@ -686,7 +823,7 @@ async function handleSessionStart(
     return;
   }
   const chosenProvider = provider || 'claude';
-  const selectedModel = chosenProvider === 'claude' ? normalizeModel(model) : undefined;
+  const selectedModel = normalizeModel(model);
   if (isDev()) {
     console.log('[Session Start]', {
       provider: chosenProvider,
@@ -775,11 +912,17 @@ async function handleSessionContinue(
     return;
   }
 
+  if (maybeHandleLocalSlashCommand(mainWindow, session, prompt, attachments)) {
+    return;
+  }
+
   const existingEntry = runnerHandles.get(sessionId);
   const previousProvider = session.provider || 'claude';
   const nextProvider = provider || previousProvider;
-  const nextModel = nextProvider === 'claude' ? normalizeModel(model ?? session.model ?? undefined) : undefined;
+  const nextModel = normalizeModel(model ?? session.model ?? undefined);
+  const previousModel = normalizeModel(session.model ?? undefined);
   const providerChanged = nextProvider !== previousProvider;
+  const modelChanged = nextModel !== previousModel;
 
   if (isDev()) {
     console.log('[Session Continue]', {
@@ -796,9 +939,7 @@ async function handleSessionContinue(
   if (providerChanged) {
     sessions.updateSessionProvider(sessionId, nextProvider);
   }
-  if (nextProvider === 'claude') {
-    sessions.updateSessionModel(sessionId, nextModel || null);
-  }
+  sessions.updateSessionModel(sessionId, nextModel || null);
 
   // 更新状态
   sessions.updateSessionStatus(sessionId, 'running');
@@ -811,7 +952,7 @@ async function handleSessionContinue(
       sessionId,
       status: 'running',
       provider: nextProvider,
-      model: nextProvider === 'claude' ? nextModel ?? '' : undefined,
+      model: nextModel ?? '',
     },
   });
 
@@ -826,8 +967,13 @@ async function handleSessionContinue(
   sessions.addMessage(sessionId, { type: 'user_prompt', prompt, attachments, createdAt });
 
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
+    if (nextProvider === 'codex' && modelChanged) {
+      existingEntry.handle.abort();
+      runnerHandles.delete(sessionId);
+    } else {
     existingEntry.handle.send(prompt, attachments, nextModel);
     return;
+    }
   }
 
   if (existingEntry && providerChanged) {
@@ -878,12 +1024,15 @@ function startRunner(
     attachments,
     session,
     resumeSessionId,
-    model: provider === 'claude' ? modelOverride : undefined,
+    model: modelOverride,
     onMessage: (message) => {
       // 提取并保存 claude session id
       if (message.type === 'system' && message.subtype === 'init') {
         if (provider === 'codex') {
           sessions.updateCodexSessionId(session.id, message.session_id);
+          if (message.model) {
+            sessions.updateSessionModel(session.id, message.model);
+          }
         } else {
           sessions.updateClaudeSessionId(session.id, message.session_id);
           if (message.model) {
@@ -897,7 +1046,7 @@ function startRunner(
             sessionId: session.id,
             status: (sessions.getSession(session.id)?.status || 'running') as SessionStatus,
             provider,
-            model: provider === 'claude' ? message.model || modelOverride : undefined,
+            model: message.model || modelOverride || undefined,
           },
         });
       }
@@ -921,7 +1070,7 @@ function startRunner(
             sessionId: session.id,
             status,
             provider,
-            model: provider === 'claude' ? sessions.getSession(session.id)?.model || modelOverride : undefined,
+            model: sessions.getSession(session.id)?.model || modelOverride || undefined,
           },
         });
       }

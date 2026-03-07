@@ -8,10 +8,12 @@ import { AttachmentChips } from './AttachmentChips';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
+import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import { getSessionModel } from '../utils/session-model';
 import { formatClaudeModelLabel, loadPreferredClaudeModel, savePreferredClaudeModel } from '../utils/claude-model';
+import { buildCodexModelOptions, formatCodexModelLabel, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
 
 export function PromptInput() {
   const { activeSessionId, sessions, setShowNewSession } = useAppStore();
@@ -22,11 +24,19 @@ export function PromptInput() {
   const [selectedClaudeModel, setSelectedClaudeModel] = useState<string | null>(
     loadPreferredClaudeModel()
   );
+  const [selectedCodexModel, setSelectedCodexModel] = useState<string | null>(
+    loadPreferredCodexModel()
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const isRunning = activeSession?.status === 'running';
   const claudeModelConfig = useClaudeModelConfig();
+  const codexModelConfig = useCodexModelConfig();
+  const codexModelOptions = useMemo(
+    () => buildCodexModelOptions(codexModelConfig),
+    [codexModelConfig]
+  );
   const activeClaudeModel = useMemo(
     () => (provider === 'claude' ? getSessionModel(activeSession?.messages) : null),
     [provider, activeSession?.messages]
@@ -65,6 +75,25 @@ export function PromptInput() {
     claudeModelConfig.defaultModel,
   ]);
 
+  useEffect(() => {
+    if (activeSession?.provider !== 'codex') {
+      return;
+    }
+
+    const nextModel =
+      activeSession.model ||
+      loadPreferredCodexModel() ||
+      codexModelConfig.defaultModel ||
+      codexModelOptions[0];
+    setSelectedCodexModel(nextModel || null);
+  }, [
+    activeSessionId,
+    activeSession?.provider,
+    activeSession?.model,
+    codexModelConfig.defaultModel,
+    codexModelOptions,
+  ]);
+
   // 自动调整高度
   useEffect(() => {
     if (textareaRef.current) {
@@ -89,7 +118,9 @@ export function PromptInput() {
           model:
             provider === 'claude'
               ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
-              : undefined,
+              : provider === 'codex'
+                ? selectedCodexModel || codexModelConfig.defaultModel || codexModelOptions[0] || undefined
+                : undefined,
         },
       });
       setPrompt('');
@@ -143,7 +174,7 @@ export function PromptInput() {
 
       if ((e.key === 'Enter' || e.key === 'Tab') && skillAutocomplete.suggestions.length > 0) {
         e.preventDefault();
-        skillAutocomplete.selectCurrentSkill();
+        skillAutocomplete.selectCurrentSuggestion();
         return;
       }
     }
@@ -218,7 +249,7 @@ export function PromptInput() {
               suggestions={skillAutocomplete.suggestions}
               selectedIndex={skillAutocomplete.selectedIndex}
               empty={skillAutocomplete.suggestions.length === 0}
-              onSelect={skillAutocomplete.selectSkill}
+              onSelect={skillAutocomplete.selectSuggestion}
             />
           )}
 
@@ -237,6 +268,15 @@ export function PromptInput() {
                 onChange: (model) => {
                   setSelectedClaudeModel(model);
                   savePreferredClaudeModel(model);
+                },
+              }}
+              codexModel={{
+                value: selectedCodexModel,
+                options: codexModelOptions,
+                runtimeModel: activeSession?.provider === 'codex' ? activeSession.model || selectedCodexModel : null,
+                onChange: (model) => {
+                  setSelectedCodexModel(model);
+                  savePreferredCodexModel(model);
                 },
               }}
             />
@@ -311,7 +351,9 @@ export function PromptInput() {
               : 'Press Enter to send, Shift+Enter for new line'}
           {provider === 'claude' && activeClaudeModel
             ? ` Current model: ${formatClaudeModelLabel(activeClaudeModel)}`
-            : ''}
+            : provider === 'codex' && (activeSession?.model || selectedCodexModel)
+              ? ` Current model: ${formatCodexModelLabel(activeSession?.model || selectedCodexModel || '')}`
+              : ''}
         </div>
       </div>
     </div>

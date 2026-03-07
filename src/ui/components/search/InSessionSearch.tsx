@@ -3,6 +3,7 @@ import { Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { useDebounce } from '../../hooks/useDebounce';
 import type { SearchMatch } from '../../types';
+import { getMessageContentBlocks } from '../../utils/message-content';
 
 export function InSessionSearch() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -40,7 +41,7 @@ export function InSessionSearch() {
       if (message.type === 'user_prompt') {
         text = message.prompt;
       } else if (message.type === 'assistant' || message.type === 'user') {
-        text = message.message.content
+        text = getMessageContentBlocks(message)
           .map((block) => {
             if (block.type === 'text') return block.text;
             if (block.type === 'thinking') return block.thinking;
@@ -162,4 +163,3 @@ export function InSessionSearch() {
     </div>
   );
 }
-

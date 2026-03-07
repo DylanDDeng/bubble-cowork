@@ -23,6 +23,7 @@ export type {
   McpServerStatus,
   ClaudeSkillSummary,
   ClaudeModelConfig,
+  CodexModelConfig,
   AgentProvider,
   TodoState,
   StatusConfig,

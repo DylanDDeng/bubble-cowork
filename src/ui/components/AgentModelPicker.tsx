@@ -3,6 +3,7 @@ import { Check, ChevronDown, ChevronLeft } from 'lucide-react';
 import type { AgentProvider, ClaudeModelConfig } from '../types';
 import { PROVIDERS } from '../utils/provider';
 import { buildClaudeModelOptions, formatClaudeModelLabel } from '../utils/claude-model';
+import { buildCodexModelOptions, formatCodexModelLabel } from '../utils/codex-model';
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
 
@@ -73,7 +74,7 @@ export function AgentModelPicker({
 
     if (provider === 'codex' && codexModel) {
       const resolvedValue = codexModel.value || codexOptions[0] || '';
-      return resolvedValue || currentProvider.label;
+      return resolvedValue ? formatCodexModelLabel(resolvedValue) : currentProvider.label;
     }
 
     return currentProvider.label;
@@ -127,7 +128,7 @@ export function AgentModelPicker({
           className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[#F3F3F3]"
           title={model}
         >
-          <div className="min-w-0 truncate">{model}</div>
+          <div className="min-w-0 truncate">{formatCodexModelLabel(model)}</div>
           {resolvedValue === model && (
             <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" />
           )}
@@ -143,7 +144,7 @@ export function AgentModelPicker({
       <button
         onClick={handleTriggerClick}
         disabled={disabled}
-        className="flex items-center gap-1.5 rounded-lg border border-transparent bg-[var(--bg-tertiary)] px-3 py-2 text-sm transition-colors hover:bg-[var(--border)] disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex items-center gap-1.5 rounded-lg border border-transparent bg-transparent px-3 py-1.5 text-sm transition-colors hover:bg-[#EEEEEE] disabled:cursor-not-allowed disabled:opacity-50"
       >
         <ProviderIcon provider={currentProvider.id} />
         <span className="max-w-[140px] truncate text-[var(--text-secondary)]">

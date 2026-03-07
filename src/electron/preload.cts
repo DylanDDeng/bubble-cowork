@@ -41,6 +41,11 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-claude-model-config');
   },
 
+  // 获取 Codex 模型配置
+  getCodexModelConfig: () => {
+    return ipcRenderer.invoke('get-codex-model-config');
+  },
+
   // 选择目录
   selectDirectory: () => {
     return ipcRenderer.invoke('select-directory');

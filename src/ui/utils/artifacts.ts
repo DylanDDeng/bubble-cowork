@@ -1,4 +1,5 @@
 import type { StreamMessage, ContentBlock } from '../types';
+import { getMessageContentBlocks } from './message-content';
 
 export type ArtifactKind = 'html' | 'markdown' | 'json' | 'image' | 'pdf' | 'pptx' | 'xlsx';
 
@@ -88,7 +89,7 @@ export function extractArtifactsFromMessages(messages: StreamMessage[]): Artifac
   for (const msg of messages) {
     if (msg.type !== 'assistant') continue;
 
-    for (const block of msg.message.content) {
+    for (const block of getMessageContentBlocks(msg)) {
       if (!isToolUseBlock(block)) continue;
       const sourceTool = normalizeToolName(block.name);
       if (!sourceTool) continue;
@@ -126,4 +127,3 @@ export function extractArtifactsFromMessages(messages: StreamMessage[]): Artifac
 
   return Array.from(byPath.values()).sort((a, b) => b.lastSeenIndex - a.lastSeenIndex);
 }
-

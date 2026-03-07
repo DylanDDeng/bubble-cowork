@@ -8,10 +8,12 @@ import { AttachmentChips } from './AttachmentChips';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
+import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import { getLatestProviderModel } from '../utils/session-model';
 import { formatClaudeModelLabel, loadPreferredClaudeModel, savePreferredClaudeModel } from '../utils/claude-model';
+import { buildCodexModelOptions, formatCodexModelLabel, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
 
 export function NewSessionView() {
   const { pendingStart, projectCwd, sessions, setPendingStart, setProjectCwd } = useAppStore();
@@ -23,12 +25,24 @@ export function NewSessionView() {
   const [selectedClaudeModel, setSelectedClaudeModel] = useState<string | null>(
     loadPreferredClaudeModel()
   );
+  const [selectedCodexModel, setSelectedCodexModel] = useState<string | null>(
+    loadPreferredCodexModel()
+  );
   const [showCwdHint, setShowCwdHint] = useState(false);
   const cwd = projectCwd || '';
   const hasSelectedCwd = cwd.trim().length > 0;
   const claudeModelConfig = useClaudeModelConfig();
+  const codexModelConfig = useCodexModelConfig();
+  const codexModelOptions = useMemo(
+    () => buildCodexModelOptions(codexModelConfig),
+    [codexModelConfig]
+  );
   const recentClaudeModel = useMemo(
     () => getLatestProviderModel(sessions, 'claude'),
+    [sessions]
+  );
+  const recentCodexModel = useMemo(
+    () => getLatestProviderModel(sessions, 'codex'),
     [sessions]
   );
   const recentProjectOptions = useMemo(() => {
@@ -64,6 +78,13 @@ export function NewSessionView() {
     setSelectedClaudeModel(claudeModelConfig.defaultModel);
   }, [claudeModelConfig.defaultModel, selectedClaudeModel]);
 
+  useEffect(() => {
+    if (selectedCodexModel || (!codexModelConfig.defaultModel && codexModelOptions.length === 0)) {
+      return;
+    }
+    setSelectedCodexModel(codexModelConfig.defaultModel || codexModelOptions[0] || null);
+  }, [codexModelConfig.defaultModel, codexModelOptions, selectedCodexModel]);
+
   const handleStart = () => {
     if (!prompt.trim()) return;
     if (!hasSelectedCwd) {
@@ -90,7 +111,9 @@ export function NewSessionView() {
         model:
           provider === 'claude'
             ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
-            : undefined,
+            : provider === 'codex'
+              ? selectedCodexModel || codexModelConfig.defaultModel || codexModelOptions[0] || undefined
+              : undefined,
       },
     });
 
@@ -141,7 +164,7 @@ export function NewSessionView() {
 
       if ((e.key === 'Enter' || e.key === 'Tab') && skillAutocomplete.suggestions.length > 0) {
         e.preventDefault();
-        skillAutocomplete.selectCurrentSkill();
+        skillAutocomplete.selectCurrentSuggestion();
         return;
       }
     }
@@ -181,6 +204,12 @@ export function NewSessionView() {
                 <div className="mt-4 text-xs text-[var(--text-muted)]">
                   Type <span className="font-mono">/</span> to browse Claude skills for this session.
                   {recentClaudeModel ? ` Last detected model: ${formatClaudeModelLabel(recentClaudeModel)}.` : ''}
+                </div>
+              )}
+
+              {provider === 'codex' && recentCodexModel && (
+                <div className="mt-4 text-xs text-[var(--text-muted)]">
+                  Last detected model: {formatCodexModelLabel(recentCodexModel)}.
                 </div>
               )}
 
@@ -246,7 +275,7 @@ export function NewSessionView() {
                 suggestions={skillAutocomplete.suggestions}
                 selectedIndex={skillAutocomplete.selectedIndex}
                 empty={skillAutocomplete.suggestions.length === 0}
-                onSelect={skillAutocomplete.selectSkill}
+                onSelect={skillAutocomplete.selectSuggestion}
               />
             )}
 
@@ -256,16 +285,25 @@ export function NewSessionView() {
                 provider={provider}
                 onProviderChange={handleProviderChange}
                 disabled={pendingStart}
-                claudeModel={{
-                  value: selectedClaudeModel,
-                  config: claudeModelConfig,
+              claudeModel={{
+                value: selectedClaudeModel,
+                config: claudeModelConfig,
                   runtimeModel: recentClaudeModel,
                   onChange: (model) => {
                     setSelectedClaudeModel(model);
-                    savePreferredClaudeModel(model);
-                  },
-                }}
-              />
+                  savePreferredClaudeModel(model);
+                },
+              }}
+              codexModel={{
+                value: selectedCodexModel,
+                options: codexModelOptions,
+                runtimeModel: recentCodexModel,
+                onChange: (model) => {
+                  setSelectedCodexModel(model);
+                  savePreferredCodexModel(model);
+                },
+              }}
+            />
 
               <div className="relative no-drag">
                 <button

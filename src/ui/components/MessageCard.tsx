@@ -6,6 +6,7 @@ import { ToolGroup } from './ToolGroup';
 import { AttachmentChips } from './AttachmentChips';
 import { AttachmentPreviewGrid } from './AttachmentPreviewGrid';
 import { ThinkingBlock } from './ThinkingBlock';
+import { getContentBlocks } from '../utils/message-content';
 import type {
   StreamMessage,
   Attachment,
@@ -91,7 +92,7 @@ export function MessageCard({
     case 'assistant':
       return (
         <AssistantCard
-          content={message.message.content}
+          content={message.message.content as unknown}
           toolStatusMap={toolStatusMap}
           toolResultsMap={toolResultsMap}
           permissionRequests={permissionRequests}
@@ -349,14 +350,14 @@ function AssistantCard({
   permissionRequests,
   onPermissionResult,
 }: {
-  content: ContentBlock[];
+  content: unknown;
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
   permissionRequests: PermissionRequestPayload[];
   onPermissionResult: (toolUseId: string, result: PermissionResult) => void;
 }) {
   // 将内容分组：连续的 tool_use 合并为一组
-  const groups = useMemo(() => groupContentBlocks(content), [content]);
+  const groups = useMemo(() => groupContentBlocks(getContentBlocks(content)), [content]);
 
   return (
     <div className="my-3 min-w-0">

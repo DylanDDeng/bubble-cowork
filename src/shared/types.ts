@@ -85,6 +85,11 @@ export interface ClaudeModelConfig {
   options: string[];
 }
 
+export interface CodexModelConfig {
+  defaultModel: string | null;
+  options: string[];
+}
+
 // 附件类型（文件/图片）
 export type AttachmentKind = 'file' | 'image';
 

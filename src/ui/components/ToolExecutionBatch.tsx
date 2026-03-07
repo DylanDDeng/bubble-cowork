@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import type { ContentBlock, ToolStatus, StreamMessage } from '../types';
 import { ToolGroup } from './ToolGroup';
 import { getToolSummary, safeJsonStringify } from '../utils/tool-summary';
+import { getMessageContentBlocks } from '../utils/message-content';
 
 // 工具使用块类型
 type ToolUseBlock = ContentBlock & { type: 'tool_use' };
@@ -20,7 +21,7 @@ function extractToolBlocks(
 ): ToolUseBlock[] {
   const blocks: ToolUseBlock[] = [];
   for (const msg of messages) {
-    for (const block of msg.message.content) {
+    for (const block of getMessageContentBlocks(msg)) {
       if (block.type === 'tool_use') {
         blocks.push(block as ToolUseBlock);
       }

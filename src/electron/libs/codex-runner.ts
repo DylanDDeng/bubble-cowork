@@ -189,8 +189,9 @@ async function buildPromptContent(
 }
 
 export function runCodex(options: RunnerOptions): RunnerHandle {
-  const { prompt, attachments, session, onMessage, onError } = options;
+  const { prompt, attachments, model, session, onMessage, onError } = options;
   const abortController = new AbortController();
+  const selectedModel = typeof model === 'string' && model.trim().length > 0 ? model.trim() : undefined;
   let currentSessionId = '';
   let streamingStarted = false;
   let assistantBuffer = '';
@@ -200,13 +201,18 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
   const toolKindById = new Map<string, string>();
   let pendingFinalizeOnSessionInfo = false;
 
-  const proc = spawn('codex-acp', [], {
+  const spawnArgs = selectedModel ? ['-c', `model=${JSON.stringify(selectedModel)}`] : [];
+  const proc = spawn('codex-acp', spawnArgs, {
     cwd: session.cwd || process.cwd(),
     env: process.env,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   if (isDev()) {
-    console.log('[Codex Runner] spawned codex-acp', { cwd: session.cwd || process.cwd() });
+    console.log('[Codex Runner] spawned codex-acp', {
+      cwd: session.cwd || process.cwd(),
+      model: selectedModel,
+      spawnArgs,
+    });
   }
 
   proc.on('exit', (code, signal) => {
@@ -345,7 +351,7 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
       type: 'system',
       subtype: 'init',
       session_id: currentSessionId,
-      model: '',
+      model: selectedModel || '',
       permissionMode: '',
       cwd: session.cwd || process.cwd(),
       tools: [],
