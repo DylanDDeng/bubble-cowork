@@ -16,6 +16,7 @@ import {
   buildClaudeSlashCommands,
   filterClaudeSlashCommands,
   getSessionSlashCommands,
+  shouldAutoSubmitSlashCommand,
 } from '../utils/claude-slash';
 
 export function useClaudeSkillAutocomplete({
@@ -24,12 +25,14 @@ export function useClaudeSkillAutocomplete({
   projectPath,
   sessionMessages = [],
   setPrompt,
+  onAutoSubmitCommand,
 }: {
   enabled: boolean;
   prompt: string;
   projectPath?: string;
   sessionMessages?: StreamMessage[];
   setPrompt: (prompt: string) => void;
+  onAutoSubmitCommand?: (prompt: string) => void;
 }) {
   const { claudeUserSkills, claudeProjectSkills } = useAppStore();
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -110,7 +113,13 @@ export function useClaudeSkillAutocomplete({
 
   const selectSuggestion = (suggestion: ClaudeSlashSuggestion) => {
     if (suggestion.kind === 'command') {
-      setPrompt(insertSlashSkill(prompt, suggestion.command.name));
+      const nextPrompt = insertSlashSkill(prompt, suggestion.command.name);
+      if (shouldAutoSubmitSlashCommand(suggestion.command) && onAutoSubmitCommand) {
+        onAutoSubmitCommand(nextPrompt.trim());
+        return;
+      }
+
+      setPrompt(nextPrompt);
       return;
     }
 

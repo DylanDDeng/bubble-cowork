@@ -41,12 +41,37 @@ export function PromptInput() {
     () => (provider === 'claude' ? getSessionModel(activeSession?.messages) : null),
     [provider, activeSession?.messages]
   );
+  const handleAutoSubmitClaudeCommand = (nextPrompt: string) => {
+    if (!activeSessionId || !activeSession) {
+      setPrompt(nextPrompt);
+      return;
+    }
+
+    setMenuOpen(false);
+    sendEvent({
+      type: 'session.continue',
+      payload: {
+        sessionId: activeSessionId,
+        prompt: nextPrompt,
+        provider,
+        model:
+          provider === 'claude'
+            ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
+            : provider === 'codex'
+              ? selectedCodexModel || codexModelConfig.defaultModel || codexModelOptions[0] || undefined
+              : undefined,
+      },
+    });
+    setPrompt('');
+    setAttachments([]);
+  };
   const skillAutocomplete = useClaudeSkillAutocomplete({
     enabled: provider === 'claude',
     prompt,
     projectPath: activeSession?.cwd,
     sessionMessages: activeSession?.messages || [],
     setPrompt,
+    onAutoSubmitCommand: handleAutoSubmitClaudeCommand,
   });
 
   useEffect(() => {

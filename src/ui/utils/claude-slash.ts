@@ -5,6 +5,7 @@ export interface ClaudeSlashCommand {
   title: string;
   description: string;
   source: 'default' | 'session';
+  submitOnSelect?: boolean;
 }
 
 export type ClaudeSlashSuggestion =
@@ -15,6 +16,7 @@ const DEFAULT_COMMAND_DEFINITIONS: Record<string, { title: string; description: 
   cost: {
     title: '/cost',
     description: 'Show current token and cost usage',
+    submitOnSelect: true,
   },
   plan: {
     title: '/plan',
@@ -65,6 +67,7 @@ export function buildClaudeSlashCommands(sessionCommands?: Set<string>): ClaudeS
         title: fallback?.title || `/${normalized}`,
         description: fallback?.description || 'Claude slash command',
         source: fallback ? 'default' : 'session',
+        submitOnSelect: fallback?.submitOnSelect ?? false,
       } satisfies ClaudeSlashCommand;
     })
     .sort((left, right) => left.name.localeCompare(right.name));
@@ -90,4 +93,8 @@ export function filterClaudeSlashCommands(
       return left.name.localeCompare(right.name);
     })
     .slice(0, limit);
+}
+
+export function shouldAutoSubmitSlashCommand(command: ClaudeSlashCommand): boolean {
+  return command.submitOnSelect === true;
 }
