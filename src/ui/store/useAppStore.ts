@@ -14,7 +14,6 @@ import type {
   TodoState,
   SettingsTab,
   FolderConfig,
-  SidebarViewMode,
   Theme,
 } from '../types';
 
@@ -75,7 +74,6 @@ export const useAppStore = create<Store>()(
       statusConfigs: [],
       statusFilter: 'all',
       // 文件夹
-      sidebarViewMode: 'time' as SidebarViewMode,
       folderConfigs: [],
       expandedFolders: new Set<string>(),
       // 主题
@@ -258,7 +256,6 @@ export const useAppStore = create<Store>()(
   setStatusFilter: (filter) => set({ statusFilter: filter }),
 
   // 文件夹 Actions
-  setSidebarViewMode: (mode) => set({ sidebarViewMode: mode }),
   setFolderConfigs: (configs) => set({ folderConfigs: configs }),
   toggleFolderExpanded: (folderPath) =>
     set((state) => {
@@ -282,13 +279,11 @@ export const useAppStore = create<Store>()(
     {
       name: 'cowork-app-storage',
       partialize: (state) => ({
-        sidebarViewMode: state.sidebarViewMode,
         expandedFolders: Array.from(state.expandedFolders),
         theme: state.theme,
       }),
       merge: (persistedState: unknown, currentState: Store) => {
         const persisted = persistedState as {
-          sidebarViewMode?: SidebarViewMode;
           expandedFolders?: string[];
           theme?: Theme;
         } | undefined;
@@ -297,7 +292,6 @@ export const useAppStore = create<Store>()(
         applyTheme(theme);
         return {
           ...currentState,
-          sidebarViewMode: persisted?.sidebarViewMode || currentState.sidebarViewMode,
           expandedFolders: new Set(persisted?.expandedFolders || []),
           theme,
         };

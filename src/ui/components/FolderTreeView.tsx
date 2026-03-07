@@ -1,36 +1,33 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ChevronRight, Folder, FolderOpen, MoreVertical, Pin, Copy, Trash2 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import {
-  buildFolderTreeWithSessions,
-  getFolderDisplayName,
-  countSessionsInNode,
-  type FolderTreeNode,
-} from '../utils/folder-utils';
 import { StatusIcon } from './StatusIcon';
 import { StatusMenu } from './StatusMenu';
-import { FolderMenu } from './FolderMenu';
 import type { SessionView, StatusConfig } from '../types';
 
-interface FolderTreeViewProps {
+type ProjectGroup = {
+  key: string;
+  label: string;
+  fullPath: string | null;
+  sessions: SessionView[];
+};
+
+interface ProjectTreeViewProps {
   onSessionClick: (sessionId: string) => void;
   onSessionDelete: (sessionId: string) => void;
   onCopyResume: (session: SessionView) => void;
-  onNewFolderRequest?: (sessionId: string) => void;
 }
 
 export function FolderTreeView({
   onSessionClick,
   onSessionDelete,
   onCopyResume,
-  onNewFolderRequest,
-}: FolderTreeViewProps) {
+}: ProjectTreeViewProps) {
   const {
     sessions,
     activeSessionId,
-    folderConfigs,
     expandedFolders,
     toggleFolderExpanded,
     sidebarSearchQuery,
@@ -38,7 +35,7 @@ export function FolderTreeView({
     statusConfigs,
   } = useAppStore();
 
-  const { tree, uncategorized } = useMemo(() => {
+  const projectGroups = useMemo(() => {
     let sessionList = Object.values(sessions);
 
     // 搜索过滤
@@ -64,101 +61,85 @@ export function FolderTreeView({
       }
     }
 
-    return buildFolderTreeWithSessions(folderConfigs, sessionList);
-  }, [sessions, folderConfigs, sidebarSearchQuery, statusFilter, statusConfigs]);
+    const grouped = new Map<string, ProjectGroup>();
 
-  // 判断文件夹节点是否展开（默认展开）
-  const isExpanded = (path: string) => {
-    // 如果从未设置过，默认展开
-    return expandedFolders.size === 0 || expandedFolders.has(path);
-  };
+    for (const session of sessionList) {
+      const fullPath = session.cwd?.trim() || null;
+      const key = fullPath || '__no_project__';
 
-  const renderFolderNode = (node: FolderTreeNode, depth: number = 0) => {
-    const expanded = isExpanded(node.path);
-    const sessionCount = countSessionsInNode(node);
-    const hasContent = node.sessions.length > 0 || node.children.length > 0;
+      if (!grouped.has(key)) {
+        const label = fullPath
+          ? fullPath.split('/').filter(Boolean).pop() || fullPath
+          : 'No Project';
 
-    return (
-      <div key={node.path}>
-        {/* 文件夹标题 */}
-        <div
-          className="flex items-center gap-2 px-2 py-2 cursor-pointer hover:bg-[var(--text-primary)]/5 rounded-lg transition-colors duration-150"
-          style={{ paddingLeft: `${8 + depth * 16}px` }}
-          onClick={() => toggleFolderExpanded(node.path)}
-        >
-          <span className={`transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}>
-            <ChevronRight className="w-3 h-3" />
-          </span>
-          {expanded && hasContent ? <FolderOpen className="w-3.5 h-3.5" /> : <Folder className="w-3.5 h-3.5" />}
-          <span className="text-sm font-medium truncate flex-1">
-            {getFolderDisplayName(node)}
-          </span>
-          {sessionCount > 0 && (
-            <span className="text-xs text-[var(--text-muted)]">
-              {sessionCount}
-            </span>
-          )}
-        </div>
+        grouped.set(key, {
+          key,
+          label,
+          fullPath,
+          sessions: [],
+        });
+      }
 
-        {/* 展开的内容 */}
-        {expanded && (
-          <>
-            {/* 子文件夹 */}
-            {node.children.map(child => renderFolderNode(child, depth + 1))}
+      grouped.get(key)!.sessions.push(session);
+    }
 
-            {/* Sessions */}
-            {node.sessions.map(session => (
+    return Array.from(grouped.values())
+      .map((group) => ({
+        ...group,
+        sessions: group.sessions.sort((left, right) => right.updatedAt - left.updatedAt),
+      }))
+      .sort((left, right) => {
+        const leftLatest = left.sessions[0]?.updatedAt || 0;
+        const rightLatest = right.sessions[0]?.updatedAt || 0;
+        return rightLatest - leftLatest;
+      });
+  }, [sessions, sidebarSearchQuery, statusFilter, statusConfigs]);
+
+  const isExpanded = (key: string) => expandedFolders.size === 0 || expandedFolders.has(key);
+
+  return (
+    <div>
+      {projectGroups.map((group) => {
+        const expanded = isExpanded(group.key);
+        return (
+          <div key={group.key}>
+            <div
+              className="flex items-center gap-2 px-2 py-2 cursor-pointer hover:bg-[var(--bg-secondary)] rounded-lg transition-colors duration-150"
+              onClick={() => toggleFolderExpanded(group.key)}
+              title={group.fullPath || 'Sessions without a project folder'}
+            >
+              <span className={`transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}>
+                <ChevronRight className="w-3 h-3" />
+              </span>
+              {expanded ? <FolderOpen className="w-3.5 h-3.5" /> : <Folder className="w-3.5 h-3.5" />}
+              <span className="text-sm font-medium truncate flex-1">{group.label}</span>
+              <span className="text-xs text-[var(--text-muted)]">{group.sessions.length}</span>
+            </div>
+
+            {expanded && group.fullPath && (
+              <div className="px-7 pb-1 text-[11px] text-[var(--text-muted)] truncate" title={group.fullPath}>
+                {group.fullPath}
+              </div>
+            )}
+
+            {expanded && group.sessions.map((session) => (
               <SessionItem
                 key={session.id}
                 session={session}
                 isActive={activeSessionId === session.id}
                 statusConfigs={statusConfigs}
-                depth={depth + 1}
+                depth={1}
                 onClick={() => onSessionClick(session.id)}
                 onDelete={() => onSessionDelete(session.id)}
                 onCopyResume={() => onCopyResume(session)}
                 onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
-                onNewFolderRequest={onNewFolderRequest}
               />
             ))}
-          </>
-        )}
-      </div>
-    );
-  };
-
-  const hasAnyContent = tree.length > 0 || uncategorized.length > 0;
-
-  return (
-    <div>
-      {/* 文件夹树 */}
-      {tree.map(node => renderFolderNode(node))}
-
-      {/* Uncategorized */}
-      {uncategorized.length > 0 && (
-        <div>
-          <div className="px-2 pt-4 pb-2 text-xs text-[var(--text-muted)] font-medium">
-            Uncategorized
           </div>
-          {uncategorized.map(session => (
-            <SessionItem
-              key={session.id}
-              session={session}
-              isActive={activeSessionId === session.id}
-              statusConfigs={statusConfigs}
-              depth={0}
-              onClick={() => onSessionClick(session.id)}
-              onDelete={() => onSessionDelete(session.id)}
-              onCopyResume={() => onCopyResume(session)}
-              onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
-              onNewFolderRequest={onNewFolderRequest}
-            />
-          ))}
-        </div>
-      )}
+        );
+      })}
 
-      {/* 空状态 */}
-      {!hasAnyContent && (
+      {projectGroups.length === 0 && (
         <div className="text-center text-[var(--text-muted)] py-8 text-sm">
           {sidebarSearchQuery ? 'No matching sessions' : 'No sessions yet'}
         </div>
@@ -177,7 +158,6 @@ function SessionItem({
   onDelete,
   onCopyResume,
   onTogglePin,
-  onNewFolderRequest,
 }: {
   session: SessionView;
   isActive: boolean;
@@ -187,33 +167,29 @@ function SessionItem({
   onDelete: () => void;
   onCopyResume: () => void;
   onTogglePin: () => void;
-  onNewFolderRequest?: (sessionId: string) => void;
 }) {
-  const formattedTime = new Date(session.updatedAt).toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
-
-  const shortId = session.claudeSessionId
-    ? session.claudeSessionId.slice(0, 14)
-    : null;
-
+  const [menuOpen, setMenuOpen] = useState(false);
   const currentTodoState = session.todoState || 'todo';
   const currentStatusConfig = statusConfigs.find(s => s.id === currentTodoState);
+  const isHighlighted = isActive || menuOpen;
 
   return (
     <div
-      className={`group relative rounded-xl p-3 mb-1 cursor-pointer transition-colors duration-150 ${
+      className={`group relative cursor-pointer rounded-xl border px-3 py-1.5 transition-colors duration-150 ${
         isActive
-          ? 'bg-[var(--text-primary)]/10'
-          : 'hover:bg-[var(--text-primary)]/5'
+          ? 'border-[var(--border)] shadow-[0_1px_2px_rgba(0,0,0,0.03)]'
+          : menuOpen
+            ? 'border-[var(--border)]/70'
+            : 'border-transparent bg-transparent hover:border-[var(--border)]/70 hover:bg-[#EEEEEE]'
       }`}
-      style={{ marginLeft: `${depth * 16}px` }}
+      style={{
+        marginLeft: `${depth * 16}px`,
+        marginBottom: '4px',
+        backgroundColor: isHighlighted ? '#EEEEEE' : undefined,
+      }}
       onClick={onClick}
     >
-      {/* 标题行 */}
-      <div className="flex items-center gap-2 pr-6">
+      <div className="flex items-center gap-2 pr-6 min-h-[20px]">
         {currentStatusConfig && (
           <StatusIcon status={currentStatusConfig} className="flex-shrink-0" />
         )}
@@ -222,20 +198,15 @@ function SessionItem({
             <Pin className="w-3.5 h-3.5" />
           </span>
         )}
-        <span className="text-sm font-medium truncate">{session.title}</span>
+        <span className="text-[15px] font-medium leading-[1.25] truncate">{session.title}</span>
       </div>
 
-      {/* 副标题 */}
-      <div className="text-xs text-[var(--text-muted)] mt-1 truncate pl-5">
-        {shortId && <span>{shortId} · </span>}
-        {formattedTime}
-      </div>
-
-      {/* 更多菜单 */}
-      <DropdownMenu.Root>
+      <DropdownMenu.Root open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenu.Trigger asChild>
           <button
-            className="absolute top-3 right-2 w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-md hover:bg-[var(--text-primary)]/5 transition-all duration-150"
+            className={`absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md transition-all duration-150 hover:bg-[var(--bg-tertiary)] ${
+              menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
             <MoreVertical className="w-4 h-4" />
@@ -256,8 +227,6 @@ function SessionItem({
             </DropdownMenu.Item>
             <DropdownMenu.Separator className="h-px bg-[var(--border)] my-1" />
             <StatusMenu sessionId={session.id} currentStatus={currentTodoState} />
-            <FolderMenu sessionId={session.id} currentFolderPath={session.folderPath} onNewFolderRequest={onNewFolderRequest} />
-            <DropdownMenu.Separator className="h-px bg-[var(--border)] my-1" />
             {session.claudeSessionId && (
               <DropdownMenu.Item
                 className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150"
@@ -280,4 +249,3 @@ function SessionItem({
     </div>
   );
 }
-

@@ -31,9 +31,6 @@ export type {
   FolderConfig,
 } from '../shared/types';
 
-// 侧边栏视图模式
-export type SidebarViewMode = 'time' | 'folder';
-
 // 主题类型
 export type Theme = 'light' | 'dark' | 'system';
 
@@ -90,7 +87,6 @@ export interface AppState {
   statusConfigs: StatusConfig[];
   statusFilter: TodoState | 'all' | 'open' | 'closed';
   // 文件夹
-  sidebarViewMode: SidebarViewMode;
   folderConfigs: FolderConfig[];
   expandedFolders: Set<string>;
   // 主题
@@ -129,7 +125,6 @@ export interface AppActions {
   setStatusConfigs: (configs: StatusConfig[]) => void;
   setStatusFilter: (filter: TodoState | 'all' | 'open' | 'closed') => void;
   // 文件夹 Actions
-  setSidebarViewMode: (mode: SidebarViewMode) => void;
   setFolderConfigs: (configs: FolderConfig[]) => void;
   toggleFolderExpanded: (folderPath: string) => void;
   setExpandedFolders: (folders: Set<string>) => void;

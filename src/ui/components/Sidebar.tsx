@@ -1,112 +1,17 @@
-import { useState, useMemo, useCallback } from 'react';
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { MoreVertical, Copy, Trash2, Pin, Settings } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { SidebarSearch } from './search/SidebarSearch';
 import { StatusFilter } from './StatusFilter';
-import { StatusIcon } from './StatusIcon';
-import { StatusMenu } from './StatusMenu';
-import { FolderMenu } from './FolderMenu';
-import { ViewModeToggle } from './ViewModeToggle';
 import { FolderTreeView } from './FolderTreeView';
-import { NewFolderDialog } from './NewFolderDialog';
-import type { SessionView, StatusConfig } from '../types';
-
-// 时间分组类型
-type TimeGroup = 'pinned' | 'today' | 'yesterday' | 'previous7Days' | 'previous30Days' | 'earlier';
-
-// 分组显示名称
-const TIME_GROUP_LABELS: Record<TimeGroup, string> = {
-  pinned: 'Pinned',
-  today: 'Today',
-  yesterday: 'Yesterday',
-  previous7Days: 'Previous 7 Days',
-  previous30Days: 'Previous 30 Days',
-  earlier: 'Earlier',
-};
-
-// 根据时间戳判断所属分组
-function getTimeGroup(timestamp: number): TimeGroup {
-  const now = new Date();
-
-  // 获取今天的开始时间 (00:00:00)
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
-  const days7Start = todayStart - 7 * 24 * 60 * 60 * 1000;
-  const days30Start = todayStart - 30 * 24 * 60 * 60 * 1000;
-
-  if (timestamp >= todayStart) return 'today';
-  if (timestamp >= yesterdayStart) return 'yesterday';
-  if (timestamp >= days7Start) return 'previous7Days';
-  if (timestamp >= days30Start) return 'previous30Days';
-  return 'earlier';
-}
+import type { SessionView } from '../types';
 
 export function Sidebar() {
-  const { sessions, activeSessionId, setActiveSession, setShowNewSession, sidebarSearchQuery, setShowSettings, statusFilter, statusConfigs, sidebarViewMode } = useAppStore();
+  const { setActiveSession, setShowNewSession, setShowSettings } = useAppStore();
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionView | null>(null);
-  const [newFolderDialogOpen, setNewFolderDialogOpen] = useState(false);
-  const [newFolderSessionId, setNewFolderSessionId] = useState<string | null>(null);
-
-  const handleNewFolderRequest = useCallback((sessionId: string) => {
-    setNewFolderSessionId(sessionId);
-    setNewFolderDialogOpen(true);
-  }, []);
-
-  // 按 updatedAt 降序排序、过滤并分组
-  const groupedSessions = useMemo(() => {
-    let sorted = Object.values(sessions).sort((a, b) => b.updatedAt - a.updatedAt);
-
-    // 搜索过滤
-    if (sidebarSearchQuery.trim()) {
-      const query = sidebarSearchQuery.toLowerCase();
-      sorted = sorted.filter(
-        (session) =>
-          session.title.toLowerCase().includes(query) ||
-          session.cwd?.toLowerCase().includes(query)
-      );
-    }
-
-    // 状态过滤
-    if (statusFilter !== 'all') {
-      if (statusFilter === 'open') {
-        const openIds = new Set(statusConfigs.filter(s => s.category === 'open').map(s => s.id));
-        sorted = sorted.filter(s => openIds.has(s.todoState || 'todo'));
-      } else if (statusFilter === 'closed') {
-        const closedIds = new Set(statusConfigs.filter(s => s.category === 'closed').map(s => s.id));
-        sorted = sorted.filter(s => closedIds.has(s.todoState || 'todo'));
-      } else {
-        sorted = sorted.filter(s => (s.todoState || 'todo') === statusFilter);
-      }
-    }
-
-    // 分离置顶和非置顶的 session
-    const pinnedSessions = sorted.filter((s) => s.pinned);
-    const unpinnedSessions = sorted.filter((s) => !s.pinned);
-
-    // 按时间分组（只对非置顶的 session）
-    const groups: { group: TimeGroup; sessions: SessionView[] }[] = [];
-
-    // 先添加置顶分组
-    if (pinnedSessions.length > 0) {
-      groups.push({ group: 'pinned', sessions: pinnedSessions });
-    }
-
-    // 再按时间分组
-    const groupOrder: TimeGroup[] = ['today', 'yesterday', 'previous7Days', 'previous30Days', 'earlier'];
-
-    for (const group of groupOrder) {
-      const sessionsInGroup = unpinnedSessions.filter((s) => getTimeGroup(s.updatedAt) === group);
-      if (sessionsInGroup.length > 0) {
-        groups.push({ group, sessions: sessionsInGroup });
-      }
-    }
-
-    return groups;
-  }, [sessions, sidebarSearchQuery, statusFilter, statusConfigs]);
 
   const handleDelete = (sessionId: string) => {
     sendEvent({ type: 'session.delete', payload: { sessionId } });
@@ -151,10 +56,7 @@ export function Sidebar() {
       {/* Sessions 标题栏 */}
       <div className="px-4 py-2 flex items-center justify-between gap-2">
         <span className="text-sm text-[var(--text-muted)]">Sessions</span>
-        <div className="flex items-center gap-2">
-          <ViewModeToggle />
-          <StatusFilter />
-        </div>
+        <StatusFilter />
       </div>
 
       {/* 搜索框 */}
@@ -164,51 +66,15 @@ export function Sidebar() {
 
       {/* Session List */}
       <div className="flex-1 overflow-y-auto px-2">
-        {sidebarViewMode === 'time' ? (
-          // 时间视图
-          <>
-            {groupedSessions.map(({ group, sessions: groupSessions }) => (
-              <div key={group}>
-                <GroupHeader label={TIME_GROUP_LABELS[group]} />
-                {groupSessions.map((session) => (
-                  <SessionItem
-                    key={session.id}
-                    session={session}
-                    isActive={activeSessionId === session.id}
-                    statusConfigs={statusConfigs}
-                    onClick={() => {
-                      setShowSettings(false);
-                      setActiveSession(session.id);
-                      setShowNewSession(false);
-                    }}
-                    onDelete={() => handleDelete(session.id)}
-                    onCopyResume={() => handleResumeCommand(session)}
-                    onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
-                    onNewFolderRequest={handleNewFolderRequest}
-                  />
-                ))}
-              </div>
-            ))}
-
-            {groupedSessions.length === 0 && (
-              <div className="text-center text-[var(--text-muted)] py-8 text-sm">
-                {sidebarSearchQuery ? 'No matching sessions' : 'No sessions yet'}
-              </div>
-            )}
-          </>
-        ) : (
-          // 文件夹视图
-          <FolderTreeView
-            onSessionClick={(sessionId) => {
-              setShowSettings(false);
-              setActiveSession(sessionId);
-              setShowNewSession(false);
-            }}
-            onSessionDelete={handleDelete}
-            onCopyResume={handleResumeCommand}
-            onNewFolderRequest={handleNewFolderRequest}
-          />
-        )}
+        <FolderTreeView
+          onSessionClick={(sessionId) => {
+            setShowSettings(false);
+            setActiveSession(sessionId);
+            setShowNewSession(false);
+          }}
+          onSessionDelete={handleDelete}
+          onCopyResume={handleResumeCommand}
+        />
       </div>
 
       {/* Settings Button */}
@@ -261,131 +127,6 @@ export function Sidebar() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
-
-      {/* New Folder Dialog */}
-      <NewFolderDialog
-        open={newFolderDialogOpen}
-        sessionId={newFolderSessionId}
-        onOpenChange={setNewFolderDialogOpen}
-      />
-    </div>
-  );
-}
-
-// GroupHeader 组件
-function GroupHeader({ label }: { label: string }) {
-  return (
-    <div className="px-2 pt-4 pb-2 text-xs text-[var(--text-muted)] font-medium">
-      {label}
-    </div>
-  );
-}
-
-// SessionItem 组件
-function SessionItem({
-  session,
-  isActive,
-  statusConfigs,
-  onClick,
-  onDelete,
-  onCopyResume,
-  onTogglePin,
-  onNewFolderRequest,
-}: {
-  session: SessionView;
-  isActive: boolean;
-  statusConfigs: StatusConfig[];
-  onClick: () => void;
-  onDelete: () => void;
-  onCopyResume: () => void;
-  onTogglePin: () => void;
-  onNewFolderRequest: (sessionId: string) => void;
-}) {
-  // 获取当前状态配置
-  const currentTodoState = session.todoState || 'todo';
-  const currentStatusConfig = statusConfigs.find(s => s.id === currentTodoState);
-
-  return (
-    <div
-      className={`group relative mb-1 cursor-pointer rounded-xl border px-3 py-1.5 transition-colors duration-150 ${
-        isActive
-          ? 'border-[var(--border)] shadow-[0_1px_2px_rgba(0,0,0,0.03)]'
-          : 'bg-transparent border-transparent hover:border-[var(--border)]/70'
-      }`}
-      style={{
-        backgroundColor: isActive ? '#EEEEEE' : undefined,
-      }}
-      onClick={onClick}
-      onMouseEnter={(event) => {
-        if (!isActive) {
-          event.currentTarget.style.backgroundColor = '#EEEEEE';
-        }
-      }}
-      onMouseLeave={(event) => {
-        if (!isActive) {
-          event.currentTarget.style.backgroundColor = '';
-        }
-      }}
-    >
-      {/* 标题行：状态图标 + 置顶图标 + 标题 */}
-      <div className="flex items-center gap-2 pr-6 min-h-[20px]">
-        {currentStatusConfig && (
-          <StatusIcon status={currentStatusConfig} className="flex-shrink-0" />
-        )}
-        {session.pinned && (
-          <span className="flex-shrink-0 text-[var(--text-muted)]">
-            <Pin className="w-3.5 h-3.5" />
-          </span>
-        )}
-        <span className="text-[15px] font-medium leading-[1.25] truncate">{session.title}</span>
-      </div>
-
-      {/* 更多菜单 - hover 显示 */}
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger asChild>
-          <button
-            className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 rounded-md hover:bg-[var(--bg-tertiary)] transition-all duration-150"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <MoreVertical className="w-4 h-4" />
-          </button>
-        </DropdownMenu.Trigger>
-
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            className="bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg p-1 min-w-[160px] shadow-lg z-50"
-            sideOffset={5}
-          >
-            <DropdownMenu.Item
-              className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150"
-              onClick={onTogglePin}
-            >
-              <Pin className="w-3.5 h-3.5" />
-              {session.pinned ? 'Unpin' : 'Pin to Top'}
-            </DropdownMenu.Item>
-            <DropdownMenu.Separator className="h-px bg-[var(--border)] my-1" />
-            <StatusMenu sessionId={session.id} currentStatus={currentTodoState} />
-            <FolderMenu sessionId={session.id} currentFolderPath={session.folderPath} onNewFolderRequest={onNewFolderRequest} />
-            <DropdownMenu.Separator className="h-px bg-[var(--border)] my-1" />
-            {session.claudeSessionId && (
-              <DropdownMenu.Item
-                className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150"
-                onClick={onCopyResume}
-              >
-                <Copy className="w-3.5 h-3.5" />
-                Copy Resume Command
-              </DropdownMenu.Item>
-            )}
-            <DropdownMenu.Item
-              className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150 text-red-400"
-              onClick={onDelete}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Delete
-            </DropdownMenu.Item>
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
     </div>
   );
 }
