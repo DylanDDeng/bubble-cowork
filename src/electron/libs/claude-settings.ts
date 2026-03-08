@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import type { ClaudeModelConfig } from '../../shared/types';
+import { getActiveCompatibleProviderConfig } from './compatible-provider-config';
 
 function canonicalizeClaudeModel(model?: string | null): string | null {
   const normalized = model?.trim();

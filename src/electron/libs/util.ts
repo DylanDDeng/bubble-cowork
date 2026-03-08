@@ -1,5 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { getClaudeEnv, getClaudeSettings } from './claude-settings';
+import { applyCompatibleProviderEnv, getActiveCompatibleProviderConfig } from './compatible-provider-config';
 import { getClaudeCodeRuntime } from './claude-runtime';
 
 type ClaudeSettingSource = 'user' | 'project' | 'local';
@@ -25,10 +26,14 @@ export async function runClaudeOneShot(params: {
   const settingSources: ClaudeSettingSource[] = params.model
     ? ['project', 'local']
     : ['user', 'project', 'local'];
-  const env = {
+  let env = {
     ...process.env,
     ...getClaudeEnv(),
   };
+  const compatibleProvider = getActiveCompatibleProviderConfig();
+  const providerOverride = applyCompatibleProviderEnv(env, params.model);
+  env = providerOverride.env;
+  const forcedModel = providerOverride.forcedModel || params.model;
   const settings = getClaudeSettings();
   if (settings?.apiKey && !env.ANTHROPIC_API_KEY) {
     env.ANTHROPIC_API_KEY = settings.apiKey;
@@ -44,19 +49,19 @@ export async function runClaudeOneShot(params: {
       env,
       cwd: params.cwd || process.cwd(),
       resume: params.resumeSessionId,
-      model: params.model,
-      settings: params.model ? { model: params.model } : undefined,
+      model: forcedModel,
+      settings: forcedModel ? { model: forcedModel } : undefined,
       betas: params.betas as Array<'context-1m-2025-08-07'> | undefined,
       executable: executable as unknown as 'node',
       executableArgs,
       pathToClaudeCodeExecutable,
-      settingSources,
+      settingSources: compatibleProvider ? ['project', 'local'] : settingSources,
     },
   });
 
   let text = '';
   let sessionId = params.resumeSessionId;
-  let resolvedModel = params.model;
+  let resolvedModel = forcedModel;
 
   for await (const message of result) {
     const msg = message as SDKMessage;

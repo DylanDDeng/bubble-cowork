@@ -12,20 +12,28 @@ export function useClaudeModelConfig() {
 
   useEffect(() => {
     let cancelled = false;
+    const loadConfig = () =>
+      window.electron
+        .getClaudeModelConfig()
+        .then((nextConfig) => {
+          if (!cancelled) {
+            setConfig(nextConfig);
+          }
+        })
+        .catch((error) => {
+          console.error('Failed to load Claude model config:', error);
+        });
 
-    window.electron
-      .getClaudeModelConfig()
-      .then((nextConfig) => {
-        if (!cancelled) {
-          setConfig(nextConfig);
-        }
-      })
-      .catch((error) => {
-        console.error('Failed to load Claude model config:', error);
-      });
+    void loadConfig();
+
+    const handleCompatibleProviderUpdated = () => {
+      void loadConfig();
+    };
+    window.addEventListener('claude-compatible-provider-updated', handleCompatibleProviderUpdated);
 
     return () => {
       cancelled = true;
+      window.removeEventListener('claude-compatible-provider-updated', handleCompatibleProviderUpdated);
     };
   }, []);
 

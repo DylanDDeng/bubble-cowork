@@ -18,6 +18,8 @@ interface AgentModelPickerProps {
     config: ClaudeModelConfig;
     runtimeModel?: string | null;
     context1m?: boolean;
+    compatibleModel?: string | null;
+    compatibleLabel?: string;
     onToggleContext1m?: (enabled: boolean) => void;
     onChange: (model: string) => void;
   };
@@ -58,6 +60,13 @@ export function AgentModelPicker({
         ? buildClaudeModelOptions(claudeModel.config, [claudeModel.value, claudeModel.runtimeModel])
         : [],
     [claudeModel]
+  );
+  const claudePrimaryOptions = useMemo(
+    () =>
+      claudeModel?.compatibleModel
+        ? claudeOptions.filter((model) => model !== claudeModel.compatibleModel)
+        : claudeOptions,
+    [claudeModel?.compatibleModel, claudeOptions]
   );
 
   const codexOptions = useMemo(() => codexModel?.options || [], [codexModel]);
@@ -101,22 +110,51 @@ export function AgentModelPicker({
       const resolvedValue =
         claudeModel.value || claudeModel.config.defaultModel || claudeOptions[0] || '';
 
-      return claudeOptions.map((model) => (
-        <button
-          key={model}
-          onClick={() => {
-            claudeModel.onChange(model);
-            setOpen(false);
-          }}
-          className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[#F3F3F3]"
-          title={model}
-        >
-          <div className="min-w-0 truncate">{formatClaudeModelLabel(model)}</div>
-          {resolvedValue === model && (
-            <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" />
+      return (
+        <>
+          <div className="px-2 py-1 text-[11px] font-medium text-[var(--text-muted)]">
+            Claude Code
+          </div>
+          {claudePrimaryOptions.map((model) => (
+            <button
+              key={model}
+              onClick={() => {
+                claudeModel.onChange(model);
+                setOpen(false);
+              }}
+              className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[#F3F3F3]"
+              title={model}
+            >
+              <div className="min-w-0 truncate">{formatClaudeModelLabel(model)}</div>
+              {resolvedValue === model && (
+                <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" />
+              )}
+            </button>
+          ))}
+          {claudeModel.compatibleModel && (
+            <>
+              <div className="mt-2 border-t border-[var(--border)] pt-2">
+                <div className="px-2 py-1 text-[11px] font-medium text-[var(--text-muted)]">
+                  {claudeModel.compatibleLabel || 'Compatible'}
+                </div>
+                <button
+                  onClick={() => {
+                    claudeModel.onChange(claudeModel.compatibleModel!);
+                    setOpen(false);
+                  }}
+                  className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[#F3F3F3]"
+                  title={claudeModel.compatibleModel}
+                >
+                  <div className="min-w-0 truncate">{claudeModel.compatibleModel}</div>
+                  {resolvedValue === claudeModel.compatibleModel && (
+                    <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" />
+                  )}
+                </button>
+              </div>
+            </>
           )}
-        </button>
-      ));
+        </>
+      );
     }
 
     if (provider === 'codex' && codexModel) {
@@ -187,9 +225,6 @@ export function AgentModelPicker({
                   <ChevronLeft className="h-3.5 w-3.5" />
                   <span>Change Agent</span>
                 </button>
-                <div className="px-2 py-1 text-[11px] font-medium text-[var(--text-muted)]">
-                  {currentProvider.label}
-                </div>
                 {renderModelItems()}
                 {provider === 'claude' &&
                   claudeModel &&

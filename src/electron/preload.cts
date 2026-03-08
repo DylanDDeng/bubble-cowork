@@ -1,5 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron');
-import type { ClaudeUsageRangeDays } from '../shared/types';
+import type { ClaudeCompatibleProviderConfig, ClaudeUsageRangeDays } from '../shared/types';
 
 // 暴露 API 到渲染进程
 contextBridge.exposeInMainWorld('electron', {
@@ -40,6 +40,16 @@ contextBridge.exposeInMainWorld('electron', {
   // 获取 Claude 模型配置
   getClaudeModelConfig: () => {
     return ipcRenderer.invoke('get-claude-model-config');
+  },
+
+  // 获取 Claude-compatible provider 配置
+  getClaudeCompatibleProviderConfig: () => {
+    return ipcRenderer.invoke('get-claude-compatible-provider-config');
+  },
+
+  // 保存 Claude-compatible provider 配置
+  saveClaudeCompatibleProviderConfig: (config: ClaudeCompatibleProviderConfig) => {
+    return ipcRenderer.invoke('save-claude-compatible-provider-config', config);
   },
 
   // 获取 Claude usage 报表

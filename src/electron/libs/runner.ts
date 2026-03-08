@@ -6,6 +6,7 @@ import type { Base64ImageSource, ContentBlockParam } from '@anthropic-ai/sdk/res
 import type { RunnerOptions, RunnerHandle, StreamMessage, PermissionResult, Attachment } from '../types';
 import type { ClaudeModelUsage } from '../../shared/types';
 import { getClaudeEnv, getClaudeSettings, getMcpServers } from './claude-settings';
+import { applyCompatibleProviderEnv, getActiveCompatibleProviderConfig } from './compatible-provider-config';
 import { getClaudeCodeRuntime } from './claude-runtime';
 
 type ClaudeSettingSource = 'user' | 'project' | 'local';
@@ -269,6 +270,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
   let enqueueChain: Promise<void> = Promise.resolve();
   let currentModel = typeof model === 'string' && model.trim().length > 0 ? model.trim() : undefined;
   let activeQuery: ClaudeQuery | null = null;
+  const compatibleProvider = getActiveCompatibleProviderConfig();
   const settingSources: ClaudeSettingSource[] = currentModel
     ? ['project', 'local']
     : ['user', 'project', 'local'];
@@ -312,10 +314,13 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
   // 异步执行
   (async () => {
     try {
-      const env = {
+      let env = {
         ...process.env,
         ...getClaudeEnv(),
       };
+      const providerOverride = applyCompatibleProviderEnv(env, currentModel);
+      env = providerOverride.env;
+      currentModel = providerOverride.forcedModel || currentModel;
       const settings = getClaudeSettings();
       if (settings?.apiKey && !env.ANTHROPIC_API_KEY) {
         env.ANTHROPIC_API_KEY = settings.apiKey;
@@ -330,6 +335,9 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         pathToClaudeCodeExecutable,
         hasApiKey: !!env.ANTHROPIC_API_KEY,
         apiKeyPrefix: env.ANTHROPIC_API_KEY?.substring(0, 10),
+        hasAuthToken: !!env.ANTHROPIC_AUTH_TOKEN,
+        baseUrl: env.ANTHROPIC_BASE_URL,
+        compatibleProvider: !!compatibleProvider,
         cwd: session.cwd || process.cwd(),
         PATH: env.PATH?.split(':').slice(0, 5),
         isPackaged: !process.defaultApp,
@@ -354,7 +362,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           pathToClaudeCodeExecutable,
           // When the app explicitly selects a model, avoid user-level Claude settings
           // from overriding it during session initialization.
-          settingSources,
+          settingSources: compatibleProvider ? ['project', 'local'] : settingSources,
           // 加载 MCP 服务器配置（合并全局和项目级）
           mcpServers: getMcpServers(session.cwd ?? undefined) as Record<string, SDKMcpServerConfig>,
           // 自定义工具权限处理

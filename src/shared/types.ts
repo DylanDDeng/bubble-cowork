@@ -90,6 +90,16 @@ export interface CodexModelConfig {
   options: string[];
 }
 
+export type ClaudeCompatibleAuthType = 'api_key' | 'auth_token';
+
+export interface ClaudeCompatibleProviderConfig {
+  enabled: boolean;
+  baseUrl: string;
+  authType: ClaudeCompatibleAuthType;
+  secret: string;
+  model: string;
+}
+
 // 附件类型（文件/图片）
 export type AttachmentKind = 'file' | 'image';
 

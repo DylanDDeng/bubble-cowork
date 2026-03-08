@@ -1,6 +1,7 @@
 import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
+import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
 import { McpSettingsContent } from './McpSettings';
 import { SkillsSettingsContent } from './SkillsSettings';
 import type { Theme } from '../../types';
@@ -172,6 +173,8 @@ function GeneralSettingsContent({
           </div>
         </SettingsRow>
       </SettingsSection>
+
+      <CompatibleProviderSettingsContent />
     </div>
   );
 }

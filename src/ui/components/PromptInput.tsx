@@ -9,6 +9,7 @@ import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
+import { useCompatibleProviderConfig } from '../hooks/useCompatibleProviderConfig';
 import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
@@ -41,6 +42,7 @@ export function PromptInput() {
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const isRunning = activeSession?.status === 'running';
   const claudeModelConfig = useClaudeModelConfig();
+  const compatibleProviderConfig = useCompatibleProviderConfig();
   const codexModelConfig = useCodexModelConfig();
   const codexModelOptions = useMemo(
     () => buildCodexModelOptions(codexModelConfig),
@@ -118,6 +120,17 @@ export function PromptInput() {
     activeClaudeModel,
     claudeModelConfig.defaultModel,
   ]);
+
+  useEffect(() => {
+    if (provider !== 'claude' || !claudeModelConfig.defaultModel) {
+      return;
+    }
+
+    if (!selectedClaudeModel || !claudeModelConfig.options.includes(selectedClaudeModel)) {
+      setSelectedClaudeModel(claudeModelConfig.defaultModel);
+      savePreferredClaudeModel(claudeModelConfig.defaultModel);
+    }
+  }, [claudeModelConfig.defaultModel, claudeModelConfig.options, provider, selectedClaudeModel]);
 
   useEffect(() => {
     if (activeSession?.provider !== 'codex') {
@@ -331,6 +344,8 @@ export function PromptInput() {
                 config: claudeModelConfig,
                 runtimeModel: activeClaudeModel,
                 context1m: selectedClaudeContext1m,
+                compatibleModel: compatibleProviderConfig.enabled ? compatibleProviderConfig.model : null,
+                compatibleLabel: compatibleProviderConfig.enabled ? 'MiniMax (CN)' : undefined,
                 onToggleContext1m: (enabled) => {
                   setSelectedClaudeContext1m(enabled);
                   savePreferredClaudeContext1m(enabled);

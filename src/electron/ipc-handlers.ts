@@ -9,6 +9,10 @@ import { generateSessionTitle, runClaudeOneShot } from './libs/util';
 import { readProjectTree } from './libs/project-tree';
 import { normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
 import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfig, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
+import {
+  loadCompatibleProviderConfig,
+  saveCompatibleProviderConfig,
+} from './libs/compatible-provider-config';
 import { getCodexModelConfig } from './libs/codex-settings';
 import { listClaudeSkills } from './libs/claude-skills';
 import * as statusConfig from './libs/status-config';
@@ -31,6 +35,7 @@ import type {
 } from './types';
 import type {
   CreateStatusInput,
+  ClaudeCompatibleProviderConfig,
   ClaudeUsageRangeDays,
   UpdateStatusInput,
   TodoState,
@@ -863,6 +868,17 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // RPC: 获取 Claude 模型配置
   ipcMainHandle('get-claude-model-config', async () => {
     return getClaudeModelConfig();
+  });
+
+  // RPC: 获取 Claude-compatible provider 配置
+  ipcMainHandle('get-claude-compatible-provider-config', async () => {
+    return loadCompatibleProviderConfig();
+  });
+
+  // RPC: 保存 Claude-compatible provider 配置
+  ipcMainHandle('save-claude-compatible-provider-config', async (_, config: ClaudeCompatibleProviderConfig) => {
+    saveCompatibleProviderConfig(config);
+    return loadCompatibleProviderConfig();
   });
 
   // RPC: 获取 Claude usage 报表
