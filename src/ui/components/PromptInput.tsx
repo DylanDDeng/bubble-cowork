@@ -393,17 +393,17 @@ export function PromptInput() {
             {isRunning ? (
               <button
                 onClick={handleStop}
-                className="h-10 w-10 rounded-[14px] border border-black bg-black text-white transition-colors hover:bg-[var(--accent-hover)] flex items-center justify-center"
+                className="h-9 w-9 rounded-full border border-black bg-black text-white transition-colors hover:bg-[var(--accent-hover)] flex items-center justify-center"
                 title="Stop"
                 aria-label="Stop"
               >
-                <Square className="h-3.5 w-3.5" fill="currentColor" />
+                <Square className="h-3 w-3" fill="currentColor" />
               </button>
             ) : (
               <button
                 onClick={handleSend}
                 disabled={!prompt.trim()}
-                className="w-10 h-10 rounded-full flex items-center justify-center transition-colors disabled:cursor-not-allowed"
+                className="h-9 w-9 rounded-full flex items-center justify-center transition-colors disabled:cursor-not-allowed"
                 style={{
                   backgroundColor: !prompt.trim() ? '#848588' : '#000000',
                   color: '#FFFFFF'
@@ -411,7 +411,7 @@ export function PromptInput() {
                 title="Send"
                 aria-label="Send"
               >
-                <ArrowUp className="w-5 h-5" />
+                <ArrowUp className="h-4.5 w-4.5" />
               </button>
             )}
           </div>
