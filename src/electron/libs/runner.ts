@@ -10,6 +10,7 @@ import { applyCompatibleProviderEnv } from './compatible-provider-config';
 import { getClaudeCodeRuntime } from './claude-runtime';
 
 type ClaudeSettingSource = 'user' | 'project' | 'local';
+const CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local'];
 
 // MCP 服务器状态
 interface McpServerStatus {
@@ -270,9 +271,6 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
   let enqueueChain: Promise<void> = Promise.resolve();
   let currentModel = typeof model === 'string' && model.trim().length > 0 ? model.trim() : undefined;
   let activeQuery: ClaudeQuery | null = null;
-  const settingSources: ClaudeSettingSource[] = currentModel
-    ? ['project', 'local']
-    : ['user', 'project', 'local'];
 
   const enqueuePrompt = (text: string, promptAttachments?: Attachment[], requestedModel?: string) => {
     const trimmed = text.trim();
@@ -359,9 +357,10 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           executable: executable as unknown as 'node',
           executableArgs,
           pathToClaudeCodeExecutable,
-          // When the app explicitly selects a model, avoid user-level Claude settings
-          // from overriding it during session initialization.
-          settingSources: providerOverride.matchedProviderId ? ['project', 'local'] : settingSources,
+          // Keep user/project/local settings enabled so Claude can still load slash
+          // commands, skills, and CLAUDE.md context. The flag settings layer already
+          // pins the selected model with higher precedence.
+          settingSources: CLAUDE_SETTING_SOURCES,
           // 加载 MCP 服务器配置（合并全局和项目级）
           mcpServers: getMcpServers(session.cwd ?? undefined) as Record<string, SDKMcpServerConfig>,
           // 自定义工具权限处理

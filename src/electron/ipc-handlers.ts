@@ -275,6 +275,74 @@ function buildUnsupportedSlashCommandMessage(commandName: string): string {
   ].join('\n');
 }
 
+function normalizeSlashName(name: string): string {
+  return name.replace(/^\//, '').trim().toLowerCase();
+}
+
+function isZeroTokenResult(message: Extract<StreamMessage, { type: 'result' }>): boolean {
+  return (
+    (message.usage?.input_tokens || 0) === 0 &&
+    (message.usage?.output_tokens || 0) === 0 &&
+    (message.usage?.cache_creation_input_tokens || 0) === 0 &&
+    (message.usage?.cache_read_input_tokens || 0) === 0
+  );
+}
+
+function buildUnavailableClaudeSkillMessage(
+  skillName: string,
+  source: 'user' | 'project'
+): string {
+  const sourceLabel = source === 'project' ? 'workspace' : 'user-level';
+
+  return [
+    `\`/${skillName}\` was entered as a Claude skill, but this session did not load that ${sourceLabel} skill.`,
+    '',
+    'Bubble Cowork sent the prompt, but Claude initialized without the matching skill, so the command exited without producing a reply.',
+    'Retry in a fresh Claude session. If it happens again, the skill list and the Claude runtime settings are out of sync.',
+  ].join('\n');
+}
+
+function buildUnavailableSessionSlashMessage(commandName: string): string {
+  return [
+    `\`/${commandName}\` was interpreted as a slash command, but Claude did not load a matching command or skill for this session.`,
+    '',
+    'Use plain language instead, or pick a command or skill from the current slash menu before sending.',
+  ].join('\n');
+}
+
+function detectSilentSlashCommandFailure(
+  prompt: string,
+  initMessage: Extract<StreamMessage, { type: 'system'; subtype: 'init' }> | null,
+  resultMessage: Extract<StreamMessage, { type: 'result' }>,
+  sawTurnOutput: boolean,
+  cwd?: string | null
+): string | null {
+  if (resultMessage.subtype !== 'success' || sawTurnOutput || !isZeroTokenResult(resultMessage)) {
+    return null;
+  }
+
+  const parsed = parseSlashCommand(prompt);
+  if (!parsed) {
+    return null;
+  }
+
+  const loadedCommands = new Set((initMessage?.slash_commands || []).map(normalizeSlashName));
+  const loadedSkills = new Set((initMessage?.skills || []).map(normalizeSlashName));
+  if (loadedCommands.has(parsed.name) || loadedSkills.has(parsed.name)) {
+    return null;
+  }
+
+  const { userSkills, projectSkills } = listClaudeSkills(cwd ?? undefined);
+  const matchingSkill = [...projectSkills, ...userSkills].find(
+    (skill) => normalizeSlashName(skill.name) === parsed.name
+  );
+  if (matchingSkill) {
+    return buildUnavailableClaudeSkillMessage(matchingSkill.name, matchingSkill.source);
+  }
+
+  return buildUnavailableSessionSlashMessage(parsed.name);
+}
+
 function extractAssistantText(message: StreamMessage): string {
   if (message.type !== 'assistant' || !message.message || !Array.isArray(message.message.content)) {
     return '';
@@ -1550,6 +1618,9 @@ function startRunner(
     });
   }
 
+  let initMessage: Extract<StreamMessage, { type: 'system'; subtype: 'init' }> | null = null;
+  let sawTurnOutput = false;
+
   const handle = runner({
     prompt,
     attachments,
@@ -1560,6 +1631,7 @@ function startRunner(
     onMessage: (message) => {
       // 提取并保存 claude session id
       if (message.type === 'system' && message.subtype === 'init') {
+        initMessage = message;
         if (provider === 'codex') {
           sessions.updateCodexSessionId(session.id, message.session_id);
           if (message.model) {
@@ -1594,6 +1666,10 @@ function startRunner(
         });
       }
 
+      if (message.type !== 'system' && message.type !== 'result') {
+        sawTurnOutput = true;
+      }
+
       // 保存消息
       sessions.addMessage(session.id, message);
 
@@ -1605,6 +1681,26 @@ function startRunner(
 
       // 检查是否为 result 消息，更新状态
       if (message.type === 'result') {
+        const slashFailureMessage =
+          provider === 'claude'
+            ? detectSilentSlashCommandFailure(
+                prompt,
+                initMessage,
+                message,
+                sawTurnOutput,
+                session.cwd
+              )
+            : null;
+
+        if (slashFailureMessage) {
+          const assistantMessage = buildLocalAssistantMessage(slashFailureMessage);
+          sessions.addMessage(session.id, assistantMessage);
+          broadcast(mainWindow, {
+            type: 'stream.message',
+            payload: { sessionId: session.id, message: assistantMessage },
+          });
+        }
+
         const status: SessionStatus = message.subtype === 'success' ? 'completed' : 'error';
         sessions.updateSessionStatus(session.id, status);
         broadcast(mainWindow, {

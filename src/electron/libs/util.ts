@@ -4,6 +4,7 @@ import { applyCompatibleProviderEnv } from './compatible-provider-config';
 import { getClaudeCodeRuntime } from './claude-runtime';
 
 type ClaudeSettingSource = 'user' | 'project' | 'local';
+const CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local'];
 
 // SDK 消息类型
 interface SDKMessage {
@@ -23,9 +24,6 @@ export async function runClaudeOneShot(params: {
   model?: string;
   betas?: string[];
 }): Promise<{ text: string; sessionId?: string; model?: string }> {
-  const settingSources: ClaudeSettingSource[] = params.model
-    ? ['project', 'local']
-    : ['user', 'project', 'local'];
   let env = {
     ...process.env,
     ...getClaudeEnv(),
@@ -54,7 +52,7 @@ export async function runClaudeOneShot(params: {
       executable: executable as unknown as 'node',
       executableArgs,
       pathToClaudeCodeExecutable,
-      settingSources: providerOverride.matchedProviderId ? ['project', 'local'] : settingSources,
+      settingSources: CLAUDE_SETTING_SOURCES,
     },
   });
 
