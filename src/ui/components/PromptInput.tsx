@@ -295,19 +295,21 @@ export function PromptInput() {
           )}
 
           {provider === 'claude' && skillAutocomplete.selectedSkill && (
-            <div className="px-5 pt-4">
+            <div className="px-5 pt-3">
               <SelectedClaudeSkillChip
                 skill={skillAutocomplete.selectedSkill}
                 onClear={skillAutocomplete.clearSelectedSkill}
+                compact
               />
             </div>
           )}
 
           {provider === 'claude' && !skillAutocomplete.selectedSkill && skillAutocomplete.selectedCommand && (
-            <div className="px-5 pt-4">
+            <div className="px-5 pt-3">
               <SelectedClaudeCommandChip
                 command={skillAutocomplete.selectedCommand}
                 onClear={skillAutocomplete.clearSelectedCommand}
+                compact
               />
             </div>
           )}
@@ -321,9 +323,9 @@ export function PromptInput() {
               isRunning
                 ? 'Press Enter to stop...'
                 : skillAutocomplete.selectedSkill
-                ? `Add instructions for /${skillAutocomplete.selectedSkill.name}...`
+                ? `Add instructions for ${skillAutocomplete.selectedSkill.name}...`
                 : skillAutocomplete.selectedCommand
-                ? `Add instructions for ${skillAutocomplete.selectedCommand.title}...`
+                ? `Add instructions for ${skillAutocomplete.selectedCommand.title.replace(/^\//, '')}...`
                 : activeSessionId
                 ? 'Continue the conversation...'
                 : 'Start a new session...'
@@ -331,7 +333,7 @@ export function PromptInput() {
             rows={1}
             disabled={isRunning}
             className={`w-full bg-transparent px-5 pb-3 text-[15px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50 ${
-              skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-3' : 'pt-4'
+              skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-1.5' : 'pt-4'
             }`}
           />
 

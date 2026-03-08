@@ -280,19 +280,21 @@ export function NewSessionView() {
             )}
 
             {provider === 'claude' && skillAutocomplete.selectedSkill && (
-              <div className="px-5 pt-4">
+              <div className="px-5 pt-3">
                 <SelectedClaudeSkillChip
                   skill={skillAutocomplete.selectedSkill}
                   onClear={skillAutocomplete.clearSelectedSkill}
+                  compact
                 />
               </div>
             )}
 
             {provider === 'claude' && !skillAutocomplete.selectedSkill && skillAutocomplete.selectedCommand && (
-              <div className="px-5 pt-4">
+              <div className="px-5 pt-3">
                 <SelectedClaudeCommandChip
                   command={skillAutocomplete.selectedCommand}
                   onClear={skillAutocomplete.clearSelectedCommand}
+                  compact
                 />
               </div>
             )}
@@ -303,14 +305,14 @@ export function NewSessionView() {
               onKeyDown={handleKeyDown}
               placeholder={
                 skillAutocomplete.selectedSkill
-                  ? `Add instructions for /${skillAutocomplete.selectedSkill.name}...`
+                  ? `Add instructions for ${skillAutocomplete.selectedSkill.name}...`
                   : skillAutocomplete.selectedCommand
-                    ? `Add instructions for ${skillAutocomplete.selectedCommand.title}...`
+                    ? `Add instructions for ${skillAutocomplete.selectedCommand.title.replace(/^\//, '')}...`
                   : 'Describe your task...'
               }
               rows={3}
               className={`w-full bg-transparent px-5 pb-2 text-[15px] outline-none resize-none no-drag ${
-                skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-3 min-h-[104px]' : 'pt-4 min-h-[112px]'
+                skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-1.5 min-h-[100px]' : 'pt-4 min-h-[112px]'
               }`}
               autoFocus
             />

@@ -91,8 +91,19 @@ export function mergeClaudeSkills(
   }
 
   return result
-    .filter((skill) => sessionSkillNames.has(skill.name))
-    .sort((left, right) => left.name.localeCompare(right.name));
+    .sort((left, right) => {
+      const leftInSession = sessionSkillNames.has(left.name);
+      const rightInSession = sessionSkillNames.has(right.name);
+      if (leftInSession !== rightInSession) {
+        return leftInSession ? -1 : 1;
+      }
+
+      if (left.source !== right.source) {
+        return left.source === 'project' ? -1 : 1;
+      }
+
+      return left.name.localeCompare(right.name);
+    });
 }
 
 export function filterClaudeSkills(

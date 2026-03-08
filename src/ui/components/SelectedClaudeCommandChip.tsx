@@ -28,7 +28,7 @@ export function SelectedClaudeCommandChip({
 
       <div
         className={`truncate font-medium text-[var(--text-primary)] ${
-          compact ? 'max-w-[180px] text-[13px]' : 'max-w-[220px] text-sm'
+          compact ? 'max-w-[180px] text-[13px] font-semibold text-black' : 'max-w-[220px] text-sm'
         }`}
         title={command.title}
       >
@@ -39,11 +39,13 @@ export function SelectedClaudeCommandChip({
         <button
           type="button"
           onClick={onClear}
-          className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors"
+          className={`flex flex-shrink-0 items-center justify-center text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors ${
+            compact ? 'h-4.5 w-4.5 rounded-sm' : 'h-6 w-6 rounded-full'
+          }`}
           aria-label="Remove selected command"
           title="Remove command"
         >
-          <X className="w-3.5 h-3.5" />
+          <X className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
         </button>
       )}
     </div>
