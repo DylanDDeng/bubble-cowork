@@ -55,6 +55,7 @@ export interface SessionView {
   messages: import('../shared/types').StreamMessage[];
   hydrated: boolean;
   permissionRequests: import('../shared/types').PermissionRequestPayload[];
+  runtimeNotice?: 'completed' | 'error';
   updatedAt: number;
 }
 

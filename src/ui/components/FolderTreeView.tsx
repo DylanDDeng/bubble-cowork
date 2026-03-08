@@ -132,19 +132,30 @@ export function FolderTreeView({
               </div>
             )}
 
-            {expanded && group.sessions.map((session) => (
-              <SessionItem
-                key={session.id}
-                session={session}
-                isActive={activeSessionId === session.id}
-                statusConfigs={statusConfigs}
-                depth={1}
-                onClick={() => onSessionClick(session.id)}
-                onDelete={() => onSessionDelete(session.id)}
-                onCopyResume={() => onCopyResume(session)}
-                onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
-              />
-            ))}
+            {expanded && group.sessions.map((session) => {
+              const isSessionActive = activeSessionId === session.id;
+
+              return (
+                <SessionItem
+                  key={session.id}
+                  session={session}
+                  isActive={isSessionActive}
+                  runtimeBadge={
+                    session.runtimeNotice
+                      ? session.runtimeNotice
+                      : !isSessionActive && session.status === 'running'
+                      ? 'running'
+                      : null
+                  }
+                  statusConfigs={statusConfigs}
+                  depth={1}
+                  onClick={() => onSessionClick(session.id)}
+                  onDelete={() => onSessionDelete(session.id)}
+                  onCopyResume={() => onCopyResume(session)}
+                  onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
+                />
+              );
+            })}
           </div>
         );
       })}
@@ -162,6 +173,7 @@ export function FolderTreeView({
 function SessionItem({
   session,
   isActive,
+  runtimeBadge,
   statusConfigs,
   depth,
   onClick,
@@ -171,6 +183,7 @@ function SessionItem({
 }: {
   session: SessionView;
   isActive: boolean;
+  runtimeBadge: 'running' | 'completed' | 'error' | null;
   statusConfigs: StatusConfig[];
   depth: number;
   onClick: () => void;
@@ -199,7 +212,7 @@ function SessionItem({
       }}
       onClick={onClick}
     >
-      <div className="flex items-center gap-2 pr-6 min-h-[20px]">
+      <div className="flex items-center gap-2 pr-8 min-h-[20px]">
         {currentStatusConfig && (
           <StatusIcon status={currentStatusConfig} className="flex-shrink-0" />
         )}
@@ -208,7 +221,26 @@ function SessionItem({
             <Pin className="w-3.5 h-3.5" />
           </span>
         )}
-        <span className="text-[15px] font-medium leading-[1.25] truncate">{session.title}</span>
+        <span className="flex-1 truncate text-[15px] font-medium leading-[1.25]">{session.title}</span>
+        {runtimeBadge && (
+          <span
+            className={`status-dot ${runtimeBadge} flex-shrink-0`}
+            title={
+              runtimeBadge === 'running'
+                ? 'Session is running'
+                : runtimeBadge === 'completed'
+                  ? 'Session completed'
+                  : 'Session failed'
+            }
+            aria-label={
+              runtimeBadge === 'running'
+                ? 'Session is running'
+                : runtimeBadge === 'completed'
+                  ? 'Session completed'
+                  : 'Session failed'
+            }
+          />
+        )}
       </div>
 
       <DropdownMenu.Root open={menuOpen} onOpenChange={setMenuOpen}>

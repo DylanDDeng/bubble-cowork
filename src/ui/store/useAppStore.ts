@@ -35,6 +35,40 @@ type Store = AppState & AppActions;
 type SetState = (
   partial: Store | Partial<Store> | ((state: Store) => Store | Partial<Store>)
 ) => void;
+const runtimeNoticeClearTimers = new Map<string, number>();
+
+function clearRuntimeNoticeTimer(sessionId: string): void {
+  const timer = runtimeNoticeClearTimers.get(sessionId);
+  if (timer !== undefined) {
+    window.clearTimeout(timer);
+    runtimeNoticeClearTimers.delete(sessionId);
+  }
+}
+
+function scheduleRuntimeNoticeClear(sessionId: string, set: SetState): void {
+  clearRuntimeNoticeTimer(sessionId);
+  const timer = window.setTimeout(() => {
+    runtimeNoticeClearTimers.delete(sessionId);
+    set((state) => {
+      const session = state.sessions[sessionId];
+      if (!session || state.activeSessionId !== sessionId || !session.runtimeNotice) {
+        return state;
+      }
+
+      return {
+        sessions: {
+          ...state.sessions,
+          [sessionId]: {
+            ...session,
+            runtimeNotice: undefined,
+          },
+        },
+      };
+    });
+  }, 2000);
+
+  runtimeNoticeClearTimers.set(sessionId, timer);
+}
 
 function sanitizeSidebarWidth(width: number | undefined, fallback: number): number {
   if (typeof width !== 'number' || Number.isNaN(width)) return fallback;
@@ -173,7 +207,24 @@ export const useAppStore = create<Store>()(
     }
   },
 
-  setActiveSession: (sessionId) => set({ activeSessionId: sessionId }),
+  setActiveSession: (sessionId) => {
+    set((state) => {
+      if (!sessionId) {
+        return { activeSessionId: null };
+      }
+
+      const session = state.sessions[sessionId];
+      if (!session) {
+        return { activeSessionId: sessionId };
+      }
+
+      return { activeSessionId: sessionId };
+    });
+
+    if (sessionId && get().sessions[sessionId]?.runtimeNotice) {
+      scheduleRuntimeNoticeClear(sessionId, set);
+    }
+  },
 
   setShowNewSession: (show) => set({ showNewSession: show }),
 
@@ -332,6 +383,7 @@ function handleSessionList(
       messages: existing?.messages || [],
       hydrated: existing?.hydrated || false,
       permissionRequests: existing?.permissionRequests || [],
+      runtimeNotice: existing?.runtimeNotice,
       updatedAt: session.updatedAt,
     };
   }
@@ -370,6 +422,17 @@ function handleSessionStatus(
   const session = state.sessions[sessionId];
 
   if (session) {
+    const nextRuntimeNotice =
+      sessionId === state.activeSessionId
+        ? undefined
+        : status === 'running'
+          ? session.runtimeNotice
+          : session.status === 'running' && status === 'completed'
+            ? 'completed'
+            : session.status === 'running' && status === 'error'
+              ? 'error'
+              : session.runtimeNotice;
+
     // 更新现有会话
     set({
       sessions: {
@@ -381,6 +444,7 @@ function handleSessionStatus(
           cwd: cwd || session.cwd,
           provider: provider || session.provider,
           model: model !== undefined ? (model || undefined) : session.model,
+          runtimeNotice: nextRuntimeNotice,
           updatedAt: Date.now(),
         },
       },
@@ -397,6 +461,7 @@ function handleSessionStatus(
       messages: [],
       hydrated: true, // 新会话不需要 hydration
       permissionRequests: [],
+      runtimeNotice: undefined,
       updatedAt: Date.now(),
     };
 
