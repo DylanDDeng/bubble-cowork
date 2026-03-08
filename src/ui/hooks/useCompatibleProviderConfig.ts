@@ -1,16 +1,92 @@
-import { useEffect, useState } from 'react';
-import type { ClaudeCompatibleProviderConfig } from '../types';
+import { useEffect, useMemo, useState } from 'react';
+import type {
+  ClaudeCompatibleProviderConfig,
+  ClaudeCompatibleProviderId,
+  ClaudeCompatibleProvidersConfig,
+} from '../types';
 
-const DEFAULT_CONFIG: ClaudeCompatibleProviderConfig = {
-  enabled: false,
-  baseUrl: '',
-  authType: 'api_key',
-  secret: '',
-  model: '',
+export interface CompatibleProviderOption {
+  id: ClaudeCompatibleProviderId;
+  label: string;
+  model: string;
+}
+
+const COMPATIBLE_PROVIDER_LABELS: Record<ClaudeCompatibleProviderId, string> = {
+  minimax: 'MiniMax (CN)',
+  zhipu: 'Zhipu AI',
 };
 
+const DEFAULT_CONFIG: ClaudeCompatibleProvidersConfig = {
+  providers: {
+    minimax: {
+      enabled: false,
+      baseUrl: 'https://api.minimax.io/anthropic',
+      authType: 'auth_token',
+      secret: '',
+      model: 'MiniMax-M2.5',
+    },
+    zhipu: {
+      enabled: false,
+      baseUrl: 'https://open.bigmodel.cn/api/anthropic',
+      authType: 'auth_token',
+      secret: '',
+      model: 'glm-5',
+    },
+  },
+};
+
+type LegacyCompatibleProviderConfig = Partial<ClaudeCompatibleProviderConfig> | null | undefined;
+
+function normalizeProvider(
+  providerId: ClaudeCompatibleProviderId,
+  provider: LegacyCompatibleProviderConfig
+): ClaudeCompatibleProviderConfig {
+  const fallback = DEFAULT_CONFIG.providers[providerId];
+  return {
+    ...fallback,
+    ...provider,
+    authType: 'auth_token',
+  };
+}
+
+export function normalizeCompatibleProvidersConfig(
+  raw: unknown
+): ClaudeCompatibleProvidersConfig {
+  if (raw && typeof raw === 'object' && 'providers' in raw) {
+    const providers = (raw as { providers?: Record<string, LegacyCompatibleProviderConfig> }).providers;
+    return {
+      providers: {
+        minimax: normalizeProvider('minimax', providers?.minimax),
+        zhipu: normalizeProvider('zhipu', providers?.zhipu),
+      },
+    };
+  }
+
+  return {
+    providers: {
+      minimax: normalizeProvider('minimax', raw as LegacyCompatibleProviderConfig),
+      zhipu: normalizeProvider('zhipu', undefined),
+    },
+  };
+}
+
+export function getEnabledCompatibleProviderOptions(
+  config: ClaudeCompatibleProvidersConfig
+): CompatibleProviderOption[] {
+  const normalized = normalizeCompatibleProvidersConfig(config);
+  return (Object.entries(normalized.providers) as Array<
+    [ClaudeCompatibleProviderId, ClaudeCompatibleProvidersConfig['providers'][ClaudeCompatibleProviderId]]
+  >)
+    .filter(([, provider]) => provider.enabled && provider.model.trim())
+    .map(([id, provider]) => ({
+      id,
+      label: COMPATIBLE_PROVIDER_LABELS[id],
+      model: provider.model.trim(),
+    }));
+}
+
 export function useCompatibleProviderConfig() {
-  const [config, setConfig] = useState<ClaudeCompatibleProviderConfig>(DEFAULT_CONFIG);
+  const [config, setConfig] = useState<ClaudeCompatibleProvidersConfig>(DEFAULT_CONFIG);
 
   useEffect(() => {
     let cancelled = false;
@@ -20,7 +96,7 @@ export function useCompatibleProviderConfig() {
         .getClaudeCompatibleProviderConfig()
         .then((nextConfig) => {
           if (!cancelled) {
-            setConfig(nextConfig);
+            setConfig(normalizeCompatibleProvidersConfig(nextConfig));
           }
         })
         .catch((error) => {
@@ -40,5 +116,10 @@ export function useCompatibleProviderConfig() {
     };
   }, []);
 
-  return config;
+  const compatibleOptions = useMemo(
+    () => getEnabledCompatibleProviderOptions(config),
+    [config]
+  );
+
+  return { config, compatibleOptions };
 }

@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import type { ClaudeModelConfig } from '../../shared/types';
-import { getActiveCompatibleProviderConfig } from './compatible-provider-config';
+import { getEnabledCompatibleProviderConfigs } from './compatible-provider-config';
 
 function canonicalizeClaudeModel(model?: string | null): string | null {
   const normalized = model?.trim();
@@ -136,9 +136,16 @@ export function getClaudeSettings(): { apiKey?: string } | null {
 export function getClaudeModelConfig(): ClaudeModelConfig {
   const s = loadClaudeSettings();
   const defaultModel = canonicalizeClaudeModel(s.model);
+  const compatibleModels = getEnabledCompatibleProviderConfigs().map((provider) => provider.model);
   const options = Array.from(
     new Set(
-      [defaultModel, 'claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-6'].filter(
+      [
+        defaultModel,
+        'claude-haiku-4-5',
+        'claude-sonnet-4-6',
+        'claude-opus-4-6',
+        ...compatibleModels,
+      ].filter(
         (value): value is string => Boolean(value)
       )
     )

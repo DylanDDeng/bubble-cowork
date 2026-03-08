@@ -18,8 +18,11 @@ interface AgentModelPickerProps {
     config: ClaudeModelConfig;
     runtimeModel?: string | null;
     context1m?: boolean;
-    compatibleModel?: string | null;
-    compatibleLabel?: string;
+    compatibleOptions?: Array<{
+      id: string;
+      label: string;
+      model: string;
+    }>;
     onToggleContext1m?: (enabled: boolean) => void;
     onChange: (model: string) => void;
   };
@@ -61,12 +64,15 @@ export function AgentModelPicker({
         : [],
     [claudeModel]
   );
+  const compatibleOptions = claudeModel?.compatibleOptions || [];
   const claudePrimaryOptions = useMemo(
     () =>
-      claudeModel?.compatibleModel
-        ? claudeOptions.filter((model) => model !== claudeModel.compatibleModel)
+      compatibleOptions.length > 0
+        ? claudeOptions.filter(
+            (model) => !compatibleOptions.some((compatible) => compatible.model === model)
+          )
         : claudeOptions,
-    [claudeModel?.compatibleModel, claudeOptions]
+    [claudeOptions, compatibleOptions]
   );
 
   const codexOptions = useMemo(() => codexModel?.options || [], [codexModel]);
@@ -80,6 +86,12 @@ export function AgentModelPicker({
     if (provider === 'claude' && claudeModel) {
       const resolvedValue =
         claudeModel.value || claudeModel.config.defaultModel || claudeOptions[0] || '';
+      const compatibleOption = compatibleOptions.find(
+        (option) => option.model === resolvedValue
+      );
+      if (compatibleOption) {
+        return compatibleOption.model;
+      }
       return resolvedValue
         ? formatClaudeModelLabel(resolvedValue, claudeModel.context1m)
         : currentProvider.label;
@@ -91,7 +103,7 @@ export function AgentModelPicker({
     }
 
     return currentProvider.label;
-  }, [provider, claudeModel, claudeOptions, codexModel, codexOptions, currentProvider.label]);
+  }, [provider, claudeModel, claudeOptions, compatibleOptions, codexModel, codexOptions, currentProvider.label]);
 
   const handleTriggerClick = () => {
     if (disabled) return;
@@ -131,28 +143,26 @@ export function AgentModelPicker({
               )}
             </button>
           ))}
-          {claudeModel.compatibleModel && (
-            <>
-              <div className="mt-2 border-t border-[var(--border)] pt-2">
-                <div className="px-2 py-1 text-[11px] font-medium text-[var(--text-muted)]">
-                  {claudeModel.compatibleLabel || 'Compatible'}
-                </div>
-                <button
-                  onClick={() => {
-                    claudeModel.onChange(claudeModel.compatibleModel!);
-                    setOpen(false);
-                  }}
-                  className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[#F3F3F3]"
-                  title={claudeModel.compatibleModel}
-                >
-                  <div className="min-w-0 truncate">{claudeModel.compatibleModel}</div>
-                  {resolvedValue === claudeModel.compatibleModel && (
-                    <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" />
-                  )}
-                </button>
+          {compatibleOptions.map((option) => (
+            <div key={option.id} className="mt-2 border-t border-[var(--border)] pt-2">
+              <div className="px-2 py-1 text-[11px] font-medium text-[var(--text-muted)]">
+                {option.label}
               </div>
-            </>
-          )}
+              <button
+                onClick={() => {
+                  claudeModel.onChange(option.model);
+                  setOpen(false);
+                }}
+                className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[#F3F3F3]"
+                title={option.model}
+              >
+                <div className="min-w-0 truncate">{option.model}</div>
+                {resolvedValue === option.model && (
+                  <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" />
+                )}
+              </button>
+            </div>
+          ))}
         </>
       );
     }

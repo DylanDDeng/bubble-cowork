@@ -91,6 +91,7 @@ export interface CodexModelConfig {
 }
 
 export type ClaudeCompatibleAuthType = 'api_key' | 'auth_token';
+export type ClaudeCompatibleProviderId = 'minimax' | 'zhipu';
 
 export interface ClaudeCompatibleProviderConfig {
   enabled: boolean;
@@ -98,6 +99,10 @@ export interface ClaudeCompatibleProviderConfig {
   authType: ClaudeCompatibleAuthType;
   secret: string;
   model: string;
+}
+
+export interface ClaudeCompatibleProvidersConfig {
+  providers: Record<ClaudeCompatibleProviderId, ClaudeCompatibleProviderConfig>;
 }
 
 // 附件类型（文件/图片）

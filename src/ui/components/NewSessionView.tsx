@@ -41,7 +41,11 @@ export function NewSessionView() {
   const cwd = projectCwd || '';
   const hasSelectedCwd = cwd.trim().length > 0;
   const claudeModelConfig = useClaudeModelConfig();
-  const compatibleProviderConfig = useCompatibleProviderConfig();
+  const { compatibleOptions } = useCompatibleProviderConfig();
+  const availableClaudeModels = useMemo(
+    () => Array.from(new Set([...claudeModelConfig.options, ...compatibleOptions.map((option) => option.model)])),
+    [claudeModelConfig.options, compatibleOptions]
+  );
   const codexModelConfig = useCodexModelConfig();
   const codexModelOptions = useMemo(
     () => buildCodexModelOptions(codexModelConfig),
@@ -82,15 +86,20 @@ export function NewSessionView() {
   }, [showCwdHint]);
 
   useEffect(() => {
-    if (!claudeModelConfig.defaultModel) {
+    const fallbackModel =
+      claudeModelConfig.defaultModel ||
+      availableClaudeModels[0] ||
+      null;
+
+    if (!fallbackModel) {
       return;
     }
 
-    if (!selectedClaudeModel || !claudeModelConfig.options.includes(selectedClaudeModel)) {
-      setSelectedClaudeModel(claudeModelConfig.defaultModel);
-      savePreferredClaudeModel(claudeModelConfig.defaultModel);
+    if (!selectedClaudeModel || !availableClaudeModels.includes(selectedClaudeModel)) {
+      setSelectedClaudeModel(fallbackModel);
+      savePreferredClaudeModel(fallbackModel);
     }
-  }, [claudeModelConfig.defaultModel, claudeModelConfig.options, selectedClaudeModel]);
+  }, [availableClaudeModels, claudeModelConfig.defaultModel, selectedClaudeModel]);
 
   useEffect(() => {
     if (supportsClaude1mContext(selectedClaudeModel)) {
@@ -322,8 +331,7 @@ export function NewSessionView() {
                 config: claudeModelConfig,
                 runtimeModel: recentClaudeModel,
                 context1m: selectedClaudeContext1m,
-                compatibleModel: compatibleProviderConfig.enabled ? compatibleProviderConfig.model : null,
-                compatibleLabel: compatibleProviderConfig.enabled ? 'MiniMax (CN)' : undefined,
+                compatibleOptions,
                 onToggleContext1m: (enabled) => {
                   setSelectedClaudeContext1m(enabled);
                   savePreferredClaudeContext1m(enabled);

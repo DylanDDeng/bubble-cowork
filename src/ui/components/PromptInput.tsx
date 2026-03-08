@@ -42,7 +42,11 @@ export function PromptInput() {
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const isRunning = activeSession?.status === 'running';
   const claudeModelConfig = useClaudeModelConfig();
-  const compatibleProviderConfig = useCompatibleProviderConfig();
+  const { compatibleOptions } = useCompatibleProviderConfig();
+  const availableClaudeModels = useMemo(
+    () => Array.from(new Set([...claudeModelConfig.options, ...compatibleOptions.map((option) => option.model)])),
+    [claudeModelConfig.options, compatibleOptions]
+  );
   const codexModelConfig = useCodexModelConfig();
   const codexModelOptions = useMemo(
     () => buildCodexModelOptions(codexModelConfig),
@@ -122,15 +126,24 @@ export function PromptInput() {
   ]);
 
   useEffect(() => {
-    if (provider !== 'claude' || !claudeModelConfig.defaultModel) {
+    if (provider !== 'claude') {
       return;
     }
 
-    if (!selectedClaudeModel || !claudeModelConfig.options.includes(selectedClaudeModel)) {
-      setSelectedClaudeModel(claudeModelConfig.defaultModel);
-      savePreferredClaudeModel(claudeModelConfig.defaultModel);
+    const fallbackModel =
+      claudeModelConfig.defaultModel ||
+      availableClaudeModels[0] ||
+      null;
+
+    if (!fallbackModel) {
+      return;
     }
-  }, [claudeModelConfig.defaultModel, claudeModelConfig.options, provider, selectedClaudeModel]);
+
+    if (!selectedClaudeModel || !availableClaudeModels.includes(selectedClaudeModel)) {
+      setSelectedClaudeModel(fallbackModel);
+      savePreferredClaudeModel(fallbackModel);
+    }
+  }, [availableClaudeModels, claudeModelConfig.defaultModel, provider, selectedClaudeModel]);
 
   useEffect(() => {
     if (activeSession?.provider !== 'codex') {
@@ -344,8 +357,7 @@ export function PromptInput() {
                 config: claudeModelConfig,
                 runtimeModel: activeClaudeModel,
                 context1m: selectedClaudeContext1m,
-                compatibleModel: compatibleProviderConfig.enabled ? compatibleProviderConfig.model : null,
-                compatibleLabel: compatibleProviderConfig.enabled ? 'MiniMax (CN)' : undefined,
+                compatibleOptions,
                 onToggleContext1m: (enabled) => {
                   setSelectedClaudeContext1m(enabled);
                   savePreferredClaudeContext1m(enabled);

@@ -3,7 +3,7 @@
 
 import type {
   ClientEvent,
-  ClaudeCompatibleProviderConfig,
+  ClaudeCompatibleProvidersConfig,
   ServerEvent,
   StatisticsData,
   StaticData,
@@ -22,8 +22,8 @@ declare global {
     generateSessionTitle: (prompt: string) => Promise<string>;
     getRecentCwds: (limit?: number) => Promise<string[]>;
     getClaudeModelConfig: () => Promise<ClaudeModelConfig>;
-    getClaudeCompatibleProviderConfig: () => Promise<ClaudeCompatibleProviderConfig>;
-    saveClaudeCompatibleProviderConfig: (config: ClaudeCompatibleProviderConfig) => Promise<ClaudeCompatibleProviderConfig>;
+    getClaudeCompatibleProviderConfig: () => Promise<ClaudeCompatibleProvidersConfig>;
+    saveClaudeCompatibleProviderConfig: (config: ClaudeCompatibleProvidersConfig) => Promise<ClaudeCompatibleProvidersConfig>;
     getClaudeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getCodexModelConfig: () => Promise<CodexModelConfig>;
     selectDirectory: () => Promise<string | null>;

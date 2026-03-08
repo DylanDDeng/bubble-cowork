@@ -35,7 +35,7 @@ import type {
 } from './types';
 import type {
   CreateStatusInput,
-  ClaudeCompatibleProviderConfig,
+  ClaudeCompatibleProvidersConfig,
   ClaudeUsageRangeDays,
   UpdateStatusInput,
   TodoState,
@@ -876,7 +876,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   // RPC: 保存 Claude-compatible provider 配置
-  ipcMainHandle('save-claude-compatible-provider-config', async (_, config: ClaudeCompatibleProviderConfig) => {
+  ipcMainHandle('save-claude-compatible-provider-config', async (_, config: ClaudeCompatibleProvidersConfig) => {
     saveCompatibleProviderConfig(config);
     return loadCompatibleProviderConfig();
   });
