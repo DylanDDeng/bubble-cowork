@@ -330,7 +330,7 @@ export function PromptInput() {
                 value: selectedClaudeModel,
                 config: claudeModelConfig,
                 runtimeModel: activeClaudeModel,
-                context1m: !!activeSession?.betas?.includes('context-1m-2025-08-07') || selectedClaudeContext1m,
+                context1m: selectedClaudeContext1m,
                 onToggleContext1m: (enabled) => {
                   setSelectedClaudeContext1m(enabled);
                   savePreferredClaudeContext1m(enabled);
@@ -393,11 +393,11 @@ export function PromptInput() {
             {isRunning ? (
               <button
                 onClick={handleStop}
-                className="w-11 h-11 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border)] hover:bg-[var(--bg-tertiary)] transition-colors flex items-center justify-center text-[var(--text-primary)]"
+                className="h-10 w-10 rounded-[14px] border border-black bg-black text-white transition-colors hover:bg-[var(--accent-hover)] flex items-center justify-center"
                 title="Stop"
                 aria-label="Stop"
               >
-                <Square className="w-4 h-4" fill="currentColor" />
+                <Square className="h-3.5 w-3.5" fill="currentColor" />
               </button>
             ) : (
               <button
@@ -424,7 +424,7 @@ export function PromptInput() {
               ? 'Press Enter to send, Shift+Enter for new line. Type / to insert a Claude skill.'
               : 'Press Enter to send, Shift+Enter for new line'}
           {provider === 'claude' && activeClaudeModel
-            ? ` Current model: ${formatClaudeModelLabel(activeClaudeModel, !!activeSession?.betas?.includes('context-1m-2025-08-07') || selectedClaudeContext1m)}`
+            ? ` Current model: ${formatClaudeModelLabel(activeClaudeModel, selectedClaudeContext1m)}`
             : provider === 'codex' && (activeSession?.model || selectedCodexModel)
               ? ` Current model: ${formatCodexModelLabel(activeSession?.model || selectedCodexModel || '')}`
               : ''}
