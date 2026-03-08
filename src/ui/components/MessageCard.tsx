@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Copy, Check, Pencil, RotateCcw } from 'lucide-react';
 import { MDContent } from '../render/markdown';
+import { useAppStore } from '../store/useAppStore';
 import { DecisionPanel, getAskUserQuestionSignature } from './DecisionPanel';
 import { ToolGroup } from './ToolGroup';
 import { AttachmentChips } from './AttachmentChips';
 import { AttachmentPreviewGrid } from './AttachmentPreviewGrid';
 import { ThinkingBlock } from './ThinkingBlock';
+import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
+import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { getContentBlocks } from '../utils/message-content';
+import type { ClaudeSlashCommand } from '../utils/claude-slash';
+import { buildClaudeSlashCommands, getSessionSlashCommands, parseSelectedSlashCommandPrompt } from '../utils/claude-slash';
+import type { ClaudeSkillSummary } from '../types';
+import { getSessionSkillNames, mergeClaudeSkills, parseSelectedSkillPrompt } from '../utils/claude-skills';
 import type {
   StreamMessage,
   Attachment,
@@ -16,6 +23,11 @@ import type {
   AskUserQuestionInput,
   PermissionResult,
 } from '../types';
+
+type UserPromptPrefixDisplay =
+  | { kind: 'command'; command: ClaudeSlashCommand; remainder: string }
+  | { kind: 'skill'; skill: ClaudeSkillSummary; remainder: string }
+  | { kind: 'generic'; name: string; remainder: string };
 
 // 工具使用块类型
 type ToolUseBlock = ContentBlock & { type: 'tool_use' };
@@ -51,6 +63,28 @@ function groupContentBlocks(content: ContentBlock[]): ContentGroup[] {
   }
 
   return groups;
+}
+
+function extractGenericSlashPrompt(prompt: string): { name: string; remainder: string } | null {
+  const trimmed = prompt.trimStart();
+  if (!trimmed.startsWith('/')) {
+    return null;
+  }
+
+  const firstWhitespaceIndex = trimmed.search(/\s/);
+  const name =
+    firstWhitespaceIndex === -1
+      ? trimmed.slice(1)
+      : trimmed.slice(1, firstWhitespaceIndex);
+
+  if (!name) {
+    return null;
+  }
+
+  const remainder =
+    firstWhitespaceIndex === -1 ? '' : trimmed.slice(firstWhitespaceIndex).replace(/^\s+/, '');
+
+  return { name, remainder };
 }
 
 interface MessageCardProps {
@@ -137,6 +171,56 @@ function UserPromptCard({
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(prompt);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const {
+    activeSessionId,
+    sessions,
+    claudeUserSkills,
+    claudeProjectSkills,
+  } = useAppStore();
+
+  const activeSessionMessages = activeSessionId ? sessions[activeSessionId]?.messages || [] : [];
+  const availableSkills = useMemo(
+    () => mergeClaudeSkills(
+      claudeUserSkills,
+      claudeProjectSkills,
+      getSessionSkillNames(activeSessionMessages)
+    ),
+    [activeSessionMessages, claudeProjectSkills, claudeUserSkills]
+  );
+  const availableCommands = useMemo(
+    () => buildClaudeSlashCommands(getSessionSlashCommands(activeSessionMessages)),
+    [activeSessionMessages]
+  );
+  const promptPrefixDisplay = useMemo<UserPromptPrefixDisplay | null>(() => {
+    const commandState = parseSelectedSlashCommandPrompt(prompt, availableCommands);
+    if (commandState) {
+      return {
+        kind: 'command',
+        command: commandState.command,
+        remainder: commandState.remainder,
+      };
+    }
+
+    const skillState = parseSelectedSkillPrompt(prompt, availableSkills);
+    if (skillState) {
+      return {
+        kind: 'skill',
+        skill: skillState.skill,
+        remainder: skillState.remainder,
+      };
+    }
+
+    const genericState = extractGenericSlashPrompt(prompt);
+    if (genericState) {
+      return {
+        kind: 'generic',
+        name: genericState.name,
+        remainder: genericState.remainder,
+      };
+    }
+
+    return null;
+  }, [availableCommands, availableSkills, prompt]);
 
   useEffect(() => {
     if (!isEditing) {
@@ -252,8 +336,24 @@ function UserPromptCard({
               }}
             />
           ) : (
-            <div className="text-[15px] leading-[1.45] whitespace-pre-wrap text-[var(--text-primary)]">
-              {prompt}
+            <div className={`${promptPrefixDisplay ? 'space-y-2' : ''}`}>
+              {promptPrefixDisplay && (
+                <div>
+                  {promptPrefixDisplay.kind === 'skill' ? (
+                    <SelectedClaudeSkillChip skill={promptPrefixDisplay.skill} />
+                  ) : promptPrefixDisplay.kind === 'command' ? (
+                    <SelectedClaudeCommandChip command={promptPrefixDisplay.command} />
+                  ) : (
+                    <GenericSlashChip name={promptPrefixDisplay.name} />
+                  )}
+                </div>
+              )}
+
+              {(!promptPrefixDisplay || promptPrefixDisplay.remainder) && (
+                <div className="text-[15px] leading-[1.45] whitespace-pre-wrap text-[var(--text-primary)]">
+                  {promptPrefixDisplay ? promptPrefixDisplay.remainder : prompt}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -338,6 +438,16 @@ function IconButton({
     >
       {children}
     </button>
+  );
+}
+
+function GenericSlashChip({ name }: { name: string }) {
+  return (
+    <div className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-2 shadow-sm">
+      <div className="max-w-[260px] truncate text-sm font-medium text-[var(--text-primary)]">
+        /{name}
+      </div>
+    </div>
   );
 }
 

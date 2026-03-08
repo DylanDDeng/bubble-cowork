@@ -6,7 +6,7 @@ export function SelectedClaudeCommandChip({
   onClear,
 }: {
   command: ClaudeSlashCommand;
-  onClear: () => void;
+  onClear?: () => void;
 }) {
   return (
     <div className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-2 shadow-sm">
@@ -21,15 +21,17 @@ export function SelectedClaudeCommandChip({
         {command.title}
       </div>
 
-      <button
-        type="button"
-        onClick={onClear}
-        className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors"
-        aria-label="Remove selected command"
-        title="Remove command"
-      >
-        <X className="w-3.5 h-3.5" />
-      </button>
+      {onClear && (
+        <button
+          type="button"
+          onClick={onClear}
+          className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors"
+          aria-label="Remove selected command"
+          title="Remove command"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
     </div>
   );
 }
