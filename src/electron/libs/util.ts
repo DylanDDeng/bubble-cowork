@@ -18,6 +18,7 @@ export async function runClaudeOneShot(params: {
   cwd?: string;
   resumeSessionId?: string;
   model?: string;
+  betas?: string[];
 }): Promise<{ text: string; sessionId?: string; model?: string }> {
   const env = {
     ...process.env,
@@ -39,6 +40,8 @@ export async function runClaudeOneShot(params: {
       cwd: params.cwd || process.cwd(),
       resume: params.resumeSessionId,
       model: params.model,
+      settings: params.model ? { model: params.model } : undefined,
+      betas: params.betas as Array<'context-1m-2025-08-07'> | undefined,
       executable: executable as unknown as 'node',
       executableArgs,
       pathToClaudeCodeExecutable,

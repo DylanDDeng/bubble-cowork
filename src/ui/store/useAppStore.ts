@@ -377,6 +377,7 @@ function handleSessionList(
       claudeSessionId: session.claudeSessionId,
       provider: session.provider || 'claude',
       model: session.model,
+      betas: session.betas,
       todoState: session.todoState || 'todo',
       pinned: session.pinned || false,
       folderPath: session.folderPath || null,
@@ -413,11 +414,12 @@ function handleSessionStatus(
     cwd?: string;
     provider?: SessionInfo['provider'];
     model?: SessionInfo['model'];
+    betas?: SessionInfo['betas'];
   },
   set: SetState,
   get: () => Store
 ) {
-  const { sessionId, status, title, cwd, provider, model } = payload;
+  const { sessionId, status, title, cwd, provider, model, betas } = payload;
   const state = get();
   const session = state.sessions[sessionId];
 
@@ -444,6 +446,7 @@ function handleSessionStatus(
           cwd: cwd || session.cwd,
           provider: provider || session.provider,
           model: model !== undefined ? (model || undefined) : session.model,
+          betas: betas !== undefined ? betas : session.betas,
           runtimeNotice: nextRuntimeNotice,
           updatedAt: Date.now(),
         },
@@ -458,6 +461,7 @@ function handleSessionStatus(
       cwd,
       provider: provider || 'claude',
       model,
+      betas,
       messages: [],
       hydrated: true, // 新会话不需要 hydration
       permissionRequests: [],

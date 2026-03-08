@@ -13,7 +13,14 @@ import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import { getSessionModel } from '../utils/session-model';
-import { formatClaudeModelLabel, loadPreferredClaudeModel, savePreferredClaudeModel } from '../utils/claude-model';
+import {
+  formatClaudeModelLabel,
+  loadPreferredClaudeContext1m,
+  loadPreferredClaudeModel,
+  savePreferredClaudeContext1m,
+  savePreferredClaudeModel,
+  supportsClaude1mContext,
+} from '../utils/claude-model';
 import { buildCodexModelOptions, formatCodexModelLabel, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
 
 export function PromptInput() {
@@ -25,6 +32,7 @@ export function PromptInput() {
   const [selectedClaudeModel, setSelectedClaudeModel] = useState<string | null>(
     loadPreferredClaudeModel()
   );
+  const [selectedClaudeContext1m, setSelectedClaudeContext1m] = useState(loadPreferredClaudeContext1m());
   const [selectedCodexModel, setSelectedCodexModel] = useState<string | null>(
     loadPreferredCodexModel()
   );
@@ -39,8 +47,8 @@ export function PromptInput() {
     [codexModelConfig]
   );
   const activeClaudeModel = useMemo(
-    () => (provider === 'claude' ? getSessionModel(activeSession?.messages) : null),
-    [provider, activeSession?.messages]
+    () => (provider === 'claude' ? activeSession?.model || getSessionModel(activeSession?.messages) : null),
+    [provider, activeSession?.messages, activeSession?.model]
   );
   const handleAutoSubmitClaudeCommand = (nextPrompt: string) => {
     if (!activeSessionId || !activeSession) {
@@ -61,6 +69,12 @@ export function PromptInput() {
             : provider === 'codex'
               ? selectedCodexModel || codexModelConfig.defaultModel || codexModelOptions[0] || undefined
               : undefined,
+        betas:
+          provider === 'claude' &&
+          supportsClaude1mContext(selectedClaudeModel || claudeModelConfig.defaultModel || null) &&
+          selectedClaudeContext1m
+            ? ['context-1m-2025-08-07']
+            : undefined,
       },
     });
     setPrompt('');
@@ -93,10 +107,14 @@ export function PromptInput() {
       loadPreferredClaudeModel() ||
       claudeModelConfig.defaultModel;
     setSelectedClaudeModel(nextModel || null);
+    setSelectedClaudeContext1m(
+      !!activeSession?.betas?.includes('context-1m-2025-08-07') || loadPreferredClaudeContext1m()
+    );
   }, [
     activeSessionId,
     activeSession?.provider,
     activeSession?.model,
+    activeSession?.betas,
     activeClaudeModel,
     claudeModelConfig.defaultModel,
   ]);
@@ -147,6 +165,12 @@ export function PromptInput() {
               : provider === 'codex'
                 ? selectedCodexModel || codexModelConfig.defaultModel || codexModelOptions[0] || undefined
                 : undefined,
+          betas:
+            provider === 'claude' &&
+            supportsClaude1mContext(selectedClaudeModel || claudeModelConfig.defaultModel || null) &&
+            selectedClaudeContext1m
+              ? ['context-1m-2025-08-07']
+              : undefined,
         },
       });
       setPrompt('');
@@ -306,8 +330,17 @@ export function PromptInput() {
                 value: selectedClaudeModel,
                 config: claudeModelConfig,
                 runtimeModel: activeClaudeModel,
+                context1m: !!activeSession?.betas?.includes('context-1m-2025-08-07') || selectedClaudeContext1m,
+                onToggleContext1m: (enabled) => {
+                  setSelectedClaudeContext1m(enabled);
+                  savePreferredClaudeContext1m(enabled);
+                },
                 onChange: (model) => {
                   setSelectedClaudeModel(model);
+                  if (!supportsClaude1mContext(model)) {
+                    setSelectedClaudeContext1m(false);
+                    savePreferredClaudeContext1m(false);
+                  }
                   savePreferredClaudeModel(model);
                 },
               }}
@@ -391,7 +424,7 @@ export function PromptInput() {
               ? 'Press Enter to send, Shift+Enter for new line. Type / to insert a Claude skill.'
               : 'Press Enter to send, Shift+Enter for new line'}
           {provider === 'claude' && activeClaudeModel
-            ? ` Current model: ${formatClaudeModelLabel(activeClaudeModel)}`
+            ? ` Current model: ${formatClaudeModelLabel(activeClaudeModel, !!activeSession?.betas?.includes('context-1m-2025-08-07') || selectedClaudeContext1m)}`
             : provider === 'codex' && (activeSession?.model || selectedCodexModel)
               ? ` Current model: ${formatCodexModelLabel(activeSession?.model || selectedCodexModel || '')}`
               : ''}

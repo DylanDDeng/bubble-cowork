@@ -49,6 +49,7 @@ export interface SessionView {
   claudeSessionId?: string;
   provider?: AgentProvider;
   model?: string;
+  betas?: string[];
   todoState?: TodoState;
   pinned?: boolean;
   folderPath?: string | null;

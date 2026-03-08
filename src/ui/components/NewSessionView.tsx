@@ -13,7 +13,13 @@ import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import { getLatestProviderModel } from '../utils/session-model';
-import { loadPreferredClaudeModel, savePreferredClaudeModel } from '../utils/claude-model';
+import {
+  supportsClaude1mContext,
+  loadPreferredClaudeContext1m,
+  loadPreferredClaudeModel,
+  savePreferredClaudeContext1m,
+  savePreferredClaudeModel,
+} from '../utils/claude-model';
 import { buildCodexModelOptions, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
 
 export function NewSessionView() {
@@ -26,6 +32,7 @@ export function NewSessionView() {
   const [selectedClaudeModel, setSelectedClaudeModel] = useState<string | null>(
     loadPreferredClaudeModel()
   );
+  const [selectedClaudeContext1m, setSelectedClaudeContext1m] = useState(loadPreferredClaudeContext1m());
   const [selectedCodexModel, setSelectedCodexModel] = useState<string | null>(
     loadPreferredCodexModel()
   );
@@ -80,6 +87,16 @@ export function NewSessionView() {
   }, [claudeModelConfig.defaultModel, selectedClaudeModel]);
 
   useEffect(() => {
+    if (supportsClaude1mContext(selectedClaudeModel)) {
+      return;
+    }
+    if (selectedClaudeContext1m) {
+      setSelectedClaudeContext1m(false);
+      savePreferredClaudeContext1m(false);
+    }
+  }, [selectedClaudeContext1m, selectedClaudeModel]);
+
+  useEffect(() => {
     if (selectedCodexModel || (!codexModelConfig.defaultModel && codexModelOptions.length === 0)) {
       return;
     }
@@ -115,6 +132,12 @@ export function NewSessionView() {
             : provider === 'codex'
               ? selectedCodexModel || codexModelConfig.defaultModel || codexModelOptions[0] || undefined
               : undefined,
+        betas:
+          provider === 'claude' &&
+          supportsClaude1mContext(selectedClaudeModel || claudeModelConfig.defaultModel || null) &&
+          selectedClaudeContext1m
+            ? ['context-1m-2025-08-07']
+            : undefined,
       },
     });
 
@@ -291,9 +314,18 @@ export function NewSessionView() {
               claudeModel={{
                 value: selectedClaudeModel,
                 config: claudeModelConfig,
-                  runtimeModel: recentClaudeModel,
-                  onChange: (model) => {
-                    setSelectedClaudeModel(model);
+                runtimeModel: recentClaudeModel,
+                context1m: selectedClaudeContext1m,
+                onToggleContext1m: (enabled) => {
+                  setSelectedClaudeContext1m(enabled);
+                  savePreferredClaudeContext1m(enabled);
+                },
+                onChange: (model) => {
+                  setSelectedClaudeModel(model);
+                  if (!supportsClaude1mContext(model)) {
+                    setSelectedClaudeContext1m(false);
+                    savePreferredClaudeContext1m(false);
+                  }
                   savePreferredClaudeModel(model);
                 },
               }}

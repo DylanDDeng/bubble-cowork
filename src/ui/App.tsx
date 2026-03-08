@@ -432,6 +432,7 @@ export function App() {
                                     attachments: attachments && attachments.length > 0 ? attachments : undefined,
                                     provider: activeSession.provider,
                                     model: activeSession.model,
+                                    betas: activeSession.betas,
                                   },
                                 });
                               },

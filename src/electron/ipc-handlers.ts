@@ -7,6 +7,7 @@ import { runClaude } from './libs/runner';
 import { runCodex } from './libs/codex-runner';
 import { generateSessionTitle, runClaudeOneShot } from './libs/util';
 import { readProjectTree } from './libs/project-tree';
+import { normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
 import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfig, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
 import { getCodexModelConfig } from './libs/codex-settings';
 import { listClaudeSkills } from './libs/claude-skills';
@@ -143,9 +144,32 @@ function getAttachmentSpec(filePath: string): { kind: Attachment['kind']; mimeTy
 }
 
 function normalizeModel(model?: string | null): string | undefined {
-  if (typeof model !== 'string') return undefined;
-  const trimmed = model.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+  return normalizeClaudeRequestedModel(model);
+}
+
+function normalizeBetas(betas?: string[] | null): string[] | undefined {
+  if (!Array.isArray(betas)) {
+    return undefined;
+  }
+
+  const normalized = betas
+    .map((beta) => (typeof beta === 'string' ? beta.trim() : ''))
+    .filter(Boolean);
+
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : undefined;
+}
+
+function parseStoredBetas(raw?: string | null): string[] | undefined {
+  if (!raw) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return normalizeBetas(Array.isArray(parsed) ? parsed : undefined);
+  } catch {
+    return undefined;
+  }
 }
 
 function parseSlashCommand(prompt: string): { name: string; args: string } | null {
@@ -533,7 +557,7 @@ async function handleEditLatestPrompt(
   mainWindow: BrowserWindow,
   payload: SessionContinuePayload
 ): Promise<void> {
-  const { sessionId, prompt, attachments, model } = payload;
+  const { sessionId, prompt, attachments, model, betas } = payload;
   const session = sessions.getSession(sessionId);
   if (!session) {
     broadcast(mainWindow, {
@@ -576,6 +600,7 @@ async function handleEditLatestPrompt(
 
   const preservedHistory = history.slice(0, latestUserPromptIndex);
   const requestedModel = normalizeModel(model ?? session.model ?? undefined);
+  const requestedBetas = normalizeBetas(betas ?? parseStoredBetas(session.betas));
   let nextClaudeSessionId: string | undefined;
   let resolvedModel = requestedModel;
 
@@ -585,6 +610,7 @@ async function handleEditLatestPrompt(
         prompt: buildLatestEditSummaryPrompt(preservedHistory),
         cwd: session.cwd ?? undefined,
         model: requestedModel || undefined,
+        betas: requestedBetas,
       });
       const summary = extractSummaryContent(summaryResult.text);
       if (!summary) {
@@ -599,6 +625,7 @@ async function handleEditLatestPrompt(
         }),
         cwd: session.cwd ?? undefined,
         model: summaryResult.model || requestedModel || undefined,
+        betas: requestedBetas,
       });
 
       if (!bootstrapResult.sessionId) {
@@ -631,6 +658,7 @@ async function handleEditLatestPrompt(
   sessions.updateLastPrompt(sessionId, prompt.trim());
   sessions.setClaudeSessionId(sessionId, nextClaudeSessionId || null);
   sessions.updateSessionModel(sessionId, resolvedModel || null);
+  sessions.updateSessionBetas(sessionId, requestedBetas || null);
 
   const refreshedSession = sessions.getSession(sessionId);
   if (!refreshedSession) {
@@ -657,6 +685,7 @@ async function handleEditLatestPrompt(
       status: 'running',
       provider: refreshedSession.provider,
       model: resolvedModel || undefined,
+      betas: requestedBetas,
     },
   });
 
@@ -667,7 +696,8 @@ async function handleEditLatestPrompt(
     nextClaudeSessionId,
     attachments,
     'claude',
-    resolvedModel || undefined
+    resolvedModel || undefined,
+    requestedBetas
   );
 }
 
@@ -1235,6 +1265,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     claudeSessionId: row.claude_session_id || undefined,
     provider: row.provider || 'claude',
     model: row.model || undefined,
+    betas: parseStoredBetas(row.betas),
     todoState: row.todo_state || 'todo',
     pinned: row.pinned === 1,
     folderPath: row.folder_path || null,
@@ -1267,7 +1298,7 @@ async function handleSessionStart(
   mainWindow: BrowserWindow,
   payload: SessionStartPayload
 ): Promise<void> {
-  const { title, prompt, cwd, allowedTools, attachments, provider, model } = payload;
+  const { title, prompt, cwd, allowedTools, attachments, provider, model, betas } = payload;
   if (!cwd?.trim()) {
     broadcast(mainWindow, {
       type: 'runner.error',
@@ -1277,6 +1308,7 @@ async function handleSessionStart(
   }
   const chosenProvider = provider || 'claude';
   const selectedModel = normalizeModel(model);
+  const selectedBetas = chosenProvider === 'claude' ? normalizeBetas(betas) : undefined;
   if (isDev()) {
     console.log('[Session Start]', {
       provider: chosenProvider,
@@ -1293,6 +1325,7 @@ async function handleSessionStart(
     prompt,
     provider: chosenProvider,
     model: selectedModel,
+    betas: selectedBetas,
   });
 
   // 更新状态为 running
@@ -1308,6 +1341,7 @@ async function handleSessionStart(
       cwd: session.cwd || undefined,
       provider: chosenProvider,
       model: selectedModel,
+      betas: selectedBetas,
     },
   });
 
@@ -1346,7 +1380,16 @@ async function handleSessionStart(
   sessions.addMessage(session.id, { type: 'user_prompt', prompt, attachments, createdAt });
 
   // 启动 Runner
-  startRunner(mainWindow, session, prompt, undefined, attachments, chosenProvider, selectedModel);
+  startRunner(
+    mainWindow,
+    session,
+    prompt,
+    undefined,
+    attachments,
+    chosenProvider,
+    selectedModel,
+    selectedBetas
+  );
 }
 
 // 继续会话
@@ -1354,7 +1397,7 @@ async function handleSessionContinue(
   mainWindow: BrowserWindow,
   payload: SessionContinuePayload
 ): Promise<void> {
-  const { sessionId, prompt, attachments, provider, model } = payload;
+  const { sessionId, prompt, attachments, provider, model, betas } = payload;
 
   const session = sessions.getSession(sessionId);
   if (!session) {
@@ -1373,9 +1416,14 @@ async function handleSessionContinue(
   const previousProvider = session.provider || 'claude';
   const nextProvider = provider || previousProvider;
   const nextModel = normalizeModel(model ?? session.model ?? undefined);
+  const previousBetas = parseStoredBetas(session.betas);
+  const nextBetas = nextProvider === 'claude'
+    ? normalizeBetas(betas ?? previousBetas)
+    : undefined;
   const previousModel = normalizeModel(session.model ?? undefined);
   const providerChanged = nextProvider !== previousProvider;
   const modelChanged = nextModel !== previousModel;
+  const betasChanged = JSON.stringify(nextBetas || []) !== JSON.stringify(previousBetas || []);
 
   if (isDev()) {
     console.log('[Session Continue]', {
@@ -1384,7 +1432,9 @@ async function handleSessionContinue(
       previousProvider,
       nextProvider,
       nextModel,
+      nextBetas,
       providerChanged,
+      betasChanged,
       hasExistingRunner: !!existingEntry,
     });
   }
@@ -1393,6 +1443,7 @@ async function handleSessionContinue(
     sessions.updateSessionProvider(sessionId, nextProvider);
   }
   sessions.updateSessionModel(sessionId, nextModel || null);
+  sessions.updateSessionBetas(sessionId, nextBetas || null);
 
   // 更新状态
   sessions.updateSessionStatus(sessionId, 'running');
@@ -1406,6 +1457,7 @@ async function handleSessionContinue(
       status: 'running',
       provider: nextProvider,
       model: nextModel ?? '',
+      betas: nextBetas,
     },
   });
 
@@ -1420,7 +1472,7 @@ async function handleSessionContinue(
   sessions.addMessage(sessionId, { type: 'user_prompt', prompt, attachments, createdAt });
 
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
-    if (nextProvider === 'codex' && modelChanged) {
+    if ((nextProvider === 'codex' && modelChanged) || (nextProvider === 'claude' && (modelChanged || betasChanged))) {
       existingEntry.handle.abort();
       runnerHandles.delete(sessionId);
     } else {
@@ -1442,7 +1494,16 @@ async function handleSessionContinue(
         ? session.claude_session_id ?? undefined
         : session.codex_session_id ?? undefined;
 
-  startRunner(mainWindow, session, prompt, resumeSessionId, attachments, nextProvider, nextModel);
+  startRunner(
+    mainWindow,
+    sessions.getSession(sessionId),
+    prompt,
+    resumeSessionId,
+    attachments,
+    nextProvider,
+    nextModel,
+    nextBetas
+  );
 }
 
 // 启动 Runner
@@ -1453,7 +1514,8 @@ function startRunner(
   resumeSessionId?: string,
   attachments?: Attachment[],
   providerOverride?: 'claude' | 'codex',
-  modelOverride?: string
+  modelOverride?: string,
+  betasOverride?: string[]
 ): void {
   if (!session) return;
 
@@ -1478,6 +1540,7 @@ function startRunner(
     session,
     resumeSessionId,
     model: modelOverride,
+    betas: provider === 'claude' ? betasOverride || parseStoredBetas(session.betas) : undefined,
     onMessage: (message) => {
       // 提取并保存 claude session id
       if (message.type === 'system' && message.subtype === 'init') {
@@ -1488,8 +1551,12 @@ function startRunner(
           }
         } else {
           sessions.updateClaudeSessionId(session.id, message.session_id);
-          if (message.model) {
-            sessions.updateSessionModel(session.id, message.model);
+          const resolvedDisplayModel = reconcileClaudeDisplayModel(
+            modelOverride || session.model,
+            message.model
+          );
+          if (resolvedDisplayModel) {
+            sessions.updateSessionModel(session.id, resolvedDisplayModel);
           }
         }
 
@@ -1499,7 +1566,14 @@ function startRunner(
             sessionId: session.id,
             status: (sessions.getSession(session.id)?.status || 'running') as SessionStatus,
             provider,
-            model: message.model || modelOverride || undefined,
+            model:
+              provider === 'claude'
+                ? reconcileClaudeDisplayModel(modelOverride || session.model, message.model)
+                : message.model || modelOverride || undefined,
+            betas:
+              provider === 'claude'
+                ? betasOverride || parseStoredBetas(sessions.getSession(session.id)?.betas)
+                : undefined,
           },
         });
       }
@@ -1524,6 +1598,10 @@ function startRunner(
             status,
             provider,
             model: sessions.getSession(session.id)?.model || modelOverride || undefined,
+            betas:
+              provider === 'claude'
+                ? betasOverride || parseStoredBetas(sessions.getSession(session.id)?.betas)
+                : undefined,
           },
         });
         if (runnerHandles.get(session.id)?.handle === handle) {

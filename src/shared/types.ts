@@ -195,6 +195,7 @@ export interface SessionStartPayload {
   attachments?: Attachment[];
   provider?: AgentProvider;
   model?: string;
+  betas?: string[];
 }
 
 export interface SessionContinuePayload {
@@ -203,6 +204,7 @@ export interface SessionContinuePayload {
   attachments?: Attachment[];
   provider?: AgentProvider;
   model?: string;
+  betas?: string[];
 }
 
 export interface SessionInfo {
@@ -213,6 +215,7 @@ export interface SessionInfo {
   claudeSessionId?: string;
   provider?: AgentProvider;
   model?: string;
+  betas?: string[];
   todoState?: TodoState;
   pinned?: boolean;
   folderPath?: string | null;
@@ -230,6 +233,7 @@ export interface SessionStatusPayload {
   error?: string;
   provider?: AgentProvider;
   model?: string;
+  betas?: string[];
 }
 
 export interface SessionHistoryPayload {

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Check, ChevronDown, ChevronLeft } from 'lucide-react';
 import type { AgentProvider, ClaudeModelConfig } from '../types';
 import { PROVIDERS } from '../utils/provider';
-import { buildClaudeModelOptions, formatClaudeModelLabel } from '../utils/claude-model';
+import { buildClaudeModelOptions, formatClaudeModelLabel, supportsClaude1mContext } from '../utils/claude-model';
 import { buildCodexModelOptions, formatCodexModelLabel } from '../utils/codex-model';
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
@@ -17,6 +17,8 @@ interface AgentModelPickerProps {
     value: string | null;
     config: ClaudeModelConfig;
     runtimeModel?: string | null;
+    context1m?: boolean;
+    onToggleContext1m?: (enabled: boolean) => void;
     onChange: (model: string) => void;
   };
   codexModel?: {
@@ -69,7 +71,9 @@ export function AgentModelPicker({
     if (provider === 'claude' && claudeModel) {
       const resolvedValue =
         claudeModel.value || claudeModel.config.defaultModel || claudeOptions[0] || '';
-      return resolvedValue ? formatClaudeModelLabel(resolvedValue) : currentProvider.label;
+      return resolvedValue
+        ? formatClaudeModelLabel(resolvedValue, claudeModel.context1m)
+        : currentProvider.label;
     }
 
     if (provider === 'codex' && codexModel) {
@@ -156,7 +160,7 @@ export function AgentModelPicker({
       {open && !disabled && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 z-20 mb-1 min-w-[200px] rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-lg">
+          <div className="absolute bottom-full left-0 z-20 mb-1 min-w-[220px] rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-lg">
             {openMode === 'provider' ? (
               <>
                 {PROVIDERS.map((item) => (
@@ -187,6 +191,26 @@ export function AgentModelPicker({
                   {currentProvider.label}
                 </div>
                 {renderModelItems()}
+                {provider === 'claude' &&
+                  claudeModel &&
+                  supportsClaude1mContext(
+                    claudeModel.value || claudeModel.config.defaultModel || claudeOptions[0] || ''
+                  ) &&
+                  claudeModel.onToggleContext1m && (
+                    <button
+                      onClick={() => claudeModel.onToggleContext1m?.(!claudeModel.context1m)}
+                      className={`mt-1 flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm transition-colors ${
+                        claudeModel.context1m
+                          ? 'bg-[var(--accent-light)] text-[var(--text-primary)]'
+                          : 'text-[var(--text-primary)] hover:bg-[#F3F3F3]'
+                      }`}
+                    >
+                      <span>1M context</span>
+                      {claudeModel.context1m && (
+                        <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" />
+                      )}
+                    </button>
+                  )}
               </>
             )}
           </div>

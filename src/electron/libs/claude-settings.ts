@@ -3,6 +3,24 @@ import { homedir } from 'os';
 import { join } from 'path';
 import type { ClaudeModelConfig } from '../../shared/types';
 
+function canonicalizeClaudeModel(model?: string | null): string | null {
+  const normalized = model?.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  switch (normalized) {
+    case 'sonnet':
+      return 'claude-sonnet-4-6';
+    case 'opus':
+      return 'claude-opus-4-6';
+    case 'haiku':
+      return 'claude-haiku-4-5';
+    default:
+      return normalized;
+  }
+}
+
 // Claude Code 主配置文件路径
 const CLAUDE_JSON_PATH = join(homedir(), '.claude.json');
 // 旧配置路径（向后兼容）
@@ -116,11 +134,10 @@ export function getClaudeSettings(): { apiKey?: string } | null {
 
 export function getClaudeModelConfig(): ClaudeModelConfig {
   const s = loadClaudeSettings();
-  const defaultModel =
-    typeof s.model === 'string' && s.model.trim().length > 0 ? s.model.trim() : null;
+  const defaultModel = canonicalizeClaudeModel(s.model);
   const options = Array.from(
     new Set(
-      [defaultModel, 'haiku', 'sonnet', 'sonnet[1m]', 'opus', 'opus[1m]'].filter(
+      [defaultModel, 'claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-6'].filter(
         (value): value is string => Boolean(value)
       )
     )

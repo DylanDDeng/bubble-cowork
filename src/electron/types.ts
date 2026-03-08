@@ -25,6 +25,7 @@ export interface SessionRow {
   codex_session_id: string | null;
   provider: 'claude' | 'codex';
   model: string | null;
+  betas: string | null;
   status: string;
   cwd: string | null;
   allowed_tools: string | null;
@@ -50,6 +51,7 @@ export interface RunnerOptions {
   session: SessionRow;
   resumeSessionId?: string;
   model?: string;
+  betas?: string[];
   onMessage: (message: import('../shared/types').StreamMessage) => void;
   onError?: (error: Error) => void;
   onPermissionRequest: (

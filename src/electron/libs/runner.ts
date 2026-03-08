@@ -259,7 +259,7 @@ async function buildUserMessage(
 
 // 运行 Claude Agent
 export function runClaude(options: RunnerOptions): RunnerHandle {
-  const { prompt, attachments, session, resumeSessionId, model, onMessage, onPermissionRequest, onError } = options;
+  const { prompt, attachments, session, resumeSessionId, model, betas, onMessage, onPermissionRequest, onError } = options;
 
   const abortController = new AbortController();
   const inputQueue = new AsyncMessageQueue<SDKUserMessage>();
@@ -300,9 +300,9 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       });
   };
 
-  // Inject working directory context to ensure Claude executes commands in the correct directory
-  // This is needed because the SDK's cwd option may not be inherited by Bash tool subprocesses
-  enqueuePrompt(applyCwdHint(session.cwd, prompt), attachments);
+  // The runtime won't emit init until it has an initial prompt to process.
+  // Queue the first prompt immediately so the session can start.
+  enqueuePrompt(applyCwdHint(session.cwd, prompt), attachments, currentModel);
 
   // 异步执行
   (async () => {
@@ -340,8 +340,10 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           abortController,
           includePartialMessages: true,
           maxThinkingTokens,
+          betas: betas as Array<'context-1m-2025-08-07'> | undefined,
           env,
           model: currentModel,
+          settings: currentModel ? { model: currentModel } : undefined,
           executable: executable as unknown as 'node',
           executableArgs,
           pathToClaudeCodeExecutable,
@@ -437,6 +439,13 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         if (streamMessage) {
           if (streamMessage.type === 'system' && streamMessage.subtype === 'init') {
             currentSessionId = streamMessage.session_id || currentSessionId;
+            if (currentModel && streamMessage.model && streamMessage.model !== currentModel) {
+              try {
+                await result.setModel(currentModel);
+              } catch (error) {
+                console.warn('Failed to re-apply requested model after init:', error);
+              }
+            }
           }
           onMessage(streamMessage);
         }

@@ -43,7 +43,9 @@ function resolveClaudeCodeCliPath(): string | undefined {
   }
 
   try {
-    return resolveUnpackedPath(requireFn.resolve('@anthropic-ai/claude-agent-sdk/cli.js'));
+    const sdkEntry = resolveUnpackedPath(requireFn.resolve('@anthropic-ai/claude-agent-sdk'));
+    const candidate = path.join(path.dirname(sdkEntry), 'cli.js');
+    return fs.existsSync(candidate) ? candidate : undefined;
   } catch {
     return undefined;
   }

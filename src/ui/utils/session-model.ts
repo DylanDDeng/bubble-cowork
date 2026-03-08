@@ -24,7 +24,7 @@ export function getLatestProviderModel(
     Object.values(sessions)
       .filter((session) => session.provider === provider)
       .sort((left, right) => right.updatedAt - left.updatedAt)
-      .map((session) => getSessionModel(session.messages))
+      .map((session) => session.model || getSessionModel(session.messages))
       .find((model): model is string => Boolean(model)) || null
   );
 }
