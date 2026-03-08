@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Check, ChevronDown, ChevronLeft } from 'lucide-react';
-import type { AgentProvider, ClaudeModelConfig } from '../types';
+import type { AgentProvider, ClaudeCompatibleProviderId, ClaudeModelConfig } from '../types';
 import { PROVIDERS } from '../utils/provider';
 import { buildClaudeModelOptions, formatClaudeModelLabel, supportsClaude1mContext } from '../utils/claude-model';
 import { buildCodexModelOptions, formatCodexModelLabel } from '../utils/codex-model';
 import claudeLogo from '../assets/claude-color.svg';
+import minimaxLogo from '../assets/minimax-color.svg';
 import openaiLogo from '../assets/openai.svg';
+import zhipuLogo from '../assets/zhipu-color.svg';
 
 type PickerMode = 'provider' | 'model';
 
@@ -19,7 +21,7 @@ interface AgentModelPickerProps {
     runtimeModel?: string | null;
     context1m?: boolean;
     compatibleOptions?: Array<{
-      id: string;
+      id: ClaudeCompatibleProviderId;
       label: string;
       model: string;
     }>;
@@ -44,6 +46,11 @@ function ProviderIcon({ provider }: { provider: AgentProvider }) {
   }
 
   return null;
+}
+
+function CompatibleProviderIcon({ providerId }: { providerId: ClaudeCompatibleProviderId }) {
+  const logo = providerId === 'minimax' ? minimaxLogo : zhipuLogo;
+  return <img src={logo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
 }
 
 export function AgentModelPicker({
@@ -82,15 +89,22 @@ export function AgentModelPicker({
     (provider === 'codex' && codexOptions.length > 0);
 
   const openMode = mode === 'model' && hasModelOptions ? 'model' : 'provider';
+  const currentCompatibleOption = useMemo(() => {
+    if (provider !== 'claude' || !claudeModel) {
+      return null;
+    }
+
+    const resolvedValue =
+      claudeModel.value || claudeModel.config.defaultModel || claudeOptions[0] || '';
+    return compatibleOptions.find((option) => option.model === resolvedValue) || null;
+  }, [provider, claudeModel, claudeOptions, compatibleOptions]);
+
   const currentModelLabel = useMemo(() => {
     if (provider === 'claude' && claudeModel) {
       const resolvedValue =
         claudeModel.value || claudeModel.config.defaultModel || claudeOptions[0] || '';
-      const compatibleOption = compatibleOptions.find(
-        (option) => option.model === resolvedValue
-      );
-      if (compatibleOption) {
-        return compatibleOption.model;
+      if (currentCompatibleOption) {
+        return currentCompatibleOption.model;
       }
       return resolvedValue
         ? formatClaudeModelLabel(resolvedValue, claudeModel.context1m)
@@ -103,7 +117,7 @@ export function AgentModelPicker({
     }
 
     return currentProvider.label;
-  }, [provider, claudeModel, claudeOptions, compatibleOptions, codexModel, codexOptions, currentProvider.label]);
+  }, [provider, claudeModel, claudeOptions, currentCompatibleOption, codexModel, codexOptions, currentProvider.label]);
 
   const handleTriggerClick = () => {
     if (disabled) return;
@@ -156,7 +170,10 @@ export function AgentModelPicker({
                 className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[#F3F3F3]"
                 title={option.model}
               >
-                <div className="min-w-0 truncate">{option.model}</div>
+                <div className="flex min-w-0 items-center gap-2">
+                  <CompatibleProviderIcon providerId={option.id} />
+                  <div className="min-w-0 truncate">{option.model}</div>
+                </div>
                 {resolvedValue === option.model && (
                   <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" />
                 )}
@@ -198,7 +215,11 @@ export function AgentModelPicker({
         disabled={disabled}
         className="flex items-center gap-1.5 rounded-lg border border-transparent bg-transparent px-3 py-1.5 text-sm transition-colors hover:bg-[#EEEEEE] disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <ProviderIcon provider={currentProvider.id} />
+        {currentCompatibleOption ? (
+          <CompatibleProviderIcon providerId={currentCompatibleOption.id} />
+        ) : (
+          <ProviderIcon provider={currentProvider.id} />
+        )}
         <span className="max-w-[140px] truncate text-[var(--text-secondary)]">
           {hasModelOptions ? currentModelLabel : currentProvider.label}
         </span>
