@@ -296,6 +296,7 @@ export type StreamMessage =
       duration_ms: number;
       total_cost_usd: number;
       usage: Usage;
+      modelUsage?: Record<string, ClaudeModelUsage>;
     })
   | (StreamMessageBase & { type: 'stream_event'; event: StreamEvent })
   | (StreamMessageBase & { type: 'mcp_status'; servers: McpServerStatus[] });
@@ -324,6 +325,49 @@ export interface StreamEvent {
 export interface Usage {
   input_tokens: number;
   output_tokens: number;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+}
+
+export interface ClaudeModelUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  costUSD: number;
+}
+
+export type ClaudeUsageRangeDays = 7 | 30 | 90;
+
+export interface ClaudeUsageModelSummary {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  totalCostUsd: number;
+  sessionCount: number;
+  cacheReadTokens: number;
+}
+
+export interface ClaudeUsageDailyPoint {
+  date: string;
+  totalTokens: number;
+  byModel: Record<string, number>;
+}
+
+export interface ClaudeUsageReport {
+  rangeDays: ClaudeUsageRangeDays;
+  totals: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    totalCostUsd: number;
+    sessionCount: number;
+    cacheReadTokens: number;
+    cacheHitRate: number;
+  };
+  models: ClaudeUsageModelSummary[];
+  daily: ClaudeUsageDailyPoint[];
 }
 
 // 系统监控类型（预留）

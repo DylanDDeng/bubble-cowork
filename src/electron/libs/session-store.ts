@@ -3,8 +3,15 @@ import { app } from 'electron';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { SessionRow, StreamMessage, SessionStatus } from '../types';
+import type {
+  ClaudeModelUsage,
+  ClaudeUsageModelSummary,
+  ClaudeUsageRangeDays,
+  ClaudeUsageReport,
+} from '../../shared/types';
 
 let db: Database.Database | null = null;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 // 初始化数据库
 export function initialize(): void {
@@ -280,6 +287,185 @@ export function getSessionHistory(sessionId: string): StreamMessage[] {
     }
     return message;
   });
+}
+
+type JoinedClaudeMessageRow = {
+  data: string;
+  created_at: number;
+  session_id: string;
+  session_model: string | null;
+};
+
+type StoredClaudeResultMessage = Extract<StreamMessage, { type: 'result' }> & {
+  modelUsage?: Record<string, Partial<ClaudeModelUsage>>;
+};
+
+function startOfLocalDay(timestamp: number): number {
+  const date = new Date(timestamp);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+function formatDateKey(timestamp: number): string {
+  const date = new Date(timestamp);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function toNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function emptyModelSummary(model: string): ClaudeUsageModelSummary {
+  return {
+    model,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    totalCostUsd: 0,
+    sessionCount: 0,
+    cacheReadTokens: 0,
+  };
+}
+
+export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsageReport {
+  const safeDays: ClaudeUsageRangeDays = days === 7 || days === 90 ? days : 30;
+  const todayStart = startOfLocalDay(Date.now());
+  const rangeStart = todayStart - (safeDays - 1) * DAY_MS;
+
+  const rows = getDb().prepare(`
+    SELECT
+      m.data AS data,
+      m.created_at AS created_at,
+      s.id AS session_id,
+      s.model AS session_model
+    FROM messages m
+    INNER JOIN sessions s ON s.id = m.session_id
+    WHERE s.provider = 'claude' AND m.created_at >= ?
+    ORDER BY m.created_at ASC
+  `).all(rangeStart) as JoinedClaudeMessageRow[];
+
+  const dailyMap = new Map<string, { totalTokens: number; byModel: Record<string, number> }>();
+  for (let index = 0; index < safeDays; index += 1) {
+    const dayStart = rangeStart + index * DAY_MS;
+    dailyMap.set(formatDateKey(dayStart), { totalTokens: 0, byModel: {} });
+  }
+
+  const sessionIds = new Set<string>();
+  const modelSummaries = new Map<string, ClaudeUsageModelSummary>();
+  const modelSessions = new Map<string, Set<string>>();
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalCostUsd = 0;
+  let totalCacheReadTokens = 0;
+  let totalCacheCreationTokens = 0;
+
+  for (const row of rows) {
+    let parsed: StreamMessage;
+    try {
+      parsed = JSON.parse(row.data) as StreamMessage;
+    } catch {
+      continue;
+    }
+
+    if (parsed.type !== 'result') {
+      continue;
+    }
+
+    const result = parsed as StoredClaudeResultMessage;
+    const inputTokens = toNumber(result.usage?.input_tokens);
+    const outputTokens = toNumber(result.usage?.output_tokens);
+    const cacheReadTokens = toNumber(result.usage?.cache_read_input_tokens);
+    const cacheCreationTokens = toNumber(result.usage?.cache_creation_input_tokens);
+    const totalTokens = inputTokens + outputTokens;
+    const dateKey = formatDateKey(row.created_at);
+    const dayBucket = dailyMap.get(dateKey);
+
+    totalInputTokens += inputTokens;
+    totalOutputTokens += outputTokens;
+    totalCostUsd += toNumber(result.total_cost_usd);
+    totalCacheReadTokens += cacheReadTokens;
+    totalCacheCreationTokens += cacheCreationTokens;
+    sessionIds.add(row.session_id);
+
+    const rawModelUsage = result.modelUsage;
+    if (rawModelUsage && Object.keys(rawModelUsage).length > 0) {
+      for (const [model, usage] of Object.entries(rawModelUsage)) {
+        const summary = modelSummaries.get(model) || emptyModelSummary(model);
+        const modelInputTokens = toNumber(usage.inputTokens);
+        const modelOutputTokens = toNumber(usage.outputTokens);
+        const modelTotalTokens = modelInputTokens + modelOutputTokens;
+
+        summary.inputTokens += modelInputTokens;
+        summary.outputTokens += modelOutputTokens;
+        summary.totalTokens += modelTotalTokens;
+        summary.totalCostUsd += toNumber(usage.costUSD);
+        summary.cacheReadTokens += toNumber(usage.cacheReadInputTokens);
+        modelSummaries.set(model, summary);
+
+        if (!modelSessions.has(model)) {
+          modelSessions.set(model, new Set());
+        }
+        if (modelTotalTokens > 0 || toNumber(usage.costUSD) > 0) {
+          modelSessions.get(model)!.add(row.session_id);
+        }
+
+        if (dayBucket) {
+          dayBucket.totalTokens += modelTotalTokens;
+          dayBucket.byModel[model] = (dayBucket.byModel[model] || 0) + modelTotalTokens;
+        }
+      }
+      continue;
+    }
+
+    const fallbackModel = row.session_model || 'Unknown';
+    const summary = modelSummaries.get(fallbackModel) || emptyModelSummary(fallbackModel);
+    summary.inputTokens += inputTokens;
+    summary.outputTokens += outputTokens;
+    summary.totalTokens += totalTokens;
+    summary.totalCostUsd += toNumber(result.total_cost_usd);
+    summary.cacheReadTokens += cacheReadTokens;
+    modelSummaries.set(fallbackModel, summary);
+
+    if (!modelSessions.has(fallbackModel)) {
+      modelSessions.set(fallbackModel, new Set());
+    }
+    modelSessions.get(fallbackModel)!.add(row.session_id);
+
+    if (dayBucket) {
+      dayBucket.totalTokens += totalTokens;
+      dayBucket.byModel[fallbackModel] = (dayBucket.byModel[fallbackModel] || 0) + totalTokens;
+    }
+  }
+
+  const modelList = Array.from(modelSummaries.values())
+    .map((summary) => ({
+      ...summary,
+      sessionCount: modelSessions.get(summary.model)?.size || 0,
+    }))
+    .sort((left, right) => right.totalTokens - left.totalTokens);
+
+  const cacheDenominator = totalInputTokens + totalCacheReadTokens + totalCacheCreationTokens;
+
+  return {
+    rangeDays: safeDays,
+    totals: {
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      totalTokens: totalInputTokens + totalOutputTokens,
+      totalCostUsd,
+      sessionCount: sessionIds.size,
+      cacheReadTokens: totalCacheReadTokens,
+      cacheHitRate: cacheDenominator > 0 ? totalCacheReadTokens / cacheDenominator : 0,
+    },
+    models: modelList,
+    daily: Array.from(dailyMap.entries()).map(([date, bucket]) => ({
+      date,
+      totalTokens: bucket.totalTokens,
+      byModel: bucket.byModel,
+    })),
+  };
 }
 
 // 获取最近使用的工作目录

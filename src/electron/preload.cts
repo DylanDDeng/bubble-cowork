@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron');
+import type { ClaudeUsageRangeDays } from '../shared/types';
 
 // 暴露 API 到渲染进程
 contextBridge.exposeInMainWorld('electron', {
@@ -39,6 +40,11 @@ contextBridge.exposeInMainWorld('electron', {
   // 获取 Claude 模型配置
   getClaudeModelConfig: () => {
     return ipcRenderer.invoke('get-claude-model-config');
+  },
+
+  // 获取 Claude usage 报表
+  getClaudeUsageReport: (days?: ClaudeUsageRangeDays) => {
+    return ipcRenderer.invoke('get-claude-usage-report', days);
   },
 
   // 获取 Codex 模型配置

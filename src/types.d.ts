@@ -1,7 +1,18 @@
 // 全局类型声明（Window 扩展）
 // 实际类型定义在 src/shared/types.ts
 
-import type { ClientEvent, ServerEvent, StatisticsData, StaticData, Attachment, ProjectTreeNode, ClaudeModelConfig, CodexModelConfig } from './shared/types';
+import type {
+  ClientEvent,
+  ServerEvent,
+  StatisticsData,
+  StaticData,
+  Attachment,
+  ProjectTreeNode,
+  ClaudeModelConfig,
+  ClaudeUsageRangeDays,
+  ClaudeUsageReport,
+  CodexModelConfig,
+} from './shared/types';
 
 declare global {
   interface ElectronAPI {
@@ -10,6 +21,7 @@ declare global {
     generateSessionTitle: (prompt: string) => Promise<string>;
     getRecentCwds: (limit?: number) => Promise<string[]>;
     getClaudeModelConfig: () => Promise<ClaudeModelConfig>;
+    getClaudeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getCodexModelConfig: () => Promise<CodexModelConfig>;
     selectDirectory: () => Promise<string | null>;
     selectAttachments: () => Promise<Attachment[]>;

@@ -4,6 +4,7 @@ import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { Base64ImageSource, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages';
 import type { RunnerOptions, RunnerHandle, StreamMessage, PermissionResult, Attachment } from '../types';
+import type { ClaudeModelUsage } from '../../shared/types';
 import { getClaudeEnv, getClaudeSettings, getMcpServers } from './claude-settings';
 import { getClaudeCodeRuntime } from './claude-runtime';
 
@@ -28,7 +29,16 @@ interface SDKMessage {
   usage?: {
     input_tokens: number;
     output_tokens: number;
+    cache_creation_input_tokens?: number | null;
+    cache_read_input_tokens?: number | null;
   };
+  modelUsage?: Record<string, {
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
+    costUSD?: number;
+  }>;
   cwd?: string;
   model?: string;
   permissionMode?: string;
@@ -115,6 +125,32 @@ function isStreamEventType(value: string): value is StreamEventType {
     value === 'content_block_start' ||
     value === 'content_block_delta' ||
     value === 'content_block_stop'
+  );
+}
+
+function normalizeModelUsage(
+  modelUsage?: SDKMessage['modelUsage']
+): Record<string, ClaudeModelUsage> | undefined {
+  if (!modelUsage) {
+    return undefined;
+  }
+
+  const entries = Object.entries(modelUsage);
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  return Object.fromEntries(
+    entries.map(([model, usage]) => [
+      model,
+      {
+        inputTokens: usage.inputTokens || 0,
+        outputTokens: usage.outputTokens || 0,
+        cacheReadInputTokens: usage.cacheReadInputTokens || 0,
+        cacheCreationInputTokens: usage.cacheCreationInputTokens || 0,
+        costUSD: usage.costUSD || 0,
+      },
+    ])
   );
 }
 
@@ -468,6 +504,7 @@ function convertSDKMessage(message: SDKMessage): StreamMessage | null {
         duration_ms: message.duration_ms || 0,
         total_cost_usd: message.total_cost_usd || 0,
         usage: message.usage || { input_tokens: 0, output_tokens: 0 },
+        modelUsage: normalizeModelUsage(message.modelUsage),
       };
 
     case 'stream_event': {

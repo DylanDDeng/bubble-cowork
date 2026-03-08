@@ -1,7 +1,7 @@
 // UI 层类型定义
 
 // Settings 标签类型
-export type SettingsTab = 'mcp' | 'general' | 'skills';
+export type SettingsTab = 'mcp' | 'general' | 'skills' | 'usage';
 
 // 从共享类型导入
 import type { AgentProvider, ProjectTreeNode, TodoState, StatusConfig, FolderConfig } from '../shared/types';
@@ -23,6 +23,10 @@ export type {
   McpServerStatus,
   ClaudeSkillSummary,
   ClaudeModelConfig,
+  ClaudeUsageDailyPoint,
+  ClaudeUsageModelSummary,
+  ClaudeUsageRangeDays,
+  ClaudeUsageReport,
   CodexModelConfig,
   AgentProvider,
   TodoState,

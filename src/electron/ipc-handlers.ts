@@ -30,6 +30,7 @@ import type {
 } from './types';
 import type {
   CreateStatusInput,
+  ClaudeUsageRangeDays,
   UpdateStatusInput,
   TodoState,
   FolderConfig,
@@ -645,6 +646,11 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // RPC: 获取 Claude 模型配置
   ipcMainHandle('get-claude-model-config', async () => {
     return getClaudeModelConfig();
+  });
+
+  // RPC: 获取 Claude usage 报表
+  ipcMainHandle('get-claude-usage-report', async (_, days?: ClaudeUsageRangeDays) => {
+    return sessions.getClaudeUsageReport(days);
   });
 
   // RPC: 获取 Codex 模型配置

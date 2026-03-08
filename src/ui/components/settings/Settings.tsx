@@ -1,5 +1,6 @@
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen } from 'lucide-react';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
+import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { McpSettingsContent } from './McpSettings';
 import { SkillsSettingsContent } from './SkillsSettings';
 import type { Theme } from '../../types';
@@ -22,6 +23,12 @@ const SETTINGS_TABS = {
     title: 'Claude Skills',
     description: 'Review the user and workspace skills the Claude runner can discover.',
     icon: <BookOpen className="w-4 h-4" />,
+  },
+  usage: {
+    label: 'Claude Usage',
+    title: 'Claude Usage',
+    description: 'Review token, cost, session, and cache usage across Claude models over time.',
+    icon: <ChartColumn className="w-4 h-4" />,
   },
 } as const;
 
@@ -89,6 +96,7 @@ export function Settings() {
           )}
           {activeSettingsTab === 'mcp' && <McpSettingsContent />}
           {activeSettingsTab === 'skills' && <SkillsSettingsContent />}
+          {activeSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}
         </div>
       </main>
     </div>
