@@ -40,6 +40,12 @@ export type {
 // 主题类型
 export type Theme = 'light' | 'dark' | 'system';
 
+export interface SessionStreamingState {
+  isStreaming: boolean;
+  text: string;
+  thinking: string;
+}
+
 // UI 会话视图状态
 export interface SessionView {
   id: string;
@@ -56,6 +62,7 @@ export interface SessionView {
   messages: import('../shared/types').StreamMessage[];
   hydrated: boolean;
   permissionRequests: import('../shared/types').PermissionRequestPayload[];
+  streaming: SessionStreamingState;
   runtimeNotice?: 'completed' | 'error';
   updatedAt: number;
 }

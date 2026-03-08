@@ -35,9 +35,7 @@ export function deriveTurnPhase(
   }
 
   // 检查是否有任何 assistant 消息或工具调用
-  const hasAssistantActivity = messages.some(
-    (msg) => msg.type === 'assistant' || msg.type === 'stream_event'
-  );
+  const hasAssistantActivity = messages.some((msg) => msg.type === 'assistant');
 
   // 有活动但没有正在运行的工具 = 等待下一步
   if (hasAssistantActivity) {

@@ -108,6 +108,10 @@ function aggregateMessages(messages: StreamMessage[]): AggregatedItem[] {
   for (let i = 0; i < messages.length; i += 1) {
     const message = messages[i];
 
+    if (message.type === 'stream_event') {
+      continue;
+    }
+
     if (message.type === 'user_prompt') {
       pushSegment(items, currentSegment);
       currentSegment = [];
@@ -147,70 +151,23 @@ export function App() {
 
   // 历史请求记录（防止重复请求）
   const historyRequested = useRef(new Set<string>());
+  const activeSession = activeSessionId ? sessions[activeSessionId] : null;
 
-  // 流式状态：通过 useMemo 从 session.messages 派生，实现打字机效果
   const { partialMessage, partialThinking, isStreaming: showPartialMessage } = useMemo(() => {
-    const session = activeSessionId ? sessions[activeSessionId] : null;
-    if (!session) return { partialMessage: '', partialThinking: '', isStreaming: false };
-
-    const messages = session.messages;
-    let text = '';
-    let thinking = '';
-    let streaming = false;
-
-    // 从后往前找最后一个 content_block_start 或正在进行的流
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-
-      // 遇到完整消息就停止搜索（说明没有进行中的流）
-      if (msg.type === 'assistant' || msg.type === 'result') {
-        break;
-      }
-
-      // 找到 content_block_start，从这里开始累积
-      if (msg.type === 'stream_event' && msg.event.type === 'content_block_start') {
-        streaming = true;
-        // 从 start 位置往后累积所有 delta
-        for (let j = i; j < messages.length; j++) {
-          const m = messages[j];
-          if (m.type === 'stream_event') {
-            const event = m.event;
-            if (event.type === 'content_block_delta' && event.delta) {
-              const deltaType = event.delta.type;
-              if (deltaType === 'text_delta') {
-                text += typeof event.delta.text === 'string' ? event.delta.text : '';
-              } else if (deltaType === 'thinking_delta') {
-                thinking += typeof event.delta.thinking === 'string' ? event.delta.thinking : '';
-              } else {
-                // 处理其他类型的 delta
-                const prefix = deltaType.replace('_delta', '');
-                const rawContent = (event.delta as Record<string, unknown>)[prefix];
-                const content = typeof rawContent === 'string' ? rawContent : '';
-                if (prefix === 'thinking') {
-                  thinking += content;
-                } else {
-                  text += content;
-                }
-              }
-            } else if (event.type === 'content_block_stop') {
-              // 遇到 stop，流结束
-              streaming = false;
-              text = '';
-              thinking = '';
-            }
-          } else if (m.type === 'assistant' || m.type === 'result') {
-            // 安全兜底：若未收到 stop，收到最终消息也结束流式
-            streaming = false;
-            text = '';
-            thinking = '';
-          }
-        }
-        break;
-      }
+    if (!activeSession) {
+      return { partialMessage: '', partialThinking: '', isStreaming: false };
     }
 
-    return { partialMessage: text, partialThinking: thinking, isStreaming: streaming };
-  }, [activeSessionId, sessions]);
+    return {
+      partialMessage: activeSession.streaming.text,
+      partialThinking: activeSession.streaming.thinking,
+      isStreaming: activeSession.streaming.isStreaming,
+    };
+  }, [
+    activeSession?.streaming.text,
+    activeSession?.streaming.thinking,
+    activeSession?.streaming.isStreaming,
+  ]);
 
   // 消息列表引用（用于滚动）
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -219,10 +176,9 @@ export function App() {
   const { toolStatusMap, toolResultsMap } = useMemo(() => {
     const statusMap = new Map<string, ToolStatus>();
     const resultsMap = new Map<string, ToolResultBlock>();
-    const session = activeSessionId ? sessions[activeSessionId] : null;
-    if (!session) return { toolStatusMap: statusMap, toolResultsMap: resultsMap };
+    if (!activeSession) return { toolStatusMap: statusMap, toolResultsMap: resultsMap };
 
-    for (const msg of session.messages) {
+    for (const msg of activeSession.messages) {
       if (msg.type === 'assistant') {
         for (const block of getMessageContentBlocks(msg)) {
           if (block.type === 'tool_use') {
@@ -240,19 +196,22 @@ export function App() {
     }
 
     return { toolStatusMap: statusMap, toolResultsMap: resultsMap };
-  }, [activeSessionId, sessions]);
+  }, [activeSession?.messages]);
 
   // 计算当前 Turn 阶段
   const turnPhase = useMemo(() => {
-    const session = activeSessionId ? sessions[activeSessionId] : null;
-    if (!session) return 'complete' as const;
+    if (!activeSession) return 'complete' as const;
 
-    const isRunning = session.status === 'running';
-    const hasRunningTool = hasRunningToolInMessages(session.messages, toolStatusMap);
+    const isRunning = activeSession.status === 'running';
+    const hasRunningTool = hasRunningToolInMessages(activeSession.messages, toolStatusMap);
     const isStreaming = showPartialMessage;
 
-    return deriveTurnPhase(session.messages, isRunning, hasRunningTool, isStreaming);
-  }, [activeSessionId, sessions, toolStatusMap, showPartialMessage]);
+    return deriveTurnPhase(activeSession.messages, isRunning, hasRunningTool, isStreaming);
+  }, [activeSession?.messages, activeSession?.status, toolStatusMap, showPartialMessage]);
+  const aggregatedMessages = useMemo(
+    () => (activeSession ? aggregateMessages(activeSession.messages) : []),
+    [activeSession?.messages]
+  );
 
   // 连接后请求会话列表和 MCP 配置
   useEffect(() => {
@@ -266,23 +225,29 @@ export function App() {
   useEffect(() => {
     if (!activeSessionId) return;
 
-    const session = sessions[activeSessionId];
-    if (!session) return;
+    if (!activeSession) return;
 
     // 如果会话未 hydrated 且未请求过，则请求历史
-    if (!session.hydrated && !historyRequested.current.has(activeSessionId)) {
+    if (!activeSession.hydrated && !historyRequested.current.has(activeSessionId)) {
       historyRequested.current.add(activeSessionId);
       sendEvent({
         type: 'session.history',
         payload: { sessionId: activeSessionId },
       });
     }
-  }, [activeSessionId, sessions]);
+  }, [activeSessionId, activeSession]);
 
   // 自动滚动到底部
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeSessionId, sessions, partialMessage, partialThinking]);
+    messagesEndRef.current?.scrollIntoView({ behavior: showPartialMessage ? 'auto' : 'smooth' });
+  }, [
+    activeSessionId,
+    activeSession?.messages.length,
+    activeSession?.streaming.isStreaming,
+    partialMessage,
+    partialThinking,
+    showPartialMessage,
+  ]);
 
   // 全局错误通知
   useEffect(() => {
@@ -311,7 +276,6 @@ export function App() {
     removePermissionRequest(activeSessionId, toolUseId);
   };
 
-  const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const hasPendingPermissionRequests =
     (activeSession?.permissionRequests?.length ?? 0) > 0;
   const lastUserPromptIndex = useMemo(() => {
@@ -404,7 +368,7 @@ export function App() {
             {/* 居中容器 */}
             <div className="message-container">
               {/* 渲染消息（聚合连续的工具执行） */}
-              {aggregateMessages(activeSession.messages).map((item, idx) => {
+              {aggregatedMessages.map((item, idx) => {
                 if (item.type === 'tool_batch') {
                   return (
                     <div

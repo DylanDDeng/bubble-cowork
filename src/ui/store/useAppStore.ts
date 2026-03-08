@@ -75,6 +75,18 @@ function sanitizeSidebarWidth(width: number | undefined, fallback: number): numb
   return Math.min(420, Math.max(220, Math.round(width)));
 }
 
+function createEmptyStreamingState() {
+  return {
+    isStreaming: false,
+    text: '',
+    thinking: '',
+  };
+}
+
+function sanitizeHistoryMessages(messages: StreamMessage[]): StreamMessage[] {
+  return messages.filter((message) => message.type !== 'stream_event');
+}
+
 export const useAppStore = create<Store>()(
   persist(
     (set, get) => ({
@@ -384,6 +396,7 @@ function handleSessionList(
       messages: existing?.messages || [],
       hydrated: existing?.hydrated || false,
       permissionRequests: existing?.permissionRequests || [],
+      streaming: existing?.streaming || createEmptyStreamingState(),
       runtimeNotice: existing?.runtimeNotice,
       updatedAt: session.updatedAt,
     };
@@ -447,6 +460,10 @@ function handleSessionStatus(
           provider: provider || session.provider,
           model: model !== undefined ? (model || undefined) : session.model,
           betas: betas !== undefined ? betas : session.betas,
+          streaming:
+            status === 'running'
+              ? session.streaming
+              : createEmptyStreamingState(),
           runtimeNotice: nextRuntimeNotice,
           updatedAt: Date.now(),
         },
@@ -465,6 +482,7 @@ function handleSessionStatus(
       messages: [],
       hydrated: true, // 新会话不需要 hydration
       permissionRequests: [],
+      streaming: createEmptyStreamingState(),
       runtimeNotice: undefined,
       updatedAt: Date.now(),
     };
@@ -491,6 +509,7 @@ function handleSessionHistory(
   set: SetState
 ) {
   const { sessionId, status, messages } = payload;
+  const sanitizedMessages = sanitizeHistoryMessages(messages);
 
   set((state) => {
     const session = state.sessions[sessionId];
@@ -503,8 +522,9 @@ function handleSessionHistory(
         [sessionId]: {
           ...session,
           status,
-          messages,
+          messages: sanitizedMessages,
           hydrated: true,
+          streaming: createEmptyStreamingState(),
         },
       },
     };
@@ -559,6 +579,7 @@ function handleUserPrompt(
         [sessionId]: {
           ...session,
           messages: [...session.messages, userMessage],
+          streaming: createEmptyStreamingState(),
         },
       },
     };
@@ -575,6 +596,71 @@ function handleStreamMessage(
   set((state) => {
     const session = state.sessions[sessionId];
     if (!session) return state;
+
+    if (message.type === 'stream_event') {
+      const event = message.event;
+      const currentStreaming = session.streaming || createEmptyStreamingState();
+
+      if (event.type === 'content_block_delta' && event.delta) {
+        if (event.delta.type === 'text_delta') {
+          const nextText = currentStreaming.text + (typeof event.delta.text === 'string' ? event.delta.text : '');
+          if (nextText === currentStreaming.text && currentStreaming.isStreaming) {
+            return state;
+          }
+          return {
+            ...state,
+            sessions: {
+              ...state.sessions,
+              [sessionId]: {
+                ...session,
+                streaming: {
+                  ...currentStreaming,
+                  isStreaming: true,
+                  text: nextText,
+                },
+              },
+            },
+          };
+        }
+
+        if (event.delta.type === 'thinking_delta') {
+          const nextThinking =
+            currentStreaming.thinking + (typeof event.delta.thinking === 'string' ? event.delta.thinking : '');
+          if (nextThinking === currentStreaming.thinking && currentStreaming.isStreaming) {
+            return state;
+          }
+          return {
+            ...state,
+            sessions: {
+              ...state.sessions,
+              [sessionId]: {
+                ...session,
+                streaming: {
+                  ...currentStreaming,
+                  isStreaming: true,
+                  thinking: nextThinking,
+                },
+              },
+            },
+          };
+        }
+      }
+
+      if (event.type === 'content_block_stop' && currentStreaming.isStreaming) {
+        return {
+          ...state,
+          sessions: {
+            ...state.sessions,
+            [sessionId]: {
+              ...session,
+              streaming: createEmptyStreamingState(),
+            },
+          },
+        };
+      }
+
+      return state;
+    }
 
     // Claude Agent SDK may emit partial updates for the same message UUID.
     // Replace existing messages instead of appending duplicates.
@@ -597,6 +683,7 @@ function handleStreamMessage(
             [sessionId]: {
               ...session,
               messages: nextMessages,
+              streaming: createEmptyStreamingState(),
             },
           },
         };
@@ -610,6 +697,7 @@ function handleStreamMessage(
         [sessionId]: {
           ...session,
           messages: [...session.messages, message],
+          streaming: createEmptyStreamingState(),
         },
       },
     };
