@@ -1,4 +1,6 @@
+import { Eye, EyeOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import minimaxLogo from '../../assets/minimax-color.svg';
 import type { ClaudeCompatibleProviderConfig } from '../../types';
 
 const DEFAULT_CONFIG: ClaudeCompatibleProviderConfig = {
@@ -14,6 +16,7 @@ export function CompatibleProviderSettingsContent() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [showSecret, setShowSecret] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,7 +59,8 @@ export function CompatibleProviderSettingsContent() {
       <div className="rounded-[24px] border border-[var(--border)] bg-[var(--bg-secondary)] p-6">
         <div className="flex items-start justify-between gap-6">
           <div className="max-w-2xl">
-            <div className="text-base font-medium text-[var(--text-primary)]">
+            <div className="flex items-center gap-2.5 text-base font-medium text-[var(--text-primary)]">
+              <img src={minimaxLogo} alt="" className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
               MiniMax (CN)
             </div>
           </div>
@@ -129,14 +133,25 @@ export function CompatibleProviderSettingsContent() {
           </Field>
 
           <Field label={config.authType === 'auth_token' ? 'Auth token' : 'API key'}>
-            <input
-              type="password"
-              value={config.secret}
-              onChange={(event) => setConfig((current) => ({ ...current, secret: event.target.value }))}
-              placeholder={config.authType === 'auth_token' ? 'token...' : 'sk-...'}
-              className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
-              disabled={loading}
-            />
+            <div className="relative">
+              <input
+                type={showSecret ? 'text' : 'password'}
+                value={config.secret}
+                onChange={(event) => setConfig((current) => ({ ...current, secret: event.target.value }))}
+                placeholder={config.authType === 'auth_token' ? 'token...' : 'sk-...'}
+                className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-3 pr-11 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
+                disabled={loading}
+              />
+              <button
+                type="button"
+                onClick={() => setShowSecret((current) => !current)}
+                className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-xl text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+                aria-label={showSecret ? 'Hide key' : 'Show key'}
+                disabled={loading}
+              >
+                {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </Field>
         </div>
 
