@@ -140,15 +140,6 @@ export function CompatibleProviderSettingsContent() {
           </Field>
         </div>
 
-        <div className="mt-4 rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)]/60 px-4 py-3 text-sm text-[var(--text-secondary)]">
-          MiniMax example:
-          <div className="mt-2 font-mono text-[12px] leading-5 text-[var(--text-primary)]">
-            Base URL: `https://your-minimax-compatible-endpoint`
-            <br />
-            Model: `MiniMax-M2.1`
-          </div>
-        </div>
-
         <div className="mt-6 flex items-center justify-between gap-4">
           <div className="text-sm text-[var(--text-secondary)]">
             {message || 'Changes apply to new Claude sessions after saving.'}
