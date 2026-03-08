@@ -56,6 +56,11 @@ export function initialize(): void {
   ensureColumn('sessions', 'todo_state', "TEXT DEFAULT 'todo'");
   ensureColumn('sessions', 'pinned', 'INTEGER DEFAULT 0');
   ensureColumn('sessions', 'folder_path', 'TEXT');
+
+  const backfilledCount = backfillClaudeSessionModelsFromInitMessages();
+  if (backfilledCount > 0) {
+    console.log(`[session-store] Backfilled ${backfilledCount} Claude session model values from init messages.`);
+  }
 }
 
 function ensureColumn(table: string, column: string, definition: string): void {
@@ -294,6 +299,7 @@ type JoinedClaudeMessageRow = {
   created_at: number;
   session_id: string;
   session_model: string | null;
+  inferred_model: string | null;
 };
 
 type StoredClaudeResultMessage = Extract<StreamMessage, { type: 'result' }> & {
@@ -329,6 +335,36 @@ function emptyModelSummary(model: string): ClaudeUsageModelSummary {
   };
 }
 
+function backfillClaudeSessionModelsFromInitMessages(): number {
+  const result = getDb().prepare(`
+    UPDATE sessions
+    SET model = (
+      SELECT json_extract(m.data, '$.model')
+      FROM messages m
+      WHERE m.session_id = sessions.id
+        AND json_extract(m.data, '$.type') = 'system'
+        AND json_extract(m.data, '$.subtype') = 'init'
+        AND json_extract(m.data, '$.model') IS NOT NULL
+        AND json_extract(m.data, '$.model') != ''
+      ORDER BY m.created_at DESC
+      LIMIT 1
+    )
+    WHERE provider = 'claude'
+      AND (model IS NULL OR model = '')
+      AND EXISTS (
+        SELECT 1
+        FROM messages m
+        WHERE m.session_id = sessions.id
+          AND json_extract(m.data, '$.type') = 'system'
+          AND json_extract(m.data, '$.subtype') = 'init'
+          AND json_extract(m.data, '$.model') IS NOT NULL
+          AND json_extract(m.data, '$.model') != ''
+      )
+  `).run();
+
+  return result.changes || 0;
+}
+
 export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsageReport {
   const safeDays: ClaudeUsageRangeDays = days === 7 || days === 90 ? days : 30;
   const todayStart = startOfLocalDay(Date.now());
@@ -339,17 +375,32 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
       m.data AS data,
       m.created_at AS created_at,
       s.id AS session_id,
-      s.model AS session_model
+      s.model AS session_model,
+      (
+        SELECT json_extract(m2.data, '$.model')
+        FROM messages m2
+        WHERE m2.session_id = s.id
+          AND json_extract(m2.data, '$.type') = 'system'
+          AND json_extract(m2.data, '$.subtype') = 'init'
+          AND json_extract(m2.data, '$.model') IS NOT NULL
+          AND json_extract(m2.data, '$.model') != ''
+        ORDER BY m2.created_at DESC
+        LIMIT 1
+      ) AS inferred_model
     FROM messages m
     INNER JOIN sessions s ON s.id = m.session_id
     WHERE s.provider = 'claude' AND m.created_at >= ?
     ORDER BY m.created_at ASC
   `).all(rangeStart) as JoinedClaudeMessageRow[];
 
-  const dailyMap = new Map<string, { totalTokens: number; byModel: Record<string, number> }>();
+  const dailyMap = new Map<string, {
+    totalTokens: number;
+    byModel: Record<string, number>;
+    byModelCostUsd: Record<string, number>;
+  }>();
   for (let index = 0; index < safeDays; index += 1) {
     const dayStart = rangeStart + index * DAY_MS;
-    dailyMap.set(formatDateKey(dayStart), { totalTokens: 0, byModel: {} });
+    dailyMap.set(formatDateKey(dayStart), { totalTokens: 0, byModel: {}, byModelCostUsd: {} });
   }
 
   const sessionIds = new Set<string>();
@@ -414,12 +465,13 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
         if (dayBucket) {
           dayBucket.totalTokens += modelTotalTokens;
           dayBucket.byModel[model] = (dayBucket.byModel[model] || 0) + modelTotalTokens;
+          dayBucket.byModelCostUsd[model] = (dayBucket.byModelCostUsd[model] || 0) + toNumber(usage.costUSD);
         }
       }
       continue;
     }
 
-    const fallbackModel = row.session_model || 'Unknown';
+    const fallbackModel = row.session_model || row.inferred_model || 'Unknown';
     const summary = modelSummaries.get(fallbackModel) || emptyModelSummary(fallbackModel);
     summary.inputTokens += inputTokens;
     summary.outputTokens += outputTokens;
@@ -436,6 +488,8 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
     if (dayBucket) {
       dayBucket.totalTokens += totalTokens;
       dayBucket.byModel[fallbackModel] = (dayBucket.byModel[fallbackModel] || 0) + totalTokens;
+      dayBucket.byModelCostUsd[fallbackModel] =
+        (dayBucket.byModelCostUsd[fallbackModel] || 0) + toNumber(result.total_cost_usd);
     }
   }
 
@@ -444,7 +498,11 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
       ...summary,
       sessionCount: modelSessions.get(summary.model)?.size || 0,
     }))
-    .sort((left, right) => right.totalTokens - left.totalTokens);
+    .sort((left, right) =>
+      right.totalTokens - left.totalTokens ||
+      right.totalCostUsd - left.totalCostUsd ||
+      left.model.localeCompare(right.model)
+    );
 
   const cacheDenominator = totalInputTokens + totalCacheReadTokens + totalCacheCreationTokens;
 
@@ -464,6 +522,7 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
       date,
       totalTokens: bucket.totalTokens,
       byModel: bucket.byModel,
+      byModelCostUsd: bucket.byModelCostUsd,
     })),
   };
 }

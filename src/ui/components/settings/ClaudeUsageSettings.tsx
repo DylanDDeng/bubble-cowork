@@ -223,6 +223,7 @@ function UsageChart({
   models: ClaudeUsageModelSummary[];
   modelColors: Record<string, string>;
 }) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const viewBoxWidth = 960;
   const viewBoxHeight = 340;
   const marginTop = 14;
@@ -239,9 +240,92 @@ function UsageChart({
   const barWidth = Math.max(8, Math.min(28, slotWidth * 0.64));
   const labelStep = Math.max(1, Math.ceil(daily.length / 14));
   const modelOrder = models.map((model) => model.model);
+  const hoveredPoint = hoveredIndex !== null ? daily[hoveredIndex] : null;
+  const hoveredCostMap = hoveredPoint?.byModelCostUsd || {};
+  const hoveredCenterX =
+    hoveredIndex !== null ? marginLeft + slotWidth * hoveredIndex + slotWidth / 2 : null;
+  const hoveredRows = hoveredPoint
+    ? models
+        .map((model) => {
+          const tokens = hoveredPoint.byModel[model.model] || 0;
+          const actualCostUsd = hoveredCostMap[model.model];
+          const estimatedCostUsd =
+            typeof actualCostUsd === 'number'
+              ? actualCostUsd
+              : model.totalTokens > 0 && tokens > 0
+                ? (model.totalCostUsd * tokens) / model.totalTokens
+                : 0;
+
+          return {
+            model: model.model,
+            tokens,
+            costUsd: estimatedCostUsd,
+            isEstimated: typeof actualCostUsd !== 'number' && estimatedCostUsd > 0,
+          };
+        })
+        .filter((row) => row.tokens > 0 || row.costUsd > 0)
+        .sort((left, right) => right.tokens - left.tokens || right.costUsd - left.costUsd)
+    : [];
+  const tooltipAlign =
+    hoveredCenterX === null
+      ? 'center'
+      : hoveredCenterX < 190
+        ? 'left'
+        : hoveredCenterX > viewBoxWidth - 190
+          ? 'right'
+          : 'center';
+  const tooltipTransform =
+    tooltipAlign === 'left'
+      ? 'translateX(0)'
+      : tooltipAlign === 'right'
+        ? 'translateX(-100%)'
+        : 'translateX(-50%)';
 
   return (
-    <div>
+    <div className="relative" onMouseLeave={() => setHoveredIndex(null)}>
+      {hoveredPoint && hoveredCenterX !== null && (
+        <div
+          className="pointer-events-none absolute top-0 z-10 w-[240px] rounded-2xl border border-[var(--border)] bg-[var(--bg-primary)]/96 px-4 py-3 shadow-[0_18px_45px_rgba(15,23,42,0.12)] backdrop-blur"
+          style={{
+            left: `${(hoveredCenterX / viewBoxWidth) * 100}%`,
+            transform: tooltipTransform,
+          }}
+        >
+          <div className="text-sm font-semibold text-[var(--text-primary)]">
+            {formatLongDate(hoveredPoint.date)}
+          </div>
+          <div className="mt-1 text-sm text-[var(--text-secondary)]">
+            {formatCompactNumber(hoveredPoint.totalTokens)} total tokens
+          </div>
+
+          <div className="mt-3 space-y-2">
+            {hoveredRows.length > 0 ? (
+              hoveredRows.map((row) => (
+                <div key={row.model} className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="mt-1 h-2.5 w-2.5 flex-shrink-0 rounded-full"
+                        style={{ backgroundColor: modelColors[row.model] }}
+                      />
+                      <span className="truncate text-sm font-medium text-[var(--text-primary)]">
+                        {row.model}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-right text-sm text-[var(--text-secondary)]">
+                    <div>{formatCompactNumber(row.tokens)}</div>
+                    <div>{formatCurrency(row.costUsd, row.isEstimated)}</div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-sm text-[var(--text-secondary)]">No usage on this day.</div>
+            )}
+          </div>
+        </div>
+      )}
+
       <svg viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`} className="h-auto w-full">
         {ticks.map((tick) => {
           const y = marginTop + plotHeight - (tick / yMax) * plotHeight;
@@ -269,11 +353,29 @@ function UsageChart({
         })}
 
         {daily.map((entry, index) => {
+          const slotX = marginLeft + slotWidth * index;
           const x = marginLeft + slotWidth * index + (slotWidth - barWidth) / 2;
           let stackedHeight = 0;
+          const entryCostMap = entry.byModelCostUsd || {};
+          const costOnlyModels = modelOrder.filter(
+            (modelName) =>
+              (entry.byModel[modelName] || 0) <= 0 && (entryCostMap[modelName] || 0) > 0
+          );
 
           return (
             <g key={entry.date}>
+              {hoveredIndex === index && (
+                <rect
+                  x={slotX}
+                  y={marginTop}
+                  width={slotWidth}
+                  height={plotHeight}
+                  rx="10"
+                  fill="var(--bg-tertiary)"
+                  opacity="0.65"
+                />
+              )}
+
               {modelOrder.map((modelName) => {
                 const value = entry.byModel[modelName] || 0;
                 if (value <= 0) {
@@ -297,6 +399,29 @@ function UsageChart({
                 );
               })}
 
+              {costOnlyModels.map((modelName, markerIndex) => {
+                const markerHeight = 5;
+                const markerGap = 2;
+                const y =
+                  marginTop +
+                  plotHeight -
+                  stackedHeight -
+                  (markerIndex + 1) * (markerHeight + markerGap);
+
+                return (
+                  <rect
+                    key={`${entry.date}-${modelName}-marker`}
+                    x={x}
+                    y={y}
+                    width={barWidth}
+                    height={markerHeight}
+                    rx="3"
+                    fill={modelColors[modelName]}
+                    opacity="0.95"
+                  />
+                );
+              })}
+
               {(index % labelStep === 0 || index === daily.length - 1) && (
                 <text
                   x={x + barWidth / 2}
@@ -308,6 +433,16 @@ function UsageChart({
                   {formatShortDate(entry.date)}
                 </text>
               )}
+
+              <rect
+                x={slotX}
+                y={marginTop}
+                width={slotWidth}
+                height={plotHeight}
+                fill="transparent"
+                onMouseEnter={() => setHoveredIndex(index)}
+                onMouseMove={() => setHoveredIndex(index)}
+              />
             </g>
           );
         })}
@@ -352,21 +487,21 @@ function formatCompactNumber(value: number): string {
   return value.toLocaleString('en-US');
 }
 
-function formatCurrency(value: number): string {
+function formatCurrency(value: number, estimated = false): string {
   if (value === 0) {
     return '$0.00';
   }
 
   if (value < 0.01) {
-    return `$${value.toFixed(4)}`;
+    return `${estimated ? '≈' : ''}$${value.toFixed(4)}`;
   }
 
-  return value.toLocaleString('en-US', {
+  return `${estimated ? '≈' : ''}${value.toLocaleString('en-US', {
     style: 'currency',
     currency: 'USD',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  });
+  })}`;
 }
 
 function formatPercent(value: number): string {
@@ -387,6 +522,12 @@ function formatShortDate(dateKey: string): string {
   const [year, month, day] = dateKey.split('-').map(Number);
   const date = new Date(year, (month || 1) - 1, day || 1);
   return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function formatLongDate(dateKey: string): string {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(year, (month || 1) - 1, day || 1);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function trimTrailingZero(value: string): string {

@@ -353,6 +353,7 @@ export interface ClaudeUsageDailyPoint {
   date: string;
   totalTokens: number;
   byModel: Record<string, number>;
+  byModelCostUsd?: Record<string, number>;
 }
 
 export interface ClaudeUsageReport {
