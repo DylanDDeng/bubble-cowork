@@ -1,4 +1,4 @@
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn } from 'lucide-react';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn, PlugZap } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
@@ -18,6 +18,12 @@ const SETTINGS_TABS = {
     title: 'MCP Servers',
     description: 'Manage the tool backends available to Claude across global and project scopes.',
     icon: <Server className="w-4 h-4" />,
+  },
+  providers: {
+    label: 'Providers',
+    title: 'Providers',
+    description: 'Configure Anthropic-compatible providers and route Claude sessions through them.',
+    icon: <PlugZap className="w-4 h-4" />,
   },
   skills: {
     label: 'Claude Skills',
@@ -96,6 +102,7 @@ export function Settings() {
             <GeneralSettingsContent theme={theme} setTheme={setTheme} />
           )}
           {activeSettingsTab === 'mcp' && <McpSettingsContent />}
+          {activeSettingsTab === 'providers' && <CompatibleProviderSettingsContent />}
           {activeSettingsTab === 'skills' && <SkillsSettingsContent />}
           {activeSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}
         </div>
@@ -173,8 +180,6 @@ function GeneralSettingsContent({
           </div>
         </SettingsRow>
       </SettingsSection>
-
-      <CompatibleProviderSettingsContent />
     </div>
   );
 }

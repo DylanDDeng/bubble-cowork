@@ -53,18 +53,11 @@ export function CompatibleProviderSettingsContent() {
 
   return (
     <section>
-      <h2 className="mb-4 text-[28px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
-        Claude-Compatible
-      </h2>
       <div className="rounded-[24px] border border-[var(--border)] bg-[var(--bg-secondary)] p-6">
         <div className="flex items-start justify-between gap-6">
           <div className="max-w-2xl">
             <div className="text-base font-medium text-[var(--text-primary)]">
-              Custom Anthropic-compatible provider
-            </div>
-            <div className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
-              Minimal CC Switch / CodePilot style override. When enabled, Claude sessions will use
-              your custom `ANTHROPIC_*` runtime settings instead of the local user defaults.
+              MiniMax (CN)
             </div>
           </div>
 
