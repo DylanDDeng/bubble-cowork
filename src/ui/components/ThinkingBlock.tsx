@@ -3,10 +3,16 @@ import { Brain, ChevronRight } from 'lucide-react';
 
 interface ThinkingBlockProps {
   content: string;
+  title?: string;
+  defaultExpanded?: boolean;
 }
 
-export function ThinkingBlock({ content }: ThinkingBlockProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+export function ThinkingBlock({
+  content,
+  title = 'Thinking',
+  defaultExpanded = false,
+}: ThinkingBlockProps) {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
   // Skip empty content
   if (!content || !content.trim()) return null;
@@ -26,7 +32,7 @@ export function ThinkingBlock({ content }: ThinkingBlockProps) {
         />
         <Brain className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--text-muted)]" />
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-[var(--text-primary)]">Thinking</div>
+          <div className="text-sm font-medium text-[var(--text-primary)]">{title}</div>
           <div className="mt-0.5 text-sm leading-5 text-[var(--text-secondary)]">
             {isExpanded ? content : preview}
           </div>

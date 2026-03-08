@@ -13,6 +13,7 @@ import { InSessionSearch } from './components/search/InSessionSearch';
 import { Settings } from './components/settings/Settings';
 import { ProjectTreePanel } from './components/ProjectTreePanel';
 import { ThinkingIndicator } from './components/ThinkingIndicator';
+import { ThinkingBlock } from './components/ThinkingBlock';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MDContent } from './render/markdown';
 import { getMessageContentBlocks } from './utils/message-content';
@@ -448,11 +449,8 @@ export function App() {
               {showPartialMessage && (partialMessage || partialThinking) && (
                 <div className="my-3 min-w-0 overflow-x-auto streaming-content">
                   {partialThinking && (
-                    <div className="mb-3 bg-[var(--bg-tertiary)] rounded-lg p-4 border-l-2 border-purple-500/50">
-                      <div className="text-xs text-[var(--text-muted)] mb-2">Thinking...</div>
-                      <div className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">
-                        {partialThinking}
-                      </div>
+                    <div className="mb-3">
+                      <ThinkingBlock content={partialThinking} title="Thinking..." defaultExpanded />
                     </div>
                   )}
                   {partialMessage && (
