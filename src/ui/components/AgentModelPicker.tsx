@@ -263,34 +263,31 @@ export function AgentModelPicker({
                     claudeModel.value || claudeModel.config.defaultModel || claudeOptions[0] || ''
                   ) &&
                   claudeModel.onToggleContext1m && (
-                    <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--bg-tertiary)]/70 px-3 py-3">
+                    <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--bg-tertiary)]/70 px-3 py-2.5">
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <div className="text-sm font-medium text-[var(--text-primary)]">
                             1M context
                           </div>
-                        <div className="mt-0.5 text-[11px] leading-4 text-[var(--text-secondary)]">
-                          Extended context beta for the selected Claude model.
                         </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => claudeModel.onToggleContext1m?.(!claudeModel.context1m)}
-                        aria-label="Toggle 1M context"
-                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors ${
-                          claudeModel.context1m
-                            ? 'border-transparent bg-[var(--accent)]'
-                            : 'border-[var(--border)] bg-[var(--bg-secondary)]'
-                        }`}
-                      >
-                        <span
-                          className={`pointer-events-none block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-                            claudeModel.context1m ? 'translate-x-5' : 'translate-x-0.5'
+                        <button
+                          type="button"
+                          onClick={() => claudeModel.onToggleContext1m?.(!claudeModel.context1m)}
+                          aria-label="Toggle 1M context"
+                          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors ${
+                            claudeModel.context1m
+                              ? 'border-transparent bg-[var(--accent)]'
+                              : 'border-[var(--border)] bg-[var(--bg-secondary)]'
                           }`}
-                        />
-                      </button>
+                        >
+                          <span
+                            className={`pointer-events-none block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                              claudeModel.context1m ? 'translate-x-5' : 'translate-x-0.5'
+                            }`}
+                          />
+                        </button>
+                      </div>
                     </div>
-                  </div>
                   )}
               </>
             )}
