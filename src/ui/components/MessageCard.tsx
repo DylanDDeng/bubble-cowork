@@ -336,23 +336,26 @@ function UserPromptCard({
               }}
             />
           ) : (
-            <div className={`${promptPrefixDisplay ? 'space-y-2' : ''}`}>
-              {promptPrefixDisplay && (
-                <div>
-                  {promptPrefixDisplay.kind === 'skill' ? (
-                    <SelectedClaudeSkillChip skill={promptPrefixDisplay.skill} />
-                  ) : promptPrefixDisplay.kind === 'command' ? (
-                    <SelectedClaudeCommandChip command={promptPrefixDisplay.command} />
-                  ) : (
-                    <GenericSlashChip name={promptPrefixDisplay.name} />
-                  )}
-                </div>
-              )}
+            <div
+              className={
+                promptPrefixDisplay
+                  ? 'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[15px] leading-[1.45] text-[var(--text-primary)]'
+                  : ''
+              }
+            >
+              {promptPrefixDisplay &&
+                (promptPrefixDisplay.kind === 'skill' ? (
+                  <SelectedClaudeSkillChip skill={promptPrefixDisplay.skill} compact />
+                ) : promptPrefixDisplay.kind === 'command' ? (
+                  <SelectedClaudeCommandChip command={promptPrefixDisplay.command} compact />
+                ) : (
+                  <GenericSlashChip name={promptPrefixDisplay.name} compact />
+                ))}
 
               {(!promptPrefixDisplay || promptPrefixDisplay.remainder) && (
-                <div className="text-[15px] leading-[1.45] whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[var(--text-primary)]">
+                <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                   {promptPrefixDisplay ? promptPrefixDisplay.remainder : prompt}
-                </div>
+                </span>
               )}
             </div>
           )}
@@ -442,11 +445,21 @@ function IconButton({
   );
 }
 
-function GenericSlashChip({ name }: { name: string }) {
+function GenericSlashChip({ name, compact = false }: { name: string; compact?: boolean }) {
+  const label = compact ? name.replace(/^\//, '') : `/${name}`;
+
   return (
-    <div className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-2 shadow-sm">
-      <div className="max-w-[260px] truncate text-sm font-medium text-[var(--text-primary)]">
-        /{name}
+    <div
+      className={`inline-flex max-w-full items-center border border-[var(--border)] bg-[var(--bg-tertiary)] shadow-sm ${
+        compact ? 'rounded-lg px-2 py-0.5' : 'rounded-2xl px-2.5 py-2'
+      }`}
+    >
+      <div
+        className={`truncate font-medium text-[var(--text-primary)] ${
+          compact ? 'max-w-[180px] text-[13px]' : 'max-w-[260px] text-sm'
+        }`}
+      >
+        {label}
       </div>
     </div>
   );

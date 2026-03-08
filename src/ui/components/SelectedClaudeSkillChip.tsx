@@ -4,21 +4,35 @@ import type { ClaudeSkillSummary } from '../types';
 export function SelectedClaudeSkillChip({
   skill,
   onClear,
+  compact = false,
 }: {
   skill: ClaudeSkillSummary;
   onClear?: () => void;
+  compact?: boolean;
 }) {
+  const label = compact ? skill.title.replace(/^\//, '') : skill.title;
+
   return (
-    <div className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-2 shadow-sm">
-      <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">
-        <Boxes className="w-3.5 h-3.5" />
+    <div
+      className={`inline-flex max-w-full items-center border border-[var(--border)] bg-[var(--bg-tertiary)] shadow-sm ${
+        compact ? 'gap-1.5 rounded-lg px-2 py-0.5' : 'gap-2 rounded-2xl px-2.5 py-2'
+      }`}
+    >
+      <div
+        className={`flex flex-shrink-0 items-center justify-center border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] ${
+          compact ? 'h-4.5 w-4.5 rounded-sm' : 'h-6 w-6 rounded-lg'
+        }`}
+      >
+        <Boxes className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
       </div>
 
       <div
-        className="max-w-[220px] truncate text-sm font-medium text-[var(--text-primary)]"
+        className={`truncate font-medium text-[var(--text-primary)] ${
+          compact ? 'max-w-[180px] text-[13px]' : 'max-w-[220px] text-sm'
+        }`}
         title={skill.title}
       >
-        {skill.title}
+        {label}
       </div>
 
       {onClear && (
