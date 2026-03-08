@@ -369,10 +369,10 @@ function UserPromptCard({
           {timestampLabel && <span className="tabular-nums">{timestampLabel}</span>}
 
           {isEditing ? (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
               <button
                 onClick={handleCancelEdit}
-                className="px-2 py-0.5 text-xs rounded hover:bg-[var(--bg-tertiary)] transition-colors"
+                className="inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
                 title="Cancel"
               >
                 Cancel
@@ -380,10 +380,11 @@ function UserPromptCard({
               <button
                 onClick={handleSaveAndRetry}
                 disabled={!draft.trim()}
-                className="px-2 py-0.5 text-xs rounded bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Save & Retry"
+                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--accent-light)] px-3 py-1.5 text-xs font-medium text-[var(--text-primary)] shadow-sm transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Send"
               >
-                Save & Retry
+                <RotateCcw className="h-3.5 w-3.5" />
+                Send
               </button>
             </div>
           ) : (
