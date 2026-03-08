@@ -15,7 +15,6 @@ import { ProjectTreePanel } from './components/ProjectTreePanel';
 import { ThinkingIndicator } from './components/ThinkingIndicator';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MDContent } from './render/markdown';
-import { loadPreferredProvider } from './utils/provider';
 import { getMessageContentBlocks } from './utils/message-content';
 import {
   deriveTurnPhase,
@@ -426,12 +425,13 @@ export function App() {
                                 if (activeSession.status === 'running') return;
 
                                 sendEvent({
-                                  type: 'session.continue',
+                                  type: 'session.editLatestPrompt',
                                   payload: {
                                     sessionId: activeSessionId,
                                     prompt: prompt.trim(),
                                     attachments: attachments && attachments.length > 0 ? attachments : undefined,
-                                    provider: loadPreferredProvider(),
+                                    provider: activeSession.provider,
+                                    model: activeSession.model,
                                   },
                                 });
                               },

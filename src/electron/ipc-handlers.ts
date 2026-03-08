@@ -296,6 +296,51 @@ function buildCompactSummaryPrompt(extraInstructions?: string): string {
   return lines.join('\n');
 }
 
+function buildHistoryTranscript(history: StreamMessage[]): string {
+  const entries: string[] = [];
+
+  for (const message of history) {
+    if (message.type === 'user_prompt') {
+      const prompt = message.prompt.trim();
+      if (prompt) {
+        entries.push(`[user]\n${prompt}`);
+      }
+      continue;
+    }
+
+    const assistantText = extractAssistantText(message);
+    if (assistantText && !isLocalUtilityAssistantText(assistantText)) {
+      entries.push(`[assistant]\n${assistantText}`);
+    }
+  }
+
+  return entries.join('\n\n').trim();
+}
+
+function buildLatestEditSummaryPrompt(history: StreamMessage[]): string {
+  const transcript = buildHistoryTranscript(history);
+  const lines = [
+    'You are helping Bubble Cowork rebuild a Claude Code conversation before the latest edited user turn.',
+    'Do not continue the task. Do not ask questions. Do not use tools.',
+    'Summarize the conversation state so a fresh Claude session can continue from this exact point.',
+    '',
+    'Preserve:',
+    '- the user goal and expected deliverable',
+    '- completed work and intermediate findings',
+    '- important decisions, preferences, and constraints',
+    '- relevant files, commands, and technical details',
+    '- unresolved questions and next steps',
+    '',
+    'Conversation transcript:',
+    transcript || '[No prior conversation context]',
+    '',
+    'Return only a summary wrapped in <summary></summary>.',
+    'Do not include any text outside the summary tags.',
+  ];
+
+  return lines.join('\n');
+}
+
 function extractSummaryContent(text: string): string {
   const match = text.match(/<summary>([\s\S]*?)<\/summary>/i);
   return (match ? match[1] : text).trim();
@@ -482,6 +527,148 @@ async function handleLocalCompactCommand(
     finalize(`Failed to compact conversation: ${message}`, restoreStatus, previousModel);
     return true;
   }
+}
+
+async function handleEditLatestPrompt(
+  mainWindow: BrowserWindow,
+  payload: SessionContinuePayload
+): Promise<void> {
+  const { sessionId, prompt, attachments, model } = payload;
+  const session = sessions.getSession(sessionId);
+  if (!session) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'Unknown session', sessionId },
+    });
+    return;
+  }
+
+  if (session.provider !== 'claude') {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'Editing the latest sent message is currently available only for Claude sessions.', sessionId },
+    });
+    return;
+  }
+
+  const existingEntry = runnerHandles.get(sessionId);
+  if (existingEntry && session.status === 'running') {
+    existingEntry.handle.abort();
+    runnerHandles.delete(sessionId);
+  }
+
+  const history = sessions.getSessionHistory(sessionId);
+  let latestUserPromptIndex = -1;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    if (history[index]?.type === 'user_prompt') {
+      latestUserPromptIndex = index;
+      break;
+    }
+  }
+
+  if (latestUserPromptIndex === -1) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'No editable user prompt found for this session.', sessionId },
+    });
+    return;
+  }
+
+  const preservedHistory = history.slice(0, latestUserPromptIndex);
+  const requestedModel = normalizeModel(model ?? session.model ?? undefined);
+  let nextClaudeSessionId: string | undefined;
+  let resolvedModel = requestedModel;
+
+  try {
+    if (preservedHistory.length > 0) {
+      const summaryResult = await runClaudeOneShot({
+        prompt: buildLatestEditSummaryPrompt(preservedHistory),
+        cwd: session.cwd ?? undefined,
+        model: requestedModel || undefined,
+      });
+      const summary = extractSummaryContent(summaryResult.text);
+      if (!summary) {
+        throw new Error('Claude returned an empty edit summary.');
+      }
+
+      const bootstrapResult = await runClaudeOneShot({
+        prompt: buildCompactBootstrapPrompt({
+          summary,
+          cwd: session.cwd,
+          recentConversation: buildRecentConversationContext(preservedHistory),
+        }),
+        cwd: session.cwd ?? undefined,
+        model: summaryResult.model || requestedModel || undefined,
+      });
+
+      if (!bootstrapResult.sessionId) {
+        throw new Error('Claude did not return a bootstrap session id while editing the latest prompt.');
+      }
+
+      nextClaudeSessionId = bootstrapResult.sessionId;
+      resolvedModel = normalizeModel(bootstrapResult.model || summaryResult.model || requestedModel || undefined);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: `Failed to edit latest message: ${message}`, sessionId },
+    });
+    return;
+  }
+
+  const createdAt = Date.now();
+  const editedUserPrompt: StreamMessage = {
+    type: 'user_prompt',
+    prompt: prompt.trim(),
+    attachments,
+    createdAt,
+  };
+  const rewrittenHistory = [...preservedHistory, editedUserPrompt];
+
+  sessions.replaceSessionHistory(sessionId, rewrittenHistory);
+  sessions.updateSessionStatus(sessionId, 'running');
+  sessions.updateLastPrompt(sessionId, prompt.trim());
+  sessions.setClaudeSessionId(sessionId, nextClaudeSessionId || null);
+  sessions.updateSessionModel(sessionId, resolvedModel || null);
+
+  const refreshedSession = sessions.getSession(sessionId);
+  if (!refreshedSession) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'Failed to refresh session after editing the latest message.', sessionId },
+    });
+    return;
+  }
+
+  broadcast(mainWindow, {
+    type: 'session.history',
+    payload: {
+      sessionId,
+      status: 'running',
+      messages: rewrittenHistory,
+    },
+  });
+
+  broadcast(mainWindow, {
+    type: 'session.status',
+    payload: {
+      sessionId,
+      status: 'running',
+      provider: refreshedSession.provider,
+      model: resolvedModel || undefined,
+    },
+  });
+
+  startRunner(
+    mainWindow,
+    refreshedSession,
+    prompt.trim(),
+    nextClaudeSessionId,
+    attachments,
+    'claude',
+    resolvedModel || undefined
+  );
 }
 
 async function maybeHandleLocalSlashCommand(
@@ -951,6 +1138,10 @@ async function handleClientEvent(
       await handleSessionContinue(mainWindow, event.payload);
       break;
 
+    case 'session.editLatestPrompt':
+      await handleEditLatestPrompt(mainWindow, event.payload);
+      break;
+
     case 'session.history':
       handleSessionHistory(mainWindow, event.payload.sessionId);
       break;
@@ -1335,6 +1526,9 @@ function startRunner(
             model: sessions.getSession(session.id)?.model || modelOverride || undefined,
           },
         });
+        if (runnerHandles.get(session.id)?.handle === handle) {
+          runnerHandles.delete(session.id);
+        }
       }
     },
     onError: (error) => {
@@ -1351,7 +1545,9 @@ function startRunner(
         payload: { message, sessionId: session.id },
       });
 
-      runnerHandles.delete(session.id);
+      if (runnerHandles.get(session.id)?.handle === handle) {
+        runnerHandles.delete(session.id);
+      }
     },
     onPermissionRequest: async (toolUseId, toolName, input) => {
       // 广播权限请求

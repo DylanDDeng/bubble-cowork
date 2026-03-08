@@ -141,6 +141,14 @@ export function updateClaudeSessionId(sessionId: string, claudeSessionId: string
   stmt.run(claudeSessionId, now, sessionId);
 }
 
+export function setClaudeSessionId(sessionId: string, claudeSessionId: string | null): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET claude_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(claudeSessionId, now, sessionId);
+}
+
 // 更新 Codex Session ID
 export function updateCodexSessionId(sessionId: string, codexSessionId: string): void {
   const now = Date.now();
@@ -276,6 +284,29 @@ export function addMessage(sessionId: string, message: StreamMessage): void {
     ON CONFLICT(id) DO UPDATE SET data = excluded.data
   `);
   stmt.run(id, sessionId, JSON.stringify(message), now);
+}
+
+export function replaceSessionHistory(sessionId: string, messages: StreamMessage[]): void {
+  const deleteStmt = getDb().prepare('DELETE FROM messages WHERE session_id = ?');
+  const insertStmt = getDb().prepare(`
+    INSERT INTO messages (id, session_id, data, created_at)
+    VALUES (?, ?, ?, ?)
+  `);
+
+  const transaction = getDb().transaction((nextMessages: StreamMessage[]) => {
+    deleteStmt.run(sessionId);
+
+    for (const message of nextMessages) {
+      const createdAt =
+        typeof (message as StreamMessage & { createdAt?: number }).createdAt === 'number'
+          ? (message as StreamMessage & { createdAt?: number }).createdAt as number
+          : Date.now();
+      const id = (message as { uuid?: string }).uuid || uuidv4();
+      insertStmt.run(id, sessionId, JSON.stringify(message), createdAt);
+    }
+  });
+
+  transaction(messages);
 }
 
 // 获取会话历史消息

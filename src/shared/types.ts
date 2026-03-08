@@ -118,6 +118,7 @@ export type ClientEvent =
   | { type: 'session.list' }
   | { type: 'session.start'; payload: SessionStartPayload }
   | { type: 'session.continue'; payload: SessionContinuePayload }
+  | { type: 'session.editLatestPrompt'; payload: SessionContinuePayload }
   | { type: 'session.history'; payload: { sessionId: string } }
   | { type: 'session.stop'; payload: { sessionId: string } }
   | { type: 'session.delete'; payload: { sessionId: string } }
