@@ -55,6 +55,10 @@ export function NewSessionView() {
     () => getLatestProviderModel(sessions, 'claude'),
     [sessions]
   );
+  const pickerClaudeRuntimeModel = useMemo(
+    () => (recentClaudeModel && availableClaudeModels.includes(recentClaudeModel) ? recentClaudeModel : null),
+    [availableClaudeModels, recentClaudeModel]
+  );
   const recentCodexModel = useMemo(
     () => getLatestProviderModel(sessions, 'codex'),
     [sessions]
@@ -329,7 +333,7 @@ export function NewSessionView() {
               claudeModel={{
                 value: selectedClaudeModel,
                 config: claudeModelConfig,
-                runtimeModel: recentClaudeModel,
+                runtimeModel: pickerClaudeRuntimeModel,
                 context1m: selectedClaudeContext1m,
                 compatibleOptions,
                 onToggleContext1m: (enabled) => {
