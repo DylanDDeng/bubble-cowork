@@ -21,6 +21,7 @@ import { Settings } from './components/settings/Settings';
 import { ProjectTreePanel } from './components/ProjectTreePanel';
 import { ThinkingIndicator } from './components/ThinkingIndicator';
 import { ThinkingBlock } from './components/ThinkingBlock';
+import { ExternalFilePermissionDialog } from './components/ExternalFilePermissionDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MDContent } from './render/markdown';
 import { getMessageContentBlocks } from './utils/message-content';
@@ -29,7 +30,13 @@ import {
   shouldShowThinkingIndicator,
   hasRunningToolInMessages,
 } from './utils/turn-utils';
-import type { ToolStatus, PermissionResult, StreamMessage, ContentBlock } from './types';
+import type {
+  ExternalFilePermissionInput,
+  ToolStatus,
+  PermissionResult,
+  StreamMessage,
+  ContentBlock,
+} from './types';
 
 // 工具结果块类型
 type ToolResultBlock = ContentBlock & { type: 'tool_result' };
@@ -125,6 +132,15 @@ function aggregateMessages(messages: StreamMessage[]): AggregatedItem[] {
   pushSegment(items, currentSegment);
 
   return items;
+}
+
+function isExternalFilePermissionInput(input: unknown): input is ExternalFilePermissionInput {
+  return (
+    typeof input === 'object' &&
+    input !== null &&
+    'kind' in input &&
+    (input as { kind?: unknown }).kind === 'external-file-access'
+  );
 }
 
 export function App() {
@@ -278,6 +294,10 @@ export function App() {
 
   const hasPendingPermissionRequests =
     (activeSession?.permissionRequests?.length ?? 0) > 0;
+  const activeExternalPermissionRequest = useMemo(
+    () => activeSession?.permissionRequests.find((request) => isExternalFilePermissionInput(request.input)) || null,
+    [activeSession?.permissionRequests]
+  );
   const lastUserPromptIndex = useMemo(() => {
     if (!activeSession) return -1;
     for (let i = activeSession.messages.length - 1; i >= 0; i--) {
@@ -478,6 +498,15 @@ export function App() {
           },
         }}
       />
+
+      {activeExternalPermissionRequest && isExternalFilePermissionInput(activeExternalPermissionRequest.input) && (
+        <ExternalFilePermissionDialog
+          input={activeExternalPermissionRequest.input}
+          onSubmit={(result) =>
+            handlePermissionResult(activeExternalPermissionRequest.toolUseId, result)
+          }
+        />
+      )}
 
     </div>
   );

@@ -28,8 +28,8 @@ import type {
   PermissionResult,
   SessionStartPayload,
   SessionContinuePayload,
+  PermissionRequestInput,
   PermissionResponsePayload,
-  AskUserQuestionInput,
   Attachment,
   SessionStatus,
 } from './types';
@@ -1747,7 +1747,7 @@ function startRunner(
           sessionId: session.id,
           toolUseId,
           toolName,
-          input: input as AskUserQuestionInput,
+          input: input as PermissionRequestInput,
         },
       });
 

@@ -271,6 +271,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
   let enqueueChain: Promise<void> = Promise.resolve();
   let currentModel = typeof model === 'string' && model.trim().length > 0 ? model.trim() : undefined;
   let activeQuery: ClaudeQuery | null = null;
+  const sessionApprovedExternalAccess = new Set<string>();
 
   const enqueuePrompt = (text: string, promptAttachments?: Attachment[], requestedModel?: string) => {
     const trimmed = text.trim();
@@ -374,9 +375,36 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
                 if (filePath) {
                   const normalized = normalizeToolFilePath(session.cwd, filePath);
                   if (normalized && !normalized.isWithin) {
+                    const accessKey = `${toolName}:${normalized.resolved}`;
+                    if (sessionApprovedExternalAccess.has(accessKey)) {
+                      return {
+                        behavior: 'allow' as const,
+                        updatedInput: { ...input, file_path: normalized.resolved },
+                      };
+                    }
+
+                    const toolUseId = uuidv4();
+                    const permResult = await onPermissionRequest(toolUseId, toolName, {
+                      kind: 'external-file-access',
+                      question: `${toolName} this external file?`,
+                      filePath: normalized.resolved,
+                      cwd: session.cwd,
+                      toolName,
+                    });
+
+                    if (permResult.behavior === 'allow') {
+                      if (permResult.scope === 'session') {
+                        sessionApprovedExternalAccess.add(accessKey);
+                      }
+                      return {
+                        behavior: 'allow' as const,
+                        updatedInput: { ...input, file_path: normalized.resolved },
+                      };
+                    }
+
                     return {
                       behavior: 'deny' as const,
-                      message: `File path must be inside the working directory: ${session.cwd}`,
+                      message: permResult.message || `File path must be inside the working directory: ${session.cwd}`,
                     };
                   }
                   if (normalized && normalized.resolved !== filePath) {

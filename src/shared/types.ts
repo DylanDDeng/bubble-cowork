@@ -261,7 +261,7 @@ export interface PermissionRequestPayload {
   sessionId: string;
   toolUseId: string;
   toolName: string;
-  input: AskUserQuestionInput;
+  input: PermissionRequestInput;
 }
 
 export interface PermissionResponsePayload {
@@ -274,6 +274,7 @@ export interface PermissionResult {
   behavior: 'allow' | 'deny';
   updatedInput?: Record<string, unknown>;
   message?: string;
+  scope?: 'once' | 'session';
 }
 
 // AskUserQuestion 输入结构
@@ -288,6 +289,18 @@ export interface AskUserQuestion {
   options?: { label: string; description?: string }[];
   multiSelect?: boolean;
 }
+
+export interface ExternalFilePermissionInput {
+  kind: 'external-file-access';
+  question: string;
+  filePath: string;
+  cwd: string;
+  toolName: string;
+}
+
+export type PermissionRequestInput =
+  | AskUserQuestionInput
+  | ExternalFilePermissionInput;
 
 // StreamMessage 类型（SDK 消息或内部消息）
 export type StreamMessageBase = {

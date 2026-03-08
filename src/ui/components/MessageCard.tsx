@@ -87,6 +87,15 @@ function extractGenericSlashPrompt(prompt: string): { name: string; remainder: s
   return { name, remainder };
 }
 
+function isAskUserQuestionInput(input: unknown): input is AskUserQuestionInput {
+  return (
+    typeof input === 'object' &&
+    input !== null &&
+    'questions' in input &&
+    Array.isArray((input as { questions?: unknown }).questions)
+  );
+}
+
 interface MessageCardProps {
   message: StreamMessage;
   toolStatusMap: Map<string, ToolStatus>;
@@ -493,6 +502,9 @@ function AssistantCard({
           );
           const matchingRequest = askUserBlock
             ? permissionRequests.find((req) => {
+                if (!isAskUserQuestionInput(req.input)) {
+                  return false;
+                }
                 const input = askUserBlock.input as unknown as AskUserQuestionInput;
                 const reqSignature = getAskUserQuestionSignature(req.input);
                 const blockSignature = getAskUserQuestionSignature(input);

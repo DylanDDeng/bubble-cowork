@@ -11,6 +11,8 @@ export type {
   ProjectTreeNode,
   PermissionResult,
   AskUserQuestionInput,
+  ExternalFilePermissionInput,
+  PermissionRequestInput,
   ContentBlock,
   SessionStartPayload,
   SessionContinuePayload,
