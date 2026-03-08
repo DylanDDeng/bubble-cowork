@@ -1,6 +1,13 @@
-import { useEffect, useRef, useMemo, useState } from 'react';
+import { useEffect, useRef, useMemo, useState, type ReactNode } from 'react';
 import { Toaster, toast } from 'sonner';
-import { PanelLeft, Copy, Check } from 'lucide-react';
+import {
+  Check,
+  Copy,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+} from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
 import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -329,29 +336,35 @@ export function App() {
     <div className="flex h-full">
       {/* Sidebar toggle */}
       {!showSettings && (
-        <button
+        <ChromeSidebarToggleButton
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          className={`fixed z-50 no-drag cursor-pointer w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 hover:border-[var(--text-primary)]/10 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)] ${
-            isMacOS ? 'top-[8px] left-[92px]' : 'top-3 left-3'
-          }`}
+          className={isMacOS ? 'top-[8px] left-[92px]' : 'top-3 left-3'}
           title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
           aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-        >
-          <SidebarToggleIcon />
-        </button>
+          icon={
+            sidebarCollapsed ? (
+              <PanelLeftOpen className="w-[17px] h-[17px] pointer-events-none" aria-hidden="true" />
+            ) : (
+              <PanelLeftClose className="w-[17px] h-[17px] pointer-events-none" aria-hidden="true" />
+            )
+          }
+        />
       )}
 
       {!showSettings && (
-        <button
+        <ChromeSidebarToggleButton
           onClick={() => setProjectTreeCollapsed(!projectTreeCollapsed)}
-          className={`fixed z-50 no-drag cursor-pointer w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 hover:border-[var(--text-primary)]/10 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)] ${
-            isMacOS ? 'top-[8px] right-[16px]' : 'top-3 right-3'
-          }`}
+          className={isMacOS ? 'top-[8px] right-[16px]' : 'top-3 right-3'}
           title={projectTreeCollapsed ? 'Show project files' : 'Hide project files'}
           aria-label={projectTreeCollapsed ? 'Show project files' : 'Hide project files'}
-        >
-          <SidebarToggleIcon />
-        </button>
+          icon={
+            projectTreeCollapsed ? (
+              <PanelRightOpen className="w-[17px] h-[17px] pointer-events-none" aria-hidden="true" />
+            ) : (
+              <PanelRightClose className="w-[17px] h-[17px] pointer-events-none" aria-hidden="true" />
+            )
+          }
+        />
       )}
 
       {/* 侧边栏 */}
@@ -506,8 +519,33 @@ export function App() {
   );
 }
 
-function SidebarToggleIcon() {
-  return <PanelLeft className="w-5 h-5 pointer-events-none" aria-hidden="true" />;
+function ChromeSidebarToggleButton({
+  onClick,
+  title,
+  className,
+  icon,
+}: {
+  onClick: () => void;
+  title: string;
+  className: string;
+  icon: ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`fixed z-50 no-drag cursor-pointer flex h-9 w-9 items-center justify-center rounded-xl border border-transparent bg-transparent text-[var(--text-secondary)] transition-all duration-150 hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/4 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)] active:scale-[0.98] ${className}`}
+      onMouseEnter={(event) => {
+        event.currentTarget.style.background = 'color-mix(in srgb, var(--bg-primary) 94%, var(--text-primary) 6%)';
+      }}
+      onMouseLeave={(event) => {
+        event.currentTarget.style.background = 'transparent';
+      }}
+      title={title}
+      aria-label={title}
+    >
+      {icon}
+    </button>
+  );
 }
 
 // 简化路径显示
