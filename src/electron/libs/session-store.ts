@@ -12,6 +12,11 @@ import type {
 
 let db: Database.Database | null = null;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const claudeUsageReportCache = new Map<
+  ClaudeUsageRangeDays,
+  { version: number; dayStart: number; report: ClaudeUsageReport }
+>();
+let claudeUsageReportDataVersion = 0;
 
 // 初始化数据库
 export function initialize(): void {
@@ -71,6 +76,11 @@ function ensureColumn(table: string, column: string, definition: string): void {
   getDb().exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 
+function invalidateClaudeUsageReportCache(): void {
+  claudeUsageReportDataVersion += 1;
+  claudeUsageReportCache.clear();
+}
+
 // 获取数据库实例
 function getDb(): Database.Database {
   if (!db) {
@@ -107,6 +117,10 @@ export function createSession(params: {
     now,
     now
   );
+
+  if ((params.provider || 'claude') === 'claude') {
+    invalidateClaudeUsageReportCache();
+  }
 
   return getSession(id)!;
 }
@@ -165,6 +179,7 @@ export function updateSessionProvider(sessionId: string, provider: 'claude' | 'c
     UPDATE sessions SET provider = ?, updated_at = ? WHERE id = ?
   `);
   stmt.run(provider, now, sessionId);
+  invalidateClaudeUsageReportCache();
 }
 
 export function updateSessionModel(sessionId: string, model: string | null): void {
@@ -173,6 +188,7 @@ export function updateSessionModel(sessionId: string, model: string | null): voi
     UPDATE sessions SET model = ?, updated_at = ? WHERE id = ?
   `);
   stmt.run(model, now, sessionId);
+  invalidateClaudeUsageReportCache();
 }
 
 // 更新 Session TodoState
@@ -270,6 +286,7 @@ export function deleteSession(sessionId: string): void {
   // 由于设置了 CASCADE，删除 session 会自动删除关联的 messages
   const stmt = getDb().prepare('DELETE FROM sessions WHERE id = ?');
   stmt.run(sessionId);
+  invalidateClaudeUsageReportCache();
 }
 
 // 添加消息
@@ -284,6 +301,13 @@ export function addMessage(sessionId: string, message: StreamMessage): void {
     ON CONFLICT(id) DO UPDATE SET data = excluded.data
   `);
   stmt.run(id, sessionId, JSON.stringify(message), now);
+
+  if (
+    message.type === 'result' ||
+    (message.type === 'system' && message.subtype === 'init')
+  ) {
+    invalidateClaudeUsageReportCache();
+  }
 }
 
 export function replaceSessionHistory(sessionId: string, messages: StreamMessage[]): void {
@@ -307,6 +331,7 @@ export function replaceSessionHistory(sessionId: string, messages: StreamMessage
   });
 
   transaction(messages);
+  invalidateClaudeUsageReportCache();
 }
 
 // 获取会话历史消息
@@ -330,7 +355,6 @@ type JoinedClaudeMessageRow = {
   created_at: number;
   session_id: string;
   session_model: string | null;
-  inferred_model: string | null;
 };
 
 type StoredClaudeResultMessage = Extract<StreamMessage, { type: 'result' }> & {
@@ -400,27 +424,22 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
   const safeDays: ClaudeUsageRangeDays = days === 7 || days === 90 ? days : 30;
   const todayStart = startOfLocalDay(Date.now());
   const rangeStart = todayStart - (safeDays - 1) * DAY_MS;
+  const cached = claudeUsageReportCache.get(safeDays);
+  if (cached && cached.version === claudeUsageReportDataVersion && cached.dayStart === todayStart) {
+    return cached.report;
+  }
 
   const rows = getDb().prepare(`
     SELECT
       m.data AS data,
       m.created_at AS created_at,
       s.id AS session_id,
-      s.model AS session_model,
-      (
-        SELECT json_extract(m2.data, '$.model')
-        FROM messages m2
-        WHERE m2.session_id = s.id
-          AND json_extract(m2.data, '$.type') = 'system'
-          AND json_extract(m2.data, '$.subtype') = 'init'
-          AND json_extract(m2.data, '$.model') IS NOT NULL
-          AND json_extract(m2.data, '$.model') != ''
-        ORDER BY m2.created_at DESC
-        LIMIT 1
-      ) AS inferred_model
+      s.model AS session_model
     FROM messages m
     INNER JOIN sessions s ON s.id = m.session_id
-    WHERE s.provider = 'claude' AND m.created_at >= ?
+    WHERE s.provider = 'claude'
+      AND m.created_at >= ?
+      AND json_extract(m.data, '$.type') = 'result'
     ORDER BY m.created_at ASC
   `).all(rangeStart) as JoinedClaudeMessageRow[];
 
@@ -502,7 +521,7 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
       continue;
     }
 
-    const fallbackModel = row.session_model || row.inferred_model || 'Unknown';
+    const fallbackModel = row.session_model || 'Unknown';
     const summary = modelSummaries.get(fallbackModel) || emptyModelSummary(fallbackModel);
     summary.inputTokens += inputTokens;
     summary.outputTokens += outputTokens;
@@ -537,7 +556,7 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
 
   const cacheDenominator = totalInputTokens + totalCacheReadTokens + totalCacheCreationTokens;
 
-  return {
+  const report = {
     rangeDays: safeDays,
     totals: {
       inputTokens: totalInputTokens,
@@ -556,6 +575,14 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
       byModelCostUsd: bucket.byModelCostUsd,
     })),
   };
+
+  claudeUsageReportCache.set(safeDays, {
+    version: claudeUsageReportDataVersion,
+    dayStart: todayStart,
+    report,
+  });
+
+  return report;
 }
 
 // 获取最近使用的工作目录
