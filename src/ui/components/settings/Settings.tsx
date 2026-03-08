@@ -32,9 +32,9 @@ const SETTINGS_TABS = {
     icon: <BookOpen className="w-4 h-4" />,
   },
   usage: {
-    label: 'Claude Usage',
-    title: 'Claude Usage',
-    description: 'Review token, cost, session, and cache usage across Claude models over time.',
+    label: 'Usage',
+    title: 'Usage',
+    description: 'Review token, cost, session, and cache usage across models over time.',
     icon: <ChartColumn className="w-4 h-4" />,
   },
 } as const;

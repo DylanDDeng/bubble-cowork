@@ -28,9 +28,9 @@ export function ClaudeUsageSettingsContent() {
         }
       } catch (loadError) {
         if (!cancelled) {
-          const rawMessage = loadError instanceof Error ? loadError.message : 'Failed to load Claude usage.';
+          const rawMessage = loadError instanceof Error ? loadError.message : 'Failed to load usage.';
           const message = rawMessage.includes("No handler registered for 'get-claude-usage-report'")
-            ? 'Claude Usage needs an Electron restart to load the new main-process handler.'
+            ? 'Usage needs an Electron restart to load the new main-process handler.'
             : rawMessage;
           setError(message);
         }
@@ -79,13 +79,13 @@ export function ClaudeUsageSettingsContent() {
 
       {loading && !report && (
         <PanelCard className="px-5 py-10 text-sm text-[var(--text-secondary)]">
-          Loading Claude usage...
+          Loading usage...
         </PanelCard>
       )}
 
       {error && !loading && (
         <PanelCard className="px-5 py-5">
-          <div className="text-sm font-medium text-[var(--text-primary)]">Unable to load Claude usage</div>
+          <div className="text-sm font-medium text-[var(--text-primary)]">Unable to load usage</div>
           <div className="mt-2 text-sm text-[var(--text-secondary)]">{error}</div>
         </PanelCard>
       )}
@@ -101,7 +101,7 @@ export function ClaudeUsageSettingsContent() {
             <MetricCard
               title="Total Cost"
               value={formatCurrency(report.totals.totalCostUsd)}
-              subtitle={report.models[0] ? `${report.models.length} models active` : 'No Claude usage yet'}
+              subtitle={report.models[0] ? `${report.models.length} models active` : 'No usage yet'}
             />
             <MetricCard
               title="Sessions"
@@ -127,7 +127,7 @@ export function ClaudeUsageSettingsContent() {
               <UsageChart daily={report.daily} models={report.models} modelColors={modelColors} />
             ) : (
               <div className="rounded-[20px] border border-dashed border-[var(--border)] px-5 py-12 text-center text-sm text-[var(--text-secondary)]">
-                No Claude usage recorded in this period.
+                No usage recorded in this period.
               </div>
             )}
           </PanelCard>
