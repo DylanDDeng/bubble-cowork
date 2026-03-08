@@ -110,7 +110,7 @@ export function Sidebar() {
       )}
 
       <div
-        className="relative flex h-full flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-tertiary)]"
+        className="relative flex h-full flex-shrink-0 select-none flex-col border-r border-[var(--border)] bg-[var(--bg-tertiary)]"
         style={{ width: sidebarWidth }}
       >
         {/* 拖拽区域 */}

@@ -21,7 +21,7 @@ export const SidebarSearch = forwardRef<HTMLInputElement, SidebarSearchProps>(
           value={sidebarSearchQuery}
           onChange={(e) => setSidebarSearchQuery(e.target.value)}
           placeholder="Search sessions..."
-          className="w-full pl-9 pr-8 py-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl text-sm placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+          className="w-full select-text pl-9 pr-8 py-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl text-sm placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
         />
         {sidebarSearchQuery && (
           <button
