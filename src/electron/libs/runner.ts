@@ -8,6 +8,8 @@ import type { ClaudeModelUsage } from '../../shared/types';
 import { getClaudeEnv, getClaudeSettings, getMcpServers } from './claude-settings';
 import { getClaudeCodeRuntime } from './claude-runtime';
 
+type ClaudeSettingSource = 'user' | 'project' | 'local';
+
 // MCP 服务器状态
 interface McpServerStatus {
   name: string;
@@ -267,6 +269,9 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
   let enqueueChain: Promise<void> = Promise.resolve();
   let currentModel = typeof model === 'string' && model.trim().length > 0 ? model.trim() : undefined;
   let activeQuery: ClaudeQuery | null = null;
+  const settingSources: ClaudeSettingSource[] = currentModel
+    ? ['project', 'local']
+    : ['user', 'project', 'local'];
 
   const enqueuePrompt = (text: string, promptAttachments?: Attachment[], requestedModel?: string) => {
     const trimmed = text.trim();
@@ -347,8 +352,9 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           executable: executable as unknown as 'node',
           executableArgs,
           pathToClaudeCodeExecutable,
-          // 从文件系统加载 Skills（~/.claude/skills/ 和 .claude/skills/）
-          settingSources: ['user', 'project'],
+          // When the app explicitly selects a model, avoid user-level Claude settings
+          // from overriding it during session initialization.
+          settingSources,
           // 加载 MCP 服务器配置（合并全局和项目级）
           mcpServers: getMcpServers(session.cwd ?? undefined) as Record<string, SDKMcpServerConfig>,
           // 自定义工具权限处理

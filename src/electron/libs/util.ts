@@ -2,6 +2,8 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { getClaudeEnv, getClaudeSettings } from './claude-settings';
 import { getClaudeCodeRuntime } from './claude-runtime';
 
+type ClaudeSettingSource = 'user' | 'project' | 'local';
+
 // SDK 消息类型
 interface SDKMessage {
   type: string;
@@ -20,6 +22,9 @@ export async function runClaudeOneShot(params: {
   model?: string;
   betas?: string[];
 }): Promise<{ text: string; sessionId?: string; model?: string }> {
+  const settingSources: ClaudeSettingSource[] = params.model
+    ? ['project', 'local']
+    : ['user', 'project', 'local'];
   const env = {
     ...process.env,
     ...getClaudeEnv(),
@@ -45,7 +50,7 @@ export async function runClaudeOneShot(params: {
       executable: executable as unknown as 'node',
       executableArgs,
       pathToClaudeCodeExecutable,
-      settingSources: ['user', 'project'],
+      settingSources,
     },
   });
 
