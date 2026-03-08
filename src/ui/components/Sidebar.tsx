@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { FolderOpen, Settings } from 'lucide-react';
+import { FolderOpen, Settings, SquarePen } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { SidebarSearch } from './search/SidebarSearch';
@@ -116,7 +116,7 @@ export function Sidebar() {
         {/* 拖拽区域 */}
         <div className="h-8 drag-region" />
 
-        {/* New Session 按钮 */}
+        {/* New Thread 按钮 */}
         <div className="mt-4 mb-4 flex items-center gap-2 px-2">
           <button
             onClick={() => {
@@ -132,8 +132,8 @@ export function Sidebar() {
               event.currentTarget.style.backgroundColor = '';
             }}
           >
-            <span className="text-[#92918E] text-[22px] font-normal leading-none">+</span>
-            <span className="text-base font-medium">New Task</span>
+            <SquarePen className="h-4 w-4 text-[#92918E]" strokeWidth={1.9} />
+            <span className="text-base font-medium">New Thread</span>
           </button>
 
           <button
