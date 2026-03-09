@@ -1,4 +1,5 @@
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn, PlugZap, Palette, Eraser } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn, PlugZap, Palette, Eraser, ChevronDown, Check } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
@@ -169,6 +170,12 @@ function GeneralSettingsContent({
   setCustomThemeCss: (customThemeCss: string) => void;
 }) {
   const resolvedMode = resolveThemeMode(theme);
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
+  const [customCssOpen, setCustomCssOpen] = useState(false);
+  const activeTheme = COLOR_THEME_FAMILIES.find((family) => family.id === colorThemeId) || COLOR_THEME_FAMILIES[0];
+  const customCssSummary = customThemeCss.trim()
+    ? `${customThemeCss.trim().split(/\n+/).length} line${customThemeCss.trim().split(/\n+/).length > 1 ? 's' : ''} of overrides`
+    : 'No custom overrides';
 
   return (
     <div className="space-y-10 pb-16">
@@ -201,55 +208,119 @@ function GeneralSettingsContent({
             />
           </div>
         </SettingsRow>
-
-        <div className="border-t border-[var(--border)] px-5 py-5">
-          <div className="space-y-1">
-            <div className="text-base font-medium text-[var(--text-primary)]">Color Theme</div>
-            <div className="text-sm leading-6 text-[var(--text-secondary)]">
-              Pick a theme family. The selected appearance mode currently resolves to <span className="font-medium text-[var(--text-primary)]">{resolvedMode}</span>.
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-3 md:grid-cols-2">
-            {COLOR_THEME_FAMILIES.map((family) => (
-              <ColorThemeCard
-                key={family.id}
-                active={family.id === colorThemeId}
-                description={family.description}
-                label={family.label}
-                palette={getThemePreviewPalette(family.id, theme)}
-                onClick={() => setColorThemeId(family.id)}
-              />
-            ))}
-          </div>
-        </div>
-
-        <div className="border-t border-[var(--border)] px-5 py-5">
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <div className="text-base font-medium text-[var(--text-primary)]">Custom CSS</div>
-              <div className="max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">
-                Add CSS overrides on top of the active theme. You can target <code className="md-inline-code">:root</code>, <code className="md-inline-code">.dark</code>, or <code className="md-inline-code">[data-color-theme=&quot;paper&quot;]</code>.
-              </div>
-            </div>
+        <SettingsRow
+          label="Color Theme"
+          description={`Pick a theme family. The current appearance resolves to ${resolvedMode}.`}
+        >
+          <div className="w-full max-w-[320px]">
             <button
               type="button"
-              onClick={() => setCustomThemeCss('')}
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]"
+              onClick={() => setThemePickerOpen((current) => !current)}
+              className="flex w-full items-center gap-3 rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-3 text-left text-sm transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--bg-tertiary)]/55"
             >
-              <Eraser className="w-4 h-4" />
-              <span>Clear</span>
+              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">
+                <Palette className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-semibold text-[var(--text-primary)]">{activeTheme.label}</div>
+                <div className="mt-1 flex items-center gap-1.5">
+                  {getThemePreviewPalette(colorThemeId, theme).map((color, index) => (
+                    <span
+                      key={`${activeTheme.id}-${index}`}
+                      className="h-3.5 flex-1 rounded-full border border-black/5"
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+              </div>
+              <ChevronDown className={`h-4 w-4 flex-shrink-0 text-[var(--text-muted)] transition-transform ${themePickerOpen ? 'rotate-180' : ''}`} />
             </button>
-          </div>
 
-          <textarea
-            value={customThemeCss}
-            onChange={(event) => setCustomThemeCss(event.target.value)}
-            placeholder={`:root {\n  --bg-primary: #0f1117;\n  --accent: #7aa2f7;\n}\n\n[data-color-theme="rose"] {\n  --accent: #f472b6;\n}`}
-            className="mt-5 min-h-[180px] w-full rounded-[20px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3 font-mono text-sm leading-6 text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
-            spellCheck={false}
-          />
-        </div>
+            {themePickerOpen && (
+              <div className="mt-2 rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] p-2 shadow-sm">
+                <div className="space-y-1">
+                  {COLOR_THEME_FAMILIES.map((family) => {
+                    const selected = family.id === colorThemeId;
+                    return (
+                      <button
+                        key={family.id}
+                        type="button"
+                        onClick={() => {
+                          setColorThemeId(family.id);
+                          setThemePickerOpen(false);
+                        }}
+                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
+                          selected
+                            ? 'bg-[var(--accent-light)] text-[var(--text-primary)]'
+                            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/70 hover:text-[var(--text-primary)]'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium">{family.label}</div>
+                        </div>
+                        <div className="flex w-[96px] items-center gap-1.5">
+                          {getThemePreviewPalette(family.id, theme).map((color, index) => (
+                            <span
+                              key={`${family.id}-${index}`}
+                              className="h-3.5 flex-1 rounded-full border border-black/5"
+                              style={{ backgroundColor: color }}
+                            />
+                          ))}
+                        </div>
+                        <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center text-[var(--text-muted)]">
+                          {selected ? <Check className="h-4 w-4" /> : null}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          label="Custom CSS"
+          description="Override any theme token with CSS. Keep this for advanced theming only."
+        >
+          <div className="w-full max-w-[320px]">
+            <button
+              type="button"
+              onClick={() => setCustomCssOpen((current) => !current)}
+              className="flex w-full items-center gap-3 rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-3 text-left text-sm transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--bg-tertiary)]/55"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-semibold text-[var(--text-primary)]">
+                  {customThemeCss.trim() ? 'Theme overrides enabled' : 'No custom CSS'}
+                </div>
+                <div className="truncate text-[var(--text-secondary)]">{customCssSummary}</div>
+              </div>
+              <ChevronDown className={`h-4 w-4 flex-shrink-0 text-[var(--text-muted)] transition-transform ${customCssOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {customCssOpen && (
+              <div className="mt-2 rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] p-3 shadow-sm">
+                <div className="mb-3 flex items-center justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setCustomThemeCss('')}
+                    className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                  >
+                    <Eraser className="w-4 h-4" />
+                    <span>Clear</span>
+                  </button>
+                </div>
+                <textarea
+                  value={customThemeCss}
+                  onChange={(event) => setCustomThemeCss(event.target.value)}
+                  placeholder={`:root {\n  --bg-primary: #0f1117;\n  --accent: #7aa2f7;\n}\n\n[data-color-theme="rose"] {\n  --accent: #f472b6;\n}`}
+                  className="min-h-[180px] w-full rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3 font-mono text-sm leading-6 text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+                  spellCheck={false}
+                />
+              </div>
+            )}
+          </div>
+        </SettingsRow>
       </SettingsSection>
     </div>
   );
@@ -319,51 +390,6 @@ function ThemeOption({
     >
       {icon}
       <span className="font-medium">{label}</span>
-    </button>
-  );
-}
-
-function ColorThemeCard({
-  active,
-  description,
-  label,
-  palette,
-  onClick,
-}: {
-  active: boolean;
-  description: string;
-  label: string;
-  palette: string[];
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-[20px] border p-4 text-left transition-colors ${
-        active
-          ? 'border-[var(--accent)] bg-[var(--accent-light)]'
-          : 'border-[var(--border)] bg-[var(--bg-primary)] hover:border-[var(--text-muted)] hover:bg-[var(--bg-tertiary)]/55'
-      }`}
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="text-sm font-semibold text-[var(--text-primary)]">{label}</div>
-          <div className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">{description}</div>
-        </div>
-        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">
-          <Palette className="h-4 w-4" />
-        </div>
-      </div>
-      <div className="mt-4 flex items-center gap-2">
-        {palette.map((color, index) => (
-          <span
-            key={`${label}-${index}`}
-            className="h-7 flex-1 rounded-lg border border-black/5"
-            style={{ backgroundColor: color }}
-          />
-        ))}
-      </div>
     </button>
   );
 }
