@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, Copy, Check, ExternalLink, FolderSearch, X } from 'lucide-react';
+import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, ChevronLeft, ChevronRight, Copy, Check, ExternalLink, FolderSearch, X } from 'lucide-react';
+import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { useAppStore } from '../store/useAppStore';
 import { MDContent } from '../render/markdown';
 import type { ProjectTreeNode } from '../types';
@@ -21,6 +22,22 @@ type ProjectFilePreview =
       ext: string;
       size: number;
       dataUrl: string;
+    }
+  | {
+      kind: 'pdf';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      dataUrl: string;
+    }
+  | {
+      kind: 'pptx';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      dataBase64: string;
     }
   | {
       kind: 'binary' | 'unsupported';
@@ -260,6 +277,7 @@ export function ProjectTreePanel() {
   const latestPreviewWidthRef = useRef(previewPanelWidth);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [selectedPreview, setSelectedPreview] = useState<ProjectFilePreview | null>(null);
+  const [pptxSlideIndex, setPptxSlideIndex] = useState(0);
   const [htmlMode, setHtmlMode] = useState<'view' | 'code'>('view');
   const [previewLoading, setPreviewLoading] = useState(false);
   const previewRequestIdRef = useRef(0);
@@ -345,6 +363,7 @@ export function ProjectTreePanel() {
     setDraftText('');
     setSaveState('idle');
     setSaveError(null);
+    setPptxSlideIndex(0);
   }, [cwd]);
 
   useEffect(() => {
@@ -384,6 +403,7 @@ export function ProjectTreePanel() {
     setDraftText('');
     setSaveState('idle');
     setSaveError(null);
+    setPptxSlideIndex(0);
 
     const reader = window.electron.readProjectFilePreview;
     if (typeof reader !== 'function') {
@@ -707,6 +727,22 @@ export function ProjectTreePanel() {
                   />
                 )}
 
+                {!previewLoading && selectedPreview?.kind === 'pdf' && (
+                  <iframe
+                    title={selectedPreview.name}
+                    src={selectedPreview.dataUrl}
+                    className="w-full h-full min-h-[320px] rounded-md border border-[var(--border)] bg-white"
+                  />
+                )}
+
+                {!previewLoading && selectedPreview?.kind === 'pptx' && (
+                  <PptxPreview
+                    preview={selectedPreview}
+                    slideIndex={pptxSlideIndex}
+                    onSlideIndexChange={setPptxSlideIndex}
+                  />
+                )}
+
                 {!previewLoading && selectedPreview?.kind === 'markdown' && (
                   <div className="text-sm">
                     <MDContent content={selectedPreview.text} allowHtml={false} />
@@ -754,6 +790,208 @@ export function ProjectTreePanel() {
       </div>
     </>
   );
+}
+
+function PptxPreview({
+  preview,
+  slideIndex,
+  onSlideIndexChange,
+}: {
+  preview: Extract<ProjectFilePreview, { kind: 'pptx' }>;
+  slideIndex: number;
+  onSlideIndexChange: (next: number) => void;
+}) {
+  const [slideHtml, setSlideHtml] = useState<string[]>([]);
+  const [rendering, setRendering] = useState(true);
+  const [renderError, setRenderError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const render = async () => {
+      setRendering(true);
+      setRenderError(null);
+      setSlideHtml([]);
+
+      try {
+        const buffer = base64ToArrayBuffer(preview.dataBase64);
+        const slides = await pptxToHtml(buffer, {
+          width: 960,
+          height: 540,
+          scaleToFit: true,
+          letterbox: false,
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        setSlideHtml(slides);
+        onSlideIndexChange(0);
+      } catch (error) {
+        if (!cancelled) {
+          setRenderError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setRendering(false);
+        }
+      }
+    };
+
+    void render();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [onSlideIndexChange, preview.dataBase64, preview.path]);
+
+  const totalSlides = slideHtml.length;
+  const safeIndex = Math.min(Math.max(slideIndex, 0), Math.max(totalSlides - 1, 0));
+  const currentSlideHtml = slideHtml[safeIndex] || '';
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-medium text-[var(--text-primary)]">
+          {totalSlides > 1 ? `Slide ${safeIndex + 1} of ${totalSlides}` : 'Presentation preview'}
+        </div>
+        <div className="flex items-center gap-1.5 no-drag">
+          <button
+            type="button"
+            onClick={() => onSlideIndexChange(Math.max(safeIndex - 1, 0))}
+            disabled={safeIndex === 0}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Previous slide"
+            title="Previous slide"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onSlideIndexChange(Math.min(safeIndex + 1, totalSlides - 1))}
+            disabled={safeIndex >= totalSlides - 1}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Next slide"
+            title="Next slide"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {rendering ? (
+        <div className="text-sm text-[var(--text-muted)]">Rendering presentation...</div>
+      ) : renderError ? (
+        <div className="text-sm text-[var(--error)]">{renderError}</div>
+      ) : currentSlideHtml ? (
+        <iframe
+          title={`${preview.name} slide ${safeIndex + 1}`}
+          sandbox="allow-scripts"
+          srcDoc={buildPptxSlideDocument(currentSlideHtml)}
+          className="w-full h-[clamp(260px,52vh,560px)] rounded-md border border-[var(--border)] bg-white"
+        />
+      ) : (
+        <div className="text-sm text-[var(--text-muted)]">No slides could be rendered.</div>
+      )}
+
+      <div className="text-sm text-[var(--text-muted)]">
+        {totalSlides > 1 ? 'Use the arrows to navigate between slides.' : 'Presentation preview.'}
+      </div>
+    </div>
+  );
+}
+
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer;
+}
+
+function buildPptxSlideDocument(slideHtml: string): string {
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #ffffff;
+        overflow: hidden;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #pptx-stage {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+      #pptx-shell {
+        transform-origin: top left;
+        will-change: transform;
+      }
+      #pptx-shell > * {
+        margin: 0 auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="pptx-stage">
+      <div id="pptx-shell">${slideHtml}</div>
+    </div>
+    <script>
+      (() => {
+        const stage = document.getElementById('pptx-stage');
+        const shell = document.getElementById('pptx-shell');
+        if (!stage || !shell) {
+          return;
+        }
+
+        const fit = () => {
+          const content = shell.firstElementChild || shell;
+          if (!content) {
+            return;
+          }
+
+          shell.style.transform = 'none';
+          shell.style.width = 'auto';
+          shell.style.height = 'auto';
+
+          const rect = content.getBoundingClientRect();
+          if (!rect.width || !rect.height) {
+            return;
+          }
+
+          const padding = 16;
+          const availableWidth = Math.max(stage.clientWidth - padding, 1);
+          const availableHeight = Math.max(stage.clientHeight - padding, 1);
+          const scale = Math.min(availableWidth / rect.width, availableHeight / rect.height, 1);
+
+          shell.style.width = rect.width + 'px';
+          shell.style.height = rect.height + 'px';
+          shell.style.transform = 'scale(' + scale + ')';
+        };
+
+        window.addEventListener('resize', fit);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(fit);
+        });
+      })();
+    </script>
+  </body>
+</html>`;
 }
 
 function formatBytes(bytes: number): string {

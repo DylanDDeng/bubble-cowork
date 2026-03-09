@@ -81,6 +81,22 @@ type ProjectFilePreview =
       dataUrl: string;
     }
   | {
+      kind: 'pdf';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      dataUrl: string;
+    }
+  | {
+      kind: 'pptx';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      dataBase64: string;
+    }
+  | {
       kind: 'binary' | 'unsupported';
       path: string;
       name: string;
@@ -147,6 +163,7 @@ function getAttachmentSpec(filePath: string): { kind: Attachment['kind']; mimeTy
   const kind: Attachment['kind'] = ext === '.png' || ext === '.jpg' || ext === '.jpeg' ? 'image' : 'file';
   return { kind, mimeType };
 }
+
 
 function normalizeModel(model?: string | null): string | undefined {
   return normalizeClaudeRequestedModel(model);
@@ -1117,8 +1134,52 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         }
       }
 
+      if (ext === '.pdf') {
+        try {
+          const buffer = await fsPromises.readFile(validation.targetReal);
+          return {
+            kind: 'pdf',
+            path: validation.targetReal,
+            name,
+            ext,
+            size: stat.size,
+            dataUrl: `data:application/pdf;base64,${buffer.toString('base64')}`,
+          };
+        } catch (error) {
+          return {
+            kind: 'error',
+            path: validation.targetReal,
+            name,
+            ext,
+            message: `Failed to read PDF: ${String(error)}`,
+          };
+        }
+      }
+
+      if (ext === '.ppt' || ext === '.pptx' || ext === '.key') {
+        try {
+          const buffer = await fsPromises.readFile(validation.targetReal);
+          return {
+            kind: 'pptx',
+            path: validation.targetReal,
+            name,
+            ext,
+            size: stat.size,
+            dataBase64: buffer.toString('base64'),
+          };
+        } catch (error) {
+          return {
+            kind: 'error',
+            path: validation.targetReal,
+            name,
+            ext,
+            message: `Failed to read presentation: ${String(error)}`,
+          };
+        }
+      }
+
       // Binary files (open only)
-      if (ext === '.pdf' || ext === '.docx') {
+      if (ext === '.docx') {
         return { kind: 'binary', path: validation.targetReal, name, ext, size: stat.size };
       }
 
