@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Folder, File, Image, Copy, Check, ExternalLink, FolderSearch, X } from 'lucide-react';
+import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, Copy, Check, ExternalLink, FolderSearch, X } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { MDContent } from '../render/markdown';
 import type { ProjectTreeNode } from '../types';
@@ -96,15 +96,7 @@ function TreeNode({
         }}
       >
         <span className="text-[var(--text-muted)] text-xs w-3">{chevron}</span>
-        <span className="text-[var(--text-muted)]">
-          {isDir ? (
-            <Folder className="w-4 h-4" />
-          ) : isImageFile ? (
-            <Image className="w-4 h-4" />
-          ) : (
-            <File className="w-4 h-4" />
-          )}
-        </span>
+        <ProjectTreeNodeIcon node={node} isExpanded={isExpanded} isImageFile={isImageFile} />
         <span
           className={`truncate ${isDir ? 'font-medium' : 'text-[var(--text-secondary)]'}`}
           title={node.name}
@@ -128,6 +120,104 @@ function TreeNode({
         ))}
     </>
   );
+}
+
+function ProjectTreeNodeIcon({
+  node,
+  isExpanded,
+  isImageFile,
+}: {
+  node: ProjectTreeNode;
+  isExpanded: boolean;
+  isImageFile: boolean;
+}) {
+  if (node.kind === 'dir') {
+    return (
+      <span className="text-[var(--text-muted)]">
+        {isExpanded ? <FolderOpen className="w-3.5 h-3.5" /> : <FolderClosed className="w-3.5 h-3.5" />}
+      </span>
+    );
+  }
+
+  const visual = getProjectFileVisual(node.name, isImageFile);
+  const Icon = visual.icon;
+
+  return (
+    <span
+      className={`flex h-4.5 w-4.5 flex-shrink-0 items-center justify-center rounded-[5px] border ${visual.containerClass}`}
+      aria-hidden="true"
+    >
+      <Icon className={`h-3 w-3 ${visual.iconClass}`} strokeWidth={1.9} />
+    </span>
+  );
+}
+
+function getProjectFileVisual(
+  name: string,
+  isImageFile: boolean
+): {
+  icon: typeof FileText;
+  containerClass: string;
+  iconClass: string;
+} {
+  const lower = name.toLowerCase();
+
+  if (isImageFile) {
+    return {
+      icon: Image,
+      containerClass: 'border-[#D9E8FF] bg-[#EEF5FF]',
+      iconClass: 'text-[#3569E8]',
+    };
+  }
+
+  if (lower.endsWith('.ppt') || lower.endsWith('.pptx') || lower.endsWith('.key')) {
+    return {
+      icon: Presentation,
+      containerClass: 'border-[#FFD7C8] bg-[#FFF1EA]',
+      iconClass: 'text-[#D35B2F]',
+    };
+  }
+
+  if (
+    lower.endsWith('.html') ||
+    lower.endsWith('.htm') ||
+    lower.endsWith('.css') ||
+    lower.endsWith('.scss') ||
+    lower.endsWith('.js') ||
+    lower.endsWith('.jsx') ||
+    lower.endsWith('.ts') ||
+    lower.endsWith('.tsx') ||
+    lower.endsWith('.json') ||
+    lower.endsWith('.yml') ||
+    lower.endsWith('.yaml') ||
+    lower.endsWith('.xml')
+  ) {
+    return {
+      icon: FileText,
+      containerClass: 'border-[#DCDFFF] bg-[#F1F3FF]',
+      iconClass: 'text-[#5B57D8]',
+    };
+  }
+
+  if (
+    lower.endsWith('.zip') ||
+    lower.endsWith('.tar') ||
+    lower.endsWith('.gz') ||
+    lower.endsWith('.rar') ||
+    lower.endsWith('.7z')
+  ) {
+    return {
+      icon: FileArchive,
+      containerClass: 'border-[#E1DCF8] bg-[#F6F2FF]',
+      iconClass: 'text-[#7C53D5]',
+    };
+  }
+
+  return {
+    icon: FileText,
+    containerClass: 'border-[#DEE3EA] bg-[#F5F7FA]',
+    iconClass: 'text-[#667185]',
+  };
 }
 
 function isImageName(name: string): boolean {
@@ -466,7 +556,9 @@ export function ProjectTreePanel() {
       >
         <div className="h-8 drag-region" />
         <div className="px-4 pt-2 pb-2">
-          <div className="text-xs text-[var(--text-muted)]">Project files</div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+            PROJECT FILES
+          </div>
           {!cwd && (
             <div className="text-xs text-[var(--text-muted)]">No folder selected</div>
           )}
