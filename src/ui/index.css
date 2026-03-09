@@ -48,6 +48,11 @@
   --user-bubble-border: #E3E4E8;
   --user-bubble-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 
+  /* Sidebar interaction */
+  --sidebar-item-hover: #EEEEEE;
+  --sidebar-item-active: #EEEEEE;
+  --sidebar-item-border: rgba(17, 24, 39, 0.08);
+
   /* 圆角系统 */
   --radius: 0.5rem;
   --radius-sm: calc(var(--radius) - 4px);
@@ -102,6 +107,11 @@
   --user-bubble-bg: #1F2228;
   --user-bubble-border: rgba(255, 255, 255, 0.07);
   --user-bubble-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+
+  /* Sidebar interaction */
+  --sidebar-item-hover: rgba(255, 255, 255, 0.08);
+  --sidebar-item-active: rgba(255, 255, 255, 0.12);
+  --sidebar-item-border: rgba(255, 255, 255, 0.12);
 }
 
 /* 基础样式 */

@@ -48,6 +48,9 @@ const PAPER_LIGHT: ThemeVariables = {
   '--user-bubble-bg': '#F6F5F4',
   '--user-bubble-border': '#E3E4E8',
   '--user-bubble-shadow': '0 1px 2px rgba(15, 23, 42, 0.04)',
+  '--sidebar-item-hover': '#EEEEEE',
+  '--sidebar-item-active': '#EEEEEE',
+  '--sidebar-item-border': 'rgba(17, 24, 39, 0.08)',
 };
 
 const PAPER_DARK: ThemeVariables = {
@@ -88,6 +91,9 @@ const PAPER_DARK: ThemeVariables = {
   '--user-bubble-bg': '#1F2228',
   '--user-bubble-border': 'rgba(255, 255, 255, 0.07)',
   '--user-bubble-shadow': '0 1px 2px rgba(0, 0, 0, 0.2)',
+  '--sidebar-item-hover': 'rgba(255, 255, 255, 0.08)',
+  '--sidebar-item-active': 'rgba(255, 255, 255, 0.12)',
+  '--sidebar-item-border': 'rgba(255, 255, 255, 0.12)',
 };
 
 const GRAPHITE_LIGHT: ThemeVariables = {
@@ -115,6 +121,9 @@ const GRAPHITE_LIGHT: ThemeVariables = {
   '--code-token-number': '#C2410C',
   '--user-bubble-bg': '#EEF3FA',
   '--user-bubble-border': '#D8E2EF',
+  '--sidebar-item-hover': 'rgba(29, 78, 216, 0.08)',
+  '--sidebar-item-active': 'rgba(29, 78, 216, 0.14)',
+  '--sidebar-item-border': 'rgba(29, 78, 216, 0.16)',
 };
 
 const GRAPHITE_DARK: ThemeVariables = {
@@ -145,6 +154,9 @@ const GRAPHITE_DARK: ThemeVariables = {
   '--user-bubble-bg': '#161C28',
   '--user-bubble-border': 'rgba(122, 162, 247, 0.08)',
   '--user-bubble-shadow': '0 1px 2px rgba(0, 0, 0, 0.28)',
+  '--sidebar-item-hover': 'rgba(122, 162, 247, 0.12)',
+  '--sidebar-item-active': 'rgba(122, 162, 247, 0.18)',
+  '--sidebar-item-border': 'rgba(122, 162, 247, 0.18)',
 };
 
 const SEPIA_LIGHT: ThemeVariables = {
@@ -172,6 +184,9 @@ const SEPIA_LIGHT: ThemeVariables = {
   '--code-token-number': '#B45309',
   '--user-bubble-bg': '#F2E7D8',
   '--user-bubble-border': '#DECDB7',
+  '--sidebar-item-hover': 'rgba(138, 90, 68, 0.08)',
+  '--sidebar-item-active': 'rgba(138, 90, 68, 0.14)',
+  '--sidebar-item-border': 'rgba(138, 90, 68, 0.16)',
 };
 
 const SEPIA_DARK: ThemeVariables = {
@@ -200,6 +215,9 @@ const SEPIA_DARK: ThemeVariables = {
   '--code-token-operator': '#D6C6AE',
   '--user-bubble-bg': '#241C16',
   '--user-bubble-border': 'rgba(255, 236, 214, 0.08)',
+  '--sidebar-item-hover': 'rgba(226, 169, 107, 0.12)',
+  '--sidebar-item-active': 'rgba(226, 169, 107, 0.18)',
+  '--sidebar-item-border': 'rgba(226, 169, 107, 0.18)',
 };
 
 const ROSE_LIGHT: ThemeVariables = {
@@ -227,6 +245,9 @@ const ROSE_LIGHT: ThemeVariables = {
   '--code-token-number': '#DD6B20',
   '--user-bubble-bg': '#FBEAF1',
   '--user-bubble-border': '#E8CAD7',
+  '--sidebar-item-hover': 'rgba(184, 50, 128, 0.08)',
+  '--sidebar-item-active': 'rgba(184, 50, 128, 0.14)',
+  '--sidebar-item-border': 'rgba(184, 50, 128, 0.16)',
 };
 
 const ROSE_DARK: ThemeVariables = {
@@ -255,6 +276,9 @@ const ROSE_DARK: ThemeVariables = {
   '--code-token-operator': '#E7CAD8',
   '--user-bubble-bg': '#24151F',
   '--user-bubble-border': 'rgba(255, 255, 255, 0.08)',
+  '--sidebar-item-hover': 'rgba(244, 114, 182, 0.12)',
+  '--sidebar-item-active': 'rgba(244, 114, 182, 0.18)',
+  '--sidebar-item-border': 'rgba(244, 114, 182, 0.18)',
 };
 
 export const DEFAULT_COLOR_THEME_ID: ColorThemeId = 'paper';

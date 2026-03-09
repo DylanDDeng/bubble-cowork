@@ -124,13 +124,7 @@ export function Sidebar() {
               setActiveSession(null);
               setShowNewSession(true);
             }}
-            className="group flex flex-1 items-center gap-3 rounded-xl px-2 py-2 text-left no-drag transition-colors duration-150"
-            onMouseEnter={(event) => {
-              event.currentTarget.style.backgroundColor = '#EEEEEE';
-            }}
-            onMouseLeave={(event) => {
-              event.currentTarget.style.backgroundColor = '';
-            }}
+            className="group flex flex-1 items-center gap-3 rounded-xl px-2 py-2 text-left no-drag transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
           >
             <SquarePen className="h-4 w-4 text-[#92918E]" strokeWidth={1.9} />
             <span className="text-base font-medium">New Thread</span>
@@ -140,7 +134,7 @@ export function Sidebar() {
             onClick={() => {
               void handleProjectFolderSelect();
             }}
-            className="flex h-10 w-10 items-center justify-center rounded-xl no-drag text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[#EEEEEE] hover:text-[var(--text-primary)]"
+            className="flex h-10 w-10 items-center justify-center rounded-xl no-drag text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
             title={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
             aria-label="Select project folder"
           >
@@ -176,13 +170,7 @@ export function Sidebar() {
         <div className="p-4">
           <button
             onClick={() => setShowSettings(true)}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors duration-150"
-            onMouseEnter={(event) => {
-              event.currentTarget.style.backgroundColor = '#EEEEEE';
-            }}
-            onMouseLeave={(event) => {
-              event.currentTarget.style.backgroundColor = '';
-            }}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)] transition-colors duration-150"
           >
             <Settings className="w-4 h-4" />
             <span>Settings</span>

@@ -116,7 +116,7 @@ export function FolderTreeView({
           <div key={group.key}>
             <button
               type="button"
-              className="flex w-full select-none items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-[#EEEEEE]"
+              className="flex w-full select-none items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
               onClick={() => toggleGroupExpanded(group.key)}
               title={group.fullPath || 'Sessions without a project folder'}
               aria-expanded={expanded}
@@ -200,15 +200,16 @@ function SessionItem({
     <div
       className={`group relative cursor-pointer rounded-xl border px-3 py-1.5 transition-colors duration-150 ${
         isActive
-          ? 'border-[var(--border)] shadow-[0_1px_2px_rgba(0,0,0,0.03)]'
+          ? 'shadow-[0_1px_2px_rgba(0,0,0,0.03)]'
           : menuOpen
-            ? 'border-[var(--border)]/70'
-            : 'border-transparent bg-transparent hover:border-[var(--border)]/70 hover:bg-[#EEEEEE]'
+            ? ''
+            : 'border-transparent bg-transparent hover:bg-[var(--sidebar-item-hover)]'
       }`}
       style={{
         marginLeft: `${depth * 16}px`,
         marginBottom: '4px',
-        backgroundColor: isHighlighted ? '#EEEEEE' : undefined,
+        backgroundColor: isHighlighted ? 'var(--sidebar-item-active)' : undefined,
+        borderColor: isHighlighted ? 'var(--sidebar-item-border)' : undefined,
       }}
       onClick={onClick}
     >
