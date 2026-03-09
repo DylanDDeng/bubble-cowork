@@ -4,6 +4,7 @@ import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import type { Attachment, ClaudeSkillSummary } from '../types';
 import powerPointLogo from '../assets/powerpoint-2025-logo.svg';
+import pdfLogo from '../assets/pdf-svgrepo-com.svg';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
@@ -36,6 +37,19 @@ const PPTX_QUICK_ACTION_PROMPT = [
   'Output requirements:',
   '- Keep the deck concise, visual, and ready to present.',
   '- Generate a .pptx file and include its filename/path in the final reply.',
+].join('\n');
+
+const PDF_QUICK_ACTION_PROMPT = [
+  'Create a polished PDF document for this project.',
+  '',
+  'Content requirements:',
+  '- Explain what the app does, who it is for, and the main workflow.',
+  '- Summarize the most important capabilities using repo evidence only.',
+  '- Include a concise getting-started or how-to-run section if the repo supports it.',
+  '',
+  'Output requirements:',
+  '- Keep the document concise, structured, and ready to share.',
+  '- Generate a .pdf file and include its filename/path in the final reply.',
 ].join('\n');
 
 export function NewSessionView() {
@@ -149,10 +163,18 @@ export function NewSessionView() {
     () => skillAutocomplete.availableSkills.find((skill) => skill.name === 'pptx') || null,
     [skillAutocomplete.availableSkills]
   );
+  const pdfSkill = useMemo(
+    () => skillAutocomplete.availableSkills.find((skill) => skill.name === 'pdf') || null,
+    [skillAutocomplete.availableSkills]
+  );
 
-  const handleQuickAction = (skill: ClaudeSkillSummary | null, remainder: string) => {
+  const handleQuickAction = (
+    skill: ClaudeSkillSummary | null,
+    skillName: string,
+    remainder: string
+  ) => {
     if (!skill) {
-      toast.error('Install the /pptx Claude skill to use this shortcut.');
+      toast.error(`Install the /${skillName} Claude skill to use this shortcut.`);
       return;
     }
 
@@ -313,12 +335,24 @@ export function NewSessionView() {
                 <div className="mb-2 flex items-center justify-end pr-2 text-[10px] uppercase tracking-[0.22em] text-[var(--text-muted)]">
                   Quick paths
                 </div>
-                <div className="flex flex-wrap justify-start -ml-2 sm:-ml-5">
+                <div className="flex flex-wrap justify-start gap-3">
                   <QuickActionCard
                     title="Create a PPTX deck"
+                    logoSrc={powerPointLogo}
                     skill={pptxSkill}
+                    fallbackSkillName="pptx"
+                    fallbackSkillTitle="PPTX Skill"
                     unavailable={!pptxSkill}
-                    onClick={() => handleQuickAction(pptxSkill, PPTX_QUICK_ACTION_PROMPT)}
+                    onClick={() => handleQuickAction(pptxSkill, 'pptx', PPTX_QUICK_ACTION_PROMPT)}
+                  />
+                  <QuickActionCard
+                    title="Create a PDF doc"
+                    logoSrc={pdfLogo}
+                    skill={pdfSkill}
+                    fallbackSkillName="pdf"
+                    fallbackSkillTitle="PDF Skill"
+                    unavailable={!pdfSkill}
+                    onClick={() => handleQuickAction(pdfSkill, 'pdf', PDF_QUICK_ACTION_PROMPT)}
                   />
                 </div>
               </div>
@@ -494,18 +528,24 @@ export function NewSessionView() {
 
 function QuickActionCard({
   title,
+  logoSrc,
   skill,
+  fallbackSkillName,
+  fallbackSkillTitle,
   unavailable,
   onClick,
 }: {
   title: string;
+  logoSrc: string;
   skill: ClaudeSkillSummary | null;
+  fallbackSkillName: string;
+  fallbackSkillTitle: string;
   unavailable?: boolean;
   onClick: () => void;
 }) {
   const badgeSkill: ClaudeSkillSummary = skill || {
-    name: 'pptx',
-    title: 'PPTX Skill',
+    name: fallbackSkillName,
+    title: fallbackSkillTitle,
     description: undefined,
     path: '',
     source: 'user',
@@ -524,7 +564,7 @@ function QuickActionCard({
     >
       <div className="mb-3 flex items-start justify-between gap-2.5">
         <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-2xl bg-white/70 shadow-sm ring-1 ring-black/5">
-          <img src={powerPointLogo} alt="" className="h-7 w-7" />
+          <img src={logoSrc} alt="" className="h-7 w-7" />
         </div>
         <div className="pointer-events-none">
           <SelectedClaudeSkillChip skill={badgeSkill} compact />
@@ -534,7 +574,7 @@ function QuickActionCard({
       <div className="text-[12px] font-semibold leading-6 text-[var(--text-primary)]">{title}</div>
 
       <div className="mt-2 text-xs font-medium text-[var(--text-muted)]">
-        {unavailable ? 'Requires the /pptx Claude skill' : 'Click to insert into the message box'}
+        {unavailable ? `Requires the /${fallbackSkillName} Claude skill` : 'Click to insert into the message box'}
       </div>
     </button>
   );
