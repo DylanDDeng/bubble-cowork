@@ -29,7 +29,8 @@ type ProjectFilePreview =
       name: string;
       ext: string;
       size: number;
-      dataUrl: string;
+      dataBase64?: string;
+      dataUrl?: string;
     }
   | {
       kind: 'pptx';
@@ -737,11 +738,7 @@ export function ProjectTreePanel() {
                 )}
 
                 {!previewLoading && selectedPreview?.kind === 'pdf' && (
-                  <iframe
-                    title={selectedPreview.name}
-                    src={selectedPreview.dataUrl}
-                    className="w-full h-full min-h-[320px] rounded-md border border-[var(--border)] bg-white"
-                  />
+                  <PdfPreview preview={selectedPreview} />
                 )}
 
                 {!previewLoading && selectedPreview?.kind === 'pptx' && (
@@ -907,6 +904,62 @@ function PptxPreview({
         {totalSlides > 1 ? 'Use the arrows to navigate between slides.' : 'Presentation preview.'}
       </div>
     </div>
+  );
+}
+
+function PdfPreview({
+  preview,
+}: {
+  preview: Extract<ProjectFilePreview, { kind: 'pdf' }>;
+}) {
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+
+    try {
+      const encoded =
+        preview.dataBase64 ||
+        preview.dataUrl?.replace(/^data:application\/pdf;base64,/, '') ||
+        '';
+
+      if (!encoded) {
+        setPdfUrl(null);
+        setPdfError('No PDF data available.');
+        return;
+      }
+
+      const buffer = base64ToArrayBuffer(encoded);
+      objectUrl = URL.createObjectURL(new Blob([buffer], { type: 'application/pdf' }));
+      setPdfUrl(objectUrl);
+      setPdfError(null);
+    } catch (error) {
+      setPdfUrl(null);
+      setPdfError(error instanceof Error ? error.message : String(error));
+    }
+
+    return () => {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [preview.dataBase64, preview.dataUrl, preview.path]);
+
+  if (pdfError) {
+    return <div className="text-sm text-[var(--error)]">{pdfError}</div>;
+  }
+
+  if (!pdfUrl) {
+    return <div className="text-sm text-[var(--text-muted)]">Loading PDF preview...</div>;
+  }
+
+  return (
+    <iframe
+      title={preview.name}
+      src={pdfUrl}
+      className="w-full h-full min-h-[320px] rounded-md border border-[var(--border)] bg-white"
+    />
   );
 }
 

@@ -146,6 +146,7 @@ function createWindow(): void {
       preload: getPreloadPath(),
       contextIsolation: true,
       nodeIntegration: false,
+      plugins: true,
       sandbox: false, // better-sqlite3 需要
     },
   });

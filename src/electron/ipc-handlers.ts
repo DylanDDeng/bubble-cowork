@@ -94,7 +94,8 @@ type ProjectFilePreview =
       name: string;
       ext: string;
       size: number;
-      dataUrl: string;
+      dataBase64?: string;
+      dataUrl?: string;
     }
   | {
       kind: 'pptx';
@@ -1184,13 +1185,15 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       if (ext === '.pdf') {
         try {
           const buffer = await fsPromises.readFile(validation.targetReal);
+          const dataBase64 = buffer.toString('base64');
           return {
             kind: 'pdf',
             path: validation.targetReal,
             name,
             ext,
             size: stat.size,
-            dataUrl: `data:application/pdf;base64,${buffer.toString('base64')}`,
+            dataBase64,
+            dataUrl: `data:application/pdf;base64,${dataBase64}`,
           };
         } catch (error) {
           return {
