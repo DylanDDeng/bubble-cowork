@@ -113,7 +113,7 @@ export function CompatibleProviderSettingsContent() {
       <div className="grid gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
         <aside className="rounded-[24px] border border-[var(--border)] bg-[var(--bg-secondary)] p-3">
           <div className="px-3 pb-3 pt-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
               Configured Providers
             </div>
           </div>
@@ -146,7 +146,7 @@ export function CompatibleProviderSettingsContent() {
                         {meta.label}
                       </div>
                       <span
-                        className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
                           provider.enabled
                             ? 'bg-[var(--accent-light)] text-[var(--accent)]'
                             : 'bg-[var(--bg-primary)] text-[var(--text-muted)]'
@@ -158,7 +158,7 @@ export function CompatibleProviderSettingsContent() {
                     <div className="mt-1 truncate text-xs text-[var(--text-secondary)]">
                       {provider.model || 'No model configured'}
                     </div>
-                    <div className="mt-1 truncate text-[11px] text-[var(--text-muted)]">
+                    <div className="mt-1 truncate text-[10px] text-[var(--text-muted)]">
                       {provider.baseUrl || 'Base URL not set'}
                     </div>
                   </div>

@@ -310,7 +310,7 @@ export function NewSessionView() {
           <div className="mt-auto">
             <div className="mt-8 mb-3 flex justify-center">
               <div className="w-full max-w-[700px]">
-                <div className="mb-2 flex items-center justify-end pr-2 text-[11px] uppercase tracking-[0.22em] text-[var(--text-muted)]">
+                <div className="mb-2 flex items-center justify-end pr-2 text-[10px] uppercase tracking-[0.22em] text-[var(--text-muted)]">
                   Quick paths
                 </div>
                 <div className="flex flex-wrap justify-start -ml-2 sm:-ml-5">
@@ -382,7 +382,7 @@ export function NewSessionView() {
                   : 'Describe your task...'
               }
               rows={3}
-              className={`w-full bg-transparent px-5 pb-2 text-[15px] outline-none resize-none no-drag ${
+              className={`w-full bg-transparent px-5 pb-2 text-[13px] outline-none resize-none no-drag ${
                 skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-1.5 min-h-[100px]' : 'pt-4 min-h-[112px]'
               }`}
               autoFocus
@@ -531,7 +531,7 @@ function QuickActionCard({
         </div>
       </div>
 
-      <div className="text-[14px] font-semibold leading-6 text-[var(--text-primary)]">{title}</div>
+      <div className="text-[12px] font-semibold leading-6 text-[var(--text-primary)]">{title}</div>
 
       <div className="mt-2 text-xs font-medium text-[var(--text-muted)]">
         {unavailable ? 'Requires the /pptx Claude skill' : 'Click to insert into the message box'}

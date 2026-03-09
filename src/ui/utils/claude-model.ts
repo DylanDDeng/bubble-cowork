@@ -54,6 +54,11 @@ export function supportsClaude1mContext(model?: string | null): boolean {
   return normalized === 'claude-sonnet-4-6' || normalized === 'claude-opus-4-6';
 }
 
+export function isOfficialClaudeModel(model?: string | null): boolean {
+  const normalized = canonicalizeClaudeModel(model) || model?.trim() || '';
+  return normalized.length > 0 && (CLAUDE_MODEL_PRESETS.includes(normalized) || normalized.startsWith('claude-'));
+}
+
 export function formatClaudeModelLabel(model: string, context1m = false): string {
   const normalized = model.trim();
   const suffix = context1m && supportsClaude1mContext(normalized) ? ' (1M context)' : '';

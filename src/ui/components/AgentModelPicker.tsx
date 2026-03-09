@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Check, ChevronDown, ChevronLeft } from 'lucide-react';
 import type { AgentProvider, ClaudeCompatibleProviderId, ClaudeModelConfig } from '../types';
 import { PROVIDERS } from '../utils/provider';
-import { buildClaudeModelOptions, formatClaudeModelLabel, supportsClaude1mContext } from '../utils/claude-model';
+import { buildClaudeModelOptions, formatClaudeModelLabel, isOfficialClaudeModel, supportsClaude1mContext } from '../utils/claude-model';
 import { buildCodexModelOptions, formatCodexModelLabel } from '../utils/codex-model';
 import claudeLogo from '../assets/claude-color.svg';
 import minimaxLogo from '../assets/minimax-color.svg';
@@ -37,6 +37,18 @@ interface AgentModelPickerProps {
   };
 }
 
+function isVisibleClaudePickerModel(
+  model: string | null | undefined,
+  compatibleOptions: Array<{ model: string }>
+): model is string {
+  const normalized = model?.trim();
+  if (!normalized) {
+    return false;
+  }
+
+  return isOfficialClaudeModel(normalized) || compatibleOptions.some((option) => option.model === normalized);
+}
+
 function ProviderIcon({ provider }: { provider: AgentProvider }) {
   if (provider === 'claude') {
     return <img src={claudeLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
@@ -69,15 +81,24 @@ export function AgentModelPicker({
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<PickerMode>('provider');
   const currentProvider = PROVIDERS.find((item) => item.id === provider) || PROVIDERS[0];
+  const compatibleOptions = claudeModel?.compatibleOptions || [];
+  const claudeExtraModels = useMemo(
+    () =>
+      claudeModel
+        ? [claudeModel.value, claudeModel.runtimeModel].filter((model): model is string =>
+            isVisibleClaudePickerModel(model, compatibleOptions)
+          )
+        : [],
+    [claudeModel, compatibleOptions]
+  );
 
   const claudeOptions = useMemo(
     () =>
       claudeModel
-        ? buildClaudeModelOptions(claudeModel.config, [claudeModel.value, claudeModel.runtimeModel])
+        ? buildClaudeModelOptions(claudeModel.config, claudeExtraModels)
         : [],
-    [claudeModel]
+    [claudeExtraModels, claudeModel]
   );
-  const compatibleOptions = claudeModel?.compatibleOptions || [];
   const claudePrimaryOptions = useMemo(
     () =>
       compatibleOptions.length > 0
@@ -95,25 +116,37 @@ export function AgentModelPicker({
     (provider === 'codex' && codexOptions.length > 0);
 
   const openMode = mode === 'model' && hasModelOptions ? 'model' : 'provider';
+  const resolvedClaudeValue = useMemo(() => {
+    if (!claudeModel) {
+      return '';
+    }
+
+    if (isVisibleClaudePickerModel(claudeModel.value, compatibleOptions)) {
+      return claudeModel.value.trim();
+    }
+
+    if (isVisibleClaudePickerModel(claudeModel.config.defaultModel, compatibleOptions)) {
+      return claudeModel.config.defaultModel.trim();
+    }
+
+    return claudeOptions[0] || '';
+  }, [claudeModel, claudeOptions, compatibleOptions]);
+
   const currentCompatibleOption = useMemo(() => {
     if (provider !== 'claude' || !claudeModel) {
       return null;
     }
 
-    const resolvedValue =
-      claudeModel.value || claudeModel.config.defaultModel || claudeOptions[0] || '';
-    return compatibleOptions.find((option) => option.model === resolvedValue) || null;
-  }, [provider, claudeModel, claudeOptions, compatibleOptions]);
+    return compatibleOptions.find((option) => option.model === resolvedClaudeValue) || null;
+  }, [provider, claudeModel, compatibleOptions, resolvedClaudeValue]);
 
   const currentModelLabel = useMemo(() => {
     if (provider === 'claude' && claudeModel) {
-      const resolvedValue =
-        claudeModel.value || claudeModel.config.defaultModel || claudeOptions[0] || '';
       if (currentCompatibleOption) {
         return currentCompatibleOption.model;
       }
-      return resolvedValue
-        ? formatClaudeModelLabel(resolvedValue, claudeModel.context1m)
+      return resolvedClaudeValue
+        ? formatClaudeModelLabel(resolvedClaudeValue, claudeModel.context1m)
         : currentProvider.label;
     }
 
@@ -123,7 +156,7 @@ export function AgentModelPicker({
     }
 
     return currentProvider.label;
-  }, [provider, claudeModel, claudeOptions, currentCompatibleOption, codexModel, codexOptions, currentProvider.label]);
+  }, [provider, claudeModel, currentCompatibleOption, resolvedClaudeValue, codexModel, codexOptions, currentProvider.label]);
 
   const handleTriggerClick = () => {
     if (disabled) return;
@@ -139,12 +172,11 @@ export function AgentModelPicker({
 
   const renderModelItems = () => {
     if (provider === 'claude' && claudeModel) {
-      const resolvedValue =
-        claudeModel.value || claudeModel.config.defaultModel || claudeOptions[0] || '';
+      const resolvedValue = resolvedClaudeValue;
 
       return (
         <>
-          <div className="px-2 py-1 text-[11px] font-medium text-[var(--text-muted)]">
+          <div className="px-2 py-1 text-[10px] font-medium text-[var(--text-muted)]">
             Claude Code
           </div>
           {claudePrimaryOptions.map((model) => (
@@ -165,7 +197,7 @@ export function AgentModelPicker({
           ))}
           {compatibleOptions.map((option) => (
             <div key={option.id} className="mt-2 border-t border-[var(--border)] pt-2">
-              <div className="px-2 py-1 text-[11px] font-medium text-[var(--text-muted)]">
+              <div className="px-2 py-1 text-[10px] font-medium text-[var(--text-muted)]">
                 {option.label}
               </div>
               <button
@@ -265,9 +297,7 @@ export function AgentModelPicker({
                 {renderModelItems()}
                 {provider === 'claude' &&
                   claudeModel &&
-                  supportsClaude1mContext(
-                    claudeModel.value || claudeModel.config.defaultModel || claudeOptions[0] || ''
-                  ) &&
+                  supportsClaude1mContext(resolvedClaudeValue) &&
                   claudeModel.onToggleContext1m && (
                     <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--bg-tertiary)]/70 px-3 py-2.5">
                       <div className="flex items-center justify-between gap-3">

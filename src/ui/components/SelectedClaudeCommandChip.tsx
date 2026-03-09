@@ -28,7 +28,7 @@ export function SelectedClaudeCommandChip({
 
       <div
         className={`truncate font-medium text-[var(--text-primary)] ${
-          compact ? 'max-w-[180px] text-[13px] font-semibold text-black' : 'max-w-[220px] text-sm'
+          compact ? 'max-w-[180px] text-[11px] font-semibold text-black' : 'max-w-[220px] text-sm'
         }`}
         title={command.title}
       >

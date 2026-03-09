@@ -51,7 +51,7 @@ export function SkillsSettingsContent() {
     <div className="space-y-8 pb-16">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
             Installed
           </div>
           <h3 className="text-lg font-semibold text-[var(--text-primary)]">Claude Code Skills</h3>
@@ -177,7 +177,7 @@ function SkillCard({
 
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-center gap-2 min-w-0">
-            <h5 className="truncate text-[17px] font-medium tracking-[-0.01em] text-[var(--text-primary)]">
+            <h5 className="truncate text-[15px] font-medium tracking-[-0.01em] text-[var(--text-primary)]">
               {skill.title}
             </h5>
           </div>
@@ -188,7 +188,7 @@ function SkillCard({
 
           <div className="flex items-center gap-2">
             <span
-              className="inline-flex min-w-[96px] max-w-[180px] items-center justify-center rounded-full bg-[var(--bg-tertiary)] px-3 py-1 text-[11px] leading-4 text-[var(--text-muted)]"
+              className="inline-flex min-w-[96px] max-w-[180px] items-center justify-center rounded-full bg-[var(--bg-tertiary)] px-3 py-1 text-[10px] leading-4 text-[var(--text-muted)]"
               title={skill.name}
             >
               {skill.name}

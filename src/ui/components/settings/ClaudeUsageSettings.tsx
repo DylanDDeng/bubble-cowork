@@ -141,7 +141,7 @@ export function ClaudeUsageSettingsContent() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-[minmax(0,1.4fr)_1fr_120px_100px_120px] gap-4 px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+              <div className="grid grid-cols-[minmax(0,1.4fr)_1fr_120px_100px_120px] gap-4 px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
                 <div>Model</div>
                 <div>Tokens</div>
                 <div>Cost</div>
@@ -192,7 +192,7 @@ function MetricCard({
   return (
     <PanelCard className="px-5 py-4">
       <div className="text-sm text-[var(--text-secondary)]">{title}</div>
-      <div className="mt-3 text-[38px] font-semibold tracking-[-0.04em] text-[var(--text-primary)]">
+      <div className="mt-3 text-[34px] font-semibold tracking-[-0.04em] text-[var(--text-primary)]">
         {value}
       </div>
       <div className="mt-2 text-sm text-[var(--text-secondary)]">{subtitle}</div>

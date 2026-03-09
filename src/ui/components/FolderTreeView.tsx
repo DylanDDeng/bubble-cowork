@@ -127,7 +127,7 @@ export function FolderTreeView({
             </button>
 
             {expanded && group.fullPath && (
-              <div className="px-7 pb-1 text-[11px] text-[var(--text-muted)] truncate" title={group.fullPath}>
+              <div className="px-7 pb-1 text-[10px] text-[var(--text-muted)] truncate" title={group.fullPath}>
                 {group.fullPath}
               </div>
             )}
@@ -221,7 +221,7 @@ function SessionItem({
             <Pin className="w-3.5 h-3.5" />
           </span>
         )}
-        <span className="flex-1 truncate text-[15px] font-medium leading-[1.25]">{session.title}</span>
+        <span className="flex-1 truncate text-[13px] font-medium leading-[1.25]">{session.title}</span>
         {runtimeBadge && (
           <span
             className={`status-dot ${runtimeBadge} flex-shrink-0`}

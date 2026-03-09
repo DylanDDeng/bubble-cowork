@@ -105,7 +105,7 @@ export function AttachmentChips({
               <div className="text-xs text-[var(--text-primary)] truncate max-w-[180px]">
                 {a.name}
               </div>
-              <div className="text-[11px] text-[var(--text-muted)]">{formatBytes(a.size)}</div>
+              <div className="text-[10px] text-[var(--text-muted)]">{formatBytes(a.size)}</div>
             </div>
 
             {onRemove && (
@@ -124,4 +124,3 @@ export function AttachmentChips({
     </div>
   );
 }
-

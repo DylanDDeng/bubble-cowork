@@ -39,7 +39,7 @@ export function TodoProgressCard({
           </div>
         </div>
         {state.updateCount > 1 && (
-          <div className="text-[11px] text-[var(--text-muted)]">
+          <div className="text-[10px] text-[var(--text-muted)]">
             updated {state.updateCount}x
           </div>
         )}

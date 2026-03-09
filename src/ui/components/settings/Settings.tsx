@@ -87,10 +87,10 @@ export function Settings() {
       <main className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-5xl px-12 py-12">
           <header className="mb-10">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
               {activeMeta.label}
             </div>
-            <h1 className="mt-3 text-[40px] font-semibold tracking-[-0.04em] text-[var(--text-primary)]">
+            <h1 className="mt-3 text-[36px] font-semibold tracking-[-0.04em] text-[var(--text-primary)]">
               {activeMeta.title}
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--text-secondary)]">
@@ -193,7 +193,7 @@ function SettingsSection({
 }) {
   return (
     <section>
-      <h2 className="mb-4 text-[28px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+      <h2 className="mb-4 text-[24px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
         {title}
       </h2>
       <div className="overflow-hidden rounded-[24px] border border-[var(--border)] bg-[var(--bg-secondary)]">

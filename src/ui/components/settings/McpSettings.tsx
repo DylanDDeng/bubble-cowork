@@ -97,7 +97,7 @@ export function McpSettingsContent() {
     <div className="p-8 pt-6">
       {hasNoServers ? (
         <section className="rounded-[24px] border border-[var(--border)] bg-[var(--bg-primary)]/82 p-8 text-center shadow-[0_10px_30px_rgba(0,0,0,0.04)]">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
             MCP Setup
           </div>
           <div className="mt-3 text-xl font-semibold text-[var(--text-primary)]">
@@ -229,7 +229,7 @@ function ServerSection({
     <SectionCard>
       <div className="mb-4 flex items-center justify-between gap-4">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
             {scope === 'global' ? 'Global Scope' : 'Project Scope'}
           </div>
           <h3 className="mt-2 text-lg font-semibold text-[var(--text-primary)]">{title}</h3>

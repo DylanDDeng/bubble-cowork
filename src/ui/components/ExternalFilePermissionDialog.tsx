@@ -10,7 +10,7 @@ export function ExternalFilePermissionDialog({
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/18 px-4 backdrop-blur-[1px]">
       <div className="w-full max-w-xl rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5 shadow-2xl">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
           External File Access
         </div>
         <div className="mt-2 text-lg font-semibold text-[var(--text-primary)]">
@@ -22,7 +22,7 @@ export function ExternalFilePermissionDialog({
         </div>
 
         <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--bg-tertiary)]/70 p-3">
-          <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">
+          <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">
             File Path
           </div>
           <div className="mt-1 break-all font-mono text-sm text-[var(--text-primary)]">
@@ -31,7 +31,7 @@ export function ExternalFilePermissionDialog({
         </div>
 
         <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--bg-tertiary)]/40 p-3">
-          <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">
+          <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">
             Current Project
           </div>
           <div className="mt-1 break-all font-mono text-sm text-[var(--text-secondary)]">

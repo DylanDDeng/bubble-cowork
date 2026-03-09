@@ -331,7 +331,7 @@ function UserPromptCard({
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               rows={Math.min(8, Math.max(2, draft.split('\n').length))}
-              className="w-full min-w-[320px] bg-transparent text-[15px] text-[var(--text-primary)] leading-6 outline-none resize-none whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+              className="w-full min-w-[320px] bg-transparent text-[13px] text-[var(--text-primary)] leading-6 outline-none resize-none whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
               onKeyDown={(e) => {
                 if (e.key === 'Escape') {
                   e.preventDefault();
@@ -348,7 +348,7 @@ function UserPromptCard({
             <div
               className={
                 promptPrefixDisplay
-                  ? 'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[15px] leading-[1.45] text-[var(--text-primary)]'
+                  ? 'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[13px] leading-[1.45] text-[var(--text-primary)]'
                   : ''
               }
             >
@@ -465,7 +465,7 @@ function GenericSlashChip({ name, compact = false }: { name: string; compact?: b
     >
       <div
         className={`truncate font-medium text-[var(--text-primary)] ${
-          compact ? 'max-w-[180px] text-[13px]' : 'max-w-[260px] text-sm'
+          compact ? 'max-w-[180px] text-[11px]' : 'max-w-[260px] text-sm'
         }`}
       >
         {label}

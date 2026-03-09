@@ -118,6 +118,10 @@ body,
   overflow-x: hidden; /* 禁止页面级水平滚动，防止 macOS 双指滑动移动界面 */
 }
 
+html {
+  font-size: 87.5%;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
   background-color: var(--bg-primary);
