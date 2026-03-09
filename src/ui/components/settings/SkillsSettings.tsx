@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
-import { Boxes } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Boxes, LoaderCircle, Search, X } from 'lucide-react';
 import { sendEvent } from '../../hooks/useIPC';
 import { useAppStore } from '../../store/useAppStore';
 import type { ClaudeSkillSummary } from '../../types';
+
+const MIN_REFRESH_SPINNER_MS = 600;
 
 export function SkillsSettingsContent() {
   const {
@@ -16,6 +18,9 @@ export function SkillsSettingsContent() {
   } = useAppStore();
 
   const [revealingPath, setRevealingPath] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshStartedAt, setRefreshStartedAt] = useState<number | null>(null);
+  const [query, setQuery] = useState('');
 
   const currentProjectPath = activeSessionId ? sessions[activeSessionId]?.cwd : undefined;
   const currentProjectName = currentProjectPath?.split('/').filter(Boolean).pop();
@@ -31,7 +36,43 @@ export function SkillsSettingsContent() {
     });
   }, [showSettings, currentProjectPath]);
 
+  useEffect(() => {
+    if (!refreshing) {
+      return;
+    }
+
+    const elapsed = refreshStartedAt ? Date.now() - refreshStartedAt : MIN_REFRESH_SPINNER_MS;
+    const remaining = Math.max(MIN_REFRESH_SPINNER_MS - elapsed, 0);
+    const timer = window.setTimeout(() => {
+      setRefreshing(false);
+      setRefreshStartedAt(null);
+    }, remaining);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    claudeProjectSkills,
+    claudeSkillsProjectRoot,
+    claudeSkillsUserRoot,
+    claudeUserSkills,
+    refreshStartedAt,
+    refreshing,
+  ]);
+
+  const filteredUserSkills = useMemo(
+    () => filterSkills(claudeUserSkills, query),
+    [claudeUserSkills, query]
+  );
+  const filteredProjectSkills = useMemo(
+    () => filterSkills(claudeProjectSkills, query),
+    [claudeProjectSkills, query]
+  );
+  const hasSearchQuery = query.trim().length > 0;
+
   const refreshSkills = () => {
+    setRefreshing(true);
+    setRefreshStartedAt(Date.now());
     sendEvent({
       type: 'skills.list',
       payload: { projectPath: currentProjectPath },
@@ -60,20 +101,48 @@ export function SkillsSettingsContent() {
           </p>
         </div>
 
-        <button
-          onClick={refreshSkills}
-          className="px-3 py-2 text-sm rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
-        >
-          Refresh
-        </button>
+        <div className="flex w-full max-w-[460px] items-center gap-2">
+          <div className="relative flex-1">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
+              <Search className="h-3.5 w-3.5" />
+            </div>
+            <input
+              type="text"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search skills..."
+              className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] pl-9 pr-9 text-sm text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+            />
+            {hasSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                aria-label="Clear skill search"
+                title="Clear"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+
+          <button
+            onClick={refreshSkills}
+            disabled={refreshing}
+            className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {refreshing ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+            <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
+        </div>
       </div>
 
       <SkillsSection
         title="User Skills"
         description="Available to every Claude session on this machine."
         rootPath={claudeSkillsUserRoot}
-        skills={claudeUserSkills}
-        emptyMessage="No user-level skills found."
+        skills={filteredUserSkills}
+        emptyMessage={hasSearchQuery ? 'No user-level skills match this search.' : 'No user-level skills found.'}
         revealingPath={revealingPath}
         onReveal={handleReveal}
       />
@@ -86,10 +155,12 @@ export function SkillsSettingsContent() {
             : 'Open a session with a working directory to inspect workspace-specific skills.'
         }
         rootPath={claudeSkillsProjectRoot}
-        skills={claudeProjectSkills}
+        skills={filteredProjectSkills}
         emptyMessage={
           currentProjectPath
-            ? 'No workspace-level skills found for this project.'
+            ? hasSearchQuery
+              ? 'No workspace-level skills match this search.'
+              : 'No workspace-level skills found for this project.'
             : 'No active workspace selected.'
         }
         unavailable={!currentProjectPath}
@@ -98,6 +169,18 @@ export function SkillsSettingsContent() {
       />
     </div>
   );
+}
+
+function filterSkills(skills: ClaudeSkillSummary[], query: string): ClaudeSkillSummary[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return skills;
+  }
+
+  return skills.filter((skill) => {
+    const haystacks = [skill.title, skill.name, skill.description || ''];
+    return haystacks.some((value) => value.toLowerCase().includes(normalizedQuery));
+  });
 }
 
 function SkillsSection({
