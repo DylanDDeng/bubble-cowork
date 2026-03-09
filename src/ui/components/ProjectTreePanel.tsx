@@ -352,6 +352,10 @@ export function ProjectTreePanel() {
     }
     return projectTree;
   }, [cwd, projectTree, projectTreeCwd]);
+  const visibleNodes = useMemo(
+    () => visibleTree?.children || [],
+    [visibleTree]
+  );
 
   useEffect(() => {
     setExpandedPaths(new Set());
@@ -596,18 +600,23 @@ export function ProjectTreePanel() {
                 Loading files...
               </div>
             )}
-            {cwd && visibleTree && (
-              <TreeNode
-                node={visibleTree}
-                depth={0}
-                expandedPaths={expandedPaths}
-                onToggle={togglePath}
-                onSelectFile={selectFile}
-                selectedFilePath={selectedFilePath}
-                forceExpand={false}
-              />
+            {cwd && visibleTree && visibleNodes.length > 0 && (
+              <>
+                {visibleNodes.map((node) => (
+                  <TreeNode
+                    key={node.path}
+                    node={node}
+                    depth={0}
+                    expandedPaths={expandedPaths}
+                    onToggle={togglePath}
+                    onSelectFile={selectFile}
+                    selectedFilePath={selectedFilePath}
+                    forceExpand={false}
+                  />
+                ))}
+              </>
             )}
-            {cwd && !loading && !visibleTree && (
+            {cwd && !loading && (!visibleTree || visibleNodes.length === 0) && (
               <div className="text-sm text-[var(--text-muted)] px-1 py-2">
                 No files found.
               </div>
