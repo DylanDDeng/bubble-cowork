@@ -91,9 +91,6 @@ export function Settings() {
             ))}
           </ul>
 
-          <div className="mt-auto px-3 pt-5 text-xs leading-5 text-[var(--text-muted)]">
-            Settings apply immediately and stay scoped to this desktop workspace.
-          </div>
         </div>
       </aside>
 
