@@ -7,6 +7,10 @@ import type { ClaudeSkillSummary } from '../../types';
 const MIN_REFRESH_SPINNER_MS = 600;
 
 export function SkillsSettingsContent() {
+  return <SkillsSettingsContentInner />;
+}
+
+export function SkillsSettingsContentInner({ embedded = false }: { embedded?: boolean }) {
   const {
     showSettings,
     activeSessionId,
@@ -89,19 +93,21 @@ export function SkillsSettingsContent() {
   };
 
   return (
-    <div className="space-y-8 pb-16">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-            Installed
+    <div className={embedded ? 'space-y-6 pb-2' : 'space-y-8 pb-16'}>
+      <div className={`flex items-start justify-between gap-4 ${embedded ? '' : ''}`}>
+        {!embedded && (
+          <div className="space-y-1">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+              Installed
+            </div>
+            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Claude Code Skills</h3>
+            <p className="text-sm text-[var(--text-secondary)] max-w-2xl">
+              A cleaner overview of the user and workspace skills the Claude runner can discover.
+            </p>
           </div>
-          <h3 className="text-lg font-semibold text-[var(--text-primary)]">Claude Code Skills</h3>
-          <p className="text-sm text-[var(--text-secondary)] max-w-2xl">
-            A cleaner overview of the user and workspace skills the Claude runner can discover.
-          </p>
-        </div>
+        )}
 
-        <div className="flex w-full max-w-[460px] items-center gap-2">
+        <div className={`flex w-full items-center gap-2 ${embedded ? 'max-w-[520px]' : 'max-w-[460px]'}`}>
           <div className="relative flex-1">
             <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
               <Search className="h-3.5 w-3.5" />

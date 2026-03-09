@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { sendEvent } from '../../hooks/useIPC';
 import { useAppStore } from '../../store/useAppStore';
 import type { SkillMarketDetail, SkillMarketItem } from '../../types';
+import { SkillsSettingsContentInner } from './SkillsSettings';
 
 const DEFAULT_HOT_LIMIT = 60;
 const DEFAULT_SEARCH_LIMIT = 80;
@@ -26,8 +27,8 @@ export function SkillMarketSettingsContent() {
     sessions,
     claudeUserSkills,
     claudeProjectSkills,
-    setActiveSettingsTab,
   } = useAppStore();
+  const [view, setView] = useState<'skills' | 'market'>('market');
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<SkillMarketItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -158,14 +159,23 @@ export function SkillMarketSettingsContent() {
           </div>
           <button
             type="button"
-            onClick={() => setActiveSettingsTab('skills')}
-            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-[15px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+            onClick={() => setView('skills')}
+            className={`rounded-lg border px-3 py-1.5 text-[15px] transition-colors ${
+              view === 'skills'
+                ? 'border-[var(--border)] bg-[var(--bg-secondary)] font-medium text-[var(--text-primary)]'
+                : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+            }`}
           >
             My Skills
           </button>
           <button
             type="button"
-            className="rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-[15px] font-medium text-[var(--text-primary)]"
+            onClick={() => setView('market')}
+            className={`rounded-lg border px-3 py-1.5 text-[15px] transition-colors ${
+              view === 'market'
+                ? 'border-[var(--border)] bg-[var(--bg-secondary)] font-medium text-[var(--text-primary)]'
+                : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+            }`}
           >
             Marketplace
           </button>
@@ -173,10 +183,17 @@ export function SkillMarketSettingsContent() {
 
         <div className="flex items-center gap-2 text-[13px] text-[var(--text-muted)]">
           <Sparkles className="h-3.5 w-3.5" />
-          <span>Install skills from skills.sh without leaving the app.</span>
+          <span>
+            {view === 'market'
+              ? 'Install skills from skills.sh without leaving the app.'
+              : 'Browse installed user and project skills in one place.'}
+          </span>
         </div>
       </div>
 
+      {view === 'skills' ? (
+        <SkillsSettingsContentInner embedded />
+      ) : (
       <div className="grid min-h-[calc(100vh-180px)] grid-cols-1 gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
         <section className="flex min-h-[720px] flex-col overflow-hidden rounded-[22px] border border-[var(--border)] bg-[var(--bg-secondary)]">
           <div className="border-b border-[var(--border)] p-3">
@@ -369,6 +386,7 @@ export function SkillMarketSettingsContent() {
           )}
         </aside>
       </div>
+      )}
     </div>
   );
 }
