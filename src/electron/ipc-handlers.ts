@@ -13,6 +13,13 @@ import {
   loadCompatibleProviderConfig,
   saveCompatibleProviderConfig,
 } from './libs/compatible-provider-config';
+import {
+  deleteImportedFont,
+  getFontSettings,
+  importFontFile,
+  listSystemFonts,
+  saveFontSelections,
+} from './libs/font-settings';
 import { getCodexModelConfig } from './libs/codex-settings';
 import { listClaudeSkills } from './libs/claude-skills';
 import * as statusConfig from './libs/status-config';
@@ -40,6 +47,7 @@ import type {
   UpdateStatusInput,
   TodoState,
   FolderConfig,
+  FontSettingsPayload,
 } from '../shared/types';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
@@ -974,6 +982,45 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // RPC: 获取 Codex 模型配置
   ipcMainHandle('get-codex-model-config', async () => {
     return getCodexModelConfig();
+  });
+
+  // RPC: 获取字体设置
+  ipcMainHandle('get-font-settings', async () => {
+    return getFontSettings();
+  });
+
+  // RPC: 保存字体选择
+  ipcMainHandle('save-font-selections', async (_event, selections: FontSettingsPayload['selections']) => {
+    return saveFontSelections(selections);
+  });
+
+  // RPC: 列出系统字体
+  ipcMainHandle('list-system-fonts', async () => {
+    return listSystemFonts();
+  });
+
+  // RPC: 导入字体文件
+  ipcMainHandle('import-font-file', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [
+        {
+          name: 'Fonts',
+          extensions: ['ttf', 'otf', 'woff', 'woff2'],
+        },
+      ],
+    });
+
+    if (result.canceled || !result.filePaths[0]) {
+      return null;
+    }
+
+    return importFontFile(result.filePaths[0]);
+  });
+
+  // RPC: 删除导入字体
+  ipcMainHandle('delete-imported-font', async (_event, fontId: string) => {
+    return deleteImportedFont(fontId);
   });
 
   // RPC: 选择目录

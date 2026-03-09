@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn, PlugZap, Palette, Eraser, ChevronDown, Check } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
 import { McpSettingsContent } from './McpSettings';
 import { SkillsSettingsContent } from './SkillsSettings';
-import type { ColorThemeId, Theme } from '../../types';
+import type { ColorThemeId, FontSelection, FontSettingsPayload, FontSlot, ImportedFontFace, SystemFontOption, Theme } from '../../types';
+import { BUILTIN_FONT_OPTIONS, getFontPreviewCssFamily, getFontPreviewLabel } from '../../theme/fonts';
 import { COLOR_THEME_FAMILIES, getThemePreviewPalette, resolveThemeMode } from '../../theme/themes';
 
 const SETTINGS_TABS = {
@@ -54,6 +56,11 @@ export function Settings() {
     setColorThemeId,
     customThemeCss,
     setCustomThemeCss,
+    fontSelections,
+    importedFonts,
+    systemFonts,
+    systemFontsLoaded,
+    setFontSettings,
   } = useAppStore();
 
   if (!showSettings) return null;
@@ -112,6 +119,11 @@ export function Settings() {
               setColorThemeId={setColorThemeId}
               customThemeCss={customThemeCss}
               setCustomThemeCss={setCustomThemeCss}
+              fontSelections={fontSelections}
+              importedFonts={importedFonts}
+              systemFonts={systemFonts}
+              systemFontsLoaded={systemFontsLoaded}
+              setFontSettings={setFontSettings}
             />
           )}
           {activeSettingsTab === 'mcp' && <McpSettingsContent />}
@@ -161,6 +173,11 @@ function GeneralSettingsContent({
   setColorThemeId,
   customThemeCss,
   setCustomThemeCss,
+  fontSelections,
+  importedFonts,
+  systemFonts,
+  systemFontsLoaded,
+  setFontSettings,
 }: {
   theme: Theme;
   setTheme: (theme: Theme) => void;
@@ -168,6 +185,11 @@ function GeneralSettingsContent({
   setColorThemeId: (colorThemeId: ColorThemeId) => void;
   customThemeCss: string;
   setCustomThemeCss: (customThemeCss: string) => void;
+  fontSelections: FontSettingsPayload['selections'];
+  importedFonts: ImportedFontFace[];
+  systemFonts: SystemFontOption[];
+  systemFontsLoaded: boolean;
+  setFontSettings: (settings: FontSettingsPayload) => void;
 }) {
   const resolvedMode = resolveThemeMode(theme);
   const [themePickerOpen, setThemePickerOpen] = useState(false);
@@ -176,6 +198,55 @@ function GeneralSettingsContent({
   const customCssSummary = customThemeCss.trim()
     ? `${customThemeCss.trim().split(/\n+/).length} line${customThemeCss.trim().split(/\n+/).length > 1 ? 's' : ''} of overrides`
     : 'No custom overrides';
+  const hasColorThemeOverrides = /--(?:bg-primary|bg-secondary|bg-tertiary|text-primary|text-secondary|text-muted|accent|accent-hover|accent-light|accent-foreground|border|sidebar-item-hover|sidebar-item-active|sidebar-item-border)\s*:/.test(
+    customThemeCss
+  );
+
+  const updateFontSelection = async (slot: FontSlot, nextSelection: FontSelection) => {
+    try {
+      const saved = await window.electron.saveFontSelections({
+        ...fontSelections,
+        [slot]: nextSelection,
+      });
+      setFontSettings(saved);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to update font.');
+    }
+  };
+
+  const handleImportFont = async (slot: FontSlot) => {
+    try {
+      const imported = await window.electron.importFontFile();
+      if (!imported) {
+        return;
+      }
+
+      const newestFont = imported.importedFonts[imported.importedFonts.length - 1];
+      if (!newestFont) {
+        setFontSettings(imported);
+        return;
+      }
+
+      const saved = await window.electron.saveFontSelections({
+        ...imported.selections,
+        [slot]: { source: 'imported', id: newestFont.id },
+      });
+      setFontSettings(saved);
+      toast.success(`Imported ${newestFont.label}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to import font.');
+    }
+  };
+
+  const handleDeleteImportedFont = async (fontId: string) => {
+    try {
+      const saved = await window.electron.deleteImportedFont(fontId);
+      setFontSettings(saved);
+      toast.success('Removed imported font');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to remove font.');
+    }
+  };
 
   return (
     <div className="space-y-10 pb-16">
@@ -208,6 +279,7 @@ function GeneralSettingsContent({
             />
           </div>
         </SettingsRow>
+
         <SettingsRow
           label="Color Theme"
           description={`Pick a theme family. The current appearance resolves to ${resolvedMode}.`}
@@ -276,6 +348,23 @@ function GeneralSettingsContent({
                 </div>
               </div>
             )}
+
+            {hasColorThemeOverrides && (
+              <div className="mt-2 rounded-[16px] border border-[var(--border)] bg-[var(--bg-tertiary)]/70 px-3 py-3 text-sm">
+                <div className="font-medium text-[var(--text-primary)]">Custom CSS is overriding theme colors</div>
+                <div className="mt-1 text-[var(--text-secondary)]">
+                  Clear the custom CSS overrides if you want preset color themes to take effect again.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCustomThemeCss('')}
+                  className="mt-3 inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                >
+                  <Eraser className="w-4 h-4" />
+                  <span>Clear overrides</span>
+                </button>
+              </div>
+            )}
           </div>
         </SettingsRow>
 
@@ -320,6 +409,59 @@ function GeneralSettingsContent({
               </div>
             )}
           </div>
+        </SettingsRow>
+      </SettingsSection>
+
+      <SettingsSection title="Typography">
+        <SettingsRow
+          label="UI Font"
+          description="Used for the sidebar, settings, lists, and standard interface text."
+        >
+          <FontSlotControl
+            slot="ui"
+            selection={fontSelections.ui}
+            importedFonts={importedFonts}
+            systemFonts={systemFonts}
+            systemFontsLoaded={systemFontsLoaded}
+            onChange={(selection) => void updateFontSelection('ui', selection)}
+            onImport={() => void handleImportFont('ui')}
+            onDeleteImportedFont={(fontId) => void handleDeleteImportedFont(fontId)}
+            previewText="Interface preview text"
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          label="Display Font"
+          description="Used for large editorial headings such as the new thread hero title."
+        >
+          <FontSlotControl
+            slot="display"
+            selection={fontSelections.display}
+            importedFonts={importedFonts}
+            systemFonts={systemFonts}
+            systemFontsLoaded={systemFontsLoaded}
+            onChange={(selection) => void updateFontSelection('display', selection)}
+            onImport={() => void handleImportFont('display')}
+            onDeleteImportedFont={(fontId) => void handleDeleteImportedFont(fontId)}
+            previewText="What can I help you with?"
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          label="Code Font"
+          description="Used for code blocks, logs, paths, and other monospace UI surfaces."
+        >
+          <FontSlotControl
+            slot="mono"
+            selection={fontSelections.mono}
+            importedFonts={importedFonts}
+            systemFonts={systemFonts}
+            systemFontsLoaded={systemFontsLoaded}
+            onChange={(selection) => void updateFontSelection('mono', selection)}
+            onImport={() => void handleImportFont('mono')}
+            onDeleteImportedFont={(fontId) => void handleDeleteImportedFont(fontId)}
+            previewText={'const preview = "font test";'}
+          />
         </SettingsRow>
       </SettingsSection>
     </div>
@@ -391,5 +533,169 @@ function ThemeOption({
       {icon}
       <span className="font-medium">{label}</span>
     </button>
+  );
+}
+
+function FontSlotControl({
+  slot,
+  selection,
+  importedFonts,
+  systemFonts,
+  systemFontsLoaded,
+  onChange,
+  onImport,
+  onDeleteImportedFont,
+  previewText,
+}: {
+  slot: FontSlot;
+  selection: FontSelection;
+  importedFonts: ImportedFontFace[];
+  systemFonts: SystemFontOption[];
+  systemFontsLoaded: boolean;
+  onChange: (selection: FontSelection) => void;
+  onImport: () => void;
+  onDeleteImportedFont: (fontId: string) => void;
+  previewText: string;
+}) {
+  const previewFamily = getFontPreviewCssFamily(slot, selection, importedFonts);
+  const currentLabel = getFontPreviewLabel(slot, selection, importedFonts);
+  const [fontQuery, setFontQuery] = useState('');
+  const importedSelected =
+    selection.source === 'imported'
+      ? importedFonts.find((font) => font.id === selection.id) || null
+      : null;
+  const normalizedQuery = fontQuery.trim().toLowerCase();
+  const filteredBuiltInFonts = BUILTIN_FONT_OPTIONS[slot].filter((option) =>
+    option.label.toLowerCase().includes(normalizedQuery)
+  );
+  const filteredSystemFonts = systemFonts.filter((font) =>
+    font.label.toLowerCase().includes(normalizedQuery)
+  );
+  const filteredImportedFonts = importedFonts.filter((font) =>
+    font.label.toLowerCase().includes(normalizedQuery)
+  );
+  const hasFontResults =
+    filteredBuiltInFonts.length > 0 ||
+    filteredSystemFonts.length > 0 ||
+    filteredImportedFonts.length > 0;
+  const firstFontMatch: FontSelection | null =
+    filteredBuiltInFonts[0]
+      ? { source: 'builtin', id: filteredBuiltInFonts[0].id }
+      : filteredSystemFonts[0]
+        ? { source: 'system', id: filteredSystemFonts[0].id }
+        : filteredImportedFonts[0]
+          ? { source: 'imported', id: filteredImportedFonts[0].id }
+          : null;
+
+  return (
+    <div className="w-full max-w-[360px] space-y-3">
+      <div className="space-y-2">
+        <input
+          value={fontQuery}
+          onChange={(event) => setFontQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && firstFontMatch) {
+              event.preventDefault();
+              onChange(firstFontMatch);
+            }
+          }}
+          placeholder="Search fonts..."
+          className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+        />
+
+        <div className="flex gap-2">
+        <select
+          value={`${selection.source}:${selection.id}`}
+          onChange={(event) => {
+            const [source, id] = event.target.value.split(':');
+            onChange({
+              source:
+                source === 'imported'
+                  ? 'imported'
+                  : source === 'system'
+                    ? 'system'
+                    : 'builtin',
+              id,
+            });
+          }}
+          className="h-11 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+        >
+          {filteredBuiltInFonts.length > 0 && (
+            <optgroup label="Built-in">
+              {filteredBuiltInFonts.map((option) => (
+                <option key={option.id} value={`builtin:${option.id}`}>
+                  {option.label}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {filteredSystemFonts.length > 0 && (
+            <optgroup label="System">
+              {filteredSystemFonts.map((font) => (
+                <option key={font.id} value={`system:${font.id}`}>
+                  {font.label}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {systemFontsLoaded && systemFonts.length === 0 && (
+            <optgroup label="System">
+              <option value="builtin:system-sans" disabled>
+                No system fonts detected
+              </option>
+            </optgroup>
+          )}
+          {filteredImportedFonts.length > 0 && (
+            <optgroup label="Imported">
+              {filteredImportedFonts.map((font) => (
+                <option key={font.id} value={`imported:${font.id}`}>
+                  {font.label}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {normalizedQuery && !hasFontResults && (
+            <option value={`${selection.source}:${selection.id}`} disabled>
+              No matching fonts
+            </option>
+          )}
+        </select>
+        <button
+          type="button"
+          onClick={onImport}
+          className="rounded-xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        >
+          Import
+        </button>
+        </div>
+      </div>
+
+      {!systemFontsLoaded && (
+        <div className="text-sm text-[var(--text-muted)]">Loading system fonts...</div>
+      )}
+
+      <div className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3">
+        <div className="text-xs uppercase tracking-[0.12em] text-[var(--text-muted)]">{currentLabel}</div>
+        <div className="mt-2 text-[15px] text-[var(--text-primary)]" style={{ fontFamily: previewFamily }}>
+          {previewText}
+        </div>
+      </div>
+
+      {importedSelected && (
+        <div className="flex items-center justify-between gap-3 rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm">
+          <div className="min-w-0">
+            <div className="truncate font-medium text-[var(--text-primary)]">{importedSelected.label}</div>
+            <div className="truncate text-[var(--text-secondary)]">Imported font file</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onDeleteImportedFont(importedSelected.id)}
+            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          >
+            Remove
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

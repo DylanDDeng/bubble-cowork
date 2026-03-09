@@ -90,6 +90,35 @@ export interface CodexModelConfig {
   options: string[];
 }
 
+export type FontSlot = 'ui' | 'display' | 'mono';
+export type FontSelectionSource = 'builtin' | 'system' | 'imported';
+export type FontFormat = 'ttf' | 'otf' | 'woff' | 'woff2';
+
+export interface FontSelection {
+  source: FontSelectionSource;
+  id: string;
+}
+
+export interface ImportedFontFace {
+  id: string;
+  label: string;
+  cssFamily: string;
+  format: FontFormat;
+  mimeType: string;
+  dataBase64: string;
+}
+
+export interface FontSettingsPayload {
+  selections: Record<FontSlot, FontSelection>;
+  importedFonts: ImportedFontFace[];
+}
+
+export interface SystemFontOption {
+  id: string;
+  label: string;
+  cssFamily: string;
+}
+
 export type ClaudeCompatibleAuthType = 'api_key' | 'auth_token';
 export type ClaudeCompatibleProviderId = 'minimax' | 'zhipu' | 'moonshot';
 

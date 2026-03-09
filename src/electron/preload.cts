@@ -1,5 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron');
-import type { ClaudeCompatibleProvidersConfig, ClaudeUsageRangeDays } from '../shared/types';
+import type { ClaudeCompatibleProvidersConfig, ClaudeUsageRangeDays, FontSettingsPayload, SystemFontOption } from '../shared/types';
 
 // 暴露 API 到渲染进程
 contextBridge.exposeInMainWorld('electron', {
@@ -60,6 +60,23 @@ contextBridge.exposeInMainWorld('electron', {
   // 获取 Codex 模型配置
   getCodexModelConfig: () => {
     return ipcRenderer.invoke('get-codex-model-config');
+  },
+
+  // 字体设置
+  getFontSettings: () => {
+    return ipcRenderer.invoke('get-font-settings');
+  },
+  saveFontSelections: (selections: FontSettingsPayload['selections']) => {
+    return ipcRenderer.invoke('save-font-selections', selections);
+  },
+  listSystemFonts: () => {
+    return ipcRenderer.invoke('list-system-fonts');
+  },
+  importFontFile: () => {
+    return ipcRenderer.invoke('import-font-file');
+  },
+  deleteImportedFont: (fontId: string) => {
+    return ipcRenderer.invoke('delete-imported-font', fontId);
   },
 
   // 选择目录

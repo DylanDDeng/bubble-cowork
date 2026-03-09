@@ -8,7 +8,9 @@ import type {
   StatisticsData,
   StaticData,
   Attachment,
+  FontSettingsPayload,
   ProjectTreeNode,
+  SystemFontOption,
   ClaudeModelConfig,
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
@@ -26,6 +28,11 @@ declare global {
     saveClaudeCompatibleProviderConfig: (config: ClaudeCompatibleProvidersConfig) => Promise<ClaudeCompatibleProvidersConfig>;
     getClaudeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getCodexModelConfig: () => Promise<CodexModelConfig>;
+    getFontSettings: () => Promise<FontSettingsPayload>;
+    saveFontSelections: (selections: FontSettingsPayload['selections']) => Promise<FontSettingsPayload>;
+    listSystemFonts: () => Promise<SystemFontOption[]>;
+    importFontFile: () => Promise<FontSettingsPayload | null>;
+    deleteImportedFont: (fontId: string) => Promise<FontSettingsPayload>;
     selectDirectory: () => Promise<string | null>;
     selectAttachments: () => Promise<Attachment[]>;
     readAttachmentPreview: (filePath: string) => Promise<string | null>;

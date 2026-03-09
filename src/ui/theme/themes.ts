@@ -376,8 +376,8 @@ export function applyThemePreferences({
   if (!themeStyleTag) {
     themeStyleTag = document.createElement('style');
     themeStyleTag.id = THEME_STYLE_TAG_ID;
-    document.head.appendChild(themeStyleTag);
   }
+  document.head.appendChild(themeStyleTag);
 
   themeStyleTag.textContent = `:root {\n${Object.entries(variables)
     .map(([name, value]) => `  ${name}: ${value};`)
@@ -394,8 +394,8 @@ export function applyThemePreferences({
   if (!customStyleTag) {
     customStyleTag = document.createElement('style');
     customStyleTag.id = CUSTOM_STYLE_TAG_ID;
-    document.head.appendChild(customStyleTag);
   }
+  document.head.appendChild(customStyleTag);
 
   customStyleTag.textContent = normalizedCss;
 }

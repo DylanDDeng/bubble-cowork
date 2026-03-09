@@ -30,6 +30,13 @@ export type {
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
   CodexModelConfig,
+  FontFormat,
+  FontSelection,
+  FontSelectionSource,
+  FontSettingsPayload,
+  FontSlot,
+  ImportedFontFace,
+  SystemFontOption,
   AgentProvider,
   TodoState,
   StatusConfig,
@@ -112,6 +119,10 @@ export interface AppState {
   theme: Theme;
   colorThemeId: ColorThemeId;
   customThemeCss: string;
+  fontSelections: import('../shared/types').FontSettingsPayload['selections'];
+  importedFonts: import('../shared/types').ImportedFontFace[];
+  systemFonts: import('../shared/types').SystemFontOption[];
+  systemFontsLoaded: boolean;
 }
 
 // Store Actions
@@ -152,6 +163,8 @@ export interface AppActions {
   setTheme: (theme: Theme) => void;
   setColorThemeId: (colorThemeId: ColorThemeId) => void;
   setCustomThemeCss: (customThemeCss: string) => void;
+  setFontSettings: (settings: import('../shared/types').FontSettingsPayload) => void;
+  setSystemFonts: (fonts: import('../shared/types').SystemFontOption[]) => void;
 }
 
 // 工具状态映射（用于显示 pending/success/error）

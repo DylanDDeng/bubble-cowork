@@ -163,6 +163,8 @@ export function App() {
     globalError,
     clearGlobalError,
     removePermissionRequest,
+    setFontSettings,
+    setSystemFonts,
   } = useAppStore();
 
   // 历史请求记录（防止重复请求）
@@ -236,6 +238,39 @@ export function App() {
       sendEvent({ type: 'mcp.get-config' });
     }
   }, [connected]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    window.electron
+      .getFontSettings()
+      .then((settings) => {
+        if (!cancelled) {
+          setFontSettings(settings);
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to load font settings:', error);
+      });
+
+    window.electron
+      .listSystemFonts()
+      .then((fonts) => {
+        if (!cancelled) {
+          setSystemFonts(fonts);
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to list system fonts:', error);
+        if (!cancelled) {
+          setSystemFonts([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [setFontSettings, setSystemFonts]);
 
   // 切换会话时请求历史
   useEffect(() => {

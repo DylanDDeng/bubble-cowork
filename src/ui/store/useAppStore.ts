@@ -16,11 +16,26 @@ import type {
   FolderConfig,
   Theme,
   ColorThemeId,
+  FontSettingsPayload,
 } from '../types';
 import { DEFAULT_COLOR_THEME_ID, applyThemePreferences } from '../theme/themes';
+import { applyFontPreferences, getDefaultFontSelections } from '../theme/fonts';
 
-function applyTheme(theme: Theme, colorThemeId: ColorThemeId, customThemeCss: string) {
+function applyAppearance({
+  theme,
+  colorThemeId,
+  customThemeCss,
+  fontSelections,
+  importedFonts,
+}: {
+  theme: Theme;
+  colorThemeId: ColorThemeId;
+  customThemeCss: string;
+  fontSelections: FontSettingsPayload['selections'];
+  importedFonts: FontSettingsPayload['importedFonts'];
+}) {
   applyThemePreferences({ themeMode: theme, colorThemeId, customThemeCss });
+  applyFontPreferences({ fontSelections, importedFonts });
 }
 
 type Store = AppState & AppActions;
@@ -123,6 +138,10 @@ export const useAppStore = create<Store>()(
       theme: 'system' as const,
       colorThemeId: DEFAULT_COLOR_THEME_ID,
       customThemeCss: '',
+      fontSelections: getDefaultFontSelections(),
+      importedFonts: [],
+      systemFonts: [],
+      systemFontsLoaded: false,
 
   // Actions
   setConnected: (connected) => set({ connected }),
@@ -327,21 +346,39 @@ export const useAppStore = create<Store>()(
   // 主题
   setTheme: (theme) => {
     set({ theme });
-    // 同步应用到 DOM
-    const { colorThemeId, customThemeCss } = get();
-    applyTheme(theme, colorThemeId, customThemeCss);
+    const { colorThemeId, customThemeCss, fontSelections, importedFonts } = get();
+    applyAppearance({ theme, colorThemeId, customThemeCss, fontSelections, importedFonts });
   },
 
   setColorThemeId: (colorThemeId) => {
     set({ colorThemeId });
-    const { theme, customThemeCss } = get();
-    applyTheme(theme, colorThemeId, customThemeCss);
+    const { theme, customThemeCss, fontSelections, importedFonts } = get();
+    applyAppearance({ theme, colorThemeId, customThemeCss, fontSelections, importedFonts });
   },
 
   setCustomThemeCss: (customThemeCss) => {
     set({ customThemeCss });
-    const { theme, colorThemeId } = get();
-    applyTheme(theme, colorThemeId, customThemeCss);
+    const { theme, colorThemeId, fontSelections, importedFonts } = get();
+    applyAppearance({ theme, colorThemeId, customThemeCss, fontSelections, importedFonts });
+  },
+
+  setFontSettings: (settings) => {
+    set({
+      fontSelections: settings.selections,
+      importedFonts: settings.importedFonts,
+    });
+    const { theme, colorThemeId, customThemeCss } = get();
+    applyAppearance({
+      theme,
+      colorThemeId,
+      customThemeCss,
+      fontSelections: settings.selections,
+      importedFonts: settings.importedFonts,
+    });
+  },
+
+  setSystemFonts: (systemFonts) => {
+    set({ systemFonts, systemFontsLoaded: true });
   },
     }),
     {
@@ -362,8 +399,13 @@ export const useAppStore = create<Store>()(
         const theme = persisted?.theme || currentState.theme;
         const colorThemeId = persisted?.colorThemeId || currentState.colorThemeId;
         const customThemeCss = persisted?.customThemeCss || currentState.customThemeCss;
-        // 初始化时应用主题
-        applyTheme(theme, colorThemeId, customThemeCss);
+        applyAppearance({
+          theme,
+          colorThemeId,
+          customThemeCss,
+          fontSelections: currentState.fontSelections,
+          importedFonts: currentState.importedFonts,
+        });
         return {
           ...currentState,
           sidebarWidth: sanitizeSidebarWidth(persisted?.sidebarWidth, currentState.sidebarWidth),
@@ -379,9 +421,15 @@ export const useAppStore = create<Store>()(
 // 监听系统主题变化
 if (typeof window !== 'undefined') {
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    const { theme, colorThemeId, customThemeCss } = useAppStore.getState();
+    const { theme, colorThemeId, customThemeCss, fontSelections, importedFonts } = useAppStore.getState();
     if (theme === 'system') {
-      applyTheme('system', colorThemeId, customThemeCss);
+      applyAppearance({
+        theme: 'system',
+        colorThemeId,
+        customThemeCss,
+        fontSelections,
+        importedFonts,
+      });
     }
   });
 }
