@@ -23,6 +23,8 @@ import { ThinkingIndicator } from './components/ThinkingIndicator';
 import { ThinkingBlock } from './components/ThinkingBlock';
 import { ExternalFilePermissionDialog } from './components/ExternalFilePermissionDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { applyFontPreferences } from './theme/fonts';
+import { applyThemePreferences } from './theme/themes';
 import { MDContent } from './render/markdown';
 import { getMessageContentBlocks } from './utils/message-content';
 import {
@@ -163,6 +165,11 @@ export function App() {
     globalError,
     clearGlobalError,
     removePermissionRequest,
+    theme,
+    colorThemeId,
+    customThemeCss,
+    fontSelections,
+    importedFonts,
     setFontSettings,
     setSystemFonts,
   } = useAppStore();
@@ -238,6 +245,18 @@ export function App() {
       sendEvent({ type: 'mcp.get-config' });
     }
   }, [connected]);
+
+  useEffect(() => {
+    applyThemePreferences({
+      themeMode: theme,
+      colorThemeId,
+      customThemeCss,
+    });
+    applyFontPreferences({
+      fontSelections,
+      importedFonts,
+    });
+  }, [colorThemeId, customThemeCss, fontSelections, importedFonts, theme]);
 
   useEffect(() => {
     let cancelled = false;
