@@ -41,6 +41,10 @@ export async function runClaudeOneShot(params: {
   const result = query({
     prompt: params.prompt,
     options: {
+      systemPrompt: {
+        type: 'preset',
+        preset: 'claude_code',
+      },
       maxTurns: 1,
       allowedTools: [],
       env,

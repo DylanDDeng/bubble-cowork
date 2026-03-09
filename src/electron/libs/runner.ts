@@ -77,7 +77,6 @@ type StreamEventType =
   | 'content_block_stop';
 
 const DEFAULT_MAX_THINKING_TOKENS = 64000;
-const CWD_HINT_PREFIX = '[Working Directory:';
 
 function resolveMaxThinkingTokens(): number {
   const raw = process.env.CLAUDE_CODE_MAX_THINKING_TOKENS;
@@ -89,17 +88,6 @@ function resolveMaxThinkingTokens(): number {
     return DEFAULT_MAX_THINKING_TOKENS;
   }
   return Math.floor(parsed);
-}
-
-function applyCwdHint(cwd: string | null | undefined, prompt: string): string {
-  if (!cwd) {
-    return prompt;
-  }
-  const trimmed = prompt.trimStart();
-  if (trimmed.startsWith(CWD_HINT_PREFIX) || trimmed.startsWith('/')) {
-    return prompt;
-  }
-  return `[Working Directory: ${cwd}]\n\n${prompt}`;
 }
 
 function normalizeToolFilePath(cwd: string, filePath: string): { resolved: string; isWithin: boolean } | null {
@@ -307,7 +295,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
 
   // The runtime won't emit init until it has an initial prompt to process.
   // Queue the first prompt immediately so the session can start.
-  enqueuePrompt(applyCwdHint(session.cwd, prompt), attachments, currentModel);
+  enqueuePrompt(prompt, attachments, currentModel);
 
   // 异步执行
   (async () => {
@@ -346,6 +334,10 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       const result = query({
         prompt: inputQueue,
         options: {
+          systemPrompt: {
+            type: 'preset',
+            preset: 'claude_code',
+          },
           cwd: session.cwd || process.cwd(),
           resume: resumeSessionId,
           abortController,
@@ -508,7 +500,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       inputQueue.close();
     },
     send: (text, promptAttachments, requestedModel) =>
-      enqueuePrompt(applyCwdHint(session.cwd, text), promptAttachments, requestedModel),
+      enqueuePrompt(text, promptAttachments, requestedModel),
   };
 }
 
