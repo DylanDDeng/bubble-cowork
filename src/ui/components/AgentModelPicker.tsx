@@ -6,6 +6,7 @@ import { buildClaudeModelOptions, formatClaudeModelLabel, supportsClaude1mContex
 import { buildCodexModelOptions, formatCodexModelLabel } from '../utils/codex-model';
 import claudeLogo from '../assets/claude-color.svg';
 import minimaxLogo from '../assets/minimax-color.svg';
+import moonshotLogo from '../assets/moonshot.svg';
 import openaiLogo from '../assets/openai.svg';
 import zhipuLogo from '../assets/zhipu-color.svg';
 
@@ -49,7 +50,12 @@ function ProviderIcon({ provider }: { provider: AgentProvider }) {
 }
 
 function CompatibleProviderIcon({ providerId }: { providerId: ClaudeCompatibleProviderId }) {
-  const logo = providerId === 'minimax' ? minimaxLogo : zhipuLogo;
+  const logo =
+    providerId === 'minimax'
+      ? minimaxLogo
+      : providerId === 'zhipu'
+        ? zhipuLogo
+        : moonshotLogo;
   return <img src={logo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
 }
 

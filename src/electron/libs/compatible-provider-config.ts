@@ -27,6 +27,13 @@ const COMPATIBLE_PROVIDER_DEFAULTS: Record<
     secret: '',
     model: 'glm-5',
   },
+  moonshot: {
+    enabled: false,
+    baseUrl: 'https://api.moonshot.cn/anthropic',
+    authType: 'auth_token',
+    secret: '',
+    model: 'kimi-k2.5',
+  },
 };
 
 export interface ResolvedCompatibleProviderConfig extends ClaudeCompatibleProviderConfig {
@@ -55,6 +62,7 @@ export function getDefaultCompatibleProvidersConfig(): ClaudeCompatibleProviders
     providers: {
       minimax: getDefaultCompatibleProviderConfig('minimax'),
       zhipu: getDefaultCompatibleProviderConfig('zhipu'),
+      moonshot: getDefaultCompatibleProviderConfig('moonshot'),
     },
   };
 }
@@ -84,6 +92,7 @@ export function loadCompatibleProviderConfig(): ClaudeCompatibleProvidersConfig 
         providers: {
           minimax: normalizeCompatibleProviderConfig('minimax', parsed.providers.minimax),
           zhipu: normalizeCompatibleProviderConfig('zhipu', parsed.providers.zhipu),
+          moonshot: normalizeCompatibleProviderConfig('moonshot', parsed.providers.moonshot),
         },
       };
     }
@@ -99,6 +108,7 @@ export function saveCompatibleProviderConfig(config: ClaudeCompatibleProvidersCo
     providers: {
       minimax: normalizeCompatibleProviderConfig('minimax', config.providers?.minimax),
       zhipu: normalizeCompatibleProviderConfig('zhipu', config.providers?.zhipu),
+      moonshot: normalizeCompatibleProviderConfig('moonshot', config.providers?.moonshot),
     },
   };
 

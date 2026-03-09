@@ -91,7 +91,7 @@ export interface CodexModelConfig {
 }
 
 export type ClaudeCompatibleAuthType = 'api_key' | 'auth_token';
-export type ClaudeCompatibleProviderId = 'minimax' | 'zhipu';
+export type ClaudeCompatibleProviderId = 'minimax' | 'zhipu' | 'moonshot';
 
 export interface ClaudeCompatibleProviderConfig {
   enabled: boolean;

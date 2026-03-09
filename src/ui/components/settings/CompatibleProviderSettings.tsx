@@ -1,6 +1,7 @@
 import { Eye, EyeOff } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import minimaxLogo from '../../assets/minimax-color.svg';
+import moonshotLogo from '../../assets/moonshot.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
 import type {
   ClaudeCompatibleProviderConfig,
@@ -23,6 +24,10 @@ const PROVIDER_META: Record<
     label: 'Zhipu AI',
     logo: zhipuLogo,
   },
+  moonshot: {
+    label: 'Moonshot AI',
+    logo: moonshotLogo,
+  },
 };
 
 export function CompatibleProviderSettingsContent() {
@@ -35,7 +40,7 @@ export function CompatibleProviderSettingsContent() {
     Partial<Record<ClaudeCompatibleProviderId, boolean>>
   >({});
   const providerIds = useMemo(
-    () => ['minimax', 'zhipu'] as ClaudeCompatibleProviderId[],
+    () => ['minimax', 'zhipu', 'moonshot'] as ClaudeCompatibleProviderId[],
     []
   );
 
@@ -228,7 +233,13 @@ export function CompatibleProviderSettingsContent() {
                     model: event.target.value,
                   }))
                 }
-                placeholder={selectedProviderId === 'minimax' ? 'MiniMax-M2.5' : 'glm-5'}
+                placeholder={
+                  selectedProviderId === 'minimax'
+                    ? 'MiniMax-M2.5'
+                    : selectedProviderId === 'zhipu'
+                      ? 'glm-5'
+                      : 'kimi-k2.5'
+                }
                 className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
                 disabled={loading}
               />

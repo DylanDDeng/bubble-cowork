@@ -14,6 +14,7 @@ export interface CompatibleProviderOption {
 const COMPATIBLE_PROVIDER_LABELS: Record<ClaudeCompatibleProviderId, string> = {
   minimax: 'MiniMax (CN)',
   zhipu: 'Zhipu AI',
+  moonshot: 'Moonshot AI',
 };
 
 const DEFAULT_CONFIG: ClaudeCompatibleProvidersConfig = {
@@ -31,6 +32,13 @@ const DEFAULT_CONFIG: ClaudeCompatibleProvidersConfig = {
       authType: 'auth_token',
       secret: '',
       model: 'glm-5',
+    },
+    moonshot: {
+      enabled: false,
+      baseUrl: 'https://api.moonshot.cn/anthropic',
+      authType: 'auth_token',
+      secret: '',
+      model: 'kimi-k2.5',
     },
   },
 };
@@ -58,6 +66,7 @@ export function normalizeCompatibleProvidersConfig(
       providers: {
         minimax: normalizeProvider('minimax', providers?.minimax),
         zhipu: normalizeProvider('zhipu', providers?.zhipu),
+        moonshot: normalizeProvider('moonshot', providers?.moonshot),
       },
     };
   }
@@ -66,6 +75,7 @@ export function normalizeCompatibleProvidersConfig(
     providers: {
       minimax: normalizeProvider('minimax', raw as LegacyCompatibleProviderConfig),
       zhipu: normalizeProvider('zhipu', undefined),
+      moonshot: normalizeProvider('moonshot', undefined),
     },
   };
 }
