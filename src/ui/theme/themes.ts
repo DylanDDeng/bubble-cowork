@@ -369,19 +369,16 @@ export function applyThemePreferences({
   root.dataset.themeMode = resolvedMode;
 
   for (const variableName of THEME_VARIABLE_NAMES) {
-    root.style.removeProperty(variableName);
+    const value = variables[variableName];
+    if (value) {
+      root.style.setProperty(variableName, value);
+    } else {
+      root.style.removeProperty(variableName);
+    }
   }
 
   let themeStyleTag = document.getElementById(THEME_STYLE_TAG_ID) as HTMLStyleElement | null;
-  if (!themeStyleTag) {
-    themeStyleTag = document.createElement('style');
-    themeStyleTag.id = THEME_STYLE_TAG_ID;
-  }
-  document.head.appendChild(themeStyleTag);
-
-  themeStyleTag.textContent = `:root {\n${Object.entries(variables)
-    .map(([name, value]) => `  ${name}: ${value};`)
-    .join('\n')}\n}`;
+  themeStyleTag?.remove();
 
   const normalizedCss = normalizeCustomThemeCss(customThemeCss);
   let customStyleTag = document.getElementById(CUSTOM_STYLE_TAG_ID) as HTMLStyleElement | null;
@@ -397,7 +394,7 @@ export function applyThemePreferences({
   }
   document.head.appendChild(customStyleTag);
 
-  customStyleTag.textContent = normalizedCss;
+  customStyleTag.textContent = makeCssVariableOverridesImportant(normalizedCss);
 }
 
 function normalizeCustomThemeCss(customThemeCss: string): string {
@@ -407,4 +404,10 @@ function normalizeCustomThemeCss(customThemeCss: string): string {
   }
 
   return trimmed.includes('{') ? trimmed : `:root {\n${trimmed}\n}`;
+}
+
+function makeCssVariableOverridesImportant(css: string): string {
+  return css.replace(/(--[\w-]+\s*:\s*)([^;!]+)(;)/g, (_match, prefix, value, suffix) => {
+    return `${prefix}${String(value).trim()} !important${suffix}`;
+  });
 }

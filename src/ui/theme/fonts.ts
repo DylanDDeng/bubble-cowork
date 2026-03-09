@@ -1,8 +1,6 @@
 import type { FontSelection, FontSettingsPayload, FontSlot, ImportedFontFace } from '../types';
 
 const FONT_STYLE_TAG_ID = 'cowork-font-faces';
-const FONT_VAR_STYLE_TAG_ID = 'cowork-font-vars';
-
 type BuiltinFontOption = {
   id: string;
   label: string;
@@ -143,19 +141,10 @@ export function applyFontPreferences({
   const uiFont = resolveSelection('ui', fontSelections.ui, importedFonts);
   const displayFont = resolveSelection('display', fontSelections.display, importedFonts);
   const monoFont = resolveSelection('mono', fontSelections.mono, importedFonts);
-
-  let fontVarTag = document.getElementById(FONT_VAR_STYLE_TAG_ID) as HTMLStyleElement | null;
-  if (!fontVarTag) {
-    fontVarTag = document.createElement('style');
-    fontVarTag.id = FONT_VAR_STYLE_TAG_ID;
-  }
-  document.head.appendChild(fontVarTag);
-
-  fontVarTag.textContent = `:root {
-  --font-sans: ${uiFont.cssFamily};
-  --font-serif: ${displayFont.cssFamily};
-  --font-mono: ${monoFont.cssFamily};
-}`;
+  const root = document.documentElement;
+  root.style.setProperty('--font-sans', uiFont.cssFamily);
+  root.style.setProperty('--font-serif', displayFont.cssFamily);
+  root.style.setProperty('--font-mono', monoFont.cssFamily);
 }
 
 export function getDefaultFontSelections(): FontSettingsPayload['selections'] {
