@@ -740,6 +740,7 @@ export function ProjectTreePanel() {
                     preview={selectedPreview}
                     slideIndex={pptxSlideIndex}
                     onSlideIndexChange={setPptxSlideIndex}
+                    viewportWidth={previewPanelWidth}
                   />
                 )}
 
@@ -796,10 +797,12 @@ function PptxPreview({
   preview,
   slideIndex,
   onSlideIndexChange,
+  viewportWidth,
 }: {
   preview: Extract<ProjectFilePreview, { kind: 'pptx' }>;
   slideIndex: number;
   onSlideIndexChange: (next: number) => void;
+  viewportWidth: number;
 }) {
   const [slideHtml, setSlideHtml] = useState<string[]>([]);
   const [rendering, setRendering] = useState(true);
@@ -815,12 +818,7 @@ function PptxPreview({
 
       try {
         const buffer = base64ToArrayBuffer(preview.dataBase64);
-        const slides = await pptxToHtml(buffer, {
-          width: 960,
-          height: 540,
-          scaleToFit: true,
-          letterbox: false,
-        });
+        const slides = await pptxToHtml(buffer);
 
         if (cancelled) {
           return;
@@ -886,6 +884,7 @@ function PptxPreview({
         <div className="text-sm text-[var(--error)]">{renderError}</div>
       ) : currentSlideHtml ? (
         <iframe
+          key={`${preview.path}:${safeIndex}:${viewportWidth}`}
           title={`${preview.name} slide ${safeIndex + 1}`}
           sandbox="allow-scripts"
           srcDoc={buildPptxSlideDocument(currentSlideHtml)}
@@ -939,35 +938,47 @@ function buildPptxSlideDocument(slideHtml: string): string {
         overflow: hidden;
       }
       #pptx-shell {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+      #pptx-scale {
+        position: absolute;
+        left: 0;
+        top: 0;
         transform-origin: top left;
         will-change: transform;
       }
-      #pptx-shell > * {
-        margin: 0 auto;
+      #pptx-scale > * {
+        margin: 0;
       }
     </style>
   </head>
   <body>
     <div id="pptx-stage">
-      <div id="pptx-shell">${slideHtml}</div>
+      <div id="pptx-shell">
+        <div id="pptx-scale">${slideHtml}</div>
+      </div>
     </div>
     <script>
       (() => {
         const stage = document.getElementById('pptx-stage');
         const shell = document.getElementById('pptx-shell');
-        if (!stage || !shell) {
+        const scaleNode = document.getElementById('pptx-scale');
+        if (!stage || !shell || !scaleNode) {
           return;
         }
 
         const fit = () => {
-          const content = shell.firstElementChild || shell;
+          const content = scaleNode.firstElementChild || scaleNode;
           if (!content) {
             return;
           }
 
-          shell.style.transform = 'none';
-          shell.style.width = 'auto';
-          shell.style.height = 'auto';
+          scaleNode.style.transform = 'none';
+          scaleNode.style.width = 'auto';
+          scaleNode.style.height = 'auto';
 
           const rect = content.getBoundingClientRect();
           if (!rect.width || !rect.height) {
@@ -978,13 +989,37 @@ function buildPptxSlideDocument(slideHtml: string): string {
           const availableWidth = Math.max(stage.clientWidth - padding, 1);
           const availableHeight = Math.max(stage.clientHeight - padding, 1);
           const scale = Math.min(availableWidth / rect.width, availableHeight / rect.height, 1);
+          const scaledWidth = rect.width * scale;
+          const scaledHeight = rect.height * scale;
+          const offsetX = Math.max((stage.clientWidth - scaledWidth) / 2, 0);
+          const offsetY = Math.max((stage.clientHeight - scaledHeight) / 2, 0);
 
-          shell.style.width = rect.width + 'px';
-          shell.style.height = rect.height + 'px';
-          shell.style.transform = 'scale(' + scale + ')';
+          scaleNode.style.width = rect.width + 'px';
+          scaleNode.style.height = rect.height + 'px';
+          scaleNode.style.transform = 'translate(' + offsetX + 'px, ' + offsetY + 'px) scale(' + scale + ')';
         };
 
         window.addEventListener('resize', fit);
+        window.addEventListener('load', fit);
+        if (window.visualViewport) {
+          window.visualViewport.addEventListener('resize', fit);
+        }
+        if (typeof ResizeObserver !== 'undefined') {
+          const observer = new ResizeObserver(() => fit());
+          observer.observe(stage);
+          observer.observe(document.documentElement);
+        }
+        if (document.fonts && document.fonts.ready) {
+          document.fonts.ready.then(() => fit()).catch(() => undefined);
+        }
+        const images = shell.querySelectorAll('img');
+        images.forEach((img) => {
+          if (img.complete) {
+            return;
+          }
+          img.addEventListener('load', fit, { once: true });
+          img.addEventListener('error', fit, { once: true });
+        });
         requestAnimationFrame(() => {
           requestAnimationFrame(fit);
         });
