@@ -206,7 +206,6 @@ export function ToolExecutionBatch({
         className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-[var(--bg-tertiary)]/25"
       >
         <ChevronIcon expanded={expanded} />
-        <StatusDot status={batchStatus} />
         <span className="font-medium text-sm text-[var(--text-primary)]">
           {summary || 'Execution trace'}
         </span>
@@ -362,12 +361,6 @@ function TraceNoteItem({ content }: { content: string }) {
   );
 }
 
-// 状态点组件
-function StatusDot({ status }: { status: ToolStatus }) {
-  const statusClass =
-    status === 'pending' ? 'running' : status === 'success' ? 'completed' : 'error';
-  return <div className={`status-dot ${statusClass}`} />;
-}
 
 function ToolStatusIcon({ status }: { status: ToolStatus }) {
   if (status === 'success') {

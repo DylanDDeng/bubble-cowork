@@ -103,7 +103,6 @@ export function ToolGroup({
         className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-[var(--bg-tertiary)]/25"
       >
         <ChevronRight className={`w-4 h-4 text-[var(--text-muted)] flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} />
-        <StatusDot status={groupStatus} />
         <span className="font-medium text-sm text-[var(--text-primary)]">Task</span>
         <span className="text-sm text-[var(--text-secondary)] truncate flex-1">
           {summary || 'Tool execution'}
@@ -241,11 +240,4 @@ function CollapsibleSection({
       )}
     </div>
   );
-}
-
-// 状态点组件
-function StatusDot({ status }: { status: ToolStatus }) {
-  const statusClass =
-    status === 'pending' ? 'running' : status === 'success' ? 'completed' : 'error';
-  return <div className={`status-dot ${statusClass}`} />;
 }
