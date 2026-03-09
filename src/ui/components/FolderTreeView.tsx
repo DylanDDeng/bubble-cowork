@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { FolderClosed, FolderOpen, MoreVertical, Pin, Copy, Trash2 } from 'lucide-react';
+import { FolderClosed, FolderOpen, MoreVertical, Pin, Copy, Trash2, SquarePen } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { StatusIcon } from './StatusIcon';
@@ -18,12 +18,14 @@ interface ProjectTreeViewProps {
   onSessionClick: (sessionId: string) => void;
   onSessionDelete: (sessionId: string) => void;
   onCopyResume: (session: SessionView) => void;
+  onNewSessionForProject: (cwd: string) => void;
 }
 
 export function FolderTreeView({
   onSessionClick,
   onSessionDelete,
   onCopyResume,
+  onNewSessionForProject,
 }: ProjectTreeViewProps) {
   const {
     sessions,
@@ -114,17 +116,34 @@ export function FolderTreeView({
         const expanded = isExpanded(group.key);
         return (
           <div key={group.key}>
-            <button
-              type="button"
-              className="flex w-full select-none items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
-              onClick={() => toggleGroupExpanded(group.key)}
-              title={group.fullPath || 'Sessions without a project folder'}
-              aria-expanded={expanded}
-            >
-              {expanded ? <FolderOpen className="w-3.5 h-3.5" /> : <FolderClosed className="w-3.5 h-3.5" />}
-              <span className="text-sm font-medium truncate flex-1">{group.label}</span>
-              <span className="text-xs text-[var(--text-muted)]">{group.sessions.length}</span>
-            </button>
+            <div className="group flex items-center gap-1 px-1">
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 select-none items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
+                onClick={() => toggleGroupExpanded(group.key)}
+                title={group.fullPath || 'Sessions without a project folder'}
+                aria-expanded={expanded}
+              >
+                {expanded ? <FolderOpen className="w-3.5 h-3.5" /> : <FolderClosed className="w-3.5 h-3.5" />}
+                <span className="text-sm font-medium truncate flex-1">{group.label}</span>
+                <span className="text-xs text-[var(--text-muted)]">{group.sessions.length}</span>
+              </button>
+
+              {group.fullPath && (
+                <button
+                  type="button"
+                  className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-0 transition-all duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] group-hover:opacity-100 focus-visible:opacity-100"
+                  title={`Start a new thread in ${group.label}`}
+                  aria-label={`Start a new thread in ${group.label}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onNewSessionForProject(group.fullPath);
+                  }}
+                >
+                  <SquarePen className="h-3.5 w-3.5" strokeWidth={1.9} />
+                </button>
+              )}
+            </div>
 
             {expanded && group.fullPath && (
               <div className="px-7 pb-1 text-[10px] text-[var(--text-muted)] truncate" title={group.fullPath}>

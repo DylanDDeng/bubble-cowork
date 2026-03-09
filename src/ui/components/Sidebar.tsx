@@ -163,6 +163,12 @@ export function Sidebar() {
             }}
             onSessionDelete={handleDelete}
             onCopyResume={handleResumeCommand}
+            onNewSessionForProject={(nextCwd) => {
+              setProjectCwd(nextCwd);
+              setShowSettings(false);
+              setActiveSession(null);
+              setShowNewSession(true);
+            }}
           />
         </div>
 
