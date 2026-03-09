@@ -277,7 +277,7 @@ export function SkillMarketSettingsContent() {
                     type="button"
                     onClick={() => void handleInstall(detail)}
                     disabled={installingId === detail.id}
-                    className="inline-flex items-center gap-2 rounded-xl bg-[#E91414] px-4 py-2 text-[14px] font-medium text-white transition-colors hover:bg-[#C80E0E] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2 text-[14px] font-medium text-white transition-colors hover:bg-[#1A1A1A] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {installingId === detail.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                     <span>{installingId === detail.id ? 'Installing…' : 'Install'}</span>
