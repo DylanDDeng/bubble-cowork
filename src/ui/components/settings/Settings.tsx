@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn, PlugZap, Palette, Eraser, ChevronDown, Check } from 'lucide-react';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn, PlugZap, Palette, Eraser, ChevronDown, Check, Store } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
 import { McpSettingsContent } from './McpSettings';
 import { SkillsSettingsContent } from './SkillsSettings';
+import { SkillMarketSettingsContent } from './SkillMarketSettings';
 import type { ColorThemeId, FontSelection, FontSettingsPayload, FontSlot, ImportedFontFace, SystemFontOption, Theme } from '../../types';
 import { BUILTIN_FONT_OPTIONS, getFontPreviewCssFamily, getFontPreviewLabel } from '../../theme/fonts';
 import { COLOR_THEME_FAMILIES, getThemePreviewPalette, resolveThemeMode } from '../../theme/themes';
@@ -34,6 +35,12 @@ const SETTINGS_TABS = {
     title: 'Claude Skills',
     description: 'Review the user and workspace skills the Claude runner can discover.',
     icon: <BookOpen className="w-4 h-4" />,
+  },
+  market: {
+    label: 'Skill Market',
+    title: 'Skill Market',
+    description: 'Browse skills from skills.sh and install them directly into your local agent setup.',
+    icon: <Store className="w-4 h-4" />,
   },
   usage: {
     label: 'Usage',
@@ -66,6 +73,7 @@ export function Settings() {
   if (!showSettings) return null;
 
   const activeMeta = SETTINGS_TABS[activeSettingsTab];
+  const isMarketTab = activeSettingsTab === 'market';
 
   return (
     <div className="flex h-full min-h-0 min-w-0 bg-[var(--bg-primary)]">
@@ -95,18 +103,20 @@ export function Settings() {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-12 py-12">
-          <header className="mb-10">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-              {activeMeta.label}
-            </div>
-            <h1 className="mt-3 text-[36px] font-semibold tracking-[-0.04em] text-[var(--text-primary)]">
-              {activeMeta.title}
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--text-secondary)]">
-              {activeMeta.description}
-            </p>
-          </header>
+        <div className={`mx-auto ${isMarketTab ? 'max-w-[1360px] px-8 py-8' : 'max-w-5xl px-12 py-12'}`}>
+          {!isMarketTab && (
+            <header className="mb-10">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                {activeMeta.label}
+              </div>
+              <h1 className="mt-3 text-[36px] font-semibold tracking-[-0.04em] text-[var(--text-primary)]">
+                {activeMeta.title}
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--text-secondary)]">
+                {activeMeta.description}
+              </p>
+            </header>
+          )}
 
           {activeSettingsTab === 'general' && (
             <GeneralSettingsContent
@@ -126,6 +136,7 @@ export function Settings() {
           {activeSettingsTab === 'mcp' && <McpSettingsContent />}
           {activeSettingsTab === 'providers' && <CompatibleProviderSettingsContent />}
           {activeSettingsTab === 'skills' && <SkillsSettingsContent />}
+          {activeSettingsTab === 'market' && <SkillMarketSettingsContent />}
           {activeSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}
         </div>
       </main>

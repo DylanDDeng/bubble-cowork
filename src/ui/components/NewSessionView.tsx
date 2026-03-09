@@ -322,7 +322,7 @@ export function NewSessionView() {
               </h1>
 
               {!hasSelectedCwd && (
-                <div className="mt-5 text-xs text-[var(--text-secondary)]">
+                <div className="mt-5 text-[13px] text-[var(--text-secondary)]">
                   Select a project folder to enable starting a new task.
                 </div>
               )}
@@ -416,7 +416,7 @@ export function NewSessionView() {
                   : 'Describe your task...'
               }
               rows={3}
-              className={`w-full bg-transparent px-5 pb-2 text-[13px] outline-none resize-none no-drag ${
+              className={`w-full bg-transparent px-5 pb-2 text-[14px] outline-none resize-none no-drag ${
                 skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-1.5 min-h-[100px]' : 'pt-4 min-h-[112px]'
               }`}
               autoFocus
@@ -571,9 +571,9 @@ function QuickActionCard({
         </div>
       </div>
 
-      <div className="text-[12px] font-semibold leading-6 text-[var(--text-primary)]">{title}</div>
+      <div className="text-[13px] font-semibold leading-6 text-[var(--text-primary)]">{title}</div>
 
-      <div className="mt-2 text-xs font-medium text-[var(--text-muted)]">
+      <div className="mt-2 text-[13px] font-medium text-[var(--text-muted)]">
         {unavailable ? `Requires the /${fallbackSkillName} Claude skill` : 'Click to insert into the message box'}
       </div>
     </button>

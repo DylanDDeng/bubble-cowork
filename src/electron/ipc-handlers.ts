@@ -22,6 +22,12 @@ import {
 } from './libs/font-settings';
 import { getCodexModelConfig } from './libs/codex-settings';
 import { listClaudeSkills } from './libs/claude-skills';
+import {
+  getSkillMarketDetail,
+  getSkillMarketHot,
+  installSkillFromMarket,
+  searchSkillMarket,
+} from './libs/skill-market';
 import * as statusConfig from './libs/status-config';
 import * as folderConfig from './libs/folder-config';
 import { ipcMainHandle, isDev } from './util';
@@ -983,6 +989,22 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // RPC: 获取 Codex 模型配置
   ipcMainHandle('get-codex-model-config', async () => {
     return getCodexModelConfig();
+  });
+
+  ipcMainHandle('get-skill-market-hot', async (_event, limit?: number) => {
+    return getSkillMarketHot(limit);
+  });
+
+  ipcMainHandle('search-skill-market', async (_event, query: string, limit?: number) => {
+    return searchSkillMarket(query, limit);
+  });
+
+  ipcMainHandle('get-skill-market-detail', async (_event, id: string) => {
+    return getSkillMarketDetail(id);
+  });
+
+  ipcMainHandle('install-skill-from-market', async (_event, id: string) => {
+    return installSkillFromMarket(id);
   });
 
   // RPC: 获取字体设置

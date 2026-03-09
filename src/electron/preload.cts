@@ -1,5 +1,13 @@
 const { contextBridge, ipcRenderer } = require('electron');
-import type { ClaudeCompatibleProvidersConfig, ClaudeUsageRangeDays, FontSettingsPayload, SystemFontOption } from '../shared/types';
+import type {
+  ClaudeCompatibleProvidersConfig,
+  ClaudeUsageRangeDays,
+  FontSettingsPayload,
+  SkillMarketDetail,
+  SkillMarketInstallResult,
+  SkillMarketItem,
+  SystemFontOption,
+} from '../shared/types';
 
 // 暴露 API 到渲染进程
 contextBridge.exposeInMainWorld('electron', {
@@ -60,6 +68,19 @@ contextBridge.exposeInMainWorld('electron', {
   // 获取 Codex 模型配置
   getCodexModelConfig: () => {
     return ipcRenderer.invoke('get-codex-model-config');
+  },
+
+  getSkillMarketHot: (limit?: number): Promise<SkillMarketItem[]> => {
+    return ipcRenderer.invoke('get-skill-market-hot', limit);
+  },
+  searchSkillMarket: (query: string, limit?: number): Promise<SkillMarketItem[]> => {
+    return ipcRenderer.invoke('search-skill-market', query, limit);
+  },
+  getSkillMarketDetail: (id: string): Promise<SkillMarketDetail> => {
+    return ipcRenderer.invoke('get-skill-market-detail', id);
+  },
+  installSkillFromMarket: (id: string): Promise<SkillMarketInstallResult> => {
+    return ipcRenderer.invoke('install-skill-from-market', id);
   },
 
   // 字体设置

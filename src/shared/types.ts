@@ -433,6 +433,35 @@ export interface ClaudeUsageReport {
   daily: ClaudeUsageDailyPoint[];
 }
 
+export interface SkillMarketItem {
+  id: string;
+  owner: string;
+  repo: string;
+  skillId: string;
+  name: string;
+  source: string;
+  installs: number;
+  installsYesterday?: number;
+  change?: number;
+  detailUrl: string;
+}
+
+export interface SkillMarketDetail extends SkillMarketItem {
+  repoUrl: string;
+  installCommand: string;
+  description: string;
+  originalSource?: string;
+  weeklyInstallsLabel?: string;
+  securityAudits?: Array<{ name: string; status: string }>;
+}
+
+export interface SkillMarketInstallResult {
+  ok: boolean;
+  command: string;
+  output: string;
+  message?: string;
+}
+
 // 系统监控类型（预留）
 export interface StatisticsData {
   cpuUsage: number;

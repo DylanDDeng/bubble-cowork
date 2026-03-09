@@ -241,7 +241,7 @@ function SessionItem({
             <Pin className="w-3.5 h-3.5" />
           </span>
         )}
-        <span className="flex-1 truncate text-[13px] font-medium leading-[1.25]">{session.title}</span>
+        <span className="flex-1 truncate text-[14px] font-medium leading-[1.3]">{session.title}</span>
         {runtimeBadge && (
           <span
             className={`status-dot ${runtimeBadge} flex-shrink-0`}

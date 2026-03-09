@@ -351,7 +351,7 @@ export function PromptInput() {
             }
             rows={1}
             disabled={isRunning}
-            className={`w-full bg-transparent px-5 pb-3 text-[13px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50 ${
+            className={`w-full bg-transparent px-5 pb-3 text-[14px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50 ${
               skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-1.5' : 'pt-4'
             }`}
           />
@@ -465,7 +465,7 @@ export function PromptInput() {
           </div>
         </div>
 
-        <div className="text-xs text-[var(--text-muted)] mt-2 px-1">
+        <div className="mt-2 px-1 text-[13px] text-[var(--text-muted)]">
           {isRunning
             ? 'Session is running. Press Enter or click Stop to abort.'
             : provider === 'claude'

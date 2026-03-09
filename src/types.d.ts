@@ -15,6 +15,9 @@ import type {
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
   CodexModelConfig,
+  SkillMarketItem,
+  SkillMarketDetail,
+  SkillMarketInstallResult,
 } from './shared/types';
 
 declare global {
@@ -28,6 +31,10 @@ declare global {
     saveClaudeCompatibleProviderConfig: (config: ClaudeCompatibleProvidersConfig) => Promise<ClaudeCompatibleProvidersConfig>;
     getClaudeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getCodexModelConfig: () => Promise<CodexModelConfig>;
+    getSkillMarketHot: (limit?: number) => Promise<SkillMarketItem[]>;
+    searchSkillMarket: (query: string, limit?: number) => Promise<SkillMarketItem[]>;
+    getSkillMarketDetail: (id: string) => Promise<SkillMarketDetail>;
+    installSkillFromMarket: (id: string) => Promise<SkillMarketInstallResult>;
     getFontSettings: () => Promise<FontSettingsPayload>;
     saveFontSelections: (selections: FontSettingsPayload['selections']) => Promise<FontSettingsPayload>;
     listSystemFonts: () => Promise<SystemFontOption[]>;

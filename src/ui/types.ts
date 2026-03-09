@@ -1,7 +1,7 @@
 // UI 层类型定义
 
 // Settings 标签类型
-export type SettingsTab = 'mcp' | 'general' | 'providers' | 'skills' | 'usage';
+export type SettingsTab = 'mcp' | 'general' | 'providers' | 'skills' | 'market' | 'usage';
 
 // 从共享类型导入
 import type { AgentProvider, ProjectTreeNode, TodoState, StatusConfig, FolderConfig } from '../shared/types';
@@ -30,6 +30,9 @@ export type {
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
   CodexModelConfig,
+  SkillMarketDetail,
+  SkillMarketInstallResult,
+  SkillMarketItem,
   FontFormat,
   FontSelection,
   FontSelectionSource,
