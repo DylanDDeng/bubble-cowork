@@ -322,7 +322,8 @@ export const COLOR_THEME_FAMILIES: ColorThemeFamily[] = [
   },
 ];
 
-const STYLE_TAG_ID = 'cowork-theme-custom-css';
+const THEME_STYLE_TAG_ID = 'cowork-theme-vars';
+const CUSTOM_STYLE_TAG_ID = 'cowork-theme-custom-css';
 const THEME_VARIABLE_NAMES = Object.keys(PAPER_LIGHT);
 
 export function resolveThemeMode(themeMode: Theme): ResolvedThemeMode {
@@ -368,29 +369,35 @@ export function applyThemePreferences({
   root.dataset.themeMode = resolvedMode;
 
   for (const variableName of THEME_VARIABLE_NAMES) {
-    const value = variables[variableName];
-    if (value) {
-      root.style.setProperty(variableName, value);
-    } else {
-      root.style.removeProperty(variableName);
-    }
+    root.style.removeProperty(variableName);
   }
 
+  let themeStyleTag = document.getElementById(THEME_STYLE_TAG_ID) as HTMLStyleElement | null;
+  if (!themeStyleTag) {
+    themeStyleTag = document.createElement('style');
+    themeStyleTag.id = THEME_STYLE_TAG_ID;
+    document.head.appendChild(themeStyleTag);
+  }
+
+  themeStyleTag.textContent = `:root {\n${Object.entries(variables)
+    .map(([name, value]) => `  ${name}: ${value};`)
+    .join('\n')}\n}`;
+
   const normalizedCss = normalizeCustomThemeCss(customThemeCss);
-  let styleTag = document.getElementById(STYLE_TAG_ID) as HTMLStyleElement | null;
+  let customStyleTag = document.getElementById(CUSTOM_STYLE_TAG_ID) as HTMLStyleElement | null;
 
   if (!normalizedCss) {
-    styleTag?.remove();
+    customStyleTag?.remove();
     return;
   }
 
-  if (!styleTag) {
-    styleTag = document.createElement('style');
-    styleTag.id = STYLE_TAG_ID;
-    document.head.appendChild(styleTag);
+  if (!customStyleTag) {
+    customStyleTag = document.createElement('style');
+    customStyleTag.id = CUSTOM_STYLE_TAG_ID;
+    document.head.appendChild(customStyleTag);
   }
 
-  styleTag.textContent = normalizedCss;
+  customStyleTag.textContent = normalizedCss;
 }
 
 function normalizeCustomThemeCss(customThemeCss: string): string {
