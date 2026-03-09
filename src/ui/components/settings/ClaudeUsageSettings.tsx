@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import claudeLogo from '../../assets/claude-color.svg';
+import minimaxLogo from '../../assets/minimax-color.svg';
+import moonshotLogo from '../../assets/moonshot.svg';
+import zhipuLogo from '../../assets/zhipu-color.svg';
 import type {
   ClaudeUsageDailyPoint,
   ClaudeUsageModelSummary,
@@ -156,10 +160,7 @@ export function ClaudeUsageSettingsContent() {
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span
-                        className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
-                        style={{ backgroundColor: modelColors[model.model] }}
-                      />
+                      <ModelProviderLogo model={model.model} color={modelColors[model.model]} />
                       <span className="truncate font-medium text-[var(--text-primary)]">{model.model}</span>
                     </div>
                     <div className="mt-1 text-[var(--text-secondary)]">
@@ -178,6 +179,53 @@ export function ClaudeUsageSettingsContent() {
       )}
     </div>
   );
+}
+
+function ModelProviderLogo({
+  model,
+  color,
+}: {
+  model: string;
+  color: string;
+}) {
+  const logo = getProviderLogoForModel(model);
+
+  if (!logo) {
+    return (
+      <span
+        className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+        style={{ backgroundColor: color }}
+      />
+    );
+  }
+
+  return <img src={logo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
+}
+
+function getProviderLogoForModel(model: string): string | null {
+  const normalized = model.trim().toLowerCase();
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.startsWith('claude-') || normalized === 'opus' || normalized === 'sonnet' || normalized === 'haiku') {
+    return claudeLogo;
+  }
+
+  if (normalized.startsWith('glm')) {
+    return zhipuLogo;
+  }
+
+  if (normalized.startsWith('kimi')) {
+    return moonshotLogo;
+  }
+
+  if (normalized.startsWith('minimax')) {
+    return minimaxLogo;
+  }
+
+  return null;
 }
 
 function MetricCard({
