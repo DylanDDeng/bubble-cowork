@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import type { Attachment } from '../types';
+import type { Attachment, ClaudeSkillSummary } from '../types';
+import powerPointLogo from '../assets/powerpoint-2025-logo.svg';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
@@ -22,6 +23,20 @@ import {
   savePreferredClaudeModel,
 } from '../utils/claude-model';
 import { buildCodexModelOptions, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
+import { buildPromptWithSkill } from '../utils/claude-skills';
+
+const PPTX_QUICK_ACTION_PROMPT = [
+  'Create a polished PPTX presentation for this project.',
+  '',
+  'Content requirements:',
+  '- Explain what the app does, who it is for, and the main workflow.',
+  '- Summarize the most important capabilities using repo evidence only.',
+  '- Include a concise getting-started or how-to-run section if the repo supports it.',
+  '',
+  'Output requirements:',
+  '- Keep the deck concise, visual, and ready to present.',
+  '- Generate a .pptx file and include its filename/path in the final reply.',
+].join('\n');
 
 export function NewSessionView() {
   const { pendingStart, projectCwd, sessions, setPendingStart, setProjectCwd } = useAppStore();
@@ -38,6 +53,7 @@ export function NewSessionView() {
     loadPreferredCodexModel()
   );
   const [showCwdHint, setShowCwdHint] = useState(false);
+  const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const cwd = projectCwd || '';
   const hasSelectedCwd = cwd.trim().length > 0;
   const claudeModelConfig = useClaudeModelConfig();
@@ -84,6 +100,13 @@ export function NewSessionView() {
   }, []);
 
   useEffect(() => {
+    sendEvent({
+      type: 'skills.list',
+      payload: { projectPath: cwd || undefined },
+    });
+  }, [cwd]);
+
+  useEffect(() => {
     if (!showCwdHint) return;
     const timer = window.setTimeout(() => setShowCwdHint(false), 1800);
     return () => window.clearTimeout(timer);
@@ -121,6 +144,35 @@ export function NewSessionView() {
     }
     setSelectedCodexModel(codexModelConfig.defaultModel || codexModelOptions[0] || null);
   }, [codexModelConfig.defaultModel, codexModelOptions, selectedCodexModel]);
+
+  const pptxSkill = useMemo(
+    () => skillAutocomplete.availableSkills.find((skill) => skill.name === 'pptx') || null,
+    [skillAutocomplete.availableSkills]
+  );
+
+  const handleQuickAction = (skill: ClaudeSkillSummary | null, remainder: string) => {
+    if (!skill) {
+      toast.error('Install the /pptx Claude skill to use this shortcut.');
+      return;
+    }
+
+    if (provider !== 'claude') {
+      setProvider('claude');
+      savePreferredProvider('claude');
+    }
+
+    setPrompt(buildPromptWithSkill(skill.name, remainder));
+    window.requestAnimationFrame(() => {
+      const textarea = promptTextareaRef.current;
+      if (!textarea) {
+        return;
+      }
+
+      textarea.focus();
+      const length = textarea.value.length;
+      textarea.setSelectionRange(length, length);
+    });
+  };
 
   const handleStart = () => {
     if (!prompt.trim()) return;
@@ -256,9 +308,27 @@ export function NewSessionView() {
           </div>
 
           <div className="mt-auto">
+            <div className="mt-8 mb-3 flex justify-center">
+              <div className="w-full max-w-[700px]">
+                <div className="mb-2 flex items-center justify-end pr-2 text-[11px] uppercase tracking-[0.22em] text-[var(--text-muted)]">
+                  Quick paths
+                </div>
+                <div className="flex flex-wrap justify-start -ml-2 sm:-ml-5">
+                  <QuickActionCard
+                    title="Create a PPTX deck"
+                    skill={pptxSkill}
+                    unavailable={!pptxSkill}
+                    onClick={() => handleQuickAction(pptxSkill, PPTX_QUICK_ACTION_PROMPT)}
+                  />
+                </div>
+              </div>
+            </div>
+
             <div
-              className={`mb-3 flex justify-center transition-all duration-200 ${
-                showCwdHint ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-1 pointer-events-none'
+              className={`flex justify-center overflow-hidden transition-all duration-200 ${
+                showCwdHint
+                  ? 'mb-3 max-h-16 opacity-100 translate-y-0'
+                  : 'mb-0 max-h-0 opacity-0 -translate-y-1 pointer-events-none'
               }`}
             >
               <div className="rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-primary)] shadow-sm">
@@ -300,6 +370,7 @@ export function NewSessionView() {
             )}
 
             <textarea
+              ref={promptTextareaRef}
               value={skillAutocomplete.displayPrompt}
               onChange={(e) => skillAutocomplete.setDisplayPrompt(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -418,6 +489,54 @@ export function NewSessionView() {
         </div>
       </div>
     </div>
+  );
+}
+
+function QuickActionCard({
+  title,
+  skill,
+  unavailable,
+  onClick,
+}: {
+  title: string;
+  skill: ClaudeSkillSummary | null;
+  unavailable?: boolean;
+  onClick: () => void;
+}) {
+  const badgeSkill: ClaudeSkillSummary = skill || {
+    name: 'pptx',
+    title: 'PPTX Skill',
+    description: undefined,
+    path: '',
+    source: 'user',
+  };
+
+  return (
+    <button
+      type="button"
+      aria-disabled={unavailable}
+      onClick={onClick}
+      className={`group w-full max-w-[276px] rounded-[22px] border bg-[var(--bg-secondary)] px-3.5 py-3 text-left shadow-sm transition-all ${
+        unavailable
+          ? 'cursor-not-allowed border-[var(--border)] opacity-60'
+          : 'border-[var(--border)] hover:-translate-y-0.5 hover:border-black/15 hover:shadow-md'
+      }`}
+    >
+      <div className="mb-3 flex items-start justify-between gap-2.5">
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-2xl bg-white/70 shadow-sm ring-1 ring-black/5">
+          <img src={powerPointLogo} alt="" className="h-7 w-7" />
+        </div>
+        <div className="pointer-events-none">
+          <SelectedClaudeSkillChip skill={badgeSkill} compact />
+        </div>
+      </div>
+
+      <div className="text-[14px] font-semibold leading-6 text-[var(--text-primary)]">{title}</div>
+
+      <div className="mt-2 text-xs font-medium text-[var(--text-muted)]">
+        {unavailable ? 'Requires the /pptx Claude skill' : 'Click to insert into the message box'}
+      </div>
+    </button>
   );
 }
 
