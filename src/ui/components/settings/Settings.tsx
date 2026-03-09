@@ -1,10 +1,11 @@
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn, PlugZap } from 'lucide-react';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn, PlugZap, Palette, Eraser } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
 import { McpSettingsContent } from './McpSettings';
 import { SkillsSettingsContent } from './SkillsSettings';
-import type { Theme } from '../../types';
+import type { ColorThemeId, Theme } from '../../types';
+import { COLOR_THEME_FAMILIES, getThemePreviewPalette, resolveThemeMode } from '../../theme/themes';
 
 const SETTINGS_TABS = {
   general: {
@@ -48,6 +49,10 @@ export function Settings() {
     setActiveSettingsTab,
     theme,
     setTheme,
+    colorThemeId,
+    setColorThemeId,
+    customThemeCss,
+    setCustomThemeCss,
   } = useAppStore();
 
   if (!showSettings) return null;
@@ -99,7 +104,14 @@ export function Settings() {
           </header>
 
           {activeSettingsTab === 'general' && (
-            <GeneralSettingsContent theme={theme} setTheme={setTheme} />
+            <GeneralSettingsContent
+              theme={theme}
+              setTheme={setTheme}
+              colorThemeId={colorThemeId}
+              setColorThemeId={setColorThemeId}
+              customThemeCss={customThemeCss}
+              setCustomThemeCss={setCustomThemeCss}
+            />
           )}
           {activeSettingsTab === 'mcp' && <McpSettingsContent />}
           {activeSettingsTab === 'providers' && <CompatibleProviderSettingsContent />}
@@ -144,16 +156,26 @@ function SettingsNavItem({
 function GeneralSettingsContent({
   theme,
   setTheme,
+  colorThemeId,
+  setColorThemeId,
+  customThemeCss,
+  setCustomThemeCss,
 }: {
   theme: Theme;
   setTheme: (theme: Theme) => void;
+  colorThemeId: ColorThemeId;
+  setColorThemeId: (colorThemeId: ColorThemeId) => void;
+  customThemeCss: string;
+  setCustomThemeCss: (customThemeCss: string) => void;
 }) {
+  const resolvedMode = resolveThemeMode(theme);
+
   return (
     <div className="space-y-10 pb-16">
       <SettingsSection title="Appearance">
         <SettingsRow
-          label="Theme"
-          description="Use light, dark, or follow the current operating system appearance."
+          label="Appearance Mode"
+          description="Choose light, dark, or follow the current operating system appearance."
         >
           <div className="flex flex-wrap items-center gap-2">
             <ThemeOption
@@ -179,6 +201,55 @@ function GeneralSettingsContent({
             />
           </div>
         </SettingsRow>
+
+        <div className="border-t border-[var(--border)] px-5 py-5">
+          <div className="space-y-1">
+            <div className="text-base font-medium text-[var(--text-primary)]">Color Theme</div>
+            <div className="text-sm leading-6 text-[var(--text-secondary)]">
+              Pick a theme family. The selected appearance mode currently resolves to <span className="font-medium text-[var(--text-primary)]">{resolvedMode}</span>.
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
+            {COLOR_THEME_FAMILIES.map((family) => (
+              <ColorThemeCard
+                key={family.id}
+                active={family.id === colorThemeId}
+                description={family.description}
+                label={family.label}
+                palette={getThemePreviewPalette(family.id, theme)}
+                onClick={() => setColorThemeId(family.id)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="border-t border-[var(--border)] px-5 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <div className="text-base font-medium text-[var(--text-primary)]">Custom CSS</div>
+              <div className="max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">
+                Add CSS overrides on top of the active theme. You can target <code className="md-inline-code">:root</code>, <code className="md-inline-code">.dark</code>, or <code className="md-inline-code">[data-color-theme=&quot;paper&quot;]</code>.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCustomThemeCss('')}
+              className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            >
+              <Eraser className="w-4 h-4" />
+              <span>Clear</span>
+            </button>
+          </div>
+
+          <textarea
+            value={customThemeCss}
+            onChange={(event) => setCustomThemeCss(event.target.value)}
+            placeholder={`:root {\n  --bg-primary: #0f1117;\n  --accent: #7aa2f7;\n}\n\n[data-color-theme="rose"] {\n  --accent: #f472b6;\n}`}
+            className="mt-5 min-h-[180px] w-full rounded-[20px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3 font-mono text-sm leading-6 text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+            spellCheck={false}
+          />
+        </div>
       </SettingsSection>
     </div>
   );
@@ -248,6 +319,51 @@ function ThemeOption({
     >
       {icon}
       <span className="font-medium">{label}</span>
+    </button>
+  );
+}
+
+function ColorThemeCard({
+  active,
+  description,
+  label,
+  palette,
+  onClick,
+}: {
+  active: boolean;
+  description: string;
+  label: string;
+  palette: string[];
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-[20px] border p-4 text-left transition-colors ${
+        active
+          ? 'border-[var(--accent)] bg-[var(--accent-light)]'
+          : 'border-[var(--border)] bg-[var(--bg-primary)] hover:border-[var(--text-muted)] hover:bg-[var(--bg-tertiary)]/55'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-sm font-semibold text-[var(--text-primary)]">{label}</div>
+          <div className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">{description}</div>
+        </div>
+        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">
+          <Palette className="h-4 w-4" />
+        </div>
+      </div>
+      <div className="mt-4 flex items-center gap-2">
+        {palette.map((color, index) => (
+          <span
+            key={`${label}-${index}`}
+            className="h-7 flex-1 rounded-lg border border-black/5"
+            style={{ backgroundColor: color }}
+          />
+        ))}
+      </div>
     </button>
   );
 }

@@ -15,20 +15,12 @@ import type {
   SettingsTab,
   FolderConfig,
   Theme,
+  ColorThemeId,
 } from '../types';
+import { DEFAULT_COLOR_THEME_ID, applyThemePreferences } from '../theme/themes';
 
-// 应用主题到 DOM
-function applyTheme(theme: Theme) {
-  const root = document.documentElement;
-  const isDark =
-    theme === 'dark' ||
-    (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-
-  if (isDark) {
-    root.classList.add('dark');
-  } else {
-    root.classList.remove('dark');
-  }
+function applyTheme(theme: Theme, colorThemeId: ColorThemeId, customThemeCss: string) {
+  applyThemePreferences({ themeMode: theme, colorThemeId, customThemeCss });
 }
 
 type Store = AppState & AppActions;
@@ -129,6 +121,8 @@ export const useAppStore = create<Store>()(
       folderConfigs: [],
       // 主题
       theme: 'system' as const,
+      colorThemeId: DEFAULT_COLOR_THEME_ID,
+      customThemeCss: '',
 
   // Actions
   setConnected: (connected) => set({ connected }),
@@ -334,7 +328,20 @@ export const useAppStore = create<Store>()(
   setTheme: (theme) => {
     set({ theme });
     // 同步应用到 DOM
-    applyTheme(theme);
+    const { colorThemeId, customThemeCss } = get();
+    applyTheme(theme, colorThemeId, customThemeCss);
+  },
+
+  setColorThemeId: (colorThemeId) => {
+    set({ colorThemeId });
+    const { theme, customThemeCss } = get();
+    applyTheme(theme, colorThemeId, customThemeCss);
+  },
+
+  setCustomThemeCss: (customThemeCss) => {
+    set({ customThemeCss });
+    const { theme, colorThemeId } = get();
+    applyTheme(theme, colorThemeId, customThemeCss);
   },
     }),
     {
@@ -342,19 +349,27 @@ export const useAppStore = create<Store>()(
       partialize: (state) => ({
         sidebarWidth: state.sidebarWidth,
         theme: state.theme,
+        colorThemeId: state.colorThemeId,
+        customThemeCss: state.customThemeCss,
       }),
       merge: (persistedState: unknown, currentState: Store) => {
         const persisted = persistedState as {
           sidebarWidth?: number;
           theme?: Theme;
+          colorThemeId?: ColorThemeId;
+          customThemeCss?: string;
         } | undefined;
         const theme = persisted?.theme || currentState.theme;
+        const colorThemeId = persisted?.colorThemeId || currentState.colorThemeId;
+        const customThemeCss = persisted?.customThemeCss || currentState.customThemeCss;
         // 初始化时应用主题
-        applyTheme(theme);
+        applyTheme(theme, colorThemeId, customThemeCss);
         return {
           ...currentState,
           sidebarWidth: sanitizeSidebarWidth(persisted?.sidebarWidth, currentState.sidebarWidth),
           theme,
+          colorThemeId,
+          customThemeCss,
         };
       },
     }
@@ -364,9 +379,9 @@ export const useAppStore = create<Store>()(
 // 监听系统主题变化
 if (typeof window !== 'undefined') {
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    const { theme } = useAppStore.getState();
+    const { theme, colorThemeId, customThemeCss } = useAppStore.getState();
     if (theme === 'system') {
-      applyTheme('system');
+      applyTheme('system', colorThemeId, customThemeCss);
     }
   });
 }

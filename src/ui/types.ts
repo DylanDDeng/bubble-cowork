@@ -41,6 +41,7 @@ export type {
 
 // 主题类型
 export type Theme = 'light' | 'dark' | 'system';
+export type ColorThemeId = 'paper' | 'graphite' | 'sepia' | 'rose';
 
 export interface SessionStreamingState {
   isStreaming: boolean;
@@ -109,6 +110,8 @@ export interface AppState {
   folderConfigs: FolderConfig[];
   // 主题
   theme: Theme;
+  colorThemeId: ColorThemeId;
+  customThemeCss: string;
 }
 
 // Store Actions
@@ -147,6 +150,8 @@ export interface AppActions {
   setFolderConfigs: (configs: FolderConfig[]) => void;
   // 主题 Actions
   setTheme: (theme: Theme) => void;
+  setColorThemeId: (colorThemeId: ColorThemeId) => void;
+  setCustomThemeCss: (customThemeCss: string) => void;
 }
 
 // 工具状态映射（用于显示 pending/success/error）
