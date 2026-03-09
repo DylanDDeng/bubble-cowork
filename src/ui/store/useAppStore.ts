@@ -128,7 +128,7 @@ export const useAppStore = create<Store>()(
       claudeSkillsProjectRoot: undefined,
       // Settings 状态
       showSettings: false,
-      activeSettingsTab: 'mcp' as SettingsTab,
+      activeSettingsTab: 'general' as SettingsTab,
       // 状态配置
       statusConfigs: [],
       statusFilter: 'all',
