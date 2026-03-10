@@ -383,9 +383,6 @@ function GeneralSettingsContent({
             )}
           </div>
         </SettingsRow>
-      </SettingsSection>
-
-      <SettingsSection title="Typography">
         <SettingsRow
           label="UI Font"
           description="Used for the sidebar, settings, lists, and standard interface text."
@@ -397,20 +394,6 @@ function GeneralSettingsContent({
             systemFonts={systemFonts}
             systemFontsLoaded={systemFontsLoaded}
             onChange={(selection) => void updateFontSelection('ui', selection)}
-          />
-        </SettingsRow>
-
-        <SettingsRow
-          label="Display Font"
-          description="Used for large editorial headings such as the new thread hero title."
-        >
-          <FontSlotControl
-            slot="display"
-            selection={fontSelections.display}
-            importedFonts={importedFonts}
-            systemFonts={systemFonts}
-            systemFontsLoaded={systemFontsLoaded}
-            onChange={(selection) => void updateFontSelection('display', selection)}
           />
         </SettingsRow>
 
