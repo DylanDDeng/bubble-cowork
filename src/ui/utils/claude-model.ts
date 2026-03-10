@@ -11,12 +11,21 @@ export function canonicalizeClaudeModel(model: string | null | undefined): strin
     return null;
   }
 
-  switch (normalized) {
+  const lower = normalized.toLowerCase();
+  const normalizedWithout1m = lower.replace(/\[1m\]$/i, '');
+
+  switch (normalizedWithout1m) {
     case 'sonnet':
+      return 'claude-sonnet-4-6';
+    case 'claude-sonnet-4-6':
       return 'claude-sonnet-4-6';
     case 'opus':
       return 'claude-opus-4-6';
+    case 'claude-opus-4-6':
+      return 'claude-opus-4-6';
     case 'haiku':
+      return 'claude-haiku-4-5';
+    case 'claude-haiku-4-5':
       return 'claude-haiku-4-5';
     default:
       return normalized;
@@ -50,7 +59,7 @@ export function savePreferredClaudeContext1m(enabled: boolean): void {
 }
 
 export function supportsClaude1mContext(model?: string | null): boolean {
-  const normalized = model?.trim();
+  const normalized = canonicalizeClaudeModel(model);
   return normalized === 'claude-sonnet-4-6' || normalized === 'claude-opus-4-6';
 }
 
@@ -60,10 +69,10 @@ export function isOfficialClaudeModel(model?: string | null): boolean {
 }
 
 export function formatClaudeModelLabel(model: string, context1m = false): string {
-  const normalized = model.trim();
+  const normalized = canonicalizeClaudeModel(model) || model.trim();
   const suffix = context1m && supportsClaude1mContext(normalized) ? ' (1M context)' : '';
 
-  switch (model) {
+  switch (normalized) {
     case 'haiku':
     case 'claude-haiku-4-5':
       return 'Haiku 4.5';

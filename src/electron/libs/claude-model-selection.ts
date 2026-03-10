@@ -1,7 +1,24 @@
 export function normalizeClaudeRequestedModel(model?: string | null): string | undefined {
   if (typeof model !== 'string') return undefined;
   const trimmed = model.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+  if (!trimmed.length) return undefined;
+
+  const lower = trimmed.toLowerCase();
+  const normalizedWithout1m = lower.replace(/\[1m\]$/i, '');
+
+  switch (normalizedWithout1m) {
+    case 'sonnet':
+    case 'claude-sonnet-4-6':
+      return 'claude-sonnet-4-6';
+    case 'opus':
+    case 'claude-opus-4-6':
+      return 'claude-opus-4-6';
+    case 'haiku':
+    case 'claude-haiku-4-5':
+      return 'claude-haiku-4-5';
+    default:
+      return trimmed;
+  }
 }
 
 export function supportsClaude1mContext(model?: string | null): boolean {

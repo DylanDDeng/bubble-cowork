@@ -10,12 +10,21 @@ function canonicalizeClaudeModel(model?: string | null): string | null {
     return null;
   }
 
-  switch (normalized) {
+  const lower = normalized.toLowerCase();
+  const normalizedWithout1m = lower.replace(/\[1m\]$/i, '');
+
+  switch (normalizedWithout1m) {
     case 'sonnet':
+      return 'claude-sonnet-4-6';
+    case 'claude-sonnet-4-6':
       return 'claude-sonnet-4-6';
     case 'opus':
       return 'claude-opus-4-6';
+    case 'claude-opus-4-6':
+      return 'claude-opus-4-6';
     case 'haiku':
+      return 'claude-haiku-4-5';
+    case 'claude-haiku-4-5':
       return 'claude-haiku-4-5';
     default:
       return normalized;
