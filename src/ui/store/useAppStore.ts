@@ -361,7 +361,6 @@ export const useAppStore = create<Store>()(
     const { theme, colorThemeId, fontSelections, importedFonts } = get();
     applyAppearance({ theme, colorThemeId, customThemeCss, fontSelections, importedFonts });
   },
-
   setFontSettings: (settings) => {
     set({
       fontSelections: settings.selections,
@@ -453,6 +452,7 @@ function handleSessionList(
       provider: session.provider || 'claude',
       model: session.model,
       betas: session.betas,
+      claudeAccessMode: session.claudeAccessMode,
       todoState: session.todoState || 'todo',
       pinned: session.pinned || false,
       folderPath: session.folderPath || null,
@@ -491,11 +491,12 @@ function handleSessionStatus(
     provider?: SessionInfo['provider'];
     model?: SessionInfo['model'];
     betas?: SessionInfo['betas'];
+    claudeAccessMode?: SessionInfo['claudeAccessMode'];
   },
   set: SetState,
   get: () => Store
 ) {
-  const { sessionId, status, title, cwd, provider, model, betas } = payload;
+  const { sessionId, status, title, cwd, provider, model, betas, claudeAccessMode } = payload;
   const state = get();
   const session = state.sessions[sessionId];
 
@@ -523,6 +524,7 @@ function handleSessionStatus(
           provider: provider || session.provider,
           model: model !== undefined ? (model || undefined) : session.model,
           betas: betas !== undefined ? betas : session.betas,
+          claudeAccessMode: claudeAccessMode !== undefined ? claudeAccessMode : session.claudeAccessMode,
           streaming:
             status === 'running'
               ? session.streaming
@@ -542,6 +544,7 @@ function handleSessionStatus(
       provider: provider || 'claude',
       model,
       betas,
+      claudeAccessMode,
       messages: [],
       hydrated: true, // 新会话不需要 hydration
       permissionRequests: [],

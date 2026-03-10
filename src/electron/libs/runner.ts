@@ -251,7 +251,18 @@ async function buildUserMessage(
 
 // 运行 Claude Agent
 export function runClaude(options: RunnerOptions): RunnerHandle {
-  const { prompt, attachments, session, resumeSessionId, model, betas, onMessage, onPermissionRequest, onError } = options;
+  const {
+    prompt,
+    attachments,
+    session,
+    resumeSessionId,
+    model,
+    betas,
+    claudeAccessMode,
+    onMessage,
+    onPermissionRequest,
+    onError,
+  } = options;
 
   const abortController = new AbortController();
   const inputQueue = new AsyncMessageQueue<SDKUserMessage>();
@@ -260,6 +271,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
   let currentModel = typeof model === 'string' && model.trim().length > 0 ? model.trim() : undefined;
   let activeQuery: ClaudeQuery | null = null;
   const sessionApprovedExternalAccess = new Set<string>();
+  const sdkPermissionMode = claudeAccessMode === 'fullAccess' ? 'bypassPermissions' : 'default';
 
   const enqueuePrompt = (text: string, promptAttachments?: Attachment[], requestedModel?: string) => {
     const trimmed = text.trim();
@@ -344,6 +356,8 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           includePartialMessages: true,
           maxThinkingTokens,
           betas: betas as Array<'context-1m-2025-08-07'> | undefined,
+          permissionMode: sdkPermissionMode,
+          allowDangerouslySkipPermissions: sdkPermissionMode === 'bypassPermissions',
           env,
           model: currentModel,
           settings: currentModel ? { model: currentModel } : undefined,
@@ -358,6 +372,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           mcpServers: getMcpServers(session.cwd ?? undefined) as Record<string, SDKMcpServerConfig>,
           // 自定义工具权限处理
           canUseTool: async (toolName: string, input: Record<string, unknown>) => {
+            const isFullAccess = sdkPermissionMode === 'bypassPermissions';
             // 修正文件路径：如果路径不在 session.cwd 下，尝试修正
             if (session.cwd) {
               // 文件操作工具的路径修正
@@ -367,6 +382,13 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
                 if (filePath) {
                   const normalized = normalizeToolFilePath(session.cwd, filePath);
                   if (normalized && !normalized.isWithin) {
+                    if (isFullAccess) {
+                      return {
+                        behavior: 'allow' as const,
+                        updatedInput: { ...input, file_path: normalized.resolved },
+                      };
+                    }
+
                     const accessKey = `${toolName}:${normalized.resolved}`;
                     if (sessionApprovedExternalAccess.has(accessKey)) {
                       return {

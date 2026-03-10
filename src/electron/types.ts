@@ -28,6 +28,7 @@ export interface SessionRow {
   provider: 'claude' | 'codex';
   model: string | null;
   betas: string | null;
+  claude_access_mode: import('../shared/types').ClaudeAccessMode | null;
   status: string;
   cwd: string | null;
   allowed_tools: string | null;
@@ -54,6 +55,7 @@ export interface RunnerOptions {
   resumeSessionId?: string;
   model?: string;
   betas?: string[];
+  claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
   onMessage: (message: import('../shared/types').StreamMessage) => void;
   onError?: (error: Error) => void;
   onPermissionRequest: (

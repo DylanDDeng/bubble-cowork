@@ -484,6 +484,10 @@ export function App() {
                                     provider: activeSession.provider,
                                     model: activeSession.model,
                                     betas: activeSession.betas,
+                                    claudeAccessMode:
+                                      activeSession.provider === 'claude'
+                                        ? activeSession.claudeAccessMode || 'default'
+                                        : undefined,
                                   },
                                 });
                               },

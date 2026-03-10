@@ -665,7 +665,7 @@ async function handleEditLatestPrompt(
   mainWindow: BrowserWindow,
   payload: SessionContinuePayload
 ): Promise<void> {
-  const { sessionId, prompt, attachments, model, betas } = payload;
+  const { sessionId, prompt, attachments, model, betas, claudeAccessMode } = payload;
   const session = sessions.getSession(sessionId);
   if (!session) {
     broadcast(mainWindow, {
@@ -767,6 +767,7 @@ async function handleEditLatestPrompt(
   sessions.setClaudeSessionId(sessionId, nextClaudeSessionId || null);
   sessions.updateSessionModel(sessionId, resolvedModel || null);
   sessions.updateSessionBetas(sessionId, requestedBetas || null);
+  sessions.updateSessionClaudeAccessMode(sessionId, claudeAccessMode || 'default');
 
   const refreshedSession = sessions.getSession(sessionId);
   if (!refreshedSession) {
@@ -794,6 +795,7 @@ async function handleEditLatestPrompt(
       provider: refreshedSession.provider,
       model: resolvedModel || undefined,
       betas: requestedBetas,
+      claudeAccessMode: claudeAccessMode || 'default',
     },
   });
 
@@ -805,7 +807,8 @@ async function handleEditLatestPrompt(
     attachments,
     'claude',
     resolvedModel || undefined,
-    requestedBetas
+    requestedBetas,
+    claudeAccessMode
   );
 }
 
@@ -888,7 +891,14 @@ function toAttachment(filePath: string): Attachment | null {
 }
 
 // Runner 句柄映射（带 Provider）
-const runnerHandles = new Map<string, { handle: RunnerHandle; provider: 'claude' | 'codex' }>();
+const runnerHandles = new Map<
+  string,
+  {
+    handle: RunnerHandle;
+    provider: 'claude' | 'codex';
+    claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
+  }
+>();
 
 // 会话状态映射（包含 pending permissions）
 const sessionStates = new Map<string, SessionState>();
@@ -1519,6 +1529,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     provider: row.provider || 'claude',
     model: row.model || undefined,
     betas: parseStoredBetas(row.betas),
+    claudeAccessMode: row.claude_access_mode || 'default',
     todoState: row.todo_state || 'todo',
     pinned: row.pinned === 1,
     folderPath: row.folder_path || null,
@@ -1551,7 +1562,7 @@ async function handleSessionStart(
   mainWindow: BrowserWindow,
   payload: SessionStartPayload
 ): Promise<string | null> {
-  const { title, prompt, cwd, allowedTools, attachments, provider, model, betas } = payload;
+  const { title, prompt, cwd, allowedTools, attachments, provider, model, betas, claudeAccessMode } = payload;
   if (!cwd?.trim()) {
     broadcast(mainWindow, {
       type: 'runner.error',
@@ -1579,6 +1590,7 @@ async function handleSessionStart(
     provider: chosenProvider,
     model: selectedModel,
     betas: selectedBetas,
+    claudeAccessMode: chosenProvider === 'claude' ? (claudeAccessMode || 'default') : undefined,
   });
 
   // 更新状态为 running
@@ -1595,6 +1607,7 @@ async function handleSessionStart(
       provider: chosenProvider,
       model: selectedModel,
       betas: selectedBetas,
+      claudeAccessMode: chosenProvider === 'claude' ? (claudeAccessMode || 'default') : undefined,
     },
   });
 
@@ -1641,7 +1654,8 @@ async function handleSessionStart(
     attachments,
     chosenProvider,
     selectedModel,
-    selectedBetas
+    selectedBetas,
+    claudeAccessMode
   );
   return session.id;
 }
@@ -1651,7 +1665,7 @@ async function handleSessionContinue(
   mainWindow: BrowserWindow,
   payload: SessionContinuePayload
 ): Promise<boolean> {
-  const { sessionId, prompt, attachments, provider, model, betas } = payload;
+  const { sessionId, prompt, attachments, provider, model, betas, claudeAccessMode } = payload;
 
   const session = sessions.getSession(sessionId);
   if (!session) {
@@ -1678,6 +1692,10 @@ async function handleSessionContinue(
   const providerChanged = nextProvider !== previousProvider;
   const modelChanged = nextModel !== previousModel;
   const betasChanged = JSON.stringify(nextBetas || []) !== JSON.stringify(previousBetas || []);
+  const nextClaudeAccessMode = nextProvider === 'claude' ? (claudeAccessMode || 'default') : undefined;
+  const accessModeChanged =
+    nextProvider === 'claude' &&
+    (runnerHandles.get(sessionId)?.claudeAccessMode || 'default') !== nextClaudeAccessMode;
 
   if (isDev()) {
     console.log('[Session Continue]', {
@@ -1689,6 +1707,7 @@ async function handleSessionContinue(
       nextBetas,
       providerChanged,
       betasChanged,
+      accessModeChanged,
       hasExistingRunner: !!existingEntry,
     });
   }
@@ -1698,6 +1717,9 @@ async function handleSessionContinue(
   }
   sessions.updateSessionModel(sessionId, nextModel || null);
   sessions.updateSessionBetas(sessionId, nextBetas || null);
+  if (nextProvider === 'claude') {
+    sessions.updateSessionClaudeAccessMode(sessionId, claudeAccessMode || 'default');
+  }
 
   // 更新状态
   sessions.updateSessionStatus(sessionId, 'running');
@@ -1712,6 +1734,7 @@ async function handleSessionContinue(
       provider: nextProvider,
       model: nextModel ?? '',
       betas: nextBetas,
+      claudeAccessMode: nextProvider === 'claude' ? (claudeAccessMode || 'default') : undefined,
     },
   });
 
@@ -1726,7 +1749,10 @@ async function handleSessionContinue(
   sessions.addMessage(sessionId, { type: 'user_prompt', prompt, attachments, createdAt });
 
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
-    if ((nextProvider === 'codex' && modelChanged) || (nextProvider === 'claude' && (modelChanged || betasChanged))) {
+    if (
+      (nextProvider === 'codex' && modelChanged) ||
+      (nextProvider === 'claude' && (modelChanged || betasChanged || accessModeChanged))
+    ) {
       existingEntry.handle.abort();
       runnerHandles.delete(sessionId);
     } else {
@@ -1756,7 +1782,8 @@ async function handleSessionContinue(
     attachments,
     nextProvider,
     nextModel,
-    nextBetas
+    nextBetas,
+    claudeAccessMode
   );
   return true;
 }
@@ -1770,7 +1797,8 @@ function startRunner(
   attachments?: Attachment[],
   providerOverride?: 'claude' | 'codex',
   modelOverride?: string,
-  betasOverride?: string[]
+  betasOverride?: string[],
+  claudeAccessMode?: import('../shared/types').ClaudeAccessMode
 ): void {
   if (!session) return;
 
@@ -1799,6 +1827,7 @@ function startRunner(
     resumeSessionId,
     model: modelOverride,
     betas: provider === 'claude' ? betasOverride || parseStoredBetas(session.betas) : undefined,
+    claudeAccessMode,
     onMessage: (message) => {
       // 提取并保存 claude session id
       if (message.type === 'system' && message.subtype === 'init') {
@@ -1806,7 +1835,7 @@ function startRunner(
         if (provider === 'codex') {
           sessions.updateCodexSessionId(session.id, message.session_id);
           if (message.model) {
-            sessions.updateSessionModel(session.id, message.model);
+      sessions.updateSessionModel(session.id, message.model);
           }
         } else {
           sessions.updateClaudeSessionId(session.id, message.session_id);
@@ -1832,6 +1861,10 @@ function startRunner(
             betas:
               provider === 'claude'
                 ? betasOverride || parseStoredBetas(sessions.getSession(session.id)?.betas)
+                : undefined,
+            claudeAccessMode:
+              provider === 'claude'
+                ? sessions.getSession(session.id)?.claude_access_mode || claudeAccessMode || 'default'
                 : undefined,
           },
         });
@@ -1886,6 +1919,10 @@ function startRunner(
               provider === 'claude'
                 ? betasOverride || parseStoredBetas(sessions.getSession(session.id)?.betas)
                 : undefined,
+            claudeAccessMode:
+              provider === 'claude'
+                ? sessions.getSession(session.id)?.claude_access_mode || claudeAccessMode || 'default'
+                : undefined,
           },
         });
         if (runnerHandles.get(session.id)?.handle === handle) {
@@ -1937,7 +1974,11 @@ function startRunner(
     },
   });
 
-  runnerHandles.set(session.id, { handle, provider });
+  runnerHandles.set(session.id, {
+    handle,
+    provider,
+    claudeAccessMode: provider === 'claude' ? (claudeAccessMode || 'default') : undefined,
+  });
 }
 
 // 获取会话历史

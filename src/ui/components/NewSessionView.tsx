@@ -2,11 +2,12 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import type { Attachment, ClaudeSkillSummary } from '../types';
+import type { Attachment, ClaudeAccessMode, ClaudeSkillSummary } from '../types';
 import powerPointLogo from '../assets/powerpoint-2025-logo.svg';
 import pdfLogo from '../assets/pdf-svgrepo-com.svg';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
+import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
@@ -67,6 +68,7 @@ export function NewSessionView() {
     loadPreferredCodexModel()
   );
   const [showCwdHint, setShowCwdHint] = useState(false);
+  const [claudeAccessMode, setClaudeAccessMode] = useState<ClaudeAccessMode>('default');
   const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const cwd = projectCwd || '';
   const hasSelectedCwd = cwd.trim().length > 0;
@@ -238,6 +240,7 @@ export function NewSessionView() {
           selectedClaudeContext1m
             ? ['context-1m-2025-08-07']
             : undefined,
+        claudeAccessMode: provider === 'claude' ? claudeAccessMode : undefined,
       },
     });
 
@@ -475,6 +478,14 @@ export function NewSessionView() {
                 },
               }}
             />
+
+              {provider === 'claude' && (
+                <ClaudeAccessModePicker
+                  value={claudeAccessMode}
+                  onChange={setClaudeAccessMode}
+                  disabled={pendingStart}
+                />
+              )}
 
               <div className="relative no-drag">
                 <button

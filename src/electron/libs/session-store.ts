@@ -4,6 +4,7 @@ import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { SessionRow, StreamMessage, SessionStatus } from '../types';
 import type {
+  ClaudeAccessMode,
   ClaudeModelUsage,
   ClaudeUsageModelSummary,
   ClaudeUsageRangeDays,
@@ -36,6 +37,7 @@ export function initialize(): void {
       provider TEXT NOT NULL DEFAULT 'claude',
       model TEXT,
       betas TEXT,
+      claude_access_mode TEXT DEFAULT 'default',
       status TEXT NOT NULL DEFAULT 'idle',
       cwd TEXT,
       allowed_tools TEXT,
@@ -60,6 +62,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
   ensureColumn('sessions', 'model', 'TEXT');
   ensureColumn('sessions', 'betas', 'TEXT');
+  ensureColumn('sessions', 'claude_access_mode', "TEXT DEFAULT 'default'");
   ensureColumn('sessions', 'todo_state', "TEXT DEFAULT 'todo'");
   ensureColumn('sessions', 'pinned', 'INTEGER DEFAULT 0');
   ensureColumn('sessions', 'folder_path', 'TEXT');
@@ -100,13 +103,14 @@ export function createSession(params: {
   provider?: 'claude' | 'codex';
   model?: string;
   betas?: string[];
+  claudeAccessMode?: ClaudeAccessMode;
 }): SessionRow {
   const now = Date.now();
   const id = uuidv4();
 
   const stmt = getDb().prepare(`
-    INSERT INTO sessions (id, title, provider, model, betas, cwd, allowed_tools, last_prompt, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
+    INSERT INTO sessions (id, title, provider, model, betas, claude_access_mode, cwd, allowed_tools, last_prompt, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
   `);
 
   stmt.run(
@@ -115,6 +119,7 @@ export function createSession(params: {
     params.provider || 'claude',
     params.model || null,
     params.betas && params.betas.length > 0 ? JSON.stringify(params.betas) : null,
+    params.provider === 'claude' ? params.claudeAccessMode || 'default' : null,
     params.cwd || null,
     params.allowedTools || null,
     params.prompt || null,
@@ -201,6 +206,17 @@ export function updateSessionBetas(sessionId: string, betas: string[] | null): v
     UPDATE sessions SET betas = ?, updated_at = ? WHERE id = ?
   `);
   stmt.run(betas && betas.length > 0 ? JSON.stringify(betas) : null, now, sessionId);
+}
+
+export function updateSessionClaudeAccessMode(
+  sessionId: string,
+  mode: ClaudeAccessMode | null
+): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET claude_access_mode = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(mode, now, sessionId);
 }
 
 // 更新 Session TodoState

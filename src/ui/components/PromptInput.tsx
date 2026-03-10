@@ -2,9 +2,10 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { Paperclip, Plus, Square } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import type { Attachment } from '../types';
+import type { Attachment, ClaudeAccessMode } from '../types';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
+import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
@@ -50,6 +51,7 @@ export function PromptInput() {
   const [selectedCodexModel, setSelectedCodexModel] = useState<string | null>(
     loadPreferredCodexModel()
   );
+  const [selectedClaudeAccessMode, setSelectedClaudeAccessMode] = useState<ClaudeAccessMode>('default');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
@@ -101,6 +103,7 @@ export function PromptInput() {
           selectedClaudeContext1m
             ? ['context-1m-2025-08-07']
             : undefined,
+        claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
       },
     });
     setPrompt('');
@@ -121,6 +124,17 @@ export function PromptInput() {
       savePreferredProvider(activeSession.provider);
     }
   }, [activeSessionId, activeSession?.provider]);
+
+  useEffect(() => {
+    if (activeSession?.provider === 'claude') {
+      setSelectedClaudeAccessMode(activeSession.claudeAccessMode || 'default');
+      return;
+    }
+
+    if (!activeSessionId) {
+      setSelectedClaudeAccessMode('default');
+    }
+  }, [activeSession?.claudeAccessMode, activeSession?.provider, activeSessionId]);
 
   useEffect(() => {
     if (activeSession?.provider !== 'claude') {
@@ -216,6 +230,7 @@ export function PromptInput() {
             selectedClaudeContext1m
               ? ['context-1m-2025-08-07']
               : undefined,
+          claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
         },
       });
       setPrompt('');
@@ -402,6 +417,14 @@ export function PromptInput() {
                 },
               }}
             />
+
+            {provider === 'claude' && (
+              <ClaudeAccessModePicker
+                value={selectedClaudeAccessMode}
+                onChange={setSelectedClaudeAccessMode}
+                disabled={isRunning}
+              />
+            )}
 
             <div className="relative">
               <button

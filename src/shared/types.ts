@@ -85,6 +85,8 @@ export interface ClaudeModelConfig {
   options: string[];
 }
 
+export type ClaudeAccessMode = 'default' | 'fullAccess';
+
 export interface CodexModelConfig {
   defaultModel: string | null;
   options: string[];
@@ -261,6 +263,7 @@ export interface SessionStartPayload {
   provider?: AgentProvider;
   model?: string;
   betas?: string[];
+  claudeAccessMode?: ClaudeAccessMode;
 }
 
 export interface SessionContinuePayload {
@@ -270,6 +273,7 @@ export interface SessionContinuePayload {
   provider?: AgentProvider;
   model?: string;
   betas?: string[];
+  claudeAccessMode?: ClaudeAccessMode;
 }
 
 export interface SessionInfo {
@@ -281,6 +285,7 @@ export interface SessionInfo {
   provider?: AgentProvider;
   model?: string;
   betas?: string[];
+  claudeAccessMode?: ClaudeAccessMode;
   todoState?: TodoState;
   pinned?: boolean;
   folderPath?: string | null;
@@ -299,6 +304,7 @@ export interface SessionStatusPayload {
   provider?: AgentProvider;
   model?: string;
   betas?: string[];
+  claudeAccessMode?: ClaudeAccessMode;
 }
 
 export interface SessionHistoryPayload {
