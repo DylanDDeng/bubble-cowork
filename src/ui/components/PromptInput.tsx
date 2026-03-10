@@ -299,9 +299,9 @@ export function PromptInput() {
   };
 
   return (
-    <div className="p-4 bg-transparent">
-      <div className="max-w-4xl mx-auto">
-        <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-3xl shadow-sm">
+    <div className="bg-transparent">
+      <div className="mx-auto max-w-4xl">
+        <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-3xl shadow-sm transition-colors">
           {attachments.length > 0 && (
             <div className="px-5 pt-4">
               <AttachmentChips
@@ -441,7 +441,7 @@ export function PromptInput() {
             {isRunning ? (
               <button
                 onClick={handleStop}
-                className="h-9 w-9 rounded-full border border-black bg-black text-white transition-colors hover:bg-[var(--accent-hover)] flex items-center justify-center"
+                className="h-10 w-10 rounded-full border border-black bg-black text-white transition-colors hover:bg-[var(--accent-hover)] flex items-center justify-center"
                 title="Stop"
                 aria-label="Stop"
               >
@@ -451,7 +451,7 @@ export function PromptInput() {
               <button
                 onClick={handleSend}
                 disabled={!prompt.trim()}
-                className="h-9 w-9 rounded-full flex items-center justify-center transition-colors disabled:cursor-not-allowed"
+                className="h-10 w-10 rounded-full flex items-center justify-center transition-colors disabled:cursor-not-allowed"
                 style={{
                   backgroundColor: !prompt.trim() ? '#848588' : '#000000',
                   color: '#FFFFFF'
@@ -465,20 +465,6 @@ export function PromptInput() {
           </div>
         </div>
 
-        <div className="mt-2 px-1 text-[13px] text-[var(--text-muted)]">
-          {isRunning
-            ? 'Session is running. Press Enter or click Stop to abort.'
-            : provider === 'claude'
-              ? 'Press Enter to send, Shift+Enter for new line. Type / to insert a Claude skill.'
-              : 'Press Enter to send, Shift+Enter for new line'}
-          {provider === 'claude' && activeClaudeModel
-            ? visibleActiveClaudeModel
-              ? ` Current model: ${formatClaudeModelLabel(visibleActiveClaudeModel, selectedClaudeContext1m)}`
-              : ''
-            : provider === 'codex' && (activeSession?.model || selectedCodexModel)
-              ? ` Current model: ${formatCodexModelLabel(activeSession?.model || selectedCodexModel || '')}`
-              : ''}
-        </div>
       </div>
     </div>
   );

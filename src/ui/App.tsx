@@ -531,7 +531,9 @@ export function App() {
           </div>
 
           {/* 输入区域 */}
-          <PromptInput />
+          <div className="px-8 pb-4">
+            <PromptInput />
+          </div>
         </div>
       ) : (
         <NewSessionView />
