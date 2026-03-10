@@ -134,10 +134,37 @@ html {
 
 body {
   font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  font-size: 13px;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+.text-sm,
+.text-base,
+.text-lg,
+.text-xl,
+.text-4xl,
+.text-6xl,
+.text-\[10px\],
+.text-\[11px\],
+.text-\[12px\],
+.text-\[13px\],
+.text-\[14px\],
+.text-\[15px\],
+.text-\[16px\],
+.text-\[22px\],
+.text-\[24px\],
+.text-\[28px\],
+.text-\[30px\],
+.text-\[32px\],
+.text-\[34px\],
+.text-\[36px\],
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+  font-size: 13px !important;
 }
 
 /* Serif display heading (cross-platform system font stack) */
