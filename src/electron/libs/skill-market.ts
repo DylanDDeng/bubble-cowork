@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import { homedir } from 'os';
 import type { SkillMarketDetail, SkillMarketInstallResult, SkillMarketItem } from '../../shared/types';
+import { listClaudeSkills } from './claude-skills';
 
 const SKILLS_BASE_URL = 'https://skills.sh';
 const DEFAULT_LIMIT = 60;
@@ -63,8 +64,7 @@ export async function getSkillMarketDetail(id: string): Promise<SkillMarketDetai
 
   const detailUrl = `${SKILLS_BASE_URL}/${route.owner}/${route.repo}/${route.skillId}`;
   const html = await fetchText(detailUrl);
-  const installCommand =
-    extractInstallCommand(html) || buildInstallCommand(route.owner, route.repo, route.skillId);
+  const installCommand = buildInstallCommand(route.owner, route.repo, route.skillId);
   const repoUrl = extractRepoUrl(html) || `https://github.com/${route.owner}/${route.repo}`;
   const name = extractTitle(html) || route.skillId;
   const description = extractDescription(html) || 'No description available from skills.sh.';
@@ -103,7 +103,7 @@ export async function installSkillFromMarket(id: string): Promise<SkillMarketIns
 
   const repoUrl = `https://github.com/${route.owner}/${route.repo}`;
   const command = buildInstallCommand(route.owner, route.repo, route.skillId);
-  const args = ['--yes', 'skills', 'add', repoUrl, '--skill', route.skillId];
+  const args = ['--yes', 'skills', 'add', repoUrl, '--skill', route.skillId, '-g', '-a', 'claude-code', '--copy', '-y'];
 
   return new Promise<SkillMarketInstallResult>((resolve) => {
     const proc = spawn('npx', args, {
@@ -155,11 +155,17 @@ export async function installSkillFromMarket(id: string): Promise<SkillMarketIns
 
     proc.on('close', (code) => {
       clearTimeout(timer);
+      const installed = listClaudeSkills().userSkills.some((skill) => skill.name === route.skillId);
       settle({
-        ok: code === 0,
+        ok: code === 0 && installed,
         command,
         output: output.trim(),
-        message: code === 0 ? undefined : `Install failed with exit code ${code ?? 'unknown'}.`,
+        message:
+          code !== 0
+            ? `Install failed with exit code ${code ?? 'unknown'}.`
+            : installed
+              ? undefined
+              : `The installer exited successfully, but ${route.skillId} was not found in ~/.claude/skills afterwards.`,
       });
     });
   });
@@ -270,7 +276,7 @@ function parseSkillRoute(id: string): ParsedSkillRoute | null {
 }
 
 function buildInstallCommand(owner: string, repo: string, skillId: string): string {
-  return `npx --yes skills add https://github.com/${owner}/${repo} --skill ${skillId}`;
+  return `npx --yes skills add https://github.com/${owner}/${repo} --skill ${skillId} -g -a claude-code --copy -y`;
 }
 
 function extractInstallCommand(html: string): string | null {
