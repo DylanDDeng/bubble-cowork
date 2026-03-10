@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { Paperclip, Plus, ArrowUp, Square } from 'lucide-react';
+import { Paperclip, Plus, Square } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import type { Attachment } from '../types';
@@ -459,7 +459,7 @@ export function PromptInput() {
                 title="Send"
                 aria-label="Send"
               >
-                <ArrowUp className="h-4.5 w-4.5" />
+                <ArrowUpIcon />
               </button>
             )}
           </div>
@@ -467,5 +467,20 @@ export function PromptInput() {
 
       </div>
     </div>
+  );
+}
+
+function ArrowUpIcon() {
+  return (
+    <svg
+      className="w-5 h-5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      aria-hidden="true"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 19V5m0 0l-6 6m6-6l6 6" />
+    </svg>
   );
 }
