@@ -553,7 +553,7 @@ function FontSlotControl({
           <button
             type="button"
             onClick={applySelection}
-            className="h-10 rounded-[16px] border border-[var(--accent)] bg-[var(--accent)] px-4 text-[14px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
+            className="h-10 rounded-full border border-[var(--border)] bg-[var(--accent-light)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
           >
             Apply
           </button>

@@ -184,9 +184,11 @@ export function ClaudeUsageSettingsContent() {
 function ModelProviderLogo({
   model,
   color,
+  className = 'h-4 w-4',
 }: {
   model: string;
   color: string;
+  className?: string;
 }) {
   const logo = getProviderLogoForModel(model);
 
@@ -199,7 +201,7 @@ function ModelProviderLogo({
     );
   }
 
-  return <img src={logo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
+  return <img src={logo} alt="" className={`${className} flex-shrink-0`} aria-hidden="true" />;
 }
 
 function getProviderLogoForModel(model: string): string | null {
@@ -352,9 +354,10 @@ function UsageChart({
                 <div key={row.model} className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span
-                        className="mt-1 h-2.5 w-2.5 flex-shrink-0 rounded-full"
-                        style={{ backgroundColor: modelColors[row.model] }}
+                      <ModelProviderLogo
+                        model={row.model}
+                        color={modelColors[row.model]}
+                        className="h-3.5 w-3.5"
                       />
                       <span className="truncate text-sm font-medium text-[var(--text-primary)]">
                         {row.model}

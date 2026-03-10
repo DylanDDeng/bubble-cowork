@@ -117,7 +117,7 @@ export function SkillsSettingsContentInner({ embedded = false }: { embedded?: bo
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search skills..."
-              className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] pl-9 pr-9 text-sm text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+              className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] pl-9 pr-9 text-sm text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--border)]"
             />
             {hasSearchQuery && (
               <button
