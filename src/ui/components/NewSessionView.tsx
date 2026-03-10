@@ -127,6 +127,13 @@ export function NewSessionView() {
   }, [showCwdHint]);
 
   useEffect(() => {
+    if (promptTextareaRef.current) {
+      promptTextareaRef.current.style.height = 'auto';
+      promptTextareaRef.current.style.height = `${Math.min(promptTextareaRef.current.scrollHeight, 200)}px`;
+    }
+  }, [prompt]);
+
+  useEffect(() => {
     const fallbackModel =
       claudeModelConfig.defaultModel ||
       availableClaudeModels[0] ||
@@ -315,7 +322,7 @@ export function NewSessionView() {
       <div className="flex-1 flex justify-center px-8 pb-4 pt-16">
         <div className="flex h-full w-full max-w-[920px] flex-col">
           <div className="flex flex-1 items-center justify-center text-center">
-            <div className="-translate-y-6">
+            <div className="-translate-y-10">
             {/* 标题 */}
               <h1 className="text-[18px] font-bold serif-display leading-tight text-[var(--text-primary)]">
                 What can I help you with?
@@ -326,38 +333,40 @@ export function NewSessionView() {
                   Select a project folder to enable starting a new task.
                 </div>
               )}
+
+              <div className="mt-10 flex justify-center">
+                <div className="w-full max-w-[520px]">
+                  <div className="mb-2 text-[10px] uppercase tracking-[0.22em] text-[var(--text-muted)]">
+                    Quick paths
+                  </div>
+                  <div className="flex flex-col items-center gap-2.5">
+                    <QuickActionCard
+                      title="Create PPTX"
+                      description="Presentation deck"
+                      logoSrc={powerPointLogo}
+                      skill={pptxSkill}
+                      fallbackSkillName="pptx"
+                      fallbackSkillTitle="PPTX Skill"
+                      unavailable={!pptxSkill}
+                      onClick={() => handleQuickAction(pptxSkill, 'pptx', PPTX_QUICK_ACTION_PROMPT)}
+                    />
+                    <QuickActionCard
+                      title="Create PDF"
+                      description="Shareable document"
+                      logoSrc={pdfLogo}
+                      skill={pdfSkill}
+                      fallbackSkillName="pdf"
+                      fallbackSkillTitle="PDF Skill"
+                      unavailable={!pdfSkill}
+                      onClick={() => handleQuickAction(pdfSkill, 'pdf', PDF_QUICK_ACTION_PROMPT)}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
           <div className="mt-auto">
-            <div className="mt-8 mb-3 flex justify-center">
-              <div className="w-full max-w-[700px]">
-                <div className="mb-2 flex items-center justify-end pr-2 text-[10px] uppercase tracking-[0.22em] text-[var(--text-muted)]">
-                  Quick paths
-                </div>
-                <div className="flex flex-wrap justify-start gap-3">
-                  <QuickActionCard
-                    title="Create a PPTX deck"
-                    logoSrc={powerPointLogo}
-                    skill={pptxSkill}
-                    fallbackSkillName="pptx"
-                    fallbackSkillTitle="PPTX Skill"
-                    unavailable={!pptxSkill}
-                    onClick={() => handleQuickAction(pptxSkill, 'pptx', PPTX_QUICK_ACTION_PROMPT)}
-                  />
-                  <QuickActionCard
-                    title="Create a PDF doc"
-                    logoSrc={pdfLogo}
-                    skill={pdfSkill}
-                    fallbackSkillName="pdf"
-                    fallbackSkillTitle="PDF Skill"
-                    unavailable={!pdfSkill}
-                    onClick={() => handleQuickAction(pdfSkill, 'pdf', PDF_QUICK_ACTION_PROMPT)}
-                  />
-                </div>
-              </div>
-            </div>
-
             <div
               className={`flex justify-center overflow-hidden transition-all duration-200 ${
                 showCwdHint
@@ -528,6 +537,7 @@ export function NewSessionView() {
 
 function QuickActionCard({
   title,
+  description,
   logoSrc,
   skill,
   fallbackSkillName,
@@ -536,6 +546,7 @@ function QuickActionCard({
   onClick,
 }: {
   title: string;
+  description: string;
   logoSrc: string;
   skill: ClaudeSkillSummary | null;
   fallbackSkillName: string;
@@ -556,25 +567,29 @@ function QuickActionCard({
       type="button"
       aria-disabled={unavailable}
       onClick={onClick}
-      className={`group w-full max-w-[276px] rounded-[22px] border bg-[var(--bg-secondary)] px-3.5 py-3 text-left shadow-sm transition-all ${
+      className={`group w-full max-w-[320px] rounded-[18px] border bg-[var(--bg-secondary)]/95 px-3.5 py-3 text-left shadow-sm transition-all ${
         unavailable
           ? 'cursor-not-allowed border-[var(--border)] opacity-60'
-          : 'border-[var(--border)] hover:-translate-y-0.5 hover:border-black/15 hover:shadow-md'
+          : 'border-[var(--border)] hover:-translate-y-0.5 hover:border-black/15 hover:shadow-[0_10px_24px_rgba(15,23,42,0.08)]'
       }`}
     >
-      <div className="mb-3 flex items-start justify-between gap-2.5">
-        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-2xl bg-white/70 shadow-sm ring-1 ring-black/5">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-white/80 shadow-sm ring-1 ring-black/5 transition-transform group-hover:scale-[1.03]">
           <img src={logoSrc} alt="" className="h-7 w-7" />
         </div>
-        <div className="pointer-events-none">
+
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[13px] font-semibold leading-5 text-[var(--text-primary)]">
+            {title}
+          </div>
+          <div className="mt-0.5 truncate text-[12px] font-medium text-[var(--text-muted)]">
+            {unavailable ? `Install /${fallbackSkillName}` : description}
+          </div>
+        </div>
+
+        <div className="pointer-events-none flex-shrink-0">
           <SelectedClaudeSkillChip skill={badgeSkill} compact />
         </div>
-      </div>
-
-      <div className="text-[13px] font-semibold leading-6 text-[var(--text-primary)]">{title}</div>
-
-      <div className="mt-2 text-[13px] font-medium text-[var(--text-muted)]">
-        {unavailable ? `Requires the /${fallbackSkillName} Claude skill` : 'Click to insert into the message box'}
       </div>
     </button>
   );
