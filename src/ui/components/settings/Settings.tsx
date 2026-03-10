@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn, PlugZap, Palette, Eraser, ChevronDown, Check } from 'lucide-react';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn, PlugZap, Eraser, ChevronDown, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
@@ -8,7 +8,7 @@ import { McpSettingsContent } from './McpSettings';
 import { SkillMarketSettingsContent } from './SkillMarketSettings';
 import type { ColorThemeId, FontSelection, FontSettingsPayload, FontSlot, ImportedFontFace, SystemFontOption, Theme } from '../../types';
 import { BUILTIN_FONT_OPTIONS, getDefaultFontSelections, getFontPreviewLabel } from '../../theme/fonts';
-import { COLOR_THEME_FAMILIES, getThemePreviewPalette, resolveThemeMode } from '../../theme/themes';
+import { COLOR_THEME_FAMILIES, resolveThemeMode } from '../../theme/themes';
 
 const SETTINGS_TABS = {
   general: {
@@ -257,26 +257,14 @@ function GeneralSettingsContent({
           label="Color Theme"
           description={`Pick a theme family. The current appearance resolves to ${resolvedMode}.`}
         >
-          <div className="w-full max-w-[400px]">
+          <div className="w-full max-w-[260px]">
             <button
               type="button"
               onClick={() => setThemePickerOpen((current) => !current)}
-              className="flex w-full items-center gap-3 rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2.5 text-left text-sm transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--bg-tertiary)]/55"
+              className="flex w-full items-center rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2.5 text-left text-sm transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--bg-tertiary)]/55"
             >
-              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">
-                <Palette className="h-4 w-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-semibold text-[var(--text-primary)]">{activeTheme.label}</div>
-                <div className="mt-1 flex items-center gap-1.5">
-                  {getThemePreviewPalette(colorThemeId, theme).map((color, index) => (
-                    <span
-                      key={`${activeTheme.id}-${index}`}
-                      className="h-3.5 flex-1 rounded-full border border-black/5"
-                      style={{ backgroundColor: color }}
-                    />
-                  ))}
-                </div>
+              <div className="min-w-0 flex-1 truncate font-semibold text-[var(--text-primary)]">
+                {activeTheme.label}
               </div>
               <ChevronDown className={`h-4 w-4 flex-shrink-0 text-[var(--text-muted)] transition-transform ${themePickerOpen ? 'rotate-180' : ''}`} />
             </button>
@@ -300,18 +288,7 @@ function GeneralSettingsContent({
                             : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/70 hover:text-[var(--text-primary)]'
                         }`}
                       >
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium">{family.label}</div>
-                        </div>
-                        <div className="flex w-[96px] items-center gap-1.5">
-                          {getThemePreviewPalette(family.id, theme).map((color, index) => (
-                            <span
-                              key={`${family.id}-${index}`}
-                              className="h-3.5 flex-1 rounded-full border border-black/5"
-                              style={{ backgroundColor: color }}
-                            />
-                          ))}
-                        </div>
+                        <div className="min-w-0 flex-1 truncate text-sm font-medium">{family.label}</div>
                         <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center text-[var(--text-muted)]">
                           {selected ? <Check className="h-4 w-4" /> : null}
                         </span>
