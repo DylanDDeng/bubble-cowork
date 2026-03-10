@@ -317,7 +317,7 @@ export function NewSessionView() {
           <div className="flex flex-1 items-center justify-center text-center">
             <div className="-translate-y-6">
             {/* 标题 */}
-              <h1 className="text-4xl font-bold serif-display leading-tight text-[var(--text-primary)]">
+              <h1 className="text-[18px] font-bold serif-display leading-tight text-[var(--text-primary)]">
                 What can I help you with?
               </h1>
 
