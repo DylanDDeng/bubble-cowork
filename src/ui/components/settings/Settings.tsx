@@ -595,85 +595,88 @@ function FontSlotControl({
           : null;
 
   return (
-    <div className="w-full max-w-[360px] space-y-3">
-      <div className="space-y-2">
-        <input
-          value={fontQuery}
-          onChange={(event) => setFontQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && firstFontMatch) {
-              event.preventDefault();
-              onChange(firstFontMatch);
-            }
-          }}
-          placeholder="Search fonts..."
-          className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
-        />
+    <div className="w-full max-w-[440px] space-y-3">
+      <div className="rounded-[20px] border border-[var(--border)] bg-[var(--bg-primary)] p-3">
+        <div className="space-y-3">
+          <input
+            value={fontQuery}
+            onChange={(event) => setFontQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && firstFontMatch) {
+                event.preventDefault();
+                onChange(firstFontMatch);
+              }
+            }}
+            placeholder="Search fonts..."
+            className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-[14px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--text-muted)]"
+          />
 
-        <div className="flex gap-2">
-        <select
-          value={`${selection.source}:${selection.id}`}
-          onChange={(event) => {
-            const [source, id] = event.target.value.split(':');
-            onChange({
-              source:
-                source === 'imported'
-                  ? 'imported'
-                  : source === 'system'
-                    ? 'system'
-                    : 'builtin',
-              id,
-            });
-          }}
-          className="h-11 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
-        >
-          {filteredBuiltInFonts.length > 0 && (
-            <optgroup label="Built-in">
-              {filteredBuiltInFonts.map((option) => (
-                <option key={option.id} value={`builtin:${option.id}`}>
-                  {option.label}
+          <div className="grid grid-cols-[minmax(0,1fr)_104px] gap-3">
+            <select
+              value={`${selection.source}:${selection.id}`}
+              onChange={(event) => {
+                const [source, id] = event.target.value.split(':');
+                onChange({
+                  source:
+                    source === 'imported'
+                      ? 'imported'
+                      : source === 'system'
+                        ? 'system'
+                        : 'builtin',
+                  id,
+                });
+              }}
+              className="h-12 min-w-0 rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-[15px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+            >
+              {filteredBuiltInFonts.length > 0 && (
+                <optgroup label="Built-in">
+                  {filteredBuiltInFonts.map((option) => (
+                    <option key={option.id} value={`builtin:${option.id}`}>
+                      {option.label}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {filteredSystemFonts.length > 0 && (
+                <optgroup label="System">
+                  {filteredSystemFonts.map((font) => (
+                    <option key={font.id} value={`system:${font.id}`}>
+                      {font.label}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {systemFontsLoaded && systemFonts.length === 0 && (
+                <optgroup label="System">
+                  <option value="builtin:system-sans" disabled>
+                    No system fonts detected
+                  </option>
+                </optgroup>
+              )}
+              {filteredImportedFonts.length > 0 && (
+                <optgroup label="Imported">
+                  {filteredImportedFonts.map((font) => (
+                    <option key={font.id} value={`imported:${font.id}`}>
+                      {font.label}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {normalizedQuery && !hasFontResults && (
+                <option value={`${selection.source}:${selection.id}`} disabled>
+                  No matching fonts
                 </option>
-              ))}
-            </optgroup>
-          )}
-          {filteredSystemFonts.length > 0 && (
-            <optgroup label="System">
-              {filteredSystemFonts.map((font) => (
-                <option key={font.id} value={`system:${font.id}`}>
-                  {font.label}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {systemFontsLoaded && systemFonts.length === 0 && (
-            <optgroup label="System">
-              <option value="builtin:system-sans" disabled>
-                No system fonts detected
-              </option>
-            </optgroup>
-          )}
-          {filteredImportedFonts.length > 0 && (
-            <optgroup label="Imported">
-              {filteredImportedFonts.map((font) => (
-                <option key={font.id} value={`imported:${font.id}`}>
-                  {font.label}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {normalizedQuery && !hasFontResults && (
-            <option value={`${selection.source}:${selection.id}`} disabled>
-              No matching fonts
-            </option>
-          )}
-        </select>
-        <button
-          type="button"
-          onClick={onImport}
-          className="rounded-xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]"
-        >
-          Import
-        </button>
+              )}
+            </select>
+
+            <button
+              type="button"
+              onClick={onImport}
+              className="h-12 rounded-xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-4 text-[14px] font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            >
+              Import
+            </button>
+          </div>
         </div>
       </div>
 
@@ -682,8 +685,8 @@ function FontSlotControl({
       )}
 
       <div className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3">
-        <div className="text-xs uppercase tracking-[0.12em] text-[var(--text-muted)]">{currentLabel}</div>
-        <div className="mt-2 text-[15px] text-[var(--text-primary)]" style={{ fontFamily: previewFamily }}>
+        <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--text-muted)]">{currentLabel}</div>
+        <div className="mt-2 text-[16px] text-[var(--text-primary)]" style={{ fontFamily: previewFamily }}>
           {previewText}
         </div>
       </div>
