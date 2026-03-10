@@ -228,7 +228,7 @@ function GeneralSettingsContent({
           label="Appearance Mode"
           description=""
         >
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex flex-wrap items-center gap-1 rounded-[18px] bg-[var(--bg-tertiary)] p-1">
             <ThemeOption
               label="Light"
               value="light"
@@ -473,10 +473,10 @@ function ThemeOption({
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-2.5 text-[14px] transition-colors ${
+      className={`inline-flex items-center gap-2 rounded-[14px] px-4 py-2.5 text-[14px] transition-colors ${
         isActive
-          ? 'border-[var(--accent)] bg-[var(--accent-light)] text-[var(--text-primary)]'
-          : 'border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]'
+          ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.08)]'
+          : 'bg-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
       }`}
     >
       {icon}
@@ -547,45 +547,46 @@ function FontSlotControl({
 
   return (
     <div className="w-full max-w-[520px] space-y-2">
-      <input
-        list={listId}
-        value={fontInput}
-        onChange={(event) => setFontInput(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            applySelection();
-          }
-        }}
-        placeholder="Type a font name..."
-        className="h-10 w-full rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-[14px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--text-muted)]"
-      />
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <input
+          list={listId}
+          value={fontInput}
+          onChange={(event) => setFontInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              applySelection();
+            }
+          }}
+          placeholder="Type a font name..."
+          className="h-10 w-full min-w-0 rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-[14px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--text-muted)] sm:w-[230px]"
+        />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const defaults = getDefaultFontSelections();
+              setFontInput(getFontPreviewLabel(slot, defaults[slot], importedFonts));
+              onChange(defaults[slot]);
+            }}
+            className="h-10 rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-[14px] font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+          >
+            Reset
+          </button>
+          <button
+            type="button"
+            onClick={applySelection}
+            className="h-10 rounded-[16px] border border-[var(--accent)] bg-[var(--accent)] px-4 text-[14px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
       <datalist id={listId}>
         {options.map((option) => (
           <option key={`${slot}-${option.selection.source}-${option.selection.id}`} value={option.label} />
         ))}
       </datalist>
-
-      <div className="flex items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            const defaults = getDefaultFontSelections();
-            setFontInput(getFontPreviewLabel(slot, defaults[slot], importedFonts));
-            onChange(defaults[slot]);
-          }}
-          className="h-10 rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-[14px] font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-        >
-          Reset
-        </button>
-        <button
-          type="button"
-          onClick={applySelection}
-          className="h-10 rounded-[16px] border border-[var(--accent)] bg-[var(--accent)] px-4 text-[14px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
-        >
-          Apply
-        </button>
-      </div>
 
       {!systemFontsLoaded && (
         <div className="text-sm text-[var(--text-muted)]">Loading system fonts...</div>
