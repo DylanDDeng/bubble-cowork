@@ -267,7 +267,7 @@ function SkillCard({
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-center gap-2 min-w-0">
             <h5 className="truncate text-[15px] font-medium tracking-[-0.01em] text-[var(--text-primary)]">
-              {skill.title}
+              {skill.title.toUpperCase()}
             </h5>
           </div>
 

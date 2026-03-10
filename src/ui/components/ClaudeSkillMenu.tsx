@@ -30,7 +30,7 @@ export function ClaudeSkillMenu({
           {suggestions.map((suggestion, index) => {
             const selected = index === selectedIndex;
             const isSkill = suggestion.kind === 'skill';
-            const title = isSkill ? suggestion.skill.title : suggestion.command.title;
+            const title = isSkill ? suggestion.skill.title.toUpperCase() : suggestion.command.title;
             const description = isSkill
               ? suggestion.skill.description || `/${suggestion.skill.name}`
               : suggestion.command.description;
