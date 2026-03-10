@@ -226,7 +226,7 @@ function GeneralSettingsContent({
       <SettingsSection title="Appearance">
         <SettingsRow
           label="Appearance Mode"
-          description=""
+          description="Use light, dark, or follow your system."
         >
           <div className="inline-flex flex-wrap items-center gap-1 rounded-[18px] bg-[var(--bg-tertiary)] p-1">
             <ThemeOption
