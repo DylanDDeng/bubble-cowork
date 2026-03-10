@@ -371,7 +371,7 @@ export function NewSessionView() {
             </div>
 
             {/* Composer */}
-            <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-3xl shadow-sm transition-colors">
+            <div className="mx-auto max-w-4xl bg-[var(--bg-secondary)] border border-[var(--border)] rounded-3xl shadow-sm transition-colors">
             {attachments.length > 0 && (
               <div className="px-5 pt-4">
                 <AttachmentChips
@@ -415,9 +415,9 @@ export function NewSessionView() {
                     ? `Add instructions for ${skillAutocomplete.selectedCommand.title.replace(/^\//, '')}...`
                   : 'Describe your task...'
               }
-              rows={3}
-              className={`w-full bg-transparent px-5 pb-2 text-[14px] outline-none resize-none no-drag ${
-                skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-1.5 min-h-[100px]' : 'pt-4 min-h-[112px]'
+              rows={1}
+              className={`w-full bg-transparent px-5 pb-3 text-[14px] outline-none resize-none no-drag max-h-[200px] ${
+                skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-1.5 min-h-[56px]' : 'pt-4 min-h-[56px]'
               }`}
               autoFocus
             />
