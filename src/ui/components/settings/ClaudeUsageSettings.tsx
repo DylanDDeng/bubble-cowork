@@ -444,7 +444,6 @@ function UsageChart({
                     y={y}
                     width={barWidth}
                     height={Math.max(height, 1)}
-                    rx="5"
                     fill={modelColors[modelName]}
                   />
                 );
@@ -466,7 +465,6 @@ function UsageChart({
                     y={y}
                     width={barWidth}
                     height={markerHeight}
-                    rx="3"
                     fill={modelColors[modelName]}
                     opacity="0.95"
                   />
