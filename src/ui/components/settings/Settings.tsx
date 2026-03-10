@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn, PlugZap, Eraser, ChevronDown, Check } from 'lucide-react';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn, PlugZap, Eraser, ChevronDown, Check, Bot } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
 import { McpSettingsContent } from './McpSettings';
 import { SkillMarketSettingsContent } from './SkillMarketSettings';
+import { BridgeSettingsContent } from './BridgeSettings';
 import type { ColorThemeId, FontSelection, FontSettingsPayload, FontSlot, ImportedFontFace, SystemFontOption, Theme } from '../../types';
 import { BUILTIN_FONT_OPTIONS, getDefaultFontSelections, getFontPreviewLabel } from '../../theme/fonts';
 import { COLOR_THEME_FAMILIES, resolveThemeMode } from '../../theme/themes';
@@ -40,6 +41,12 @@ const SETTINGS_TABS = {
     title: 'Usage',
     description: 'Review token, cost, session, and cache usage across models over time.',
     icon: <ChartColumn className="w-4 h-4" />,
+  },
+  bridge: {
+    label: 'Bridge',
+    title: 'Bridge',
+    description: 'Connect remote chat channels to this desktop workspace.',
+    icon: <Bot className="w-4 h-4" />,
   },
 } as const;
 
@@ -136,6 +143,7 @@ export function Settings() {
           {activeSettingsTab === 'providers' && <CompatibleProviderSettingsContent />}
           {activeSettingsTab === 'skills' && <SkillMarketSettingsContent />}
           {activeSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}
+          {activeSettingsTab === 'bridge' && <BridgeSettingsContent />}
         </div>
       </main>
       </div>

@@ -119,6 +119,27 @@ export interface SystemFontOption {
   cssFamily: string;
 }
 
+export interface FeishuBridgeConfig {
+  enabled: boolean;
+  appId: string;
+  appSecret: string;
+  defaultCwd: string;
+  provider: AgentProvider;
+  model: string;
+  allowedUserIds: string;
+  autoStart: boolean;
+}
+
+export interface FeishuBridgeStatus {
+  running: boolean;
+  connected: boolean;
+  botOpenId?: string;
+  lastError?: string;
+  lastInboundAt?: number;
+  lastOutboundAt?: number;
+  activeBindings: number;
+}
+
 export type ClaudeCompatibleAuthType = 'api_key' | 'auth_token';
 export type ClaudeCompatibleProviderId = 'minimax' | 'zhipu' | 'moonshot';
 

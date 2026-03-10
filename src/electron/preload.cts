@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 import type {
   ClaudeCompatibleProvidersConfig,
   ClaudeUsageRangeDays,
+  FeishuBridgeConfig,
   FontSettingsPayload,
   SkillMarketDetail,
   SkillMarketInstallResult,
@@ -81,6 +82,22 @@ contextBridge.exposeInMainWorld('electron', {
   },
   installSkillFromMarket: (id: string): Promise<SkillMarketInstallResult> => {
     return ipcRenderer.invoke('install-skill-from-market', id);
+  },
+
+  getFeishuBridgeConfig: () => {
+    return ipcRenderer.invoke('get-feishu-bridge-config');
+  },
+  saveFeishuBridgeConfig: (config: FeishuBridgeConfig) => {
+    return ipcRenderer.invoke('save-feishu-bridge-config', config);
+  },
+  getFeishuBridgeStatus: () => {
+    return ipcRenderer.invoke('get-feishu-bridge-status');
+  },
+  startFeishuBridge: () => {
+    return ipcRenderer.invoke('start-feishu-bridge');
+  },
+  stopFeishuBridge: () => {
+    return ipcRenderer.invoke('stop-feishu-bridge');
   },
 
   // 字体设置

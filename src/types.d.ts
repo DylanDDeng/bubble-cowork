@@ -18,6 +18,8 @@ import type {
   SkillMarketItem,
   SkillMarketDetail,
   SkillMarketInstallResult,
+  FeishuBridgeConfig,
+  FeishuBridgeStatus,
 } from './shared/types';
 
 declare global {
@@ -40,6 +42,11 @@ declare global {
     listSystemFonts: () => Promise<SystemFontOption[]>;
     importFontFile: () => Promise<FontSettingsPayload | null>;
     deleteImportedFont: (fontId: string) => Promise<FontSettingsPayload>;
+    getFeishuBridgeConfig: () => Promise<FeishuBridgeConfig>;
+    saveFeishuBridgeConfig: (config: FeishuBridgeConfig) => Promise<FeishuBridgeConfig>;
+    getFeishuBridgeStatus: () => Promise<FeishuBridgeStatus>;
+    startFeishuBridge: () => Promise<FeishuBridgeStatus>;
+    stopFeishuBridge: () => Promise<FeishuBridgeStatus>;
     selectDirectory: () => Promise<string | null>;
     selectAttachments: () => Promise<Attachment[]>;
     readAttachmentPreview: (filePath: string) => Promise<string | null>;

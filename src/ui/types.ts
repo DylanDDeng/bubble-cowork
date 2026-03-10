@@ -1,7 +1,7 @@
 // UI 层类型定义
 
 // Settings 标签类型
-export type SettingsTab = 'mcp' | 'general' | 'providers' | 'skills' | 'usage';
+export type SettingsTab = 'mcp' | 'general' | 'providers' | 'skills' | 'usage' | 'bridge';
 
 // 从共享类型导入
 import type { AgentProvider, ProjectTreeNode, TodoState, StatusConfig, FolderConfig } from '../shared/types';
@@ -40,6 +40,8 @@ export type {
   FontSlot,
   ImportedFontFace,
   SystemFontOption,
+  FeishuBridgeConfig,
+  FeishuBridgeStatus,
   AgentProvider,
   TodoState,
   StatusConfig,

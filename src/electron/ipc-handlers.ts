@@ -22,6 +22,8 @@ import {
 } from './libs/font-settings';
 import { getCodexModelConfig } from './libs/codex-settings';
 import { listClaudeSkills } from './libs/claude-skills';
+import { loadFeishuBridgeConfig, saveFeishuBridgeConfig } from './libs/feishu-bridge-config';
+import { feishuBridge } from './libs/feishu-bridge';
 import {
   getSkillMarketDetail,
   getSkillMarketHot,
@@ -54,6 +56,7 @@ import type {
   TodoState,
   FolderConfig,
   FontSettingsPayload,
+  FeishuBridgeConfig,
 } from '../shared/types';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
@@ -941,6 +944,19 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // 加载 Claude 配置
   loadClaudeSettings();
 
+  feishuBridge.setHandlers({
+    startSession: async ({ title, prompt, cwd, provider, model }) => {
+      return handleSessionStart(mainWindow, { title, prompt, cwd, provider, model });
+    },
+    continueSession: async ({ sessionId, prompt, provider, model }) => {
+      return handleSessionContinue(mainWindow, { sessionId, prompt, provider, model });
+    },
+    resolvePermission: ({ sessionId, toolUseId, result }) => {
+      return handlePermissionResponse({ sessionId, toolUseId, result });
+    },
+  });
+  void feishuBridge.maybeAutoStart();
+
   // 处理客户端事件
   ipcMain.on('client-event', async (_, eventJson: string) => {
     try {
@@ -1005,6 +1021,26 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('install-skill-from-market', async (_event, id: string) => {
     return installSkillFromMarket(id);
+  });
+
+  ipcMainHandle('get-feishu-bridge-config', async () => {
+    return loadFeishuBridgeConfig();
+  });
+
+  ipcMainHandle('save-feishu-bridge-config', async (_event, config: FeishuBridgeConfig) => {
+    return saveFeishuBridgeConfig(config);
+  });
+
+  ipcMainHandle('get-feishu-bridge-status', async () => {
+    return feishuBridge.getStatus();
+  });
+
+  ipcMainHandle('start-feishu-bridge', async () => {
+    return feishuBridge.start();
+  });
+
+  ipcMainHandle('stop-feishu-bridge', async () => {
+    return feishuBridge.stop();
   });
 
   // RPC: 获取字体设置
@@ -1514,14 +1550,14 @@ function handleSessionList(mainWindow: BrowserWindow): void {
 async function handleSessionStart(
   mainWindow: BrowserWindow,
   payload: SessionStartPayload
-): Promise<void> {
+): Promise<string | null> {
   const { title, prompt, cwd, allowedTools, attachments, provider, model, betas } = payload;
   if (!cwd?.trim()) {
     broadcast(mainWindow, {
       type: 'runner.error',
       payload: { message: 'Select a project folder before starting a task.' },
     });
-    return;
+    return null;
   }
   const chosenProvider = provider || 'claude';
   const selectedModel = normalizeModel(model);
@@ -1607,13 +1643,14 @@ async function handleSessionStart(
     selectedModel,
     selectedBetas
   );
+  return session.id;
 }
 
 // 继续会话
 async function handleSessionContinue(
   mainWindow: BrowserWindow,
   payload: SessionContinuePayload
-): Promise<void> {
+): Promise<boolean> {
   const { sessionId, prompt, attachments, provider, model, betas } = payload;
 
   const session = sessions.getSession(sessionId);
@@ -1622,11 +1659,11 @@ async function handleSessionContinue(
       type: 'runner.error',
       payload: { message: 'Unknown session', sessionId },
     });
-    return;
+    return false;
   }
 
   if (await maybeHandleLocalSlashCommand(mainWindow, session, prompt, attachments)) {
-    return;
+    return true;
   }
 
   const existingEntry = runnerHandles.get(sessionId);
@@ -1693,8 +1730,8 @@ async function handleSessionContinue(
       existingEntry.handle.abort();
       runnerHandles.delete(sessionId);
     } else {
-    existingEntry.handle.send(prompt, attachments, nextModel);
-    return;
+      existingEntry.handle.send(prompt, attachments, nextModel);
+      return true;
     }
   }
 
@@ -1721,6 +1758,7 @@ async function handleSessionContinue(
     nextModel,
     nextBetas
   );
+  return true;
 }
 
 // 启动 Runner
@@ -1811,6 +1849,7 @@ function startRunner(
         type: 'stream.message',
         payload: { sessionId: session.id, message },
       });
+      void feishuBridge.handleSessionMessage(session.id, message);
 
       // 检查是否为 result 消息，更新状态
       if (message.type === 'result') {
@@ -1867,6 +1906,7 @@ function startRunner(
         type: 'runner.error',
         payload: { message, sessionId: session.id },
       });
+      void feishuBridge.handleRunnerError(session.id, message);
 
       if (runnerHandles.get(session.id)?.handle === handle) {
         runnerHandles.delete(session.id);
@@ -1882,6 +1922,12 @@ function startRunner(
           toolName,
           input: input as PermissionRequestInput,
         },
+      });
+      void feishuBridge.handlePermissionRequest({
+        sessionId: session.id,
+        toolUseId,
+        toolName,
+        input: input as PermissionRequestInput,
       });
 
       // 等待用户响应
@@ -1968,17 +2014,19 @@ function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void
 // 处理权限响应
 function handlePermissionResponse(
   payload: PermissionResponsePayload
-): void {
+): boolean {
   const { sessionId, toolUseId, result } = payload;
 
   const state = sessionStates.get(sessionId);
-  if (!state) return;
+  if (!state) return false;
 
   const pending = state.pendingPermissions.get(toolUseId);
   if (pending) {
     pending.resolve(result);
     state.pendingPermissions.delete(toolUseId);
+    return true;
   }
+  return false;
 }
 
 // 获取 MCP 配置（返回全局和项目级分开）
