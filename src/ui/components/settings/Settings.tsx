@@ -69,12 +69,18 @@ export function Settings() {
   const isSkillsTab = activeSettingsTab === 'skills';
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 bg-[var(--bg-primary)]">
-      <aside className="w-[280px] flex-shrink-0 border-r border-[var(--border)] bg-[var(--bg-primary)]">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-primary)]">
+      <div className="flex h-8 flex-shrink-0">
+        <div className="drag-region w-[280px] flex-shrink-0 border-r border-[var(--border)] bg-[var(--bg-tertiary)]" />
+        <div className="drag-region flex-1 bg-[var(--bg-primary)]" />
+      </div>
+
+      <div className="flex min-h-0 flex-1 bg-[var(--bg-primary)]">
+      <aside className="w-[280px] flex-shrink-0 border-r border-[var(--border)] bg-[var(--bg-tertiary)]">
         <div className="flex h-full flex-col px-3 pb-6 pt-4">
           <button
             onClick={() => setShowSettings(false)}
-            className="mb-5 flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+            className="mb-5 flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back to app</span>
@@ -132,6 +138,7 @@ export function Settings() {
           {activeSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}
         </div>
       </main>
+      </div>
     </div>
   );
 }
@@ -153,8 +160,8 @@ function SettingsNavItem({
         onClick={onClick}
         className={`group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm transition-colors ${
           active
-            ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/80 hover:text-[var(--text-primary)]'
+            ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+            : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
         }`}
       >
         <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center text-[var(--text-muted)] group-hover:text-[var(--text-primary)]">

@@ -411,7 +411,6 @@ export function App() {
       {/* 主内容区 */}
       {showSettings ? (
         <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
-          <div className="h-8 drag-region flex-shrink-0" />
           <div className="flex-1 min-h-0">
             <Settings />
           </div>
