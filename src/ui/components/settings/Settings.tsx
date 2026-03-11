@@ -15,7 +15,7 @@ const SETTINGS_TABS = {
   general: {
     label: 'General',
     title: 'Workspace Preferences',
-    description: 'Tune appearance and baseline behavior for the desktop workspace.',
+    description: 'Adjust appearance and core workspace behavior.',
     icon: <SettingsIcon className="w-4 h-4" />,
   },
   mcp: {
@@ -234,7 +234,7 @@ function GeneralSettingsContent({
       <SettingsSection title="Appearance">
         <SettingsRow
           label="Appearance Mode"
-          description="Use light, dark, or follow your system."
+          description="Choose light, dark, or system."
         >
           <div className="inline-flex flex-wrap items-center gap-1 rounded-[18px] bg-[var(--bg-tertiary)] p-1">
             <ThemeOption
@@ -263,7 +263,7 @@ function GeneralSettingsContent({
 
         <SettingsRow
           label="Color Theme"
-          description={`Pick a theme family. The current appearance resolves to ${resolvedMode}.`}
+          description={`Choose a color palette. Current mode: ${resolvedMode}.`}
         >
           <div className="w-full max-w-[260px]">
             <button
@@ -328,7 +328,7 @@ function GeneralSettingsContent({
 
         <SettingsRow
           label="Custom CSS"
-          description="Override any theme token with CSS. Keep this for advanced theming only."
+          description="Optional CSS overrides for theme tokens."
         >
           <div className="w-full max-w-[400px]">
             <button
@@ -370,7 +370,7 @@ function GeneralSettingsContent({
         </SettingsRow>
         <SettingsRow
           label="UI Font"
-          description="Used for the sidebar, settings, lists, and standard interface text."
+          description="Used for the sidebar, settings, lists, and UI text."
         >
           <FontSlotControl
             slot="ui"
@@ -384,7 +384,7 @@ function GeneralSettingsContent({
 
         <SettingsRow
           label="Code Font"
-          description="Used for code blocks, logs, paths, and other monospace UI surfaces."
+          description="Used for code blocks, logs, paths, and monospace UI."
         >
           <FontSlotControl
             slot="mono"
@@ -433,7 +433,7 @@ function SettingsRow({
       <div className="space-y-1">
         <div className="text-[15px] font-semibold text-[var(--text-primary)]">{label}</div>
         {description ? (
-          <div className="text-[14px] leading-6 text-[var(--text-secondary)]">{description}</div>
+          <div className="text-[14px] leading-5 text-[var(--text-secondary)]">{description}</div>
         ) : null}
       </div>
       <div className="flex justify-end">{children}</div>
