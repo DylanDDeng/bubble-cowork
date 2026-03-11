@@ -126,6 +126,7 @@ export function CompatibleProviderSettingsContent() {
         <ClaudeRuntimeStatusCard
           status={runtimeStatus}
           loading={runtimeLoading}
+          compact
           onRefresh={refreshRuntimeStatus}
         />
       </div>

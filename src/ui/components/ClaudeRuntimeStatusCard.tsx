@@ -69,23 +69,27 @@ export function ClaudeRuntimeStatusCard({
   const commands = [status.installCommand, status.loginCommand, status.setupTokenCommand].filter(
     (value, index, items): value is string => Boolean(value) && items.indexOf(value) === index
   );
+  const authValue = status.authMethod || (status.loggedIn ? 'account' : status.hasApiKey ? 'api_key' : 'none');
+  const modelModeValue = status.requiresAnthropicAuth ? 'Anthropic auth required' : 'Compatible provider model';
 
   return (
     <div
-      className={`rounded-[22px] border ${tone.border} ${tone.bg} ${compact ? 'px-4 py-4' : 'px-5 py-5'} transition-colors`}
+      className={`rounded-[22px] border ${tone.border} ${tone.bg} ${
+        compact ? 'px-4 py-3.5' : 'px-5 py-4.5'
+      } transition-colors`}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {tone.icon}
             <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${tone.badge}`}>
               Claude Runtime
             </span>
+            <div className={`min-w-0 font-semibold text-[var(--text-primary)] ${compact ? 'text-[13px]' : 'text-[14px]'}`}>
+              {loading ? 'Checking Claude runtime…' : status.summary}
+            </div>
           </div>
-          <div className={`mt-3 font-semibold text-[var(--text-primary)] ${compact ? 'text-[14px]' : 'text-[15px]'}`}>
-            {loading ? 'Checking Claude runtime…' : status.summary}
-          </div>
-          <div className={`mt-1.5 text-[var(--text-secondary)] ${compact ? 'text-[12px] leading-5' : 'text-[13px] leading-6'}`}>
+          <div className={`mt-2 text-[var(--text-secondary)] ${compact ? 'text-[12px] leading-5' : 'text-[13px] leading-5'}`}>
             {loading ? 'Verifying CLI availability, version, and authentication state.' : status.detail}
           </div>
         </div>
@@ -94,7 +98,9 @@ export function ClaudeRuntimeStatusCard({
           <button
             type="button"
             onClick={onRefresh}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+            className={`inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] ${
+              compact ? 'h-8 w-8' : 'h-9 w-9'
+            }`}
             title="Refresh Claude runtime status"
             aria-label="Refresh Claude runtime status"
           >
@@ -104,15 +110,15 @@ export function ClaudeRuntimeStatusCard({
       </div>
 
       {!loading && (
-        <div className={`mt-4 grid gap-2 ${compact ? 'grid-cols-1' : 'sm:grid-cols-3'}`}>
-          <MetaPill label="Version" value={status.cliVersion || 'Unknown'} />
-          <MetaPill label="Auth" value={status.authMethod || (status.loggedIn ? 'account' : status.hasApiKey ? 'api_key' : 'none')} />
-          <MetaPill label="Model mode" value={status.requiresAnthropicAuth ? 'Anthropic auth required' : 'Compatible provider model'} />
+        <div className="mt-3 flex flex-wrap gap-2">
+          <MetaPill compact={compact} label="Version" value={status.cliVersion || 'Unknown'} />
+          <MetaPill compact={compact} label="Auth" value={authValue} />
+          <MetaPill compact={compact} label="Model mode" value={modelModeValue} />
         </div>
       )}
 
       {!loading && commands.length > 0 && status.kind !== 'ready' && (
-        <div className="mt-4 space-y-2">
+        <div className="mt-3 space-y-2">
           {commands.map((command) => (
             <button
               key={command}
@@ -131,7 +137,7 @@ export function ClaudeRuntimeStatusCard({
       )}
 
       {primaryAction && (
-        <div className="mt-4">
+        <div className="mt-3">
           <button
             type="button"
             onClick={primaryAction.onClick}
@@ -145,11 +151,25 @@ export function ClaudeRuntimeStatusCard({
   );
 }
 
-function MetaPill({ label, value }: { label: string; value: string }) {
+function MetaPill({
+  label,
+  value,
+  compact,
+}: {
+  label: string;
+  value: string;
+  compact?: boolean;
+}) {
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2.5">
+    <div
+      className={`rounded-2xl border border-[var(--border)] bg-[var(--bg-primary)] ${
+        compact ? 'px-2.5 py-2' : 'px-3 py-2.5'
+      }`}
+    >
       <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">{label}</div>
-      <div className="mt-1 truncate text-[12px] font-medium text-[var(--text-primary)]">{value}</div>
+      <div className={`truncate font-medium text-[var(--text-primary)] ${compact ? 'mt-0.5 text-[11px]' : 'mt-1 text-[12px]'}`}>
+        {value}
+      </div>
     </div>
   );
 }
