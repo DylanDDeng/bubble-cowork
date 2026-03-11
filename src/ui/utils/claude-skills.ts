@@ -1,5 +1,9 @@
 import type { ClaudeSkillSummary, StreamMessage } from '../types';
 
+function normalizeSkillToken(value: string): string {
+  return value.replace(/^\//, '').trim().toLowerCase();
+}
+
 export function getSlashSkillQuery(prompt: string): string | null {
   const trimmed = prompt.trimStart();
   const match = trimmed.match(/^\/([^\s]*)$/);
@@ -35,7 +39,8 @@ export function parseSelectedSkillPrompt(
     return null;
   }
 
-  const skill = skills.find((item) => item.name === skillName);
+  const normalizedSkillName = normalizeSkillToken(skillName);
+  const skill = skills.find((item) => normalizeSkillToken(item.name) === normalizedSkillName);
   if (!skill) {
     return null;
   }

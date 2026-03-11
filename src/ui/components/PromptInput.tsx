@@ -25,6 +25,8 @@ import {
   supportsClaude1mContext,
 } from '../utils/claude-model';
 import { buildCodexModelOptions, formatCodexModelLabel, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
+import { buildPromptWithSkill } from '../utils/claude-skills';
+import { buildPromptWithSlashCommand } from '../utils/claude-slash';
 
 function isVisibleClaudePickerModel(
   model: string | null | undefined,
@@ -209,13 +211,21 @@ export function PromptInput() {
     if (!prompt.trim()) return;
     setMenuOpen(false);
 
+    const normalizedPrompt = (
+      skillAutocomplete.selectedSkill
+        ? buildPromptWithSkill(skillAutocomplete.selectedSkill.name, skillAutocomplete.displayPrompt)
+        : skillAutocomplete.selectedCommand
+          ? buildPromptWithSlashCommand(skillAutocomplete.selectedCommand.name, skillAutocomplete.displayPrompt)
+          : prompt
+    ).trim();
+
     if (activeSessionId && activeSession) {
       // 继续现有会话
       sendEvent({
         type: 'session.continue',
         payload: {
           sessionId: activeSessionId,
-          prompt: prompt.trim(),
+          prompt: normalizedPrompt,
           attachments: attachments.length > 0 ? attachments : undefined,
           provider,
           model:

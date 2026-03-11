@@ -10,8 +10,7 @@ export function SelectedClaudeSkillChip({
   onClear?: () => void;
   compact?: boolean;
 }) {
-  const rawLabel = compact ? skill.title.replace(/^\//, '') : skill.title;
-  const label = rawLabel.toUpperCase();
+  const label = compact ? skill.name.replace(/^\//, '') : `/${skill.name.replace(/^\//, '')}`;
 
   return (
     <div

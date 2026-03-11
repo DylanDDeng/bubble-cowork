@@ -28,6 +28,7 @@ import {
 } from '../utils/claude-model';
 import { buildCodexModelOptions, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
 import { buildPromptWithSkill } from '../utils/claude-skills';
+import { buildPromptWithSlashCommand } from '../utils/claude-slash';
 
 const PPTX_QUICK_ACTION_PROMPT = [
   'Create a polished PPTX presentation for this project.',
@@ -238,15 +239,23 @@ export function NewSessionView() {
     setPendingStart(true);
     setMenuOpen(false);
 
+    const normalizedPrompt = (
+      skillAutocomplete.selectedSkill
+        ? buildPromptWithSkill(skillAutocomplete.selectedSkill.name, skillAutocomplete.displayPrompt)
+        : skillAutocomplete.selectedCommand
+          ? buildPromptWithSlashCommand(skillAutocomplete.selectedCommand.name, skillAutocomplete.displayPrompt)
+          : prompt
+    ).trim();
+
     // 用 prompt 前 30 字符作为临时标题（后台会异步生成更好的标题）
-    const tempTitle = prompt.trim().slice(0, 30) + (prompt.trim().length > 30 ? '...' : '');
+    const tempTitle = normalizedPrompt.slice(0, 30) + (normalizedPrompt.length > 30 ? '...' : '');
 
     // 立即发送开始会话事件
     sendEvent({
       type: 'session.start',
       payload: {
         title: tempTitle,
-        prompt: prompt.trim(),
+        prompt: normalizedPrompt,
         cwd: cwd || undefined,
         attachments: attachments.length > 0 ? attachments : undefined,
         provider,

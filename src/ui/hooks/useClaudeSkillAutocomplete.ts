@@ -102,6 +102,22 @@ export function useClaudeSkillAutocomplete({
   );
 
   useEffect(() => {
+    if (!enabled || !selectedSkillState) {
+      return;
+    }
+
+    const leadingWhitespace = prompt.match(/^\s*/)?.[0] || '';
+    const canonicalPrompt = `${leadingWhitespace}${buildPromptWithSkill(
+      selectedSkillState.skill.name,
+      selectedSkillState.remainder
+    )}`;
+
+    if (canonicalPrompt !== prompt) {
+      setPrompt(canonicalPrompt);
+    }
+  }, [enabled, prompt, selectedSkillState, setPrompt]);
+
+  useEffect(() => {
     setSelectedIndex(0);
   }, [query]);
 
