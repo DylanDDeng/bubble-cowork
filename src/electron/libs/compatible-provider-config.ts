@@ -34,6 +34,14 @@ const COMPATIBLE_PROVIDER_DEFAULTS: Record<
     secret: '',
     model: 'kimi-k2.5',
   },
+  deepseek: {
+    enabled: false,
+    baseUrl: 'https://api.deepseek.com/anthropic',
+    authType: 'auth_token',
+    secret: '',
+    model: '',
+    smallFastModel: '',
+  },
 };
 
 export interface ResolvedCompatibleProviderConfig extends ClaudeCompatibleProviderConfig {
@@ -63,6 +71,7 @@ export function getDefaultCompatibleProvidersConfig(): ClaudeCompatibleProviders
       minimax: getDefaultCompatibleProviderConfig('minimax'),
       zhipu: getDefaultCompatibleProviderConfig('zhipu'),
       moonshot: getDefaultCompatibleProviderConfig('moonshot'),
+      deepseek: getDefaultCompatibleProviderConfig('deepseek'),
     },
   };
 }
@@ -93,6 +102,7 @@ export function loadCompatibleProviderConfig(): ClaudeCompatibleProvidersConfig 
           minimax: normalizeCompatibleProviderConfig('minimax', parsed.providers.minimax),
           zhipu: normalizeCompatibleProviderConfig('zhipu', parsed.providers.zhipu),
           moonshot: normalizeCompatibleProviderConfig('moonshot', parsed.providers.moonshot),
+          deepseek: normalizeCompatibleProviderConfig('deepseek', parsed.providers.deepseek),
         },
       };
     }
@@ -109,6 +119,7 @@ export function saveCompatibleProviderConfig(config: ClaudeCompatibleProvidersCo
       minimax: normalizeCompatibleProviderConfig('minimax', config.providers?.minimax),
       zhipu: normalizeCompatibleProviderConfig('zhipu', config.providers?.zhipu),
       moonshot: normalizeCompatibleProviderConfig('moonshot', config.providers?.moonshot),
+      deepseek: normalizeCompatibleProviderConfig('deepseek', config.providers?.deepseek),
     },
   };
 
@@ -186,6 +197,13 @@ export function applyCompatibleProviderEnv(
   nextEnv.ANTHROPIC_DEFAULT_SONNET_MODEL = forcedModel;
   nextEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL = forcedModel;
   nextEnv.ANTHROPIC_REASONING_MODEL = forcedModel;
+  if (config.smallFastModel?.trim()) {
+    nextEnv.ANTHROPIC_SMALL_FAST_MODEL = config.smallFastModel.trim();
+  }
+  if (config.id === 'deepseek') {
+    nextEnv.API_TIMEOUT_MS = '600000';
+    nextEnv.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
+  }
   nextEnv.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = '1';
 
   return {

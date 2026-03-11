@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import claudeLogo from '../../assets/claude-color.svg';
+import deepseekLogo from '../../assets/deepseek-color.svg';
 import minimaxLogo from '../../assets/minimax-color.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
@@ -221,6 +222,10 @@ function getProviderLogoForModel(model: string): string | null {
 
   if (normalized.startsWith('kimi')) {
     return moonshotLogo;
+  }
+
+  if (normalized.startsWith('deepseek')) {
+    return deepseekLogo;
   }
 
   if (normalized.startsWith('minimax')) {

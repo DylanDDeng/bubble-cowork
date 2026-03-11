@@ -1,6 +1,7 @@
 import { Eye, EyeOff } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import minimaxLogo from '../../assets/minimax-color.svg';
+import deepseekLogo from '../../assets/deepseek-color.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
 import type {
@@ -28,6 +29,10 @@ const PROVIDER_META: Record<
     label: 'Moonshot AI',
     logo: moonshotLogo,
   },
+  deepseek: {
+    label: 'DeepSeek',
+    logo: deepseekLogo,
+  },
 };
 
 export function CompatibleProviderSettingsContent() {
@@ -40,7 +45,7 @@ export function CompatibleProviderSettingsContent() {
     Partial<Record<ClaudeCompatibleProviderId, boolean>>
   >({});
   const providerIds = useMemo(
-    () => ['minimax', 'zhipu', 'moonshot'] as ClaudeCompatibleProviderId[],
+    () => ['minimax', 'zhipu', 'moonshot', 'deepseek'] as ClaudeCompatibleProviderId[],
     []
   );
 
@@ -238,7 +243,28 @@ export function CompatibleProviderSettingsContent() {
                     ? 'MiniMax-M2.5'
                     : selectedProviderId === 'zhipu'
                       ? 'glm-5'
-                      : 'kimi-k2.5'
+                      : selectedProviderId === 'moonshot'
+                        ? 'kimi-k2.5'
+                        : 'deepseek-chat or deepseek-reasoner'
+                }
+                className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
+                disabled={loading}
+              />
+            </Field>
+
+            <Field label="Small fast model (optional)">
+              <input
+                value={selectedProvider.smallFastModel || ''}
+                onChange={(event) =>
+                  updateProvider(selectedProviderId, (current) => ({
+                    ...current,
+                    smallFastModel: event.target.value,
+                  }))
+                }
+                placeholder={
+                  selectedProviderId === 'deepseek'
+                    ? 'deepseek-chat or deepseek-reasoner'
+                    : 'Optional override'
                 }
                 className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
                 disabled={loading}

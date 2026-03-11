@@ -15,6 +15,7 @@ const COMPATIBLE_PROVIDER_LABELS: Record<ClaudeCompatibleProviderId, string> = {
   minimax: 'MiniMax (CN)',
   zhipu: 'Zhipu AI',
   moonshot: 'Moonshot AI',
+  deepseek: 'DeepSeek',
 };
 
 const DEFAULT_CONFIG: ClaudeCompatibleProvidersConfig = {
@@ -39,6 +40,15 @@ const DEFAULT_CONFIG: ClaudeCompatibleProvidersConfig = {
       authType: 'auth_token',
       secret: '',
       model: 'kimi-k2.5',
+      smallFastModel: '',
+    },
+    deepseek: {
+      enabled: false,
+      baseUrl: 'https://api.deepseek.com/anthropic',
+      authType: 'auth_token',
+      secret: '',
+      model: '',
+      smallFastModel: '',
     },
   },
 };
@@ -67,6 +77,7 @@ export function normalizeCompatibleProvidersConfig(
         minimax: normalizeProvider('minimax', providers?.minimax),
         zhipu: normalizeProvider('zhipu', providers?.zhipu),
         moonshot: normalizeProvider('moonshot', providers?.moonshot),
+        deepseek: normalizeProvider('deepseek', providers?.deepseek),
       },
     };
   }
@@ -76,6 +87,7 @@ export function normalizeCompatibleProvidersConfig(
       minimax: normalizeProvider('minimax', raw as LegacyCompatibleProviderConfig),
       zhipu: normalizeProvider('zhipu', undefined),
       moonshot: normalizeProvider('moonshot', undefined),
+      deepseek: normalizeProvider('deepseek', undefined),
     },
   };
 }

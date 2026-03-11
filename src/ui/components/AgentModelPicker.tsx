@@ -5,6 +5,7 @@ import { PROVIDERS } from '../utils/provider';
 import { buildClaudeModelOptions, formatClaudeModelLabel, isOfficialClaudeModel, supportsClaude1mContext } from '../utils/claude-model';
 import { buildCodexModelOptions, formatCodexModelLabel } from '../utils/codex-model';
 import claudeLogo from '../assets/claude-color.svg';
+import deepseekLogo from '../assets/deepseek-color.svg';
 import minimaxLogo from '../assets/minimax-color.svg';
 import moonshotLogo from '../assets/moonshot.svg';
 import openaiLogo from '../assets/openai.svg';
@@ -67,7 +68,9 @@ function CompatibleProviderIcon({ providerId }: { providerId: ClaudeCompatiblePr
       ? minimaxLogo
       : providerId === 'zhipu'
         ? zhipuLogo
-        : moonshotLogo;
+        : providerId === 'moonshot'
+          ? moonshotLogo
+          : deepseekLogo;
   return <img src={logo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
 }
 

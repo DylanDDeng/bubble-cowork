@@ -143,7 +143,7 @@ export interface FeishuBridgeStatus {
 }
 
 export type ClaudeCompatibleAuthType = 'api_key' | 'auth_token';
-export type ClaudeCompatibleProviderId = 'minimax' | 'zhipu' | 'moonshot';
+export type ClaudeCompatibleProviderId = 'minimax' | 'zhipu' | 'moonshot' | 'deepseek';
 
 export interface ClaudeCompatibleProviderConfig {
   enabled: boolean;
@@ -151,6 +151,7 @@ export interface ClaudeCompatibleProviderConfig {
   authType: ClaudeCompatibleAuthType;
   secret: string;
   model: string;
+  smallFastModel?: string;
 }
 
 export interface ClaudeCompatibleProvidersConfig {
