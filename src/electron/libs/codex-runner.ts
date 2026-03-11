@@ -323,7 +323,7 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
       clientInfo: {
         name: 'aegis',
         title: 'Aegis',
-        version: '0.0.4',
+        version: '0.0.8',
       },
     })) as Record<string, unknown> | undefined;
 

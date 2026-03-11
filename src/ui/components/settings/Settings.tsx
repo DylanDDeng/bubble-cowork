@@ -209,6 +209,8 @@ function GeneralSettingsContent({
   const resolvedMode = resolveThemeMode(theme);
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const [customCssOpen, setCustomCssOpen] = useState(false);
+  const [appVersion, setAppVersion] = useState('...');
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
   const activeTheme = COLOR_THEME_FAMILIES.find((family) => family.id === colorThemeId) || COLOR_THEME_FAMILIES[0];
   const customCssSummary = customThemeCss.trim()
     ? `${customThemeCss.trim().split(/\n+/).length} line${customThemeCss.trim().split(/\n+/).length > 1 ? 's' : ''} of overrides`
@@ -229,9 +231,60 @@ function GeneralSettingsContent({
     }
   };
 
+  useEffect(() => {
+    let cancelled = false;
+
+    window.electron
+      .getAppVersion()
+      .then((version) => {
+        if (!cancelled) {
+          setAppVersion(version);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAppVersion('Unknown');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleCheckForUpdates = async () => {
+    setCheckingUpdates(true);
+    try {
+      await window.electron.checkForUpdates();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to check for updates.');
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
+
   return (
     <div className="space-y-8 pb-12">
       <SettingsSection title="Appearance">
+        <SettingsRow
+          label="Updates"
+          description="Check for a new release and view the current version."
+        >
+          <div className="flex items-center gap-2">
+            <div className="rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-secondary)]">
+              Version {appVersion}
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleCheckForUpdates()}
+              disabled={checkingUpdates}
+              className="h-10 rounded-full border border-[var(--sidebar-item-border)] bg-[var(--accent)] px-4 text-sm font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-50"
+            >
+              {checkingUpdates ? 'Checking...' : 'Check for Updates'}
+            </button>
+          </div>
+        </SettingsRow>
+
         <SettingsRow
           label="Appearance Mode"
           description="Choose light, dark, or system."

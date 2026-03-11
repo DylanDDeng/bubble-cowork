@@ -1,10 +1,10 @@
-import { app, BrowserWindow, Menu, dialog } from 'electron';
+import { app, BrowserWindow, Menu, dialog, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { setupIPCHandlers, cleanup } from './ipc-handlers';
-import { isDev, getPreloadPath, getUIPath, DEV_SERVER_URL } from './util';
+import { isDev, getPreloadPath, getUIPath, DEV_SERVER_URL, ipcMainHandle } from './util';
 
 // 修复打包后的环境变量问题（macOS/Linux GUI 应用无法继承 shell 的环境变量）
 function fixEnvironment(): void {
@@ -58,6 +58,8 @@ fixEnvironment();
 let mainWindow: BrowserWindow | null = null;
 let updaterInitialized = false;
 let devFileWatcher: fs.FSWatcher | null = null;
+let updateCheckStarted = false;
+const RELEASES_URL = 'https://github.com/DylanDDeng/bubble-cowork/releases';
 
 // 窗口状态持久化
 interface WindowState {
@@ -209,17 +211,18 @@ function setupAutoUpdater(): void {
     });
   });
 
-  autoUpdater.on('update-available', async () => {
+  autoUpdater.on('update-available', async (info) => {
     const result = await dialog.showMessageBox({
       type: 'info',
       title: 'Update available',
-      message: 'A new version is available. Do you want to download it now?',
-      buttons: ['Download', 'Later'],
+      message: `A new version${info?.version ? ` (${info.version})` : ''} is available.`,
+      detail: 'This build uses manual updates. Open the GitHub Releases page to download the latest package.',
+      buttons: ['Open Release Page', 'Later'],
       defaultId: 0,
       cancelId: 1,
     });
     if (result.response === 0) {
-      autoUpdater.downloadUpdate();
+      void shell.openExternal(RELEASES_URL);
     }
   });
 
@@ -231,18 +234,8 @@ function setupAutoUpdater(): void {
     });
   });
 
-  autoUpdater.on('update-downloaded', async () => {
-    const result = await dialog.showMessageBox({
-      type: 'info',
-      title: 'Update ready',
-      message: 'The update has been downloaded. Restart to install now?',
-      buttons: ['Restart', 'Later'],
-      defaultId: 0,
-      cancelId: 1,
-    });
-    if (result.response === 0) {
-      autoUpdater.quitAndInstall();
-    }
+  autoUpdater.on('update-downloaded', () => {
+    void shell.openExternal(RELEASES_URL);
   });
 }
 
@@ -256,6 +249,17 @@ function checkForUpdates(): void {
     return;
   }
   autoUpdater.checkForUpdates();
+}
+
+function scheduleAutomaticUpdateCheck(): void {
+  if (!app.isPackaged || updateCheckStarted) {
+    return;
+  }
+
+  updateCheckStarted = true;
+  setTimeout(() => {
+    checkForUpdates();
+  }, 8000);
 }
 
 function setupMenu(): void {
@@ -360,7 +364,15 @@ function setupMenu(): void {
 app.whenReady().then(() => {
   setupMenu();
   setupAutoUpdater();
+  ipcMainHandle('check-for-updates', async () => {
+    checkForUpdates();
+    return { ok: true };
+  });
+  ipcMainHandle('get-app-version', async () => {
+    return app.getVersion();
+  });
   createWindow();
+  scheduleAutomaticUpdateCheck();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

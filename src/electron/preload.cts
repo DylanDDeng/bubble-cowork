@@ -46,6 +46,14 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-recent-cwds', limit);
   },
 
+  getAppVersion: () => {
+    return ipcRenderer.invoke('get-app-version');
+  },
+
+  checkForUpdates: () => {
+    return ipcRenderer.invoke('check-for-updates');
+  },
+
   // 获取 Claude 模型配置
   getClaudeModelConfig: () => {
     return ipcRenderer.invoke('get-claude-model-config');
