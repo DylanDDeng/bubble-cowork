@@ -20,6 +20,11 @@ const DEFAULT_HOT_LIMIT = 60;
 const DEFAULT_SEARCH_LIMIT = 80;
 const SEARCH_DEBOUNCE_MS = 250;
 
+function normalizeRemoteErrorMessage(error: unknown, fallback: string): string {
+  const rawMessage = error instanceof Error ? error.message : fallback;
+  return rawMessage.replace(/^Error invoking remote method '[^']+':\s*/, '').trim();
+}
+
 export function SkillMarketSettingsContent() {
   const {
     showSettings,
@@ -78,7 +83,7 @@ export function SkillMarketSettingsContent() {
       } catch (nextError) {
         if (!cancelled) {
           setItems([]);
-          setError(nextError instanceof Error ? nextError.message : 'Failed to load skills.');
+          setError(normalizeRemoteErrorMessage(nextError, 'Failed to load skills.'));
         }
       } finally {
         if (!cancelled) {
@@ -111,7 +116,7 @@ export function SkillMarketSettingsContent() {
       } catch (nextError) {
         if (!cancelled) {
           setDetail(null);
-          toast.error(nextError instanceof Error ? nextError.message : 'Failed to load skill detail.');
+          toast.error(normalizeRemoteErrorMessage(nextError, 'Failed to load skill detail.'));
         }
       } finally {
         if (!cancelled) {
@@ -144,7 +149,7 @@ export function SkillMarketSettingsContent() {
         payload: { projectPath: currentProjectPath },
       });
     } catch (nextError) {
-      toast.error(nextError instanceof Error ? nextError.message : 'Skill install failed.');
+      toast.error(normalizeRemoteErrorMessage(nextError, 'Skill install failed.'));
     } finally {
       setInstallingId((current) => (current === item.id ? null : current));
     }

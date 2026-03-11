@@ -6,6 +6,8 @@ import { listClaudeSkills } from './claude-skills';
 const SKILLS_BASE_URL = 'https://skills.sh';
 const DEFAULT_LIMIT = 60;
 const INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
+const FETCH_TIMEOUT_MS = 12_000;
+const FETCH_RETRY_DELAYS_MS = [250, 800];
 
 type RawSkillRecord = {
   id?: string;
@@ -23,6 +25,15 @@ type ParsedSkillRoute = {
   skillId: string;
 };
 
+type FetchLikeError = Error & {
+  cause?: {
+    code?: string;
+    host?: string;
+    port?: number;
+    message?: string;
+  };
+};
+
 export async function getSkillMarketHot(limit = DEFAULT_LIMIT): Promise<SkillMarketItem[]> {
   const html = await fetchText(`${SKILLS_BASE_URL}/hot`);
   const records = parseEmbeddedSkillsRecords(html, 'hot');
@@ -38,12 +49,12 @@ export async function searchSkillMarket(query: string, limit = DEFAULT_LIMIT): P
     return getSkillMarketHot(limit);
   }
 
-  const response = await fetch(`${SKILLS_BASE_URL}/api/search?q=${encodeURIComponent(trimmed)}`, {
+  const response = await fetchWithRetries(`${SKILLS_BASE_URL}/api/search?q=${encodeURIComponent(trimmed)}`, {
     headers: {
       Accept: 'application/json',
       'User-Agent': 'aegis/0.0.7',
     },
-  });
+  }, 'searching skills.sh');
 
   if (!response.ok) {
     throw new Error(`skills.sh search failed (${response.status})`);
@@ -180,18 +191,63 @@ function sanitizeLimit(limit: number): number {
 }
 
 async function fetchText(url: string): Promise<string> {
-  const response = await fetch(url, {
+  const response = await fetchWithRetries(url, {
     headers: {
       Accept: 'text/html,application/json',
       'User-Agent': 'aegis/0.0.7',
     },
-  });
+  }, 'loading skills.sh');
 
   if (!response.ok) {
     throw new Error(`skills.sh request failed (${response.status})`);
   }
 
   return response.text();
+}
+
+async function fetchWithRetries(
+  url: string,
+  init: RequestInit,
+  actionLabel: string
+): Promise<Response> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= FETCH_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+    } catch (error) {
+      lastError = error;
+      if (!isRetriableFetchError(error) || attempt === FETCH_RETRY_DELAYS_MS.length) {
+        throw buildSkillsMarketNetworkError(actionLabel, error);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, FETCH_RETRY_DELAYS_MS[attempt]));
+    }
+  }
+
+  throw buildSkillsMarketNetworkError(actionLabel, lastError);
+}
+
+function isRetriableFetchError(error: unknown): boolean {
+  const code = (error as FetchLikeError | undefined)?.cause?.code;
+  return ['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'ECONNREFUSED'].includes(String(code || ''));
+}
+
+function buildSkillsMarketNetworkError(actionLabel: string, error: unknown): Error {
+  const fetchError = error as FetchLikeError | undefined;
+  const code = fetchError?.cause?.code;
+  const host = fetchError?.cause?.host;
+  const port = fetchError?.cause?.port;
+  const causeMessage = fetchError?.cause?.message || fetchError?.message || 'Unknown network error.';
+  const endpoint = host ? `${host}${port ? `:${port}` : ''}` : 'skills.sh';
+  const detail = code ? `${code} while reaching ${endpoint}` : causeMessage;
+
+  return new Error(
+    `Unable to reach skills.sh while ${actionLabel}. Check your network connection, proxy, or firewall. Last error: ${detail}.`
+  );
 }
 
 function parseEmbeddedSkillsRecords(html: string, view: 'hot' | 'all-time'): RawSkillRecord[] {
