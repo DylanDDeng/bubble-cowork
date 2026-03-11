@@ -1,7 +1,7 @@
 {
-  "name": "bubble-cowork",
+  "name": "aegis",
   "version": "0.0.7",
-  "description": "Bubble Cowork Desktop Application",
+  "description": "Aegis Desktop Application",
   "author": "Your Name",
   "main": "dist-electron/electron/main.js",
   "scripts": {

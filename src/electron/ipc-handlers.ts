@@ -305,7 +305,7 @@ function buildSessionCostSummary(session: ReturnType<typeof sessions.getSession>
 
 function buildUnsupportedSlashCommandMessage(commandName: string): string {
   return [
-    `\`/${commandName}\` is not implemented in Bubble Cowork yet.`,
+    `\`/${commandName}\` is not implemented in Aegis yet.`,
     '',
     'This command is advertised from Claude Code slash commands, but this desktop app does not execute that built-in command yet.',
   ].join('\n');
@@ -333,7 +333,7 @@ function buildUnavailableClaudeSkillMessage(
   return [
     `\`/${skillName}\` was entered as a Claude skill, but this session did not load that ${sourceLabel} skill.`,
     '',
-    'Bubble Cowork sent the prompt, but Claude initialized without the matching skill, so the command exited without producing a reply.',
+    'Aegis sent the prompt, but Claude initialized without the matching skill, so the command exited without producing a reply.',
     'Retry in a fresh Claude session. If it happens again, the skill list and the Claude runtime settings are out of sync.',
   ].join('\n');
 }
@@ -398,13 +398,13 @@ function isLocalUtilityAssistantText(text: string): boolean {
     text.startsWith('**Context compacted**') ||
     text.startsWith('Compacting conversation...') ||
     text.startsWith('Failed to compact conversation') ||
-    text.includes('Bubble Cowork yet.')
+    text.includes('Aegis yet.')
   );
 }
 
 function buildCompactSummaryPrompt(extraInstructions?: string): string {
   const lines = [
-    'You are helping Bubble Cowork compact an existing Claude Code conversation.',
+    'You are helping Aegis compact an existing Claude Code conversation.',
     'Do not continue the task. Do not ask clarifying questions. Do not use tools.',
     'Write a continuation summary that lets a fresh Claude session continue the work with minimal loss of context.',
     '',
@@ -453,7 +453,7 @@ function buildHistoryTranscript(history: StreamMessage[]): string {
 function buildLatestEditSummaryPrompt(history: StreamMessage[]): string {
   const transcript = buildHistoryTranscript(history);
   const lines = [
-    'You are helping Bubble Cowork rebuild a Claude Code conversation before the latest edited user turn.',
+    'You are helping Aegis rebuild a Claude Code conversation before the latest edited user turn.',
     'Do not continue the task. Do not ask questions. Do not use tools.',
     'Summarize the conversation state so a fresh Claude session can continue from this exact point.',
     '',
@@ -507,7 +507,7 @@ function buildCompactBootstrapPrompt(params: {
   recentConversation?: string;
 }): string {
   const lines = [
-    'You are resuming a Bubble Cowork Claude Code conversation after local compaction.',
+    'You are resuming an Aegis Claude Code conversation after local compaction.',
     'Adopt the following summary as the current session context and continue from it on future turns.',
   ];
 

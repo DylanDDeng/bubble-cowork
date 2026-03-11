@@ -1,6 +1,6 @@
 {
-  "appId": "com.bubble.cowork",
-  "productName": "Bubble Cowork",
+  "appId": "com.aegis.desktop",
+  "productName": "Aegis",
   "directories": {
     "output": "release",
     "buildResources": "build"
@@ -22,7 +22,7 @@
     }
   ],
   "mac": {
-    "artifactName": "Bubble-Cowork-${version}-${arch}-mac.${ext}",
+    "artifactName": "Aegis-${version}-${arch}-mac.${ext}",
     "target": [
       { "target": "dmg", "arch": ["x64", "arm64"] },
       { "target": "zip", "arch": ["x64", "arm64"] }
@@ -33,17 +33,17 @@
     "target": ["portable", "nsis"]
   },
   "nsis": {
-    "artifactName": "Bubble-Cowork-${version}-win-${arch}-setup.${ext}"
+    "artifactName": "Aegis-${version}-win-${arch}-setup.${ext}"
   },
   "portable": {
-    "artifactName": "Bubble-Cowork-${version}-win-${arch}-portable.${ext}"
+    "artifactName": "Aegis-${version}-win-${arch}-portable.${ext}"
   },
   "linux": {
     "target": ["AppImage"],
     "category": "Development"
   },
   "appImage": {
-    "artifactName": "Bubble-Cowork-${version}-linux-${arch}.${ext}"
+    "artifactName": "Aegis-${version}-linux-${arch}.${ext}"
   },
   "publish": [
     {

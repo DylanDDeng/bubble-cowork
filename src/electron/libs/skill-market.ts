@@ -41,7 +41,7 @@ export async function searchSkillMarket(query: string, limit = DEFAULT_LIMIT): P
   const response = await fetch(`${SKILLS_BASE_URL}/api/search?q=${encodeURIComponent(trimmed)}`, {
     headers: {
       Accept: 'application/json',
-      'User-Agent': 'bubble-cowork/0.0.7',
+      'User-Agent': 'aegis/0.0.7',
     },
   });
 
@@ -183,7 +183,7 @@ async function fetchText(url: string): Promise<string> {
   const response = await fetch(url, {
     headers: {
       Accept: 'text/html,application/json',
-      'User-Agent': 'bubble-cowork/0.0.7',
+      'User-Agent': 'aegis/0.0.7',
     },
   });
 

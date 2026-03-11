@@ -321,8 +321,8 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
         terminal: false,
       },
       clientInfo: {
-        name: 'bubble-cowork',
-        title: 'Bubble Cowork',
+        name: 'aegis',
+        title: 'Aegis',
         version: '0.0.4',
       },
     })) as Record<string, unknown> | undefined;

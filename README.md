@@ -1,10 +1,10 @@
-# Bubble Cowork
+# Aegis
 
-Bubble Cowork Desktop Application（Electron + Vite + React）。
+Aegis Desktop Application（Electron + Vite + React）。
 
 ## 项目简介
 
-Bubble Cowork 是一个桌面端的多会话 AI 助手应用，围绕本地项目目录进行任务协作与信息整理。它支持会话管理、工具调用可视化、以及对工作目录内文件的浏览与预览，帮助你把“对话 → 结果文件 → 预览与操作”串成一个可追踪的工作流。
+Aegis 是一个桌面端的多会话 AI 助手应用，围绕本地项目目录进行任务协作与信息整理。它支持会话管理、工具调用可视化、以及对工作目录内文件的浏览与预览，帮助你把“对话 → 结果文件 → 预览与操作”串成一个可追踪的工作流。
 
 ## 主要功能
 
@@ -50,4 +50,3 @@ npm run dev
 - `npm run dist`：打包发布
 
 ---
-

@@ -16,7 +16,7 @@ const FALLBACK_STATUS: ClaudeRuntimeStatus = {
   cliVersion: null,
   requestedModel: null,
   summary: 'Checking Claude runtime…',
-  detail: 'Bubble Cowork is verifying the Claude runtime and authentication state.',
+  detail: 'Aegis is verifying the Claude runtime and authentication state.',
   installCommand: 'claude install stable',
   loginCommand: 'claude auth login',
   setupTokenCommand: 'claude setup-token',
@@ -57,7 +57,7 @@ export function useClaudeRuntimeStatus(model?: string | null, enabled = true) {
               ? 'App restart required.'
               : 'Claude runtime check failed.',
             detail: needsAppRestart
-              ? 'The renderer has loaded the new Claude runtime check UI, but the Electron main process is still running the old code. Fully restart Bubble Cowork or restart the Electron dev process, then try again.'
+              ? 'The renderer has loaded the new Claude runtime check UI, but the Electron main process is still running the old code. Fully restart Aegis or restart the Electron dev process, then try again.'
               : message,
             installCommand: needsAppRestart ? null : FALLBACK_STATUS.installCommand,
             loginCommand: needsAppRestart ? null : FALLBACK_STATUS.loginCommand,

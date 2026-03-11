@@ -94,7 +94,7 @@ function parseClaudeVersion(output: string): string | null {
 function describeRuntimeLocation(source: ClaudeRuntimeSource): string {
   switch (source) {
     case 'bundled':
-      return 'the bundled Bubble Cowork runtime';
+      return 'the bundled Aegis runtime';
     case 'workspace':
       return 'the local workspace runtime';
     default:
@@ -172,7 +172,7 @@ function buildInstallRequiredStatus(
     requestedModel,
     summary: 'Claude Code runtime not found.',
     detail:
-      'Bubble Cowork could not locate the Claude CLI it needs to start Claude sessions. Reinstall Bubble Cowork or install Claude Code in a terminal, then try again.',
+      'Aegis could not locate the Claude CLI it needs to start Claude sessions. Reinstall Aegis or install Claude Code in a terminal, then try again.',
     installCommand: INSTALL_COMMAND,
     loginCommand: LOGIN_COMMAND,
     setupTokenCommand: SETUP_TOKEN_COMMAND,
@@ -259,7 +259,7 @@ export async function getClaudeRuntimeStatus(model?: string | null): Promise<Cla
       requestedModel,
       summary: 'Claude Code needs authentication.',
       detail:
-        'Sign in with Claude Code or configure ANTHROPIC_API_KEY before using Anthropic Claude models in Bubble Cowork.',
+        'Sign in with Claude Code or configure ANTHROPIC_API_KEY before using Anthropic Claude models in Aegis.',
       installCommand: INSTALL_COMMAND,
       loginCommand: LOGIN_COMMAND,
       setupTokenCommand: SETUP_TOKEN_COMMAND,
@@ -284,7 +284,7 @@ export async function getClaudeRuntimeStatus(model?: string | null): Promise<Cla
     summary: 'Claude runtime check failed.',
     detail:
       authResult.errorMessage ||
-      'Bubble Cowork could not verify Claude authentication status. Run "claude auth status" in a terminal and verify the runtime is healthy.',
+      'Aegis could not verify Claude authentication status. Run "claude auth status" in a terminal and verify the runtime is healthy.',
     installCommand: INSTALL_COMMAND,
     loginCommand: LOGIN_COMMAND,
     setupTokenCommand: SETUP_TOKEN_COMMAND,
