@@ -10,14 +10,12 @@ import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
-import { ClaudeRuntimeStatusCard } from './ClaudeRuntimeStatusCard';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
 import { useCompatibleProviderConfig } from '../hooks/useCompatibleProviderConfig';
 import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
-import { useClaudeRuntimeStatus } from '../hooks/useClaudeRuntimeStatus';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import { getLatestProviderModel } from '../utils/session-model';
 import {
@@ -57,15 +55,7 @@ const PDF_QUICK_ACTION_PROMPT = [
 ].join('\n');
 
 export function NewSessionView() {
-  const {
-    pendingStart,
-    projectCwd,
-    sessions,
-    setPendingStart,
-    setProjectCwd,
-    setShowSettings,
-    setActiveSettingsTab,
-  } = useAppStore();
+  const { pendingStart, projectCwd, sessions, setPendingStart, setProjectCwd } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -94,11 +84,6 @@ export function NewSessionView() {
     () => buildCodexModelOptions(codexModelConfig),
     [codexModelConfig]
   );
-  const {
-    status: claudeRuntimeStatus,
-    loading: claudeRuntimeLoading,
-    refresh: refreshClaudeRuntimeStatus,
-  } = useClaudeRuntimeStatus(selectedClaudeModel, provider === 'claude');
   const recentClaudeModel = useMemo(
     () => getLatestProviderModel(sessions, 'claude'),
     [sessions]
@@ -228,10 +213,6 @@ export function NewSessionView() {
       setShowCwdHint(true);
       return;
     }
-    if (provider === 'claude' && (claudeRuntimeLoading || !claudeRuntimeStatus.ready)) {
-      toast.error(claudeRuntimeStatus.summary);
-      return;
-    }
 
     setPendingStart(true);
     setMenuOpen(false);
@@ -298,8 +279,7 @@ export function NewSessionView() {
   const canStartTask =
     prompt.trim().length > 0 &&
     !pendingStart &&
-    hasSelectedCwd &&
-    (provider !== 'claude' || (!claudeRuntimeLoading && claudeRuntimeStatus.ready));
+    hasSelectedCwd;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (skillAutocomplete.hasSlashQuery) {
@@ -400,24 +380,6 @@ export function NewSessionView() {
           </div>
 
           <div className="mt-auto">
-            {provider === 'claude' && (claudeRuntimeLoading || !claudeRuntimeStatus.ready) && (
-              <div className="mx-auto mb-3 max-w-4xl">
-                <ClaudeRuntimeStatusCard
-                  status={claudeRuntimeStatus}
-                  loading={claudeRuntimeLoading}
-                  compact
-                  onRefresh={refreshClaudeRuntimeStatus}
-                  primaryAction={{
-                    label: 'Open Providers Settings',
-                    onClick: () => {
-                      setShowSettings(true);
-                      setActiveSettingsTab('providers');
-                    },
-                  }}
-                />
-              </div>
-            )}
-
             <div
               className={`flex justify-center overflow-hidden transition-all duration-200 ${
                 showCwdHint
