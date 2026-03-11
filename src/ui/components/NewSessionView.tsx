@@ -6,6 +6,7 @@ import type { Attachment, ClaudeAccessMode, ClaudeSkillSummary } from '../types'
 import coworkLogo from '../assets/cowork-logo.svg';
 import powerPointLogo from '../assets/powerpoint-2025-logo.svg';
 import pdfLogo from '../assets/pdf-svgrepo-com.svg';
+import wordLogo from '../assets/word-2025-logo.svg';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
@@ -52,6 +53,19 @@ const PDF_QUICK_ACTION_PROMPT = [
   'Output requirements:',
   '- Keep the document concise, structured, and ready to share.',
   '- Generate a .pdf file and include its filename/path in the final reply.',
+].join('\n');
+
+const DOCX_QUICK_ACTION_PROMPT = [
+  'Create a polished DOCX document for this project.',
+  '',
+  'Content requirements:',
+  '- Explain what the app does, who it is for, and the main workflow.',
+  '- Summarize the most important capabilities using repo evidence only.',
+  '- Include a concise getting-started or how-to-run section if the repo supports it.',
+  '',
+  'Output requirements:',
+  '- Keep the document concise, structured, and ready to share.',
+  '- Generate a .docx file and include its filename/path in the final reply.',
 ].join('\n');
 
 export function NewSessionView() {
@@ -175,6 +189,13 @@ export function NewSessionView() {
   );
   const pdfSkill = useMemo(
     () => skillAutocomplete.availableSkills.find((skill) => skill.name === 'pdf') || null,
+    [skillAutocomplete.availableSkills]
+  );
+  const docxSkill = useMemo(
+    () =>
+      skillAutocomplete.availableSkills.find((skill) =>
+        ['docx', 'docx-manipulation'].includes(skill.name.toLowerCase())
+      ) || null,
     [skillAutocomplete.availableSkills]
   );
 
@@ -372,6 +393,16 @@ export function NewSessionView() {
                       fallbackSkillTitle="PDF Skill"
                       unavailable={!pdfSkill}
                       onClick={() => handleQuickAction(pdfSkill, 'pdf', PDF_QUICK_ACTION_PROMPT)}
+                    />
+                    <QuickActionCard
+                      title="Create Word"
+                      description="DOCX document"
+                      logoSrc={wordLogo}
+                      skill={docxSkill}
+                      fallbackSkillName="docx"
+                      fallbackSkillTitle="DOCX Skill"
+                      unavailable={!docxSkill}
+                      onClick={() => handleQuickAction(docxSkill, 'docx', DOCX_QUICK_ACTION_PROMPT)}
                     />
                   </div>
                 </div>
