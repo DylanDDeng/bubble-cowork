@@ -315,20 +315,24 @@ function ServerCard({
 
   return (
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-4 shadow-sm">
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
           <div className={`w-2 h-2 rounded-full ${statusColor}`} />
-          <div>
-            <div className="font-medium">{name}</div>
-            <div className="text-sm text-[var(--text-muted)]">
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-medium" title={name}>{name}</div>
+            <div
+              className="truncate text-sm text-[var(--text-muted)]"
+              title={type === 'stdio' ? config.command : config.url}
+            >
               {type === 'stdio' ? config.command : config.url}
             </div>
             {status?.error && (
-              <div className="text-sm text-red-400 mt-1">{status.error}</div>
+              <div className="mt-1 break-words text-sm text-red-400">{status.error}</div>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+
+        <div className="ml-auto flex flex-shrink-0 items-center gap-2">
           <span className="text-xs text-[var(--text-muted)] px-2 py-1 bg-[var(--bg-tertiary)] rounded">
             {type}
           </span>
