@@ -201,21 +201,21 @@ function UserPromptCard({
     [activeSessionMessages]
   );
   const promptPrefixDisplay = useMemo<UserPromptPrefixDisplay | null>(() => {
-    const commandState = parseSelectedSlashCommandPrompt(prompt, availableCommands);
-    if (commandState) {
-      return {
-        kind: 'command',
-        command: commandState.command,
-        remainder: commandState.remainder,
-      };
-    }
-
     const skillState = parseSelectedSkillPrompt(prompt, availableSkills);
     if (skillState) {
       return {
         kind: 'skill',
         skill: skillState.skill,
         remainder: skillState.remainder,
+      };
+    }
+
+    const commandState = parseSelectedSlashCommandPrompt(prompt, availableCommands);
+    if (commandState) {
+      return {
+        kind: 'command',
+        command: commandState.command,
+        remainder: commandState.remainder,
       };
     }
 
