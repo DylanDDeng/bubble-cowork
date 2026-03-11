@@ -4,6 +4,8 @@ import minimaxLogo from '../../assets/minimax-color.svg';
 import deepseekLogo from '../../assets/deepseek-color.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
+import { ClaudeRuntimeStatusCard } from '../ClaudeRuntimeStatusCard';
+import { useClaudeRuntimeStatus } from '../../hooks/useClaudeRuntimeStatus';
 import type {
   ClaudeCompatibleProviderConfig,
   ClaudeCompatibleProviderId,
@@ -48,6 +50,11 @@ export function CompatibleProviderSettingsContent() {
     () => ['minimax', 'zhipu', 'moonshot', 'deepseek'] as ClaudeCompatibleProviderId[],
     []
   );
+  const {
+    status: runtimeStatus,
+    loading: runtimeLoading,
+    refresh: refreshRuntimeStatus,
+  } = useClaudeRuntimeStatus();
 
   useEffect(() => {
     let cancelled = false;
@@ -115,6 +122,14 @@ export function CompatibleProviderSettingsContent() {
 
   return (
     <section>
+      <div className="mb-6">
+        <ClaudeRuntimeStatusCard
+          status={runtimeStatus}
+          loading={runtimeLoading}
+          onRefresh={refreshRuntimeStatus}
+        />
+      </div>
+
       <div className="grid gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
         <aside className="rounded-[24px] border border-[var(--border)] bg-[var(--bg-secondary)] p-3">
           <div className="px-3 pb-3 pt-2">

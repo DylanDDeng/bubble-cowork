@@ -71,6 +71,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-codex-model-config');
   },
 
+  getClaudeRuntimeStatus: (model?: string | null) => {
+    return ipcRenderer.invoke('get-claude-runtime-status', model);
+  },
+
   getSkillMarketHot: (limit?: number): Promise<SkillMarketItem[]> => {
     return ipcRenderer.invoke('get-skill-market-hot', limit);
   },

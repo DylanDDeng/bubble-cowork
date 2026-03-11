@@ -177,7 +177,7 @@ export const useAppStore = create<Store>()(
         break;
 
       case 'runner.error':
-        set({ globalError: event.payload.message });
+        set({ globalError: event.payload.message, pendingStart: false });
         break;
 
       case 'project.tree':

@@ -31,6 +31,7 @@ export type {
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
   CodexModelConfig,
+  ClaudeRuntimeStatus,
   SkillMarketDetail,
   SkillMarketInstallResult,
   SkillMarketItem,

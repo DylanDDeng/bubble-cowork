@@ -89,14 +89,19 @@ export async function runClaudeOneShot(params: {
 }
 
 // 使用 Claude SDK 生成会话标题
-export async function generateSessionTitle(prompt: string, cwd?: string): Promise<string> {
+export async function generateSessionTitle(
+  prompt: string,
+  cwd?: string,
+  model?: string,
+  betas?: string[]
+): Promise<string> {
   try {
     const titlePrompt = `Based on this user request, generate a very short title (3-6 words, no quotes):
 "${prompt.slice(0, 500)}"
 
 Just output the title, nothing else.`;
 
-    const result = await runClaudeOneShot({ prompt: titlePrompt, cwd });
+    const result = await runClaudeOneShot({ prompt: titlePrompt, cwd, model, betas });
     return result.text.slice(0, 50);
   } catch (error) {
     console.error('Failed to generate title:', error);

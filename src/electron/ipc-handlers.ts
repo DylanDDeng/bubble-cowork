@@ -24,6 +24,7 @@ import { getCodexModelConfig } from './libs/codex-settings';
 import { listClaudeSkills } from './libs/claude-skills';
 import { loadFeishuBridgeConfig, saveFeishuBridgeConfig } from './libs/feishu-bridge-config';
 import { feishuBridge } from './libs/feishu-bridge';
+import { formatClaudeRuntimeBlockingMessage, getClaudeRuntimeStatus } from './libs/claude-runtime-status';
 import {
   getSkillMarketDetail,
   getSkillMarketHot,
@@ -1017,6 +1018,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return getCodexModelConfig();
   });
 
+  ipcMainHandle('get-claude-runtime-status', async (_event, model?: string | null) => {
+    return getClaudeRuntimeStatus(model);
+  });
+
   ipcMainHandle('get-skill-market-hot', async (_event, limit?: number) => {
     return getSkillMarketHot(limit);
   });
@@ -1573,6 +1578,20 @@ async function handleSessionStart(
   const chosenProvider = provider || 'claude';
   const selectedModel = normalizeModel(model);
   const selectedBetas = chosenProvider === 'claude' ? normalizeBetas(betas) : undefined;
+
+  if (chosenProvider === 'claude') {
+    const runtimeStatus = await getClaudeRuntimeStatus(selectedModel || null);
+    if (!runtimeStatus.ready) {
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatClaudeRuntimeBlockingMessage(runtimeStatus),
+        },
+      });
+      return null;
+    }
+  }
+
   if (isDev()) {
     console.log('[Session Start]', {
       provider: chosenProvider,
@@ -1613,7 +1632,7 @@ async function handleSessionStart(
 
   if (chosenProvider === 'claude') {
     // 异步生成更好的标题（不阻塞）
-    generateSessionTitle(prompt, cwd).then((newTitle) => {
+    generateSessionTitle(prompt, cwd, selectedModel, selectedBetas).then((newTitle) => {
       const trimmedTitle = newTitle.trim();
       if (!trimmedTitle) {
         return;
@@ -1696,6 +1715,20 @@ async function handleSessionContinue(
   const accessModeChanged =
     nextProvider === 'claude' &&
     (runnerHandles.get(sessionId)?.claudeAccessMode || 'default') !== nextClaudeAccessMode;
+
+  if (nextProvider === 'claude') {
+    const runtimeStatus = await getClaudeRuntimeStatus(nextModel || null);
+    if (!runtimeStatus.ready) {
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatClaudeRuntimeBlockingMessage(runtimeStatus),
+          sessionId,
+        },
+      });
+      return false;
+    }
+  }
 
   if (isDev()) {
     console.log('[Session Continue]', {

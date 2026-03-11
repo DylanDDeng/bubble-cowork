@@ -92,6 +92,31 @@ export interface CodexModelConfig {
   options: string[];
 }
 
+export type ClaudeRuntimeStatusKind = 'ready' | 'login_required' | 'install_required' | 'error';
+export type ClaudeRuntimeSource = 'bundled' | 'workspace' | 'unknown';
+
+export interface ClaudeRuntimeStatus {
+  kind: ClaudeRuntimeStatusKind;
+  ready: boolean;
+  runtimeInstalled: boolean;
+  runtimeSource: ClaudeRuntimeSource;
+  requiresAnthropicAuth: boolean;
+  authSatisfied: boolean;
+  hasApiKey: boolean;
+  loggedIn: boolean;
+  authMethod: string | null;
+  apiProvider: string | null;
+  cliPath: string | null;
+  cliVersion: string | null;
+  requestedModel: string | null;
+  summary: string;
+  detail: string;
+  installCommand: string | null;
+  loginCommand: string | null;
+  setupTokenCommand: string | null;
+  checkedAt: number;
+}
+
 export type FontSlot = 'ui' | 'display' | 'mono';
 export type FontSelectionSource = 'builtin' | 'system' | 'imported';
 export type FontFormat = 'ttf' | 'otf' | 'woff' | 'woff2';

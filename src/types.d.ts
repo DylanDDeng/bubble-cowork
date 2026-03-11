@@ -15,6 +15,7 @@ import type {
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
   CodexModelConfig,
+  ClaudeRuntimeStatus,
   SkillMarketItem,
   SkillMarketDetail,
   SkillMarketInstallResult,
@@ -33,6 +34,7 @@ declare global {
     saveClaudeCompatibleProviderConfig: (config: ClaudeCompatibleProvidersConfig) => Promise<ClaudeCompatibleProvidersConfig>;
     getClaudeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getCodexModelConfig: () => Promise<CodexModelConfig>;
+    getClaudeRuntimeStatus: (model?: string | null) => Promise<ClaudeRuntimeStatus>;
     getSkillMarketHot: (limit?: number) => Promise<SkillMarketItem[]>;
     searchSkillMarket: (query: string, limit?: number) => Promise<SkillMarketItem[]>;
     getSkillMarketDetail: (id: string) => Promise<SkillMarketDetail>;
