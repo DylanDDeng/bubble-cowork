@@ -362,8 +362,15 @@ export function NewSessionView() {
         <div className="flex h-full w-full max-w-[920px] flex-col">
           <div className="flex flex-1 items-center justify-center text-center">
             <div className="-translate-y-10">
-              <div className="mb-7 flex justify-center">
-                <img src={coworkLogo} alt="" className="h-16 w-16 select-none opacity-90" aria-hidden="true" />
+              <div className="mb-7 flex justify-center no-drag">
+                <img
+                  src={coworkLogo}
+                  alt=""
+                  className="h-16 w-16 select-none opacity-90 no-drag"
+                  aria-hidden="true"
+                  draggable={false}
+                  onDragStart={(event) => event.preventDefault()}
+                />
               </div>
 
             {/* 标题 */}
