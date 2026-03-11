@@ -428,11 +428,14 @@ export function App() {
             {/* 会话内搜索 */}
             <InSessionSearch />
 
-            {/* CWD 显示栏 - 右上角 */}
+            {/* CWD 显示栏 */}
             {activeSession.cwd && (
-              <div className="flex justify-end mb-2">
-                <div className="text-xs text-[var(--text-muted)] font-mono flex items-center gap-1">
-                  <span>{shortenPath(activeSession.cwd)}</span>
+              <div className="mb-3 flex justify-center">
+                <div
+                  className="inline-flex max-w-[420px] items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-muted)] shadow-sm"
+                  title={activeSession.cwd}
+                >
+                  <span className="truncate font-mono">{getPathLeaf(activeSession.cwd)}</span>
                   <CopyButton text={activeSession.cwd} />
                 </div>
               </div>
@@ -600,19 +603,9 @@ function ChromeSidebarToggleButton({
   );
 }
 
-// 简化路径显示
-function shortenPath(path: string): string {
-  // /Users/xxx/Documents/My Project → ~/.../My Project
-  const home = '/Users/';
-  if (path.startsWith(home)) {
-    const parts = path.slice(home.length).split('/');
-    if (parts.length > 2) {
-      // 取最后两级目录
-      return `~/.../${parts.slice(-2).join('/')}`;
-    }
-    return `~/${parts.join('/')}`;
-  }
-  return path;
+function getPathLeaf(path: string): string {
+  const segments = path.split(/[\\/]+/).filter(Boolean);
+  return segments.at(-1) || path;
 }
 
 // 复制按钮组件
