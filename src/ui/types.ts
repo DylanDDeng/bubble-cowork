@@ -30,6 +30,8 @@ export type {
   ClaudeUsageModelSummary,
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
+  ClaudeModelUsage,
+  LatestClaudeModelUsage,
   CodexModelConfig,
   ClaudeRuntimeStatus,
   SkillMarketDetail,
@@ -77,6 +79,7 @@ export interface SessionView {
   todoState?: TodoState;
   pinned?: boolean;
   folderPath?: string | null;
+  latestClaudeModelUsage?: import('../shared/types').LatestClaudeModelUsage;
   messages: import('../shared/types').StreamMessage[];
   hydrated: boolean;
   permissionRequests: import('../shared/types').PermissionRequestPayload[];

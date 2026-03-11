@@ -1525,6 +1525,7 @@ async function handleClientEvent(
 // 会话列表
 function handleSessionList(mainWindow: BrowserWindow): void {
   const rows = sessions.listSessions();
+  const latestClaudeModelUsageBySession = sessions.getLatestClaudeModelUsageBySession();
   const sessionInfos: SessionInfo[] = rows.map((row) => ({
     id: row.id,
     title: row.title,
@@ -1538,6 +1539,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     todoState: row.todo_state || 'todo',
     pinned: row.pinned === 1,
     folderPath: row.folder_path || null,
+    latestClaudeModelUsage: latestClaudeModelUsageBySession[row.id],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));

@@ -6,6 +6,7 @@ import type { Attachment, ClaudeAccessMode } from '../types';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
+import { ClaudeContextIndicator } from './ClaudeContextIndicator';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
@@ -27,6 +28,7 @@ import {
 import { buildCodexModelOptions, formatCodexModelLabel, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
 import { buildPromptWithSkill } from '../utils/claude-skills';
 import { buildPromptWithSlashCommand } from '../utils/claude-slash';
+import { getLatestClaudeContextSnapshot } from '../utils/context-usage';
 
 function isVisibleClaudePickerModel(
   model: string | null | undefined,
@@ -80,6 +82,54 @@ export function PromptInput() {
 
     return activeSession.model.trim();
   }, [activeClaudeModel, activeSession?.model, compatibleOptions]);
+  const contextSnapshot = useMemo(
+    () => {
+      if (activeSession?.provider !== 'claude') {
+        return null;
+      }
+
+      const fromMessages = getLatestClaudeContextSnapshot(
+        activeSession.messages,
+        activeSession.model || visibleActiveClaudeModel || selectedClaudeModel
+      );
+      if (fromMessages) {
+        return fromMessages;
+      }
+
+      const latest = activeSession.latestClaudeModelUsage;
+      if (!latest?.usage?.contextWindow) {
+        return null;
+      }
+
+      const cacheReadTokens = latest.usage.cacheReadInputTokens || 0;
+      const cacheCreationTokens = latest.usage.cacheCreationInputTokens || 0;
+      const inputTokens = latest.usage.inputTokens || 0;
+      const outputTokens = latest.usage.outputTokens || 0;
+      const total = latest.usage.contextWindow || 0;
+      const used = inputTokens + cacheReadTokens + cacheCreationTokens + outputTokens;
+
+      return {
+        model: latest.model,
+        used,
+        total,
+        usageRatio: total > 0 ? Math.min(used / total, 1) : 0,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        cacheCreationTokens,
+        maxOutputTokens: latest.usage.maxOutputTokens || 0,
+        webSearchRequests: latest.usage.webSearchRequests || 0,
+      };
+    },
+    [
+      activeSession?.latestClaudeModelUsage,
+      activeSession?.messages,
+      activeSession?.model,
+      activeSession?.provider,
+      selectedClaudeModel,
+      visibleActiveClaudeModel,
+    ]
+  );
   const handleAutoSubmitClaudeCommand = (nextPrompt: string) => {
     if (!activeSessionId || !activeSession) {
       setPrompt(nextPrompt);
@@ -466,8 +516,16 @@ export function PromptInput() {
                     </button>
                   </div>
                 </>
-              )}
-            </div>
+                )}
+              </div>
+
+            {provider === 'claude' && (
+              <ClaudeContextIndicator
+                snapshot={contextSnapshot}
+                modelLabel={selectedClaudeModel || visibleActiveClaudeModel || activeSession?.model || 'Claude'}
+                emptyMessage="Starts tracking after the first Claude response"
+              />
+            )}
 
             <div className="flex-1" />
 

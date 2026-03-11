@@ -10,6 +10,7 @@ import wordLogo from '../assets/word-2025-logo.svg';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
+import { ClaudeContextIndicator } from './ClaudeContextIndicator';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
@@ -576,6 +577,14 @@ export function NewSessionView() {
                   </>
                 )}
               </div>
+
+              {provider === 'claude' && (
+                <ClaudeContextIndicator
+                  snapshot={null}
+                  modelLabel={selectedClaudeModel || pickerClaudeRuntimeModel || claudeModelConfig.defaultModel || 'Claude'}
+                  emptyMessage="Starts tracking after the first Claude response"
+                />
+              )}
 
               <div className="flex-1" />
               <button

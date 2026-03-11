@@ -94,6 +94,45 @@ function sanitizeHistoryMessages(messages: StreamMessage[]): StreamMessage[] {
   return messages.filter((message) => message.type !== 'stream_event');
 }
 
+function extractLatestClaudeModelUsage(
+  messages: StreamMessage[],
+  preferredModel?: string | null
+): import('../shared/types').LatestClaudeModelUsage | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.type !== 'result' || !message.modelUsage) {
+      continue;
+    }
+
+    const entries = Object.entries(message.modelUsage);
+    if (entries.length === 0) {
+      continue;
+    }
+
+    const preferred = preferredModel?.trim().toLowerCase();
+    const chosen =
+      (preferred
+        ? entries.find(([model]) => model.trim().toLowerCase() === preferred)
+        : undefined) ||
+      entries.sort((left, right) => {
+        const leftTokens = (left[1].inputTokens || 0) + (left[1].outputTokens || 0);
+        const rightTokens = (right[1].inputTokens || 0) + (right[1].outputTokens || 0);
+        return rightTokens - leftTokens;
+      })[0];
+
+    if (!chosen || !chosen[1].contextWindow) {
+      continue;
+    }
+
+    return {
+      model: chosen[0],
+      usage: chosen[1],
+    };
+  }
+
+  return undefined;
+}
+
 export const useAppStore = create<Store>()(
   persist(
     (set, get) => ({
@@ -456,6 +495,7 @@ function handleSessionList(
       todoState: session.todoState || 'todo',
       pinned: session.pinned || false,
       folderPath: session.folderPath || null,
+      latestClaudeModelUsage: session.latestClaudeModelUsage,
       messages: existing?.messages || [],
       hydrated: existing?.hydrated || false,
       permissionRequests: existing?.permissionRequests || [],
@@ -525,6 +565,7 @@ function handleSessionStatus(
           model: model !== undefined ? (model || undefined) : session.model,
           betas: betas !== undefined ? betas : session.betas,
           claudeAccessMode: claudeAccessMode !== undefined ? claudeAccessMode : session.claudeAccessMode,
+          latestClaudeModelUsage: session.latestClaudeModelUsage,
           streaming:
             status === 'running'
               ? session.streaming
@@ -545,6 +586,7 @@ function handleSessionStatus(
       model,
       betas,
       claudeAccessMode,
+      latestClaudeModelUsage: undefined,
       messages: [],
       hydrated: true, // 新会话不需要 hydration
       permissionRequests: [],
@@ -589,6 +631,7 @@ function handleSessionHistory(
           ...session,
           status,
           messages: sanitizedMessages,
+          latestClaudeModelUsage: extractLatestClaudeModelUsage(sanitizedMessages, session.model),
           hydrated: true,
           streaming: createEmptyStreamingState(),
         },
@@ -748,6 +791,10 @@ function handleStreamMessage(
             ...state.sessions,
             [sessionId]: {
               ...session,
+              latestClaudeModelUsage:
+                message.type === 'result' && session.provider === 'claude' && message.modelUsage
+                  ? extractLatestClaudeModelUsage([message], session.model) || session.latestClaudeModelUsage
+                  : session.latestClaudeModelUsage,
               messages: nextMessages,
               streaming: createEmptyStreamingState(),
             },
@@ -762,6 +809,10 @@ function handleStreamMessage(
         ...state.sessions,
         [sessionId]: {
           ...session,
+          latestClaudeModelUsage:
+            message.type === 'result' && session.provider === 'claude' && message.modelUsage
+              ? extractLatestClaudeModelUsage([message], session.model) || session.latestClaudeModelUsage
+              : session.latestClaudeModelUsage,
           messages: [...session.messages, message],
           streaming: createEmptyStreamingState(),
         },

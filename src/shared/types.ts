@@ -315,6 +315,7 @@ export interface SessionInfo {
   todoState?: TodoState;
   pinned?: boolean;
   folderPath?: string | null;
+  latestClaudeModelUsage?: LatestClaudeModelUsage;
   createdAt: number;
   updatedAt: number;
 }
@@ -450,6 +451,14 @@ export interface ClaudeModelUsage {
   cacheReadInputTokens: number;
   cacheCreationInputTokens: number;
   costUSD: number;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  webSearchRequests?: number;
+}
+
+export interface LatestClaudeModelUsage {
+  model: string;
+  usage: ClaudeModelUsage;
 }
 
 export type ClaudeUsageRangeDays = 7 | 30 | 90;

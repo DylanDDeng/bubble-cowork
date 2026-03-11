@@ -42,6 +42,9 @@ interface SDKMessage {
     cacheReadInputTokens?: number;
     cacheCreationInputTokens?: number;
     costUSD?: number;
+    contextWindow?: number;
+    maxOutputTokens?: number;
+    webSearchRequests?: number;
   }>;
   cwd?: string;
   model?: string;
@@ -141,6 +144,9 @@ function normalizeModelUsage(
         cacheReadInputTokens: usage.cacheReadInputTokens || 0,
         cacheCreationInputTokens: usage.cacheCreationInputTokens || 0,
         costUSD: usage.costUSD || 0,
+        contextWindow: usage.contextWindow || 0,
+        maxOutputTokens: usage.maxOutputTokens || 0,
+        webSearchRequests: usage.webSearchRequests || 0,
       },
     ])
   );

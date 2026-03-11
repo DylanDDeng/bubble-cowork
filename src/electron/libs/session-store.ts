@@ -6,6 +6,7 @@ import type { SessionRow, StreamMessage, SessionStatus } from '../types';
 import type {
   ClaudeAccessMode,
   ClaudeModelUsage,
+  LatestClaudeModelUsage,
   ClaudeUsageModelSummary,
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
@@ -144,6 +145,40 @@ export function getSession(sessionId: string): SessionRow | undefined {
 export function listSessions(): SessionRow[] {
   const stmt = getDb().prepare('SELECT * FROM sessions ORDER BY updated_at DESC');
   return stmt.all() as SessionRow[];
+}
+
+export function getLatestClaudeModelUsageBySession(): Record<string, LatestClaudeModelUsage> {
+  const rows = getDb().prepare(`
+    SELECT
+      m.session_id AS session_id,
+      m.data AS data,
+      s.model AS session_model
+    FROM messages m
+    INNER JOIN sessions s ON s.id = m.session_id
+    WHERE s.provider = 'claude'
+      AND json_extract(m.data, '$.type') = 'result'
+    ORDER BY m.created_at DESC
+  `).all() as Array<{ session_id: string; data: string; session_model: string | null }>;
+
+  const result: Record<string, LatestClaudeModelUsage> = {};
+
+  for (const row of rows) {
+    if (result[row.session_id]) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(row.data) as StoredClaudeResultMessage;
+      const latest = selectLatestClaudeModelUsage(parsed, row.session_model);
+      if (latest) {
+        result[row.session_id] = latest;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return result;
 }
 
 // 更新会话状态
@@ -388,6 +423,59 @@ type JoinedClaudeMessageRow = {
 type StoredClaudeResultMessage = Extract<StreamMessage, { type: 'result' }> & {
   modelUsage?: Record<string, Partial<ClaudeModelUsage>>;
 };
+
+function normalizeClaudeModelUsage(value: Partial<ClaudeModelUsage> | undefined): ClaudeModelUsage | null {
+  if (!value) {
+    return null;
+  }
+
+  return {
+    inputTokens: toNumber(value.inputTokens),
+    outputTokens: toNumber(value.outputTokens),
+    cacheReadInputTokens: toNumber(value.cacheReadInputTokens),
+    cacheCreationInputTokens: toNumber(value.cacheCreationInputTokens),
+    costUSD: toNumber(value.costUSD),
+    contextWindow: toNumber(value.contextWindow),
+    maxOutputTokens: toNumber(value.maxOutputTokens),
+    webSearchRequests: toNumber(value.webSearchRequests),
+  };
+}
+
+function selectLatestClaudeModelUsage(
+  result: StoredClaudeResultMessage,
+  preferredModel?: string | null
+): LatestClaudeModelUsage | undefined {
+  const entries = Object.entries(result.modelUsage || {});
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  const preferred = preferredModel?.trim().toLowerCase();
+  const exactMatch = preferred
+    ? entries.find(([model]) => model.trim().toLowerCase() === preferred)
+    : undefined;
+  const chosen =
+    exactMatch ||
+    entries.sort((left, right) => {
+      const leftTokens = toNumber(left[1].inputTokens) + toNumber(left[1].outputTokens);
+      const rightTokens = toNumber(right[1].inputTokens) + toNumber(right[1].outputTokens);
+      return rightTokens - leftTokens;
+    })[0];
+
+  if (!chosen) {
+    return undefined;
+  }
+
+  const usage = normalizeClaudeModelUsage(chosen[1]);
+  if (!usage || !usage.contextWindow) {
+    return undefined;
+  }
+
+  return {
+    model: chosen[0],
+    usage,
+  };
+}
 
 function startOfLocalDay(timestamp: number): number {
   const date = new Date(timestamp);
