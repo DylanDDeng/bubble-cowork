@@ -89,8 +89,8 @@ function TreeNode({
   return (
     <>
       <div
-        className={`flex items-center gap-2 py-0.5 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 transition-colors duration-150 ${
-          isSelected ? 'bg-[var(--text-primary)]/[0.07]' : ''
+        className={`flex items-center gap-2 rounded-md py-0.5 text-sm transition-colors duration-150 hover:bg-[var(--tree-item-hover)] ${
+          isSelected ? 'bg-[var(--tree-item-active)] ring-1 ring-[var(--tree-item-border)]' : ''
         }`}
         style={{ paddingLeft: depth * 12 }}
         onClick={() => {
@@ -151,7 +151,7 @@ function ProjectTreeNodeIcon({
 }) {
   if (node.kind === 'dir') {
     return (
-      <span className="text-[var(--text-muted)]">
+      <span className="text-[var(--tree-file-accent-fg)]">
         {isExpanded ? <FolderOpen className="w-3.5 h-3.5" /> : <FolderClosed className="w-3.5 h-3.5" />}
       </span>
     );
@@ -183,16 +183,16 @@ function getProjectFileVisual(
   if (isImageFile) {
     return {
       icon: Image,
-      containerClass: 'border-[#D9E8FF] bg-[#EEF5FF]',
-      iconClass: 'text-[#3569E8]',
+      containerClass: 'border-[var(--tree-file-media-border)] bg-[var(--tree-file-media-bg)]',
+      iconClass: 'text-[var(--tree-file-media-fg)]',
     };
   }
 
   if (lower.endsWith('.ppt') || lower.endsWith('.pptx') || lower.endsWith('.key')) {
     return {
       icon: Presentation,
-      containerClass: 'border-[#FFD7C8] bg-[#FFF1EA]',
-      iconClass: 'text-[#D35B2F]',
+      containerClass: 'border-[var(--tree-file-warm-border)] bg-[var(--tree-file-warm-bg)]',
+      iconClass: 'text-[var(--tree-file-warm-fg)]',
     };
   }
 
@@ -212,8 +212,8 @@ function getProjectFileVisual(
   ) {
     return {
       icon: FileText,
-      containerClass: 'border-[#DCDFFF] bg-[#F1F3FF]',
-      iconClass: 'text-[#5B57D8]',
+      containerClass: 'border-[var(--tree-file-accent-border)] bg-[var(--tree-file-accent-bg)]',
+      iconClass: 'text-[var(--tree-file-accent-fg)]',
     };
   }
 
@@ -226,15 +226,15 @@ function getProjectFileVisual(
   ) {
     return {
       icon: FileArchive,
-      containerClass: 'border-[#E1DCF8] bg-[#F6F2FF]',
-      iconClass: 'text-[#7C53D5]',
+      containerClass: 'border-[var(--tree-file-accent-border)] bg-[var(--tree-file-accent-bg)]',
+      iconClass: 'text-[var(--tree-file-accent-fg)]',
     };
   }
 
   return {
     icon: FileText,
-    containerClass: 'border-[#DEE3EA] bg-[#F5F7FA]',
-    iconClass: 'text-[#667185]',
+    containerClass: 'border-[var(--tree-file-neutral-border)] bg-[var(--tree-file-neutral-bg)]',
+    iconClass: 'text-[var(--tree-file-neutral-fg)]',
   };
 }
 
@@ -576,12 +576,12 @@ export function ProjectTreePanel() {
       )}
 
       <div
-        className="relative flex-shrink-0 bg-[var(--bg-secondary)] border-l border-[var(--border)] flex flex-col h-full"
+        className="relative flex h-full flex-shrink-0 flex-col border-l border-[var(--tree-item-border)] bg-[var(--preview-surface)]"
         style={{ width: railWidth }}
       >
         <div className="h-8 drag-region" />
         <div className="px-4 pt-2 pb-2">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--tree-file-accent-fg)]">
             PROJECT FILES
           </div>
           {!cwd && (
@@ -627,7 +627,7 @@ export function ProjectTreePanel() {
 
         {selectedFilePath && (
           <div
-            className="absolute top-8 bottom-0 z-20 border-l border-[var(--border)] bg-[var(--bg-secondary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]"
+            className="absolute top-8 bottom-0 z-20 border-l border-[var(--tree-item-border)] bg-[var(--preview-surface)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]"
             style={{ right: 'calc(100% - 1px)', width: previewPanelWidth }}
           >
             <div
@@ -702,7 +702,7 @@ export function ProjectTreePanel() {
                 </div>
               </div>
 
-              <div className="flex-1 min-h-0 overflow-auto rounded-lg border border-[var(--border)] bg-white p-3">
+              <div className="flex-1 min-h-0 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--preview-surface)] p-3">
                 {previewLoading && (
                   <div className="text-sm text-[var(--text-muted)]">Loading...</div>
                 )}
@@ -766,7 +766,7 @@ export function ProjectTreePanel() {
                       title={selectedPreview.name}
                       sandbox="allow-scripts"
                       srcDoc={selectedPreview.text}
-                      className="w-full h-full min-h-[320px] rounded-md border border-[var(--border)] bg-white"
+                      className="w-full h-full min-h-[320px] rounded-md border border-[var(--border)] bg-[var(--preview-surface)]"
                     />
                   )
                 )}
@@ -894,7 +894,7 @@ function PptxPreview({
           title={`${preview.name} slide ${safeIndex + 1}`}
           sandbox="allow-scripts"
           srcDoc={buildPptxSlideDocument(currentSlideHtml)}
-          className="w-full h-[clamp(260px,52vh,560px)] rounded-md border border-[var(--border)] bg-white"
+          className="w-full h-[clamp(260px,52vh,560px)] rounded-md border border-[var(--border)] bg-[var(--preview-surface)]"
         />
       ) : (
         <div className="text-sm text-[var(--text-muted)]">No slides could be rendered.</div>
@@ -958,7 +958,7 @@ function PdfPreview({
     <iframe
       title={preview.name}
       src={pdfUrl}
-      className="w-full h-full min-h-[320px] rounded-md border border-[var(--border)] bg-white"
+      className="w-full h-full min-h-[320px] rounded-md border border-[var(--border)] bg-[var(--preview-surface)]"
     />
   );
 }

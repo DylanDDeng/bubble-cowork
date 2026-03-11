@@ -269,7 +269,7 @@ function GeneralSettingsContent({
             <button
               type="button"
               onClick={() => setThemePickerOpen((current) => !current)}
-              className="flex w-full items-center rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2.5 text-left text-sm transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--bg-tertiary)]/55"
+              className="flex w-full items-center rounded-[18px] border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] px-4 py-2.5 text-left text-sm transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-light)]"
             >
               <div className="min-w-0 flex-1 truncate font-semibold text-[var(--text-primary)]">
                 {activeTheme.label}
@@ -334,7 +334,7 @@ function GeneralSettingsContent({
             <button
               type="button"
               onClick={() => setCustomCssOpen((current) => !current)}
-              className="flex w-full items-center gap-3 rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2.5 text-left text-sm transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--bg-tertiary)]/55"
+              className="flex w-full items-center gap-3 rounded-[18px] border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] px-3 py-2.5 text-left text-sm transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-light)]"
             >
               <div className="min-w-0 flex-1">
                 <div className="truncate font-semibold text-[var(--text-primary)]">
@@ -460,7 +460,7 @@ function ThemeOption({
       onClick={onClick}
       className={`inline-flex items-center gap-2 rounded-[14px] px-4 py-2.5 text-[14px] transition-colors ${
         isActive
-          ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.08)]'
+          ? 'border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] text-[var(--accent)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
           : 'bg-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
       }`}
     >
@@ -561,7 +561,7 @@ function FontSlotControl({
           <button
             type="button"
             onClick={applySelection}
-            className="h-10 rounded-full border border-[var(--border)] bg-[var(--accent-light)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+            className="h-10 rounded-full border border-[var(--sidebar-item-border)] bg-[var(--accent)] px-4 text-sm font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
           >
             Apply
           </button>
