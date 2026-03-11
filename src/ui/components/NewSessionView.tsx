@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import type { Attachment, ClaudeAccessMode, ClaudeSkillSummary } from '../types';
+import coworkLogo from '../assets/cowork-logo.svg';
 import powerPointLogo from '../assets/powerpoint-2025-logo.svg';
 import pdfLogo from '../assets/pdf-svgrepo-com.svg';
 import { AgentModelPicker } from './AgentModelPicker';
@@ -326,6 +327,10 @@ export function NewSessionView() {
         <div className="flex h-full w-full max-w-[920px] flex-col">
           <div className="flex flex-1 items-center justify-center text-center">
             <div className="-translate-y-10">
+              <div className="mb-7 flex justify-center">
+                <img src={coworkLogo} alt="" className="h-16 w-16 select-none opacity-90" aria-hidden="true" />
+              </div>
+
             {/* 标题 */}
               <h1 className="text-[18px] font-bold serif-display leading-tight text-[var(--text-primary)]">
                 What can I help you with?
