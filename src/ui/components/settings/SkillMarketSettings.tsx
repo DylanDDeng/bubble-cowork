@@ -413,8 +413,8 @@ function MarketListItem({
       onClick={onSelect}
       className={`flex w-full items-start gap-3 rounded-[18px] border px-3 py-3 text-left transition-colors ${
         selected
-          ? 'border-[var(--text-primary)] bg-[var(--bg-primary)]'
-          : 'border-transparent hover:bg-[var(--bg-primary)]'
+          ? 'border-[var(--sidebar-item-border)] bg-[var(--sidebar-item-active)]'
+          : 'border-transparent hover:bg-[var(--sidebar-item-hover)]'
       }`}
     >
       <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-2xl bg-[var(--bg-primary)] text-[var(--text-secondary)]">
