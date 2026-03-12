@@ -5,11 +5,13 @@ import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
 import { McpSettingsContent } from './McpSettings';
+import { ProviderPicker } from '../ProviderPicker';
 import { SkillMarketSettingsContent } from './SkillMarketSettings';
 import { BridgeSettingsContent } from './BridgeSettings';
 import type { ColorThemeId, FontSelection, FontSettingsPayload, FontSlot, ImportedFontFace, SystemFontOption, Theme } from '../../types';
 import { BUILTIN_FONT_OPTIONS, getDefaultFontSelections, getFontPreviewLabel } from '../../theme/fonts';
 import { COLOR_THEME_FAMILIES, resolveThemeMode } from '../../theme/themes';
+import { loadPreferredProvider, savePreferredProvider } from '../../utils/provider';
 
 const SETTINGS_TABS = {
   general: {
@@ -211,6 +213,7 @@ function GeneralSettingsContent({
   const [customCssOpen, setCustomCssOpen] = useState(false);
   const [appVersion, setAppVersion] = useState('...');
   const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [defaultProvider, setDefaultProvider] = useState(loadPreferredProvider());
   const activeTheme = COLOR_THEME_FAMILIES.find((family) => family.id === colorThemeId) || COLOR_THEME_FAMILIES[0];
   const customCssSummary = customThemeCss.trim()
     ? `${customThemeCss.trim().split(/\n+/).length} line${customThemeCss.trim().split(/\n+/).length > 1 ? 's' : ''} of overrides`
@@ -266,6 +269,20 @@ function GeneralSettingsContent({
   return (
     <div className="space-y-8 pb-12">
       <SettingsSection title="Appearance">
+        <SettingsRow
+          label="Default Agent"
+          description="Used for new sessions by default."
+        >
+          <ProviderPicker
+            value={defaultProvider}
+            onChange={(provider) => {
+              setDefaultProvider(provider);
+              savePreferredProvider(provider);
+            }}
+            embedded
+          />
+        </SettingsRow>
+
         <SettingsRow
           label="Updates"
           description="Check for a new release and view the current version."

@@ -51,7 +51,11 @@ export function ProviderPicker({ value, onChange, disabled, embedded = false }: 
       {open && !disabled && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full mb-1 left-0 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg shadow-lg py-1 min-w-[140px] z-20">
+          <div
+            className={`absolute bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.08)] py-1 min-w-[140px] z-30 ${
+              embedded ? 'right-0 top-full mt-2' : 'left-0 bottom-full mb-1'
+            }`}
+          >
             {PROVIDERS.map((provider) => (
               <button
                 key={provider.id}

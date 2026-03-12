@@ -160,6 +160,12 @@ export function AgentModelPicker({
 
     return currentProvider.label;
   }, [provider, claudeModel, currentCompatibleOption, resolvedClaudeValue, codexModel, codexOptions, currentProvider.label]);
+  const currentTriggerLabel = useMemo(() => {
+    if (!hasModelOptions || currentModelLabel === currentProvider.label) {
+      return currentProvider.label;
+    }
+    return `${currentProvider.label} · ${currentModelLabel}`;
+  }, [currentModelLabel, currentProvider.label, hasModelOptions]);
 
   const handleTriggerClick = () => {
     if (disabled) return;
@@ -261,8 +267,8 @@ export function AgentModelPicker({
         ) : (
           <ProviderIcon provider={currentProvider.id} />
         )}
-        <span className="max-w-[140px] truncate text-[var(--text-secondary)]">
-          {hasModelOptions ? currentModelLabel : currentProvider.label}
+        <span className="max-w-[220px] truncate text-[var(--text-secondary)]">
+          {currentTriggerLabel}
         </span>
         <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" />
       </button>
