@@ -295,7 +295,7 @@ function GeneralSettingsContent({
               type="button"
               onClick={() => void handleCheckForUpdates()}
               disabled={checkingUpdates}
-              className="h-10 rounded-full border border-[var(--sidebar-item-border)] bg-[var(--accent)] px-4 text-sm font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-50"
+              className="h-10 rounded-full border border-[var(--border)] bg-[var(--accent-light)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
             >
               {checkingUpdates ? 'Checking...' : 'Check for Updates'}
             </button>
