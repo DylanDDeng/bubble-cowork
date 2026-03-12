@@ -306,7 +306,7 @@ function GeneralSettingsContent({
           label="Appearance Mode"
           description="Choose light, dark, or system."
         >
-          <div className="inline-flex flex-wrap items-center gap-1 rounded-[18px] bg-[var(--bg-tertiary)] p-1">
+          <div className="inline-flex flex-wrap items-center gap-1 rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] p-1">
             <ThemeOption
               label="Light"
               value="light"
