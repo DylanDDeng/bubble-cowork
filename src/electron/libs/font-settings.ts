@@ -148,8 +148,39 @@ async function hydrateImportedFonts(fonts: StoredImportedFont[]): Promise<Import
   return hydrated;
 }
 
+function normalizeSelectionsAgainstSystemFonts(
+  selections: FontSettingsPayload['selections'],
+  importedIds: Set<string>,
+  systemFontIds: Set<string>
+): FontSettingsPayload['selections'] {
+  const normalize = (slot: FontSlot, selection: FontSelection): FontSelection => {
+    if (selection.source === 'system' && !systemFontIds.has(selection.id)) {
+      return DEFAULT_FONT_SELECTIONS[slot];
+    }
+    return normalizeFontSelection(selection, importedIds, slot);
+  };
+
+  return {
+    ui: normalize('ui', selections.ui),
+    display: normalize('display', selections.display),
+    mono: normalize('mono', selections.mono),
+  };
+}
+
 export async function getFontSettings(): Promise<FontSettingsPayload> {
   const stored = loadStoredFontSettings();
+  const systemFontIds = new Set((await listSystemFonts()).map((font) => font.id));
+  const normalizedSelections = normalizeSelectionsAgainstSystemFonts(
+    stored.selections,
+    new Set(stored.importedFonts.map((font) => font.id)),
+    systemFontIds
+  );
+  const didChange =
+    JSON.stringify(normalizedSelections) !== JSON.stringify(stored.selections);
+  if (didChange) {
+    stored.selections = normalizedSelections;
+    saveStoredFontSettings(stored);
+  }
   return {
     selections: stored.selections,
     importedFonts: await hydrateImportedFonts(stored.importedFonts),
@@ -159,11 +190,16 @@ export async function getFontSettings(): Promise<FontSettingsPayload> {
 export async function saveFontSelections(selections: FontSettingsPayload['selections']): Promise<FontSettingsPayload> {
   const stored = loadStoredFontSettings();
   const importedIds = new Set(stored.importedFonts.map((font) => font.id));
-  stored.selections = {
-    ui: normalizeFontSelection(selections.ui, importedIds, 'ui'),
-    display: normalizeFontSelection(selections.display, importedIds, 'display'),
-    mono: normalizeFontSelection(selections.mono, importedIds, 'mono'),
-  };
+  const systemFontIds = new Set((await listSystemFonts()).map((font) => font.id));
+  stored.selections = normalizeSelectionsAgainstSystemFonts(
+    {
+      ui: normalizeFontSelection(selections.ui, importedIds, 'ui'),
+      display: normalizeFontSelection(selections.display, importedIds, 'display'),
+      mono: normalizeFontSelection(selections.mono, importedIds, 'mono'),
+    },
+    importedIds,
+    systemFontIds
+  );
   saveStoredFontSettings(stored);
   return getFontSettings();
 }

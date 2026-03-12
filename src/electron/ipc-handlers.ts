@@ -969,6 +969,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   void feishuBridge.maybeAutoStart();
 
   // 处理客户端事件
+  ipcMain.removeAllListeners('client-event');
   ipcMain.on('client-event', async (_, eventJson: string) => {
     try {
       const event: ClientEvent = JSON.parse(eventJson);
@@ -2366,6 +2367,7 @@ function broadcastFolderChanged(mainWindow: BrowserWindow): void {
 
 // 清理资源
 export function cleanup(): void {
+  ipcMain.removeAllListeners('client-event');
   // 停止所有运行中的 runner
   for (const [, entry] of runnerHandles) {
     entry.handle.abort();

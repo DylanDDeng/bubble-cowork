@@ -594,10 +594,7 @@ function FontSlotControl({
       return;
     }
 
-    onChange({
-      source: 'system',
-      id: trimmed,
-    });
+    toast.error('Pick a font from the detected font list before applying.');
   };
 
   return (
