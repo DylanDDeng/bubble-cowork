@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn, PlugZap, Eraser, ChevronDown, Check, Bot } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
@@ -557,6 +557,8 @@ function FontSlotControl({
 }) {
   const currentLabel = getFontPreviewLabel(slot, selection, importedFonts);
   const [fontInput, setFontInput] = useState(currentLabel);
+  const skipNextBlurCommitRef = useRef(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const normalizedInput = fontInput.trim().toLowerCase();
   const options = useMemo(
     () => [
@@ -576,69 +578,137 @@ function FontSlotControl({
     [importedFonts, slot, systemFonts]
   );
   const matchingOption = options.find((option) => option.label.toLowerCase() === normalizedInput) || null;
-  const listId = `font-options-${slot}`;
+  const filteredOptions = useMemo(
+    () =>
+      normalizedInput
+        ? options.filter((option) => option.label.toLowerCase().includes(normalizedInput))
+        : options,
+    [normalizedInput, options]
+  );
 
   useEffect(() => {
     setFontInput(currentLabel);
   }, [currentLabel]);
 
-  const applySelection = () => {
+  const commitSelection = () => {
     const trimmed = fontInput.trim();
+    const defaultSelection = getDefaultFontSelections()[slot];
     if (!trimmed) {
-      onChange(getDefaultFontSelections()[slot]);
+      if (
+        selection.source !== defaultSelection.source ||
+        selection.id !== defaultSelection.id
+      ) {
+        onChange(defaultSelection);
+      } else {
+        setFontInput(getFontPreviewLabel(slot, defaultSelection, importedFonts));
+      }
       return;
     }
 
     if (matchingOption) {
-      onChange(matchingOption.selection);
+      if (
+        selection.source !== matchingOption.selection.source ||
+        selection.id !== matchingOption.selection.id
+      ) {
+        onChange(matchingOption.selection);
+      } else {
+        setFontInput(getFontPreviewLabel(slot, matchingOption.selection, importedFonts));
+      }
       return;
     }
 
+    setFontInput(currentLabel);
+    setMenuOpen(false);
     toast.error('Pick a font from the detected font list before applying.');
+  };
+
+  const handleOptionSelect = (nextSelection: FontSelection) => {
+    const nextLabel = getFontPreviewLabel(slot, nextSelection, importedFonts);
+    setFontInput(nextLabel);
+    setMenuOpen(false);
+
+    if (selection.source !== nextSelection.source || selection.id !== nextSelection.id) {
+      onChange(nextSelection);
+    }
   };
 
   return (
     <div className="w-full max-w-[520px] space-y-2">
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <input
-          list={listId}
-          value={fontInput}
-          onChange={(event) => setFontInput(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              applySelection();
-            }
-          }}
-          placeholder="Type a font name..."
-          className="h-10 w-full min-w-0 rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-[14px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--text-muted)] sm:w-[230px]"
-        />
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              const defaults = getDefaultFontSelections();
-              setFontInput(getFontPreviewLabel(slot, defaults[slot], importedFonts));
-              onChange(defaults[slot]);
+      <div className="relative ml-auto w-full max-w-[320px]">
+        <div className="rounded-[20px] border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] transition-colors focus-within:border-[var(--text-muted)]">
+          <input
+            value={fontInput}
+            onChange={(event) => {
+              setFontInput(event.target.value);
+              setMenuOpen(true);
             }}
-            className="h-10 rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-[14px] font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-          >
-            Reset
-          </button>
+            onFocus={() => setMenuOpen(true)}
+            onBlur={() => {
+              if (skipNextBlurCommitRef.current) {
+                skipNextBlurCommitRef.current = false;
+                return;
+              }
+              setMenuOpen(false);
+              commitSelection();
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                skipNextBlurCommitRef.current = true;
+                commitSelection();
+                (event.currentTarget as HTMLInputElement).blur();
+              }
+              if (event.key === 'Escape') {
+                setFontInput(currentLabel);
+                setMenuOpen(false);
+                (event.currentTarget as HTMLInputElement).blur();
+              }
+            }}
+            placeholder="Type or pick a font..."
+            className="h-11 w-full min-w-0 rounded-[20px] bg-transparent px-4 pr-10 text-[14px] font-medium text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+          />
           <button
             type="button"
-            onClick={applySelection}
-            className="h-10 rounded-full border border-[var(--sidebar-item-border)] bg-[var(--accent)] px-4 text-sm font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              setMenuOpen((current) => !current);
+            }}
+            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+            aria-label="Toggle font options"
           >
-            Apply
+            <ChevronDown className={`h-4 w-4 transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
           </button>
         </div>
+
+        {menuOpen && filteredOptions.length > 0 && (
+          <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-[20px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_14px_32px_rgba(15,23,42,0.08)]">
+            <div className="max-h-[220px] overflow-y-auto">
+              {filteredOptions.map((option) => {
+                const selectedOption =
+                  option.selection.source === selection.source && option.selection.id === selection.id;
+                return (
+                  <button
+                    key={`${slot}-${option.selection.source}-${option.selection.id}`}
+                    type="button"
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      handleOptionSelect(option.selection);
+                    }}
+                    className={`flex w-full items-center justify-between gap-3 rounded-[14px] px-4 py-2.5 text-left transition-colors ${
+                      selectedOption
+                        ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+                        : 'text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+                    }`}
+                  >
+                    <span className="truncate text-[14px] font-medium">{option.label}</span>
+                    {selectedOption ? <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" /> : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
-      <datalist id={listId}>
-        {options.map((option) => (
-          <option key={`${slot}-${option.selection.source}-${option.selection.id}`} value={option.label} />
-        ))}
-      </datalist>
 
       {!systemFontsLoaded && (
         <div className="text-sm text-[var(--text-muted)]">Loading system fonts...</div>
