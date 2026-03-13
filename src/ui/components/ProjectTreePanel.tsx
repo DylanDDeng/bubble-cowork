@@ -89,7 +89,7 @@ function TreeNode({
   return (
     <>
       <div
-        className={`flex items-center gap-2 rounded-md py-0.5 text-sm transition-colors duration-150 hover:bg-[var(--tree-item-hover)] ${
+        className={`flex min-h-[24px] items-center gap-2 rounded-md py-0.5 text-sm transition-colors duration-150 hover:bg-[var(--tree-item-hover)] ${
           isSelected ? 'bg-[var(--tree-item-active)] ring-1 ring-[var(--tree-item-border)]' : ''
         }`}
         style={{ paddingLeft: depth * 12 }}
@@ -113,10 +113,12 @@ function TreeNode({
           }
         }}
       >
-        <span className="text-[var(--text-muted)] text-xs w-3">{chevron}</span>
+        <span className="flex h-4 w-3 shrink-0 items-center justify-center text-[10px] leading-none text-[var(--text-muted)]">
+          {chevron}
+        </span>
         <ProjectTreeNodeIcon node={node} isExpanded={isExpanded} isImageFile={isImageFile} />
         <span
-          className={`truncate ${isDir ? 'font-medium' : 'text-[var(--text-secondary)]'}`}
+          className={`min-w-0 truncate leading-5 ${isDir ? 'font-medium' : 'text-[var(--text-secondary)]'}`}
           title={node.name}
         >
           {node.name}
@@ -151,7 +153,7 @@ function ProjectTreeNodeIcon({
 }) {
   if (node.kind === 'dir') {
     return (
-      <span className="text-[var(--tree-file-accent-fg)]">
+      <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center text-[var(--tree-file-accent-fg)]">
         {isExpanded ? <FolderOpen className="w-3.5 h-3.5" /> : <FolderClosed className="w-3.5 h-3.5" />}
       </span>
     );
