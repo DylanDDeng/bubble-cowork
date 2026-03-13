@@ -178,26 +178,18 @@ function CompactBoundaryCard({
   message: Extract<StreamMessage, { type: 'system'; subtype: 'compact_boundary' }>;
 }) {
   const isAuto = message.compactMetadata.trigger === 'auto';
-  const title = isAuto ? 'Auto compacted context' : 'Context compacted';
-  const detail = isAuto
-    ? 'Claude summarized earlier turns after the session approached its context limit. Future replies continue from the compacted context.'
-    : 'Claude summarized earlier turns and continued with a compacted session context.';
+  const label = isAuto ? 'auto compact' : 'compact';
 
   return (
-    <div className="my-3 flex justify-center">
-      <div className="w-full max-w-[720px] rounded-[18px] border border-[var(--border)] bg-[var(--bg-tertiary)]/70 px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-[var(--accent-light)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-primary)]">
-            {isAuto ? 'Auto Compact' : 'Compact'}
+    <div className="my-6 flex justify-center">
+      <div className="w-full max-w-[720px]">
+        <div className="relative flex items-center justify-center">
+          <div className="absolute inset-x-0 top-1/2 border-t border-[var(--border)]" />
+          <span className="relative z-10 bg-[var(--bg-primary)] px-3 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--text-muted)]">
+            {label}
+            {message.compactMetadata.preTokens > 0 ? ` · ${formatCompactTokens(message.compactMetadata.preTokens)}` : ''}
           </span>
-          {message.compactMetadata.preTokens > 0 && (
-            <span className="rounded-full border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-secondary)]">
-              {formatCompactTokens(message.compactMetadata.preTokens)} tokens
-            </span>
-          )}
         </div>
-        <div className="mt-2 text-[14px] font-semibold text-[var(--text-primary)]">{title}</div>
-        <div className="mt-1 text-[13px] leading-6 text-[var(--text-secondary)]">{detail}</div>
       </div>
     </div>
   );
