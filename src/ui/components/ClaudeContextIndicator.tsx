@@ -8,38 +8,6 @@ function formatCompact(value: number): string {
   return `${Math.round(value)}`;
 }
 
-function formatPercent(value: number): string {
-  return `${(value * 100).toFixed(1)}%`;
-}
-
-function getIndicatorTone(usageRatio: number) {
-  if (usageRatio >= 0.85) {
-    return {
-      stroke: '#DC2626',
-      track: 'rgba(220, 38, 38, 0.18)',
-    };
-  }
-
-  if (usageRatio >= 0.65) {
-    return {
-      stroke: '#D97706',
-      track: 'rgba(217, 119, 6, 0.18)',
-    };
-  }
-
-  if (usageRatio >= 0.4) {
-    return {
-      stroke: '#D4A017',
-      track: 'rgba(212, 160, 23, 0.18)',
-    };
-  }
-
-  return {
-    stroke: 'var(--text-secondary)',
-    track: 'var(--border)',
-  };
-}
-
 export function ClaudeContextIndicator({
   snapshot,
   modelLabel,
@@ -50,9 +18,8 @@ export function ClaudeContextIndicator({
   emptyMessage?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const tone = snapshot ? getIndicatorTone(snapshot.usageRatio) : { stroke: 'var(--text-muted)', track: 'var(--border)' };
-  const sweep = snapshot ? Math.max(0, Math.min(snapshot.usageRatio, 1)) * 360 : 360;
   const resolvedModelLabel = snapshot?.model || modelLabel || 'Claude';
+  const hasSnapshot = !!snapshot;
 
   return (
     <div
@@ -65,17 +32,22 @@ export function ClaudeContextIndicator({
       <button
         type="button"
         className="flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-[var(--bg-tertiary)]"
-        title="Claude context usage"
-        aria-label="Claude context usage"
+        title="Claude token details"
+        aria-label="Claude token details"
       >
         <span
-          className="relative block h-3.5 w-3.5 rounded-full"
+          className="relative block h-3.5 w-3.5 rounded-full border"
           style={{
-            background: `conic-gradient(${tone.stroke} 0deg ${sweep}deg, ${tone.track} ${sweep}deg 360deg)`,
+            borderColor: hasSnapshot ? 'var(--text-secondary)' : 'var(--border)',
+            backgroundColor: 'transparent',
           }}
         >
           <span
-            className="absolute inset-[2px] rounded-full bg-[var(--bg-secondary)]"
+            className="absolute inset-[3px] rounded-full"
+            style={{
+              backgroundColor: hasSnapshot ? 'var(--text-secondary)' : 'var(--text-muted)',
+              opacity: hasSnapshot ? 0.95 : 0.6,
+            }}
           />
         </span>
       </button>
@@ -85,18 +57,19 @@ export function ClaudeContextIndicator({
           <MetricRow label="Model" value={resolvedModelLabel} mono />
           {snapshot ? (
             <>
-              <MetricRow label="Used" value={formatCompact(snapshot.used)} />
-              <MetricRow label="Total" value={formatCompact(snapshot.total)} />
-              <MetricRow label="Usage" value={formatPercent(snapshot.usageRatio)} />
+              {snapshot.total > 0 && (
+                <MetricRow label="Context Window" value={formatCompact(snapshot.total)} />
+              )}
+              <MetricRow label="Input Tokens" value={formatCompact(snapshot.inputTokens)} />
+              <MetricRow label="Output Tokens" value={formatCompact(snapshot.outputTokens)} />
 
               <Divider />
 
               <MetricRow label="Cache Read" value={formatCompact(snapshot.cacheReadTokens)} />
               <MetricRow label="Cache Creation" value={formatCompact(snapshot.cacheCreationTokens)} />
-              <MetricRow label="Output Tokens" value={formatCompact(snapshot.outputTokens)} />
 
               <div className="mt-4 border-t border-[var(--border)] pt-3 text-[12px] leading-5 text-[var(--text-secondary)]">
-                Estimated from the most recent response
+                Reported by the most recent Claude response
               </div>
             </>
           ) : (

@@ -2,9 +2,7 @@ import type { ClaudeModelUsage, StreamMessage } from '../types';
 
 export type ClaudeContextSnapshot = {
   model: string;
-  used: number;
   total: number;
-  usageRatio: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
@@ -57,22 +55,14 @@ export function getLatestClaudeContextSnapshot(
     }
 
     const [model, usage] = selected;
-    const total = usage.contextWindow || 0;
-    if (!total) {
-      continue;
-    }
-
     const cacheReadTokens = usage.cacheReadInputTokens || 0;
     const cacheCreationTokens = usage.cacheCreationInputTokens || 0;
     const outputTokens = usage.outputTokens || 0;
     const inputTokens = usage.inputTokens || 0;
-    const used = inputTokens + cacheReadTokens + cacheCreationTokens + outputTokens;
 
     return {
       model,
-      used,
-      total,
-      usageRatio: total > 0 ? Math.min(used / total, 1) : 0,
+      total: usage.contextWindow || 0,
       inputTokens,
       outputTokens,
       cacheReadTokens,

@@ -97,7 +97,7 @@ export function PromptInput() {
       }
 
       const latest = activeSession.latestClaudeModelUsage;
-      if (!latest?.usage?.contextWindow) {
+      if (!latest?.usage) {
         return null;
       }
 
@@ -105,14 +105,10 @@ export function PromptInput() {
       const cacheCreationTokens = latest.usage.cacheCreationInputTokens || 0;
       const inputTokens = latest.usage.inputTokens || 0;
       const outputTokens = latest.usage.outputTokens || 0;
-      const total = latest.usage.contextWindow || 0;
-      const used = inputTokens + cacheReadTokens + cacheCreationTokens + outputTokens;
 
       return {
         model: latest.model,
-        used,
-        total,
-        usageRatio: total > 0 ? Math.min(used / total, 1) : 0,
+        total: latest.usage.contextWindow || 0,
         inputTokens,
         outputTokens,
         cacheReadTokens,
