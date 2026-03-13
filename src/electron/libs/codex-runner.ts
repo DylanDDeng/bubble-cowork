@@ -195,6 +195,9 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
   let currentSessionId = '';
   let streamingStarted = false;
   let assistantBuffer = '';
+  let preTraceBuffer = '';
+  let traceCandidateBuffer = '';
+  let sawTraceActivity = false;
   let resultEmitted = false;
   let promptCapabilities: PromptCapabilities = {};
   const toolNameById = new Map<string, string>();
@@ -279,17 +282,135 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
 
   enqueuePrompt(prompt, attachments);
 
+  const emitTraceNote = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    onMessage({
+      type: 'assistant',
+      uuid: uuidv4(),
+      message: { content: [{ type: 'text', text: trimmed }] },
+    });
+  };
+
+  const flushPreTraceToTrace = () => {
+    if (!preTraceBuffer.trim()) {
+      preTraceBuffer = '';
+      return;
+    }
+    emitTraceNote(preTraceBuffer);
+    preTraceBuffer = '';
+  };
+
+  const flushTraceCandidateToTrace = () => {
+    if (!traceCandidateBuffer.trim()) {
+      traceCandidateBuffer = '';
+      return;
+    }
+    emitTraceNote(traceCandidateBuffer);
+    traceCandidateBuffer = '';
+  };
+
+  const appendAssistantText = (text: string) => {
+    if (!text) {
+      return;
+    }
+
+    if (!sawTraceActivity) {
+      preTraceBuffer += text;
+      return;
+    }
+
+    traceCandidateBuffer += text;
+  };
+
+  const splitFinalCodexText = (
+    text: string
+  ): {
+    traceText: string;
+    finalText: string;
+  } => {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return { traceText: '', finalText: '' };
+    }
+
+    const metaLeadPattern =
+      /^(我先|我看到|我找到|我读到|我再|我想|我把|我去|我会|我刚|如果我没理解错|let me|i'?ll|i will|i found|i checked|i reviewed|i traced|i looked|i read|i pulled|i'm going to)/i;
+    const boundaryPatterns = [
+      /\n\n(?=\*\*[^*\n]+\*\*)/,
+      /\n\n(?=#+\s)/,
+      /\n\n(?=-\s)/,
+      /\n\n(?=\d+\.\s)/,
+    ];
+
+    let splitIndex = -1;
+    for (const pattern of boundaryPatterns) {
+      const match = pattern.exec(trimmed);
+      if (match && (splitIndex === -1 || match.index < splitIndex)) {
+        splitIndex = match.index;
+      }
+    }
+
+    if (splitIndex <= 0) {
+      return { traceText: '', finalText: trimmed };
+    }
+
+    const intro = trimmed.slice(0, splitIndex).trim();
+    const remainder = trimmed.slice(splitIndex).trim();
+    if (!intro || !remainder) {
+      return { traceText: '', finalText: trimmed };
+    }
+
+    const introSentences = intro
+      .split(/(?<=[。！？.!?])\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const metaSentenceCount = introSentences.filter((sentence) => metaLeadPattern.test(sentence)).length;
+    const introLooksNarrative =
+      metaLeadPattern.test(intro) ||
+      (introSentences.length > 0 && metaSentenceCount >= Math.max(2, Math.ceil(introSentences.length / 2)));
+
+    if (!introLooksNarrative || intro.length > 420) {
+      return { traceText: '', finalText: trimmed };
+    }
+
+    return {
+      traceText: intro,
+      finalText: remainder,
+    };
+  };
+
+  const beginTraceActivity = () => {
+    if (!sawTraceActivity) {
+      sawTraceActivity = true;
+      flushPreTraceToTrace();
+      return;
+    }
+
+    flushTraceCandidateToTrace();
+  };
+
   const emitResult = (status: 'success' | 'cancelled' | 'error') => {
     if (resultEmitted || abortController.signal.aborted) {
       return;
     }
     resultEmitted = true;
 
-    if (streamingStarted) {
-      onMessage({
-        type: 'stream_event',
-        event: { type: 'content_block_stop' },
-      });
+    if (sawTraceActivity) {
+      const split = splitFinalCodexText(traceCandidateBuffer);
+      if (split.traceText) {
+        emitTraceNote(split.traceText);
+      }
+      assistantBuffer = split.finalText;
+      if (!assistantBuffer.trim() && !split.finalText.trim()) {
+        flushTraceCandidateToTrace();
+        assistantBuffer = '';
+      }
+    } else {
+      assistantBuffer = preTraceBuffer;
     }
 
     if (assistantBuffer.trim()) {
@@ -362,6 +483,9 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
   async function sendPrompt(text: string, promptAttachments?: Attachment[]): Promise<void> {
     const content = await buildPromptContent(text, promptAttachments, promptCapabilities);
     assistantBuffer = '';
+    preTraceBuffer = '';
+    traceCandidateBuffer = '';
+    sawTraceActivity = false;
     streamingStarted = false;
     resultEmitted = false;
     toolNameById.clear();
@@ -422,32 +546,11 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
       const thinking = rawContent?.thinking;
 
       if (contentType === 'text' && typeof text === 'string') {
-        if (!streamingStarted) {
-          streamingStarted = true;
-          onMessage({ type: 'stream_event', event: { type: 'content_block_start' } });
-        }
-        assistantBuffer += text;
-        onMessage({
-          type: 'stream_event',
-          event: {
-            type: 'content_block_delta',
-            delta: { type: 'text_delta', text },
-          },
-        });
+        appendAssistantText(text);
       }
 
       if (contentType === 'thinking' && typeof thinking === 'string') {
-        if (!streamingStarted) {
-          streamingStarted = true;
-          onMessage({ type: 'stream_event', event: { type: 'content_block_start' } });
-        }
-        onMessage({
-          type: 'stream_event',
-          event: {
-            type: 'content_block_delta',
-            delta: { type: 'thinking_delta', thinking },
-          },
-        });
+        beginTraceActivity();
       }
       return;
     }
@@ -455,12 +558,13 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
     if (updateType === 'agent_message') {
       const text = extractText(update as Record<string, unknown>);
       if (text) {
-        assistantBuffer += text;
+        appendAssistantText(text);
       }
       return;
     }
 
     if (updateType === 'tool_call') {
+      beginTraceActivity();
       handleToolCall(update as Record<string, unknown>);
       return;
     }
