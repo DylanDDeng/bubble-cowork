@@ -53,6 +53,10 @@ interface SDKMessage {
   slash_commands?: string[];
   skills?: string[];
   mcp_servers?: McpServerStatus[];
+  compact_metadata?: {
+    trigger?: 'manual' | 'auto';
+    pre_tokens?: number;
+  };
   result?: string;
   event?: {
     type?: string;
@@ -548,6 +552,18 @@ function convertSDKMessage(message: SDKMessage): StreamMessage | null {
           slash_commands: message.slash_commands,
           skills: message.skills,
           mcp_servers: message.mcp_servers,
+        };
+      }
+      if (message.subtype === 'compact_boundary' && message.uuid && message.session_id) {
+        return {
+          type: 'system',
+          subtype: 'compact_boundary',
+          uuid: message.uuid,
+          session_id: message.session_id,
+          compactMetadata: {
+            trigger: message.compact_metadata?.trigger === 'manual' ? 'manual' : 'auto',
+            preTokens: message.compact_metadata?.pre_tokens || 0,
+          },
         };
       }
       return null;

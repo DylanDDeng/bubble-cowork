@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { toast } from 'sonner';
 import type {
   AppState,
   AppActions,
@@ -208,7 +209,7 @@ export const useAppStore = create<Store>()(
         break;
 
       case 'stream.message':
-        handleStreamMessage(event.payload, set);
+        handleStreamMessage(event.payload, set, get);
         break;
 
       case 'permission.request':
@@ -698,17 +699,30 @@ function handleUserPrompt(
 // 处理流式消息
 function handleStreamMessage(
   payload: { sessionId: string; message: StreamMessage },
-  set: SetState
+  set: SetState,
+  get: () => Store
 ) {
   const { sessionId, message } = payload;
+  const session = get().sessions[sessionId];
+  const activeSessionId = get().activeSessionId;
+
+  if (
+    message.type === 'system' &&
+    message.subtype === 'compact_boundary' &&
+    session?.provider === 'claude' &&
+    activeSessionId === sessionId &&
+    message.compactMetadata.trigger === 'auto'
+  ) {
+    toast.success('Claude auto-compacted the conversation context.');
+  }
 
   set((state) => {
-    const session = state.sessions[sessionId];
-    if (!session) return state;
+    const currentSession = state.sessions[sessionId];
+    if (!currentSession) return state;
 
     if (message.type === 'stream_event') {
       const event = message.event;
-      const currentStreaming = session.streaming || createEmptyStreamingState();
+      const currentStreaming = currentSession.streaming || createEmptyStreamingState();
 
       if (event.type === 'content_block_delta' && event.delta) {
         if (event.delta.type === 'text_delta') {
@@ -719,12 +733,12 @@ function handleStreamMessage(
           return {
             ...state,
             sessions: {
-              ...state.sessions,
-              [sessionId]: {
-                ...session,
-                streaming: {
-                  ...currentStreaming,
-                  isStreaming: true,
+            ...state.sessions,
+            [sessionId]: {
+              ...currentSession,
+              streaming: {
+                ...currentStreaming,
+                isStreaming: true,
                   text: nextText,
                 },
               },
@@ -741,12 +755,12 @@ function handleStreamMessage(
           return {
             ...state,
             sessions: {
-              ...state.sessions,
-              [sessionId]: {
-                ...session,
-                streaming: {
-                  ...currentStreaming,
-                  isStreaming: true,
+            ...state.sessions,
+            [sessionId]: {
+              ...currentSession,
+              streaming: {
+                ...currentStreaming,
+                isStreaming: true,
                   thinking: nextThinking,
                 },
               },
@@ -761,7 +775,7 @@ function handleStreamMessage(
           sessions: {
             ...state.sessions,
             [sessionId]: {
-              ...session,
+              ...currentSession,
               streaming: createEmptyStreamingState(),
             },
           },
@@ -774,27 +788,23 @@ function handleStreamMessage(
     // Claude Agent SDK may emit partial updates for the same message UUID.
     // Replace existing messages instead of appending duplicates.
     const maybeUuid = (message as { uuid?: unknown }).uuid;
-    if (
-      (message.type === 'assistant' || message.type === 'user') &&
-      typeof maybeUuid === 'string' &&
-      maybeUuid.length > 0
-    ) {
-      const existingIndex = session.messages.findIndex(
+    if (typeof maybeUuid === 'string' && maybeUuid.length > 0) {
+      const existingIndex = currentSession.messages.findIndex(
         (m) => (m as { uuid?: unknown }).uuid === maybeUuid
       );
       if (existingIndex >= 0) {
-        const nextMessages = session.messages.slice();
+        const nextMessages = currentSession.messages.slice();
         nextMessages[existingIndex] = message;
         return {
           ...state,
           sessions: {
             ...state.sessions,
             [sessionId]: {
-              ...session,
+              ...currentSession,
               latestClaudeModelUsage:
-                message.type === 'result' && session.provider === 'claude' && message.modelUsage
-                  ? extractLatestClaudeModelUsage([message], session.model) || session.latestClaudeModelUsage
-                  : session.latestClaudeModelUsage,
+                message.type === 'result' && currentSession.provider === 'claude' && message.modelUsage
+                  ? extractLatestClaudeModelUsage([message], currentSession.model) || currentSession.latestClaudeModelUsage
+                  : currentSession.latestClaudeModelUsage,
               messages: nextMessages,
               streaming: createEmptyStreamingState(),
             },
@@ -808,12 +818,12 @@ function handleStreamMessage(
       sessions: {
         ...state.sessions,
         [sessionId]: {
-          ...session,
+          ...currentSession,
           latestClaudeModelUsage:
-            message.type === 'result' && session.provider === 'claude' && message.modelUsage
-              ? extractLatestClaudeModelUsage([message], session.model) || session.latestClaudeModelUsage
-              : session.latestClaudeModelUsage,
-          messages: [...session.messages, message],
+            message.type === 'result' && currentSession.provider === 'claude' && message.modelUsage
+              ? extractLatestClaudeModelUsage([message], currentSession.model) || currentSession.latestClaudeModelUsage
+              : currentSession.latestClaudeModelUsage,
+          messages: [...currentSession.messages, message],
           streaming: createEmptyStreamingState(),
         },
       },

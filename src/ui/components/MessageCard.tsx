@@ -129,7 +129,12 @@ export function MessageCard({
       );
 
     case 'system':
-      // 不再显示 Session Started 卡片，CWD 已移至右上角
+      if (message.subtype === 'init') {
+        return null;
+      }
+      if (message.subtype === 'compact_boundary') {
+        return <CompactBoundaryCard message={message} />;
+      }
       return null;
 
     case 'assistant':
@@ -158,6 +163,44 @@ export function MessageCard({
     default:
       return null;
   }
+}
+
+function formatCompactTokens(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`;
+  return `${Math.round(value)}`;
+}
+
+function CompactBoundaryCard({
+  message,
+}: {
+  message: Extract<StreamMessage, { type: 'system'; subtype: 'compact_boundary' }>;
+}) {
+  const isAuto = message.compactMetadata.trigger === 'auto';
+  const title = isAuto ? 'Auto compacted context' : 'Context compacted';
+  const detail = isAuto
+    ? 'Claude summarized earlier turns after the session approached its context limit. Future replies continue from the compacted context.'
+    : 'Claude summarized earlier turns and continued with a compacted session context.';
+
+  return (
+    <div className="my-3 flex justify-center">
+      <div className="w-full max-w-[720px] rounded-[18px] border border-[var(--border)] bg-[var(--bg-tertiary)]/70 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-[var(--accent-light)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-primary)]">
+            {isAuto ? 'Auto Compact' : 'Compact'}
+          </span>
+          {message.compactMetadata.preTokens > 0 && (
+            <span className="rounded-full border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-secondary)]">
+              {formatCompactTokens(message.compactMetadata.preTokens)} tokens
+            </span>
+          )}
+        </div>
+        <div className="mt-2 text-[14px] font-semibold text-[var(--text-primary)]">{title}</div>
+        <div className="mt-1 text-[13px] leading-6 text-[var(--text-secondary)]">{detail}</div>
+      </div>
+    </div>
+  );
 }
 
 // 用户 prompt 卡片

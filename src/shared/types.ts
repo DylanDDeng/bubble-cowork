@@ -390,6 +390,11 @@ export type StreamMessageBase = {
   createdAt?: number;
 };
 
+export interface CompactMetadata {
+  trigger: 'manual' | 'auto';
+  preTokens: number;
+}
+
 export type StreamMessage =
   | (StreamMessageBase & { type: 'user_prompt'; prompt: string; attachments?: Attachment[] })
   | (StreamMessageBase & {
@@ -403,6 +408,13 @@ export type StreamMessage =
       slash_commands?: string[];
       skills?: string[];
       mcp_servers?: McpServerStatus[];
+    })
+  | (StreamMessageBase & {
+      type: 'system';
+      subtype: 'compact_boundary';
+      uuid: string;
+      session_id: string;
+      compactMetadata: CompactMetadata;
     })
   | (StreamMessageBase & { type: 'assistant'; uuid: string; message: AssistantMessage })
   | (StreamMessageBase & { type: 'user'; uuid: string; message: UserMessage })
