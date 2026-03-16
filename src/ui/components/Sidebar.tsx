@@ -126,7 +126,7 @@ export function Sidebar() {
             }}
             className="group flex flex-1 items-center gap-3 rounded-xl px-2 py-2 text-left no-drag transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
           >
-            <SquarePen className="h-4 w-4 text-[#92918E]" strokeWidth={1.9} />
+            <SquarePen className="h-4 w-4 text-[var(--text-muted)]" strokeWidth={1.9} />
             <span className="text-base font-medium">New Thread</span>
           </button>
 

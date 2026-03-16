@@ -195,7 +195,7 @@ export function AgentModelPicker({
                 claudeModel.onChange(model);
                 setOpen(false);
               }}
-              className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[#F3F3F3]"
+              className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
               title={model}
             >
               <div className="min-w-0 truncate">{formatClaudeModelLabel(model)}</div>
@@ -214,7 +214,7 @@ export function AgentModelPicker({
                   claudeModel.onChange(option.model);
                   setOpen(false);
                 }}
-                className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[#F3F3F3]"
+                className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
                 title={option.model}
               >
                 <div className="flex min-w-0 items-center gap-2">
@@ -241,7 +241,7 @@ export function AgentModelPicker({
             codexModel.onChange(model);
             setOpen(false);
           }}
-          className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[#F3F3F3]"
+          className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
           title={model}
         >
           <div className="min-w-0 truncate">{formatCodexModelLabel(model)}</div>
@@ -260,7 +260,7 @@ export function AgentModelPicker({
       <button
         onClick={handleTriggerClick}
         disabled={disabled}
-        className="flex items-center gap-1.5 rounded-lg border border-transparent bg-transparent px-3 py-1.5 text-sm transition-colors hover:bg-[#EEEEEE] disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex items-center gap-1.5 rounded-lg border border-transparent bg-transparent px-3 py-1.5 text-sm transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {currentCompatibleOption ? (
           <CompatibleProviderIcon providerId={currentCompatibleOption.id} />

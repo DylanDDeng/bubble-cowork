@@ -335,7 +335,7 @@ function GeneralSettingsContent({
           label="Color Theme"
           description={`Choose a color palette. Current mode: ${resolvedMode}.`}
         >
-          <div className="w-full max-w-[260px]">
+          <div className="relative w-full max-w-[260px]">
             <button
               type="button"
               onClick={() => setThemePickerOpen((current) => !current)}
@@ -348,33 +348,36 @@ function GeneralSettingsContent({
             </button>
 
             {themePickerOpen && (
-              <div className="mt-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-2 shadow-sm">
-                <div className="space-y-1">
-                  {COLOR_THEME_FAMILIES.map((family) => {
-                    const selected = family.id === colorThemeId;
-                    return (
-                      <button
-                        key={family.id}
-                        type="button"
-                        onClick={() => {
-                          setColorThemeId(family.id);
-                          setThemePickerOpen(false);
-                        }}
-                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors ${
-                          selected
-                            ? 'bg-[var(--accent-light)] text-[var(--text-primary)]'
-                            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/70 hover:text-[var(--text-primary)]'
-                        }`}
-                      >
-                        <div className="min-w-0 flex-1 truncate text-sm font-medium">{family.label}</div>
-                        <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center text-[var(--text-muted)]">
-                          {selected ? <Check className="h-4 w-4" /> : null}
-                        </span>
-                      </button>
-                    );
-                  })}
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setThemePickerOpen(false)} />
+                <div className="absolute left-0 right-0 top-full z-30 mt-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-2 shadow-sm">
+                  <div className="space-y-1">
+                    {COLOR_THEME_FAMILIES.map((family) => {
+                      const selected = family.id === colorThemeId;
+                      return (
+                        <button
+                          key={family.id}
+                          type="button"
+                          onClick={() => {
+                            setColorThemeId(family.id);
+                            setThemePickerOpen(false);
+                          }}
+                          className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors ${
+                            selected
+                              ? 'bg-[var(--accent-light)] text-[var(--text-primary)]'
+                              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/70 hover:text-[var(--text-primary)]'
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1 truncate text-sm font-medium">{family.label}</div>
+                          <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center text-[var(--text-muted)]">
+                            {selected ? <Check className="h-4 w-4" /> : null}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              </>
             )}
 
             {hasColorThemeOverrides && (

@@ -63,7 +63,7 @@ export function ClaudeModelPicker({
                   onChange(model);
                   setOpen(false);
                 }}
-                className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[#F3F3F3]"
+                className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
                 title={model}
               >
                 <div className="min-w-0 truncate">{formatClaudeModelLabel(model)}</div>

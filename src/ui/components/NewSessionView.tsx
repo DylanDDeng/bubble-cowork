@@ -592,8 +592,8 @@ export function NewSessionView() {
                 disabled={!canStartTask}
                 className="flex h-10 w-10 items-center justify-center rounded-[14px] transition-colors no-drag disabled:cursor-not-allowed"
                 style={{
-                  backgroundColor: !canStartTask ? '#848588' : '#000000',
-                  color: '#FFFFFF'
+                  backgroundColor: !canStartTask ? 'var(--text-muted)' : 'var(--accent)',
+                  color: !canStartTask ? 'var(--bg-primary)' : 'var(--accent-foreground)'
                 }}
               >
                 {pendingStart ? (

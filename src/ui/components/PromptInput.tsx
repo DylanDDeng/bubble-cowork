@@ -528,7 +528,7 @@ export function PromptInput() {
             {isRunning ? (
               <button
                 onClick={handleStop}
-                className="flex h-10 w-10 items-center justify-center rounded-[14px] border border-black bg-black text-white transition-colors hover:bg-[var(--accent-hover)]"
+                className="flex h-10 w-10 items-center justify-center rounded-[14px] border border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
                 title="Stop"
                 aria-label="Stop"
               >
@@ -540,8 +540,8 @@ export function PromptInput() {
                 disabled={!prompt.trim()}
                 className="flex h-10 w-10 items-center justify-center rounded-[14px] transition-colors disabled:cursor-not-allowed"
                 style={{
-                  backgroundColor: !prompt.trim() ? '#848588' : '#000000',
-                  color: '#FFFFFF'
+                  backgroundColor: !prompt.trim() ? 'var(--text-muted)' : 'var(--accent)',
+                  color: !prompt.trim() ? 'var(--bg-primary)' : 'var(--accent-foreground)'
                 }}
                 title="Send"
                 aria-label="Send"

@@ -273,7 +273,7 @@ export function SkillMarketSettingsContent() {
                       {detail.name}
                     </div>
                     {installedSkillNames.has(detail.skillId) && (
-                      <span className="inline-flex items-center gap-1 rounded-[12px] border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600">
+                      <span className="inline-flex items-center gap-1 rounded-[12px] border border-[var(--border)] bg-[var(--accent-light)] px-2 py-0.5 text-[11px] font-medium text-[var(--accent)]">
                         <CheckCircle2 className="h-3 w-3" />
                         <span>Installed</span>
                       </span>
@@ -299,7 +299,7 @@ export function SkillMarketSettingsContent() {
                     type="button"
                     onClick={() => void handleInstall(detail)}
                     disabled={installingId === detail.id}
-                    className="inline-flex items-center gap-2 rounded-[14px] bg-black px-4 py-2 text-[14px] font-medium text-white transition-colors hover:bg-[#1A1A1A] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex items-center gap-2 rounded-[14px] bg-[var(--accent)] px-4 py-2 text-[14px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {installingId === detail.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                     <span>{installingId === detail.id ? 'Installing…' : 'Install'}</span>
@@ -425,7 +425,7 @@ function MarketListItem({
         <div className="flex items-center gap-2">
           <div className="truncate text-[15px] font-semibold text-[var(--text-primary)]">{item.name}</div>
           {installed && (
-            <span className="inline-flex items-center gap-1 rounded-[10px] border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600">
+            <span className="inline-flex items-center gap-1 rounded-[10px] border border-[var(--border)] bg-[var(--accent-light)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)]">
               <CheckCircle2 className="h-3 w-3" />
               <span>Installed</span>
             </span>
