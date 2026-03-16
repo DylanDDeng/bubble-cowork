@@ -101,7 +101,7 @@ export interface CodexRuntimeStatus {
 }
 
 export type ClaudeRuntimeStatusKind = 'ready' | 'login_required' | 'install_required' | 'error';
-export type ClaudeRuntimeSource = 'bundled' | 'workspace' | 'unknown';
+export type ClaudeRuntimeSource = 'global' | 'bundled' | 'workspace' | 'unknown';
 
 export interface ClaudeRuntimeStatus {
   kind: ClaudeRuntimeStatusKind;

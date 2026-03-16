@@ -36,6 +36,14 @@ function resolveRuntimeSource(cliPath?: string): ClaudeRuntimeSource {
     return 'unknown';
   }
 
+  if (
+    cliPath.includes(`${sep}lib${sep}node_modules${sep}@anthropic-ai${sep}claude-code${sep}`) ||
+    cliPath.includes(`${sep}.nvm${sep}`) ||
+    cliPath.includes(`${sep}bin${sep}claude`)
+  ) {
+    return 'global';
+  }
+
   if (process.resourcesPath && cliPath.startsWith(process.resourcesPath)) {
     return 'bundled';
   }
@@ -93,6 +101,8 @@ function parseClaudeVersion(output: string): string | null {
 
 function describeRuntimeLocation(source: ClaudeRuntimeSource): string {
   switch (source) {
+    case 'global':
+      return 'the global Claude Code runtime';
     case 'bundled':
       return 'the bundled Aegis runtime';
     case 'workspace':
