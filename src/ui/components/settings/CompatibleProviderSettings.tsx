@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
+import { Badge } from '../ui/badge';
 import type {
   ClaudeCompatibleProviderConfig,
   ClaudeCompatibleProviderId,
@@ -390,15 +391,12 @@ function ProviderCard({
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-3">
           <div className="truncate text-sm font-medium text-[var(--text-primary)]">{label}</div>
-          <span
-            className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-              provider.enabled
-                ? 'bg-[var(--accent-light)] text-[var(--accent)]'
-                : 'bg-[var(--bg-primary)] text-[var(--text-muted)]'
-            }`}
+          <Badge
+            variant={provider.enabled ? 'accent' : 'muted'}
+            className="border-transparent text-[10px] font-medium"
           >
             {provider.enabled ? 'On' : 'Off'}
-          </span>
+          </Badge>
         </div>
       </div>
 

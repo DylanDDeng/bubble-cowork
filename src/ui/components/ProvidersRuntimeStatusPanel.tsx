@@ -2,6 +2,7 @@ import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
 import { AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Badge } from './ui/badge';
 import type { ClaudeRuntimeStatus, CodexRuntimeStatus } from '../types';
 
 type Props = {
@@ -193,15 +194,16 @@ function RuntimeRow({
               {meta.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   {meta.map((item) => (
-                    <div
+                    <Badge
                       key={`${runtimeLabel}-${item.label}`}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1 text-[11px] shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
+                      variant="outline"
+                      className="gap-1.5 border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1 text-[11px] font-medium shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
                     >
                       <span className="font-semibold uppercase tracking-[0.1em] text-[var(--text-muted)]">
                         {item.label}
                       </span>
-                      <span className="font-medium text-[var(--text-primary)]">{item.value}</span>
-                    </div>
+                      <span className="text-[var(--text-primary)]">{item.value}</span>
+                    </Badge>
                   ))}
                 </div>
               )}
