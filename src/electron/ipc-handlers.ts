@@ -709,6 +709,11 @@ async function handleEditLatestPrompt(
   }
 
   const history = sessions.getSessionHistory(sessionId);
+  const previousStatus = (session.status as SessionStatus) || 'completed';
+  const previousClaudeSessionId = session.claude_session_id || null;
+  const previousModel = session.model || null;
+  const previousBetas = parseStoredBetas(session.betas);
+  const previousClaudeAccessMode = session.claude_access_mode || 'default';
   let latestUserPromptIndex = -1;
   for (let index = history.length - 1; index >= 0; index -= 1) {
     if (history[index]?.type === 'user_prompt') {
@@ -724,12 +729,61 @@ async function handleEditLatestPrompt(
     });
     return;
   }
+  const previousEditablePrompt = history[latestUserPromptIndex];
+  if (!previousEditablePrompt || previousEditablePrompt.type !== 'user_prompt') {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'Failed to resolve the editable user prompt for this session.', sessionId },
+    });
+    return;
+  }
 
   const preservedHistory = history.slice(0, latestUserPromptIndex);
   const requestedModel = normalizeModel(model ?? session.model ?? undefined);
   const requestedBetas = normalizeBetas(betas ?? parseStoredBetas(session.betas));
+  const nextPrompt = prompt.trim();
+  const nextClaudeAccessMode = claudeAccessMode || 'default';
+  const createdAt = Date.now();
+  const editedUserPrompt: StreamMessage = {
+    type: 'user_prompt',
+    prompt: nextPrompt,
+    attachments,
+    createdAt,
+  };
+  const rewrittenHistory = [...preservedHistory, editedUserPrompt];
   let nextClaudeSessionId: string | undefined;
   let resolvedModel = requestedModel;
+
+  // Optimistically update the visible history before the expensive
+  // summary/bootstrap round-trip so the edited prompt changes immediately.
+  sessions.replaceSessionHistory(sessionId, rewrittenHistory);
+  sessions.updateSessionStatus(sessionId, 'running');
+  sessions.updateLastPrompt(sessionId, nextPrompt);
+  sessions.setClaudeSessionId(sessionId, null);
+  sessions.updateSessionModel(sessionId, requestedModel || null);
+  sessions.updateSessionBetas(sessionId, requestedBetas || null);
+  sessions.updateSessionClaudeAccessMode(sessionId, nextClaudeAccessMode);
+
+  broadcast(mainWindow, {
+    type: 'session.history',
+    payload: {
+      sessionId,
+      status: 'running',
+      messages: rewrittenHistory,
+    },
+  });
+
+  broadcast(mainWindow, {
+    type: 'session.status',
+    payload: {
+      sessionId,
+      status: 'running',
+      provider: session.provider || 'claude',
+      model: requestedModel || undefined,
+      betas: requestedBetas,
+      claudeAccessMode: nextClaudeAccessMode,
+    },
+  });
 
   try {
     if (preservedHistory.length > 0) {
@@ -763,6 +817,35 @@ async function handleEditLatestPrompt(
       resolvedModel = normalizeModel(bootstrapResult.model || summaryResult.model || requestedModel || undefined);
     }
   } catch (error) {
+    sessions.replaceSessionHistory(sessionId, history);
+    sessions.updateSessionStatus(sessionId, previousStatus);
+    sessions.updateLastPrompt(sessionId, previousEditablePrompt.prompt);
+    sessions.setClaudeSessionId(sessionId, previousClaudeSessionId);
+    sessions.updateSessionModel(sessionId, previousModel);
+    sessions.updateSessionBetas(sessionId, previousBetas || null);
+    sessions.updateSessionClaudeAccessMode(sessionId, previousClaudeAccessMode);
+
+    broadcast(mainWindow, {
+      type: 'session.history',
+      payload: {
+        sessionId,
+        status: previousStatus,
+        messages: history,
+      },
+    });
+
+    broadcast(mainWindow, {
+      type: 'session.status',
+      payload: {
+        sessionId,
+        status: previousStatus,
+        provider: session.provider || 'claude',
+        model: previousModel || undefined,
+        betas: previousBetas,
+        claudeAccessMode: previousClaudeAccessMode,
+      },
+    });
+
     const message = error instanceof Error ? error.message : String(error);
     broadcast(mainWindow, {
       type: 'runner.error',
@@ -770,23 +853,10 @@ async function handleEditLatestPrompt(
     });
     return;
   }
-
-  const createdAt = Date.now();
-  const editedUserPrompt: StreamMessage = {
-    type: 'user_prompt',
-    prompt: prompt.trim(),
-    attachments,
-    createdAt,
-  };
-  const rewrittenHistory = [...preservedHistory, editedUserPrompt];
-
-  sessions.replaceSessionHistory(sessionId, rewrittenHistory);
-  sessions.updateSessionStatus(sessionId, 'running');
-  sessions.updateLastPrompt(sessionId, prompt.trim());
   sessions.setClaudeSessionId(sessionId, nextClaudeSessionId || null);
   sessions.updateSessionModel(sessionId, resolvedModel || null);
   sessions.updateSessionBetas(sessionId, requestedBetas || null);
-  sessions.updateSessionClaudeAccessMode(sessionId, claudeAccessMode || 'default');
+  sessions.updateSessionClaudeAccessMode(sessionId, nextClaudeAccessMode);
 
   const refreshedSession = sessions.getSession(sessionId);
   if (!refreshedSession) {
@@ -814,20 +884,20 @@ async function handleEditLatestPrompt(
       provider: refreshedSession.provider,
       model: resolvedModel || undefined,
       betas: requestedBetas,
-      claudeAccessMode: claudeAccessMode || 'default',
+      claudeAccessMode: nextClaudeAccessMode,
     },
   });
 
   startRunner(
     mainWindow,
     refreshedSession,
-    prompt.trim(),
+    nextPrompt,
     nextClaudeSessionId,
     attachments,
     'claude',
     resolvedModel || undefined,
     requestedBetas,
-    claudeAccessMode
+    nextClaudeAccessMode
   );
 }
 
