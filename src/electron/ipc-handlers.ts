@@ -243,34 +243,6 @@ function buildLocalAssistantMessage(text: string): StreamMessage {
   };
 }
 
-function buildLocalAssistantMessageWithUuid(text: string, uuid: string): StreamMessage {
-  return {
-    type: 'assistant',
-    uuid,
-    message: {
-      content: [{ type: 'text', text }],
-    },
-  };
-}
-
-function buildLocalCompactBoundaryMessageWithUuid(
-  uuid: string,
-  sessionId: string,
-  trigger: 'manual' | 'auto',
-  preTokens = 0
-): StreamMessage {
-  return {
-    type: 'system',
-    subtype: 'compact_boundary',
-    uuid,
-    session_id: sessionId,
-    compactMetadata: {
-      trigger,
-      preTokens,
-    },
-  };
-}
-
 function buildSessionCostSummary(session: ReturnType<typeof sessions.getSession>): string {
   if (!session) {
     return 'No active session found.';
@@ -422,33 +394,6 @@ function isLocalUtilityAssistantText(text: string): boolean {
   );
 }
 
-function buildCompactSummaryPrompt(extraInstructions?: string): string {
-  const lines = [
-    'You are helping Aegis compact an existing Claude Code conversation.',
-    'Do not continue the task. Do not ask clarifying questions. Do not use tools.',
-    'Write a continuation summary that lets a fresh Claude session continue the work with minimal loss of context.',
-    '',
-    'Preserve:',
-    '- the user goal and expected deliverable',
-    '- current state and completed work',
-    '- important decisions, preferences, and constraints',
-    '- relevant file paths, commands, and technical details',
-    '- blockers, open questions, and concrete next steps',
-  ];
-
-  if (extraInstructions) {
-    lines.push('', `Additional instructions: ${extraInstructions}`);
-  }
-
-  lines.push(
-    '',
-    'Return only a summary wrapped in <summary></summary>.',
-    'Do not include any text outside the summary tags.'
-  );
-
-  return lines.join('\n');
-}
-
 function buildHistoryTranscript(history: StreamMessage[]): string {
   const entries: string[] = [];
 
@@ -582,131 +527,6 @@ function buildCompactBootstrapPrompt(params: {
   return lines.join('\n');
 }
 
-async function handleLocalCompactCommand(
-  mainWindow: BrowserWindow,
-  session: NonNullable<ReturnType<typeof sessions.getSession>>,
-  prompt: string,
-  attachments: Attachment[] | undefined,
-  extraInstructions: string
-): Promise<boolean> {
-  const createdAt = Date.now();
-  const previousStatus = (session.status as SessionStatus) || 'completed';
-  const restoreStatus: SessionStatus = previousStatus === 'running' ? 'completed' : previousStatus;
-  const previousModel = normalizeModel(session.model ?? undefined);
-  const historyBeforeCompact = sessions.getSessionHistory(session.id);
-
-  sessions.updateLastPrompt(session.id, prompt);
-  sessions.updateSessionStatus(session.id, 'running');
-  broadcast(mainWindow, {
-    type: 'session.status',
-    payload: {
-      sessionId: session.id,
-      status: 'running',
-      provider: session.provider,
-      model: previousModel ?? '',
-    },
-  });
-
-  broadcast(mainWindow, {
-    type: 'stream.user_prompt',
-    payload: { sessionId: session.id, prompt, attachments, createdAt },
-  });
-  sessions.addMessage(session.id, { type: 'user_prompt', prompt, attachments, createdAt });
-
-  const placeholderUuid = uuidv4();
-  const placeholderMessage = buildLocalAssistantMessageWithUuid(
-    'Compacting conversation...',
-    placeholderUuid
-  );
-  sessions.addMessage(session.id, placeholderMessage);
-  broadcast(mainWindow, {
-    type: 'stream.message',
-    payload: { sessionId: session.id, message: placeholderMessage },
-  });
-
-  const finalize = (message: StreamMessage, status: SessionStatus, model = previousModel) => {
-    sessions.addMessage(session.id, message);
-    broadcast(mainWindow, {
-      type: 'stream.message',
-      payload: { sessionId: session.id, message },
-    });
-
-    sessions.updateSessionStatus(session.id, status);
-    broadcast(mainWindow, {
-      type: 'session.status',
-      payload: {
-        sessionId: session.id,
-        status,
-        provider: session.provider,
-        model: model ?? '',
-      },
-    });
-  };
-
-  if (session.provider !== 'claude') {
-    finalize(buildLocalAssistantMessageWithUuid('`/compact` is currently available only for Claude Code sessions.', placeholderUuid), restoreStatus);
-    return true;
-  }
-
-  if (!session.claude_session_id) {
-    finalize(buildLocalAssistantMessageWithUuid('This session does not have a Claude backend session to compact yet.', placeholderUuid), restoreStatus);
-    return true;
-  }
-
-  const existingEntry = runnerHandles.get(session.id);
-  if (existingEntry) {
-    existingEntry.handle.abort();
-    runnerHandles.delete(session.id);
-  }
-
-  try {
-    const summaryResult = await runClaudeOneShot({
-      prompt: buildCompactSummaryPrompt(extraInstructions),
-      cwd: session.cwd ?? undefined,
-      resumeSessionId: session.claude_session_id,
-      model: previousModel,
-    });
-
-    const summary = extractSummaryContent(summaryResult.text);
-    if (!summary) {
-      throw new Error('Claude returned an empty compaction summary.');
-    }
-
-    const bootstrapResult = await runClaudeOneShot({
-      prompt: buildCompactBootstrapPrompt({
-        summary,
-        cwd: session.cwd,
-        recentConversation: buildRecentConversationContext(historyBeforeCompact),
-      }),
-      cwd: session.cwd ?? undefined,
-      model: summaryResult.model || previousModel,
-    });
-
-    if (!bootstrapResult.sessionId) {
-      throw new Error('Claude did not return a new session id for the compacted context.');
-    }
-
-    const resolvedModel = normalizeModel(bootstrapResult.model || summaryResult.model || previousModel);
-    sessions.updateClaudeSessionId(session.id, bootstrapResult.sessionId);
-    sessions.updateSessionModel(session.id, resolvedModel || null);
-
-    finalize(
-      buildLocalCompactBoundaryMessageWithUuid(
-        placeholderUuid,
-        bootstrapResult.sessionId,
-        'manual',
-        0
-      ),
-      'completed',
-      resolvedModel
-    );
-    return true;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    finalize(buildLocalAssistantMessageWithUuid(`Failed to compact conversation: ${message}`, placeholderUuid), restoreStatus, previousModel);
-    return true;
-  }
-}
 
 async function handleEditLatestPrompt(
   mainWindow: BrowserWindow,
@@ -952,14 +772,6 @@ async function maybeHandleLocalSlashCommand(
 
   if (parsed.name === 'cost') {
     responseText = buildSessionCostSummary(session);
-  } else if (parsed.name === 'compact') {
-    return handleLocalCompactCommand(
-      mainWindow,
-      session,
-      prompt,
-      attachments,
-      parsed.args
-    );
   } else if (parsed.name === 'plan') {
     responseText = buildUnsupportedSlashCommandMessage(parsed.name);
   }
