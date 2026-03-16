@@ -377,7 +377,7 @@ export function App() {
       {!showSettings && (
         <ChromeSidebarToggleButton
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          className={isMacOS ? 'top-[8px] left-[92px]' : 'top-3 left-3'}
+          className={isMacOS ? 'top-[4px] left-[88px]' : 'top-2 left-2'}
           title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
           aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
           icon={
@@ -393,7 +393,7 @@ export function App() {
       {!showSettings && (
         <ChromeSidebarToggleButton
           onClick={() => setProjectTreeCollapsed(!projectTreeCollapsed)}
-          className={isMacOS ? 'top-[8px] right-[16px]' : 'top-3 right-3'}
+          className={isMacOS ? 'top-[4px] right-[12px]' : 'top-2 right-2'}
           title={projectTreeCollapsed ? 'Show project files' : 'Hide project files'}
           aria-label={projectTreeCollapsed ? 'Show project files' : 'Hide project files'}
           icon={
@@ -592,17 +592,13 @@ function ChromeSidebarToggleButton({
   return (
     <button
       onClick={onClick}
-      className={`fixed z-50 no-drag cursor-pointer flex h-9 w-9 items-center justify-center rounded-xl border border-transparent bg-transparent text-[var(--text-secondary)] transition-all duration-150 hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/4 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)] active:scale-[0.98] ${className}`}
-      onMouseEnter={(event) => {
-        event.currentTarget.style.background = 'color-mix(in srgb, var(--bg-primary) 94%, var(--text-primary) 6%)';
-      }}
-      onMouseLeave={(event) => {
-        event.currentTarget.style.background = 'transparent';
-      }}
+      className={`group fixed z-50 no-drag flex h-11 w-11 cursor-pointer items-center justify-center rounded-[14px] bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)] ${className}`}
       title={title}
       aria-label={title}
     >
-      {icon}
+      <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-transparent bg-transparent text-[var(--text-secondary)] transition-[background-color,border-color,color,transform,box-shadow] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:border-[var(--border)] group-hover:bg-[var(--bg-secondary)] group-hover:text-[var(--text-primary)] group-hover:shadow-[0_4px_12px_rgba(15,23,42,0.08)] group-active:scale-[0.98]">
+        {icon}
+      </span>
     </button>
   );
 }

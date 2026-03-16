@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn, PlugZap, Eraser, ChevronDown, Check, Bot } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
@@ -562,6 +563,8 @@ function FontSlotControl({
   const [fontInput, setFontInput] = useState(currentLabel);
   const skipNextBlurCommitRef = useRef(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; width: number } | null>(null);
   const normalizedInput = fontInput.trim().toLowerCase();
   const options = useMemo(
     () => [
@@ -635,9 +638,36 @@ function FontSlotControl({
     }
   };
 
+  useEffect(() => {
+    if (!menuOpen) {
+      setMenuPosition(null);
+      return;
+    }
+
+    const updateMenuPosition = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      setMenuPosition({
+        top: rect.bottom + 8,
+        left: rect.left,
+        width: rect.width,
+      });
+    };
+
+    updateMenuPosition();
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
+
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition);
+      window.removeEventListener('scroll', updateMenuPosition, true);
+    };
+  }, [menuOpen]);
+
   return (
     <div className="w-full max-w-[520px] space-y-2">
-      <div className="relative ml-auto w-full max-w-[320px]">
+      <div ref={triggerRef} className="relative ml-auto w-full max-w-[320px]">
         <div className="rounded-[16px] border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] transition-colors focus-within:border-[var(--text-muted)]">
           <input
             value={fontInput}
@@ -682,36 +712,48 @@ function FontSlotControl({
             <ChevronDown className={`h-4 w-4 transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
           </button>
         </div>
-
-        {menuOpen && filteredOptions.length > 0 && (
-          <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_14px_32px_rgba(15,23,42,0.08)]">
-            <div className="max-h-[220px] overflow-y-auto">
-              {filteredOptions.map((option) => {
-                const selectedOption =
-                  option.selection.source === selection.source && option.selection.id === selection.id;
-                return (
-                  <button
-                    key={`${slot}-${option.selection.source}-${option.selection.id}`}
-                    type="button"
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      handleOptionSelect(option.selection);
-                    }}
-                    className={`flex w-full items-center justify-between gap-3 rounded-[14px] px-4 py-2.5 text-left transition-colors ${
-                      selectedOption
-                        ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
-                        : 'text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-                    }`}
-                  >
-                    <span className="truncate text-[14px] font-medium">{option.label}</span>
-                    {selectedOption ? <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" /> : null}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
+
+      {menuOpen && filteredOptions.length > 0 && menuPosition &&
+        createPortal(
+          <>
+            <div className="fixed inset-0 z-20" onMouseDown={() => setMenuOpen(false)} />
+            <div
+              className="fixed z-30 overflow-hidden rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_14px_32px_rgba(15,23,42,0.08)]"
+              style={{
+                top: menuPosition.top,
+                left: menuPosition.left,
+                width: menuPosition.width,
+              }}
+            >
+              <div className="max-h-[220px] overflow-y-auto">
+                {filteredOptions.map((option) => {
+                  const selectedOption =
+                    option.selection.source === selection.source && option.selection.id === selection.id;
+                  return (
+                    <button
+                      key={`${slot}-${option.selection.source}-${option.selection.id}`}
+                      type="button"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        handleOptionSelect(option.selection);
+                      }}
+                      className={`flex w-full items-center justify-between gap-3 rounded-[14px] px-4 py-2.5 text-left transition-colors ${
+                        selectedOption
+                          ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+                          : 'text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+                      }`}
+                    >
+                      <span className="truncate text-[14px] font-medium">{option.label}</span>
+                      {selectedOption ? <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </>,
+          document.body
+        )}
 
       {!systemFontsLoaded && (
         <div className="text-sm text-[var(--text-muted)]">Loading system fonts...</div>
