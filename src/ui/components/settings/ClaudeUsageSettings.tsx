@@ -15,7 +15,7 @@ const RANGE_OPTIONS: ClaudeUsageRangeDays[] = [7, 30, 90];
 const MODEL_COLORS = ['#315EFB', '#0F9D90', '#D97757', '#7C3AED', '#F59E0B', '#E11D48'];
 
 export function ClaudeUsageSettingsContent() {
-  const [rangeDays, setRangeDays] = useState<ClaudeUsageRangeDays>(30);
+  const [rangeDays, setRangeDays] = useState<ClaudeUsageRangeDays>(7);
   const [report, setReport] = useState<ClaudeUsageReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -70,10 +70,10 @@ export function ClaudeUsageSettingsContent() {
               key={days}
               type="button"
               onClick={() => setRangeDays(days)}
-              className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
                 isActive
-                  ? 'bg-[var(--accent)] text-[var(--accent-foreground)]'
-                  : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+                  ? 'border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+                  : 'border-transparent bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
               }`}
             >
               {days}D
