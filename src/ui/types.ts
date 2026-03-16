@@ -33,6 +33,7 @@ export type {
   ClaudeModelUsage,
   LatestClaudeModelUsage,
   CodexModelConfig,
+  CodexRuntimeStatus,
   ClaudeRuntimeStatus,
   SkillMarketDetail,
   SkillMarketInstallResult,

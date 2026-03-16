@@ -92,6 +92,14 @@ export interface CodexModelConfig {
   options: string[];
 }
 
+export interface CodexRuntimeStatus {
+  ready: boolean;
+  cliAvailable: boolean;
+  configExists: boolean;
+  hasModelConfig: boolean;
+  checkedAt: number;
+}
+
 export type ClaudeRuntimeStatusKind = 'ready' | 'login_required' | 'install_required' | 'error';
 export type ClaudeRuntimeSource = 'bundled' | 'workspace' | 'unknown';
 

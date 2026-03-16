@@ -79,6 +79,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-codex-model-config');
   },
 
+  getCodexRuntimeStatus: () => {
+    return ipcRenderer.invoke('get-codex-runtime-status');
+  },
+
   getClaudeRuntimeStatus: (model?: string | null) => {
     return ipcRenderer.invoke('get-claude-runtime-status', model);
   },

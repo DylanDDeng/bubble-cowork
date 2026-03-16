@@ -21,6 +21,7 @@ import {
   saveFontSelections,
 } from './libs/font-settings';
 import { getCodexModelConfig } from './libs/codex-settings';
+import { getCodexRuntimeStatus } from './libs/codex-runtime-status';
 import { listClaudeSkills } from './libs/claude-skills';
 import { loadFeishuBridgeConfig, saveFeishuBridgeConfig } from './libs/feishu-bridge-config';
 import { feishuBridge } from './libs/feishu-bridge';
@@ -1034,6 +1035,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // RPC: 获取 Codex 模型配置
   ipcMainHandle('get-codex-model-config', async () => {
     return getCodexModelConfig();
+  });
+
+  ipcMainHandle('get-codex-runtime-status', async () => {
+    return getCodexRuntimeStatus();
   });
 
   ipcMainHandle('get-claude-runtime-status', async (_event, model?: string | null) => {

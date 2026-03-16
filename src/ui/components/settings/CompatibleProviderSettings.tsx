@@ -4,8 +4,9 @@ import minimaxLogo from '../../assets/minimax-color.svg';
 import deepseekLogo from '../../assets/deepseek-color.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
-import { ClaudeRuntimeStatusCard } from '../ClaudeRuntimeStatusCard';
+import { ProvidersRuntimeStatusPanel } from '../ProvidersRuntimeStatusPanel';
 import { useClaudeRuntimeStatus } from '../../hooks/useClaudeRuntimeStatus';
+import { useCodexRuntimeStatus } from '../../hooks/useCodexRuntimeStatus';
 import {
   Dialog,
   DialogContent,
@@ -62,6 +63,11 @@ export function CompatibleProviderSettingsContent() {
     loading: runtimeLoading,
     refresh: refreshRuntimeStatus,
   } = useClaudeRuntimeStatus();
+  const {
+    status: codexRuntimeStatus,
+    loading: codexRuntimeLoading,
+    refresh: refreshCodexRuntimeStatus,
+  } = useCodexRuntimeStatus();
 
   useEffect(() => {
     let cancelled = false;
@@ -144,11 +150,15 @@ export function CompatibleProviderSettingsContent() {
 
   return (
     <section className="space-y-6">
-      <ClaudeRuntimeStatusCard
-        status={runtimeStatus}
-        loading={runtimeLoading}
-        compact
-        onRefresh={refreshRuntimeStatus}
+      <ProvidersRuntimeStatusPanel
+        claudeStatus={runtimeStatus}
+        claudeLoading={runtimeLoading}
+        codexStatus={codexRuntimeStatus}
+        codexLoading={codexRuntimeLoading}
+        onRefresh={() => {
+          refreshRuntimeStatus();
+          refreshCodexRuntimeStatus();
+        }}
       />
 
       <SectionCard>
