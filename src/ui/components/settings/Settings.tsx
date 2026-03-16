@@ -85,7 +85,7 @@ export function Settings() {
       </div>
 
       <div className="flex min-h-0 flex-1 bg-[var(--bg-primary)]">
-      <aside className="w-[280px] flex-shrink-0 border-r border-[var(--border)] bg-[var(--bg-tertiary)]">
+      <aside className="w-[280px] flex-shrink-0 select-none border-r border-[var(--border)] bg-[var(--bg-tertiary)]">
         <div className="flex h-full flex-col px-3 pb-6 pt-4">
           <button
             onClick={() => setShowSettings(false)}
