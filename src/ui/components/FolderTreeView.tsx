@@ -145,12 +145,6 @@ export function FolderTreeView({
               )}
             </div>
 
-            {expanded && group.fullPath && (
-              <div className="px-7 pb-1 text-[10px] text-[var(--text-muted)] truncate" title={group.fullPath}>
-                {group.fullPath}
-              </div>
-            )}
-
             {expanded && group.sessions.map((session) => {
               const isSessionActive = activeSessionId === session.id;
 

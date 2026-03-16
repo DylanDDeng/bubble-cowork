@@ -3,6 +3,7 @@ import { Toaster, toast } from 'sonner';
 import {
   Check,
   Copy,
+  FolderOpen,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -430,12 +431,15 @@ export function App() {
 
             {/* CWD 显示栏 */}
             {activeSession.cwd && (
-              <div className="mb-3 flex justify-center">
+              <div className="mb-4 flex justify-center">
                 <div
-                  className="inline-flex max-w-[420px] items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-muted)] shadow-sm"
+                  className="inline-flex max-w-[560px] items-center gap-1.5 text-xs text-[var(--text-muted)]"
                   title={activeSession.cwd}
                 >
-                  <span className="truncate font-mono">{getPathLeaf(activeSession.cwd)}</span>
+                  <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center text-[var(--tree-file-accent-fg)]">
+                    <FolderOpen className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="truncate font-mono">.../{getPathLeaf(activeSession.cwd)}</span>
                   <CopyButton text={activeSession.cwd} />
                 </div>
               </div>
