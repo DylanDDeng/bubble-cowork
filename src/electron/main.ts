@@ -55,6 +55,17 @@ function fixEnvironment(): void {
 // 在应用启动前修复环境变量
 fixEnvironment();
 
+function configureUserDataPath(): void {
+  if (!isDev()) {
+    return;
+  }
+
+  const devUserDataPath = path.join(app.getPath('appData'), 'Aegis Dev');
+  app.setPath('userData', devUserDataPath);
+}
+
+configureUserDataPath();
+
 let mainWindow: BrowserWindow | null = null;
 let updaterInitialized = false;
 let devFileWatcher: fs.FSWatcher | null = null;
@@ -70,12 +81,15 @@ interface WindowState {
   isMaximized?: boolean;
 }
 
-const WINDOW_STATE_FILE = path.join(app.getPath('userData'), 'window-state.json');
+function getWindowStateFile(): string {
+  return path.join(app.getPath('userData'), 'window-state.json');
+}
 
 function loadWindowState(): WindowState {
   try {
-    if (fs.existsSync(WINDOW_STATE_FILE)) {
-      return JSON.parse(fs.readFileSync(WINDOW_STATE_FILE, 'utf-8'));
+    const windowStateFile = getWindowStateFile();
+    if (fs.existsSync(windowStateFile)) {
+      return JSON.parse(fs.readFileSync(windowStateFile, 'utf-8'));
     }
   } catch {
     // 忽略错误，使用默认值
@@ -85,10 +99,11 @@ function loadWindowState(): WindowState {
 
 function saveWindowState(win: BrowserWindow): void {
   try {
+    const windowStateFile = getWindowStateFile();
     const state: WindowState = win.isMaximized()
       ? { ...loadWindowState(), isMaximized: true }
       : { ...win.getBounds(), isMaximized: false };
-    fs.writeFileSync(WINDOW_STATE_FILE, JSON.stringify(state));
+    fs.writeFileSync(windowStateFile, JSON.stringify(state));
   } catch {
     // 忽略保存错误
   }
