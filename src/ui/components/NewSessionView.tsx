@@ -435,13 +435,13 @@ export function NewSessionView() {
                   : 'mb-0 max-h-0 opacity-0 -translate-y-1 pointer-events-none'
               }`}
             >
-              <div className="rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-primary)] shadow-sm">
+              <div className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-primary)] shadow-sm">
                 Select a project folder before starting a new task.
               </div>
             </div>
 
             {/* Composer */}
-            <div className="mx-auto max-w-4xl bg-[var(--bg-secondary)] border border-[var(--border)] rounded-3xl shadow-sm transition-colors">
+            <div className="mx-auto max-w-4xl bg-[var(--bg-secondary)] border border-[var(--border)] rounded-[22px] shadow-sm transition-colors">
             {attachments.length > 0 && (
               <div className="px-5 pt-4">
                 <AttachmentChips
@@ -590,7 +590,7 @@ export function NewSessionView() {
               <button
                 onClick={handleStart}
                 disabled={!canStartTask}
-                className="w-10 h-10 rounded-full flex items-center justify-center transition-colors no-drag disabled:cursor-not-allowed"
+                className="flex h-10 w-10 items-center justify-center rounded-[14px] transition-colors no-drag disabled:cursor-not-allowed"
                 style={{
                   backgroundColor: !canStartTask ? '#848588' : '#000000',
                   color: '#FFFFFF'
@@ -644,14 +644,14 @@ function QuickActionCard({
       type="button"
       aria-disabled={unavailable}
       onClick={onClick}
-      className={`group w-full max-w-[320px] rounded-[18px] border bg-[var(--bg-secondary)]/95 px-3.5 py-3 text-left shadow-sm transition-all ${
+      className={`group w-full max-w-[320px] rounded-[16px] border bg-[var(--bg-secondary)]/95 px-3.5 py-3 text-left shadow-sm transition-all ${
         unavailable
           ? 'cursor-not-allowed border-[var(--border)] opacity-60'
           : 'border-[var(--border)] hover:-translate-y-0.5 hover:border-black/15 hover:shadow-[0_10px_24px_rgba(15,23,42,0.08)]'
       }`}
     >
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-white/80 shadow-sm ring-1 ring-black/5 transition-transform group-hover:scale-[1.03]">
+        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[12px] bg-white/80 shadow-sm ring-1 ring-black/5 transition-transform group-hover:scale-[1.03]">
           <img src={logoSrc} alt="" className="h-7 w-7" />
         </div>
 

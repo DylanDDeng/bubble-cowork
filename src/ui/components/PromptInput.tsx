@@ -372,7 +372,7 @@ export function PromptInput() {
   return (
     <div className="bg-transparent">
       <div className="mx-auto max-w-4xl">
-        <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-3xl shadow-sm transition-colors">
+        <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-[22px] shadow-sm transition-colors">
           {attachments.length > 0 && (
             <div className="px-5 pt-4">
               <AttachmentChips
@@ -528,7 +528,7 @@ export function PromptInput() {
             {isRunning ? (
               <button
                 onClick={handleStop}
-                className="h-10 w-10 rounded-full border border-black bg-black text-white transition-colors hover:bg-[var(--accent-hover)] flex items-center justify-center"
+                className="flex h-10 w-10 items-center justify-center rounded-[14px] border border-black bg-black text-white transition-colors hover:bg-[var(--accent-hover)]"
                 title="Stop"
                 aria-label="Stop"
               >
@@ -538,7 +538,7 @@ export function PromptInput() {
               <button
                 onClick={handleSend}
                 disabled={!prompt.trim()}
-                className="h-10 w-10 rounded-full flex items-center justify-center transition-colors disabled:cursor-not-allowed"
+                className="flex h-10 w-10 items-center justify-center rounded-[14px] transition-colors disabled:cursor-not-allowed"
                 style={{
                   backgroundColor: !prompt.trim() ? '#848588' : '#000000',
                   color: '#FFFFFF'

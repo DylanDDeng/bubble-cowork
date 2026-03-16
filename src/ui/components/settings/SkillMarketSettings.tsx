@@ -200,7 +200,7 @@ export function SkillMarketSettingsContent() {
         <SkillsSettingsContentInner embedded />
       ) : (
       <div className="grid min-h-[calc(100vh-180px)] grid-cols-1 gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
-        <section className="flex min-h-[720px] flex-col overflow-hidden rounded-[22px] border border-[var(--border)] bg-[var(--bg-secondary)]">
+        <section className="flex min-h-[720px] flex-col overflow-hidden rounded-[18px] border border-[var(--border)] bg-[var(--bg-secondary)]">
           <div className="border-b border-[var(--border)] p-3">
             <div className="relative">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
@@ -257,7 +257,7 @@ export function SkillMarketSettingsContent() {
           </div>
         </section>
 
-        <aside className="flex min-h-[720px] flex-col overflow-hidden rounded-[22px] border border-[var(--border)] bg-[var(--bg-secondary)]">
+        <aside className="flex min-h-[720px] flex-col overflow-hidden rounded-[18px] border border-[var(--border)] bg-[var(--bg-secondary)]">
           {detailLoading ? (
             <div className="flex flex-1 items-center justify-center gap-2 p-6 text-[14px] text-[var(--text-secondary)]">
               <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -273,7 +273,7 @@ export function SkillMarketSettingsContent() {
                       {detail.name}
                     </div>
                     {installedSkillNames.has(detail.skillId) && (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600">
+                      <span className="inline-flex items-center gap-1 rounded-[12px] border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600">
                         <CheckCircle2 className="h-3 w-3" />
                         <span>Installed</span>
                       </span>
@@ -299,7 +299,7 @@ export function SkillMarketSettingsContent() {
                     type="button"
                     onClick={() => void handleInstall(detail)}
                     disabled={installingId === detail.id}
-                    className="inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2 text-[14px] font-medium text-white transition-colors hover:bg-[#1A1A1A] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex items-center gap-2 rounded-[14px] bg-black px-4 py-2 text-[14px] font-medium text-white transition-colors hover:bg-[#1A1A1A] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {installingId === detail.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                     <span>{installingId === detail.id ? 'Installing…' : 'Install'}</span>
@@ -308,7 +308,7 @@ export function SkillMarketSettingsContent() {
                     href={detail.detailUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-[14px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                    className="inline-flex items-center gap-2 rounded-[14px] border border-[var(--border)] px-3 py-2 text-[14px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
                   >
                     <ExternalLink className="h-4 w-4" />
                     <span>Open</span>
@@ -331,7 +331,7 @@ export function SkillMarketSettingsContent() {
                     <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
                       Install
                     </div>
-                    <div className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] p-4">
+                    <div className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-4">
                       <code className="block break-words font-mono text-[13px] leading-6 text-[var(--text-primary)]">
                         {detail.installCommand}
                       </code>
@@ -362,7 +362,7 @@ export function SkillMarketSettingsContent() {
                         {detail.securityAudits.map((audit) => (
                           <span
                             key={`${audit.name}-${audit.status}`}
-                            className="rounded-full border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1 text-xs text-[var(--text-secondary)]"
+                            className="rounded-[12px] border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1 text-xs text-[var(--text-secondary)]"
                           >
                             {audit.name}: {audit.status}
                           </span>
@@ -376,7 +376,7 @@ export function SkillMarketSettingsContent() {
                       <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
                         Last install output
                       </div>
-                      <pre className="max-h-[220px] overflow-auto whitespace-pre-wrap break-words rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] p-4 font-mono text-[13px] text-[var(--text-secondary)]">
+                      <pre className="max-h-[220px] overflow-auto whitespace-pre-wrap break-words rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-4 font-mono text-[13px] text-[var(--text-secondary)]">
                         {installOutput}
                       </pre>
                     </section>
@@ -411,13 +411,13 @@ function MarketListItem({
     <button
       type="button"
       onClick={onSelect}
-      className={`flex w-full items-start gap-3 rounded-[18px] border px-3 py-3 text-left transition-colors ${
+      className={`flex w-full items-start gap-3 rounded-[14px] border px-3 py-3 text-left transition-colors ${
         selected
           ? 'border-[var(--sidebar-item-border)] bg-[var(--sidebar-item-active)]'
           : 'border-transparent hover:bg-[var(--sidebar-item-hover)]'
       }`}
     >
-      <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-2xl bg-[var(--bg-primary)] text-[var(--text-secondary)]">
+      <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[12px] bg-[var(--bg-primary)] text-[var(--text-secondary)]">
         <Boxes className="h-4 w-4" />
       </div>
 
@@ -425,7 +425,7 @@ function MarketListItem({
         <div className="flex items-center gap-2">
           <div className="truncate text-[15px] font-semibold text-[var(--text-primary)]">{item.name}</div>
           {installed && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600">
+            <span className="inline-flex items-center gap-1 rounded-[10px] border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600">
               <CheckCircle2 className="h-3 w-3" />
               <span>Installed</span>
             </span>
@@ -443,7 +443,7 @@ function MarketListItem({
 
 function DetailPanelCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] p-4">
+    <div className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-4">
       <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--text-muted)]">
         {label}
       </div>

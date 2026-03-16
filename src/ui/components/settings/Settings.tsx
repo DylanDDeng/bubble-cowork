@@ -295,7 +295,7 @@ function GeneralSettingsContent({
               type="button"
               onClick={() => void handleCheckForUpdates()}
               disabled={checkingUpdates}
-              className="h-10 rounded-full border border-[var(--border)] bg-[var(--accent-light)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+              className="h-10 rounded-[14px] border border-[var(--border)] bg-[var(--accent-light)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
             >
               {checkingUpdates ? 'Checking...' : 'Check for Updates'}
             </button>
@@ -306,7 +306,7 @@ function GeneralSettingsContent({
           label="Appearance Mode"
           description="Choose light, dark, or system."
         >
-          <div className="inline-flex flex-wrap items-center gap-1 rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] p-1">
+          <div className="inline-flex flex-wrap items-center gap-1 rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1">
             <ThemeOption
               label="Light"
               value="light"
@@ -339,7 +339,7 @@ function GeneralSettingsContent({
             <button
               type="button"
               onClick={() => setThemePickerOpen((current) => !current)}
-              className="flex w-full items-center rounded-[18px] border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] px-4 py-2.5 text-left text-sm transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-light)]"
+              className="flex w-full items-center rounded-[14px] border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] px-4 py-2.5 text-left text-sm transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-light)]"
             >
               <div className="min-w-0 flex-1 truncate font-semibold text-[var(--text-primary)]">
                 {activeTheme.label}
@@ -348,7 +348,7 @@ function GeneralSettingsContent({
             </button>
 
             {themePickerOpen && (
-              <div className="mt-2 rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] p-2 shadow-sm">
+              <div className="mt-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-2 shadow-sm">
                 <div className="space-y-1">
                   {COLOR_THEME_FAMILIES.map((family) => {
                     const selected = family.id === colorThemeId;
@@ -404,7 +404,7 @@ function GeneralSettingsContent({
             <button
               type="button"
               onClick={() => setCustomCssOpen((current) => !current)}
-              className="flex w-full items-center gap-3 rounded-[18px] border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] px-3 py-2.5 text-left text-sm transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-light)]"
+              className="flex w-full items-center gap-3 rounded-[14px] border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] px-3 py-2.5 text-left text-sm transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-light)]"
             >
               <div className="min-w-0 flex-1">
                 <div className="truncate font-semibold text-[var(--text-primary)]">
@@ -416,7 +416,7 @@ function GeneralSettingsContent({
             </button>
 
             {customCssOpen && (
-              <div className="mt-2 rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] p-3 shadow-sm">
+              <div className="mt-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-3 shadow-sm">
                 <div className="mb-3 flex items-center justify-end">
                   <button
                     type="button"
@@ -482,7 +482,7 @@ function SettingsSection({
       <h2 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
         {title}
       </h2>
-      <div className="overflow-hidden rounded-[24px] border border-[var(--border)] bg-[var(--bg-secondary)]">
+      <div className="overflow-hidden rounded-[20px] border border-[var(--border)] bg-[var(--bg-secondary)]">
         {children}
       </div>
     </section>
@@ -635,7 +635,7 @@ function FontSlotControl({
   return (
     <div className="w-full max-w-[520px] space-y-2">
       <div className="relative ml-auto w-full max-w-[320px]">
-        <div className="rounded-[20px] border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] transition-colors focus-within:border-[var(--text-muted)]">
+        <div className="rounded-[16px] border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] transition-colors focus-within:border-[var(--text-muted)]">
           <input
             value={fontInput}
             onChange={(event) => {
@@ -665,7 +665,7 @@ function FontSlotControl({
               }
             }}
             placeholder="Type or pick a font..."
-            className="h-11 w-full min-w-0 rounded-[20px] bg-transparent px-4 pr-10 text-[14px] font-medium text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+            className="h-11 w-full min-w-0 rounded-[16px] bg-transparent px-4 pr-10 text-[14px] font-medium text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
           />
           <button
             type="button"
@@ -681,7 +681,7 @@ function FontSlotControl({
         </div>
 
         {menuOpen && filteredOptions.length > 0 && (
-          <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-[20px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_14px_32px_rgba(15,23,42,0.08)]">
+          <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_14px_32px_rgba(15,23,42,0.08)]">
             <div className="max-h-[220px] overflow-y-auto">
               {filteredOptions.map((option) => {
                 const selectedOption =

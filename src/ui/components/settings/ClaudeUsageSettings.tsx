@@ -70,7 +70,7 @@ export function ClaudeUsageSettingsContent() {
               key={days}
               type="button"
               onClick={() => setRangeDays(days)}
-              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
+              className={`rounded-[14px] border px-3 py-1.5 text-sm font-medium transition-colors ${
                 isActive
                   ? 'border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
                   : 'border-transparent bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
@@ -263,7 +263,7 @@ function PanelCard({
   className?: string;
 }) {
   return (
-    <div className={`rounded-[24px] border border-[var(--border)] bg-[var(--bg-secondary)] ${className}`}>
+    <div className={`rounded-[20px] border border-[var(--border)] bg-[var(--bg-secondary)] ${className}`}>
       {children}
     </div>
   );

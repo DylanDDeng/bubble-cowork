@@ -49,7 +49,7 @@ export function ProvidersRuntimeStatusPanel({
   };
 
   return (
-    <section className="overflow-hidden rounded-[28px] border border-[var(--border)] bg-[var(--bg-secondary)] shadow-[0_22px_55px_rgba(15,23,42,0.06)]">
+    <section className="overflow-hidden rounded-[20px] border border-[var(--border)] bg-[var(--bg-secondary)] shadow-[0_22px_55px_rgba(15,23,42,0.06)]">
       <div className="border-b border-[var(--border)] px-5 py-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -64,10 +64,10 @@ export function ProvidersRuntimeStatusPanel({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={handleRefresh}
-            className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            <button
+              type="button"
+              onClick={handleRefresh}
+              className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]"
             aria-label="Refresh runtime status"
             title="Refresh runtime status"
           >
@@ -174,10 +174,10 @@ function RuntimeRow({
         };
 
   return (
-    <div className={`rounded-[22px] border px-4 py-3.5 shadow-sm transition-colors ${tone.shell}`}>
+    <div className={`rounded-[16px] border px-4 py-3.5 shadow-sm transition-colors ${tone.shell}`}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex flex-1 items-start gap-3">
-          <div className={`mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[14px] ${tone.iconBg}`}>
+          <div className={`mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[12px] ${tone.iconBg}`}>
             {icon}
           </div>
 

@@ -96,7 +96,7 @@ export function McpSettingsContent() {
   return (
     <div className="p-8 pt-6">
       {hasNoServers ? (
-        <section className="rounded-[24px] border border-[var(--border)] bg-[var(--bg-primary)]/82 p-8 text-center shadow-[0_10px_30px_rgba(0,0,0,0.04)]">
+        <section className="rounded-[20px] border border-[var(--border)] bg-[var(--bg-primary)]/82 p-8 text-center shadow-[0_10px_30px_rgba(0,0,0,0.04)]">
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
             MCP Setup
           </div>
@@ -109,14 +109,14 @@ export function McpSettingsContent() {
           <div className="mt-6 flex justify-center gap-3">
             <button
               onClick={() => setIsAddingNew('global')}
-              className="px-4 py-2 bg-[var(--accent)] text-[var(--accent-foreground)] rounded-xl hover:bg-[var(--accent-hover)] transition-colors"
+              className="px-4 py-2 bg-[var(--accent)] text-[var(--accent-foreground)] rounded-[14px] hover:bg-[var(--accent-hover)] transition-colors"
             >
               Add Global Server
             </button>
             {currentProjectPath && (
               <button
                 onClick={() => setIsAddingNew('project')}
-                className="px-4 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                className="px-4 py-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
               >
                 Add Project Server
               </button>
@@ -189,7 +189,7 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-[24px] border border-[var(--border)] bg-[var(--bg-primary)]/82 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.04)]">
+    <section className="rounded-[20px] border border-[var(--border)] bg-[var(--bg-primary)]/82 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.04)]">
       {children}
     </section>
   );
@@ -274,7 +274,7 @@ function ServerSection({
         })}
 
         {Object.keys(servers).length === 0 && !isAddingNew && (
-          <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-5 text-sm text-[var(--text-muted)]">
+          <div className="rounded-[16px] border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-5 text-sm text-[var(--text-muted)]">
             No servers configured
           </div>
         )}
@@ -314,7 +314,7 @@ function ServerCard({
     : 'bg-gray-500';
 
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-4 shadow-sm">
+    <div className="rounded-[16px] border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-4 shadow-sm">
       <div className="flex items-start gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <div className={`w-2 h-2 rounded-full ${statusColor}`} />
@@ -421,7 +421,7 @@ function McpServerForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-5 shadow-sm">
+    <form onSubmit={handleSubmit} className="rounded-[16px] border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-5 shadow-sm">
       <div className="space-y-4">
         {/* Name */}
         <div>
