@@ -63,6 +63,7 @@ import type {
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
 const MAX_FILE_PREVIEW_BYTES = 5 * 1024 * 1024; // 5MB
+const DIRECT_EDIT_BOOTSTRAP_MAX_TRANSCRIPT_CHARS = 20_000;
 
 const ATTACHMENT_MIME_TYPES: Record<string, string> = {
   '.txt': 'text/plain',
@@ -493,6 +494,33 @@ function buildLatestEditSummaryPrompt(history: StreamMessage[]): string {
   return lines.join('\n');
 }
 
+function buildDirectEditBootstrapPrompt(params: {
+  transcript: string;
+  cwd?: string | null;
+}): string {
+  const lines = [
+    'You are resuming an Aegis Claude Code conversation after the latest user message was edited.',
+    'Treat the following transcript as the conversation state immediately before the edited user turn.',
+    'Absorb the context so future turns can continue naturally from this point.',
+    'Do not continue the task yet. Do not ask questions. Do not use tools.',
+  ];
+
+  if (params.cwd) {
+    lines.push(`Project working directory: ${params.cwd}`);
+  }
+
+  lines.push(
+    '',
+    'Conversation transcript:',
+    params.transcript || '[No prior conversation context]',
+    '',
+    'Do not repeat the transcript or summarize it back.',
+    'Reply with exactly READY.'
+  );
+
+  return lines.join('\n');
+}
+
 function extractSummaryContent(text: string): string {
   const match = text.match(/<summary>([\s\S]*?)<\/summary>/i);
   return (match ? match[1] : text).trim();
@@ -739,6 +767,11 @@ async function handleEditLatestPrompt(
   }
 
   const preservedHistory = history.slice(0, latestUserPromptIndex);
+  const preservedTranscript = buildHistoryTranscript(preservedHistory);
+  const canDirectBootstrap =
+    preservedHistory.length > 0 &&
+    preservedTranscript.length > 0 &&
+    preservedTranscript.length <= DIRECT_EDIT_BOOTSTRAP_MAX_TRANSCRIPT_CHARS;
   const requestedModel = normalizeModel(model ?? session.model ?? undefined);
   const requestedBetas = normalizeBetas(betas ?? parseStoredBetas(session.betas));
   const nextPrompt = prompt.trim();
@@ -787,34 +820,46 @@ async function handleEditLatestPrompt(
 
   try {
     if (preservedHistory.length > 0) {
-      const summaryResult = await runClaudeOneShot({
-        prompt: buildLatestEditSummaryPrompt(preservedHistory),
-        cwd: session.cwd ?? undefined,
-        model: requestedModel || undefined,
-        betas: requestedBetas,
-      });
-      const summary = extractSummaryContent(summaryResult.text);
-      if (!summary) {
-        throw new Error('Claude returned an empty edit summary.');
-      }
+      const bootstrapResult = canDirectBootstrap
+        ? await runClaudeOneShot({
+            prompt: buildDirectEditBootstrapPrompt({
+              transcript: preservedTranscript,
+              cwd: session.cwd,
+            }),
+            cwd: session.cwd ?? undefined,
+            model: requestedModel || undefined,
+            betas: requestedBetas,
+          })
+        : await (async () => {
+            const summaryResult = await runClaudeOneShot({
+              prompt: buildLatestEditSummaryPrompt(preservedHistory),
+              cwd: session.cwd ?? undefined,
+              model: requestedModel || undefined,
+              betas: requestedBetas,
+            });
+            const summary = extractSummaryContent(summaryResult.text);
+            if (!summary) {
+              throw new Error('Claude returned an empty edit summary.');
+            }
 
-      const bootstrapResult = await runClaudeOneShot({
-        prompt: buildCompactBootstrapPrompt({
-          summary,
-          cwd: session.cwd,
-          recentConversation: buildRecentConversationContext(preservedHistory),
-        }),
-        cwd: session.cwd ?? undefined,
-        model: summaryResult.model || requestedModel || undefined,
-        betas: requestedBetas,
-      });
+            return runClaudeOneShot({
+              prompt: buildCompactBootstrapPrompt({
+                summary,
+                cwd: session.cwd,
+                recentConversation: buildRecentConversationContext(preservedHistory),
+              }),
+              cwd: session.cwd ?? undefined,
+              model: summaryResult.model || requestedModel || undefined,
+              betas: requestedBetas,
+            });
+          })();
 
       if (!bootstrapResult.sessionId) {
         throw new Error('Claude did not return a bootstrap session id while editing the latest prompt.');
       }
 
       nextClaudeSessionId = bootstrapResult.sessionId;
-      resolvedModel = normalizeModel(bootstrapResult.model || summaryResult.model || requestedModel || undefined);
+      resolvedModel = normalizeModel(bootstrapResult.model || requestedModel || undefined);
     }
   } catch (error) {
     sessions.replaceSessionHistory(sessionId, history);
@@ -866,15 +911,6 @@ async function handleEditLatestPrompt(
     });
     return;
   }
-
-  broadcast(mainWindow, {
-    type: 'session.history',
-    payload: {
-      sessionId,
-      status: 'running',
-      messages: rewrittenHistory,
-    },
-  });
 
   broadcast(mainWindow, {
     type: 'session.status',
