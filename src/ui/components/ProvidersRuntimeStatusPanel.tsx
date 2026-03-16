@@ -52,22 +52,22 @@ export function ProvidersRuntimeStatusPanel({
     <section className="overflow-hidden rounded-[20px] border border-[var(--border)] bg-[var(--bg-secondary)] shadow-[0_22px_55px_rgba(15,23,42,0.06)]">
       <div className="border-b border-[var(--border)] px-5 py-4">
         <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
+          <div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-              Runtime Health
+              Agent
             </div>
-            <div className="mt-2 text-[20px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
-              Agent Connectivity
+            <div className="mt-2 text-lg font-semibold text-[var(--text-primary)]">
+              Connectivity
             </div>
             <div className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
-              Check whether Claude and Codex are ready before starting new sessions.
+              Check whether Claude and Codex are available for new sessions.
             </div>
           </div>
 
-            <button
-              type="button"
-              onClick={handleRefresh}
-              className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]"
             aria-label="Refresh runtime status"
             title="Refresh runtime status"
           >
@@ -155,29 +155,26 @@ function RuntimeRow({
   const tone = loading
     ? {
         shell: 'border-[var(--border)] bg-[var(--bg-primary)]',
-        iconBg: 'bg-[var(--bg-tertiary)]',
         accent: <RefreshCw className="h-4 w-4 animate-spin text-[var(--text-secondary)]" />,
         status: 'text-[var(--text-secondary)]',
       }
     : connected
       ? {
-          shell: 'border-[var(--border)] bg-[var(--bg-primary)]',
-          iconBg: 'bg-[var(--bg-tertiary)]',
-          accent: <CheckCircle2 className="h-4 w-4 text-[var(--text-secondary)]" />,
-          status: 'text-emerald-700',
-        }
-      : {
-          shell: 'border-[var(--border)] bg-[var(--bg-primary)]',
-          iconBg: 'bg-[var(--bg-tertiary)]',
-          accent: <AlertTriangle className="h-4 w-4 text-[var(--text-secondary)]" />,
-          status: 'text-[#dc2626]',
-        };
+        shell: 'border-[var(--border)] bg-[var(--bg-primary)]',
+        accent: <CheckCircle2 className="h-4 w-4 text-[var(--text-secondary)]" />,
+        status: 'text-emerald-700',
+      }
+    : {
+        shell: 'border-[var(--border)] bg-[var(--bg-primary)]',
+        accent: <AlertTriangle className="h-4 w-4 text-[var(--text-secondary)]" />,
+        status: 'text-[#dc2626]',
+      };
 
   return (
     <div className={`rounded-[16px] border px-4 py-3.5 shadow-sm transition-colors ${tone.shell}`}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex flex-1 items-start gap-3">
-          <div className={`mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[12px] ${tone.iconBg}`}>
+          <div className="mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center">
             {icon}
           </div>
 
