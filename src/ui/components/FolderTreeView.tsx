@@ -132,7 +132,7 @@ export function FolderTreeView({
               {group.fullPath && (
                 <button
                   type="button"
-                  className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-0 transition-all duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] group-hover:opacity-100 focus-visible:opacity-100"
+                  className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-100 transition-all duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
                   title={`Start a new thread in ${group.label}`}
                   aria-label={`Start a new thread in ${group.label}`}
                   onClick={(event) => {

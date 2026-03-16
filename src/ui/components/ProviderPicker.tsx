@@ -52,7 +52,7 @@ export function ProviderPicker({ value, onChange, disabled, embedded = false }: 
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div
-            className={`absolute bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-[0_12px_28px_rgba(0,0,0,0.08)] py-1 min-w-[140px] z-30 ${
+            className={`absolute z-30 min-w-[140px] rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] p-1.5 shadow-[0_12px_28px_rgba(0,0,0,0.08)] ${
               embedded ? 'right-0 top-full mt-2' : 'left-0 bottom-full mb-1'
             }`}
           >
@@ -63,7 +63,7 @@ export function ProviderPicker({ value, onChange, disabled, embedded = false }: 
                   onChange(provider.id);
                   setOpen(false);
                 }}
-                className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
+                className={`w-full rounded-[10px] px-3 py-2 text-left text-sm transition-colors ${
                   provider.id === value
                     ? 'bg-[var(--accent-light)] text-[var(--accent)]'
                     : 'text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
