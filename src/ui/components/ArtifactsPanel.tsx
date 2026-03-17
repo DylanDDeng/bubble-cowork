@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Copy, Check, ExternalLink, FolderSearch } from 'lucide-react';
 import type { StreamMessage } from '../types';
 import { MDContent } from '../render/markdown';
+import { HighlightedCode } from './HighlightedCode';
 import { extractArtifactsFromMessages, type ArtifactItem, type ArtifactKind } from '../utils/artifacts';
 
 type ReadTextResult =
@@ -344,20 +345,12 @@ function ArtifactPreview({
 
     case 'json': {
       const formatted = formatJson(text || '');
-      return (
-        <pre className="whitespace-pre-wrap break-words font-mono text-sm text-[var(--text-primary)]">
-          {formatted}
-        </pre>
-      );
+      return <HighlightedCode code={formatted} language="json" className="-m-3 rounded-none" />;
     }
 
     case 'html':
       if (htmlMode === 'code') {
-        return (
-          <pre className="whitespace-pre-wrap break-words font-mono text-sm text-[var(--text-primary)]">
-            {text || ''}
-          </pre>
-        );
+        return <HighlightedCode code={text || ''} language="html" className="-m-3 rounded-none" />;
       }
       return (
         <iframe

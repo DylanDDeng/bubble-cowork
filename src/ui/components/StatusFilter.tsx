@@ -29,7 +29,7 @@ export function StatusFilter() {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button className="flex items-center gap-1.5 px-2 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 rounded-md transition-colors duration-150">
+        <button className="flex items-center gap-1.5 px-2 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] rounded-md transition-colors duration-150">
           {getCurrentIcon() || <FilterIcon />}
           <span>{getFilterLabel()}</span>
           <ChevronDownIcon />
@@ -37,17 +37,17 @@ export function StatusFilter() {
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
-          className="bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg p-1 min-w-[160px] shadow-lg z-50"
+          className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-1 min-w-[160px] shadow-lg z-50"
           sideOffset={5}
           align="end"
         >
           {/* 快速过滤器 */}
           <DropdownMenu.Item
             onClick={() => setStatusFilter('all')}
-            className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer outline-none transition-colors duration-150 ${
+            className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg cursor-pointer outline-none transition-colors duration-150 ${
               statusFilter === 'all'
                 ? 'bg-[var(--accent-light)]'
-                : 'hover:bg-[var(--text-primary)]/5'
+                : 'hover:bg-[var(--bg-tertiary)]'
             }`}
           >
             <AllIcon />
@@ -56,10 +56,10 @@ export function StatusFilter() {
           </DropdownMenu.Item>
           <DropdownMenu.Item
             onClick={() => setStatusFilter('open')}
-            className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer outline-none transition-colors duration-150 ${
+            className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg cursor-pointer outline-none transition-colors duration-150 ${
               statusFilter === 'open'
                 ? 'bg-[var(--accent-light)]'
-                : 'hover:bg-[var(--text-primary)]/5'
+                : 'hover:bg-[var(--bg-tertiary)]'
             }`}
           >
             <OpenIcon />
@@ -68,10 +68,10 @@ export function StatusFilter() {
           </DropdownMenu.Item>
           <DropdownMenu.Item
             onClick={() => setStatusFilter('closed')}
-            className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer outline-none transition-colors duration-150 ${
+            className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg cursor-pointer outline-none transition-colors duration-150 ${
               statusFilter === 'closed'
                 ? 'bg-[var(--accent-light)]'
-                : 'hover:bg-[var(--text-primary)]/5'
+                : 'hover:bg-[var(--bg-tertiary)]'
             }`}
           >
             <ClosedIcon />
@@ -89,10 +89,10 @@ export function StatusFilter() {
                 <DropdownMenu.Item
                   key={status.id}
                   onClick={() => setStatusFilter(status.id)}
-                  className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer outline-none transition-colors duration-150 ${
+                  className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg cursor-pointer outline-none transition-colors duration-150 ${
                     statusFilter === status.id
                       ? 'bg-[var(--accent-light)]'
-                      : 'hover:bg-[var(--text-primary)]/5'
+                      : 'hover:bg-[var(--bg-tertiary)]'
                   }`}
                 >
                   <StatusIcon status={status} />
@@ -113,10 +113,10 @@ export function StatusFilter() {
                 <DropdownMenu.Item
                   key={status.id}
                   onClick={() => setStatusFilter(status.id)}
-                  className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer outline-none transition-colors duration-150 ${
+                  className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg cursor-pointer outline-none transition-colors duration-150 ${
                     statusFilter === status.id
                       ? 'bg-[var(--accent-light)]'
-                      : 'hover:bg-[var(--text-primary)]/5'
+                      : 'hover:bg-[var(--bg-tertiary)]'
                   }`}
                 >
                   <StatusIcon status={status} />

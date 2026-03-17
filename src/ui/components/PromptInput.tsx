@@ -500,6 +500,7 @@ export function PromptInput() {
                     onClick={() => setMenuOpen(false)}
                   />
                   <div className="absolute bottom-full mb-2 left-0 z-30 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-lg p-1 min-w-[220px]">
+
                     <button
                       onClick={async () => {
                         setMenuOpen(false);

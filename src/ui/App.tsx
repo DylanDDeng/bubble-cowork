@@ -4,8 +4,6 @@ import {
   Check,
   Copy,
   FolderOpen,
-  PanelLeftClose,
-  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
 } from 'lucide-react';
@@ -248,6 +246,12 @@ export function App() {
   }, [connected]);
 
   useEffect(() => {
+    if (sidebarCollapsed) {
+      setSidebarCollapsed(false);
+    }
+  }, [sidebarCollapsed, setSidebarCollapsed]);
+
+  useEffect(() => {
     applyThemePreferences({
       themeMode: theme,
       colorThemeId,
@@ -373,23 +377,6 @@ export function App() {
 
   return (
     <div className="flex h-full">
-      {/* Sidebar toggle */}
-      {!showSettings && (
-        <ChromeSidebarToggleButton
-          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          className={isMacOS ? 'top-[4px] left-[88px]' : 'top-2 left-2'}
-          title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-          aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-          icon={
-            sidebarCollapsed ? (
-              <PanelLeftOpen className="w-[17px] h-[17px] pointer-events-none" aria-hidden="true" />
-            ) : (
-              <PanelLeftClose className="w-[17px] h-[17px] pointer-events-none" aria-hidden="true" />
-            )
-          }
-        />
-      )}
-
       {!showSettings && (
         <ChromeSidebarToggleButton
           onClick={() => setProjectTreeCollapsed(!projectTreeCollapsed)}
@@ -407,7 +394,7 @@ export function App() {
       )}
 
       {/* 侧边栏 */}
-      {!showSettings && !sidebarCollapsed && <Sidebar />}
+      {!showSettings && <Sidebar />}
 
       {/* 主内容区 */}
       {showSettings ? (

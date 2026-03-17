@@ -34,7 +34,7 @@ export function ClaudeAccessModePicker({
       {open && !disabled && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 z-20 mb-2 flex min-w-[168px] flex-col gap-1 rounded-[16px] border border-[var(--border)] bg-[var(--bg-secondary)] p-1.5 shadow-[0_14px_32px_rgba(15,23,42,0.10)]">
+          <div className="absolute bottom-full left-0 z-20 mb-2 flex min-w-[168px] flex-col gap-1 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-lg">
             <AccessModeOption
               mode="default"
               current={value}
@@ -89,7 +89,7 @@ function AccessModeOption({
     <button
       type="button"
       onClick={() => onSelect(mode)}
-      className={`rounded-[14px] border px-2.5 py-2 text-left transition-colors ${
+      className={`rounded-lg border px-3 py-2 text-left transition-colors ${
         mode === 'fullAccess'
           ? active
             ? 'border-[rgba(239,68,68,0.32)] bg-[rgba(239,68,68,0.10)] text-[#b42318]'

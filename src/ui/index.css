@@ -407,6 +407,128 @@ body {
   color: var(--code-token-variable);
 }
 
+/* ── HighlightedCode block (code viewer with line numbers) ── */
+.highlighted-code-block {
+  background: var(--code-block-bg);
+  color: var(--code-block-text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.highlighted-code-table {
+  border-collapse: collapse;
+  border-spacing: 0;
+  width: 100%;
+}
+
+.highlighted-code-line:hover {
+  background: var(--code-line-hover, rgba(128, 128, 128, 0.06));
+}
+
+.highlighted-code-gutter {
+  padding: 0 12px 0 16px;
+  text-align: right;
+  color: var(--code-token-comment);
+  opacity: 0.5;
+  user-select: none;
+  white-space: nowrap;
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+  border-right: 1px solid var(--code-block-border);
+}
+
+.highlighted-code-content {
+  padding: 0 16px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: var(--font-mono, ui-monospace, 'SF Mono', 'Cascadia Code', 'Fira Code', Menlo, Consolas, monospace);
+}
+
+/* first / last line padding */
+.highlighted-code-table tr:first-child td { padding-top: 12px; }
+.highlighted-code-table tr:last-child td { padding-bottom: 12px; }
+
+/* ── Global hljs token colors ── */
+.hljs-comment,
+.hljs-quote {
+  color: var(--code-token-comment);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-title.class_,
+.hljs-type,
+.hljs-built_in {
+  color: var(--code-token-keyword);
+}
+
+.hljs-string,
+.hljs-attr,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-regexp {
+  color: var(--code-token-string);
+}
+
+.hljs-title.function_,
+.hljs-function .hljs-title,
+.hljs-section {
+  color: var(--code-token-function);
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: var(--code-token-number);
+}
+
+.hljs-operator,
+.hljs-punctuation {
+  color: var(--code-token-operator);
+}
+
+.hljs-variable,
+.hljs-params,
+.hljs-property {
+  color: var(--code-token-variable);
+}
+
+.hljs-tag {
+  color: var(--code-token-operator);
+}
+
+.hljs-name {
+  color: var(--code-token-keyword);
+}
+
+.hljs-attr {
+  color: var(--code-token-function);
+}
+
+.hljs-selector-class,
+.hljs-selector-id,
+.hljs-selector-pseudo {
+  color: var(--code-token-function);
+}
+
+.hljs-meta,
+.hljs-meta .hljs-keyword {
+  color: var(--code-token-number);
+}
+
+.hljs-deletion {
+  color: var(--code-token-keyword);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.hljs-addition {
+  color: var(--code-token-string);
+  background: rgba(34, 197, 94, 0.1);
+}
+
 .markdown-content a {
   color: var(--accent);
   text-decoration: none;

@@ -3,6 +3,7 @@ import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, C
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { useAppStore } from '../store/useAppStore';
 import { MDContent } from '../render/markdown';
+import { HighlightedCode } from './HighlightedCode';
 import type { ProjectTreeNode } from '../types';
 
 type ProjectFilePreview =
@@ -760,9 +761,7 @@ export function ProjectTreePanel() {
 
                 {!previewLoading && selectedPreview?.kind === 'html' && (
                   htmlMode === 'code' ? (
-                    <pre className="whitespace-pre-wrap break-words font-mono text-sm text-[var(--text-primary)]">
-                      {selectedPreview.text}
-                    </pre>
+                    <HighlightedCode code={selectedPreview.text} language="html" className="-m-3 rounded-none" />
                   ) : (
                     <iframe
                       title={selectedPreview.name}
@@ -783,9 +782,7 @@ export function ProjectTreePanel() {
                         spellCheck={false}
                       />
                     ) : (
-                      <pre className="whitespace-pre-wrap break-words font-mono text-sm text-[var(--text-primary)]">
-                        {selectedPreview.text}
-                      </pre>
+                      <HighlightedCode code={selectedPreview.text} fileName={selectedPreview.name} className="-m-3 rounded-none" />
                     )}
                     {saveState === 'error' && saveError && (
                       <div className="mt-2 text-xs text-[var(--error)]">{saveError}</div>

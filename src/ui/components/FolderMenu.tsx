@@ -27,10 +27,10 @@ export function FolderMenu({ sessionId, currentFolderPath, onNewFolderRequest }:
       <div key={node.path}>
         <DropdownMenu.Item
           onClick={() => handleSetFolder(node.path)}
-          className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer outline-none transition-colors duration-150 ${
+          className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg cursor-pointer outline-none transition-colors duration-150 ${
             isSelected
               ? 'bg-[var(--accent-light)]'
-              : 'hover:bg-[var(--text-primary)]/5'
+              : 'hover:bg-[var(--bg-tertiary)]'
           }`}
           style={{ paddingLeft: `${12 + depth * 16}px` }}
         >
@@ -45,24 +45,24 @@ export function FolderMenu({ sessionId, currentFolderPath, onNewFolderRequest }:
 
   return (
     <DropdownMenu.Sub>
-      <DropdownMenu.SubTrigger className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150 data-[state=open]:bg-[var(--text-primary)]/5">
+      <DropdownMenu.SubTrigger className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg cursor-pointer hover:bg-[var(--bg-tertiary)] outline-none transition-colors duration-150 data-[state=open]:bg-[var(--bg-tertiary)]">
         <Folder className="w-3.5 h-3.5" />
         Move to Folder
         <ChevronRight className="w-3.5 h-3.5 ml-auto" />
       </DropdownMenu.SubTrigger>
       <DropdownMenu.Portal>
         <DropdownMenu.SubContent
-          className="bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg p-1 min-w-[180px] max-h-[300px] overflow-y-auto shadow-lg z-50"
+          className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-1 min-w-[180px] max-h-[300px] overflow-y-auto shadow-lg z-50"
           sideOffset={8}
           alignOffset={-5}
         >
           {/* Uncategorized 选项 */}
           <DropdownMenu.Item
             onClick={() => handleSetFolder(null)}
-            className={`flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer outline-none transition-colors duration-150 ${
+            className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg cursor-pointer outline-none transition-colors duration-150 ${
               !currentFolderPath
                 ? 'bg-[var(--accent-light)]'
-                : 'hover:bg-[var(--text-primary)]/5'
+                : 'hover:bg-[var(--bg-tertiary)]'
             }`}
           >
             <XSquare className="w-3.5 h-3.5" />
@@ -82,7 +82,7 @@ export function FolderMenu({ sessionId, currentFolderPath, onNewFolderRequest }:
           {/* 新建文件夹 */}
           <DropdownMenu.Item
             onSelect={() => onNewFolderRequest?.(sessionId)}
-            className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150 text-[var(--accent)]"
+            className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--bg-tertiary)] outline-none transition-colors duration-150 text-[var(--accent)]"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>New Folder...</span>
