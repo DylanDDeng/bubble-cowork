@@ -284,127 +284,50 @@ body {
 
 .markdown-content .md-code-block {
   margin: 0.9rem 0;
-  border-radius: 22px;
+  border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--code-block-border);
-  background: var(--code-block-bg);
+}
+
+/* header inherits code-block bg; HighlightedCode renders the body */
+.markdown-content .md-code-block > .highlighted-code-block {
+  border-radius: 0;
 }
 
 .markdown-content .md-code-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
-  padding: 1rem 1.15rem 0.35rem;
+  gap: 0.5rem;
+  padding: 6px 10px 6px 16px;
   background: var(--code-block-header-bg);
-}
-
-.markdown-content .md-code-header.is-compact {
-  padding-bottom: 0;
-  min-height: 2.4rem;
+  border-bottom: 1px solid var(--code-block-border);
 }
 
 .markdown-content .md-code-language {
-  font-size: 0.95rem;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
 }
 
 .markdown-content .md-code-copy {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
+  width: 28px;
+  height: 28px;
   border: 0;
-  background: var(--code-copy-bg);
-  color: var(--text-secondary);
-  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
   padding: 0;
   cursor: pointer;
   transition: background-color 150ms ease, color 150ms ease;
 }
 
-.markdown-content .md-code-copy.is-floating {
-  margin-left: auto;
-}
-
 .markdown-content .md-code-copy:hover {
   background: var(--code-copy-hover);
   color: var(--text-primary);
-}
-
-.markdown-content .md-code-content {
-  margin: 0;
-  padding: 0.2rem 1.15rem 1.2rem;
-  overflow-x: auto;
-  background: transparent;
-  color: var(--code-block-text);
-  font-size: 0.92rem;
-  line-height: 1.7;
-}
-
-.markdown-content .md-code-content code {
-  display: block;
-  min-width: max-content;
-  font-family: var(--font-mono), 'SF Mono', 'Fira Code', 'Consolas', monospace;
-  color: inherit;
-  background: transparent;
-  padding: 0;
-  border: 0;
-  font-size: inherit;
-}
-
-.markdown-content .md-code-content .hljs {
-  display: block;
-  background: transparent !important;
-  color: var(--code-block-text);
-}
-
-.markdown-content .md-code-content .hljs-comment,
-.markdown-content .md-code-content .hljs-quote {
-  color: var(--code-token-comment);
-  font-style: italic;
-}
-
-.markdown-content .md-code-content .hljs-keyword,
-.markdown-content .md-code-content .hljs-selector-tag,
-.markdown-content .md-code-content .hljs-literal,
-.markdown-content .md-code-content .hljs-title.class_,
-.markdown-content .md-code-content .hljs-type {
-  color: var(--code-token-keyword);
-}
-
-.markdown-content .md-code-content .hljs-string,
-.markdown-content .md-code-content .hljs-attr,
-.markdown-content .md-code-content .hljs-template-tag,
-.markdown-content .md-code-content .hljs-template-variable {
-  color: var(--code-token-string);
-}
-
-.markdown-content .md-code-content .hljs-title.function_,
-.markdown-content .md-code-content .hljs-function .hljs-title,
-.markdown-content .md-code-content .hljs-section {
-  color: var(--code-token-function);
-}
-
-.markdown-content .md-code-content .hljs-number,
-.markdown-content .md-code-content .hljs-symbol,
-.markdown-content .md-code-content .hljs-bullet {
-  color: var(--code-token-number);
-}
-
-.markdown-content .md-code-content .hljs-operator,
-.markdown-content .md-code-content .hljs-punctuation {
-  color: var(--code-token-operator);
-}
-
-.markdown-content .md-code-content .hljs-variable,
-.markdown-content .md-code-content .hljs-params,
-.markdown-content .md-code-content .hljs-property {
-  color: var(--code-token-variable);
 }
 
 /* ── HighlightedCode block (code viewer with line numbers) ── */

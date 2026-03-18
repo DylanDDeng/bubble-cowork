@@ -14,6 +14,7 @@ import java from 'highlight.js/lib/languages/java';
 import go from 'highlight.js/lib/languages/go';
 import rust from 'highlight.js/lib/languages/rust';
 import shell from 'highlight.js/lib/languages/shell';
+import diff from 'highlight.js/lib/languages/diff';
 
 hljs.registerLanguage('xml', xml);
 hljs.registerLanguage('html', xml);
@@ -32,6 +33,7 @@ hljs.registerLanguage('java', java);
 hljs.registerLanguage('go', go);
 hljs.registerLanguage('rust', rust);
 hljs.registerLanguage('shell', shell);
+hljs.registerLanguage('diff', diff);
 
 /**
  * 从文件名推断语言

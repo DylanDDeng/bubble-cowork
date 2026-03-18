@@ -4,10 +4,10 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeRaw from 'rehype-raw';
 import rehypeKatex from 'rehype-katex';
-import rehypeHighlight from 'rehype-highlight';
 import type { Components } from 'react-markdown';
 import { Check, Copy } from 'lucide-react';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { HighlightedCode } from '../components/HighlightedCode';
 
 interface MDContentProps {
   content: string;
@@ -51,19 +51,6 @@ function shouldDisplayLanguageLabel(language?: string): boolean {
   return !['diff', 'text', 'plaintext'].includes(normalized);
 }
 
-function normalizeLanguage(language?: string): string | undefined {
-  if (!language) {
-    return undefined;
-  }
-
-  const normalized = language.toLowerCase();
-  if (['diff', 'text', 'plaintext'].includes(normalized)) {
-    return undefined;
-  }
-
-  return language;
-}
-
 function extractCodeChild(children: ReactNode): {
   className?: string;
   codeChildren: ReactNode;
@@ -88,17 +75,14 @@ function extractCodeChild(children: ReactNode): {
 
 function CodeBlock({
   language,
-  className,
   children,
 }: {
   language?: string;
-  className?: string;
   children: ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
   const rawCode = extractTextContent(children).replace(/\n$/, '');
   const showLanguageLabel = shouldDisplayLanguageLabel(language);
-  const effectiveLanguage = normalizeLanguage(language);
 
   const handleCopy = async () => {
     try {
@@ -112,16 +96,14 @@ function CodeBlock({
 
   return (
     <div className="md-code-block">
-      <div className={`md-code-header${showLanguageLabel ? '' : ' is-compact'}`}>
-        {showLanguageLabel ? (
-          <span className="md-code-language">{formatLanguageLabel(language!)}</span>
-        ) : (
-          <span />
-        )}
+      <div className="md-code-header">
+        <span className="md-code-language">
+          {showLanguageLabel ? formatLanguageLabel(language!) : ''}
+        </span>
         <button
           type="button"
           onClick={() => void handleCopy()}
-          className={`md-code-copy${showLanguageLabel ? '' : ' is-floating'}`}
+          className="md-code-copy"
           title={copied ? 'Copied' : 'Copy code'}
           aria-label={copied ? 'Copied' : 'Copy code'}
         >
@@ -129,9 +111,7 @@ function CodeBlock({
         </button>
       </div>
 
-      <pre className="md-code-content">
-        <code className={effectiveLanguage ? className : undefined}>{children}</code>
-      </pre>
+      <HighlightedCode code={rawCode} language={language} />
     </div>
   );
 }
@@ -181,7 +161,7 @@ const components: Components = {
     const match = /language-([\w-]+)/.exec(className || '');
 
     return (
-      <CodeBlock language={match?.[1]} className={className}>
+      <CodeBlock language={match?.[1]}>
         {codeChildren}
       </CodeBlock>
     );
@@ -204,17 +184,16 @@ const components: Components = {
 export function MDContent({ content, className = '', allowHtml = false }: MDContentProps) {
   const disallowedElements = ['script', 'style', 'iframe', 'object', 'embed', 'link', 'meta', 'base'];
 
-  // 配置 rehype-highlight 和 rehype-katex
   const rehypePlugins = useMemo(() => {
     const plugins: Parameters<typeof ReactMarkdown>[0]['rehypePlugins'] = allowHtml
-      ? [rehypeRaw, rehypeKatex, [rehypeHighlight, { ignoreMissing: true }]]
-      : [rehypeKatex, [rehypeHighlight, { ignoreMissing: true }]];
+      ? [rehypeRaw, rehypeKatex]
+      : [rehypeKatex];
     return plugins;
   }, [allowHtml]);
 
   const fallback = (
     <div className="md-code-block">
-      <pre className="md-code-content whitespace-pre-wrap break-words">{content}</pre>
+      <HighlightedCode code={content} />
     </div>
   );
 

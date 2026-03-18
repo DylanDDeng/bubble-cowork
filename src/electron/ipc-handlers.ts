@@ -1,5 +1,7 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { readFileSync, statSync, watch, type FSWatcher, promises as fsPromises } from 'fs';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { basename, extname, resolve, relative, isAbsolute } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
@@ -883,6 +885,42 @@ function scheduleProjectTree(mainWindow: BrowserWindow, cwd: string): void {
   }, 200);
 }
 
+function mapGitChangeStatus(indexStatus: string, workStatus: string): {
+  status: 'M' | 'A' | 'D' | 'R' | '?';
+  staged: boolean;
+} {
+  if (indexStatus === '?' && workStatus === '?') {
+    return { status: '?', staged: false };
+  }
+
+  // Prefer the worktree state when present so mixed porcelain states like AM/RM
+  // still surface as modified in the Changes panel.
+  if (workStatus === 'D') {
+    return { status: 'D', staged: false };
+  }
+  if (workStatus === 'R') {
+    return { status: 'R', staged: false };
+  }
+  if (workStatus === 'M') {
+    return { status: 'M', staged: false };
+  }
+
+  if (indexStatus === 'D') {
+    return { status: 'D', staged: workStatus === ' ' };
+  }
+  if (indexStatus === 'R') {
+    return { status: 'R', staged: workStatus === ' ' };
+  }
+  if (indexStatus === 'M') {
+    return { status: 'M', staged: workStatus === ' ' };
+  }
+  if (indexStatus === 'A') {
+    return { status: 'A', staged: workStatus === ' ' };
+  }
+
+  return { status: 'M', staged: false };
+}
+
 // 初始化 IPC 处理器
 export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // 初始化数据库
@@ -1117,7 +1155,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   ipcMainHandle(
     'read-project-file-preview',
     async (_event, cwd: string, filePath: string): Promise<ProjectFilePreview> => {
-      const resolved = resolve(filePath || '');
+      const resolved = resolve(cwd || '.', filePath || '');
       const name = basename(resolved) || resolved;
       const ext = extname(resolved).toLowerCase();
 
@@ -1260,7 +1298,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       filePath: string,
       content: string
     ): Promise<{ ok: true } | { ok: false; message: string }> => {
-      const resolved = resolve(filePath || '');
+      const resolved = resolve(cwd || '.', filePath || '');
       const ext = extname(resolved).toLowerCase();
 
       if (ext !== '.txt') {
@@ -1356,6 +1394,80 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       projectWatchers.delete(cwd);
     }
     return true;
+  });
+
+  // ── Git Changes ──
+
+  const execFileAsync = promisify(execFile);
+
+  ipcMainHandle('get-git-changes', async (_event, cwd: string) => {
+    if (!cwd) return { ok: false, error: 'no-cwd', entries: [] };
+
+    // Check if inside a git repo first
+    try {
+      await execFileAsync('git', ['rev-parse', '--git-dir'], { cwd, timeout: 5000 });
+    } catch {
+      return { ok: false, error: 'not-a-repo', entries: [] };
+    }
+
+    try {
+      const { stdout } = await execFileAsync('git', ['status', '--porcelain', '-uall'], {
+        cwd,
+        maxBuffer: 1024 * 1024,
+        timeout: 10000,
+      });
+
+      const entries: Array<{ filePath: string; status: string; staged: boolean }> = [];
+      for (const line of stdout.split('\n')) {
+        if (!line) continue;
+        const indexStatus = line[0];
+        const workStatus = line[1];
+        let filePath = line.slice(3);
+        if (filePath.includes(' -> ')) {
+          filePath = filePath.split(' -> ')[1];
+        }
+        filePath = filePath.trim();
+        if (!filePath) continue;
+
+        const { status, staged } = mapGitChangeStatus(indexStatus, workStatus);
+
+        entries.push({ filePath, status, staged });
+      }
+      return { ok: true, error: null, entries };
+    } catch {
+      return { ok: false, error: 'git-error', entries: [] };
+    }
+  });
+
+  ipcMainHandle('get-git-diff', async (_event, cwd: string, filePath: string) => {
+    if (!cwd || !filePath) return '';
+    try {
+      // Unstaged
+      const unstaged = await execFileAsync('git', ['diff', '--unified=3', '--', filePath], {
+        cwd, maxBuffer: 2 * 1024 * 1024, timeout: 10000,
+      });
+      if (unstaged.stdout.trim()) return unstaged.stdout;
+
+      // Staged
+      const staged = await execFileAsync('git', ['diff', '--cached', '--unified=3', '--', filePath], {
+        cwd, maxBuffer: 2 * 1024 * 1024, timeout: 10000,
+      });
+      if (staged.stdout.trim()) return staged.stdout;
+
+      // Untracked (diff against /dev/null)
+      try {
+        const untracked = await execFileAsync('git', ['diff', '--no-index', '--unified=3', '/dev/null', filePath], {
+          cwd, maxBuffer: 2 * 1024 * 1024, timeout: 10000,
+        });
+        return untracked.stdout;
+      } catch (err: unknown) {
+        // git diff --no-index exits 1 when differences exist
+        if (err && typeof err === 'object' && 'stdout' in err) return (err as { stdout: string }).stdout;
+      }
+      return '';
+    } catch {
+      return '';
+    }
   });
 }
 

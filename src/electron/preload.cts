@@ -183,6 +183,15 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('unwatch-project-tree', cwd);
   },
 
+  // Git 变更
+  getGitChanges: (cwd: string) => {
+    return ipcRenderer.invoke('get-git-changes', cwd);
+  },
+
+  getGitDiff: (cwd: string, filePath: string) => {
+    return ipcRenderer.invoke('get-git-diff', cwd, filePath);
+  },
+
   // 订阅系统统计（预留）
   subscribeStatistics: (callback: (data: unknown) => void) => {
     const handler = (_: unknown, data: unknown) => {

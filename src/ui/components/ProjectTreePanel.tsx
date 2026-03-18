@@ -1,9 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, ChevronLeft, ChevronRight, Copy, Check, ExternalLink, FolderSearch, X } from 'lucide-react';
+import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw } from 'lucide-react';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { useAppStore } from '../store/useAppStore';
 import { MDContent } from '../render/markdown';
 import { HighlightedCode } from './HighlightedCode';
+import {
+  applyDiffToChangeRecord,
+  applyTextMetaToChangeRecord,
+  extractToolChangeRecords,
+  getOperationLabel,
+  mergeChangeRecords,
+  summarizeChangeRecords,
+  type ChangeOperation,
+  type ChangeRecord,
+} from '../utils/change-records';
 import type { ProjectTreeNode } from '../types';
 
 type ProjectFilePreview =
@@ -257,7 +267,9 @@ function isImageName(name: string): boolean {
 
 
 export function ProjectTreePanel() {
-  const railWidth = 280;
+  const defaultRailWidth = 280;
+  const minRailWidth = 260;
+  const maxRailWidth = 560;
   const defaultPreviewWidth = 520;
   const minPreviewWidth = 340;
   const maxPreviewWidth = 960;
@@ -273,6 +285,12 @@ export function ProjectTreePanel() {
   const prevCwdRef = useRef<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const initRootRef = useRef<string | null>(null);
+  const [panelWidth, setPanelWidth] = useState(defaultRailWidth);
+  const panelResizingRef = useRef(false);
+  const [isPanelResizing, setIsPanelResizing] = useState(false);
+  const panelStartXRef = useRef(0);
+  const panelStartWidthRef = useRef(defaultRailWidth);
+  const latestPanelWidthRef = useRef(defaultRailWidth);
   const [previewPanelWidth, setPreviewPanelWidth] = useState(defaultPreviewWidth);
   const previewResizingRef = useRef(false);
   const [isPreviewResizing, setIsPreviewResizing] = useState(false);
@@ -282,7 +300,7 @@ export function ProjectTreePanel() {
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [selectedPreview, setSelectedPreview] = useState<ProjectFilePreview | null>(null);
   const [pptxSlideIndex, setPptxSlideIndex] = useState(0);
-  const [htmlMode, setHtmlMode] = useState<'view' | 'code'>('view');
+  const [viewMode, setViewMode] = useState<'view' | 'code'>('view');
   const [previewLoading, setPreviewLoading] = useState(false);
   const previewRequestIdRef = useRef(0);
   const [draftText, setDraftText] = useState('');
@@ -291,14 +309,128 @@ export function ProjectTreePanel() {
   const copiedTimerRef = useRef<number | null>(null);
   const [copiedPath, setCopiedPath] = useState(false);
 
+  const [activeTab, setActiveTab] = useState<'files' | 'changes'>('files');
+  const [changeRecords, setChangeRecords] = useState<ChangeRecord[]>([]);
+  const [changesError, setChangesError] = useState<string | null>(null);
+  const [changesLoading, setChangesLoading] = useState(false);
+  const [expandedChangeId, setExpandedChangeId] = useState<string | null>(null);
+
   const activeCwd = activeSessionId ? sessions[activeSessionId]?.cwd : null;
   const cwd = activeCwd || projectCwd || null;
+
+  const loadChangeRecords = async () => {
+    if (!cwd) return;
+    setChangesLoading(true);
+    setChangesError(null);
+    try {
+      const toolRecords = extractToolChangeRecords(activeSession?.messages || []);
+      const result = await window.electron.getGitChanges(cwd);
+      if (result.ok) {
+        const merged = mergeChangeRecords(toolRecords, result.entries);
+        const enriched = await enrichChangeRecords(cwd, merged);
+        setChangeRecords(enriched);
+        setChangesError(null);
+      } else if (result.error === 'not-a-repo') {
+        setChangeRecords(toolRecords);
+        setChangesError(toolRecords.length > 0 ? null : 'not-a-repo');
+      } else {
+        setChangesError(result.error);
+        setChangeRecords(toolRecords);
+      }
+    } catch {
+      setChangesError('git-error');
+      setChangeRecords([]);
+    } finally {
+      setChangesLoading(false);
+    }
+  };
+
+  // Reload changes when tab activates, cwd changes, or session messages update
+  const activeSession = activeSessionId ? sessions[activeSessionId] : null;
+  const messageCount = activeSession?.messages.length ?? 0;
+  const sessionStatus = activeSession?.status;
+  const changeSummary = useMemo(
+    () => summarizeChangeRecords(changeRecords),
+    [changeRecords]
+  );
+
+  const enrichChangeRecords = async (
+    currentCwd: string,
+    records: ChangeRecord[]
+  ): Promise<ChangeRecord[]> => {
+    const enriched = await Promise.all(
+      records.map(async (record) => {
+        let next = record;
+
+        if (
+          record.source === 'git' ||
+          (record.operation === 'edit' && !record.diffContent) ||
+          (record.operation === 'delete' && !record.diffContent)
+        ) {
+          try {
+            const diff = await window.electron.getGitDiff(currentCwd, record.filePath);
+            if (diff.trim()) {
+              next = applyDiffToChangeRecord(next, diff);
+            }
+          } catch {
+            // Ignore per-file diff failures and keep the record visible.
+          }
+        }
+
+        if (next.sizeBytes === null || next.lineCount === null) {
+          try {
+            const preview = (await window.electron.readProjectFilePreview(
+              currentCwd,
+              next.filePath
+            )) as ProjectFilePreview | null;
+
+            if (
+              preview &&
+              (preview.kind === 'text' || preview.kind === 'markdown' || preview.kind === 'html')
+            ) {
+              next = applyTextMetaToChangeRecord(next, preview.text, preview.size);
+            } else if (preview && 'size' in preview && typeof preview.size === 'number') {
+              next = {
+                ...next,
+                sizeBytes: next.sizeBytes ?? preview.size,
+              };
+            }
+          } catch {
+            // Deleted or unreadable files simply stay without size metadata.
+          }
+        }
+
+        return next;
+      })
+    );
+
+    return enriched;
+  };
+
+  useEffect(() => {
+    if (activeTab === 'changes' && cwd) {
+      void loadChangeRecords();
+    }
+  }, [activeTab, cwd, messageCount, sessionStatus, projectTreeCwd, projectTree]);
+
+  useEffect(() => {
+    latestPanelWidthRef.current = panelWidth;
+  }, [panelWidth]);
 
   useEffect(() => {
     latestPreviewWidthRef.current = previewPanelWidth;
   }, [previewPanelWidth]);
 
   useEffect(() => {
+    const storedPanelWidth = window.localStorage.getItem('cowork.projectPanelWidth');
+    if (storedPanelWidth) {
+      const parsed = Number(storedPanelWidth);
+      if (Number.isFinite(parsed)) {
+        const clamped = Math.min(maxRailWidth, Math.max(minRailWidth, parsed));
+        setPanelWidth(clamped);
+      }
+    }
+
     const stored = window.localStorage.getItem('cowork.projectPreviewWidth');
     if (!stored) return;
     const parsed = Number(stored);
@@ -366,12 +498,16 @@ export function ProjectTreePanel() {
     initRootRef.current = null;
     setSelectedFilePath(null);
     setSelectedPreview(null);
-    setHtmlMode('view');
+    setViewMode('view');
     setPreviewLoading(false);
     setDraftText('');
     setSaveState('idle');
     setSaveError(null);
     setPptxSlideIndex(0);
+    setActiveTab('files');
+    setChangeRecords([]);
+    setChangesError(null);
+    setExpandedChangeId(null);
   }, [cwd]);
 
   useEffect(() => {
@@ -405,7 +541,7 @@ export function ProjectTreePanel() {
     }
 
     setSelectedFilePath(node.path);
-    setHtmlMode('view');
+    setViewMode('view');
     setPreviewLoading(true);
     setSelectedPreview(null);
     setDraftText('');
@@ -481,9 +617,10 @@ export function ProjectTreePanel() {
 
   useEffect(() => {
     const root = document.documentElement;
+    const showPreview = selectedFilePath;
     root.style.setProperty(
       '--project-preview-space',
-      selectedFilePath ? `${previewPanelWidth}px` : '0px'
+      showPreview ? `${previewPanelWidth}px` : '0px'
     );
 
     return () => {
@@ -518,6 +655,7 @@ export function ProjectTreePanel() {
         return;
       }
       setSelectedPreview({ ...selectedPreview, text: draftText });
+      void loadChangeRecords();
       setSaveState('saved');
       window.setTimeout(() => setSaveState('idle'), 1200);
     } catch (error) {
@@ -568,8 +706,59 @@ export function ProjectTreePanel() {
     document.body.style.userSelect = 'none';
   };
 
+  const handlePanelResizeMove = (clientX: number) => {
+    if (!panelResizingRef.current) return;
+    const delta = panelStartXRef.current - clientX;
+    const nextPanelWidth = Math.min(
+      maxRailWidth,
+      Math.max(minRailWidth, panelStartWidthRef.current + delta)
+    );
+    setPanelWidth(nextPanelWidth);
+  };
+
+  const finishPanelResize = () => {
+    if (!panelResizingRef.current) return;
+    panelResizingRef.current = false;
+    setIsPanelResizing(false);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    window.localStorage.setItem(
+      'cowork.projectPanelWidth',
+      String(latestPanelWidthRef.current)
+    );
+  };
+
+  useEffect(() => {
+    if (!isPanelResizing) return;
+
+    const handleWindowBlur = () => finishPanelResize();
+    window.addEventListener('blur', handleWindowBlur);
+    return () => {
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, [isPanelResizing]);
+
+  const handlePanelResizeStart = (event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    panelResizingRef.current = true;
+    setIsPanelResizing(true);
+    panelStartXRef.current = event.clientX;
+    panelStartWidthRef.current = panelWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
   return (
     <>
+      {isPanelResizing && (
+        <div
+          className="fixed inset-0 z-[70] cursor-col-resize no-drag bg-transparent"
+          onMouseMove={(event) => handlePanelResizeMove(event.clientX)}
+          onMouseUp={finishPanelResize}
+        />
+      )}
+
       {isPreviewResizing && (
         <div
           className="fixed inset-0 z-[70] cursor-col-resize no-drag bg-transparent"
@@ -580,50 +769,129 @@ export function ProjectTreePanel() {
 
       <div
         className="relative flex h-full flex-shrink-0 flex-col border-l border-[var(--tree-item-border)] bg-[var(--preview-surface)]"
-        style={{ width: railWidth }}
+        style={{ width: panelWidth }}
       >
+        {!selectedFilePath && (
+          <div
+            className="group absolute left-0 top-0 bottom-0 z-10 w-3 -translate-x-1/2 cursor-col-resize no-drag"
+            onMouseDown={handlePanelResizeStart}
+          >
+            <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
+          </div>
+        )}
         <div className="h-8 drag-region" />
         <div className="px-4 pt-2 pb-2">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--tree-file-accent-fg)]">
-            PROJECT FILES
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => { setActiveTab('files'); setExpandedChangeId(null); }}
+              className={`text-[10px] font-semibold uppercase tracking-[0.14em] px-1.5 py-0.5 rounded transition-colors ${
+                activeTab === 'files'
+                  ? 'text-[var(--tree-file-accent-fg)] bg-[var(--tree-file-accent-fg)]/10'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+              }`}
+            >
+              Files
+            </button>
+            <button
+              onClick={() => { setActiveTab('changes'); setSelectedFilePath(null); setSelectedPreview(null); }}
+              className={`text-[10px] font-semibold uppercase tracking-[0.14em] px-1.5 py-0.5 rounded transition-colors ${
+                activeTab === 'changes'
+                  ? 'text-[var(--tree-file-accent-fg)] bg-[var(--tree-file-accent-fg)]/10'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+              }`}
+            >
+              Changes
+              {changeRecords.length > 0 && (
+                <span className="ml-1 text-[9px] opacity-70">{changeRecords.length}</span>
+              )}
+            </button>
+            {activeTab === 'changes' && (
+              <button
+                onClick={() => void loadChangeRecords()}
+                disabled={changesLoading}
+                className="ml-auto p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors disabled:opacity-40"
+                title="Refresh"
+              >
+                <RefreshCw className={`w-3 h-3 ${changesLoading ? 'animate-spin' : ''}`} />
+              </button>
+            )}
           </div>
           {!cwd && (
-            <div className="text-xs text-[var(--text-muted)]">No folder selected</div>
+            <div className="text-xs text-[var(--text-muted)] mt-1">No folder selected</div>
           )}
         </div>
 
         <div className="flex-1 min-h-0 flex">
           <div className="flex-1 overflow-auto px-3 pb-3">
-            {!cwd && (
-              <div className="text-sm text-[var(--text-muted)] px-1 py-2">
-                Select a folder to view files.
-              </div>
-            )}
-            {cwd && loading && !visibleTree && (
-              <div className="text-sm text-[var(--text-muted)] px-1 py-2">
-                Loading files...
-              </div>
-            )}
-            {cwd && visibleTree && visibleNodes.length > 0 && (
+            {activeTab === 'files' ? (
               <>
-                {visibleNodes.map((node) => (
-                  <TreeNode
-                    key={node.path}
-                    node={node}
-                    depth={0}
-                    expandedPaths={expandedPaths}
-                    onToggle={togglePath}
-                    onSelectFile={selectFile}
-                    selectedFilePath={selectedFilePath}
-                    forceExpand={false}
+                {!cwd && (
+                  <div className="text-sm text-[var(--text-muted)] px-1 py-2">
+                    Select a folder to view files.
+                  </div>
+                )}
+                {cwd && loading && !visibleTree && (
+                  <div className="text-sm text-[var(--text-muted)] px-1 py-2">
+                    Loading files...
+                  </div>
+                )}
+                {cwd && visibleTree && visibleNodes.length > 0 && (
+                  <>
+                    {visibleNodes.map((node) => (
+                      <TreeNode
+                        key={node.path}
+                        node={node}
+                        depth={0}
+                        expandedPaths={expandedPaths}
+                        onToggle={togglePath}
+                        onSelectFile={selectFile}
+                        selectedFilePath={selectedFilePath}
+                        forceExpand={false}
+                      />
+                    ))}
+                  </>
+                )}
+                {cwd && !loading && (!visibleTree || visibleNodes.length === 0) && (
+                  <div className="text-sm text-[var(--text-muted)] px-1 py-2">
+                    No files found.
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {!cwd && (
+                  <div className="text-sm text-[var(--text-muted)] px-1 py-2">
+                    Select a folder to view changes.
+                  </div>
+                )}
+                {cwd && changesLoading && changeRecords.length === 0 && (
+                  <div className="text-sm text-[var(--text-muted)] px-1 py-2">
+                    Loading changes...
+                  </div>
+                )}
+                {cwd && !changesLoading && changeRecords.length === 0 && (
+                  <div className="text-sm text-[var(--text-muted)] px-1 py-2">
+                    {changesError === 'not-a-repo'
+                      ? 'Not a git repository. Changes from this session will appear here.'
+                      : changesError === 'git-error'
+                        ? 'Failed to read git status.'
+                        : 'No changes detected.'}
+                  </div>
+                )}
+                {changeRecords.length > 0 && (
+                  <ChangeSummaryHeader summary={changeSummary} />
+                )}
+                {changeRecords.map((entry) => (
+                  <ChangeRecordItem
+                    key={entry.id}
+                    entry={entry}
+                    isExpanded={expandedChangeId === entry.id}
+                    onToggle={() => {
+                      setExpandedChangeId((current) => current === entry.id ? null : entry.id);
+                    }}
                   />
                 ))}
               </>
-            )}
-            {cwd && !loading && (!visibleTree || visibleNodes.length === 0) && (
-              <div className="text-sm text-[var(--text-muted)] px-1 py-2">
-                No files found.
-              </div>
             )}
           </div>
         </div>
@@ -655,8 +923,8 @@ export function ProjectTreePanel() {
                 </div>
 
                 <div className="flex items-center gap-1 flex-shrink-0 no-drag">
-                  {selectedPreview?.kind === 'html' && (
-                    <HtmlModeToggle value={htmlMode} onChange={setHtmlMode} />
+                  {(selectedPreview?.kind === 'html' || selectedPreview?.kind === 'markdown') && (
+                    <ViewModeToggle value={viewMode} onChange={setViewMode} />
                   )}
 
                   {canSaveTxt && (
@@ -680,20 +948,6 @@ export function ProjectTreePanel() {
                     ariaLabel="Close preview"
                   >
                     <X className="w-4 h-4" />
-                  </IconSquareButton>
-                  <IconSquareButton
-                    onClick={() => window.electron.openPath(selectedFilePath)}
-                    title="Open"
-                    ariaLabel="Open"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                  </IconSquareButton>
-                  <IconSquareButton
-                    onClick={() => window.electron.revealPath(selectedFilePath)}
-                    title="Reveal"
-                    ariaLabel="Reveal"
-                  >
-                    <FolderSearch className="w-4 h-4" />
                   </IconSquareButton>
                   <IconSquareButton
                     onClick={() => handleCopyPath(selectedFilePath)}
@@ -754,13 +1008,17 @@ export function ProjectTreePanel() {
                 )}
 
                 {!previewLoading && selectedPreview?.kind === 'markdown' && (
-                  <div className="text-sm">
-                    <MDContent content={selectedPreview.text} allowHtml={false} />
-                  </div>
+                  viewMode === 'code' ? (
+                    <HighlightedCode code={selectedPreview.text} language="markdown" className="-m-3 rounded-none" />
+                  ) : (
+                    <div className="text-sm">
+                      <MDContent content={selectedPreview.text} allowHtml={false} />
+                    </div>
+                  )
                 )}
 
                 {!previewLoading && selectedPreview?.kind === 'html' && (
-                  htmlMode === 'code' ? (
+                  viewMode === 'code' ? (
                     <HighlightedCode code={selectedPreview.text} language="html" className="-m-3 rounded-none" />
                   ) : (
                     <iframe
@@ -793,6 +1051,7 @@ export function ProjectTreePanel() {
             </div>
           </div>
         )}
+
       </div>
     </>
   );
@@ -1126,7 +1385,7 @@ function IconSquareButton({
   );
 }
 
-function HtmlModeToggle({
+function ViewModeToggle({
   value,
   onChange,
 }: {
@@ -1158,5 +1417,287 @@ function HtmlModeToggle({
         Code
       </button>
     </div>
+  );
+}
+
+function ChangeSummaryHeader({
+  summary,
+}: {
+  summary: ReturnType<typeof summarizeChangeRecords>;
+}) {
+  return (
+    <div className="mb-1 border-b border-[var(--border)] px-1 py-2">
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        <span className="font-medium text-[var(--text-primary)]">
+          {summary.total} change{summary.total === 1 ? '' : 's'}
+        </span>
+        {summary.operationCounts.map((entry) => (
+          <span key={entry.operation} className="text-[var(--text-muted)]">
+            {entry.count} {getOperationLabel(entry.operation, entry.count)}
+          </span>
+        ))}
+        {summary.totalSizeBytes > 0 && (
+          <span className="text-[var(--text-muted)]">{formatBytes(summary.totalSizeBytes)}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ChangeRecordItem({
+  entry,
+  isExpanded,
+  onToggle,
+}: {
+  entry: ChangeRecord;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const isImageFile = isImageName(entry.fileName);
+  const visual = getProjectFileVisual(entry.fileName, isImageFile);
+  const Icon = visual.icon;
+  const canExpand = !!entry.diffContent;
+
+  return (
+    <div className="border-b border-[var(--border)]/80 last:border-b-0">
+      <button
+        onClick={() => {
+          if (canExpand) onToggle();
+        }}
+        className="flex w-full items-start gap-2 px-1 py-2.5 text-left transition-colors hover:bg-[var(--tree-item-hover)]/35"
+      >
+        <ChevronRight
+          className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] transition-transform ${
+            isExpanded ? 'rotate-90' : ''
+          } ${canExpand ? 'opacity-100' : 'opacity-30'}`}
+        />
+        <span
+          className={`mt-0.5 flex h-4.5 w-4.5 flex-shrink-0 items-center justify-center rounded-[5px] border ${visual.containerClass}`}
+          aria-hidden="true"
+        >
+          <Icon className={`h-3 w-3 ${visual.iconClass}`} strokeWidth={1.9} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div
+            className="truncate text-sm font-medium text-[var(--text-primary)]"
+            title={entry.filePath}
+          >
+            {entry.fileName}
+          </div>
+        </div>
+        <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5 pt-0.5 text-[10px]">
+          <ChangeOperationPill operation={entry.operation} state={entry.state} />
+          {entry.sizeBytes !== null &&
+            (entry.operation === 'write' ||
+              entry.operation === 'added' ||
+              entry.operation === 'untracked') && (
+              <span className="text-[var(--text-muted)]">{formatBytes(entry.sizeBytes)}</span>
+            )}
+          {entry.lineCount !== null &&
+            (entry.operation === 'write' ||
+              entry.operation === 'added' ||
+              entry.operation === 'untracked') && (
+              <span className="whitespace-nowrap text-[var(--text-muted)]">
+                {entry.lineCount} line{entry.lineCount === 1 ? '' : 's'}
+              </span>
+            )}
+          {(entry.addedLines > 0 || entry.removedLines > 0) && (
+            <ChangeDiffStat addedLines={entry.addedLines} removedLines={entry.removedLines} />
+          )}
+        </div>
+      </button>
+
+      {isExpanded && (
+        <div className="border-t border-[var(--border)]/70 bg-[var(--bg-secondary)]/12 px-1 pb-2 pt-2">
+          {entry.diffContent ? (
+            <div className="overflow-auto border border-[var(--border)]/60 bg-[var(--preview-surface)]">
+              <ChangeDiffView diffContent={entry.diffContent} />
+            </div>
+          ) : (
+            <div className="text-xs text-[var(--text-muted)]">No diff available for this change.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChangeOperationPill({
+  operation,
+  state,
+}: {
+  operation: ChangeOperation;
+  state: ChangeRecord['state'];
+}) {
+  const tone =
+    operation === 'write' || operation === 'added' || operation === 'untracked'
+      ? 'border-green-500/15 bg-green-500/6 text-green-600'
+      : operation === 'edit' || operation === 'modified'
+        ? 'border-sky-500/15 bg-sky-500/6 text-sky-600'
+        : operation === 'delete' || operation === 'deleted'
+          ? 'border-red-500/15 bg-red-500/6 text-red-600'
+          : 'border-purple-500/15 bg-purple-500/6 text-purple-600';
+
+  return (
+    <span className={`rounded-md border px-1.5 py-0.5 font-medium ${tone}`}>
+      {state === 'pending' ? `${getOperationLabel(operation)}…` : getOperationLabel(operation)}
+    </span>
+  );
+}
+
+function ChangeDiffStat({
+  addedLines,
+  removedLines,
+}: {
+  addedLines: number;
+  removedLines: number;
+}) {
+  return (
+    <span className="flex items-center gap-1 font-medium">
+      {removedLines > 0 && <span className="text-red-500">-{removedLines}</span>}
+      {addedLines > 0 && <span className="text-green-500">+{addedLines}</span>}
+    </span>
+  );
+}
+
+type ParsedDiffRow =
+  | { type: 'hunk'; text: string }
+  | { type: 'context'; text: string; oldLine: number | null; newLine: number | null }
+  | { type: 'addition'; text: string; oldLine: number | null; newLine: number | null }
+  | { type: 'deletion'; text: string; oldLine: number | null; newLine: number | null }
+  | { type: 'note'; text: string };
+
+function ChangeDiffView({ diffContent }: { diffContent: string }) {
+  const rows = useMemo(() => parseDiffRows(diffContent), [diffContent]);
+
+  return (
+    <table className="w-full border-collapse text-[12px] leading-6 font-mono">
+      <tbody>
+        {rows.map((row, index) => {
+          if (row.type === 'hunk') {
+            return (
+              <tr key={`hunk-${index}`} className="bg-[var(--bg-secondary)]/45">
+                <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60" />
+                <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60 border-r border-[var(--border)]/50" />
+                <td className="px-3 py-0.5 text-[11px] text-[var(--text-muted)]">{row.text}</td>
+              </tr>
+            );
+          }
+
+          if (row.type === 'note') {
+            return (
+              <tr key={`note-${index}`}>
+                <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60" />
+                <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60 border-r border-[var(--border)]/50" />
+                <td className="px-3 py-0.5 text-[var(--text-muted)]">{row.text}</td>
+              </tr>
+            );
+          }
+
+          const rowTone =
+            row.type === 'addition'
+              ? 'bg-green-500/10'
+              : row.type === 'deletion'
+                ? 'bg-red-500/10'
+                : '';
+          const prefixTone =
+            row.type === 'addition'
+              ? 'text-green-600'
+              : row.type === 'deletion'
+                ? 'text-red-500'
+                : 'text-[var(--text-primary)]';
+
+          return (
+            <tr key={`row-${index}`} className={rowTone}>
+              <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60 select-none">
+                {row.oldLine ?? ''}
+              </td>
+              <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60 border-r border-[var(--border)]/50 select-none">
+                {row.newLine ?? ''}
+              </td>
+              <td className="px-3 py-0.5">
+                <span className={`mr-2 select-none ${prefixTone}`}>
+                  {row.type === 'addition' ? '+' : row.type === 'deletion' ? '-' : ' '}
+                </span>
+                <span className={prefixTone}>{row.text || ' '}</span>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function parseDiffRows(diffContent: string): ParsedDiffRow[] {
+  const rows: ParsedDiffRow[] = [];
+  let oldLine = 0;
+  let newLine = 0;
+
+  for (const line of diffContent.split('\n')) {
+    if (!line) continue;
+    if (line.startsWith('diff --git') || line.startsWith('index ') || line.startsWith('--- ') || line.startsWith('+++ ')) {
+      continue;
+    }
+
+    if (line.startsWith('@@')) {
+      const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      if (match) {
+        oldLine = Number(match[1]);
+        newLine = Number(match[2]);
+      }
+      rows.push({ type: 'hunk', text: line });
+      continue;
+    }
+
+    if (line.startsWith('\\')) {
+      rows.push({ type: 'note', text: line });
+      continue;
+    }
+
+    if (line.startsWith('+')) {
+      rows.push({ type: 'addition', text: line.slice(1), oldLine: null, newLine });
+      newLine += 1;
+      continue;
+    }
+
+    if (line.startsWith('-')) {
+      rows.push({ type: 'deletion', text: line.slice(1), oldLine, newLine: null });
+      oldLine += 1;
+      continue;
+    }
+
+    const text = line.startsWith(' ') ? line.slice(1) : line;
+    rows.push({ type: 'context', text, oldLine, newLine });
+    oldLine += 1;
+    newLine += 1;
+  }
+
+  return rows;
+}
+
+function GitStatusBadge({ status }: { status: string }) {
+  const label = status;
+  const colorClass =
+    status === 'M' ? 'text-amber-500'
+    : status === 'A' ? 'text-green-500'
+    : status === 'D' ? 'text-red-500'
+    : status === 'R' ? 'text-purple-500'
+    : 'text-[var(--text-muted)]';
+
+  const title =
+    status === 'M' ? 'Modified'
+    : status === 'A' ? 'Added'
+    : status === 'D' ? 'Deleted'
+    : status === 'R' ? 'Renamed'
+    : 'Untracked';
+
+  return (
+    <span
+      className={`flex h-4 w-4 shrink-0 items-center justify-center text-[10px] font-bold ${colorClass}`}
+      title={title}
+    >
+      {label}
+    </span>
   );
 }
