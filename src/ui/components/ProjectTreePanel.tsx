@@ -749,6 +749,15 @@ export function ProjectTreePanel() {
     document.body.style.userSelect = 'none';
   };
 
+  const isCodePreviewSurface =
+    !previewLoading &&
+    !!selectedPreview &&
+    (
+      (selectedPreview.kind === 'markdown' && viewMode === 'code') ||
+      (selectedPreview.kind === 'html' && viewMode === 'code') ||
+      (selectedPreview.kind === 'text' && !selectedPreview.editable)
+    );
+
   return (
     <>
       {isPanelResizing && (
@@ -961,7 +970,13 @@ export function ProjectTreePanel() {
                 </div>
               </div>
 
-              <div className="flex-1 min-h-0 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--preview-surface)] p-3">
+              <div
+                className={`flex-1 min-h-0 overflow-auto rounded-lg border border-[var(--border)] ${
+                  isCodePreviewSurface
+                    ? 'bg-[var(--code-block-bg)] p-0'
+                    : 'bg-[var(--preview-surface)] p-3'
+                }`}
+              >
                 {previewLoading && (
                   <div className="text-sm text-[var(--text-muted)]">Loading...</div>
                 )}
@@ -1011,7 +1026,11 @@ export function ProjectTreePanel() {
 
                 {!previewLoading && selectedPreview?.kind === 'markdown' && (
                   viewMode === 'code' ? (
-                    <HighlightedCode code={selectedPreview.text} language="markdown" className="-m-3 rounded-none" />
+                    <HighlightedCode
+                      code={selectedPreview.text}
+                      language="markdown"
+                      className="min-h-full rounded-none"
+                    />
                   ) : (
                     <div className="text-sm">
                       <MDContent content={selectedPreview.text} allowHtml={false} />
@@ -1021,7 +1040,11 @@ export function ProjectTreePanel() {
 
                 {!previewLoading && selectedPreview?.kind === 'html' && (
                   viewMode === 'code' ? (
-                    <HighlightedCode code={selectedPreview.text} language="html" className="-m-3 rounded-none" />
+                    <HighlightedCode
+                      code={selectedPreview.text}
+                      language="html"
+                      className="min-h-full rounded-none"
+                    />
                   ) : (
                     <iframe
                       title={selectedPreview.name}
@@ -1042,7 +1065,11 @@ export function ProjectTreePanel() {
                         spellCheck={false}
                       />
                     ) : (
-                      <HighlightedCode code={selectedPreview.text} fileName={selectedPreview.name} className="-m-3 rounded-none" />
+                      <HighlightedCode
+                        code={selectedPreview.text}
+                        fileName={selectedPreview.name}
+                        className="min-h-full rounded-none"
+                      />
                     )}
                     {saveState === 'error' && saveError && (
                       <div className="mt-2 text-xs text-[var(--error)]">{saveError}</div>
