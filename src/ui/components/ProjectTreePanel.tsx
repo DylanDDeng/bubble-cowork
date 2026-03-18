@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw } from 'lucide-react';
+import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Files as FilesIcon, FileDiff } from 'lucide-react';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { useAppStore } from '../store/useAppStore';
 import { MDContent } from '../render/markdown';
@@ -784,25 +784,27 @@ export function ProjectTreePanel() {
           <div className="flex items-center gap-1">
             <button
               onClick={() => { setActiveTab('files'); setExpandedChangeId(null); }}
-              className={`text-[10px] font-semibold uppercase tracking-[0.14em] px-1.5 py-0.5 rounded transition-colors ${
+              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${
                 activeTab === 'files'
                   ? 'text-[var(--tree-file-accent-fg)] bg-[var(--tree-file-accent-fg)]/10'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
               }`}
             >
-              Files
+              <FilesIcon className="h-3.5 w-3.5" strokeWidth={2} />
+              <span>Files</span>
             </button>
             <button
               onClick={() => { setActiveTab('changes'); setSelectedFilePath(null); setSelectedPreview(null); }}
-              className={`text-[10px] font-semibold uppercase tracking-[0.14em] px-1.5 py-0.5 rounded transition-colors ${
+              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${
                 activeTab === 'changes'
                   ? 'text-[var(--tree-file-accent-fg)] bg-[var(--tree-file-accent-fg)]/10'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
               }`}
             >
-              Changes
+              <FileDiff className="h-3.5 w-3.5" strokeWidth={2} />
+              <span>Changes</span>
               {changeRecords.length > 0 && (
-                <span className="ml-1 text-[9px] opacity-70">{changeRecords.length}</span>
+                <span className="ml-0.5 text-[9px] opacity-70">{changeRecords.length}</span>
               )}
             </button>
             {activeTab === 'changes' && (
@@ -1426,7 +1428,7 @@ function ChangeSummaryHeader({
   summary: ReturnType<typeof summarizeChangeRecords>;
 }) {
   return (
-    <div className="mb-1 border-b border-[var(--border)] px-1 py-2">
+    <div className="mb-1 border-b border-[var(--border)]/35 px-1 py-2">
       <div className="flex flex-wrap items-center gap-2 text-[11px]">
         <span className="font-medium text-[var(--text-primary)]">
           {summary.total} change{summary.total === 1 ? '' : 's'}
@@ -1459,7 +1461,7 @@ function ChangeRecordItem({
   const canExpand = !!entry.diffContent;
 
   return (
-    <div className="border-b border-[var(--border)]/80 last:border-b-0">
+    <div className="border-b border-[var(--border)]/28 last:border-b-0">
       <button
         onClick={() => {
           if (canExpand) onToggle();
@@ -1508,7 +1510,7 @@ function ChangeRecordItem({
       </button>
 
       {isExpanded && (
-        <div className="border-t border-[var(--border)]/70 bg-[var(--bg-secondary)]/12 px-1 pb-2 pt-2">
+        <div className="border-t border-[var(--border)]/24 bg-[var(--bg-secondary)]/12 px-1 pb-2 pt-2">
           {entry.diffContent ? (
             <div className="overflow-auto border border-[var(--border)]/60 bg-[var(--preview-surface)]">
               <ChangeDiffView diffContent={entry.diffContent} />
