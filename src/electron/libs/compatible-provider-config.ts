@@ -27,6 +27,14 @@ const COMPATIBLE_PROVIDER_DEFAULTS: Record<
     secret: '',
     model: 'MiniMax-M2.5',
   },
+  mimo: {
+    enabled: false,
+    baseUrl: 'https://api.xiaomimimo.com/anthropic',
+    authType: 'auth_token',
+    secret: '',
+    model: 'mimo-v2-pro',
+    maxOutputTokens: 64000,
+  },
   zhipu: {
     enabled: false,
     baseUrl: 'https://open.bigmodel.cn/api/anthropic',
@@ -77,6 +85,7 @@ export function getDefaultCompatibleProvidersConfig(): ClaudeCompatibleProviders
     providers: {
       minimaxCn: getDefaultCompatibleProviderConfig('minimaxCn'),
       minimax: getDefaultCompatibleProviderConfig('minimax'),
+      mimo: getDefaultCompatibleProviderConfig('mimo'),
       zhipu: getDefaultCompatibleProviderConfig('zhipu'),
       moonshot: getDefaultCompatibleProviderConfig('moonshot'),
       deepseek: getDefaultCompatibleProviderConfig('deepseek'),
@@ -109,6 +118,7 @@ export function loadCompatibleProviderConfig(): ClaudeCompatibleProvidersConfig 
         providers: {
           minimaxCn: normalizeCompatibleProviderConfig('minimaxCn', parsed.providers.minimaxCn),
           minimax: normalizeCompatibleProviderConfig('minimax', parsed.providers.minimax),
+          mimo: normalizeCompatibleProviderConfig('mimo', parsed.providers.mimo),
           zhipu: normalizeCompatibleProviderConfig('zhipu', parsed.providers.zhipu),
           moonshot: normalizeCompatibleProviderConfig('moonshot', parsed.providers.moonshot),
           deepseek: normalizeCompatibleProviderConfig('deepseek', parsed.providers.deepseek),
@@ -127,6 +137,7 @@ export function saveCompatibleProviderConfig(config: ClaudeCompatibleProvidersCo
     providers: {
       minimaxCn: normalizeCompatibleProviderConfig('minimaxCn', config.providers?.minimaxCn),
       minimax: normalizeCompatibleProviderConfig('minimax', config.providers?.minimax),
+      mimo: normalizeCompatibleProviderConfig('mimo', config.providers?.mimo),
       zhipu: normalizeCompatibleProviderConfig('zhipu', config.providers?.zhipu),
       moonshot: normalizeCompatibleProviderConfig('moonshot', config.providers?.moonshot),
       deepseek: normalizeCompatibleProviderConfig('deepseek', config.providers?.deepseek),
@@ -216,6 +227,9 @@ export function applyCompatibleProviderEnv(
   nextEnv.ANTHROPIC_REASONING_MODEL = forcedModel;
   if (config.smallFastModel?.trim()) {
     nextEnv.ANTHROPIC_SMALL_FAST_MODEL = config.smallFastModel.trim();
+  }
+  if (typeof config.maxOutputTokens === 'number' && Number.isFinite(config.maxOutputTokens)) {
+    nextEnv.CLAUDE_CODE_MAX_OUTPUT_TOKENS = `${Math.trunc(config.maxOutputTokens)}`;
   }
   if (config.id === 'deepseek') {
     nextEnv.API_TIMEOUT_MS = '600000';

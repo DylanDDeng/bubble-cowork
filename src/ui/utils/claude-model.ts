@@ -55,6 +55,7 @@ export function loadPreferredClaudeCompatibleProviderId(): ClaudeCompatibleProvi
   if (
     raw === 'minimaxCn' ||
     raw === 'minimax' ||
+    raw === 'mimo' ||
     raw === 'zhipu' ||
     raw === 'moonshot' ||
     raw === 'deepseek'

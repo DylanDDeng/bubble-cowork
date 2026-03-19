@@ -184,6 +184,7 @@ export type ClaudeCompatibleAuthType = 'api_key' | 'auth_token';
 export type ClaudeCompatibleProviderId =
   | 'minimaxCn'
   | 'minimax'
+  | 'mimo'
   | 'zhipu'
   | 'moonshot'
   | 'deepseek';
@@ -195,6 +196,7 @@ export interface ClaudeCompatibleProviderConfig {
   secret: string;
   model: string;
   smallFastModel?: string;
+  maxOutputTokens?: number;
 }
 
 export interface ClaudeCompatibleProvidersConfig {

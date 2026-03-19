@@ -264,9 +264,17 @@ function isImageName(name: string): boolean {
     lower.endsWith('.ico')
   );
 }
-
-
-export function ProjectTreePanel({ collapsed = false }: { collapsed?: boolean }) {
+export function ProjectTreePanel({
+  collapsed = false,
+  activeTab,
+  onChangeTab,
+  onClose,
+}: {
+  collapsed?: boolean;
+  activeTab: 'files' | 'changes';
+  onChangeTab: (tab: 'files' | 'changes') => void;
+  onClose: () => void;
+}) {
   const defaultRailWidth = 280;
   const minRailWidth = 260;
   const maxRailWidth = 560;
@@ -309,7 +317,6 @@ export function ProjectTreePanel({ collapsed = false }: { collapsed?: boolean })
   const copiedTimerRef = useRef<number | null>(null);
   const [copiedPath, setCopiedPath] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'files' | 'changes'>('files');
   const [changeRecords, setChangeRecords] = useState<ChangeRecord[]>([]);
   const [changesError, setChangesError] = useState<string | null>(null);
   const [changesLoading, setChangesLoading] = useState(false);
@@ -504,11 +511,11 @@ export function ProjectTreePanel({ collapsed = false }: { collapsed?: boolean })
     setSaveState('idle');
     setSaveError(null);
     setPptxSlideIndex(0);
-    setActiveTab('files');
+    onChangeTab('files');
     setChangeRecords([]);
     setChangesError(null);
     setExpandedChangeId(null);
-  }, [cwd]);
+  }, [cwd, onChangeTab]);
 
   useEffect(() => {
     if (!visibleTree?.path) return;
@@ -800,7 +807,7 @@ export function ProjectTreePanel({ collapsed = false }: { collapsed?: boolean })
         <div className="px-4 pt-2 pb-2">
           <div className="flex items-center gap-1">
             <button
-              onClick={() => { setActiveTab('files'); setExpandedChangeId(null); }}
+              onClick={() => { onChangeTab('files'); setExpandedChangeId(null); }}
               className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${
                 activeTab === 'files'
                   ? 'text-[var(--tree-file-accent-fg)] bg-[var(--tree-file-accent-fg)]/10'
@@ -811,7 +818,7 @@ export function ProjectTreePanel({ collapsed = false }: { collapsed?: boolean })
               <span>Files</span>
             </button>
             <button
-              onClick={() => { setActiveTab('changes'); setSelectedFilePath(null); setSelectedPreview(null); }}
+              onClick={() => { onChangeTab('changes'); setSelectedFilePath(null); setSelectedPreview(null); }}
               className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${
                 activeTab === 'changes'
                   ? 'text-[var(--tree-file-accent-fg)] bg-[var(--tree-file-accent-fg)]/10'
@@ -824,16 +831,27 @@ export function ProjectTreePanel({ collapsed = false }: { collapsed?: boolean })
                 <span className="ml-0.5 text-[9px] opacity-70">{changeRecords.length}</span>
               )}
             </button>
-            {activeTab === 'changes' && (
+            <div className="ml-auto flex items-center gap-1">
+              {activeTab === 'changes' && (
+                <button
+                  onClick={() => void loadChangeRecords()}
+                  disabled={changesLoading}
+                  className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors disabled:opacity-40"
+                  title="Refresh changes"
+                >
+                  <RefreshCw className={`w-3 h-3 ${changesLoading ? 'animate-spin' : ''}`} />
+                </button>
+              )}
               <button
-                onClick={() => void loadChangeRecords()}
-                disabled={changesLoading}
-                className="ml-auto p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors disabled:opacity-40"
-                title="Refresh"
+                type="button"
+                onClick={onClose}
+                className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+                title="Close panel"
+                aria-label="Close panel"
               >
-                <RefreshCw className={`w-3 h-3 ${changesLoading ? 'animate-spin' : ''}`} />
+                <X className="w-3.5 h-3.5" />
               </button>
-            )}
+            </div>
           </div>
           {!cwd && (
             <div className="text-xs text-[var(--text-muted)] mt-1">No folder selected</div>

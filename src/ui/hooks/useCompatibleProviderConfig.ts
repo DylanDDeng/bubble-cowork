@@ -14,6 +14,7 @@ export interface CompatibleProviderOption {
 const COMPATIBLE_PROVIDER_LABELS: Record<ClaudeCompatibleProviderId, string> = {
   minimaxCn: 'MiniMax (CN)',
   minimax: 'MiniMax (GLOBAL)',
+  mimo: 'MiMo',
   zhipu: 'Zhipu AI',
   moonshot: 'Moonshot AI',
   deepseek: 'DeepSeek',
@@ -34,6 +35,14 @@ const DEFAULT_CONFIG: ClaudeCompatibleProvidersConfig = {
       authType: 'auth_token',
       secret: '',
       model: 'MiniMax-M2.5',
+    },
+    mimo: {
+      enabled: false,
+      baseUrl: 'https://api.xiaomimimo.com/anthropic',
+      authType: 'auth_token',
+      secret: '',
+      model: 'mimo-v2-pro',
+      maxOutputTokens: 64000,
     },
     zhipu: {
       enabled: false,
@@ -84,6 +93,7 @@ export function normalizeCompatibleProvidersConfig(
       providers: {
         minimaxCn: normalizeProvider('minimaxCn', providers?.minimaxCn),
         minimax: normalizeProvider('minimax', providers?.minimax),
+        mimo: normalizeProvider('mimo', providers?.mimo),
         zhipu: normalizeProvider('zhipu', providers?.zhipu),
         moonshot: normalizeProvider('moonshot', providers?.moonshot),
         deepseek: normalizeProvider('deepseek', providers?.deepseek),
@@ -95,6 +105,7 @@ export function normalizeCompatibleProvidersConfig(
     providers: {
       minimaxCn: normalizeProvider('minimaxCn', undefined),
       minimax: normalizeProvider('minimax', raw as LegacyCompatibleProviderConfig),
+      mimo: normalizeProvider('mimo', undefined),
       zhipu: normalizeProvider('zhipu', undefined),
       moonshot: normalizeProvider('moonshot', undefined),
       deepseek: normalizeProvider('deepseek', undefined),

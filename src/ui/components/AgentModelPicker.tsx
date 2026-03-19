@@ -7,6 +7,7 @@ import { buildCodexModelOptions, formatCodexModelLabel } from '../utils/codex-mo
 import claudeLogo from '../assets/claude-color.svg';
 import deepseekLogo from '../assets/deepseek-color.svg';
 import minimaxLogo from '../assets/minimax-color.svg';
+import mimoLogo from '../assets/xiaomimimo.svg';
 import moonshotLogo from '../assets/moonshot.svg';
 import openaiLogo from '../assets/openai.svg';
 import zhipuLogo from '../assets/zhipu-color.svg';
@@ -68,6 +69,8 @@ function CompatibleProviderIcon({ providerId }: { providerId: ClaudeCompatiblePr
   const logo =
     providerId === 'minimaxCn' || providerId === 'minimax'
       ? minimaxLogo
+      : providerId === 'mimo'
+        ? mimoLogo
       : providerId === 'zhipu'
         ? zhipuLogo
         : providerId === 'moonshot'

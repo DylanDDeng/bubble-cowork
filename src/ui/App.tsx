@@ -4,9 +4,9 @@ import { AnimatePresence, motion } from 'motion/react';
 import {
   Check,
   Copy,
+  FileDiff,
+  Files,
   FolderOpen,
-  PanelRightClose,
-  PanelRightOpen,
 } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
 import { useIPC, sendEvent } from './hooks/useIPC';
@@ -177,6 +177,7 @@ export function App() {
   // 历史请求记录（防止重复请求）
   const historyRequested = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
+  const [projectPanelView, setProjectPanelView] = useState<'files' | 'changes'>('files');
 
   const { partialMessage, partialThinking, isStreaming: showPartialMessage } = useMemo(() => {
     if (!activeSession) {
@@ -378,13 +379,14 @@ export function App() {
 
   return (
     <div className="flex h-full">
-      {!showSettings && (
-        <ChromeSidebarToggleButton
-          onClick={() => setProjectTreeCollapsed(!projectTreeCollapsed)}
-          collapsed={projectTreeCollapsed}
-          className={isMacOS ? 'top-[4px] right-[12px]' : 'top-2 right-2'}
-          title={projectTreeCollapsed ? 'Show project files' : 'Hide project files'}
-          aria-label={projectTreeCollapsed ? 'Show project files' : 'Hide project files'}
+      {!showSettings && projectTreeCollapsed && (
+        <FloatingProjectPanelDock
+          className={isMacOS ? 'right-[14px] top-[56px]' : 'right-4 top-1/2 -translate-y-1/2'}
+          activeView={projectPanelView}
+          onOpen={(view) => {
+            setProjectPanelView(view);
+            setProjectTreeCollapsed(false);
+          }}
         />
       )}
 
@@ -534,7 +536,14 @@ export function App() {
       )}
 
       {/* 右侧项目文件树 */}
-      {!showSettings && <ProjectTreePanel collapsed={projectTreeCollapsed} />}
+      {!showSettings && (
+        <ProjectTreePanel
+          collapsed={projectTreeCollapsed}
+          activeTab={projectPanelView}
+          onChangeTab={setProjectPanelView}
+          onClose={() => setProjectTreeCollapsed(true)}
+        />
+      )}
 
       {/* Toast 通知 */}
       <Toaster
@@ -561,43 +570,62 @@ export function App() {
   );
 }
 
-function ChromeSidebarToggleButton({
-  onClick,
-  collapsed,
-  title,
+function FloatingProjectPanelDock({
+  activeView,
+  onOpen,
   className,
 }: {
-  onClick: () => void;
-  collapsed: boolean;
-  title: string;
+  activeView: 'files' | 'changes';
+  onOpen: (view: 'files' | 'changes') => void;
   className: string;
 }) {
+  const items = [
+    {
+      id: 'files' as const,
+      label: 'Files',
+      icon: Files,
+    },
+    {
+      id: 'changes' as const,
+      label: 'Changes',
+      icon: FileDiff,
+    },
+  ];
+
   return (
-    <button
-      onClick={onClick}
-      className={`group fixed z-50 no-drag flex h-11 w-11 cursor-pointer items-center justify-center rounded-[14px] bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)] ${className}`}
-      title={title}
-      aria-label={title}
-    >
-      <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-transparent bg-transparent text-[var(--text-secondary)] transition-[background-color,border-color,color,transform,box-shadow] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:border-[var(--border)] group-hover:bg-[var(--bg-secondary)] group-hover:text-[var(--text-primary)] group-hover:shadow-[0_4px_12px_rgba(15,23,42,0.08)] group-active:scale-[0.98]">
-        <AnimatePresence initial={false} mode="wait">
-          <motion.span
-            key={collapsed ? 'open' : 'close'}
-            initial={{ opacity: 0, scale: 0.8, rotate: collapsed ? -18 : 18 }}
-            animate={{ opacity: 1, scale: 1, rotate: 0 }}
-            exit={{ opacity: 0, scale: 0.8, rotate: collapsed ? 18 : -18 }}
-            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-            className="flex items-center justify-center"
-          >
-            {collapsed ? (
-              <PanelRightOpen className="w-[17px] h-[17px] pointer-events-none" aria-hidden="true" />
-            ) : (
-              <PanelRightClose className="w-[17px] h-[17px] pointer-events-none" aria-hidden="true" />
-            )}
-          </motion.span>
-        </AnimatePresence>
-      </span>
-    </button>
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0, x: 12, scale: 0.92 }}
+        animate={{ opacity: 1, x: 0, scale: 1 }}
+        exit={{ opacity: 0, x: 12, scale: 0.92 }}
+        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+        className={`fixed z-50 no-drag ${className}`}
+      >
+        <div className="flex flex-col gap-1 rounded-[12px] border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-1 shadow-[0_10px_22px_rgba(15,23,42,0.10)] backdrop-blur-md">
+          {items.map((item) => {
+            const Icon = item.icon;
+            const active = activeView === item.id;
+
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onOpen(item.id)}
+                title={item.label}
+                aria-label={`Open ${item.label} panel`}
+                className={`flex h-8 w-8 items-center justify-center rounded-[9px] border text-[var(--text-secondary)] transition-[background-color,border-color,color,transform,box-shadow] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:scale-[1.01] ${
+                  active
+                    ? 'border-[var(--tree-file-accent-fg)]/18 bg-[var(--tree-file-accent-fg)]/10 text-[var(--tree-file-accent-fg)] shadow-[0_6px_16px_rgba(15,23,42,0.08)]'
+                    : 'border-transparent bg-transparent hover:border-[var(--border)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <Icon className="h-[14px] w-[14px]" aria-hidden="true" />
+              </button>
+            );
+          })}
+        </div>
+      </motion.div>
+    </AnimatePresence>
   );
 }
 

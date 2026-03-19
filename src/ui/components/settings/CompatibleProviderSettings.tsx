@@ -12,6 +12,7 @@ import openaiLogo from '../../assets/openai.svg';
 import minimaxLogo from '../../assets/minimax-color.svg';
 import deepseekLogo from '../../assets/deepseek-color.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
+import mimoLogo from '../../assets/xiaomimimo.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
 import { useClaudeRuntimeStatus } from '../../hooks/useClaudeRuntimeStatus';
 import { useCodexModelConfig } from '../../hooks/useCodexModelConfig';
@@ -37,7 +38,7 @@ import type {
 import { normalizeCompatibleProvidersConfig } from '../../hooks/useCompatibleProviderConfig';
 
 const DEFAULT_CONFIG = normalizeCompatibleProvidersConfig(undefined);
-const PROVIDER_IDS = ['minimaxCn', 'minimax', 'zhipu', 'moonshot', 'deepseek'] as ClaudeCompatibleProviderId[];
+const PROVIDER_IDS = ['minimaxCn', 'minimax', 'mimo', 'zhipu', 'moonshot', 'deepseek'] as ClaudeCompatibleProviderId[];
 
 type RuntimeTargetId = 'claude-runtime' | 'codex-runtime';
 
@@ -54,6 +55,11 @@ const PROVIDER_META: Record<
     label: 'MiniMax (GLOBAL)',
     logo: minimaxLogo,
     description: 'Anthropic-compatible endpoint for Claude Code access through MiniMax global routing.',
+  },
+  mimo: {
+    label: 'MiMo',
+    logo: mimoLogo,
+    description: 'Xiaomi MiMo compatible endpoint for Claude Code requests and reasoning workloads.',
   },
   zhipu: {
     label: 'Zhipu AI',
@@ -347,6 +353,29 @@ export function CompatibleProviderSettingsContent() {
                       ? 'deepseek-chat or deepseek-reasoner'
                       : 'Optional override'
                   }
+                  className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
+                  disabled={savingProvider !== null}
+                />
+              </Field>
+
+              <Field
+                label="Max Output Tokens"
+                description="Optional Claude Code max output token override passed through provider env."
+              >
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={draftProvider.maxOutputTokens ?? ''}
+                  onChange={(event) =>
+                    updateDraftProvider((current) => ({
+                      ...current,
+                      maxOutputTokens: event.target.value
+                        ? Math.max(1, Math.trunc(Number(event.target.value)))
+                        : undefined,
+                    }))
+                  }
+                  placeholder={selectedProviderId === 'mimo' ? '64000' : 'Optional override'}
                   className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
                   disabled={savingProvider !== null}
                 />
@@ -769,6 +798,8 @@ function getProviderModelPlaceholder(providerId: ClaudeCompatibleProviderId): st
     case 'minimaxCn':
     case 'minimax':
       return 'MiniMax-M2.5';
+    case 'mimo':
+      return 'mimo-v2-pro';
     case 'zhipu':
       return 'glm-5';
     case 'moonshot':
