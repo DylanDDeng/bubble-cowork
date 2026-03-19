@@ -8,6 +8,7 @@ import type {
   StatisticsData,
   StaticData,
   Attachment,
+  ChatMessageSearchResult,
   FontSettingsPayload,
   ProjectTreeNode,
   SystemFontOption,
@@ -36,6 +37,7 @@ declare global {
     getClaudeCompatibleProviderConfig: () => Promise<ClaudeCompatibleProvidersConfig>;
     saveClaudeCompatibleProviderConfig: (config: ClaudeCompatibleProvidersConfig) => Promise<ClaudeCompatibleProvidersConfig>;
     getClaudeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
+    searchChatMessages: (query: string, limit?: number) => Promise<ChatMessageSearchResult[]>;
     getCodexModelConfig: () => Promise<CodexModelConfig>;
     saveCodexModelVisibility: (enabledModels: string[]) => Promise<CodexModelConfig>;
     getCodexRuntimeStatus: () => Promise<CodexRuntimeStatus>;

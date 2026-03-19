@@ -531,6 +531,14 @@ export interface ClaudeUsageReport {
   daily: ClaudeUsageDailyPoint[];
 }
 
+export interface ChatMessageSearchResult {
+  sessionId: string;
+  sessionTitle: string;
+  snippet: string;
+  messageType: 'user_prompt' | 'assistant' | 'user';
+  createdAt: number;
+}
+
 export interface SkillMarketItem {
   id: string;
   owner: string;

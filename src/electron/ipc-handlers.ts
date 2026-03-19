@@ -981,6 +981,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return sessions.listRecentCwds(limit);
   });
 
+  ipcMainHandle('search-chat-messages', async (_event, query: string, limit?: number) => {
+    return sessions.searchChatMessages(query, limit);
+  });
+
   // RPC: 获取 Claude 模型配置
   ipcMainHandle('get-claude-model-config', async () => {
     return getClaudeModelConfig();

@@ -31,6 +31,7 @@ export type {
   ClaudeUsageModelSummary,
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
+  ChatMessageSearchResult,
   ClaudeModelUsage,
   LatestClaudeModelUsage,
   CodexModelConfig,

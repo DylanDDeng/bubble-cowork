@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { FolderOpen, MessageSquare, Settings, SquarePen } from 'lucide-react';
+import { FolderOpen, MessageSquare, Search, Settings, SquarePen } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import { SidebarSearch } from './search/SidebarSearch';
+import { SidebarMessageSearchDialog } from './search/SidebarMessageSearchDialog';
 import { StatusFilter } from './StatusFilter';
 import { FolderTreeView } from './FolderTreeView';
 import type { SessionView } from '../types';
@@ -24,6 +24,7 @@ export function Sidebar() {
     setShowSettings,
   } = useAppStore();
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
+  const [messageSearchOpen, setMessageSearchOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionView | null>(null);
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
   const [activeView] = useState<SidebarView>('threads');
@@ -128,6 +129,12 @@ export function Sidebar() {
                 setShowSettings(false);
               }}
             />
+            <RailIcon
+              icon={<Search className="h-[17px] w-[17px]" />}
+              title="Search messages"
+              active={messageSearchOpen}
+              onClick={() => setMessageSearchOpen(true)}
+            />
           </div>
 
           {/* 底部图标 */}
@@ -180,13 +187,8 @@ export function Sidebar() {
             <StatusFilter />
           </div>
 
-          {/* 搜索框 */}
-          <div className="px-4 pb-3">
-            <SidebarSearch />
-          </div>
-
           {/* Session List */}
-          <div className="flex-1 overflow-y-auto px-2">
+          <div className="flex-1 overflow-y-auto px-2 pt-2">
             <FolderTreeView
               onSessionClick={(sessionId) => {
                 setShowSettings(false);
@@ -247,6 +249,11 @@ export function Sidebar() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      <SidebarMessageSearchDialog
+        open={messageSearchOpen}
+        onOpenChange={setMessageSearchOpen}
+      />
     </>
   );
 }

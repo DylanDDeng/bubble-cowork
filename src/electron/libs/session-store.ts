@@ -4,6 +4,7 @@ import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { SessionRow, StreamMessage, SessionStatus } from '../types';
 import type {
+  ChatMessageSearchResult,
   ClaudeAccessMode,
   ClaudeCompatibleProviderId,
   ClaudeModelUsage,
@@ -510,6 +511,23 @@ function toNumber(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
+function extractSearchableMessageText(message: StreamMessage): string {
+  return message.type === 'user_prompt' ? message.prompt || '' : '';
+}
+
+function buildSearchSnippet(text: string, query: string): string {
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const matchIndex = lowerText.indexOf(lowerQuery);
+  if (matchIndex === -1) {
+    return text.slice(0, 140);
+  }
+
+  const start = Math.max(0, matchIndex - 36);
+  const end = Math.min(text.length, matchIndex + query.length + 72);
+  return `${start > 0 ? '...' : ''}${text.slice(start, end)}${end < text.length ? '...' : ''}`;
+}
+
 function emptyModelSummary(model: string): ClaudeUsageModelSummary {
   return {
     model,
@@ -715,6 +733,64 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
   });
 
   return report;
+}
+
+export function searchChatMessages(query: string, limit = 60): ChatMessageSearchResult[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const safeLimit = Math.max(1, Math.min(200, Math.trunc(limit || 60)));
+  const rows = getDb().prepare(`
+    SELECT
+      m.data AS data,
+      m.created_at AS created_at,
+      m.session_id AS session_id,
+      s.title AS session_title
+    FROM messages m
+    INNER JOIN sessions s ON s.id = m.session_id
+    WHERE lower(m.data) LIKE ?
+    ORDER BY m.created_at DESC
+    LIMIT ?
+  `).all(`%${normalizedQuery}%`, safeLimit * 8) as Array<{
+    data: string;
+    created_at: number;
+    session_id: string;
+    session_title: string;
+  }>;
+
+  const results: ChatMessageSearchResult[] = [];
+
+  for (const row of rows) {
+    try {
+      const message = JSON.parse(row.data) as StreamMessage;
+      if (message.type !== 'user_prompt') {
+        continue;
+      }
+
+      const text = extractSearchableMessageText(message).trim();
+      if (!text || !text.toLowerCase().includes(normalizedQuery)) {
+        continue;
+      }
+
+      results.push({
+        sessionId: row.session_id,
+        sessionTitle: row.session_title,
+        snippet: buildSearchSnippet(text, normalizedQuery),
+        messageType: message.type,
+        createdAt: row.created_at,
+      });
+
+      if (results.length >= safeLimit) {
+        break;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return results;
 }
 
 // 获取最近使用的工作目录

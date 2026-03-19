@@ -46,6 +46,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-recent-cwds', limit);
   },
 
+  searchChatMessages: (query: string, limit?: number) => {
+    return ipcRenderer.invoke('search-chat-messages', query, limit);
+  },
+
   getAppVersion: () => {
     return ipcRenderer.invoke('get-app-version');
   },
