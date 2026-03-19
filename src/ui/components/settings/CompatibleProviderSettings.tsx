@@ -217,7 +217,7 @@ export function CompatibleProviderSettingsContent() {
                 description="Verify the local runtimes used to start new Claude Code and Codex sessions."
               >
                 <RuntimeRailItem
-                  title="Claude Code (ACP)"
+                  title="Claude Code Runtime"
                   logo={claudeLogo}
                   summary={claudeRuntimeLoading ? 'Checking Claude runtime…' : claudeRuntimeStatus.summary}
                   status={buildClaudeRailStatus(claudeRuntimeStatus, claudeRuntimeLoading)}
@@ -225,7 +225,7 @@ export function CompatibleProviderSettingsContent() {
                   onSelect={() => setSelectedRuntimeId('claude-runtime')}
                 />
                 <RuntimeRailItem
-                  title="Codex CLI (ACP)"
+                  title="Codex ACP Runtime"
                   logo={openaiLogo}
                   summary={buildCodexSummary(codexRuntimeStatus, codexRuntimeLoading)}
                   status={buildCodexRailStatus(codexRuntimeStatus, codexRuntimeLoading)}
@@ -470,7 +470,7 @@ function ClaudeProviderWorkspace({
   return (
     <DetailShell
       logo={claudeLogo}
-      title="Claude Code (ACP)"
+      title="Claude Code Runtime"
       description="Compatible providers below are used to route Claude Code through Anthropic-style endpoints."
       statusLabel={railStatus.label}
       statusTone={railStatus.tone}
@@ -540,8 +540,8 @@ function CodexRuntimeDetailPanel({
   return (
     <DetailShell
       logo={openaiLogo}
-      title="Codex CLI (ACP)"
-      description="Checks whether the local Codex CLI and configuration are ready for Codex ACP sessions."
+      title="Codex ACP Runtime"
+      description="Checks whether the local Codex ACP CLI and configuration are ready for new Codex sessions."
       statusLabel={railStatus.label}
       statusTone={railStatus.tone}
       headerAction={<RefreshIconButton onClick={onRefresh} loading={loading} />}
