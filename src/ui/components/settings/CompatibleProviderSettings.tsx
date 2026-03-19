@@ -208,7 +208,7 @@ export function CompatibleProviderSettingsContent() {
                   onSelect={() => setSelectedRuntimeId('claude-runtime')}
                 />
                 <RuntimeRailItem
-                  title="Codex ACP Runtime"
+                  title="Codex CLI ACP"
                   logo={openaiLogo}
                   summary={buildCodexSummary(codexRuntimeStatus, codexRuntimeLoading)}
                   status={buildCodexRailStatus(codexRuntimeStatus, codexRuntimeLoading)}
@@ -507,7 +507,7 @@ function CodexRuntimeDetailPanel({
   return (
     <DetailShell
       logo={openaiLogo}
-      title="Codex ACP Runtime"
+      title="Codex CLI ACP"
       description="Checks whether the local Codex ACP CLI and configuration are ready for new Codex sessions."
       statusLabel={railStatus.label}
       statusTone={railStatus.tone}
