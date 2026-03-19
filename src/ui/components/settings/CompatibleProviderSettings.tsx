@@ -44,9 +44,9 @@ const PROVIDER_META: Record<
   { label: string; logo: string; description: string }
 > = {
   minimax: {
-    label: 'MiniMax (CN)',
+    label: 'MiniMax (GLOBAL)',
     logo: minimaxLogo,
-    description: 'Anthropic-compatible endpoint for Claude Code access in mainland China.',
+    description: 'Anthropic-compatible endpoint for Claude Code access through MiniMax global routing.',
   },
   zhipu: {
     label: 'Zhipu AI',
@@ -117,10 +117,7 @@ export function CompatibleProviderSettingsContent() {
 
   const selectedProviderMeta = PROVIDER_META[selectedProviderId];
   const selectedProvider = config.providers[selectedProviderId];
-  const providerMessage =
-    message?.providerId === selectedProviderId
-      ? message.text
-      : 'These providers are Anthropic-compatible endpoints used when Claude Code is routed away from the default Anthropic backend.';
+  const providerMessage = message?.providerId === selectedProviderId ? message.text : null;
 
   const isDirty = useMemo(
     () => JSON.stringify(draftProvider) !== JSON.stringify(selectedProvider),
@@ -183,6 +180,7 @@ export function CompatibleProviderSettingsContent() {
     if (savingProvider) {
       return;
     }
+    setMessage(null);
     setProviderDialogOpen(false);
     setShowSecret(false);
   };
@@ -202,19 +200,9 @@ export function CompatibleProviderSettingsContent() {
 
         <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
           <div className="overflow-hidden rounded-[18px] border border-[var(--border)] bg-[var(--bg-secondary)]">
-            <div className="border-b border-[var(--border)] px-4 py-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--text-muted)]">
-                Routing Stack
-              </div>
-              <div className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
-                Agent checks live here. Claude-compatible provider configuration appears in the Claude Code workspace.
-              </div>
-            </div>
-
-            <div className="space-y-4 p-2.5">
+            <div className="p-2.5">
               <RailSection
                 label="Agent Checks"
-                description="Verify the local runtimes used to start new Claude Code and Codex sessions."
               >
                 <RuntimeRailItem
                   title="Claude Code Runtime"
@@ -240,12 +228,10 @@ export function CompatibleProviderSettingsContent() {
             <ClaudeProviderWorkspace
               claudeStatus={claudeRuntimeStatus}
               claudeLoading={claudeRuntimeLoading}
-              onRefresh={refreshClaudeRuntimeStatus}
               providerIds={PROVIDER_IDS}
               config={config}
               loading={loading}
               selectedProviderId={selectedProviderId}
-              selectedProviderMeta={selectedProviderMeta}
               savingProvider={savingProvider}
               onOpenProvider={openProviderDialog}
             />
@@ -401,9 +387,11 @@ export function CompatibleProviderSettingsContent() {
                 </div>
               </Field>
 
-              <div className="rounded-[16px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-                {providerMessage}
-              </div>
+              {providerMessage && (
+                <div className="rounded-[16px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+                  {providerMessage}
+                </div>
+              )}
             </div>
 
             <DialogFooter className="border-t border-[var(--border)] bg-[var(--bg-secondary)] px-6 py-4">
@@ -445,37 +433,24 @@ export function CompatibleProviderSettingsContent() {
 function ClaudeProviderWorkspace({
   claudeStatus,
   claudeLoading,
-  onRefresh,
   providerIds,
   config,
   loading,
   selectedProviderId,
-  selectedProviderMeta,
   savingProvider,
   onOpenProvider,
   }: {
   claudeStatus: ClaudeRuntimeStatus;
   claudeLoading: boolean;
-  onRefresh: () => void;
   providerIds: readonly ClaudeCompatibleProviderId[];
   config: ClaudeCompatibleProvidersConfig;
   loading: boolean;
   selectedProviderId: ClaudeCompatibleProviderId;
-  selectedProviderMeta: { label: string; logo: string; description: string };
   savingProvider: ClaudeCompatibleProviderId | null;
   onOpenProvider: (providerId: ClaudeCompatibleProviderId) => void;
 }) {
-  const railStatus = buildClaudeRailStatus(claudeStatus, claudeLoading);
-
   return (
-    <DetailShell
-      logo={claudeLogo}
-      title="Claude Code Runtime"
-      description="Compatible providers below are used to route Claude Code through Anthropic-style endpoints."
-      statusLabel={railStatus.label}
-      statusTone={railStatus.tone}
-      headerAction={<RefreshIconButton onClick={onRefresh} loading={claudeLoading} />}
-    >
+    <div className="space-y-4">
       {!claudeLoading && !claudeStatus.ready ? (
         <StatusBanner
           loading={false}
@@ -489,9 +464,6 @@ function ClaudeProviderWorkspace({
         <div className="overflow-hidden rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)]">
           <div className="border-b border-[var(--border)] px-4 py-3">
             <SectionEyebrow>Compatible Providers</SectionEyebrow>
-            <div className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
-              These providers expose Anthropic-compatible APIs for Claude Code.
-            </div>
           </div>
 
           <div className="max-h-[420px] overflow-y-auto p-2.5">
@@ -516,7 +488,7 @@ function ClaudeProviderWorkspace({
           </div>
         </div>
       </div>
-    </DetailShell>
+    </div>
   );
 }
 
@@ -564,11 +536,9 @@ function CodexRuntimeDetailPanel({
 
 function RailSection({
   label,
-  description,
   children,
 }: {
   label: string;
-  description: string;
   children: ReactNode;
 }) {
   return (
@@ -576,9 +546,6 @@ function RailSection({
       <div className="px-1">
         <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
           {label}
-        </div>
-        <div className="mt-1 text-[12px] leading-5 text-[var(--text-secondary)]">
-          {description}
         </div>
       </div>
       <div className="space-y-2">{children}</div>

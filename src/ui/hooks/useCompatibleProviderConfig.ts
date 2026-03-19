@@ -12,7 +12,7 @@ export interface CompatibleProviderOption {
 }
 
 const COMPATIBLE_PROVIDER_LABELS: Record<ClaudeCompatibleProviderId, string> = {
-  minimax: 'MiniMax (CN)',
+  minimax: 'MiniMax (GLOBAL)',
   zhipu: 'Zhipu AI',
   moonshot: 'Moonshot AI',
   deepseek: 'DeepSeek',
