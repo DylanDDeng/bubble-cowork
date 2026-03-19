@@ -215,11 +215,20 @@ export function NewSessionView() {
   }, [selectedClaudeContext1m, selectedClaudeModel]);
 
   useEffect(() => {
-    if (selectedCodexModel || (!codexModelConfig.defaultModel && codexModelOptions.length === 0)) {
+    if (!codexModelOptions.length) {
+      if (selectedCodexModel) {
+        setSelectedCodexModel(null);
+        savePreferredCodexModel(null);
+      }
       return;
     }
-    setSelectedCodexModel(codexModelConfig.defaultModel || codexModelOptions[0] || null);
-  }, [codexModelConfig.defaultModel, codexModelOptions, selectedCodexModel]);
+
+    if (selectedCodexModel && codexModelOptions.includes(selectedCodexModel)) {
+      return;
+    }
+    setSelectedCodexModel(codexModelOptions[0] || null);
+    savePreferredCodexModel(codexModelOptions[0] || null);
+  }, [codexModelOptions, selectedCodexModel]);
 
   const pptxSkill = useMemo(
     () => skillAutocomplete.availableSkills.find((skill) => skill.name === 'pptx') || null,
@@ -300,7 +309,7 @@ export function NewSessionView() {
           provider === 'claude'
             ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
             : provider === 'codex'
-              ? selectedCodexModel || codexModelConfig.defaultModel || codexModelOptions[0] || undefined
+              ? selectedCodexModel || codexModelOptions[0] || undefined
               : undefined,
         compatibleProviderId:
           provider === 'claude' ? selectedClaudeCompatibleProviderId || undefined : undefined,

@@ -1,10 +1,12 @@
-import { existsSync, readFileSync } from 'fs';
+import { app } from 'electron';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import type { CodexModelConfig } from '../../shared/types';
 
 const CODEX_CONFIG_PATH = join(homedir(), '.codex', 'config.toml');
 const CODEX_MODELS_CACHE_PATH = join(homedir(), '.codex', 'models_cache.json');
+const CODEX_MODEL_VISIBILITY_PATH = () => join(app.getPath('userData'), 'codex-model-visibility.json');
 
 type CodexCachedModel = {
   slug?: string;
@@ -13,6 +15,10 @@ type CodexCachedModel = {
 
 type CodexModelsCache = {
   models?: CodexCachedModel[];
+};
+
+type CodexModelVisibilityConfig = {
+  hiddenModels?: string[];
 };
 
 function readCodexConfigText(): string {
@@ -39,13 +45,35 @@ function readCodexModelsCache(): CodexModelsCache {
   }
 }
 
-export function getCodexModelConfig(): CodexModelConfig {
-  const configText = readCodexConfigText();
-  const defaultModelMatch = configText.match(/^model\s*=\s*"([^"]+)"/m);
-  const defaultModel = defaultModelMatch?.[1]?.trim() || null;
+function readCodexModelVisibility(): CodexModelVisibilityConfig {
+  try {
+    const visibilityPath = CODEX_MODEL_VISIBILITY_PATH();
+    if (!existsSync(visibilityPath)) {
+      return {};
+    }
 
+    return JSON.parse(readFileSync(visibilityPath, 'utf-8')) as CodexModelVisibilityConfig;
+  } catch (error) {
+    console.warn('Failed to read Codex model visibility config:', error);
+    return {};
+  }
+}
+
+function writeCodexModelVisibility(hiddenModels: string[]): void {
+  try {
+    writeFileSync(
+      CODEX_MODEL_VISIBILITY_PATH(),
+      JSON.stringify({ hiddenModels }, null, 2),
+      'utf-8'
+    );
+  } catch (error) {
+    console.warn('Failed to save Codex model visibility config:', error);
+  }
+}
+
+function getDetectedCodexModels(defaultModel: string | null): string[] {
   const cache = readCodexModelsCache();
-  const options = Array.from(
+  return Array.from(
     new Set(
       [
         defaultModel,
@@ -56,6 +84,36 @@ export function getCodexModelConfig(): CodexModelConfig {
       ].filter((value): value is string => Boolean(value))
     )
   );
+}
 
-  return { defaultModel, options };
+export function getCodexModelConfig(): CodexModelConfig {
+  const configText = readCodexConfigText();
+  const defaultModelMatch = configText.match(/^model\s*=\s*"([^"]+)"/m);
+  const defaultModel = defaultModelMatch?.[1]?.trim() || null;
+  const detectedModels = getDetectedCodexModels(defaultModel);
+  const hiddenModels = new Set(
+    (readCodexModelVisibility().hiddenModels || [])
+      .map((model) => model.trim())
+      .filter((model) => model.length > 0)
+  );
+  const availableModels = detectedModels.map((name) => ({
+    name,
+    enabled: !hiddenModels.has(name),
+    isDefault: defaultModel === name,
+  }));
+  const options = availableModels.filter((model) => model.enabled).map((model) => model.name);
+
+  return { defaultModel, options, availableModels };
+}
+
+export function saveCodexModelVisibility(enabledModels: string[]): CodexModelConfig {
+  const nextEnabledModels = new Set(
+    enabledModels
+      .map((model) => model.trim())
+      .filter((model) => model.length > 0)
+  );
+  const detectedModels = getDetectedCodexModels(getCodexModelConfig().defaultModel);
+  const hiddenModels = detectedModels.filter((model) => !nextEnabledModels.has(model));
+  writeCodexModelVisibility(hiddenModels);
+  return getCodexModelConfig();
 }

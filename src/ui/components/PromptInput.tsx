@@ -147,7 +147,7 @@ export function PromptInput() {
           provider === 'claude'
             ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
             : provider === 'codex'
-              ? selectedCodexModel || codexModelConfig.defaultModel || codexModelOptions[0] || undefined
+              ? selectedCodexModel || codexModelOptions[0] || undefined
               : undefined,
         compatibleProviderId:
           provider === 'claude' ? selectedClaudeCompatibleProviderId || undefined : undefined,
@@ -270,21 +270,34 @@ export function PromptInput() {
 
   useEffect(() => {
     if (activeSession?.provider !== 'codex') {
+      if (!codexModelOptions.length) {
+        if (selectedCodexModel) {
+          setSelectedCodexModel(null);
+          savePreferredCodexModel(null);
+        }
+        return;
+      }
+
+      if (selectedCodexModel && codexModelOptions.includes(selectedCodexModel)) {
+        return;
+      }
+
+      setSelectedCodexModel(codexModelOptions[0] || null);
+      savePreferredCodexModel(codexModelOptions[0] || null);
       return;
     }
 
     const nextModel =
       activeSession.model ||
       loadPreferredCodexModel() ||
-      codexModelConfig.defaultModel ||
       codexModelOptions[0];
     setSelectedCodexModel(nextModel || null);
   }, [
     activeSessionId,
     activeSession?.provider,
     activeSession?.model,
-    codexModelConfig.defaultModel,
     codexModelOptions,
+    selectedCodexModel,
   ]);
 
   // 自动调整高度
@@ -320,7 +333,7 @@ export function PromptInput() {
             provider === 'claude'
               ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
               : provider === 'codex'
-                ? selectedCodexModel || codexModelConfig.defaultModel || codexModelOptions[0] || undefined
+                ? selectedCodexModel || codexModelOptions[0] || undefined
                 : undefined,
           compatibleProviderId:
             provider === 'claude' ? selectedClaudeCompatibleProviderId || undefined : undefined,

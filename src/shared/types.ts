@@ -90,6 +90,11 @@ export type ClaudeAccessMode = 'default' | 'fullAccess';
 export interface CodexModelConfig {
   defaultModel: string | null;
   options: string[];
+  availableModels: Array<{
+    name: string;
+    enabled: boolean;
+    isDefault: boolean;
+  }>;
 }
 
 export interface CodexRuntimeStatus {

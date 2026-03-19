@@ -38,9 +38,5 @@ export function formatCodexModelLabel(model: string): string {
 }
 
 export function buildCodexModelOptions(config: CodexModelConfig): string[] {
-  return Array.from(
-    new Set(
-      [config.defaultModel, ...config.options].filter((value): value is string => Boolean(value))
-    )
-  );
+  return Array.from(new Set(config.options.filter((value): value is string => Boolean(value))));
 }

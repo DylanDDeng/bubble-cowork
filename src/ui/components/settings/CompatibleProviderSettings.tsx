@@ -5,7 +5,6 @@ import {
   Eye,
   EyeOff,
   LoaderCircle,
-  RefreshCw,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import claudeLogo from '../../assets/claude-color.svg';
@@ -15,7 +14,9 @@ import deepseekLogo from '../../assets/deepseek-color.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
 import { useClaudeRuntimeStatus } from '../../hooks/useClaudeRuntimeStatus';
+import { useCodexModelConfig } from '../../hooks/useCodexModelConfig';
 import { useCodexRuntimeStatus } from '../../hooks/useCodexRuntimeStatus';
+import { formatCodexModelLabel } from '../../utils/codex-model';
 import { Badge } from '../ui/badge';
 import {
   Dialog,
@@ -30,6 +31,7 @@ import type {
   ClaudeCompatibleProviderId,
   ClaudeCompatibleProvidersConfig,
   ClaudeRuntimeStatus,
+  CodexModelConfig,
   CodexRuntimeStatus,
 } from '../../types';
 import { normalizeCompatibleProvidersConfig } from '../../hooks/useCompatibleProviderConfig';
@@ -91,8 +93,8 @@ export function CompatibleProviderSettingsContent() {
   const {
     status: codexRuntimeStatus,
     loading: codexRuntimeLoading,
-    refresh: refreshCodexRuntimeStatus,
   } = useCodexRuntimeStatus();
+  const codexModelConfig = useCodexModelConfig();
 
   useEffect(() => {
     let cancelled = false;
@@ -232,9 +234,8 @@ export function CompatibleProviderSettingsContent() {
             />
           ) : (
             <CodexRuntimeDetailPanel
-              status={codexRuntimeStatus}
+              modelConfig={codexModelConfig}
               loading={codexRuntimeLoading}
-              onRefresh={refreshCodexRuntimeStatus}
             />
           )}
         </div>
@@ -488,44 +489,119 @@ function ClaudeProviderWorkspace({
 }
 
 function CodexRuntimeDetailPanel({
-  status,
+  modelConfig,
   loading,
-  onRefresh,
 }: {
-  status: CodexRuntimeStatus;
+  modelConfig: CodexModelConfig;
   loading: boolean;
-  onRefresh: () => void;
 }) {
-  const railStatus = buildCodexRailStatus(status, loading);
-  const details = [
-    { label: 'CLI', value: status.cliAvailable ? 'Detected' : 'Missing' },
-    { label: 'Config', value: status.configExists ? 'Found' : 'Not found' },
-    { label: 'Models', value: status.hasModelConfig ? 'Ready' : 'Empty' },
-    { label: 'Session Readiness', value: status.ready ? 'Available' : 'Blocked' },
-  ];
+  const normalizedAvailableModels = modelConfig.availableModels || [];
+  const [availableModels, setAvailableModels] = useState(normalizedAvailableModels);
+  const [savingModelName, setSavingModelName] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setAvailableModels(normalizedAvailableModels);
+  }, [normalizedAvailableModels]);
+
+  const handleToggleModel = async (modelName: string, enabled: boolean) => {
+    const nextModels = availableModels.map((model) =>
+      model.name === modelName ? { ...model, enabled } : model
+    );
+    setAvailableModels(nextModels);
+    setSavingModelName(modelName);
+    setSaveError(null);
+
+    try {
+      const saved = await window.electron.saveCodexModelVisibility(
+        nextModels.filter((model) => model.enabled).map((model) => model.name)
+      );
+      setAvailableModels(saved.availableModels || []);
+      window.dispatchEvent(new CustomEvent('codex-model-config-updated'));
+    } catch (error) {
+      setAvailableModels(normalizedAvailableModels);
+      setSaveError(error instanceof Error ? error.message : 'Failed to update Codex model visibility.');
+    } finally {
+      setSavingModelName(null);
+    }
+  };
 
   return (
-    <DetailShell
-      logo={openaiLogo}
-      title="Codex CLI ACP"
-      description="Checks whether the local Codex ACP CLI and configuration are ready for new Codex sessions."
-      statusLabel={railStatus.label}
-      statusTone={railStatus.tone}
-      headerAction={<RefreshIconButton onClick={onRefresh} loading={loading} />}
-    >
-      <StatusBanner
-        loading={loading}
-        ready={status.ready}
-        summary={buildCodexSummary(status, loading)}
-        detail="Codex needs the local CLI, a config file, and a configured model before new ACP sessions can start."
-      />
+    <div className="overflow-hidden rounded-[18px] border border-[var(--border)] bg-[var(--bg-secondary)]">
+      <div className="space-y-5 px-5 py-5">
+      {saveError ? (
+        <div className="rounded-[14px] border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#b91c1c]">
+          {saveError}
+        </div>
+      ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        {details.map((item) => (
-          <DetailFactCard key={item.label} label={item.label} value={item.value} />
-        ))}
+      {availableModels.length > 0 ? (
+        <div className="max-h-[560px] overflow-y-auto pr-1">
+          <div className="space-y-2">
+          {availableModels.map((model) => {
+            const toggling = savingModelName === model.name;
+
+            return (
+              <div
+                key={model.name}
+                className="flex items-center gap-4 rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <div className="truncate text-sm font-medium text-[var(--text-primary)]">
+                      {formatCodexModelLabel(model.name)}
+                    </div>
+                    {model.isDefault ? (
+                      <Badge
+                        variant="outline"
+                        className="border-[var(--border)] bg-[var(--bg-secondary)] text-[10px] font-medium text-[var(--text-secondary)]"
+                      >
+                        Default
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <div className="mt-1 truncate text-[13px] text-[var(--text-secondary)]">
+                    {model.name}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                    {model.enabled ? 'Shown' : 'Hidden'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleModel(model.name, !model.enabled)}
+                    disabled={loading || toggling}
+                    aria-label={`${model.enabled ? 'Hide' : 'Show'} ${model.name} in model picker`}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors disabled:opacity-60 ${
+                      model.enabled
+                        ? 'border-transparent bg-[var(--accent)]'
+                        : 'border-[var(--border)] bg-[var(--bg-secondary)]'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                        model.enabled ? 'translate-x-5' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </button>
+                  {toggling ? <LoaderCircle className="h-4 w-4 animate-spin text-[var(--text-muted)]" /> : null}
+                </div>
+              </div>
+            );
+          })}
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-[16px] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-4 py-6 text-sm leading-6 text-[var(--text-secondary)]">
+          {loading
+            ? 'Checking local Codex models...'
+            : 'No local Codex models were detected yet. Models will appear automatically when the local Codex cache is ready.'}
+        </div>
+      )}
       </div>
-    </DetailShell>
+    </div>
   );
 }
 
@@ -652,127 +728,6 @@ function ProviderRailItem({
   );
 }
 
-function DetailShell({
-  logo,
-  title,
-  description,
-  statusLabel,
-  statusTone,
-  headerAction,
-  children,
-}: {
-  logo: string;
-  title: string;
-  description: string;
-  statusLabel: string;
-  statusTone: string;
-  headerAction?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div className="overflow-hidden rounded-[18px] border border-[var(--border)] bg-[var(--bg-secondary)]">
-      <div className="border-b border-[var(--border)] px-5 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2.5">
-              <img
-                src={logo}
-                alt=""
-                className="h-5 w-5 flex-shrink-0"
-                aria-hidden="true"
-              />
-              <div className="text-[22px] font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
-                {title}
-              </div>
-              <Badge
-                variant="outline"
-                className={`border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-0.5 text-[11px] font-medium ${statusTone}`}
-              >
-                {statusLabel}
-              </Badge>
-            </div>
-            <div className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-              {description}
-            </div>
-          </div>
-
-          {headerAction}
-        </div>
-      </div>
-
-      <div className="space-y-5 px-5 py-5">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function StatusBanner({
-  loading,
-  ready,
-  summary,
-  detail,
-}: {
-  loading: boolean;
-  ready: boolean;
-  summary: string;
-  detail: string;
-}) {
-  return (
-    <div className="rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-4">
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[12px] bg-[var(--bg-secondary)]">
-          {loading ? (
-            <RefreshCw className="h-4 w-4 animate-spin text-[var(--text-secondary)]" />
-          ) : ready ? (
-            <CheckCircle2 className="h-4 w-4 text-emerald-700" />
-          ) : (
-            <AlertTriangle className="h-4 w-4 text-[#dc2626]" />
-          )}
-        </div>
-
-        <div className="min-w-0">
-          <div className="text-[15px] font-semibold text-[var(--text-primary)]">{summary}</div>
-          <div className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">{detail}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DetailFactCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-4">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--text-muted)]">
-        {label}
-      </div>
-      <div className="mt-2 break-words text-[15px] font-medium text-[var(--text-primary)]">
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function RefreshIconButton({
-  onClick,
-  loading,
-}: {
-  onClick: () => void;
-  loading: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]"
-      aria-label="Refresh runtime status"
-      title="Refresh runtime status"
-    >
-      <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-    </button>
-  );
-}
-
 function SectionCard({ children }: { children: ReactNode }) {
   return (
     <section className="rounded-[20px] border border-[var(--border)] bg-[var(--bg-primary)]/82 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.04)]">
@@ -831,11 +786,11 @@ function buildCodexSummary(status: CodexRuntimeStatus, loading: boolean): string
   }
 
   if (status.ready) {
-    return 'Codex ACP is ready.';
+    return 'Codex CLI ACP is ready.';
   }
 
   if (!status.cliAvailable) {
-    return 'Codex ACP was not found.';
+    return 'Codex CLI ACP was not found.';
   }
 
   return 'Codex needs local setup.';

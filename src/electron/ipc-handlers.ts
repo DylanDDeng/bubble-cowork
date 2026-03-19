@@ -22,7 +22,7 @@ import {
   listSystemFonts,
   saveFontSelections,
 } from './libs/font-settings';
-import { getCodexModelConfig } from './libs/codex-settings';
+import { getCodexModelConfig, saveCodexModelVisibility } from './libs/codex-settings';
 import { getCodexRuntimeStatus } from './libs/codex-runtime-status';
 import { listClaudeSkills } from './libs/claude-skills';
 import { loadFeishuBridgeConfig, saveFeishuBridgeConfig } from './libs/feishu-bridge-config';
@@ -1005,6 +1005,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // RPC: 获取 Codex 模型配置
   ipcMainHandle('get-codex-model-config', async () => {
     return getCodexModelConfig();
+  });
+
+  ipcMainHandle('save-codex-model-visibility', async (_event, enabledModels: string[]) => {
+    return saveCodexModelVisibility(enabledModels);
   });
 
   ipcMainHandle('get-codex-runtime-status', async () => {

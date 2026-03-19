@@ -79,6 +79,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-codex-model-config');
   },
 
+  saveCodexModelVisibility: (enabledModels: string[]) => {
+    return ipcRenderer.invoke('save-codex-model-visibility', enabledModels);
+  },
+
   getCodexRuntimeStatus: () => {
     return ipcRenderer.invoke('get-codex-runtime-status');
   },
