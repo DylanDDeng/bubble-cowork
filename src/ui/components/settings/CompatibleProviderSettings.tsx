@@ -188,16 +188,6 @@ export function CompatibleProviderSettingsContent() {
   return (
     <section className="space-y-6">
       <SectionCard>
-        <div className="mb-4">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-            Providers
-          </div>
-          <h3 className="mt-2 text-lg font-semibold text-[var(--text-primary)]">Claude Code Routing</h3>
-          <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
-            Check runtime readiness on the left, then configure compatible providers for Claude Code on the right.
-          </p>
-        </div>
-
         <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
           <div className="overflow-hidden rounded-[18px] border border-[var(--border)] bg-[var(--bg-secondary)]">
             <div className="p-2.5">
