@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { Paperclip, Plus, Square } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import type { Attachment, ClaudeAccessMode } from '../types';
+import type { Attachment, ClaudeAccessMode, ClaudeCompatibleProviderId } from '../types';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
@@ -19,8 +19,10 @@ import { getSessionModel } from '../utils/session-model';
 import {
   formatClaudeModelLabel,
   isOfficialClaudeModel,
+  loadPreferredClaudeCompatibleProviderId,
   loadPreferredClaudeContext1m,
   loadPreferredClaudeModel,
+  savePreferredClaudeCompatibleProviderId,
   savePreferredClaudeContext1m,
   savePreferredClaudeModel,
   supportsClaude1mContext,
@@ -51,6 +53,8 @@ export function PromptInput() {
   const [selectedClaudeModel, setSelectedClaudeModel] = useState<string | null>(
     loadPreferredClaudeModel()
   );
+  const [selectedClaudeCompatibleProviderId, setSelectedClaudeCompatibleProviderId] =
+    useState<ClaudeCompatibleProviderId | null>(loadPreferredClaudeCompatibleProviderId());
   const [selectedClaudeContext1m, setSelectedClaudeContext1m] = useState(loadPreferredClaudeContext1m());
   const [selectedCodexModel, setSelectedCodexModel] = useState<string | null>(
     loadPreferredCodexModel()
@@ -145,6 +149,8 @@ export function PromptInput() {
             : provider === 'codex'
               ? selectedCodexModel || codexModelConfig.defaultModel || codexModelOptions[0] || undefined
               : undefined,
+        compatibleProviderId:
+          provider === 'claude' ? selectedClaudeCompatibleProviderId || undefined : undefined,
         betas:
           provider === 'claude' &&
           supportsClaude1mContext(selectedClaudeModel || claudeModelConfig.defaultModel || null) &&
@@ -194,6 +200,9 @@ export function PromptInput() {
       loadPreferredClaudeModel() ||
       claudeModelConfig.defaultModel;
     setSelectedClaudeModel(nextModel || null);
+    setSelectedClaudeCompatibleProviderId(
+      activeSession.compatibleProviderId || loadPreferredClaudeCompatibleProviderId()
+    );
     setSelectedClaudeContext1m(
       !!activeSession?.betas?.includes('context-1m-2025-08-07') || loadPreferredClaudeContext1m()
     );
@@ -201,6 +210,7 @@ export function PromptInput() {
     activeSessionId,
     activeSession?.provider,
     activeSession?.model,
+    activeSession?.compatibleProviderId,
     activeSession?.betas,
     visibleActiveClaudeModel,
     claudeModelConfig.defaultModel,
@@ -225,6 +235,38 @@ export function PromptInput() {
       savePreferredClaudeModel(fallbackModel);
     }
   }, [availableClaudeModels, claudeModelConfig.defaultModel, provider, selectedClaudeModel]);
+
+  useEffect(() => {
+    if (!selectedClaudeModel) {
+      if (selectedClaudeCompatibleProviderId) {
+        setSelectedClaudeCompatibleProviderId(null);
+        savePreferredClaudeCompatibleProviderId(null);
+      }
+      return;
+    }
+
+    const matchingOptions = compatibleOptions.filter((option) => option.model === selectedClaudeModel);
+    if (matchingOptions.length === 0) {
+      if (selectedClaudeCompatibleProviderId) {
+        setSelectedClaudeCompatibleProviderId(null);
+        savePreferredClaudeCompatibleProviderId(null);
+      }
+      return;
+    }
+
+    if (
+      selectedClaudeCompatibleProviderId &&
+      matchingOptions.some((option) => option.id === selectedClaudeCompatibleProviderId)
+    ) {
+      return;
+    }
+
+    const nextCompatibleProviderId = matchingOptions.length === 1 ? matchingOptions[0].id : null;
+    if (nextCompatibleProviderId !== selectedClaudeCompatibleProviderId) {
+      setSelectedClaudeCompatibleProviderId(nextCompatibleProviderId);
+      savePreferredClaudeCompatibleProviderId(nextCompatibleProviderId);
+    }
+  }, [compatibleOptions, selectedClaudeCompatibleProviderId, selectedClaudeModel]);
 
   useEffect(() => {
     if (activeSession?.provider !== 'codex') {
@@ -280,6 +322,8 @@ export function PromptInput() {
               : provider === 'codex'
                 ? selectedCodexModel || codexModelConfig.defaultModel || codexModelOptions[0] || undefined
                 : undefined,
+          compatibleProviderId:
+            provider === 'claude' ? selectedClaudeCompatibleProviderId || undefined : undefined,
           betas:
             provider === 'claude' &&
             supportsClaude1mContext(selectedClaudeModel || claudeModelConfig.defaultModel || null) &&
@@ -446,21 +490,26 @@ export function PromptInput() {
               disabled={isRunning}
               claudeModel={{
                 value: selectedClaudeModel,
+                compatibleProviderId: selectedClaudeCompatibleProviderId,
                 config: claudeModelConfig,
                 runtimeModel: visibleActiveClaudeModel,
+                runtimeCompatibleProviderId:
+                  activeSession?.provider === 'claude' ? activeSession.compatibleProviderId || null : null,
                 context1m: selectedClaudeContext1m,
                 compatibleOptions,
                 onToggleContext1m: (enabled) => {
                   setSelectedClaudeContext1m(enabled);
                   savePreferredClaudeContext1m(enabled);
                 },
-                onChange: (model) => {
+                onChange: (model, compatibleProviderId) => {
                   setSelectedClaudeModel(model);
+                  setSelectedClaudeCompatibleProviderId(compatibleProviderId || null);
                   if (!supportsClaude1mContext(model)) {
                     setSelectedClaudeContext1m(false);
                     savePreferredClaudeContext1m(false);
                   }
                   savePreferredClaudeModel(model);
+                  savePreferredClaudeCompatibleProviderId(compatibleProviderId || null);
                 },
               }}
               codexModel={{

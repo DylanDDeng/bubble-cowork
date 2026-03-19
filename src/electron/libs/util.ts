@@ -1,4 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import type { ClaudeCompatibleProviderId } from '../../shared/types';
 import { getClaudeEnv, getClaudeSettings } from './claude-settings';
 import { applyCompatibleProviderEnv } from './compatible-provider-config';
 import { getClaudeCodeRuntime } from './claude-runtime';
@@ -22,13 +23,14 @@ export async function runClaudeOneShot(params: {
   cwd?: string;
   resumeSessionId?: string;
   model?: string;
+  compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
 }): Promise<{ text: string; sessionId?: string; model?: string }> {
   let env = {
     ...process.env,
     ...getClaudeEnv(),
   };
-  const providerOverride = applyCompatibleProviderEnv(env, params.model);
+  const providerOverride = applyCompatibleProviderEnv(env, params.model, params.compatibleProviderId);
   env = providerOverride.env;
   const forcedModel = providerOverride.forcedModel || params.model;
   const settings = getClaudeSettings();
@@ -93,6 +95,7 @@ export async function generateSessionTitle(
   prompt: string,
   cwd?: string,
   model?: string,
+  compatibleProviderId?: ClaudeCompatibleProviderId,
   betas?: string[]
 ): Promise<string> {
   try {
@@ -101,7 +104,13 @@ export async function generateSessionTitle(
 
 Just output the title, nothing else.`;
 
-    const result = await runClaudeOneShot({ prompt: titlePrompt, cwd, model, betas });
+    const result = await runClaudeOneShot({
+      prompt: titlePrompt,
+      cwd,
+      model,
+      compatibleProviderId,
+      betas,
+    });
     return result.text.slice(0, 50);
   } catch (error) {
     console.error('Failed to generate title:', error);

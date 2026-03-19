@@ -491,6 +491,7 @@ function handleSessionList(
       claudeSessionId: session.claudeSessionId,
       provider: session.provider || 'claude',
       model: session.model,
+      compatibleProviderId: session.compatibleProviderId,
       betas: session.betas,
       claudeAccessMode: session.claudeAccessMode,
       todoState: session.todoState || 'todo',
@@ -531,13 +532,14 @@ function handleSessionStatus(
     cwd?: string;
     provider?: SessionInfo['provider'];
     model?: SessionInfo['model'];
+    compatibleProviderId?: SessionInfo['compatibleProviderId'];
     betas?: SessionInfo['betas'];
     claudeAccessMode?: SessionInfo['claudeAccessMode'];
   },
   set: SetState,
   get: () => Store
 ) {
-  const { sessionId, status, title, cwd, provider, model, betas, claudeAccessMode } = payload;
+  const { sessionId, status, title, cwd, provider, model, compatibleProviderId, betas, claudeAccessMode } = payload;
   const state = get();
   const session = state.sessions[sessionId];
 
@@ -564,6 +566,8 @@ function handleSessionStatus(
           cwd: cwd || session.cwd,
           provider: provider || session.provider,
           model: model !== undefined ? (model || undefined) : session.model,
+          compatibleProviderId:
+            compatibleProviderId !== undefined ? compatibleProviderId || undefined : session.compatibleProviderId,
           betas: betas !== undefined ? betas : session.betas,
           claudeAccessMode: claudeAccessMode !== undefined ? claudeAccessMode : session.claudeAccessMode,
           latestClaudeModelUsage: session.latestClaudeModelUsage,
@@ -585,6 +589,7 @@ function handleSessionStatus(
       cwd,
       provider: provider || 'claude',
       model,
+      compatibleProviderId,
       betas,
       claudeAccessMode,
       latestClaudeModelUsage: undefined,

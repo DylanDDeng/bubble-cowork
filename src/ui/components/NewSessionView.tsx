@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import type { Attachment, ClaudeAccessMode, ClaudeSkillSummary } from '../types';
+import type { Attachment, ClaudeAccessMode, ClaudeCompatibleProviderId, ClaudeSkillSummary } from '../types';
 import coworkLogo from '../assets/cowork-logo.svg';
 import powerPointLogo from '../assets/powerpoint-2025-logo.svg';
 import pdfLogo from '../assets/pdf-svgrepo-com.svg';
@@ -22,8 +22,10 @@ import { loadPreferredProvider, savePreferredProvider } from '../utils/provider'
 import { getLatestProviderModel } from '../utils/session-model';
 import {
   supportsClaude1mContext,
+  loadPreferredClaudeCompatibleProviderId,
   loadPreferredClaudeContext1m,
   loadPreferredClaudeModel,
+  savePreferredClaudeCompatibleProviderId,
   savePreferredClaudeContext1m,
   savePreferredClaudeModel,
 } from '../utils/claude-model';
@@ -80,6 +82,8 @@ export function NewSessionView() {
   const [selectedClaudeModel, setSelectedClaudeModel] = useState<string | null>(
     loadPreferredClaudeModel()
   );
+  const [selectedClaudeCompatibleProviderId, setSelectedClaudeCompatibleProviderId] =
+    useState<ClaudeCompatibleProviderId | null>(loadPreferredClaudeCompatibleProviderId());
   const [selectedClaudeContext1m, setSelectedClaudeContext1m] = useState(loadPreferredClaudeContext1m());
   const [selectedCodexModel, setSelectedCodexModel] = useState<string | null>(
     loadPreferredCodexModel()
@@ -167,6 +171,38 @@ export function NewSessionView() {
       savePreferredClaudeModel(fallbackModel);
     }
   }, [availableClaudeModels, claudeModelConfig.defaultModel, selectedClaudeModel]);
+
+  useEffect(() => {
+    if (!selectedClaudeModel) {
+      if (selectedClaudeCompatibleProviderId) {
+        setSelectedClaudeCompatibleProviderId(null);
+        savePreferredClaudeCompatibleProviderId(null);
+      }
+      return;
+    }
+
+    const matchingOptions = compatibleOptions.filter((option) => option.model === selectedClaudeModel);
+    if (matchingOptions.length === 0) {
+      if (selectedClaudeCompatibleProviderId) {
+        setSelectedClaudeCompatibleProviderId(null);
+        savePreferredClaudeCompatibleProviderId(null);
+      }
+      return;
+    }
+
+    if (
+      selectedClaudeCompatibleProviderId &&
+      matchingOptions.some((option) => option.id === selectedClaudeCompatibleProviderId)
+    ) {
+      return;
+    }
+
+    const nextCompatibleProviderId = matchingOptions.length === 1 ? matchingOptions[0].id : null;
+    if (nextCompatibleProviderId !== selectedClaudeCompatibleProviderId) {
+      setSelectedClaudeCompatibleProviderId(nextCompatibleProviderId);
+      savePreferredClaudeCompatibleProviderId(nextCompatibleProviderId);
+    }
+  }, [compatibleOptions, selectedClaudeCompatibleProviderId, selectedClaudeModel]);
 
   useEffect(() => {
     if (supportsClaude1mContext(selectedClaudeModel)) {
@@ -266,6 +302,8 @@ export function NewSessionView() {
             : provider === 'codex'
               ? selectedCodexModel || codexModelConfig.defaultModel || codexModelOptions[0] || undefined
               : undefined,
+        compatibleProviderId:
+          provider === 'claude' ? selectedClaudeCompatibleProviderId || undefined : undefined,
         betas:
           provider === 'claude' &&
           supportsClaude1mContext(selectedClaudeModel || claudeModelConfig.defaultModel || null) &&
@@ -509,6 +547,7 @@ export function NewSessionView() {
                 disabled={pendingStart}
               claudeModel={{
                 value: selectedClaudeModel,
+                compatibleProviderId: selectedClaudeCompatibleProviderId,
                 config: claudeModelConfig,
                 runtimeModel: pickerClaudeRuntimeModel,
                 context1m: selectedClaudeContext1m,
@@ -517,13 +556,15 @@ export function NewSessionView() {
                   setSelectedClaudeContext1m(enabled);
                   savePreferredClaudeContext1m(enabled);
                 },
-                onChange: (model) => {
+                onChange: (model, compatibleProviderId) => {
                   setSelectedClaudeModel(model);
+                  setSelectedClaudeCompatibleProviderId(compatibleProviderId || null);
                   if (!supportsClaude1mContext(model)) {
                     setSelectedClaudeContext1m(false);
                     savePreferredClaudeContext1m(false);
                   }
                   savePreferredClaudeModel(model);
+                  savePreferredClaudeCompatibleProviderId(compatibleProviderId || null);
                 },
               }}
               codexModel={{

@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { SessionRow, StreamMessage, SessionStatus } from '../types';
 import type {
   ClaudeAccessMode,
+  ClaudeCompatibleProviderId,
   ClaudeModelUsage,
   LatestClaudeModelUsage,
   ClaudeUsageModelSummary,
@@ -37,6 +38,7 @@ export function initialize(): void {
       codex_session_id TEXT,
       provider TEXT NOT NULL DEFAULT 'claude',
       model TEXT,
+      compatible_provider_id TEXT,
       betas TEXT,
       claude_access_mode TEXT DEFAULT 'default',
       status TEXT NOT NULL DEFAULT 'idle',
@@ -62,6 +64,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'codex_session_id', 'TEXT');
   ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
   ensureColumn('sessions', 'model', 'TEXT');
+  ensureColumn('sessions', 'compatible_provider_id', 'TEXT');
   ensureColumn('sessions', 'betas', 'TEXT');
   ensureColumn('sessions', 'claude_access_mode', "TEXT DEFAULT 'default'");
   ensureColumn('sessions', 'todo_state', "TEXT DEFAULT 'todo'");
@@ -103,6 +106,7 @@ export function createSession(params: {
   prompt?: string;
   provider?: 'claude' | 'codex';
   model?: string;
+  compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
 }): SessionRow {
@@ -110,8 +114,8 @@ export function createSession(params: {
   const id = uuidv4();
 
   const stmt = getDb().prepare(`
-    INSERT INTO sessions (id, title, provider, model, betas, claude_access_mode, cwd, allowed_tools, last_prompt, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
+    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, cwd, allowed_tools, last_prompt, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
   `);
 
   stmt.run(
@@ -119,6 +123,7 @@ export function createSession(params: {
     params.title,
     params.provider || 'claude',
     params.model || null,
+    params.provider === 'claude' ? params.compatibleProviderId || null : null,
     params.betas && params.betas.length > 0 ? JSON.stringify(params.betas) : null,
     params.provider === 'claude' ? params.claudeAccessMode || 'default' : null,
     params.cwd || null,
@@ -233,6 +238,17 @@ export function updateSessionModel(sessionId: string, model: string | null): voi
   `);
   stmt.run(model, now, sessionId);
   invalidateClaudeUsageReportCache();
+}
+
+export function updateSessionCompatibleProviderId(
+  sessionId: string,
+  compatibleProviderId: ClaudeCompatibleProviderId | null
+): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET compatible_provider_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(compatibleProviderId, now, sessionId);
 }
 
 export function updateSessionBetas(sessionId: string, betas: string[] | null): void {

@@ -13,6 +13,13 @@ const COMPATIBLE_PROVIDER_DEFAULTS: Record<
   ClaudeCompatibleProviderId,
   ClaudeCompatibleProviderConfig
 > = {
+  minimaxCn: {
+    enabled: false,
+    baseUrl: 'https://api.minimaxi.com/anthropic',
+    authType: 'auth_token',
+    secret: '',
+    model: 'MiniMax-M2.5',
+  },
   minimax: {
     enabled: false,
     baseUrl: 'https://api.minimax.io/anthropic',
@@ -68,6 +75,7 @@ export function getDefaultCompatibleProviderConfig(
 export function getDefaultCompatibleProvidersConfig(): ClaudeCompatibleProvidersConfig {
   return {
     providers: {
+      minimaxCn: getDefaultCompatibleProviderConfig('minimaxCn'),
       minimax: getDefaultCompatibleProviderConfig('minimax'),
       zhipu: getDefaultCompatibleProviderConfig('zhipu'),
       moonshot: getDefaultCompatibleProviderConfig('moonshot'),
@@ -99,6 +107,7 @@ export function loadCompatibleProviderConfig(): ClaudeCompatibleProvidersConfig 
     if ('providers' in parsed && parsed.providers) {
       return {
         providers: {
+          minimaxCn: normalizeCompatibleProviderConfig('minimaxCn', parsed.providers.minimaxCn),
           minimax: normalizeCompatibleProviderConfig('minimax', parsed.providers.minimax),
           zhipu: normalizeCompatibleProviderConfig('zhipu', parsed.providers.zhipu),
           moonshot: normalizeCompatibleProviderConfig('moonshot', parsed.providers.moonshot),
@@ -116,6 +125,7 @@ export function loadCompatibleProviderConfig(): ClaudeCompatibleProvidersConfig 
 export function saveCompatibleProviderConfig(config: ClaudeCompatibleProvidersConfig): void {
   const normalized: ClaudeCompatibleProvidersConfig = {
     providers: {
+      minimaxCn: normalizeCompatibleProviderConfig('minimaxCn', config.providers?.minimaxCn),
       minimax: normalizeCompatibleProviderConfig('minimax', config.providers?.minimax),
       zhipu: normalizeCompatibleProviderConfig('zhipu', config.providers?.zhipu),
       moonshot: normalizeCompatibleProviderConfig('moonshot', config.providers?.moonshot),
@@ -150,29 +160,36 @@ export function getEnabledCompatibleProviderConfigs(): ResolvedCompatibleProvide
 }
 
 export function getCompatibleProviderConfigByModel(
-  requestedModel?: string | null
+  requestedModel?: string | null,
+  requestedProviderId?: ClaudeCompatibleProviderId | null
 ): ResolvedCompatibleProviderConfig | null {
   const normalizedRequestedModel = requestedModel?.trim();
+  const enabledProviders = getEnabledCompatibleProviderConfigs();
+
+  if (requestedProviderId) {
+    const exactProvider = enabledProviders.find((provider) => provider.id === requestedProviderId);
+    if (exactProvider) {
+      return exactProvider;
+    }
+  }
+
   if (!normalizedRequestedModel) {
     return null;
   }
 
-  return (
-    getEnabledCompatibleProviderConfigs().find(
-      (provider) => provider.model === normalizedRequestedModel
-    ) || null
-  );
+  return enabledProviders.find((provider) => provider.model === normalizedRequestedModel) || null;
 }
 
 export function applyCompatibleProviderEnv(
   env: Record<string, string | undefined>,
-  requestedModel?: string | null
+  requestedModel?: string | null,
+  requestedProviderId?: ClaudeCompatibleProviderId | null
 ): {
   env: Record<string, string | undefined>;
   forcedModel?: string;
   matchedProviderId?: ClaudeCompatibleProviderId;
 } {
-  const config = getCompatibleProviderConfigByModel(requestedModel);
+  const config = getCompatibleProviderConfigByModel(requestedModel, requestedProviderId);
   if (!config) {
     return { env };
   }

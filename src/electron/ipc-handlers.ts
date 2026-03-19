@@ -534,7 +534,7 @@ async function handleEditLatestPrompt(
   mainWindow: BrowserWindow,
   payload: SessionContinuePayload
 ): Promise<void> {
-  const { sessionId, prompt, attachments, model, betas, claudeAccessMode } = payload;
+  const { sessionId, prompt, attachments, model, compatibleProviderId, betas, claudeAccessMode } = payload;
   const session = sessions.getSession(sessionId);
   if (!session) {
     broadcast(mainWindow, {
@@ -562,6 +562,7 @@ async function handleEditLatestPrompt(
   const previousStatus = (session.status as SessionStatus) || 'completed';
   const previousClaudeSessionId = session.claude_session_id || null;
   const previousModel = session.model || null;
+  const previousCompatibleProviderId = session.compatible_provider_id || null;
   const previousBetas = parseStoredBetas(session.betas);
   const previousClaudeAccessMode = session.claude_access_mode || 'default';
   let latestUserPromptIndex = -1;
@@ -595,6 +596,8 @@ async function handleEditLatestPrompt(
     preservedTranscript.length > 0 &&
     preservedTranscript.length <= DIRECT_EDIT_BOOTSTRAP_MAX_TRANSCRIPT_CHARS;
   const requestedModel = normalizeModel(model ?? session.model ?? undefined);
+  const requestedCompatibleProviderId =
+    compatibleProviderId ?? session.compatible_provider_id ?? undefined;
   const requestedBetas = normalizeBetas(betas ?? parseStoredBetas(session.betas));
   const nextPrompt = prompt.trim();
   const nextClaudeAccessMode = claudeAccessMode || 'default';
@@ -616,6 +619,7 @@ async function handleEditLatestPrompt(
   sessions.updateLastPrompt(sessionId, nextPrompt);
   sessions.setClaudeSessionId(sessionId, null);
   sessions.updateSessionModel(sessionId, requestedModel || null);
+  sessions.updateSessionCompatibleProviderId(sessionId, requestedCompatibleProviderId || null);
   sessions.updateSessionBetas(sessionId, requestedBetas || null);
   sessions.updateSessionClaudeAccessMode(sessionId, nextClaudeAccessMode);
 
@@ -635,6 +639,7 @@ async function handleEditLatestPrompt(
       status: 'running',
       provider: session.provider || 'claude',
       model: requestedModel || undefined,
+      compatibleProviderId: requestedCompatibleProviderId,
       betas: requestedBetas,
       claudeAccessMode: nextClaudeAccessMode,
     },
@@ -650,6 +655,7 @@ async function handleEditLatestPrompt(
             }),
             cwd: session.cwd ?? undefined,
             model: requestedModel || undefined,
+            compatibleProviderId: requestedCompatibleProviderId,
             betas: requestedBetas,
           })
         : await (async () => {
@@ -657,6 +663,7 @@ async function handleEditLatestPrompt(
               prompt: buildLatestEditSummaryPrompt(preservedHistory),
               cwd: session.cwd ?? undefined,
               model: requestedModel || undefined,
+              compatibleProviderId: requestedCompatibleProviderId,
               betas: requestedBetas,
             });
             const summary = extractSummaryContent(summaryResult.text);
@@ -672,6 +679,7 @@ async function handleEditLatestPrompt(
               }),
               cwd: session.cwd ?? undefined,
               model: summaryResult.model || requestedModel || undefined,
+              compatibleProviderId: requestedCompatibleProviderId,
               betas: requestedBetas,
             });
           })();
@@ -689,6 +697,7 @@ async function handleEditLatestPrompt(
     sessions.updateLastPrompt(sessionId, previousEditablePrompt.prompt);
     sessions.setClaudeSessionId(sessionId, previousClaudeSessionId);
     sessions.updateSessionModel(sessionId, previousModel);
+    sessions.updateSessionCompatibleProviderId(sessionId, previousCompatibleProviderId);
     sessions.updateSessionBetas(sessionId, previousBetas || null);
     sessions.updateSessionClaudeAccessMode(sessionId, previousClaudeAccessMode);
 
@@ -708,6 +717,7 @@ async function handleEditLatestPrompt(
         status: previousStatus,
         provider: session.provider || 'claude',
         model: previousModel || undefined,
+        compatibleProviderId: previousCompatibleProviderId || undefined,
         betas: previousBetas,
         claudeAccessMode: previousClaudeAccessMode,
       },
@@ -722,6 +732,7 @@ async function handleEditLatestPrompt(
   }
   sessions.setClaudeSessionId(sessionId, nextClaudeSessionId || null);
   sessions.updateSessionModel(sessionId, resolvedModel || null);
+  sessions.updateSessionCompatibleProviderId(sessionId, requestedCompatibleProviderId || null);
   sessions.updateSessionBetas(sessionId, requestedBetas || null);
   sessions.updateSessionClaudeAccessMode(sessionId, nextClaudeAccessMode);
 
@@ -741,6 +752,7 @@ async function handleEditLatestPrompt(
       status: 'running',
       provider: refreshedSession.provider,
       model: resolvedModel || undefined,
+      compatibleProviderId: refreshedSession.compatible_provider_id || undefined,
       betas: requestedBetas,
       claudeAccessMode: nextClaudeAccessMode,
     },
@@ -754,6 +766,7 @@ async function handleEditLatestPrompt(
     attachments,
     'claude',
     resolvedModel || undefined,
+    requestedCompatibleProviderId,
     requestedBetas,
     nextClaudeAccessMode
   );
@@ -835,6 +848,7 @@ const runnerHandles = new Map<
   {
     handle: RunnerHandle;
     provider: 'claude' | 'codex';
+    compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
     claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
   }
 >();
@@ -1587,6 +1601,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     claudeSessionId: row.claude_session_id || undefined,
     provider: row.provider || 'claude',
     model: row.model || undefined,
+    compatibleProviderId: row.compatible_provider_id || undefined,
     betas: parseStoredBetas(row.betas),
     claudeAccessMode: row.claude_access_mode || 'default',
     todoState: row.todo_state || 'todo',
@@ -1622,7 +1637,18 @@ async function handleSessionStart(
   mainWindow: BrowserWindow,
   payload: SessionStartPayload
 ): Promise<string | null> {
-  const { title, prompt, cwd, allowedTools, attachments, provider, model, betas, claudeAccessMode } = payload;
+  const {
+    title,
+    prompt,
+    cwd,
+    allowedTools,
+    attachments,
+    provider,
+    model,
+    compatibleProviderId,
+    betas,
+    claudeAccessMode,
+  } = payload;
   if (!cwd?.trim()) {
     broadcast(mainWindow, {
       type: 'runner.error',
@@ -1651,6 +1677,7 @@ async function handleSessionStart(
     console.log('[Session Start]', {
       provider: chosenProvider,
       model: selectedModel,
+      compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
       cwd: cwd || undefined,
     });
   }
@@ -1663,6 +1690,7 @@ async function handleSessionStart(
     prompt,
     provider: chosenProvider,
     model: selectedModel,
+    compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
     betas: selectedBetas,
     claudeAccessMode: chosenProvider === 'claude' ? (claudeAccessMode || 'default') : undefined,
   });
@@ -1680,6 +1708,7 @@ async function handleSessionStart(
       cwd: session.cwd || undefined,
       provider: chosenProvider,
       model: selectedModel,
+      compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
       betas: selectedBetas,
       claudeAccessMode: chosenProvider === 'claude' ? (claudeAccessMode || 'default') : undefined,
     },
@@ -1687,7 +1716,13 @@ async function handleSessionStart(
 
   if (chosenProvider === 'claude') {
     // 异步生成更好的标题（不阻塞）
-    generateSessionTitle(prompt, cwd, selectedModel, selectedBetas).then((newTitle) => {
+    generateSessionTitle(
+      prompt,
+      cwd,
+      selectedModel,
+      compatibleProviderId,
+      selectedBetas
+    ).then((newTitle) => {
       const trimmedTitle = newTitle.trim();
       if (!trimmedTitle) {
         return;
@@ -1728,6 +1763,7 @@ async function handleSessionStart(
     attachments,
     chosenProvider,
     selectedModel,
+    chosenProvider === 'claude' ? compatibleProviderId : undefined,
     selectedBetas,
     claudeAccessMode
   );
@@ -1739,7 +1775,7 @@ async function handleSessionContinue(
   mainWindow: BrowserWindow,
   payload: SessionContinuePayload
 ): Promise<boolean> {
-  const { sessionId, prompt, attachments, provider, model, betas, claudeAccessMode } = payload;
+  const { sessionId, prompt, attachments, provider, model, compatibleProviderId, betas, claudeAccessMode } = payload;
 
   const session = sessions.getSession(sessionId);
   if (!session) {
@@ -1758,12 +1794,18 @@ async function handleSessionContinue(
   const previousProvider = session.provider || 'claude';
   const nextProvider = provider || previousProvider;
   const nextModel = normalizeModel(model ?? session.model ?? undefined);
+  const previousCompatibleProviderId = session.compatible_provider_id || undefined;
+  const nextCompatibleProviderId =
+    nextProvider === 'claude'
+      ? compatibleProviderId ?? previousCompatibleProviderId
+      : undefined;
   const previousBetas = parseStoredBetas(session.betas);
   const nextBetas = nextProvider === 'claude'
     ? normalizeBetas(betas ?? previousBetas)
     : undefined;
   const previousModel = normalizeModel(session.model ?? undefined);
   const providerChanged = nextProvider !== previousProvider;
+  const compatibleProviderChanged = nextCompatibleProviderId !== previousCompatibleProviderId;
   const modelChanged = nextModel !== previousModel;
   const betasChanged = JSON.stringify(nextBetas || []) !== JSON.stringify(previousBetas || []);
   const nextClaudeAccessMode = nextProvider === 'claude' ? (claudeAccessMode || 'default') : undefined;
@@ -1792,8 +1834,10 @@ async function handleSessionContinue(
       previousProvider,
       nextProvider,
       nextModel,
+      nextCompatibleProviderId,
       nextBetas,
       providerChanged,
+      compatibleProviderChanged,
       betasChanged,
       accessModeChanged,
       hasExistingRunner: !!existingEntry,
@@ -1804,6 +1848,10 @@ async function handleSessionContinue(
     sessions.updateSessionProvider(sessionId, nextProvider);
   }
   sessions.updateSessionModel(sessionId, nextModel || null);
+  sessions.updateSessionCompatibleProviderId(
+    sessionId,
+    nextProvider === 'claude' ? nextCompatibleProviderId || null : null
+  );
   sessions.updateSessionBetas(sessionId, nextBetas || null);
   if (nextProvider === 'claude') {
     sessions.updateSessionClaudeAccessMode(sessionId, claudeAccessMode || 'default');
@@ -1821,6 +1869,7 @@ async function handleSessionContinue(
       status: 'running',
       provider: nextProvider,
       model: nextModel ?? '',
+      compatibleProviderId: nextProvider === 'claude' ? nextCompatibleProviderId : undefined,
       betas: nextBetas,
       claudeAccessMode: nextProvider === 'claude' ? (claudeAccessMode || 'default') : undefined,
     },
@@ -1839,7 +1888,8 @@ async function handleSessionContinue(
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
     if (
       (nextProvider === 'codex' && modelChanged) ||
-      (nextProvider === 'claude' && (modelChanged || betasChanged || accessModeChanged))
+      (nextProvider === 'claude' &&
+        (modelChanged || compatibleProviderChanged || betasChanged || accessModeChanged))
     ) {
       existingEntry.handle.abort();
       runnerHandles.delete(sessionId);
@@ -1870,6 +1920,7 @@ async function handleSessionContinue(
     attachments,
     nextProvider,
     nextModel,
+    nextProvider === 'claude' ? nextCompatibleProviderId : undefined,
     nextBetas,
     claudeAccessMode
   );
@@ -1885,6 +1936,7 @@ function startRunner(
   attachments?: Attachment[],
   providerOverride?: 'claude' | 'codex',
   modelOverride?: string,
+  compatibleProviderOverride?: import('../shared/types').ClaudeCompatibleProviderId,
   betasOverride?: string[],
   claudeAccessMode?: import('../shared/types').ClaudeAccessMode
 ): void {
@@ -1892,6 +1944,10 @@ function startRunner(
 
   const sessionState = getSessionState(session.id);
   const provider = providerOverride || session.provider || 'claude';
+  const compatibleProviderId =
+    provider === 'claude'
+      ? compatibleProviderOverride || session.compatible_provider_id || undefined
+      : undefined;
 
   const runner = provider === 'codex' ? runCodex : runClaude;
   if (isDev()) {
@@ -1900,6 +1956,7 @@ function startRunner(
       provider,
       runner: provider === 'codex' ? 'codex-acp' : 'claude-agent-sdk',
       model: modelOverride,
+      compatibleProviderId,
       cwd: session.cwd || process.cwd(),
       hasResume: !!resumeSessionId,
     });
@@ -1914,6 +1971,7 @@ function startRunner(
     session,
     resumeSessionId,
     model: modelOverride,
+    compatibleProviderId,
     betas: provider === 'claude' ? betasOverride || parseStoredBetas(session.betas) : undefined,
     claudeAccessMode,
     onMessage: (message) => {
@@ -1946,6 +2004,10 @@ function startRunner(
               provider === 'claude'
                 ? reconcileClaudeDisplayModel(modelOverride || session.model, message.model)
                 : message.model || modelOverride || undefined,
+            compatibleProviderId:
+              provider === 'claude'
+                ? sessions.getSession(session.id)?.compatible_provider_id || compatibleProviderId
+                : undefined,
             betas:
               provider === 'claude'
                 ? betasOverride || parseStoredBetas(sessions.getSession(session.id)?.betas)
@@ -2003,6 +2065,10 @@ function startRunner(
             status,
             provider,
             model: sessions.getSession(session.id)?.model || modelOverride || undefined,
+            compatibleProviderId:
+              provider === 'claude'
+                ? sessions.getSession(session.id)?.compatible_provider_id || compatibleProviderId
+                : undefined,
             betas:
               provider === 'claude'
                 ? betasOverride || parseStoredBetas(sessions.getSession(session.id)?.betas)
@@ -2065,6 +2131,7 @@ function startRunner(
   runnerHandles.set(session.id, {
     handle,
     provider,
+    compatibleProviderId,
     claudeAccessMode: provider === 'claude' ? (claudeAccessMode || 'default') : undefined,
   });
 }

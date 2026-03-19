@@ -35,7 +35,7 @@ import type {
 import { normalizeCompatibleProvidersConfig } from '../../hooks/useCompatibleProviderConfig';
 
 const DEFAULT_CONFIG = normalizeCompatibleProvidersConfig(undefined);
-const PROVIDER_IDS = ['minimax', 'zhipu', 'moonshot', 'deepseek'] as ClaudeCompatibleProviderId[];
+const PROVIDER_IDS = ['minimaxCn', 'minimax', 'zhipu', 'moonshot', 'deepseek'] as ClaudeCompatibleProviderId[];
 
 type RuntimeTargetId = 'claude-runtime' | 'codex-runtime';
 
@@ -43,6 +43,11 @@ const PROVIDER_META: Record<
   ClaudeCompatibleProviderId,
   { label: string; logo: string; description: string }
 > = {
+  minimaxCn: {
+    label: 'MiniMax (CN)',
+    logo: minimaxLogo,
+    description: 'Anthropic-compatible endpoint for Claude Code access through MiniMax China routing.',
+  },
   minimax: {
     label: 'MiniMax (GLOBAL)',
     logo: minimaxLogo,
@@ -69,10 +74,10 @@ export function CompatibleProviderSettingsContent() {
   const [config, setConfig] = useState<ClaudeCompatibleProvidersConfig>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
   const [selectedRuntimeId, setSelectedRuntimeId] = useState<RuntimeTargetId>('claude-runtime');
-  const [selectedProviderId, setSelectedProviderId] = useState<ClaudeCompatibleProviderId>('minimax');
+  const [selectedProviderId, setSelectedProviderId] = useState<ClaudeCompatibleProviderId>('minimaxCn');
   const [providerDialogOpen, setProviderDialogOpen] = useState(false);
   const [draftProvider, setDraftProvider] = useState<ClaudeCompatibleProviderConfig>(
-    DEFAULT_CONFIG.providers.minimax
+    DEFAULT_CONFIG.providers.minimaxCn
   );
   const [showSecret, setShowSecret] = useState(false);
   const [savingProvider, setSavingProvider] = useState<ClaudeCompatibleProviderId | null>(null);
@@ -806,6 +811,7 @@ function Field({
 
 function getProviderModelPlaceholder(providerId: ClaudeCompatibleProviderId): string {
   switch (providerId) {
+    case 'minimaxCn':
     case 'minimax':
       return 'MiniMax-M2.5';
     case 'zhipu':

@@ -267,6 +267,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
     session,
     resumeSessionId,
     model,
+    compatibleProviderId,
     betas,
     claudeAccessMode,
     onMessage,
@@ -326,7 +327,11 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         ...process.env,
         ...getClaudeEnv(),
       };
-      const providerOverride = applyCompatibleProviderEnv(env, currentModel);
+      const providerOverride = applyCompatibleProviderEnv(
+        env,
+        currentModel,
+        compatibleProviderId || session.compatible_provider_id || null
+      );
       env = providerOverride.env;
       currentModel = providerOverride.forcedModel || currentModel;
       const settings = getClaudeSettings();

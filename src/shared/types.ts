@@ -176,7 +176,12 @@ export interface FeishuBridgeStatus {
 }
 
 export type ClaudeCompatibleAuthType = 'api_key' | 'auth_token';
-export type ClaudeCompatibleProviderId = 'minimax' | 'zhipu' | 'moonshot' | 'deepseek';
+export type ClaudeCompatibleProviderId =
+  | 'minimaxCn'
+  | 'minimax'
+  | 'zhipu'
+  | 'moonshot'
+  | 'deepseek';
 
 export interface ClaudeCompatibleProviderConfig {
   enabled: boolean;
@@ -296,6 +301,7 @@ export interface SessionStartPayload {
   attachments?: Attachment[];
   provider?: AgentProvider;
   model?: string;
+  compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
 }
@@ -306,6 +312,7 @@ export interface SessionContinuePayload {
   attachments?: Attachment[];
   provider?: AgentProvider;
   model?: string;
+  compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
 }
@@ -318,6 +325,7 @@ export interface SessionInfo {
   claudeSessionId?: string;
   provider?: AgentProvider;
   model?: string;
+  compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   todoState?: TodoState;
@@ -338,6 +346,7 @@ export interface SessionStatusPayload {
   error?: string;
   provider?: AgentProvider;
   model?: string;
+  compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
 }

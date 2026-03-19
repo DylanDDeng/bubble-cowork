@@ -19,8 +19,10 @@ interface AgentModelPickerProps {
   disabled?: boolean;
   claudeModel?: {
     value: string | null;
+    compatibleProviderId?: ClaudeCompatibleProviderId | null;
     config: ClaudeModelConfig;
     runtimeModel?: string | null;
+    runtimeCompatibleProviderId?: ClaudeCompatibleProviderId | null;
     context1m?: boolean;
     compatibleOptions?: Array<{
       id: ClaudeCompatibleProviderId;
@@ -28,7 +30,7 @@ interface AgentModelPickerProps {
       model: string;
     }>;
     onToggleContext1m?: (enabled: boolean) => void;
-    onChange: (model: string) => void;
+    onChange: (model: string, compatibleProviderId?: ClaudeCompatibleProviderId | null) => void;
   };
   codexModel?: {
     value: string | null;
@@ -64,7 +66,7 @@ function ProviderIcon({ provider }: { provider: AgentProvider }) {
 
 function CompatibleProviderIcon({ providerId }: { providerId: ClaudeCompatibleProviderId }) {
   const logo =
-    providerId === 'minimax'
+    providerId === 'minimaxCn' || providerId === 'minimax'
       ? minimaxLogo
       : providerId === 'zhipu'
         ? zhipuLogo
@@ -140,13 +142,30 @@ export function AgentModelPicker({
       return null;
     }
 
-    return compatibleOptions.find((option) => option.model === resolvedClaudeValue) || null;
+    const matchingOptions = compatibleOptions.filter((option) => option.model === resolvedClaudeValue);
+    if (matchingOptions.length === 0) {
+      return null;
+    }
+
+    const preferredProviderId =
+      claudeModel.value === resolvedClaudeValue
+        ? claudeModel.compatibleProviderId
+        : claudeModel.runtimeCompatibleProviderId;
+
+    if (preferredProviderId) {
+      const exactMatch = matchingOptions.find((option) => option.id === preferredProviderId);
+      if (exactMatch) {
+        return exactMatch;
+      }
+    }
+
+    return matchingOptions[0] || null;
   }, [provider, claudeModel, compatibleOptions, resolvedClaudeValue]);
 
   const currentModelLabel = useMemo(() => {
     if (provider === 'claude' && claudeModel) {
       if (currentCompatibleOption) {
-        return currentCompatibleOption.model;
+        return `${currentCompatibleOption.label} · ${currentCompatibleOption.model}`;
       }
       return resolvedClaudeValue
         ? formatClaudeModelLabel(resolvedClaudeValue, claudeModel.context1m)
@@ -192,7 +211,7 @@ export function AgentModelPicker({
             <button
               key={model}
               onClick={() => {
-                claudeModel.onChange(model);
+                claudeModel.onChange(model, null);
                 setOpen(false);
               }}
               className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
@@ -211,7 +230,7 @@ export function AgentModelPicker({
               </div>
               <button
                 onClick={() => {
-                  claudeModel.onChange(option.model);
+                  claudeModel.onChange(option.model, option.id);
                   setOpen(false);
                 }}
                 className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
@@ -221,7 +240,7 @@ export function AgentModelPicker({
                   <CompatibleProviderIcon providerId={option.id} />
                   <div className="min-w-0 truncate">{option.model}</div>
                 </div>
-                {resolvedValue === option.model && (
+                {resolvedValue === option.model && currentCompatibleOption?.id === option.id && (
                   <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" />
                 )}
               </button>

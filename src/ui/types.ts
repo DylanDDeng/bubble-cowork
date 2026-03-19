@@ -25,6 +25,7 @@ export type {
   McpServerStatus,
   ClaudeSkillSummary,
   ClaudeModelConfig,
+  ClaudeCompatibleProviderId,
   ClaudeAccessMode,
   ClaudeUsageDailyPoint,
   ClaudeUsageModelSummary,
@@ -75,6 +76,7 @@ export interface SessionView {
   claudeSessionId?: string;
   provider?: AgentProvider;
   model?: string;
+  compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
   todoState?: TodoState;

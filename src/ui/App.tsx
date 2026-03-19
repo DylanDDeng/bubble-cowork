@@ -472,6 +472,7 @@ export function App() {
                                     attachments: attachments && attachments.length > 0 ? attachments : undefined,
                                     provider: activeSession.provider,
                                     model: activeSession.model,
+                                    compatibleProviderId: activeSession.compatibleProviderId,
                                     betas: activeSession.betas,
                                     claudeAccessMode:
                                       activeSession.provider === 'claude'

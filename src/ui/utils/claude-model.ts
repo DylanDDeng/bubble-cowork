@@ -1,6 +1,7 @@
-import type { ClaudeModelConfig } from '../types';
+import type { ClaudeCompatibleProviderId, ClaudeModelConfig } from '../types';
 
 const STORAGE_KEY = 'cowork.preferredClaudeModel';
+const COMPATIBLE_PROVIDER_STORAGE_KEY = 'cowork.preferredClaudeCompatibleProvider';
 const CONTEXT_1M_STORAGE_KEY = 'cowork.preferredClaudeContext1m';
 
 export const CLAUDE_MODEL_PRESETS = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5'];
@@ -46,6 +47,32 @@ export function savePreferredClaudeModel(model: string | null): void {
     return;
   }
   window.localStorage.setItem(STORAGE_KEY, canonicalizeClaudeModel(model) || model);
+}
+
+export function loadPreferredClaudeCompatibleProviderId(): ClaudeCompatibleProviderId | null {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(COMPATIBLE_PROVIDER_STORAGE_KEY);
+  if (
+    raw === 'minimaxCn' ||
+    raw === 'minimax' ||
+    raw === 'zhipu' ||
+    raw === 'moonshot' ||
+    raw === 'deepseek'
+  ) {
+    return raw;
+  }
+  return null;
+}
+
+export function savePreferredClaudeCompatibleProviderId(
+  providerId: ClaudeCompatibleProviderId | null
+): void {
+  if (typeof window === 'undefined') return;
+  if (!providerId) {
+    window.localStorage.removeItem(COMPATIBLE_PROVIDER_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(COMPATIBLE_PROVIDER_STORAGE_KEY, providerId);
 }
 
 export function loadPreferredClaudeContext1m(): boolean {
