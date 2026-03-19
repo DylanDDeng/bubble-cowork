@@ -52,7 +52,7 @@ export async function searchSkillMarket(query: string, limit = DEFAULT_LIMIT): P
   const response = await fetchWithRetries(`${SKILLS_BASE_URL}/api/search?q=${encodeURIComponent(trimmed)}`, {
     headers: {
       Accept: 'application/json',
-      'User-Agent': 'aegis/0.0.8',
+      'User-Agent': 'aegis/0.0.9',
     },
   }, 'searching skills.sh');
 
@@ -194,7 +194,7 @@ async function fetchText(url: string): Promise<string> {
   const response = await fetchWithRetries(url, {
     headers: {
       Accept: 'text/html,application/json',
-      'User-Agent': 'aegis/0.0.8',
+      'User-Agent': 'aegis/0.0.9',
     },
   }, 'loading skills.sh');
 
