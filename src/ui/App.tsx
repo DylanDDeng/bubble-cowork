@@ -1,5 +1,6 @@
-import { useEffect, useRef, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useMemo, useState } from 'react';
 import { Toaster, toast } from 'sonner';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   Check,
   Copy,
@@ -380,16 +381,10 @@ export function App() {
       {!showSettings && (
         <ChromeSidebarToggleButton
           onClick={() => setProjectTreeCollapsed(!projectTreeCollapsed)}
+          collapsed={projectTreeCollapsed}
           className={isMacOS ? 'top-[4px] right-[12px]' : 'top-2 right-2'}
           title={projectTreeCollapsed ? 'Show project files' : 'Hide project files'}
           aria-label={projectTreeCollapsed ? 'Show project files' : 'Hide project files'}
-          icon={
-            projectTreeCollapsed ? (
-              <PanelRightOpen className="w-[17px] h-[17px] pointer-events-none" aria-hidden="true" />
-            ) : (
-              <PanelRightClose className="w-[17px] h-[17px] pointer-events-none" aria-hidden="true" />
-            )
-          }
         />
       )}
 
@@ -538,7 +533,7 @@ export function App() {
       )}
 
       {/* 右侧项目文件树 */}
-      {!showSettings && !projectTreeCollapsed && <ProjectTreePanel />}
+      {!showSettings && <ProjectTreePanel collapsed={projectTreeCollapsed} />}
 
       {/* Toast 通知 */}
       <Toaster
@@ -567,14 +562,14 @@ export function App() {
 
 function ChromeSidebarToggleButton({
   onClick,
+  collapsed,
   title,
   className,
-  icon,
 }: {
   onClick: () => void;
+  collapsed: boolean;
   title: string;
   className: string;
-  icon: ReactNode;
 }) {
   return (
     <button
@@ -584,7 +579,22 @@ function ChromeSidebarToggleButton({
       aria-label={title}
     >
       <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-transparent bg-transparent text-[var(--text-secondary)] transition-[background-color,border-color,color,transform,box-shadow] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:border-[var(--border)] group-hover:bg-[var(--bg-secondary)] group-hover:text-[var(--text-primary)] group-hover:shadow-[0_4px_12px_rgba(15,23,42,0.08)] group-active:scale-[0.98]">
-        {icon}
+        <AnimatePresence initial={false} mode="wait">
+          <motion.span
+            key={collapsed ? 'open' : 'close'}
+            initial={{ opacity: 0, scale: 0.8, rotate: collapsed ? -18 : 18 }}
+            animate={{ opacity: 1, scale: 1, rotate: 0 }}
+            exit={{ opacity: 0, scale: 0.8, rotate: collapsed ? 18 : -18 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            className="flex items-center justify-center"
+          >
+            {collapsed ? (
+              <PanelRightOpen className="w-[17px] h-[17px] pointer-events-none" aria-hidden="true" />
+            ) : (
+              <PanelRightClose className="w-[17px] h-[17px] pointer-events-none" aria-hidden="true" />
+            )}
+          </motion.span>
+        </AnimatePresence>
       </span>
     </button>
   );

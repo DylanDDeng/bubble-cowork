@@ -266,7 +266,7 @@ function isImageName(name: string): boolean {
 }
 
 
-export function ProjectTreePanel() {
+export function ProjectTreePanel({ collapsed = false }: { collapsed?: boolean }) {
   const defaultRailWidth = 280;
   const minRailWidth = 260;
   const maxRailWidth = 560;
@@ -617,7 +617,7 @@ export function ProjectTreePanel() {
 
   useEffect(() => {
     const root = document.documentElement;
-    const showPreview = selectedFilePath;
+    const showPreview = !collapsed && selectedFilePath;
     root.style.setProperty(
       '--project-preview-space',
       showPreview ? `${previewPanelWidth}px` : '0px'
@@ -626,7 +626,7 @@ export function ProjectTreePanel() {
     return () => {
       root.style.setProperty('--project-preview-space', '0px');
     };
-  }, [selectedFilePath, previewPanelWidth]);
+  }, [collapsed, selectedFilePath, previewPanelWidth]);
 
   const canSaveTxt =
     !!cwd &&
@@ -777,8 +777,16 @@ export function ProjectTreePanel() {
       )}
 
       <div
-        className="relative flex h-full flex-shrink-0 flex-col border-l border-[var(--tree-item-border)] bg-[var(--preview-surface)]"
-        style={{ width: panelWidth }}
+        className={`relative flex h-full flex-shrink-0 flex-col border-l border-[var(--tree-item-border)] bg-[var(--preview-surface)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          collapsed ? 'pointer-events-none' : ''
+        }`}
+        style={{
+          width: collapsed ? 0 : panelWidth,
+          opacity: collapsed ? 0 : 1,
+          transform: collapsed ? 'translateX(18px)' : 'translateX(0)',
+          borderLeftWidth: collapsed ? 0 : 1,
+        }}
+        aria-hidden={collapsed}
       >
         {!selectedFilePath && (
           <div
