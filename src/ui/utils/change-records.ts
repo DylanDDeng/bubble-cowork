@@ -627,6 +627,12 @@ export function mergeChangeRecords(
   let order = toolRecords.length;
 
   for (const entry of gitChanges) {
+    // Hide unrelated workspace-only untracked files. New files created by the
+    // current session still appear through toolRecords above.
+    if (entry.status === '?') {
+      continue;
+    }
+
     if (seenPaths.has(normalizePath(entry.filePath))) {
       continue;
     }
