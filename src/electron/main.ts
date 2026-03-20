@@ -72,6 +72,59 @@ let devFileWatcher: fs.FSWatcher | null = null;
 let updateCheckStarted = false;
 const RELEASES_URL = 'https://github.com/DylanDDeng/bubble-cowork/releases';
 
+function stripSimpleHtml(input: string): string {
+  return input
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .trim();
+}
+
+function normalizeReleaseNotes(
+  releaseNotes: unknown
+): string | null {
+  if (typeof releaseNotes === 'string') {
+    const normalized = stripSimpleHtml(releaseNotes).trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  if (Array.isArray(releaseNotes)) {
+    const sections = releaseNotes
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') {
+          return null;
+        }
+
+        const version = typeof (entry as { version?: unknown }).version === 'string'
+          ? (entry as { version?: string }).version
+          : null;
+        const note = typeof (entry as { note?: unknown }).note === 'string'
+          ? stripSimpleHtml((entry as { note?: string }).note || '')
+          : '';
+
+        if (!note.trim()) {
+          return null;
+        }
+
+        return version ? `Version ${version}\n${note.trim()}` : note.trim();
+      })
+      .filter((value): value is string => Boolean(value && value.trim()));
+
+    return sections.length > 0 ? sections.join('\n\n') : null;
+  }
+
+  return null;
+}
+
+function buildUpdateDetail(info: { releaseNotes?: unknown }): string {
+  const notes = normalizeReleaseNotes(info.releaseNotes);
+  if (!notes) {
+    return 'This build uses manual updates. Open the GitHub Releases page to download the latest package.';
+  }
+
+  return `${notes}\n\nOpen the GitHub Releases page to download the latest package.`;
+}
+
 // 窗口状态持久化
 interface WindowState {
   x?: number;
@@ -231,7 +284,7 @@ function setupAutoUpdater(): void {
       type: 'info',
       title: 'Update available',
       message: `A new version${info?.version ? ` (${info.version})` : ''} is available.`,
-      detail: 'This build uses manual updates. Open the GitHub Releases page to download the latest package.',
+      detail: buildUpdateDetail(info),
       buttons: ['Open Release Page', 'Later'],
       defaultId: 0,
       cancelId: 1,
