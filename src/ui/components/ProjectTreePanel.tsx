@@ -795,6 +795,18 @@ export function ProjectTreePanel({
         }}
         aria-hidden={collapsed}
       >
+        {!collapsed && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-3 top-10 z-30 flex h-7 w-7 items-center justify-center rounded-[10px] border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-muted)] shadow-[0_4px_14px_rgba(15,23,42,0.08)] transition-colors hover:text-[var(--text-secondary)]"
+            title="Close panel"
+            aria-label="Close panel"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+
         {!selectedFilePath && (
           <div
             className="group absolute left-0 top-0 bottom-0 z-10 w-3 -translate-x-1/2 cursor-col-resize no-drag"
@@ -804,7 +816,7 @@ export function ProjectTreePanel({
           </div>
         )}
         <div className="h-8 drag-region" />
-        <div className="px-4 pt-2 pb-2">
+        <div className="px-4 pt-2 pb-2 pr-12">
           <div className="flex items-center gap-1">
             <button
               onClick={() => { onChangeTab('files'); setExpandedChangeId(null); }}
@@ -842,15 +854,6 @@ export function ProjectTreePanel({
                   <RefreshCw className={`w-3 h-3 ${changesLoading ? 'animate-spin' : ''}`} />
                 </button>
               )}
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
-                title="Close panel"
-                aria-label="Close panel"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
             </div>
           </div>
           {!cwd && (
