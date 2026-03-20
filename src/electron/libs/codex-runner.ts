@@ -444,7 +444,7 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
       clientInfo: {
         name: 'aegis',
         title: 'Aegis',
-        version: '0.0.9',
+        version: '0.0.10',
       },
     })) as Record<string, unknown> | undefined;
 
