@@ -16,7 +16,7 @@ function checkCommandOnPath(command: string): Promise<boolean> {
 export async function getOpencodeRuntimeStatus(): Promise<OpenCodeRuntimeStatus> {
   const cliAvailable = await checkCommandOnPath('opencode');
   const configExists = existsSync(getOpencodeConfigPath());
-  const modelConfig = getOpencodeModelConfig();
+  const modelConfig = await getOpencodeModelConfig();
   const hasModelConfig = Boolean(modelConfig.defaultModel || modelConfig.options.length > 0);
 
   return {

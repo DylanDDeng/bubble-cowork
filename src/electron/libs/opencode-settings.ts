@@ -1,3 +1,4 @@
+import { execFile } from 'child_process';
 import { app } from 'electron';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
@@ -21,6 +22,18 @@ type OpenCodeConfigFile = {
 type OpenCodeModelVisibilityConfig = {
   hiddenModels?: string[];
 };
+
+function execFileAsync(file: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, { timeout: 15000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
 
 function readOpencodeConfig(): OpenCodeConfigFile {
   try {
@@ -79,10 +92,33 @@ export function getOpencodeConfigPath(): string {
   return OPENCODE_CONFIG_PATH;
 }
 
-export function getOpencodeModelConfig(): OpenCodeModelConfig {
+async function getDetectedOpencodeModelsFromCli(): Promise<string[]> {
+  try {
+    const { stdout } = await execFileAsync('opencode', ['models']);
+    return stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  } catch (error) {
+    console.warn('Failed to load OpenCode models from CLI, falling back to config:', error);
+    return [];
+  }
+}
+
+export async function getOpencodeModelConfig(): Promise<OpenCodeModelConfig> {
   const config = readOpencodeConfig();
   const defaultModel = config.model?.trim() || null;
-  const detectedModels = getDetectedOpencodeModels(defaultModel);
+  const cliModels = await getDetectedOpencodeModelsFromCli();
+  const detectedModels =
+    cliModels.length > 0
+      ? Array.from(
+          new Set(
+            [defaultModel, ...cliModels]
+              .map((value) => value?.trim())
+              .filter((value): value is string => Boolean(value))
+          )
+        )
+      : getDetectedOpencodeModels(defaultModel);
   const hiddenModels = new Set(
     (readOpencodeModelVisibility().hiddenModels || [])
       .map((model) => model.trim())
@@ -98,11 +134,18 @@ export function getOpencodeModelConfig(): OpenCodeModelConfig {
   return { defaultModel, options, availableModels };
 }
 
-export function saveOpencodeModelVisibility(enabledModels: string[]): OpenCodeModelConfig {
+export async function saveOpencodeModelVisibility(enabledModels: string[]): Promise<OpenCodeModelConfig> {
   const nextEnabledModels = new Set(
     enabledModels.map((model) => model.trim()).filter((model) => model.length > 0)
   );
-  const detectedModels = getDetectedOpencodeModels(getOpencodeModelConfig().defaultModel);
+  const currentConfig = await getOpencodeModelConfig();
+  const detectedModels = Array.from(
+    new Set(
+      [currentConfig.defaultModel, ...currentConfig.availableModels.map((model) => model.name)]
+        .map((model) => model?.trim())
+        .filter((model): model is string => Boolean(model))
+    )
+  );
   const hiddenModels = detectedModels.filter((model) => !nextEnabledModels.has(model));
   writeOpencodeModelVisibility(hiddenModels);
   return getOpencodeModelConfig();
