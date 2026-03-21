@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Check, ChevronDown, ChevronLeft } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Check, ChevronDown, ChevronLeft, Search } from 'lucide-react';
 import type { AgentProvider, ClaudeCompatibleProviderId, ClaudeModelConfig } from '../types';
 import { PROVIDERS } from '../utils/provider';
 import { buildClaudeModelOptions, formatClaudeModelLabel, isOfficialClaudeModel, supportsClaude1mContext } from '../utils/claude-model';
@@ -13,6 +13,7 @@ import moonshotLogo from '../assets/moonshot.svg';
 import openaiLogo from '../assets/openai.svg';
 import zhipuLogo from '../assets/zhipu-color.svg';
 import { OpenCodeLogo } from './OpenCodeLogo';
+import { Input } from './ui/input';
 
 type PickerMode = 'provider' | 'model';
 
@@ -101,6 +102,7 @@ export function AgentModelPicker({
 }: AgentModelPickerProps) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<PickerMode>('provider');
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
   const currentProvider = PROVIDERS.find((item) => item.id === provider) || PROVIDERS[0];
   const compatibleOptions = claudeModel?.compatibleOptions || [];
   const claudeExtraModels = useMemo(
@@ -139,6 +141,13 @@ export function AgentModelPicker({
     (provider === 'opencode' && opencodeOptions.length > 0);
 
   const openMode = mode === 'model' && hasModelOptions ? 'model' : 'provider';
+
+  useEffect(() => {
+    if (!open || openMode !== 'model') {
+      setModelSearchQuery('');
+    }
+  }, [open, openMode, provider]);
+
   const resolvedClaudeValue = useMemo(() => {
     if (!claudeModel) {
       return '';
@@ -221,16 +230,36 @@ export function AgentModelPicker({
     setMode('model');
   };
 
+  const normalizedModelSearchQuery = modelSearchQuery.trim().toLowerCase();
+
   const renderModelItems = () => {
     if (provider === 'claude' && claudeModel) {
       const resolvedValue = resolvedClaudeValue;
+      const filteredClaudePrimaryOptions = claudePrimaryOptions.filter((model) => {
+        if (!normalizedModelSearchQuery) return true;
+        return (
+          model.toLowerCase().includes(normalizedModelSearchQuery) ||
+          formatClaudeModelLabel(model, claudeModel.context1m).toLowerCase().includes(normalizedModelSearchQuery)
+        );
+      });
+      const filteredCompatibleOptions = compatibleOptions.filter((option) => {
+        if (!normalizedModelSearchQuery) return true;
+        return (
+          option.label.toLowerCase().includes(normalizedModelSearchQuery) ||
+          option.model.toLowerCase().includes(normalizedModelSearchQuery)
+        );
+      });
+      const hasResults =
+        filteredClaudePrimaryOptions.length > 0 || filteredCompatibleOptions.length > 0;
 
       return (
         <>
-          <div className="px-2 py-1 text-[10px] font-medium text-[var(--text-muted)]">
-            Claude Code
-          </div>
-          {claudePrimaryOptions.map((model) => (
+          {filteredClaudePrimaryOptions.length > 0 && (
+            <div className="px-2 py-1 text-[10px] font-medium text-[var(--text-muted)]">
+              Claude Code
+            </div>
+          )}
+          {filteredClaudePrimaryOptions.map((model) => (
             <button
               key={model}
               onClick={() => {
@@ -246,7 +275,7 @@ export function AgentModelPicker({
               )}
             </button>
           ))}
-          {compatibleOptions.map((option) => (
+          {filteredCompatibleOptions.map((option) => (
             <div key={option.id} className="mt-2 border-t border-[var(--border)] pt-2">
               <div className="px-2 py-1 text-[10px] font-medium text-[var(--text-muted)]">
                 {option.label}
@@ -269,14 +298,34 @@ export function AgentModelPicker({
               </button>
             </div>
           ))}
+          {!hasResults && (
+            <div className="px-2 py-3 text-sm text-[var(--text-muted)]">
+              No models match "{modelSearchQuery.trim()}".
+            </div>
+          )}
         </>
       );
     }
 
     if (provider === 'codex' && codexModel) {
       const resolvedValue = codexModel.value || codexOptions[0] || '';
+      const filteredCodexOptions = codexOptions.filter((model) => {
+        if (!normalizedModelSearchQuery) return true;
+        return (
+          model.toLowerCase().includes(normalizedModelSearchQuery) ||
+          formatCodexModelLabel(model).toLowerCase().includes(normalizedModelSearchQuery)
+        );
+      });
 
-      return codexOptions.map((model) => (
+      if (filteredCodexOptions.length === 0) {
+        return (
+          <div className="px-2 py-3 text-sm text-[var(--text-muted)]">
+            No models match "{modelSearchQuery.trim()}".
+          </div>
+        );
+      }
+
+      return filteredCodexOptions.map((model) => (
         <button
           key={model}
           onClick={() => {
@@ -296,8 +345,23 @@ export function AgentModelPicker({
 
     if (provider === 'opencode' && opencodeModel) {
       const resolvedValue = opencodeModel.value || opencodeOptions[0] || '';
+      const filteredOpencodeOptions = opencodeOptions.filter((model) => {
+        if (!normalizedModelSearchQuery) return true;
+        return (
+          model.toLowerCase().includes(normalizedModelSearchQuery) ||
+          formatOpencodeModelLabel(model).toLowerCase().includes(normalizedModelSearchQuery)
+        );
+      });
 
-      return opencodeOptions.map((model) => (
+      if (filteredOpencodeOptions.length === 0) {
+        return (
+          <div className="px-2 py-3 text-sm text-[var(--text-muted)]">
+            No models match "{modelSearchQuery.trim()}".
+          </div>
+        );
+      }
+
+      return filteredOpencodeOptions.map((model) => (
         <button
           key={model}
           onClick={() => {
@@ -339,7 +403,7 @@ export function AgentModelPicker({
       {open && !disabled && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 z-20 mb-1 min-w-[220px] rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-lg">
+          <div className="absolute bottom-full left-0 z-20 mb-1 min-w-[220px] max-h-[min(70vh,560px)] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-lg">
             {openMode === 'provider' ? (
               <>
                 {PROVIDERS.map((item) => (
@@ -366,6 +430,17 @@ export function AgentModelPicker({
                   <ChevronLeft className="h-3.5 w-3.5" />
                   <span>Change Agent</span>
                 </button>
+                <div className="sticky top-0 z-10 mb-1 bg-[var(--bg-secondary)] px-1 pb-1">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
+                    <Input
+                      value={modelSearchQuery}
+                      onChange={(event) => setModelSearchQuery(event.target.value)}
+                      placeholder="Search models"
+                      className="h-9 rounded-lg border-[var(--border)] bg-[var(--bg-primary)] pl-9 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:ring-[var(--accent)]"
+                    />
+                  </div>
+                </div>
                 {renderModelItems()}
                 {provider === 'claude' &&
                   claudeModel &&

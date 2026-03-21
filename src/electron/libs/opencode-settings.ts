@@ -23,6 +23,15 @@ type OpenCodeModelVisibilityConfig = {
   hiddenModels?: string[];
 };
 
+const OPENCODE_MODELS_CACHE_TTL_MS = 30_000;
+
+let cachedCliModels:
+  | {
+      models: string[];
+      fetchedAt: number;
+    }
+  | null = null;
+
 function execFileAsync(file: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     execFile(file, args, { timeout: 15000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -93,12 +102,24 @@ export function getOpencodeConfigPath(): string {
 }
 
 async function getDetectedOpencodeModelsFromCli(): Promise<string[]> {
+  if (
+    cachedCliModels &&
+    Date.now() - cachedCliModels.fetchedAt < OPENCODE_MODELS_CACHE_TTL_MS
+  ) {
+    return cachedCliModels.models;
+  }
+
   try {
     const { stdout } = await execFileAsync('opencode', ['models']);
-    return stdout
+    const models = stdout
       .split('\n')
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
+    cachedCliModels = {
+      models,
+      fetchedAt: Date.now(),
+    };
+    return models;
   } catch (error) {
     console.warn('Failed to load OpenCode models from CLI, falling back to config:', error);
     return [];
@@ -148,5 +169,17 @@ export async function saveOpencodeModelVisibility(enabledModels: string[]): Prom
   );
   const hiddenModels = detectedModels.filter((model) => !nextEnabledModels.has(model));
   writeOpencodeModelVisibility(hiddenModels);
-  return getOpencodeModelConfig();
+
+  const availableModels = detectedModels.map((name) => ({
+    name,
+    enabled: !hiddenModels.includes(name),
+    isDefault: currentConfig.defaultModel === name,
+  }));
+  const options = availableModels.filter((model) => model.enabled).map((model) => model.name);
+
+  return {
+    defaultModel: currentConfig.defaultModel,
+    options,
+    availableModels,
+  };
 }

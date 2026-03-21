@@ -5,6 +5,7 @@ import {
   Eye,
   EyeOff,
   LoaderCircle,
+  Search,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import claudeLogo from '../../assets/claude-color.svg';
@@ -23,6 +24,7 @@ import { formatCodexModelLabel } from '../../utils/codex-model';
 import { formatOpencodeModelLabel } from '../../utils/opencode-model';
 import { Badge } from '../ui/badge';
 import { OpenCodeLogo } from '../OpenCodeLogo';
+import { Input } from '../ui/input';
 import {
   Dialog,
   DialogContent,
@@ -574,12 +576,25 @@ function CodexRuntimeDetailPanel({
 }) {
   const normalizedAvailableModels = modelConfig.availableModels || [];
   const [availableModels, setAvailableModels] = useState(normalizedAvailableModels);
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [savingModelName, setSavingModelName] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     setAvailableModels(normalizedAvailableModels);
   }, [normalizedAvailableModels]);
+
+  const filteredModels = useMemo(() => {
+    const query = modelSearchQuery.trim().toLowerCase();
+    if (!query) {
+      return availableModels;
+    }
+
+    return availableModels.filter((model) => {
+      const formattedLabel = formatModelLabel(model.name).toLowerCase();
+      return model.name.toLowerCase().includes(query) || formattedLabel.includes(query);
+    });
+  }, [availableModels, formatModelLabel, modelSearchQuery]);
 
   const handleToggleModel = async (modelName: string, enabled: boolean) => {
     const nextModels = availableModels.map((model) =>
@@ -613,9 +628,20 @@ function CodexRuntimeDetailPanel({
       ) : null}
 
       {availableModels.length > 0 ? (
+        <>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
+            <Input
+              value={modelSearchQuery}
+              onChange={(event) => setModelSearchQuery(event.target.value)}
+              placeholder="Search models"
+              className="h-11 rounded-[14px] border-[var(--border)] bg-[var(--bg-primary)] pl-9 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:ring-[var(--accent)]"
+            />
+          </div>
+
         <div className="max-h-[560px] overflow-y-auto pr-1">
           <div className="space-y-2">
-          {availableModels.map((model) => {
+          {filteredModels.map((model) => {
             const toggling = savingModelName === model.name;
 
             return (
@@ -668,8 +694,15 @@ function CodexRuntimeDetailPanel({
               </div>
             );
           })}
+
+          {filteredModels.length === 0 ? (
+            <div className="rounded-[16px] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-4 py-6 text-sm leading-6 text-[var(--text-secondary)]">
+              No models match "{modelSearchQuery.trim()}".
+            </div>
+          ) : null}
           </div>
         </div>
+        </>
       ) : (
         <div className="rounded-[16px] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-4 py-6 text-sm leading-6 text-[var(--text-secondary)]">
           {loading ? loadingMessage : emptyMessage}

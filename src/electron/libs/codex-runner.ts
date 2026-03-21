@@ -69,6 +69,34 @@ const OPENCODE_ADAPTER: AcpAdapter = {
   protocolVersion: 1,
 };
 
+function buildAcpProcessEnv(adapter: AcpAdapter, selectedModel?: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+
+  if (adapter.id !== 'opencode' || !selectedModel) {
+    return env;
+  }
+
+  let inlineConfig: Record<string, unknown> = {};
+  const existingInlineConfig = env.OPENCODE_CONFIG_CONTENT;
+  if (existingInlineConfig) {
+    try {
+      const parsed = JSON.parse(existingInlineConfig);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        inlineConfig = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Ignore invalid inline config and replace it with a minimal valid override.
+    }
+  }
+
+  env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
+    ...inlineConfig,
+    model: selectedModel,
+  });
+
+  return env;
+}
+
 class JsonRpcClient {
   private readonly pending = new Map<
     number,
@@ -243,9 +271,10 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
   let pendingFinalizeOnSessionInfo = false;
 
   const spawnArgs = adapter.getArgs(selectedModel);
+  const env = buildAcpProcessEnv(adapter, selectedModel);
   const proc = spawn(adapter.command, spawnArgs, {
     cwd: session.cwd || process.cwd(),
-    env: process.env,
+    env,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   if (isDev()) {

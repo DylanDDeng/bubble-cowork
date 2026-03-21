@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { OpenCodeModelConfig } from '../types';
 
 const FALLBACK_CONFIG: OpenCodeModelConfig = {
@@ -41,20 +41,25 @@ function normalizeOpencodeModelConfig(raw: Partial<OpenCodeModelConfig> | null |
 
 export function useOpencodeModelConfig() {
   const [config, setConfig] = useState<OpenCodeModelConfig>(FALLBACK_CONFIG);
+  const latestRequestIdRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
-    const loadConfig = () =>
-      window.electron
+    const loadConfig = () => {
+      const requestId = latestRequestIdRef.current + 1;
+      latestRequestIdRef.current = requestId;
+
+      return window.electron
         .getOpencodeModelConfig()
         .then((nextConfig) => {
-          if (!cancelled) {
+          if (!cancelled && latestRequestIdRef.current === requestId) {
             setConfig(normalizeOpencodeModelConfig(nextConfig));
           }
         })
         .catch((error) => {
           console.error('Failed to load OpenCode model config:', error);
         });
+    };
 
     void loadConfig();
 

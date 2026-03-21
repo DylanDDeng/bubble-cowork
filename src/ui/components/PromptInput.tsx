@@ -304,13 +304,14 @@ export function PromptInput() {
       activeSession.model ||
       loadPreferredCodexModel() ||
       codexModelOptions[0];
-    setSelectedCodexModel(nextModel || null);
+    if ((nextModel || null) !== selectedCodexModel) {
+      setSelectedCodexModel(nextModel || null);
+    }
   }, [
     activeSessionId,
     activeSession?.provider,
     activeSession?.model,
     codexModelOptions,
-    selectedCodexModel,
   ]);
 
   useEffect(() => {
@@ -336,13 +337,14 @@ export function PromptInput() {
       activeSession.model ||
       loadPreferredOpencodeModel() ||
       opencodeModelOptions[0];
-    setSelectedOpencodeModel(nextModel || null);
+    if ((nextModel || null) !== selectedOpencodeModel) {
+      setSelectedOpencodeModel(nextModel || null);
+    }
   }, [
     activeSessionId,
     activeSession?.provider,
     activeSession?.model,
     opencodeModelOptions,
-    selectedOpencodeModel,
   ]);
 
 
