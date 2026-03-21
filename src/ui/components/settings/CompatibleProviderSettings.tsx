@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronRight,
+  Code2,
   Eye,
   EyeOff,
   LoaderCircle,
@@ -16,8 +17,11 @@ import mimoLogo from '../../assets/xiaomimimo.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
 import { useClaudeRuntimeStatus } from '../../hooks/useClaudeRuntimeStatus';
 import { useCodexModelConfig } from '../../hooks/useCodexModelConfig';
+import { useOpencodeModelConfig } from '../../hooks/useOpencodeModelConfig';
 import { useCodexRuntimeStatus } from '../../hooks/useCodexRuntimeStatus';
+import { useOpencodeRuntimeStatus } from '../../hooks/useOpencodeRuntimeStatus';
 import { formatCodexModelLabel } from '../../utils/codex-model';
+import { formatOpencodeModelLabel } from '../../utils/opencode-model';
 import { Badge } from '../ui/badge';
 import {
   Dialog,
@@ -34,13 +38,15 @@ import type {
   ClaudeRuntimeStatus,
   CodexModelConfig,
   CodexRuntimeStatus,
+  OpenCodeModelConfig,
+  OpenCodeRuntimeStatus,
 } from '../../types';
 import { normalizeCompatibleProvidersConfig } from '../../hooks/useCompatibleProviderConfig';
 
 const DEFAULT_CONFIG = normalizeCompatibleProvidersConfig(undefined);
 const PROVIDER_IDS = ['minimaxCn', 'minimax', 'mimo', 'zhipu', 'moonshot', 'deepseek'] as ClaudeCompatibleProviderId[];
 
-type RuntimeTargetId = 'claude-runtime' | 'codex-runtime';
+type RuntimeTargetId = 'claude-runtime' | 'codex-runtime' | 'opencode-runtime';
 
 const PROVIDER_META: Record<
   ClaudeCompatibleProviderId,
@@ -100,7 +106,12 @@ export function CompatibleProviderSettingsContent() {
     status: codexRuntimeStatus,
     loading: codexRuntimeLoading,
   } = useCodexRuntimeStatus();
+  const {
+    status: opencodeRuntimeStatus,
+    loading: opencodeRuntimeLoading,
+  } = useOpencodeRuntimeStatus();
   const codexModelConfig = useCodexModelConfig();
+  const opencodeModelConfig = useOpencodeModelConfig();
 
   useEffect(() => {
     let cancelled = false;
@@ -223,6 +234,14 @@ export function CompatibleProviderSettingsContent() {
                   selected={selectedRuntimeId === 'codex-runtime'}
                   onSelect={() => setSelectedRuntimeId('codex-runtime')}
                 />
+                <RuntimeRailItem
+                  title="OpenCode ACP"
+                  logo={<Code2 className="h-5 w-5 flex-shrink-0 text-[var(--text-secondary)]" aria-hidden="true" />}
+                  summary={buildOpencodeSummary(opencodeRuntimeStatus, opencodeRuntimeLoading)}
+                  status={buildOpencodeRailStatus(opencodeRuntimeStatus, opencodeRuntimeLoading)}
+                  selected={selectedRuntimeId === 'opencode-runtime'}
+                  onSelect={() => setSelectedRuntimeId('opencode-runtime')}
+                />
               </RailSection>
             </div>
           </div>
@@ -238,10 +257,27 @@ export function CompatibleProviderSettingsContent() {
               savingProvider={savingProvider}
               onOpenProvider={openProviderDialog}
             />
-          ) : (
+          ) : selectedRuntimeId === 'codex-runtime' ? (
             <CodexRuntimeDetailPanel
               modelConfig={codexModelConfig}
               loading={codexRuntimeLoading}
+              saveVisibility={window.electron.saveCodexModelVisibility}
+              updatedEventName="codex-model-config-updated"
+              formatModelLabel={formatCodexModelLabel}
+              loadingMessage="Checking local Codex models..."
+              emptyMessage="No local Codex models were detected yet. Models will appear automatically when the local Codex cache is ready."
+              saveErrorMessage="Failed to update Codex model visibility."
+            />
+          ) : (
+            <CodexRuntimeDetailPanel
+              modelConfig={opencodeModelConfig}
+              loading={opencodeRuntimeLoading}
+              saveVisibility={window.electron.saveOpencodeModelVisibility}
+              updatedEventName="opencode-model-config-updated"
+              formatModelLabel={formatOpencodeModelLabel}
+              loadingMessage="Checking local OpenCode models..."
+              emptyMessage="No local OpenCode models were detected yet. Models will appear automatically when the local OpenCode cache is ready."
+              saveErrorMessage="Failed to update OpenCode model visibility."
             />
           )}
         </div>
@@ -520,9 +556,21 @@ function ClaudeProviderWorkspace({
 function CodexRuntimeDetailPanel({
   modelConfig,
   loading,
+  saveVisibility,
+  updatedEventName,
+  formatModelLabel,
+  loadingMessage,
+  emptyMessage,
+  saveErrorMessage,
 }: {
-  modelConfig: CodexModelConfig;
+  modelConfig: CodexModelConfig | OpenCodeModelConfig;
   loading: boolean;
+  saveVisibility: (enabledModels: string[]) => Promise<{ availableModels: Array<{ name: string; enabled: boolean; isDefault: boolean }> }>;
+  updatedEventName: string;
+  formatModelLabel: (name: string) => string;
+  loadingMessage: string;
+  emptyMessage: string;
+  saveErrorMessage: string;
 }) {
   const normalizedAvailableModels = modelConfig.availableModels || [];
   const [availableModels, setAvailableModels] = useState(normalizedAvailableModels);
@@ -542,14 +590,14 @@ function CodexRuntimeDetailPanel({
     setSaveError(null);
 
     try {
-      const saved = await window.electron.saveCodexModelVisibility(
+      const saved = await saveVisibility(
         nextModels.filter((model) => model.enabled).map((model) => model.name)
       );
       setAvailableModels(saved.availableModels || []);
-      window.dispatchEvent(new CustomEvent('codex-model-config-updated'));
+      window.dispatchEvent(new CustomEvent(updatedEventName));
     } catch (error) {
       setAvailableModels(normalizedAvailableModels);
-      setSaveError(error instanceof Error ? error.message : 'Failed to update Codex model visibility.');
+      setSaveError(error instanceof Error ? error.message : saveErrorMessage);
     } finally {
       setSavingModelName(null);
     }
@@ -578,7 +626,7 @@ function CodexRuntimeDetailPanel({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <div className="truncate text-sm font-medium text-[var(--text-primary)]">
-                      {formatCodexModelLabel(model.name)}
+                      {formatModelLabel(model.name)}
                     </div>
                     {model.isDefault ? (
                       <Badge
@@ -624,9 +672,7 @@ function CodexRuntimeDetailPanel({
         </div>
       ) : (
         <div className="rounded-[16px] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-4 py-6 text-sm leading-6 text-[var(--text-secondary)]">
-          {loading
-            ? 'Checking local Codex models...'
-            : 'No local Codex models were detected yet. Models will appear automatically when the local Codex cache is ready.'}
+          {loading ? loadingMessage : emptyMessage}
         </div>
       )}
       </div>
@@ -662,7 +708,7 @@ function RuntimeRailItem({
   onSelect,
 }: {
   title: string;
-  logo: string;
+  logo: ReactNode | string;
   summary: string;
   status: { label: string; tone: string; dot: string };
   selected: boolean;
@@ -678,12 +724,13 @@ function RuntimeRailItem({
           : 'border-transparent bg-[var(--bg-secondary)]/92 hover:bg-[var(--bg-tertiary)]/55'
       }`}
     >
-      <img
-        src={logo}
-        alt=""
-        className="mt-0.5 h-5 w-5 flex-shrink-0"
-        aria-hidden="true"
-      />
+      <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center">
+        {typeof logo === 'string' ? (
+          <img src={logo} alt="" className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
+        ) : (
+          logo
+        )}
+      </div>
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-3">
@@ -864,6 +911,46 @@ function buildClaudeRailStatus(status: ClaudeRuntimeStatus, loading: boolean) {
     label: 'Attention',
     tone: 'text-[#dc2626]',
     dot: 'bg-[#dc2626]',
+  };
+}
+
+function buildOpencodeSummary(status: OpenCodeRuntimeStatus, loading: boolean): string {
+  if (loading) {
+    return 'Checking OpenCode runtime...';
+  }
+
+  if (status.ready) {
+    return 'OpenCode ACP is ready.';
+  }
+
+  if (!status.cliAvailable) {
+    return 'OpenCode ACP was not found.';
+  }
+
+  return 'OpenCode needs local setup.';
+}
+
+function buildOpencodeRailStatus(status: OpenCodeRuntimeStatus, loading: boolean) {
+  if (loading) {
+    return {
+      label: 'Checking',
+      tone: 'text-[var(--text-secondary)]',
+      dot: 'bg-[var(--text-muted)]/60',
+    };
+  }
+
+  if (status.ready) {
+    return {
+      label: 'Connected',
+      tone: 'text-emerald-700',
+      dot: 'bg-emerald-500',
+    };
+  }
+
+  return {
+    label: 'Setup',
+    tone: 'text-amber-700',
+    dot: 'bg-amber-500',
   };
 }
 

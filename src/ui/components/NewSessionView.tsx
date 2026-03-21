@@ -17,6 +17,7 @@ import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
 import { useCompatibleProviderConfig } from '../hooks/useCompatibleProviderConfig';
 import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
+import { useOpencodeModelConfig } from '../hooks/useOpencodeModelConfig';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import { getLatestProviderModel } from '../utils/session-model';
@@ -30,6 +31,7 @@ import {
   savePreferredClaudeModel,
 } from '../utils/claude-model';
 import { buildCodexModelOptions, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
+import { buildOpencodeModelOptions, loadPreferredOpencodeModel, savePreferredOpencodeModel } from '../utils/opencode-model';
 import { buildPromptWithSkill } from '../utils/claude-skills';
 import { buildPromptWithSlashCommand } from '../utils/claude-slash';
 
@@ -88,6 +90,9 @@ export function NewSessionView() {
   const [selectedCodexModel, setSelectedCodexModel] = useState<string | null>(
     loadPreferredCodexModel()
   );
+  const [selectedOpencodeModel, setSelectedOpencodeModel] = useState<string | null>(
+    loadPreferredOpencodeModel()
+  );
   const [showCwdHint, setShowCwdHint] = useState(false);
   const [claudeAccessMode, setClaudeAccessMode] = useState<ClaudeAccessMode>('default');
   const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -104,6 +109,11 @@ export function NewSessionView() {
     () => buildCodexModelOptions(codexModelConfig),
     [codexModelConfig]
   );
+  const opencodeModelConfig = useOpencodeModelConfig();
+  const opencodeModelOptions = useMemo(
+    () => buildOpencodeModelOptions(opencodeModelConfig),
+    [opencodeModelConfig]
+  );
   const recentClaudeModel = useMemo(
     () => getLatestProviderModel(sessions, 'claude'),
     [sessions]
@@ -114,6 +124,10 @@ export function NewSessionView() {
   );
   const recentCodexModel = useMemo(
     () => getLatestProviderModel(sessions, 'codex'),
+    [sessions]
+  );
+  const recentOpencodeModel = useMemo(
+    () => getLatestProviderModel(sessions, 'opencode'),
     [sessions]
   );
   const recentProjectOptions = useMemo(() => {
@@ -230,6 +244,22 @@ export function NewSessionView() {
     savePreferredCodexModel(codexModelOptions[0] || null);
   }, [codexModelOptions, selectedCodexModel]);
 
+  useEffect(() => {
+    if (!opencodeModelOptions.length) {
+      if (selectedOpencodeModel) {
+        setSelectedOpencodeModel(null);
+        savePreferredOpencodeModel(null);
+      }
+      return;
+    }
+
+    if (selectedOpencodeModel && opencodeModelOptions.includes(selectedOpencodeModel)) {
+      return;
+    }
+    setSelectedOpencodeModel(opencodeModelOptions[0] || null);
+    savePreferredOpencodeModel(opencodeModelOptions[0] || null);
+  }, [opencodeModelOptions, selectedOpencodeModel]);
+
   const pptxSkill = useMemo(
     () => skillAutocomplete.availableSkills.find((skill) => skill.name === 'pptx') || null,
     [skillAutocomplete.availableSkills]
@@ -310,7 +340,9 @@ export function NewSessionView() {
             ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
             : provider === 'codex'
               ? selectedCodexModel || codexModelOptions[0] || undefined
-              : undefined,
+              : provider === 'opencode'
+                ? selectedOpencodeModel || opencodeModelOptions[0] || undefined
+                : undefined,
         compatibleProviderId:
           provider === 'claude' ? selectedClaudeCompatibleProviderId || undefined : undefined,
         betas:
@@ -583,6 +615,15 @@ export function NewSessionView() {
                 onChange: (model) => {
                   setSelectedCodexModel(model);
                   savePreferredCodexModel(model);
+                },
+              }}
+              opencodeModel={{
+                value: selectedOpencodeModel,
+                options: opencodeModelOptions,
+                runtimeModel: recentOpencodeModel,
+                onChange: (model) => {
+                  setSelectedOpencodeModel(model);
+                  savePreferredOpencodeModel(model);
                 },
               }}
             />

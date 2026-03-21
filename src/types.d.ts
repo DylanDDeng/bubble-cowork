@@ -17,6 +17,8 @@ import type {
   ClaudeUsageReport,
   CodexModelConfig,
   CodexRuntimeStatus,
+  OpenCodeModelConfig,
+  OpenCodeRuntimeStatus,
   ClaudeRuntimeStatus,
   SkillMarketItem,
   SkillMarketDetail,
@@ -41,6 +43,9 @@ declare global {
     getCodexModelConfig: () => Promise<CodexModelConfig>;
     saveCodexModelVisibility: (enabledModels: string[]) => Promise<CodexModelConfig>;
     getCodexRuntimeStatus: () => Promise<CodexRuntimeStatus>;
+    getOpencodeModelConfig: () => Promise<OpenCodeModelConfig>;
+    saveOpencodeModelVisibility: (enabledModels: string[]) => Promise<OpenCodeModelConfig>;
+    getOpencodeRuntimeStatus: () => Promise<OpenCodeRuntimeStatus>; 
     getClaudeRuntimeStatus: (model?: string | null) => Promise<ClaudeRuntimeStatus>;
     getSkillMarketHot: (limit?: number) => Promise<SkillMarketItem[]>;
     searchSkillMarket: (query: string, limit?: number) => Promise<SkillMarketItem[]>;

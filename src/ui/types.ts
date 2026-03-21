@@ -36,6 +36,8 @@ export type {
   LatestClaudeModelUsage,
   CodexModelConfig,
   CodexRuntimeStatus,
+  OpenCodeModelConfig,
+  OpenCodeRuntimeStatus,
   ClaudeRuntimeStatus,
   SkillMarketDetail,
   SkillMarketInstallResult,

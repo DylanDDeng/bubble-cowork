@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Check, ChevronDown, ChevronLeft } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, Code2 } from 'lucide-react';
 import type { AgentProvider, ClaudeCompatibleProviderId, ClaudeModelConfig } from '../types';
 import { PROVIDERS } from '../utils/provider';
 import { buildClaudeModelOptions, formatClaudeModelLabel, isOfficialClaudeModel, supportsClaude1mContext } from '../utils/claude-model';
 import { buildCodexModelOptions, formatCodexModelLabel } from '../utils/codex-model';
+import { buildOpencodeModelOptions, formatOpencodeModelLabel } from '../utils/opencode-model';
 import claudeLogo from '../assets/claude-color.svg';
 import deepseekLogo from '../assets/deepseek-color.svg';
 import minimaxLogo from '../assets/minimax-color.svg';
@@ -39,6 +40,12 @@ interface AgentModelPickerProps {
     runtimeModel?: string | null;
     onChange: (model: string) => void;
   };
+  opencodeModel?: {
+    value: string | null;
+    options: string[];
+    runtimeModel?: string | null;
+    onChange: (model: string) => void;
+  };
 }
 
 function isVisibleClaudePickerModel(
@@ -60,6 +67,10 @@ function ProviderIcon({ provider }: { provider: AgentProvider }) {
 
   if (provider === 'codex') {
     return <img src={openaiLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
+  }
+
+  if (provider === 'opencode') {
+    return <Code2 className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" aria-hidden="true" />;
   }
 
   return null;
@@ -85,6 +96,7 @@ export function AgentModelPicker({
   disabled,
   claudeModel,
   codexModel,
+  opencodeModel,
 }: AgentModelPickerProps) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<PickerMode>('provider');
@@ -118,10 +130,12 @@ export function AgentModelPicker({
   );
 
   const codexOptions = useMemo(() => codexModel?.options || [], [codexModel]);
+  const opencodeOptions = useMemo(() => opencodeModel?.options || [], [opencodeModel]);
 
   const hasModelOptions =
     (provider === 'claude' && claudeOptions.length > 0) ||
-    (provider === 'codex' && codexOptions.length > 0);
+    (provider === 'codex' && codexOptions.length > 0) ||
+    (provider === 'opencode' && opencodeOptions.length > 0);
 
   const openMode = mode === 'model' && hasModelOptions ? 'model' : 'provider';
   const resolvedClaudeValue = useMemo(() => {
@@ -180,8 +194,13 @@ export function AgentModelPicker({
       return resolvedValue ? formatCodexModelLabel(resolvedValue) : currentProvider.label;
     }
 
+    if (provider === 'opencode' && opencodeModel) {
+      const resolvedValue = opencodeModel.value || opencodeOptions[0] || '';
+      return resolvedValue ? formatOpencodeModelLabel(resolvedValue) : currentProvider.label;
+    }
+
     return currentProvider.label;
-  }, [provider, claudeModel, currentCompatibleOption, resolvedClaudeValue, codexModel, codexOptions, currentProvider.label]);
+  }, [provider, claudeModel, currentCompatibleOption, resolvedClaudeValue, codexModel, codexOptions, opencodeModel, opencodeOptions, currentProvider.label]);
   const currentTriggerLabel = useMemo(() => {
     if (!hasModelOptions || currentModelLabel === currentProvider.label) {
       return currentProvider.label;
@@ -267,6 +286,27 @@ export function AgentModelPicker({
           title={model}
         >
           <div className="min-w-0 truncate">{formatCodexModelLabel(model)}</div>
+          {resolvedValue === model && (
+            <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" />
+          )}
+        </button>
+      ));
+    }
+
+    if (provider === 'opencode' && opencodeModel) {
+      const resolvedValue = opencodeModel.value || opencodeOptions[0] || '';
+
+      return opencodeOptions.map((model) => (
+        <button
+          key={model}
+          onClick={() => {
+            opencodeModel.onChange(model);
+            setOpen(false);
+          }}
+          className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+          title={model}
+        >
+          <div className="min-w-0 truncate">{formatOpencodeModelLabel(model)}</div>
           {resolvedValue === model && (
             <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" />
           )}

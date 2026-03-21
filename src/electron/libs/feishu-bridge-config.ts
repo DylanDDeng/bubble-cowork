@@ -17,7 +17,7 @@ const DEFAULT_CONFIG: FeishuBridgeConfig = {
 };
 
 function normalizeProvider(value: unknown): AgentProvider {
-  return value === 'codex' ? 'codex' : 'claude';
+  return value === 'opencode' ? 'opencode' : value === 'codex' ? 'codex' : 'claude';
 }
 
 function normalizeConfig(parsed?: Partial<FeishuBridgeConfig> | null): FeishuBridgeConfig {

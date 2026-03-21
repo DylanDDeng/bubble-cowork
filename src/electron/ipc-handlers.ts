@@ -6,7 +6,7 @@ import { basename, extname, resolve, relative, isAbsolute } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
 import { runClaude } from './libs/runner';
-import { runCodex } from './libs/codex-runner';
+import { runCodex, runOpenCode } from './libs/codex-runner';
 import { generateSessionTitle, runClaudeOneShot } from './libs/util';
 import { readProjectTree } from './libs/project-tree';
 import { normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
@@ -24,6 +24,8 @@ import {
 } from './libs/font-settings';
 import { getCodexModelConfig, saveCodexModelVisibility } from './libs/codex-settings';
 import { getCodexRuntimeStatus } from './libs/codex-runtime-status';
+import { getOpencodeModelConfig, saveOpencodeModelVisibility } from './libs/opencode-settings';
+import { getOpencodeRuntimeStatus } from './libs/opencode-runtime-status';
 import { listClaudeSkills } from './libs/claude-skills';
 import { loadFeishuBridgeConfig, saveFeishuBridgeConfig } from './libs/feishu-bridge-config';
 import { feishuBridge } from './libs/feishu-bridge';
@@ -232,7 +234,9 @@ function formatInteger(value: number): string {
 }
 
 function formatProviderLabel(provider: SessionInfo['provider']): string {
-  return provider === 'codex' ? 'Codex' : 'Claude Code';
+  if (provider === 'codex') return 'Codex';
+  if (provider === 'opencode') return 'OpenCode';
+  return 'Claude Code';
 }
 
 function buildLocalAssistantMessage(text: string): StreamMessage {
@@ -847,7 +851,7 @@ const runnerHandles = new Map<
   string,
   {
     handle: RunnerHandle;
-    provider: 'claude' | 'codex';
+    provider: 'claude' | 'codex' | 'opencode';
     compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
     claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
   }
@@ -1017,6 +1021,18 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('get-codex-runtime-status', async () => {
     return getCodexRuntimeStatus();
+  });
+
+  ipcMainHandle('get-opencode-model-config', async () => {
+    return getOpencodeModelConfig();
+  });
+
+  ipcMainHandle('save-opencode-model-visibility', async (_event, enabledModels: string[]) => {
+    return saveOpencodeModelVisibility(enabledModels);
+  });
+
+  ipcMainHandle('get-opencode-runtime-status', async () => {
+    return getOpencodeRuntimeStatus();
   });
 
   ipcMainHandle('get-claude-runtime-status', async (_event, model?: string | null) => {
@@ -1679,6 +1695,17 @@ async function handleSessionStart(
       });
       return null;
     }
+  } else if (chosenProvider === 'opencode') {
+    const runtimeStatus = await getOpencodeRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: 'OpenCode ACP is not ready. Check Settings > Providers.',
+        },
+      });
+      return null;
+    }
   }
 
   if (isDev()) {
@@ -1833,6 +1860,18 @@ async function handleSessionContinue(
       });
       return false;
     }
+  } else if (nextProvider === 'opencode') {
+    const runtimeStatus = await getOpencodeRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: 'OpenCode ACP is not ready. Check Settings > Providers.',
+          sessionId,
+        },
+      });
+      return false;
+    }
   }
 
   if (isDev()) {
@@ -1895,7 +1934,7 @@ async function handleSessionContinue(
 
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
     if (
-      (nextProvider === 'codex' && modelChanged) ||
+      ((nextProvider === 'codex' || nextProvider === 'opencode') && modelChanged) ||
       (nextProvider === 'claude' &&
         (modelChanged || compatibleProviderChanged || betasChanged || accessModeChanged))
     ) {
@@ -1918,7 +1957,9 @@ async function handleSessionContinue(
       ? undefined
       : nextProvider === 'claude'
         ? session.claude_session_id ?? undefined
-        : session.codex_session_id ?? undefined;
+        : nextProvider === 'codex'
+        ? session.codex_session_id ?? undefined
+        : session.opencode_session_id ?? undefined;
 
   startRunner(
     mainWindow,
@@ -1942,7 +1983,7 @@ function startRunner(
   prompt: string,
   resumeSessionId?: string,
   attachments?: Attachment[],
-  providerOverride?: 'claude' | 'codex',
+  providerOverride?: 'claude' | 'codex' | 'opencode',
   modelOverride?: string,
   compatibleProviderOverride?: import('../shared/types').ClaudeCompatibleProviderId,
   betasOverride?: string[],
@@ -1957,12 +1998,12 @@ function startRunner(
       ? compatibleProviderOverride || session.compatible_provider_id || undefined
       : undefined;
 
-  const runner = provider === 'codex' ? runCodex : runClaude;
+  const runner = provider === 'claude' ? runClaude : provider === 'codex' ? runCodex : runOpenCode;
   if (isDev()) {
     console.log('[Runner Select]', {
       sessionId: session.id,
       provider,
-      runner: provider === 'codex' ? 'codex-acp' : 'claude-agent-sdk',
+      runner: provider === 'claude' ? 'claude-agent-sdk' : provider === 'codex' ? 'codex-acp' : 'opencode acp',
       model: modelOverride,
       compatibleProviderId,
       cwd: session.cwd || process.cwd(),
@@ -1989,7 +2030,12 @@ function startRunner(
         if (provider === 'codex') {
           sessions.updateCodexSessionId(session.id, message.session_id);
           if (message.model) {
-      sessions.updateSessionModel(session.id, message.model);
+            sessions.updateSessionModel(session.id, message.model);
+          }
+        } else if (provider === 'opencode') {
+          sessions.updateOpencodeSessionId(session.id, message.session_id);
+          if (message.model) {
+            sessions.updateSessionModel(session.id, message.model);
           }
         } else {
           sessions.updateClaudeSessionId(session.id, message.session_id);

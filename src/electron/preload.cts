@@ -91,6 +91,18 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-codex-runtime-status');
   },
 
+  getOpencodeModelConfig: () => {
+    return ipcRenderer.invoke('get-opencode-model-config');
+  },
+
+  saveOpencodeModelVisibility: (enabledModels: string[]) => {
+    return ipcRenderer.invoke('save-opencode-model-visibility', enabledModels);
+  },
+
+  getOpencodeRuntimeStatus: () => {
+    return ipcRenderer.invoke('get-opencode-runtime-status');
+  },
+
   getClaudeRuntimeStatus: (model?: string | null) => {
     return ipcRenderer.invoke('get-claude-runtime-status', model);
   },

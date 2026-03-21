@@ -3,6 +3,7 @@ import { readFile } from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
 import type { RunnerOptions, RunnerHandle, StreamMessage, Attachment } from '../types';
 import { isDev } from '../util';
+import { getMcpServers } from './claude-settings';
 
 type JsonRpcRequest = {
   jsonrpc: '2.0';
@@ -36,6 +37,38 @@ type SessionUpdate =
   | { sessionUpdate: 'agent_message_chunk'; content?: unknown }
   | { sessionUpdate: string; [key: string]: unknown };
 
+interface AcpAdapter {
+  id: 'codex' | 'opencode';
+  label: string;
+  command: string;
+  getArgs: (model?: string) => string[];
+  protocolVersion: string | number;
+}
+
+const ACP_CLIENT_INFO = {
+  name: 'aegis',
+  title: 'Aegis',
+  version: '0.0.10',
+};
+
+const CODEX_ADAPTER: AcpAdapter = {
+  id: 'codex',
+  label: 'Codex',
+  command: 'codex-acp',
+  getArgs: (model) => (model ? ['-c', `model=${JSON.stringify(model)}`] : []),
+  protocolVersion: 1,
+};
+
+const OPENCODE_ADAPTER: AcpAdapter = {
+  id: 'opencode',
+  label: 'OpenCode',
+  command: 'opencode',
+  // OpenCode's ACP command does not accept the global --model flag here.
+  // Passing it causes the CLI to print subcommand help to stdout and exit.
+  getArgs: () => ['acp'],
+  protocolVersion: 1,
+};
+
 class JsonRpcClient {
   private readonly pending = new Map<
     number,
@@ -52,7 +85,7 @@ class JsonRpcClient {
   ) {
     proc.stdout?.setEncoding('utf8');
     proc.stdout?.on('data', (chunk) => this.handleChunk(String(chunk)));
-    proc.on('exit', () => this.rejectAllPending(new Error('Codex ACP process exited')));
+    proc.on('exit', () => this.rejectAllPending(new Error('ACP process exited')));
     proc.on('error', (err) => this.rejectAllPending(err instanceof Error ? err : new Error(String(err))));
   }
 
@@ -61,7 +94,7 @@ class JsonRpcClient {
     const payload: JsonRpcRequest = { jsonrpc: '2.0', id, method, params };
     if (isDev()) {
       const keys = params ? Object.keys(params) : [];
-      console.log('[Codex ACP] ->', { id, method, keys });
+      console.log('[ACP] ->', { id, method, keys });
     }
     this.send(payload);
     return new Promise((resolve, reject) => {
@@ -165,9 +198,6 @@ async function buildPromptContent(
     return blocks;
   }
 
-  // Codex ACP prompt content blocks do not support generic file attachments.
-  // For non-image files we only pass absolute paths in the text block above.
-
   if (capabilities.image && imageAttachments.length > 0) {
     for (const image of imageAttachments) {
       try {
@@ -179,7 +209,7 @@ async function buildPromptContent(
         });
       } catch (error) {
         if (isDev()) {
-          console.warn('[Codex Runner] Failed to read image attachment:', image.path, error);
+          console.warn('[ACP Runner] Failed to read image attachment:', image.path, error);
         }
       }
     }
@@ -189,7 +219,15 @@ async function buildPromptContent(
 }
 
 export function runCodex(options: RunnerOptions): RunnerHandle {
-  const { prompt, attachments, model, session, onMessage, onError } = options;
+  return runAcp(options, CODEX_ADAPTER);
+}
+
+export function runOpenCode(options: RunnerOptions): RunnerHandle {
+  return runAcp(options, OPENCODE_ADAPTER);
+}
+
+function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
+  const { prompt, attachments, model, session, resumeSessionId, onMessage, onError, onPermissionRequest } = options;
   const abortController = new AbortController();
   const selectedModel = typeof model === 'string' && model.trim().length > 0 ? model.trim() : undefined;
   let currentSessionId = '';
@@ -204,14 +242,15 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
   const toolKindById = new Map<string, string>();
   let pendingFinalizeOnSessionInfo = false;
 
-  const spawnArgs = selectedModel ? ['-c', `model=${JSON.stringify(selectedModel)}`] : [];
-  const proc = spawn('codex-acp', spawnArgs, {
+  const spawnArgs = adapter.getArgs(selectedModel);
+  const proc = spawn(adapter.command, spawnArgs, {
     cwd: session.cwd || process.cwd(),
     env: process.env,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   if (isDev()) {
-    console.log('[Codex Runner] spawned codex-acp', {
+    console.log(`[${adapter.label} Runner] spawned`, {
+      command: adapter.command,
       cwd: session.cwd || process.cwd(),
       model: selectedModel,
       spawnArgs,
@@ -221,7 +260,7 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
   proc.on('exit', (code, signal) => {
     if (!abortController.signal.aborted) {
       const reason = signal ? `signal ${signal}` : `code ${code}`;
-      onError?.(new Error(`Codex ACP exited (${reason})`));
+      onError?.(new Error(`${adapter.label} ACP exited (${reason})`));
     }
   });
 
@@ -234,7 +273,7 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
   proc.stderr?.on('data', (chunk) => {
     const line = String(chunk).trim();
     if (line) {
-      console.warn('[Codex ACP]', line);
+      console.warn(`[${adapter.label} ACP]`, line);
     }
   });
 
@@ -246,18 +285,23 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
       }
     },
     (id, method, params) => {
-      if (method.includes('request_permission') || method.includes('requestPermission')) {
-        handlePermissionRequest(id, params);
+      const normalizedMethod = method.toLowerCase();
+      if (
+        normalizedMethod.includes('request_permission') ||
+        normalizedMethod.includes('requestpermission') ||
+        normalizedMethod.includes('permission/request')
+      ) {
+        void handlePermissionRequest(id, method, params);
         return;
       }
 
       if (isDev()) {
-        console.warn('[Codex ACP] Unhandled request from agent:', { method });
+        console.warn(`[${adapter.label} ACP] Unhandled request from agent:`, { method });
       }
       client.respond(id, undefined, { code: -32601, message: `Method not supported: ${method}` });
     },
     (line, err) => {
-      console.warn('[Codex ACP] Failed to parse JSON:', line.slice(0, 120), err);
+      console.warn(`[${adapter.label} ACP] Failed to parse JSON:`, line.slice(0, 120), err);
     }
   );
 
@@ -436,16 +480,12 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
 
   async function initializeAndCreateSession(): Promise<void> {
     const initResult = (await client.request('initialize', {
-      protocolVersion: 1,
+      protocolVersion: adapter.protocolVersion,
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
         terminal: false,
       },
-      clientInfo: {
-        name: 'aegis',
-        title: 'Aegis',
-        version: '0.0.10',
-      },
+      clientInfo: ACP_CLIENT_INFO,
     })) as Record<string, unknown> | undefined;
 
     const caps =
@@ -458,14 +498,38 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
       {};
     promptCapabilities = { image: !!promptCaps.image };
 
-    const sessionResult = (await client.request('session/new', {
-      cwd: session.cwd || process.cwd(),
-      mcpServers: [],
-    })) as Record<string, unknown>;
+    const cwd = session.cwd || process.cwd();
+    const mcpServers =
+      adapter.id === 'opencode'
+        ? []
+        : (getMcpServers(session.cwd ?? undefined) as Record<string, unknown>);
+    let sessionResult: Record<string, unknown> | undefined;
+
+    if (resumeSessionId) {
+      try {
+        sessionResult = (await client.request('session/load', {
+          sessionId: resumeSessionId,
+          id: resumeSessionId,
+          cwd,
+          mcpServers,
+        })) as Record<string, unknown>;
+      } catch (error) {
+        if (isDev()) {
+          console.warn(`[${adapter.label} ACP] Failed to load existing session, starting a new one.`, error);
+        }
+      }
+    }
+
+    if (!sessionResult) {
+      sessionResult = (await client.request('session/new', {
+        cwd,
+        mcpServers,
+      })) as Record<string, unknown>;
+    }
 
     currentSessionId = String(sessionResult?.sessionId || sessionResult?.id || '');
     if (!currentSessionId) {
-      throw new Error('Codex ACP did not return a session id.');
+      throw new Error(`${adapter.label} ACP did not return a session id.`);
     }
 
     const initMessage: StreamMessage = {
@@ -474,7 +538,7 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
       session_id: currentSessionId,
       model: selectedModel || '',
       permissionMode: '',
-      cwd: session.cwd || process.cwd(),
+      cwd,
       tools: [],
     };
     onMessage(initMessage);
@@ -517,16 +581,11 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
       return;
     }
 
-    // Codex ACP may return an empty object here. The request resolving is enough
-    // to treat the turn as complete.
     if (done || status) {
       emitResult(status === 'error' ? 'error' : 'success');
       return;
     }
 
-    // Some ACP agents may resolve the prompt request before sending a final
-    // completion update. Wait for `session_info_update` to avoid losing the
-    // streamed output when reloading a session.
     pendingFinalizeOnSessionInfo = true;
   }
 
@@ -534,9 +593,13 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
     const update = (params?.update as SessionUpdate) || (params as SessionUpdate);
     if (!update) return;
 
-    const updateType = typeof update.sessionUpdate === 'string' ? update.sessionUpdate : '';
+    const updateType = typeof update.sessionUpdate === 'string' ? update.sessionUpdate.toLowerCase() : '';
 
-    if (updateType === 'agent_message_chunk') {
+    if (
+      updateType === 'agent_message_chunk' ||
+      updateType.includes('message_chunk') ||
+      updateType.includes('message_delta')
+    ) {
       let rawContent = update.content as { type?: string; text?: string; thinking?: string; content?: unknown } | undefined;
       if (rawContent?.type === 'content' && rawContent.content) {
         rawContent = rawContent.content as { type?: string; text?: string; thinking?: string };
@@ -555,7 +618,7 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
       return;
     }
 
-    if (updateType === 'agent_message') {
+    if (updateType === 'agent_message' || updateType.endsWith('agent_message')) {
       const text = extractText(update as Record<string, unknown>);
       if (text) {
         appendAssistantText(text);
@@ -563,18 +626,21 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
       return;
     }
 
-    if (updateType === 'tool_call') {
+    if (updateType === 'tool_call' || (updateType.includes('tool') && updateType.includes('call') && !updateType.includes('update'))) {
       beginTraceActivity();
       handleToolCall(update as Record<string, unknown>);
       return;
     }
 
-    if (updateType === 'tool_call_update') {
+    if (
+      updateType === 'tool_call_update' ||
+      (updateType.includes('tool') && (updateType.includes('update') || updateType.includes('result') || updateType.includes('complete')))
+    ) {
       handleToolCallUpdate(update as Record<string, unknown>);
       return;
     }
 
-    if (updateType === 'session_info_update') {
+    if (updateType === 'session_info_update' || updateType.includes('session_info')) {
       const completion = updateSignalsCompletion(update as Record<string, unknown>);
       if (completion) {
         pendingFinalizeOnSessionInfo = false;
@@ -586,10 +652,7 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
         pendingFinalizeOnSessionInfo = false;
         emitResult('success');
       }
-      return;
     }
-
-    // Other ACP updates: user_message_chunk, session_info_update, etc. Ignored for now.
   }
 
   function handleToolCall(update: Record<string, unknown>): void {
@@ -660,22 +723,53 @@ export function runCodex(options: RunnerOptions): RunnerHandle {
     toolKindById.delete(toolCallId);
   }
 
-  function handlePermissionRequest(id: number, params?: Record<string, unknown>): void {
-    const options =
-      (params?.options as Array<{ optionId?: string; label?: string; name?: string }>) ||
-      (params?.choices as Array<{ optionId?: string; label?: string; name?: string }>) ||
-      [];
-    const allowOption =
-      options.find((o) =>
-        /allow|yes/i.test(String(o.label || o.name || o.optionId || ''))
-      ) || options[0];
+  async function handlePermissionRequest(
+    id: number,
+    method: string,
+    params?: Record<string, unknown>
+  ): Promise<void> {
+    const options = extractPermissionOptions(params);
+    const question = buildPermissionQuestion(method, params, options);
+    const toolUseId = uuidv4();
 
-    if (!allowOption?.optionId) {
+    try {
+      const result = await onPermissionRequest(toolUseId, 'AskUserQuestion', {
+        questions: [
+          {
+            header: adapter.label,
+            question,
+            options: options.map((option) => ({
+              label: option.label,
+              description: option.description,
+            })),
+          },
+        ],
+      });
+
+      if (result.behavior !== 'allow') {
+        client.respond(id, { outcome: { outcome: 'cancelled' } });
+        return;
+      }
+
+      const answers = asRecord(result.updatedInput)?.answers as Record<string, string> | undefined;
+      const selectedLabel = typeof answers?.[question] === 'string' ? answers[question] : undefined;
+      const selectedOption =
+        options.find((option) => option.label === selectedLabel) ||
+        options.find((option) => /allow|yes/i.test(option.label)) ||
+        options[0];
+
+      if (!selectedOption?.optionId) {
+        client.respond(id, { outcome: { outcome: 'cancelled' } });
+        return;
+      }
+
+      client.respond(id, { outcome: { outcome: 'selected', optionId: selectedOption.optionId } });
+    } catch (error) {
+      if (isDev()) {
+        console.warn(`[${adapter.label} ACP] Permission request failed`, error);
+      }
       client.respond(id, { outcome: { outcome: 'cancelled' } });
-      return;
     }
-
-    client.respond(id, { outcome: { outcome: 'selected', optionId: allowOption.optionId } });
   }
 
   return {
@@ -815,7 +909,7 @@ function mapToolCallToToolUse(
   const fallback: Record<string, unknown> = inputRecord ? { ...inputRecord } : {};
   if (!fallback.kind && kind) fallback.kind = kind;
   if (!fallback.title && title) fallback.title = title;
-  if (!fallback.rawInput && rawInput !== undefined) fallback.rawInput = rawInput as any;
+  if (!fallback.rawInput && rawInput !== undefined) fallback.rawInput = rawInput as never;
   return { name: kind || title || 'Tool', input: fallback };
 }
 
@@ -875,7 +969,7 @@ function extractText(update: Record<string, unknown>): string | null {
     if (typeof obj.text === 'string') return obj.text;
     if (Array.isArray(obj.content)) {
       const parts = obj.content
-        .map((item) => (item && typeof item === 'object' && typeof (item as any).text === 'string' ? (item as any).text : ''))
+        .map((item) => (item && typeof item === 'object' && typeof (item as { text?: unknown }).text === 'string' ? (item as { text: string }).text : ''))
         .filter(Boolean)
         .join('');
       return parts || null;
@@ -911,4 +1005,53 @@ function updateSignalsCompletion(update: Record<string, unknown>): 'success' | '
   }
 
   return null;
+}
+
+type PermissionChoice = {
+  optionId: string;
+  label: string;
+  description?: string;
+};
+
+function extractPermissionOptions(params?: Record<string, unknown>): PermissionChoice[] {
+  const raw =
+    (params?.options as Array<Record<string, unknown>>) ||
+    (params?.choices as Array<Record<string, unknown>>) ||
+    [];
+
+  return raw.reduce<PermissionChoice[]>((choices, option) => {
+    const optionId = getFirstString(option.optionId, option.id, option.value);
+    const label = getFirstString(option.label, option.name, option.title, option.optionId);
+    const description = getFirstString(option.description, option.detail, option.message) || undefined;
+    if (!optionId || !label) {
+      return choices;
+    }
+    choices.push({ optionId, label, description });
+    return choices;
+  }, []);
+}
+
+function buildPermissionQuestion(
+  method: string,
+  params: Record<string, unknown> | undefined,
+  options: PermissionChoice[]
+): string {
+  const directQuestion = getFirstString(
+    params?.question,
+    params?.prompt,
+    params?.message,
+    params?.title,
+    params?.reason,
+    params?.description
+  );
+
+  if (directQuestion) {
+    return directQuestion;
+  }
+
+  if (options.length > 0) {
+    return `Approve ${method}?`;
+  }
+
+  return `Respond to ${method}`;
 }

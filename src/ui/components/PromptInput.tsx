@@ -11,8 +11,10 @@ import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
+import { useOpencodeModelConfig } from '../hooks/useOpencodeModelConfig';
 import { useCompatibleProviderConfig } from '../hooks/useCompatibleProviderConfig';
 import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
+import { useOpencodeRuntimeStatus } from '../hooks/useOpencodeRuntimeStatus';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import { getSessionModel } from '../utils/session-model';
@@ -28,6 +30,7 @@ import {
   supportsClaude1mContext,
 } from '../utils/claude-model';
 import { buildCodexModelOptions, formatCodexModelLabel, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
+import { buildOpencodeModelOptions, loadPreferredOpencodeModel, savePreferredOpencodeModel } from '../utils/opencode-model';
 import { buildPromptWithSkill } from '../utils/claude-skills';
 import { buildPromptWithSlashCommand } from '../utils/claude-slash';
 import { getLatestClaudeContextSnapshot } from '../utils/context-usage';
@@ -59,6 +62,9 @@ export function PromptInput() {
   const [selectedCodexModel, setSelectedCodexModel] = useState<string | null>(
     loadPreferredCodexModel()
   );
+  const [selectedOpencodeModel, setSelectedOpencodeModel] = useState<string | null>(
+    loadPreferredOpencodeModel()
+  );
   const [selectedClaudeAccessMode, setSelectedClaudeAccessMode] = useState<ClaudeAccessMode>('default');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -74,6 +80,11 @@ export function PromptInput() {
   const codexModelOptions = useMemo(
     () => buildCodexModelOptions(codexModelConfig),
     [codexModelConfig]
+  );
+  const opencodeModelConfig = useOpencodeModelConfig();
+  const opencodeModelOptions = useMemo(
+    () => buildOpencodeModelOptions(opencodeModelConfig),
+    [opencodeModelConfig]
   );
   const activeClaudeModel = useMemo(
     () => (provider === 'claude' ? activeSession?.model || getSessionModel(activeSession?.messages) : null),
@@ -148,7 +159,9 @@ export function PromptInput() {
             ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
             : provider === 'codex'
               ? selectedCodexModel || codexModelOptions[0] || undefined
-              : undefined,
+              : provider === 'opencode'
+                ? selectedOpencodeModel || opencodeModelOptions[0] || undefined
+                : undefined,
         compatibleProviderId:
           provider === 'claude' ? selectedClaudeCompatibleProviderId || undefined : undefined,
         betas:
@@ -300,6 +313,39 @@ export function PromptInput() {
     selectedCodexModel,
   ]);
 
+  useEffect(() => {
+    if (activeSession?.provider !== 'opencode') {
+      if (!opencodeModelOptions.length) {
+        if (selectedOpencodeModel) {
+          setSelectedOpencodeModel(null);
+          savePreferredOpencodeModel(null);
+        }
+        return;
+      }
+
+      if (selectedOpencodeModel && opencodeModelOptions.includes(selectedOpencodeModel)) {
+        return;
+      }
+
+      setSelectedOpencodeModel(opencodeModelOptions[0] || null);
+      savePreferredOpencodeModel(opencodeModelOptions[0] || null);
+      return;
+    }
+
+    const nextModel =
+      activeSession.model ||
+      loadPreferredOpencodeModel() ||
+      opencodeModelOptions[0];
+    setSelectedOpencodeModel(nextModel || null);
+  }, [
+    activeSessionId,
+    activeSession?.provider,
+    activeSession?.model,
+    opencodeModelOptions,
+    selectedOpencodeModel,
+  ]);
+
+
   // 自动调整高度
   useEffect(() => {
     if (textareaRef.current) {
@@ -334,7 +380,9 @@ export function PromptInput() {
               ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
               : provider === 'codex'
                 ? selectedCodexModel || codexModelOptions[0] || undefined
-                : undefined,
+                : provider === 'opencode'
+                  ? selectedOpencodeModel || opencodeModelOptions[0] || undefined
+                  : undefined,
           compatibleProviderId:
             provider === 'claude' ? selectedClaudeCompatibleProviderId || undefined : undefined,
           betas:
@@ -532,6 +580,15 @@ export function PromptInput() {
                 onChange: (model) => {
                   setSelectedCodexModel(model);
                   savePreferredCodexModel(model);
+                },
+              }}
+              opencodeModel={{
+                value: selectedOpencodeModel,
+                options: opencodeModelOptions,
+                runtimeModel: activeSession?.provider === 'opencode' ? activeSession.model || selectedOpencodeModel : null,
+                onChange: (model) => {
+                  setSelectedOpencodeModel(model);
+                  savePreferredOpencodeModel(model);
                 },
               }}
             />

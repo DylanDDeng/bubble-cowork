@@ -24,7 +24,7 @@ function fixEnvironment(): void {
           const key = line.substring(0, idx);
           const value = line.substring(idx + 1);
           // 注入关键变量
-          if (['PATH', 'ANTHROPIC_API_KEY', 'HOME', 'USER', 'LANG'].includes(key)) {
+          if (['PATH', 'ANTHROPIC_API_KEY', 'OPENCODE_API_KEY', 'HOME', 'USER', 'LANG'].includes(key)) {
             process.env[key] = value;
           }
         }

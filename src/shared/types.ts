@@ -97,7 +97,25 @@ export interface CodexModelConfig {
   }>;
 }
 
+export interface OpenCodeModelConfig {
+  defaultModel: string | null;
+  options: string[];
+  availableModels: Array<{
+    name: string;
+    enabled: boolean;
+    isDefault: boolean;
+  }>;
+}
+
 export interface CodexRuntimeStatus {
+  ready: boolean;
+  cliAvailable: boolean;
+  configExists: boolean;
+  hasModelConfig: boolean;
+  checkedAt: number;
+}
+
+export interface OpenCodeRuntimeStatus {
   ready: boolean;
   cliAvailable: boolean;
   configExists: boolean;
@@ -216,7 +234,7 @@ export interface Attachment {
 }
 
 // Agent 提供商
-export type AgentProvider = 'claude' | 'codex';
+export type AgentProvider = 'claude' | 'codex' | 'opencode';
 
 // 项目文件树节点
 export interface ProjectTreeNode {

@@ -1,15 +1,17 @@
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
-import { AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Code2, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Badge } from './ui/badge';
-import type { ClaudeRuntimeStatus, CodexRuntimeStatus } from '../types';
+import type { ClaudeRuntimeStatus, CodexRuntimeStatus, OpenCodeRuntimeStatus } from '../types';
 
 type Props = {
   claudeStatus: ClaudeRuntimeStatus;
   claudeLoading: boolean;
   codexStatus: CodexRuntimeStatus;
   codexLoading: boolean;
+  opencodeStatus: OpenCodeRuntimeStatus;
+  opencodeLoading: boolean;
   onRefresh: () => void;
 };
 
@@ -18,13 +20,16 @@ export function ProvidersRuntimeStatusPanel({
   claudeLoading,
   codexStatus,
   codexLoading,
+  opencodeStatus,
+  opencodeLoading,
   onRefresh,
 }: Props) {
   const [refreshPulse, setRefreshPulse] = useState(false);
   const refreshPulseTimerRef = useRef<number | null>(null);
   const showClaudeLoading = claudeLoading || refreshPulse;
   const showCodexLoading = codexLoading || refreshPulse;
-  const busy = showClaudeLoading || showCodexLoading;
+  const showOpencodeLoading = opencodeLoading || refreshPulse;
+  const busy = showClaudeLoading || showCodexLoading || showOpencodeLoading;
 
   useEffect(() => {
     return () => {
@@ -60,7 +65,7 @@ export function ProvidersRuntimeStatusPanel({
               Connectivity
             </div>
             <div className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
-              Check whether Claude and Codex are available for new sessions.
+              Check whether Claude, Codex, and OpenCode are available for new sessions.
             </div>
           </div>
 
@@ -127,6 +132,24 @@ export function ProvidersRuntimeStatusPanel({
                   { label: 'CLI', value: codexStatus.cliAvailable ? 'Detected' : 'Missing' },
                   { label: 'Config', value: codexStatus.configExists ? 'Found' : 'Not found' },
                   { label: 'Models', value: codexStatus.hasModelConfig ? 'Ready' : 'Empty' },
+                ]
+          }
+        />
+
+        <RuntimeRow
+          loading={showOpencodeLoading}
+          connected={opencodeStatus.ready}
+          summary={buildOpencodeSummary(opencodeStatus, showOpencodeLoading)}
+          icon={
+            <Code2 className="h-[18px] w-[18px] text-[var(--text-secondary)]" aria-hidden="true" />
+          }
+          meta={
+            showOpencodeLoading
+              ? []
+              : [
+                  { label: 'CLI', value: opencodeStatus.cliAvailable ? 'Detected' : 'Missing' },
+                  { label: 'Config', value: opencodeStatus.configExists ? 'Found' : 'Not found' },
+                  { label: 'Models', value: opencodeStatus.hasModelConfig ? 'Ready' : 'Empty' },
                 ]
           }
         />
@@ -227,4 +250,20 @@ function buildCodexSummary(status: CodexRuntimeStatus, loading: boolean): string
   }
 
   return 'Codex needs local setup.';
+}
+
+function buildOpencodeSummary(status: OpenCodeRuntimeStatus, loading: boolean): string {
+  if (loading) {
+    return 'Checking OpenCode runtime…';
+  }
+
+  if (status.ready) {
+    return 'OpenCode ACP is ready.';
+  }
+
+  if (!status.cliAvailable) {
+    return 'OpenCode ACP was not found.';
+  }
+
+  return 'OpenCode needs local setup.';
 }

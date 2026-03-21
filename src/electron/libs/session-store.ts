@@ -37,6 +37,7 @@ export function initialize(): void {
       title TEXT NOT NULL,
       claude_session_id TEXT,
       codex_session_id TEXT,
+      opencode_session_id TEXT,
       provider TEXT NOT NULL DEFAULT 'claude',
       model TEXT,
       compatible_provider_id TEXT,
@@ -63,6 +64,7 @@ export function initialize(): void {
   `);
 
   ensureColumn('sessions', 'codex_session_id', 'TEXT');
+  ensureColumn('sessions', 'opencode_session_id', 'TEXT');
   ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
   ensureColumn('sessions', 'model', 'TEXT');
   ensureColumn('sessions', 'compatible_provider_id', 'TEXT');
@@ -105,7 +107,7 @@ export function createSession(params: {
   cwd?: string;
   allowedTools?: string;
   prompt?: string;
-  provider?: 'claude' | 'codex';
+  provider?: 'claude' | 'codex' | 'opencode';
   model?: string;
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
@@ -222,8 +224,17 @@ export function updateCodexSessionId(sessionId: string, codexSessionId: string):
   stmt.run(codexSessionId, now, sessionId);
 }
 
+// 更新 OpenCode Session ID
+export function updateOpencodeSessionId(sessionId: string, opencodeSessionId: string): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET opencode_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(opencodeSessionId, now, sessionId);
+}
+
 // 更新 Session Provider
-export function updateSessionProvider(sessionId: string, provider: 'claude' | 'codex'): void {
+export function updateSessionProvider(sessionId: string, provider: 'claude' | 'codex' | 'opencode'): void {
   const now = Date.now();
   const stmt = getDb().prepare(`
     UPDATE sessions SET provider = ?, updated_at = ? WHERE id = ?

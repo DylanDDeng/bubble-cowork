@@ -25,7 +25,8 @@ export interface SessionRow {
   title: string;
   claude_session_id: string | null;
   codex_session_id: string | null;
-  provider: 'claude' | 'codex';
+  opencode_session_id: string | null;
+  provider: 'claude' | 'codex' | 'opencode';
   model: string | null;
   compatible_provider_id: import('../shared/types').ClaudeCompatibleProviderId | null;
   betas: string | null;
