@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Check, ChevronDown, ChevronLeft, Code2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft } from 'lucide-react';
 import type { AgentProvider, ClaudeCompatibleProviderId, ClaudeModelConfig } from '../types';
 import { PROVIDERS } from '../utils/provider';
 import { buildClaudeModelOptions, formatClaudeModelLabel, isOfficialClaudeModel, supportsClaude1mContext } from '../utils/claude-model';
@@ -12,6 +12,7 @@ import mimoLogo from '../assets/xiaomimimo.svg';
 import moonshotLogo from '../assets/moonshot.svg';
 import openaiLogo from '../assets/openai.svg';
 import zhipuLogo from '../assets/zhipu-color.svg';
+import { OpenCodeLogo } from './OpenCodeLogo';
 
 type PickerMode = 'provider' | 'model';
 
@@ -70,7 +71,7 @@ function ProviderIcon({ provider }: { provider: AgentProvider }) {
   }
 
   if (provider === 'opencode') {
-    return <Code2 className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" aria-hidden="true" />;
+    return <OpenCodeLogo />;
   }
 
   return null;

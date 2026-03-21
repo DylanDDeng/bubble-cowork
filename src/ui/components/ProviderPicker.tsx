@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { ChevronDown, Code2 } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import type { AgentProvider } from '../types';
 import { PROVIDERS } from '../utils/provider';
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
+import { OpenCodeLogo } from './OpenCodeLogo';
 
 function ProviderIcon({ provider }: { provider: AgentProvider }) {
   if (provider === 'claude') {
@@ -15,7 +16,7 @@ function ProviderIcon({ provider }: { provider: AgentProvider }) {
   }
 
   if (provider === 'opencode') {
-    return <Code2 className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" aria-hidden="true" />;
+    return <OpenCodeLogo />;
   }
 
   return null;

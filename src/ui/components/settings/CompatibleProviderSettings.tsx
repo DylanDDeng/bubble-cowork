@@ -2,7 +2,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronRight,
-  Code2,
   Eye,
   EyeOff,
   LoaderCircle,
@@ -23,6 +22,7 @@ import { useOpencodeRuntimeStatus } from '../../hooks/useOpencodeRuntimeStatus';
 import { formatCodexModelLabel } from '../../utils/codex-model';
 import { formatOpencodeModelLabel } from '../../utils/opencode-model';
 import { Badge } from '../ui/badge';
+import { OpenCodeLogo } from '../OpenCodeLogo';
 import {
   Dialog,
   DialogContent,
@@ -236,7 +236,7 @@ export function CompatibleProviderSettingsContent() {
                 />
                 <RuntimeRailItem
                   title="OpenCode ACP"
-                  logo={<Code2 className="h-5 w-5 flex-shrink-0 text-[var(--text-secondary)]" aria-hidden="true" />}
+                  logo={<OpenCodeLogo className="h-5 w-5 flex-shrink-0" />}
                   summary={buildOpencodeSummary(opencodeRuntimeStatus, opencodeRuntimeLoading)}
                   status={buildOpencodeRailStatus(opencodeRuntimeStatus, opencodeRuntimeLoading)}
                   selected={selectedRuntimeId === 'opencode-runtime'}

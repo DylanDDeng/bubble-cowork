@@ -1,9 +1,10 @@
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
-import { AlertTriangle, CheckCircle2, Code2, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Badge } from './ui/badge';
 import type { ClaudeRuntimeStatus, CodexRuntimeStatus, OpenCodeRuntimeStatus } from '../types';
+import { OpenCodeLogo } from './OpenCodeLogo';
 
 type Props = {
   claudeStatus: ClaudeRuntimeStatus;
@@ -141,7 +142,7 @@ export function ProvidersRuntimeStatusPanel({
           connected={opencodeStatus.ready}
           summary={buildOpencodeSummary(opencodeStatus, showOpencodeLoading)}
           icon={
-            <Code2 className="h-[18px] w-[18px] text-[var(--text-secondary)]" aria-hidden="true" />
+            <OpenCodeLogo className="h-[18px] w-[18px] flex-shrink-0" />
           }
           meta={
             showOpencodeLoading
