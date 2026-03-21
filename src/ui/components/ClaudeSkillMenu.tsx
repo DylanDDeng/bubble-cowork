@@ -5,11 +5,15 @@ export function ClaudeSkillMenu({
   suggestions,
   selectedIndex,
   empty,
+  title = 'Commands & Skills',
+  emptyMessage = 'No matching Claude commands or skills.',
   onSelect,
 }: {
   suggestions: ClaudeSlashSuggestion[];
   selectedIndex: number;
   empty?: boolean;
+  title?: string;
+  emptyMessage?: string;
   onSelect: (suggestion: ClaudeSlashSuggestion) => void;
 }) {
   return (
@@ -17,13 +21,13 @@ export function ClaudeSkillMenu({
       <div className="px-4 pt-3 pb-2">
         <div className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
           <Search className="w-3.5 h-3.5" />
-          <span>Commands & Skills</span>
+          <span>{title}</span>
         </div>
       </div>
 
       {empty ? (
         <div className="px-4 pb-4 text-sm text-[var(--text-muted)]">
-          No matching Claude commands or skills.
+          {emptyMessage}
         </div>
       ) : (
         <div className="max-h-72 overflow-y-auto px-2 pb-2">

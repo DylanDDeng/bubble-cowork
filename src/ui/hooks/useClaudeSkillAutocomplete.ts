@@ -14,15 +14,18 @@ import {
 } from '../utils/claude-skills';
 import {
   buildPromptWithSlashCommand,
-  buildClaudeSlashCommands,
+  buildProviderSlashCommands,
   filterClaudeSlashCommands,
   getSessionSlashCommands,
   parseSelectedSlashCommandPrompt,
   shouldAutoSubmitSlashCommand,
 } from '../utils/claude-slash';
+import type { AgentProvider } from '../types';
 
 export function useClaudeSkillAutocomplete({
   enabled,
+  enableSkills = true,
+  provider = 'claude',
   prompt,
   projectPath,
   sessionMessages = [],
@@ -30,6 +33,8 @@ export function useClaudeSkillAutocomplete({
   onAutoSubmitCommand,
 }: {
   enabled: boolean;
+  enableSkills?: boolean;
+  provider?: AgentProvider;
   prompt: string;
   projectPath?: string;
   sessionMessages?: StreamMessage[];
@@ -40,7 +45,7 @@ export function useClaudeSkillAutocomplete({
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || !enableSkills) {
       return;
     }
 
@@ -48,20 +53,23 @@ export function useClaudeSkillAutocomplete({
       type: 'skills.list',
       payload: { projectPath },
     });
-  }, [enabled, projectPath]);
+  }, [enableSkills, enabled, projectPath]);
 
   const query = useMemo(() => getSlashSkillQuery(prompt), [prompt]);
-  const sessionSkillNames = useMemo(() => getSessionSkillNames(sessionMessages), [sessionMessages]);
+  const sessionSkillNames = useMemo(
+    () => (enableSkills ? getSessionSkillNames(sessionMessages) : new Set<string>()),
+    [enableSkills, sessionMessages]
+  );
   const sessionSlashCommands = useMemo(() => getSessionSlashCommands(sessionMessages), [sessionMessages]);
 
   const availableSkills = useMemo(
-    () => mergeClaudeSkills(claudeUserSkills, claudeProjectSkills, sessionSkillNames),
-    [claudeUserSkills, claudeProjectSkills, sessionSkillNames]
+    () => (enableSkills ? mergeClaudeSkills(claudeUserSkills, claudeProjectSkills, sessionSkillNames) : []),
+    [claudeUserSkills, claudeProjectSkills, enableSkills, sessionSkillNames]
   );
 
   const availableCommands = useMemo(
-    () => buildClaudeSlashCommands(sessionSlashCommands),
-    [sessionSlashCommands]
+    () => buildProviderSlashCommands(provider, sessionSlashCommands),
+    [provider, sessionSlashCommands]
   );
 
   const skillSuggestions = useMemo(() => {
@@ -92,8 +100,8 @@ export function useClaudeSkillAutocomplete({
   }, [commandSuggestions, enabled, query, skillSuggestions]);
 
   const selectedSkillState = useMemo(
-    () => (enabled ? parseSelectedSkillPrompt(prompt, availableSkills) : null),
-    [availableSkills, enabled, prompt]
+    () => (enabled && enableSkills ? parseSelectedSkillPrompt(prompt, availableSkills) : null),
+    [availableSkills, enableSkills, enabled, prompt]
   );
 
   const selectedCommandState = useMemo(

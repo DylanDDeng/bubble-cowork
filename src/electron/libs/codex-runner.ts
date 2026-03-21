@@ -269,6 +269,7 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
   const toolNameById = new Map<string, string>();
   const toolKindById = new Map<string, string>();
   let pendingFinalizeOnSessionInfo = false;
+  let acceptTurnUpdates = false;
 
   const spawnArgs = adapter.getArgs(selectedModel);
   const env = buildAcpProcessEnv(adapter, selectedModel);
@@ -584,6 +585,7 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
     toolNameById.clear();
     toolKindById.clear();
     pendingFinalizeOnSessionInfo = false;
+    acceptTurnUpdates = true;
 
     let result: Record<string, unknown> | undefined;
     try {
@@ -623,6 +625,24 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
     if (!update) return;
 
     const updateType = typeof update.sessionUpdate === 'string' ? update.sessionUpdate.toLowerCase() : '';
+
+    if (updateType === 'available_commands_update') {
+      const availableCommands = normalizeAvailableCommands(update as Record<string, unknown>);
+      onMessage({
+        type: 'system',
+        subtype: 'available_commands_update',
+        session_id: currentSessionId,
+        availableCommands,
+      });
+      return;
+    }
+
+    // OpenCode/Codex session resume may replay prior-turn messages before the
+    // new prompt starts. We already have that history locally, so ignore those
+    // updates until the current prompt has been dispatched.
+    if (!acceptTurnUpdates) {
+      return;
+    }
 
     if (
       updateType === 'agent_message_chunk' ||
@@ -1083,4 +1103,44 @@ function buildPermissionQuestion(
   }
 
   return `Respond to ${method}`;
+}
+
+function normalizeAvailableCommands(update: Record<string, unknown>): Array<{
+  name: string;
+  description: string;
+  input?: { hint: string };
+}> {
+  const rawCommands = Array.isArray(update.availableCommands)
+    ? update.availableCommands
+    : Array.isArray(update.available_commands)
+      ? update.available_commands
+      : [];
+
+  return rawCommands
+    .map((command) => {
+      const record = asRecord(command);
+      if (!record) {
+        return null;
+      }
+
+      const name = getFirstString(record.name);
+      const description = getFirstString(record.description) || 'ACP slash command';
+      if (!name) {
+        return null;
+      }
+
+      const inputRecord = asRecord(record.input);
+      const hint = getFirstString(inputRecord?.hint);
+
+      return {
+        name: name.replace(/^\//, '').trim(),
+        description,
+        ...(hint ? { input: { hint } } : {}),
+      };
+    })
+    .filter((command): command is {
+      name: string;
+      description: string;
+      input?: { hint: string };
+    } => Boolean(command));
 }

@@ -1,11 +1,12 @@
-import type { ClaudeSkillSummary, StreamMessage } from '../types';
+import type { AgentProvider, AvailableCommand, ClaudeSkillSummary, StreamMessage } from '../types';
 
 export interface ClaudeSlashCommand {
   name: string;
   title: string;
   description: string;
-  source: 'default' | 'session';
+  source: 'default' | 'session' | 'acp';
   submitOnSelect?: boolean;
+  inputHint?: string;
 }
 
 export type ClaudeSlashSuggestion =
@@ -28,6 +29,24 @@ const DEFAULT_COMMAND_DEFINITIONS: Record<string, { title: string; description: 
   },
 };
 
+const OPENCODE_COMMAND_DEFINITIONS: Record<string, { title: string; description: string }> = {
+  help: { title: '/help', description: 'Show the help dialog' },
+  connect: { title: '/connect', description: 'Add a provider to OpenCode' },
+  compact: { title: '/compact', description: 'Compact the current session' },
+  details: { title: '/details', description: 'Toggle tool execution details' },
+  editor: { title: '/editor', description: 'Open an external editor for composing messages' },
+  exit: { title: '/exit', description: 'Exit OpenCode' },
+  export: { title: '/export', description: 'Export the current conversation' },
+  init: { title: '/init', description: 'Create or update AGENTS.md' },
+  models: { title: '/models', description: 'List available models' },
+  new: { title: '/new', description: 'Start a new session' },
+  sessions: { title: '/sessions', description: 'List and switch between sessions' },
+  share: { title: '/share', description: 'Share the current session' },
+  themes: { title: '/themes', description: 'List available themes' },
+  thinking: { title: '/thinking', description: 'Toggle visibility of thinking blocks' },
+  unshare: { title: '/unshare', description: 'Unshare the current session' },
+};
+
 function rankCommand(command: ClaudeSlashCommand, query: string): number {
   const lowerName = command.name.toLowerCase();
   const lowerTitle = command.title.toLowerCase();
@@ -41,18 +60,50 @@ function rankCommand(command: ClaudeSlashCommand, query: string): number {
   return 5;
 }
 
-export function getSessionSlashCommands(messages: StreamMessage[]): Set<string> {
+function fromAvailableCommand(command: AvailableCommand): ClaudeSlashCommand | null {
+  const normalized = command.name.replace(/^\//, '').trim();
+  if (!normalized) {
+    return null;
+  }
+
+  return {
+    name: normalized,
+    title: `/${normalized}`,
+    description: command.description || 'ACP slash command',
+    source: 'acp',
+    inputHint: command.input?.hint,
+  };
+}
+
+export function getSessionSlashCommands(messages: StreamMessage[]): ClaudeSlashCommand[] {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
+    if (
+      message.type === 'system' &&
+      message.subtype === 'available_commands_update' &&
+      Array.isArray(message.availableCommands)
+    ) {
+      return message.availableCommands
+        .map(fromAvailableCommand)
+        .filter((command): command is ClaudeSlashCommand => Boolean(command))
+        .sort((left, right) => left.name.localeCompare(right.name));
+    }
+
     if (message.type === 'system' && message.subtype === 'init' && Array.isArray(message.slash_commands)) {
-      return new Set(message.slash_commands.map((command) => command.trim()).filter(Boolean));
+      return buildClaudeSlashCommands(new Set(message.slash_commands.map((command) => command.trim()).filter(Boolean)));
     }
   }
 
-  return new Set();
+  return [];
 }
 
-export function buildClaudeSlashCommands(sessionCommands?: Set<string>): ClaudeSlashCommand[] {
+export function buildClaudeSlashCommands(
+  sessionCommands?: Set<string> | ClaudeSlashCommand[]
+): ClaudeSlashCommand[] {
+  if (Array.isArray(sessionCommands)) {
+    return [...sessionCommands].sort((left, right) => left.name.localeCompare(right.name));
+  }
+
   const names =
     sessionCommands && sessionCommands.size > 0
       ? Array.from(sessionCommands)
@@ -71,6 +122,32 @@ export function buildClaudeSlashCommands(sessionCommands?: Set<string>): ClaudeS
       } satisfies ClaudeSlashCommand;
     })
     .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function buildProviderSlashCommands(
+  provider: AgentProvider,
+  sessionCommands?: ClaudeSlashCommand[]
+): ClaudeSlashCommand[] {
+  if (sessionCommands && sessionCommands.length > 0) {
+    return buildClaudeSlashCommands(sessionCommands);
+  }
+
+  if (provider === 'claude') {
+    return buildClaudeSlashCommands();
+  }
+
+  if (provider === 'opencode') {
+    return Object.entries(OPENCODE_COMMAND_DEFINITIONS)
+      .map(([name, definition]) => ({
+        name,
+        title: definition.title,
+        description: definition.description,
+        source: 'default' as const,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  return [];
 }
 
 export function parseSelectedSlashCommandPrompt(

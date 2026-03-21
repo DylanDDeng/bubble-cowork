@@ -23,6 +23,7 @@ export type {
   ServerEvent,
   McpServerConfig,
   McpServerStatus,
+  AvailableCommand,
   ClaudeSkillSummary,
   ClaudeModelConfig,
   ClaudeCompatibleProviderId,

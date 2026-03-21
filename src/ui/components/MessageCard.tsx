@@ -11,7 +11,7 @@ import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { getContentBlocks } from '../utils/message-content';
 import type { ClaudeSlashCommand } from '../utils/claude-slash';
-import { buildClaudeSlashCommands, getSessionSlashCommands, parseSelectedSlashCommandPrompt } from '../utils/claude-slash';
+import { buildProviderSlashCommands, getSessionSlashCommands, parseSelectedSlashCommandPrompt } from '../utils/claude-slash';
 import type { ClaudeSkillSummary } from '../types';
 import { getSessionSkillNames, mergeClaudeSkills, parseSelectedSkillPrompt } from '../utils/claude-skills';
 import type {
@@ -222,7 +222,8 @@ function UserPromptCard({
     claudeProjectSkills,
   } = useAppStore();
 
-  const activeSessionMessages = activeSessionId ? sessions[activeSessionId]?.messages || [] : [];
+  const activeSession = activeSessionId ? sessions[activeSessionId] : null;
+  const activeSessionMessages = activeSession?.messages || [];
   const availableSkills = useMemo(
     () => mergeClaudeSkills(
       claudeUserSkills,
@@ -232,8 +233,8 @@ function UserPromptCard({
     [activeSessionMessages, claudeProjectSkills, claudeUserSkills]
   );
   const availableCommands = useMemo(
-    () => buildClaudeSlashCommands(getSessionSlashCommands(activeSessionMessages)),
-    [activeSessionMessages]
+    () => buildProviderSlashCommands(activeSession?.provider || 'claude', getSessionSlashCommands(activeSessionMessages)),
+    [activeSession?.provider, activeSessionMessages]
   );
   const promptPrefixDisplay = useMemo<UserPromptPrefixDisplay | null>(() => {
     const skillState = parseSelectedSkillPrompt(prompt, availableSkills);

@@ -139,7 +139,9 @@ export function NewSessionView() {
     return next.slice(0, 6);
   }, [cwd, recentCwds]);
   const skillAutocomplete = useClaudeSkillAutocomplete({
-    enabled: provider === 'claude',
+    enabled: true,
+    enableSkills: provider === 'claude',
+    provider,
     prompt,
     projectPath: cwd || undefined,
     setPrompt,
@@ -542,7 +544,7 @@ export function NewSessionView() {
               </div>
             )}
 
-            {provider === 'claude' && !skillAutocomplete.selectedSkill && skillAutocomplete.selectedCommand && (
+            {!skillAutocomplete.selectedSkill && skillAutocomplete.selectedCommand && (
               <div className="px-5 pt-3">
                 <SelectedClaudeCommandChip
                   command={skillAutocomplete.selectedCommand}
@@ -571,11 +573,17 @@ export function NewSessionView() {
               autoFocus
             />
 
-            {provider === 'claude' && skillAutocomplete.hasSlashQuery && (
+            {skillAutocomplete.hasSlashQuery && (
               <ClaudeSkillMenu
                 suggestions={skillAutocomplete.suggestions}
                 selectedIndex={skillAutocomplete.selectedIndex}
                 empty={skillAutocomplete.suggestions.length === 0}
+                title={provider === 'claude' ? 'Commands & Skills' : 'Commands'}
+                emptyMessage={
+                  provider === 'claude'
+                    ? 'No matching Claude commands or skills.'
+                    : 'No matching ACP slash commands.'
+                }
                 onSelect={skillAutocomplete.selectSuggestion}
               />
             )}

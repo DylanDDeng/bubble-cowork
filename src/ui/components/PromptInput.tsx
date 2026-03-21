@@ -177,7 +177,9 @@ export function PromptInput() {
     setAttachments([]);
   };
   const skillAutocomplete = useClaudeSkillAutocomplete({
-    enabled: provider === 'claude',
+    enabled: true,
+    enableSkills: provider === 'claude',
+    provider,
     prompt,
     projectPath: activeSession?.cwd,
     sessionMessages: activeSession?.messages || [],
@@ -501,7 +503,7 @@ export function PromptInput() {
             </div>
           )}
 
-          {provider === 'claude' && !skillAutocomplete.selectedSkill && skillAutocomplete.selectedCommand && (
+          {!skillAutocomplete.selectedSkill && skillAutocomplete.selectedCommand && (
             <div className="px-5 pt-3">
               <SelectedClaudeCommandChip
                 command={skillAutocomplete.selectedCommand}
@@ -534,11 +536,17 @@ export function PromptInput() {
             }`}
           />
 
-          {provider === 'claude' && skillAutocomplete.hasSlashQuery && (
+          {skillAutocomplete.hasSlashQuery && (
             <ClaudeSkillMenu
               suggestions={skillAutocomplete.suggestions}
               selectedIndex={skillAutocomplete.selectedIndex}
               empty={skillAutocomplete.suggestions.length === 0}
+              title={provider === 'claude' ? 'Commands & Skills' : 'Commands'}
+              emptyMessage={
+                provider === 'claude'
+                  ? 'No matching Claude commands or skills.'
+                  : 'No matching ACP slash commands.'
+              }
               onSelect={skillAutocomplete.selectSuggestion}
             />
           )}

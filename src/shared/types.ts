@@ -437,6 +437,16 @@ export interface CompactMetadata {
   preTokens: number;
 }
 
+export interface AvailableCommandInput {
+  hint: string;
+}
+
+export interface AvailableCommand {
+  name: string;
+  description: string;
+  input?: AvailableCommandInput;
+}
+
 export type StreamMessage =
   | (StreamMessageBase & { type: 'user_prompt'; prompt: string; attachments?: Attachment[] })
   | (StreamMessageBase & {
@@ -450,6 +460,12 @@ export type StreamMessage =
       slash_commands?: string[];
       skills?: string[];
       mcp_servers?: McpServerStatus[];
+    })
+  | (StreamMessageBase & {
+      type: 'system';
+      subtype: 'available_commands_update';
+      session_id: string;
+      availableCommands: AvailableCommand[];
     })
   | (StreamMessageBase & {
       type: 'system';
