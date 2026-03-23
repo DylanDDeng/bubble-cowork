@@ -13,7 +13,6 @@ export function CodexPermissionModePicker({
 }) {
   const [open, setOpen] = useState(false);
   const current = MODE_META[value];
-  const Icon = current.icon;
 
   return (
     <div className="relative no-drag">
@@ -21,9 +20,13 @@ export function CodexPermissionModePicker({
         type="button"
         onClick={() => setOpen((currentOpen) => !currentOpen)}
         disabled={disabled}
-        className={`inline-flex items-center gap-2 rounded-[14px] border px-3 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${current.buttonClass}`}
+        className={`inline-flex items-center gap-2 rounded-[14px] border px-3 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          value === 'fullAccess'
+            ? 'border-[rgba(239,68,68,0.24)] bg-[rgba(239,68,68,0.08)] text-[#b42318] hover:bg-[rgba(239,68,68,0.12)]'
+            : 'border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+        }`}
       >
-        <Icon className="h-3.5 w-3.5 flex-shrink-0" />
+        <current.icon className="h-3.5 w-3.5 flex-shrink-0" />
         <span>{current.label}</span>
         <ChevronUp className={`h-3.5 w-3.5 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -31,7 +34,7 @@ export function CodexPermissionModePicker({
       {open && !disabled && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 z-20 mb-2 flex min-w-[220px] flex-col gap-1 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-lg">
+          <div className="absolute bottom-full left-0 z-20 mb-2 flex min-w-[168px] flex-col gap-1 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-lg">
             {(['defaultPermissions', 'fullAccess'] as const).map((mode) => (
               <CodexPermissionModeOption
                 key={mode}
@@ -54,24 +57,16 @@ const MODE_META: Record<
   CodexPermissionMode,
   {
     label: string;
-    description: string;
     icon: typeof Shield | typeof TriangleAlert;
-    buttonClass: string;
   }
 > = {
   defaultPermissions: {
     label: 'Default Permissions',
-    description: 'Use Codex with its normal approval flow in a workspace sandbox.',
     icon: Shield,
-    buttonClass:
-      'border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]',
   },
   fullAccess: {
     label: 'Full Access',
-    description: 'Auto-approve file edits and commands inside the workspace sandbox.',
     icon: TriangleAlert,
-    buttonClass:
-      'border-[rgba(239,68,68,0.24)] bg-[rgba(239,68,68,0.08)] text-[#b42318] hover:bg-[rgba(239,68,68,0.12)]',
   },
 };
 
@@ -106,7 +101,6 @@ function CodexPermissionModeOption({
         <Icon className="h-4 w-4 flex-shrink-0" />
         <span className="truncate text-[13px] font-semibold">{meta.label}</span>
       </div>
-      <div className="mt-1 text-[11px] leading-5 text-[var(--text-muted)]">{meta.description}</div>
     </button>
   );
 }

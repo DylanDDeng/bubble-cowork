@@ -21,7 +21,6 @@ import { useOpencodeModelConfig } from '../../hooks/useOpencodeModelConfig';
 import { useCodexRuntimeStatus } from '../../hooks/useCodexRuntimeStatus';
 import { useOpencodeRuntimeStatus } from '../../hooks/useOpencodeRuntimeStatus';
 import { formatCodexModelLabel } from '../../utils/codex-model';
-import { formatOpencodeModelLabel } from '../../utils/opencode-model';
 import { Badge } from '../ui/badge';
 import { OpenCodeLogo } from '../OpenCodeLogo';
 import { Input } from '../ui/input';
@@ -276,7 +275,8 @@ export function CompatibleProviderSettingsContent() {
               loading={opencodeRuntimeLoading}
               saveVisibility={window.electron.saveOpencodeModelVisibility}
               updatedEventName="opencode-model-config-updated"
-              formatModelLabel={formatOpencodeModelLabel}
+              formatModelLabel={(name) => name}
+              showRawModelName={false}
               loadingMessage="Checking local OpenCode models..."
               emptyMessage="No local OpenCode models were detected yet. Models will appear automatically when the local OpenCode cache is ready."
               saveErrorMessage="Failed to update OpenCode model visibility."
@@ -561,6 +561,7 @@ function CodexRuntimeDetailPanel({
   saveVisibility,
   updatedEventName,
   formatModelLabel,
+  showRawModelName = true,
   loadingMessage,
   emptyMessage,
   saveErrorMessage,
@@ -570,6 +571,7 @@ function CodexRuntimeDetailPanel({
   saveVisibility: (enabledModels: string[]) => Promise<{ availableModels: Array<{ name: string; enabled: boolean; isDefault: boolean }> }>;
   updatedEventName: string;
   formatModelLabel: (name: string) => string;
+  showRawModelName?: boolean;
   loadingMessage: string;
   emptyMessage: string;
   saveErrorMessage: string;
@@ -663,9 +665,11 @@ function CodexRuntimeDetailPanel({
                       </Badge>
                     ) : null}
                   </div>
-                  <div className="mt-1 truncate text-[13px] text-[var(--text-secondary)]">
-                    {model.name}
-                  </div>
+                  {showRawModelName ? (
+                    <div className="mt-1 truncate text-[13px] text-[var(--text-secondary)]">
+                      {model.name}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="flex items-center gap-3">
