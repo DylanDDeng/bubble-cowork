@@ -4,12 +4,99 @@ import type { ContentBlock, ToolStatus, StreamMessage } from '../types';
 import { getToolSummary, safeJsonStringify } from '../utils/tool-summary';
 import { getMessageContentBlocks } from '../utils/message-content';
 import { extractLatestTodoProgress } from '../utils/todo-progress';
+import {
+  createUnifiedDiffHunks,
+  extractUnifiedDiffFilePath,
+  parseUnifiedDiff,
+  type UnifiedDiffHunk,
+  type UnifiedDiffLine,
+} from '../utils/unified-diff';
 import { TodoProgressCard } from './TodoProgressCard';
 
 // 工具使用块类型
 type ToolUseBlock = ContentBlock & { type: 'tool_use' };
 // 工具结果块类型
 type ToolResultBlock = ContentBlock & { type: 'tool_result' };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function getString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function parseToolResultPayload(result: ToolResultBlock | undefined): Record<string, unknown> | null {
+  if (!result || typeof result.content !== 'string') {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(result.content) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function getToolResultDiffContent(result: ToolResultBlock | undefined): string | null {
+  const payload = parseToolResultPayload(result);
+  const metadata = isRecord(payload?.metadata) ? payload.metadata : null;
+  return getString(metadata?.diff);
+}
+
+function getToolInputFilePath(input: Record<string, unknown>): string | null {
+  return getString(input.file_path) || getString(input.path) || getString(input.filePath) || getString(input.filename);
+}
+
+function getToolInputContent(input: Record<string, unknown>): string | null {
+  return getString(input.content) || getString(input.text) || getString(input.data) || getString(input.file_content);
+}
+
+function getToolInputOldText(input: Record<string, unknown>): string | null {
+  return (
+    getString(input.old_string) ||
+    getString(input.oldText) ||
+    getString(input.old_text) ||
+    getString(input.search) ||
+    getString(input.before) ||
+    getString(input.original)
+  );
+}
+
+function getToolInputNewText(input: Record<string, unknown>): string | null {
+  return (
+    getString(input.new_string) ||
+    getString(input.newText) ||
+    getString(input.new_text) ||
+    getString(input.replace) ||
+    getString(input.replacement) ||
+    getString(input.after) ||
+    getString(input.updated)
+  );
+}
+
+function buildWritePreviewHunks(content: string): UnifiedDiffHunk[] {
+  const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  if (lines[lines.length - 1] === '') {
+    lines.pop();
+  }
+
+  return [
+    {
+      oldStart: 0,
+      oldLines: 0,
+      newStart: 1,
+      newLines: lines.length,
+      lines: lines.map((line, index) => ({
+        type: 'addition',
+        oldLineNumber: null,
+        newLineNumber: index + 1,
+        text: line,
+      })),
+    },
+  ];
+}
 
 interface ToolExecutionBatchProps {
   messages: (StreamMessage & { type: 'assistant' })[];
@@ -267,12 +354,42 @@ function ToolInvocationCompact({
 }) {
   const [showDetails, setShowDetails] = useState(false);
   const summary = getToolSummary(block.name, block.input);
+  const inputRecord = isRecord(block.input) ? block.input : {};
   // 安全检查：确保 content 是字符串
   const contentStr = result?.content != null
     ? (typeof result.content === 'string' ? result.content : safeJsonStringify(result.content))
     : '';
   const hasOutput = contentStr.length > 0;
   const outputLines = hasOutput ? contentStr.split('\n').length : 0;
+  const diffContent =
+    (block.name === 'Write' || block.name === 'Edit' || block.name === 'Delete')
+      ? getToolResultDiffContent(result)
+      : null;
+  const diffFilePath =
+    (diffContent ? extractUnifiedDiffFilePath(diffContent) : null) || getToolInputFilePath(inputRecord);
+  const diffHunks = useMemo(() => {
+    if (diffContent) {
+      return parseUnifiedDiff(diffContent);
+    }
+
+    if (block.name === 'Edit') {
+      const oldText = getToolInputOldText(inputRecord);
+      const newText = getToolInputNewText(inputRecord);
+      if (oldText !== null && newText !== null) {
+        return createUnifiedDiffHunks(oldText, newText, { contextLines: 3 });
+      }
+    }
+
+    if (block.name === 'Write') {
+      const content = getToolInputContent(inputRecord);
+      if (content) {
+        return buildWritePreviewHunks(content);
+      }
+    }
+
+    return [];
+  }, [block.name, diffContent, inputRecord]);
+  const hasStructuredDiff = diffHunks.length > 0;
 
   return (
     <div className="rounded-lg border border-[var(--border)]/70 bg-[var(--bg-primary)]/80">
@@ -304,12 +421,28 @@ function ToolInvocationCompact({
             </pre>
           </div>
 
+          {hasStructuredDiff && (
+            <div className="mb-1">
+              <span className="text-[var(--text-muted)]">Content:</span>
+              <div className="mt-1 overflow-hidden rounded-xl border border-[var(--border)]/70 bg-[var(--bg-tertiary)]/60">
+                <div className="border-b border-[var(--border)]/70 px-3 py-2 text-sm font-medium text-[var(--text-primary)]">
+                  {diffFilePath || summary || block.name}
+                </div>
+                <div className="max-h-72 overflow-auto">
+                  {diffHunks.map((hunk, index) => (
+                    <DiffHunkView key={`${hunk.oldStart}-${hunk.newStart}-${index}`} hunk={hunk} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 输出 */}
           {hasOutput && (
-            <div>
-              <span className={result?.is_error ? 'text-red-400' : 'text-[var(--text-muted)]'}>
-                Output:
-              </span>
+            <details className="mt-2">
+              <summary className={`cursor-pointer select-none ${result?.is_error ? 'text-red-400' : 'text-[var(--text-muted)]'}`}>
+                {hasStructuredDiff ? 'Raw output' : 'Output'}
+              </summary>
               <pre
                 className={`mt-0.5 p-2 bg-[var(--bg-tertiary)] rounded whitespace-pre-wrap break-all max-h-32 overflow-auto ${
                   result?.is_error ? 'text-red-400' : 'text-[var(--text-secondary)]'
@@ -317,7 +450,7 @@ function ToolInvocationCompact({
               >
                 {contentStr}
               </pre>
-            </div>
+            </details>
           )}
         </div>
       )}
@@ -357,6 +490,44 @@ function TraceNoteItem({ content }: { content: string }) {
   return (
     <div className="px-1 py-0.5 text-sm leading-6 text-[var(--text-secondary)]">
       {content}
+    </div>
+  );
+}
+
+function DiffHunkView({ hunk }: { hunk: UnifiedDiffHunk }) {
+  return (
+    <div className="border-t border-[var(--border)]/60 first:border-t-0">
+      <div className="px-3 py-1.5 font-mono text-[11px] text-[var(--text-muted)]">
+        {`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`}
+      </div>
+      {hunk.lines.map((line, index) => (
+        <DiffLineView key={`${hunk.oldStart}-${hunk.newStart}-${index}`} line={line} />
+      ))}
+    </div>
+  );
+}
+
+function DiffLineView({ line }: { line: UnifiedDiffLine }) {
+  const containerClass =
+    line.type === 'addition'
+      ? 'bg-emerald-500/10'
+      : line.type === 'deletion'
+        ? 'bg-rose-500/10'
+        : 'bg-transparent';
+  const markerClass =
+    line.type === 'addition'
+      ? 'text-emerald-400'
+      : line.type === 'deletion'
+        ? 'text-rose-400'
+        : 'text-[var(--text-muted)]';
+  const marker = line.type === 'addition' ? '+' : line.type === 'deletion' ? '-' : ' ';
+
+  return (
+    <div className={`grid grid-cols-[56px_56px_18px_minmax(0,1fr)] items-start gap-0 font-mono text-[12px] leading-6 ${containerClass}`}>
+      <div className="px-2 text-right text-[var(--text-muted)]">{line.oldLineNumber ?? ''}</div>
+      <div className="px-2 text-right text-[var(--text-muted)]">{line.newLineNumber ?? ''}</div>
+      <div className={`px-1 text-center ${markerClass}`}>{marker}</div>
+      <div className="min-w-0 whitespace-pre-wrap break-words px-2 text-[var(--text-primary)]">{line.text || ' '}</div>
     </div>
   );
 }

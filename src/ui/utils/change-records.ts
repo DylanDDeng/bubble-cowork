@@ -390,6 +390,89 @@ function getToolFilePath(input: Record<string, unknown>): string | null {
   ]);
 }
 
+function parseToolResultPayload(result: ToolResultBlock | undefined): Record<string, unknown> | null {
+  if (!result || typeof result.content !== 'string') {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(result.content) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function getToolResultMetadata(payload: Record<string, unknown> | null): Record<string, unknown> | null {
+  const metadata = payload?.metadata;
+  return isRecord(metadata) ? metadata : null;
+}
+
+function extractPathFromTaggedOutput(output: string): string | null {
+  const match = output.match(/<path>([^<\n]+)<\/path>/i);
+  return match?.[1]?.trim() || null;
+}
+
+function extractPathFromDiff(diffContent: string): string | null {
+  const indexMatch = diffContent.match(/^Index:\s+(.+)$/m);
+  if (indexMatch?.[1]?.trim()) {
+    return indexMatch[1].trim();
+  }
+
+  const plusMatch = diffContent.match(/^\+\+\+\s+(.+)$/m);
+  if (plusMatch?.[1]?.trim()) {
+    return plusMatch[1].replace(/^b\//, '').trim();
+  }
+
+  const minusMatch = diffContent.match(/^---\s+(.+)$/m);
+  if (minusMatch?.[1]?.trim() && minusMatch[1].trim() !== '/dev/null') {
+    return minusMatch[1].replace(/^a\//, '').trim();
+  }
+
+  return null;
+}
+
+function getToolResultFilePath(result: ToolResultBlock | undefined): string | null {
+  const payload = parseToolResultPayload(result);
+  const metadata = getToolResultMetadata(payload);
+  const metadataDiff = getString(metadata?.diff);
+  if (metadataDiff) {
+    const filePath = extractPathFromDiff(metadataDiff);
+    if (filePath) {
+      return filePath;
+    }
+  }
+
+  const output = getString(payload?.output);
+  if (output) {
+    const filePath = extractPathFromTaggedOutput(output);
+    if (filePath) {
+      return filePath;
+    }
+  }
+
+  return null;
+}
+
+function getToolResultDiffContent(
+  result: ToolResultBlock | undefined,
+  fallbackFilePath?: string | null
+): string | null {
+  const payload = parseToolResultPayload(result);
+  const metadata = getToolResultMetadata(payload);
+  const metadataDiff = getString(metadata?.diff);
+  if (!metadataDiff) {
+    return null;
+  }
+
+  const filePath = fallbackFilePath || extractPathFromDiff(metadataDiff);
+  if (!filePath) {
+    return metadataDiff.trim();
+  }
+
+  return normalizeUnifiedDiff(filePath, metadataDiff);
+}
+
 function buildRecordsFromStructuredChanges(
   input: Record<string, unknown>,
   blockId: string,
@@ -508,14 +591,14 @@ function buildToolRecords(
     );
   }
 
-  const filePath = getToolFilePath(input);
+  const filePath = getToolFilePath(input) || getToolResultFilePath(result);
   if (!filePath) return [];
   const { fileName, dirPath } = splitPath(filePath);
 
   if (operation === 'write') {
     const content = getFirstString(input, ['content', 'text', 'data', 'file_content']) || '';
-    const diffContent = content ? createWriteDiff(filePath, content) : null;
-    const addedLines = content ? countLines(content) : 0;
+    const diffContent = content ? createWriteDiff(filePath, content) : getToolResultDiffContent(result, filePath);
+    const stats = diffContent ? countDiffStats(diffContent) : { addedLines: 0, removedLines: 0 };
     return [{
       id: `tool:${block.id}`,
       filePath,
@@ -531,8 +614,8 @@ function buildToolRecords(
       diffContent,
       sizeBytes: content ? byteLength(content) : null,
       lineCount: content ? countLines(content) : null,
-      addedLines,
-      removedLines: 0,
+      addedLines: content ? countLines(content) : stats.addedLines,
+      removedLines: stats.removedLines,
     }];
   }
 
@@ -555,7 +638,9 @@ function buildToolRecords(
       'updated',
     ]);
     const diffContent =
-      oldText !== null && newText !== null ? createEditDiff(filePath, oldText, newText) : null;
+      oldText !== null && newText !== null
+        ? createEditDiff(filePath, oldText, newText)
+        : getToolResultDiffContent(result, filePath);
     const stats = diffContent ? countDiffStats(diffContent) : { addedLines: 0, removedLines: 0 };
 
     return [{
@@ -578,6 +663,9 @@ function buildToolRecords(
     }];
   }
 
+  const diffContent = getToolResultDiffContent(result, filePath);
+  const stats = diffContent ? countDiffStats(diffContent) : { addedLines: 0, removedLines: 0 };
+
   return [{
     id: `tool:${block.id}`,
     filePath,
@@ -590,11 +678,11 @@ function buildToolRecords(
     state,
     order: index,
     toolUseId: block.id,
-    diffContent: null,
+    diffContent,
     sizeBytes: null,
     lineCount: null,
-    addedLines: 0,
-    removedLines: 0,
+    addedLines: stats.addedLines,
+    removedLines: stats.removedLines,
   }];
 }
 

@@ -494,6 +494,7 @@ function handleSessionList(
       compatibleProviderId: session.compatibleProviderId,
       betas: session.betas,
       claudeAccessMode: session.claudeAccessMode,
+      codexPermissionMode: session.codexPermissionMode,
       todoState: session.todoState || 'todo',
       pinned: session.pinned || false,
       folderPath: session.folderPath || null,
@@ -535,11 +536,12 @@ function handleSessionStatus(
     compatibleProviderId?: SessionInfo['compatibleProviderId'];
     betas?: SessionInfo['betas'];
     claudeAccessMode?: SessionInfo['claudeAccessMode'];
+    codexPermissionMode?: SessionInfo['codexPermissionMode'];
   },
   set: SetState,
   get: () => Store
 ) {
-  const { sessionId, status, title, cwd, provider, model, compatibleProviderId, betas, claudeAccessMode } = payload;
+  const { sessionId, status, title, cwd, provider, model, compatibleProviderId, betas, claudeAccessMode, codexPermissionMode } = payload;
   const state = get();
   const session = state.sessions[sessionId];
 
@@ -570,6 +572,8 @@ function handleSessionStatus(
             compatibleProviderId !== undefined ? compatibleProviderId || undefined : session.compatibleProviderId,
           betas: betas !== undefined ? betas : session.betas,
           claudeAccessMode: claudeAccessMode !== undefined ? claudeAccessMode : session.claudeAccessMode,
+          codexPermissionMode:
+            codexPermissionMode !== undefined ? codexPermissionMode : session.codexPermissionMode,
           latestClaudeModelUsage: session.latestClaudeModelUsage,
           streaming:
             status === 'running'
@@ -592,6 +596,7 @@ function handleSessionStatus(
       compatibleProviderId,
       betas,
       claudeAccessMode,
+      codexPermissionMode,
       latestClaudeModelUsage: undefined,
       messages: [],
       hydrated: true, // 新会话不需要 hydration

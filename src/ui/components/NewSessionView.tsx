@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import type { Attachment, ClaudeAccessMode, ClaudeCompatibleProviderId, ClaudeSkillSummary } from '../types';
+import type { Attachment, ClaudeAccessMode, ClaudeCompatibleProviderId, ClaudeSkillSummary, CodexPermissionMode } from '../types';
 import coworkLogo from '../assets/cowork-logo.svg';
 import powerPointLogo from '../assets/powerpoint-2025-logo.svg';
 import pdfLogo from '../assets/pdf-svgrepo-com.svg';
@@ -10,6 +10,7 @@ import wordLogo from '../assets/word-2025-logo.svg';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
+import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { ClaudeContextIndicator } from './ClaudeContextIndicator';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
@@ -31,6 +32,7 @@ import {
   savePreferredClaudeModel,
 } from '../utils/claude-model';
 import { buildCodexModelOptions, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
+import { loadPreferredCodexPermissionMode, savePreferredCodexPermissionMode } from '../utils/codex-permission';
 import { buildOpencodeModelOptions, loadPreferredOpencodeModel, savePreferredOpencodeModel } from '../utils/opencode-model';
 import { buildPromptWithSkill } from '../utils/claude-skills';
 import { buildPromptWithSlashCommand } from '../utils/claude-slash';
@@ -95,6 +97,9 @@ export function NewSessionView() {
   );
   const [showCwdHint, setShowCwdHint] = useState(false);
   const [claudeAccessMode, setClaudeAccessMode] = useState<ClaudeAccessMode>('default');
+  const [selectedCodexPermissionMode, setSelectedCodexPermissionMode] = useState<CodexPermissionMode>(
+    loadPreferredCodexPermissionMode()
+  );
   const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const cwd = projectCwd || '';
   const hasSelectedCwd = cwd.trim().length > 0;
@@ -354,6 +359,7 @@ export function NewSessionView() {
             ? ['context-1m-2025-08-07']
             : undefined,
         claudeAccessMode: provider === 'claude' ? claudeAccessMode : undefined,
+        codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
       },
     });
 
@@ -640,6 +646,17 @@ export function NewSessionView() {
                 <ClaudeAccessModePicker
                   value={claudeAccessMode}
                   onChange={setClaudeAccessMode}
+                  disabled={pendingStart}
+                />
+              )}
+
+              {provider === 'codex' && (
+                <CodexPermissionModePicker
+                  value={selectedCodexPermissionMode}
+                  onChange={(mode) => {
+                    setSelectedCodexPermissionMode(mode);
+                    savePreferredCodexPermissionMode(mode);
+                  }}
                   disabled={pendingStart}
                 />
               )}

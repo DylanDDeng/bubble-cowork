@@ -7,6 +7,7 @@ import type {
   ChatMessageSearchResult,
   ClaudeAccessMode,
   ClaudeCompatibleProviderId,
+  CodexPermissionMode,
   ClaudeModelUsage,
   LatestClaudeModelUsage,
   ClaudeUsageModelSummary,
@@ -21,6 +22,14 @@ const claudeUsageReportCache = new Map<
   { version: number; dayStart: number; report: ClaudeUsageReport }
 >();
 let claudeUsageReportDataVersion = 0;
+
+function normalizeCodexPermissionMode(
+  value?: string | null
+): CodexPermissionMode {
+  return value === 'fullAccess' || value === 'fullAuto'
+    ? 'fullAccess'
+    : 'defaultPermissions';
+}
 
 // 初始化数据库
 export function initialize(): void {
@@ -43,6 +52,7 @@ export function initialize(): void {
       compatible_provider_id TEXT,
       betas TEXT,
       claude_access_mode TEXT DEFAULT 'default',
+      codex_permission_mode TEXT DEFAULT 'defaultPermissions',
       status TEXT NOT NULL DEFAULT 'idle',
       cwd TEXT,
       allowed_tools TEXT,
@@ -70,6 +80,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'compatible_provider_id', 'TEXT');
   ensureColumn('sessions', 'betas', 'TEXT');
   ensureColumn('sessions', 'claude_access_mode', "TEXT DEFAULT 'default'");
+  ensureColumn('sessions', 'codex_permission_mode', "TEXT DEFAULT 'defaultPermissions'");
   ensureColumn('sessions', 'todo_state', "TEXT DEFAULT 'todo'");
   ensureColumn('sessions', 'pinned', 'INTEGER DEFAULT 0');
   ensureColumn('sessions', 'folder_path', 'TEXT');
@@ -112,13 +123,14 @@ export function createSession(params: {
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
+  codexPermissionMode?: CodexPermissionMode;
 }): SessionRow {
   const now = Date.now();
   const id = uuidv4();
 
   const stmt = getDb().prepare(`
-    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, cwd, allowed_tools, last_prompt, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
+    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, codex_permission_mode, cwd, allowed_tools, last_prompt, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
   `);
 
   stmt.run(
@@ -129,6 +141,7 @@ export function createSession(params: {
     params.provider === 'claude' ? params.compatibleProviderId || null : null,
     params.betas && params.betas.length > 0 ? JSON.stringify(params.betas) : null,
     params.provider === 'claude' ? params.claudeAccessMode || 'default' : null,
+    params.provider === 'codex' ? normalizeCodexPermissionMode(params.codexPermissionMode) : null,
     params.cwd || null,
     params.allowedTools || null,
     params.prompt || null,
@@ -278,6 +291,17 @@ export function updateSessionClaudeAccessMode(
   const now = Date.now();
   const stmt = getDb().prepare(`
     UPDATE sessions SET claude_access_mode = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(mode ? normalizeCodexPermissionMode(mode) : null, now, sessionId);
+}
+
+export function updateSessionCodexPermissionMode(
+  sessionId: string,
+  mode: CodexPermissionMode | null
+): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET codex_permission_mode = ?, updated_at = ? WHERE id = ?
   `);
   stmt.run(mode, now, sessionId);
 }

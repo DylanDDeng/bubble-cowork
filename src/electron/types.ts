@@ -31,6 +31,7 @@ export interface SessionRow {
   compatible_provider_id: import('../shared/types').ClaudeCompatibleProviderId | null;
   betas: string | null;
   claude_access_mode: import('../shared/types').ClaudeAccessMode | null;
+  codex_permission_mode: import('../shared/types').CodexPermissionMode | null;
   status: string;
   cwd: string | null;
   allowed_tools: string | null;
@@ -59,6 +60,7 @@ export interface RunnerOptions {
   compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
+  codexPermissionMode?: import('../shared/types').CodexPermissionMode;
   onMessage: (message: import('../shared/types').StreamMessage) => void;
   onError?: (error: Error) => void;
   onPermissionRequest: (

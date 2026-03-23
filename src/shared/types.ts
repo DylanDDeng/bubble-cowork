@@ -86,6 +86,7 @@ export interface ClaudeModelConfig {
 }
 
 export type ClaudeAccessMode = 'default' | 'fullAccess';
+export type CodexPermissionMode = 'defaultPermissions' | 'fullAccess';
 
 export interface CodexModelConfig {
   defaultModel: string | null;
@@ -329,6 +330,7 @@ export interface SessionStartPayload {
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
+  codexPermissionMode?: CodexPermissionMode;
 }
 
 export interface SessionContinuePayload {
@@ -340,6 +342,7 @@ export interface SessionContinuePayload {
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
+  codexPermissionMode?: CodexPermissionMode;
 }
 
 export interface SessionInfo {
@@ -353,6 +356,7 @@ export interface SessionInfo {
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
+  codexPermissionMode?: CodexPermissionMode;
   todoState?: TodoState;
   pinned?: boolean;
   folderPath?: string | null;
@@ -374,6 +378,7 @@ export interface SessionStatusPayload {
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
+  codexPermissionMode?: CodexPermissionMode;
 }
 
 export interface SessionHistoryPayload {

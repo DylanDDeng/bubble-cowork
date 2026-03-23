@@ -241,3 +241,97 @@ export function formatUnifiedDiffHunks(hunks: UnifiedDiffHunk[]): string {
     })
     .join('\n');
 }
+
+export function extractUnifiedDiffFilePath(diffContent: string): string | null {
+  const normalized = normalizeText(diffContent);
+
+  const indexMatch = normalized.match(/^Index:\s+(.+)$/m);
+  if (indexMatch?.[1]?.trim()) {
+    return indexMatch[1].trim();
+  }
+
+  const plusMatch = normalized.match(/^\+\+\+\s+(.+)$/m);
+  if (plusMatch?.[1]?.trim() && plusMatch[1].trim() !== '/dev/null') {
+    return plusMatch[1].replace(/^b\//, '').trim();
+  }
+
+  const minusMatch = normalized.match(/^---\s+(.+)$/m);
+  if (minusMatch?.[1]?.trim() && minusMatch[1].trim() !== '/dev/null') {
+    return minusMatch[1].replace(/^a\//, '').trim();
+  }
+
+  return null;
+}
+
+export function parseUnifiedDiff(diffContent: string): UnifiedDiffHunk[] {
+  const lines = normalizeText(diffContent).split('\n');
+  const hunks: UnifiedDiffHunk[] = [];
+  let currentHunk: UnifiedDiffHunk | null = null;
+  let oldLine = 0;
+  let newLine = 0;
+
+  const pushCurrentHunk = () => {
+    if (currentHunk) {
+      hunks.push(currentHunk);
+      currentHunk = null;
+    }
+  };
+
+  for (const line of lines) {
+    const headerMatch = line.match(/^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/);
+    if (headerMatch) {
+      pushCurrentHunk();
+      oldLine = Number(headerMatch[1]);
+      newLine = Number(headerMatch[3]);
+      currentHunk = {
+        oldStart: oldLine,
+        oldLines: Number(headerMatch[2] || 1),
+        newStart: newLine,
+        newLines: Number(headerMatch[4] || 1),
+        lines: [],
+      };
+      continue;
+    }
+
+    if (!currentHunk) {
+      continue;
+    }
+
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      currentHunk.lines.push({
+        type: 'addition',
+        oldLineNumber: null,
+        newLineNumber: newLine,
+        text: line.slice(1),
+      });
+      newLine += 1;
+      continue;
+    }
+
+    if (line.startsWith('-') && !line.startsWith('---')) {
+      currentHunk.lines.push({
+        type: 'deletion',
+        oldLineNumber: oldLine,
+        newLineNumber: null,
+        text: line.slice(1),
+      });
+      oldLine += 1;
+      continue;
+    }
+
+    if (line.startsWith(' ')) {
+      currentHunk.lines.push({
+        type: 'context',
+        oldLineNumber: oldLine,
+        newLineNumber: newLine,
+        text: line.slice(1),
+      });
+      oldLine += 1;
+      newLine += 1;
+      continue;
+    }
+  }
+
+  pushCurrentHunk();
+  return hunks;
+}

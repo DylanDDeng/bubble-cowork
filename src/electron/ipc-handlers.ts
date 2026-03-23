@@ -86,6 +86,14 @@ const projectWatchers = new Map<
   { watcher: FSWatcher; timer?: NodeJS.Timeout }
 >();
 
+function normalizeCodexPermissionMode(
+  value?: string | null
+): import('../shared/types').CodexPermissionMode {
+  return value === 'fullAccess' || value === 'fullAuto'
+    ? 'fullAccess'
+    : 'defaultPermissions';
+}
+
 type ProjectFilePreview =
   | {
       kind: 'text' | 'markdown' | 'html';
@@ -854,6 +862,7 @@ const runnerHandles = new Map<
     provider: 'claude' | 'codex' | 'opencode';
     compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
     claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
+    codexPermissionMode?: import('../shared/types').CodexPermissionMode;
   }
 >();
 
@@ -1628,6 +1637,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     compatibleProviderId: row.compatible_provider_id || undefined,
     betas: parseStoredBetas(row.betas),
     claudeAccessMode: row.claude_access_mode || 'default',
+    codexPermissionMode: normalizeCodexPermissionMode(row.codex_permission_mode),
     todoState: row.todo_state || 'todo',
     pinned: row.pinned === 1,
     folderPath: row.folder_path || null,
@@ -1672,6 +1682,7 @@ async function handleSessionStart(
     compatibleProviderId,
     betas,
     claudeAccessMode,
+    codexPermissionMode,
   } = payload;
   if (!cwd?.trim()) {
     broadcast(mainWindow, {
@@ -1728,6 +1739,7 @@ async function handleSessionStart(
     compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
     betas: selectedBetas,
     claudeAccessMode: chosenProvider === 'claude' ? (claudeAccessMode || 'default') : undefined,
+    codexPermissionMode: chosenProvider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
   });
 
   // 更新状态为 running
@@ -1746,6 +1758,7 @@ async function handleSessionStart(
       compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
       betas: selectedBetas,
       claudeAccessMode: chosenProvider === 'claude' ? (claudeAccessMode || 'default') : undefined,
+      codexPermissionMode: chosenProvider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
     },
   });
 
@@ -1800,7 +1813,8 @@ async function handleSessionStart(
     selectedModel,
     chosenProvider === 'claude' ? compatibleProviderId : undefined,
     selectedBetas,
-    claudeAccessMode
+    claudeAccessMode,
+    chosenProvider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined
   );
   return session.id;
 }
@@ -1810,7 +1824,7 @@ async function handleSessionContinue(
   mainWindow: BrowserWindow,
   payload: SessionContinuePayload
 ): Promise<boolean> {
-  const { sessionId, prompt, attachments, provider, model, compatibleProviderId, betas, claudeAccessMode } = payload;
+  const { sessionId, prompt, attachments, provider, model, compatibleProviderId, betas, claudeAccessMode, codexPermissionMode } = payload;
 
   const session = sessions.getSession(sessionId);
   if (!session) {
@@ -1844,9 +1858,16 @@ async function handleSessionContinue(
   const modelChanged = nextModel !== previousModel;
   const betasChanged = JSON.stringify(nextBetas || []) !== JSON.stringify(previousBetas || []);
   const nextClaudeAccessMode = nextProvider === 'claude' ? (claudeAccessMode || 'default') : undefined;
+  const previousCodexPermissionMode = normalizeCodexPermissionMode(session.codex_permission_mode);
+  const nextCodexPermissionMode = nextProvider === 'codex'
+    ? normalizeCodexPermissionMode(codexPermissionMode || previousCodexPermissionMode)
+    : undefined;
   const accessModeChanged =
     nextProvider === 'claude' &&
     (runnerHandles.get(sessionId)?.claudeAccessMode || 'default') !== nextClaudeAccessMode;
+  const codexPermissionModeChanged =
+    nextProvider === 'codex' &&
+    normalizeCodexPermissionMode(runnerHandles.get(sessionId)?.codexPermissionMode || previousCodexPermissionMode) !== nextCodexPermissionMode;
 
   if (nextProvider === 'claude') {
     const runtimeStatus = await getClaudeRuntimeStatus(nextModel || null);
@@ -1887,6 +1908,7 @@ async function handleSessionContinue(
       compatibleProviderChanged,
       betasChanged,
       accessModeChanged,
+      codexPermissionModeChanged,
       hasExistingRunner: !!existingEntry,
     });
   }
@@ -1902,6 +1924,9 @@ async function handleSessionContinue(
   sessions.updateSessionBetas(sessionId, nextBetas || null);
   if (nextProvider === 'claude') {
     sessions.updateSessionClaudeAccessMode(sessionId, claudeAccessMode || 'default');
+  }
+  if (nextProvider === 'codex') {
+    sessions.updateSessionCodexPermissionMode(sessionId, nextCodexPermissionMode || 'defaultPermissions');
   }
 
   // 更新状态
@@ -1919,6 +1944,7 @@ async function handleSessionContinue(
       compatibleProviderId: nextProvider === 'claude' ? nextCompatibleProviderId : undefined,
       betas: nextBetas,
       claudeAccessMode: nextProvider === 'claude' ? (claudeAccessMode || 'default') : undefined,
+      codexPermissionMode: nextProvider === 'codex' ? (nextCodexPermissionMode || 'defaultPermissions') : undefined,
     },
   });
 
@@ -1935,6 +1961,7 @@ async function handleSessionContinue(
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
     if (
       ((nextProvider === 'codex' || nextProvider === 'opencode') && modelChanged) ||
+      (nextProvider === 'codex' && codexPermissionModeChanged) ||
       (nextProvider === 'claude' &&
         (modelChanged || compatibleProviderChanged || betasChanged || accessModeChanged))
     ) {
@@ -1971,7 +1998,8 @@ async function handleSessionContinue(
     nextModel,
     nextProvider === 'claude' ? nextCompatibleProviderId : undefined,
     nextBetas,
-    claudeAccessMode
+    claudeAccessMode,
+    nextProvider === 'codex' ? (nextCodexPermissionMode || 'defaultPermissions') : undefined
   );
   return true;
 }
@@ -1987,7 +2015,8 @@ function startRunner(
   modelOverride?: string,
   compatibleProviderOverride?: import('../shared/types').ClaudeCompatibleProviderId,
   betasOverride?: string[],
-  claudeAccessMode?: import('../shared/types').ClaudeAccessMode
+  claudeAccessMode?: import('../shared/types').ClaudeAccessMode,
+  codexPermissionMode?: import('../shared/types').CodexPermissionMode
 ): void {
   if (!session) return;
 
@@ -2023,6 +2052,7 @@ function startRunner(
     compatibleProviderId,
     betas: provider === 'claude' ? betasOverride || parseStoredBetas(session.betas) : undefined,
     claudeAccessMode,
+    codexPermissionMode,
     onMessage: (message) => {
       // 提取并保存 claude session id
       if (message.type === 'system' && message.subtype === 'init') {
@@ -2069,6 +2099,10 @@ function startRunner(
             claudeAccessMode:
               provider === 'claude'
                 ? sessions.getSession(session.id)?.claude_access_mode || claudeAccessMode || 'default'
+                : undefined,
+            codexPermissionMode:
+              provider === 'codex'
+                ? normalizeCodexPermissionMode(sessions.getSession(session.id)?.codex_permission_mode || codexPermissionMode)
                 : undefined,
           },
         });
@@ -2131,9 +2165,13 @@ function startRunner(
               provider === 'claude'
                 ? sessions.getSession(session.id)?.claude_access_mode || claudeAccessMode || 'default'
                 : undefined,
+            codexPermissionMode:
+              provider === 'codex'
+                ? normalizeCodexPermissionMode(sessions.getSession(session.id)?.codex_permission_mode || codexPermissionMode)
+                : undefined,
           },
         });
-        if (runnerHandles.get(session.id)?.handle === handle) {
+        if (provider === 'claude' && runnerHandles.get(session.id)?.handle === handle) {
           runnerHandles.delete(session.id);
         }
       }
@@ -2187,6 +2225,7 @@ function startRunner(
     provider,
     compatibleProviderId,
     claudeAccessMode: provider === 'claude' ? (claudeAccessMode || 'default') : undefined,
+    codexPermissionMode: provider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
   });
 }
 

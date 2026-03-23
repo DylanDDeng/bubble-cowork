@@ -21,6 +21,7 @@ import { Settings } from './components/settings/Settings';
 import { ProjectTreePanel } from './components/ProjectTreePanel';
 import { ThinkingIndicator } from './components/ThinkingIndicator';
 import { ThinkingBlock } from './components/ThinkingBlock';
+import { DecisionPanel } from './components/DecisionPanel';
 import { ExternalFilePermissionDialog } from './components/ExternalFilePermissionDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { applyFontPreferences } from './theme/fonts';
@@ -33,6 +34,7 @@ import {
   hasRunningToolInMessages,
 } from './utils/turn-utils';
 import type {
+  AskUserQuestionInput,
   ExternalFilePermissionInput,
   ToolStatus,
   PermissionResult,
@@ -142,6 +144,15 @@ function isExternalFilePermissionInput(input: unknown): input is ExternalFilePer
     input !== null &&
     'kind' in input &&
     (input as { kind?: unknown }).kind === 'external-file-access'
+  );
+}
+
+function isAskUserQuestionInput(input: unknown): input is AskUserQuestionInput {
+  return (
+    typeof input === 'object' &&
+    input !== null &&
+    'questions' in input &&
+    Array.isArray((input as { questions?: unknown }).questions)
   );
 }
 
@@ -359,6 +370,13 @@ export function App() {
     () => activeSession?.permissionRequests.find((request) => isExternalFilePermissionInput(request.input)) || null,
     [activeSession?.permissionRequests]
   );
+  const activeGenericPermissionRequest = useMemo(
+    () =>
+      activeSession?.provider !== 'claude'
+        ? activeSession?.permissionRequests.find((request) => isAskUserQuestionInput(request.input)) || null
+        : null,
+    [activeSession?.permissionRequests, activeSession?.provider]
+  );
   const lastUserPromptIndex = useMemo(() => {
     if (!activeSession) return -1;
     for (let i = activeSession.messages.length - 1; i >= 0; i--) {
@@ -480,6 +498,10 @@ export function App() {
                                       activeSession.provider === 'claude'
                                         ? activeSession.claudeAccessMode || 'default'
                                         : undefined,
+                                    codexPermissionMode:
+                                      activeSession.provider === 'codex'
+                                        ? activeSession.codexPermissionMode || 'defaultPermissions'
+                                        : undefined,
                                   },
                                 });
                               },
@@ -564,6 +586,28 @@ export function App() {
             handlePermissionResult(activeExternalPermissionRequest.toolUseId, result)
           }
         />
+      )}
+
+      {activeGenericPermissionRequest && isAskUserQuestionInput(activeGenericPermissionRequest.input) && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/18 px-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-2xl rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5 shadow-2xl">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+              Permission Request
+            </div>
+            <div className="mt-2 text-lg font-semibold text-[var(--text-primary)]">
+              {activeGenericPermissionRequest.toolName}
+            </div>
+            <div className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+              The agent needs your approval before continuing.
+            </div>
+            <DecisionPanel
+              input={activeGenericPermissionRequest.input}
+              onSubmit={(result) =>
+                handlePermissionResult(activeGenericPermissionRequest.toolUseId, result)
+              }
+            />
+          </div>
+        </div>
       )}
 
     </div>

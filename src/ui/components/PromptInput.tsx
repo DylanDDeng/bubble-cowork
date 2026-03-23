@@ -2,10 +2,11 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { Paperclip, Plus, Square } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import type { Attachment, ClaudeAccessMode, ClaudeCompatibleProviderId } from '../types';
+import type { Attachment, ClaudeAccessMode, ClaudeCompatibleProviderId, CodexPermissionMode } from '../types';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
+import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { ClaudeContextIndicator } from './ClaudeContextIndicator';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
@@ -30,6 +31,7 @@ import {
   supportsClaude1mContext,
 } from '../utils/claude-model';
 import { buildCodexModelOptions, formatCodexModelLabel, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
+import { loadPreferredCodexPermissionMode, savePreferredCodexPermissionMode } from '../utils/codex-permission';
 import { buildOpencodeModelOptions, loadPreferredOpencodeModel, savePreferredOpencodeModel } from '../utils/opencode-model';
 import { buildPromptWithSkill } from '../utils/claude-skills';
 import { buildPromptWithSlashCommand } from '../utils/claude-slash';
@@ -66,6 +68,9 @@ export function PromptInput() {
     loadPreferredOpencodeModel()
   );
   const [selectedClaudeAccessMode, setSelectedClaudeAccessMode] = useState<ClaudeAccessMode>('default');
+  const [selectedCodexPermissionMode, setSelectedCodexPermissionMode] = useState<CodexPermissionMode>(
+    loadPreferredCodexPermissionMode()
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
@@ -171,6 +176,7 @@ export function PromptInput() {
             ? ['context-1m-2025-08-07']
             : undefined,
         claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
+        codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
       },
     });
     setPrompt('');
@@ -204,6 +210,17 @@ export function PromptInput() {
       setSelectedClaudeAccessMode('default');
     }
   }, [activeSession?.claudeAccessMode, activeSession?.provider, activeSessionId]);
+
+  useEffect(() => {
+    if (activeSession?.provider === 'codex') {
+      setSelectedCodexPermissionMode(activeSession.codexPermissionMode || 'defaultPermissions');
+      return;
+    }
+
+    if (!activeSessionId) {
+      setSelectedCodexPermissionMode(loadPreferredCodexPermissionMode());
+    }
+  }, [activeSession?.codexPermissionMode, activeSession?.provider, activeSessionId]);
 
   useEffect(() => {
     if (activeSession?.provider !== 'claude') {
@@ -396,6 +413,7 @@ export function PromptInput() {
               ? ['context-1m-2025-08-07']
               : undefined,
           claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
+          codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
         },
       });
       setPrompt('');
@@ -607,6 +625,17 @@ export function PromptInput() {
               <ClaudeAccessModePicker
                 value={selectedClaudeAccessMode}
                 onChange={setSelectedClaudeAccessMode}
+                disabled={isRunning}
+              />
+            )}
+
+            {provider === 'codex' && (
+              <CodexPermissionModePicker
+                value={selectedCodexPermissionMode}
+                onChange={(mode) => {
+                  setSelectedCodexPermissionMode(mode);
+                  savePreferredCodexPermissionMode(mode);
+                }}
                 disabled={isRunning}
               />
             )}

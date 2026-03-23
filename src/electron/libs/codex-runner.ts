@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { RunnerOptions, RunnerHandle, StreamMessage, Attachment } from '../types';
 import { isDev } from '../util';
 import { getMcpServers } from './claude-settings';
+import type { CodexPermissionMode } from '../../shared/types';
 
 type JsonRpcRequest = {
   jsonrpc: '2.0';
@@ -68,6 +69,16 @@ const OPENCODE_ADAPTER: AcpAdapter = {
   getArgs: () => ['acp'],
   protocolVersion: 1,
 };
+
+function getCodexPermissionOverrides(mode: CodexPermissionMode | undefined): string[] {
+  switch (mode || 'defaultPermissions') {
+    case 'fullAccess':
+      return ['-c', 'approval_policy="never"', '-c', 'sandbox_mode="workspace-write"'];
+    case 'defaultPermissions':
+    default:
+      return ['-c', 'approval_policy="on-request"', '-c', 'sandbox_mode="workspace-write"'];
+  }
+}
 
 function buildAcpProcessEnv(adapter: AcpAdapter, selectedModel?: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -255,7 +266,17 @@ export function runOpenCode(options: RunnerOptions): RunnerHandle {
 }
 
 function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
-  const { prompt, attachments, model, session, resumeSessionId, onMessage, onError, onPermissionRequest } = options;
+  const {
+    prompt,
+    attachments,
+    model,
+    session,
+    resumeSessionId,
+    codexPermissionMode,
+    onMessage,
+    onError,
+    onPermissionRequest,
+  } = options;
   const abortController = new AbortController();
   const selectedModel = typeof model === 'string' && model.trim().length > 0 ? model.trim() : undefined;
   let currentSessionId = '';
@@ -270,8 +291,12 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
   const toolKindById = new Map<string, string>();
   let pendingFinalizeOnSessionInfo = false;
   let acceptTurnUpdates = false;
+  let terminalErrorHandled = false;
 
-  const spawnArgs = adapter.getArgs(selectedModel);
+  const spawnArgs = [
+    ...adapter.getArgs(selectedModel),
+    ...(adapter.id === 'codex' ? getCodexPermissionOverrides(codexPermissionMode) : []),
+  ];
   const env = buildAcpProcessEnv(adapter, selectedModel);
   const proc = spawn(adapter.command, spawnArgs, {
     cwd: session.cwd || process.cwd(),
@@ -304,6 +329,24 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
     const line = String(chunk).trim();
     if (line) {
       console.warn(`[${adapter.label} ACP]`, line);
+
+      if (
+        !terminalErrorHandled &&
+        adapter.id === 'codex' &&
+        /(refresh_token_reused|refresh token has already been used|sign in again|log out and sign in again)/i.test(line)
+      ) {
+        terminalErrorHandled = true;
+        onError?.(
+          new Error(
+            'Codex authentication failed because the refresh token was already used. Please sign out and sign in again before starting a new Codex session.'
+          )
+        );
+        try {
+          proc.kill();
+        } catch {
+          // ignore
+        }
+      }
     }
   });
 
@@ -316,10 +359,16 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
     },
     (id, method, params) => {
       const normalizedMethod = method.toLowerCase();
+      const hasChoiceOptions =
+        Array.isArray(params?.options) ||
+        Array.isArray(params?.choices);
       if (
         normalizedMethod.includes('request_permission') ||
         normalizedMethod.includes('requestpermission') ||
-        normalizedMethod.includes('permission/request')
+        normalizedMethod.includes('permission/request') ||
+        normalizedMethod.includes('approval') ||
+        normalizedMethod.includes('confirm') ||
+        hasChoiceOptions
       ) {
         void handlePermissionRequest(id, method, params);
         return;
@@ -530,7 +579,7 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
 
     const cwd = session.cwd || process.cwd();
     const mcpServers =
-      adapter.id === 'opencode'
+      adapter.id === 'opencode' || adapter.id === 'codex'
         ? []
         : (getMcpServers(session.cwd ?? undefined) as Record<string, unknown>);
     let sessionResult: Record<string, unknown> | undefined;
@@ -683,7 +732,16 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
 
     if (
       updateType === 'tool_call_update' ||
-      (updateType.includes('tool') && (updateType.includes('update') || updateType.includes('result') || updateType.includes('complete')))
+      (updateType.includes('tool') && (updateType.includes('update') || updateType.includes('result') || updateType.includes('complete'))) ||
+      (!!getToolCallId(update as Record<string, unknown>) &&
+        (
+          typeof (update as Record<string, unknown>).status === 'string' ||
+          'output' in (update as Record<string, unknown>) ||
+          'rawOutput' in (update as Record<string, unknown>) ||
+          'result' in (update as Record<string, unknown>) ||
+          'message' in (update as Record<string, unknown>) ||
+          'content' in (update as Record<string, unknown>)
+        ))
     ) {
       handleToolCallUpdate(update as Record<string, unknown>);
       return;
@@ -708,9 +766,17 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
     const toolCallId = getToolCallId(update);
     if (!toolCallId) return;
 
-    const rawKind = typeof update.kind === 'string' ? update.kind : '';
-    const rawTitle = typeof update.title === 'string' ? update.title : '';
-    const rawInput = update.rawInput ?? update.input ?? update.arguments ?? update.params;
+    const rawKind = getToolCallKind(update);
+    const rawTitle = getToolCallTitle(update);
+    const rawInput = getToolCallRawInput(update);
+
+    if (
+      isDev() &&
+      adapter.id === 'opencode' &&
+      (rawKind.toLowerCase().includes('edit') || rawKind.toLowerCase().includes('write'))
+    ) {
+      console.log('[OpenCode ACP tool_call raw]', safeStringify(update));
+    }
 
     const { name, input } = mapToolCallToToolUse(rawKind, rawTitle, rawInput);
     toolNameById.set(toolCallId, name);
@@ -845,12 +911,15 @@ function safeStringify(value: unknown): string {
 }
 
 function getToolCallId(update: Record<string, unknown>): string | null {
-  const candidate =
-    update.toolCallId ??
-    update.tool_call_id ??
-    update.toolUseId ??
-    update.tool_use_id;
-  if (typeof candidate === 'string' && candidate.trim()) return candidate;
+  for (const record of getToolCallCandidateRecords(update)) {
+    const candidate =
+      record.toolCallId ??
+      record.tool_call_id ??
+      record.toolUseId ??
+      record.tool_use_id ??
+      record.id;
+    if (typeof candidate === 'string' && candidate.trim()) return candidate;
+  }
   return null;
 }
 
@@ -864,6 +933,101 @@ function getFirstString(...values: unknown[]): string | null {
     if (typeof value === 'string' && value.trim()) return value;
   }
   return null;
+}
+
+function parseStructuredValue(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('['))) {
+    return value;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+function getToolCallCandidateRecords(update: Record<string, unknown>): Record<string, unknown>[] {
+  const keys = ['toolCall', 'tool_call', 'call', 'payload', 'data', 'content', 'event'];
+  const records: Record<string, unknown>[] = [];
+  const visited = new Set<Record<string, unknown>>();
+
+  const pushRecord = (value: unknown) => {
+    const record = asRecord(value);
+    if (!record || visited.has(record)) {
+      return;
+    }
+    visited.add(record);
+    records.push(record);
+  };
+
+  pushRecord(update);
+  for (const key of keys) {
+    pushRecord(update[key]);
+  }
+
+  for (const record of [...records]) {
+    for (const key of keys) {
+      pushRecord(record[key]);
+    }
+  }
+
+  return records;
+}
+
+function getToolCallKind(update: Record<string, unknown>): string {
+  for (const record of getToolCallCandidateRecords(update)) {
+    const candidate = getFirstString(
+      record.kind,
+      record.toolKind,
+      record.tool_kind,
+      record.name,
+      record.toolName,
+      record.tool_name,
+      record.type
+    );
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return '';
+}
+
+function getToolCallTitle(update: Record<string, unknown>): string {
+  for (const record of getToolCallCandidateRecords(update)) {
+    const candidate = getFirstString(record.title, record.label, record.description);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return '';
+}
+
+function getToolCallRawInput(update: Record<string, unknown>): unknown {
+  for (const record of getToolCallCandidateRecords(update)) {
+    const candidate =
+      record.rawInput ??
+      record.raw_input ??
+      record.input ??
+      record.arguments ??
+      record.args ??
+      record.params ??
+      record.toolInput ??
+      record.tool_input;
+
+    if (candidate !== undefined) {
+      return parseStructuredValue(candidate);
+    }
+  }
+
+  return undefined;
 }
 
 function mapToolCallToToolUse(
@@ -890,9 +1054,14 @@ function mapToolCallToToolUse(
       ? getFirstString(
           inputRecord.file_path,
           inputRecord.path,
+          inputRecord.filePath,
           inputRecord.file,
           inputRecord.filename,
-          inputRecord.absolute_file_path
+          inputRecord.absolute_file_path,
+          inputRecord.absoluteFilePath,
+          inputRecord.target_path,
+          inputRecord.targetPath,
+          inputRecord.uri
         )
       : null;
 

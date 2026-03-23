@@ -28,6 +28,7 @@ export type {
   ClaudeModelConfig,
   ClaudeCompatibleProviderId,
   ClaudeAccessMode,
+  CodexPermissionMode,
   ClaudeUsageDailyPoint,
   ClaudeUsageModelSummary,
   ClaudeUsageRangeDays,
@@ -83,6 +84,7 @@ export interface SessionView {
   compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
+  codexPermissionMode?: import('../shared/types').CodexPermissionMode;
   todoState?: TodoState;
   pinned?: boolean;
   folderPath?: string | null;

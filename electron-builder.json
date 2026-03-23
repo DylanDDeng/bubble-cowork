@@ -30,7 +30,8 @@
     "category": "public.app-category.developer-tools"
   },
   "win": {
-    "target": ["portable", "nsis"]
+    "target": ["portable", "nsis"],
+    "signAndEditExecutable": false
   },
   "nsis": {
     "artifactName": "Aegis-${version}-win-${arch}-setup.${ext}"
