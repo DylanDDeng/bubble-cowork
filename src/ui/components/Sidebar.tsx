@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { FolderOpen, MessageSquare, Search, Settings, SquarePen } from 'lucide-react';
+import { Bookmark, FolderOpen, MessageSquare, Search, Settings, SquarePen } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { SidebarMessageSearchDialog } from './search/SidebarMessageSearchDialog';
 import { StatusFilter } from './StatusFilter';
 import { FolderTreeView } from './FolderTreeView';
+import { PromptLibraryPanel } from './prompts/PromptLibraryPanel';
 import type { SessionView } from '../types';
 
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 420;
 
-type SidebarView = 'threads';
+type SidebarView = 'threads' | 'prompts';
 
 export function Sidebar() {
   const {
@@ -27,7 +28,7 @@ export function Sidebar() {
   const [messageSearchOpen, setMessageSearchOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionView | null>(null);
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
-  const [activeView] = useState<SidebarView>('threads');
+  const [activeView, setActiveView] = useState<SidebarView>('threads');
   const sidebarResizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(sidebarWidth);
@@ -126,6 +127,16 @@ export function Sidebar() {
               title="Threads"
               active={activeView === 'threads'}
               onClick={() => {
+                setActiveView('threads');
+                setShowSettings(false);
+              }}
+            />
+            <RailIcon
+              icon={<Bookmark className="h-[17px] w-[17px]" />}
+              title="Prompt Library"
+              active={activeView === 'prompts'}
+              onClick={() => {
+                setActiveView('prompts');
                 setShowSettings(false);
               }}
             />
@@ -155,56 +166,59 @@ export function Sidebar() {
           {/* 拖拽区域 */}
           <div className="h-8 drag-region flex-shrink-0" />
 
-          {/* New Thread 按钮 */}
-          <div className="mt-4 mb-4 flex items-center gap-2 px-2">
-            <button
-              onClick={() => {
-                setShowSettings(false);
-                setActiveSession(null);
-                setShowNewSession(true);
-              }}
-              className="group flex flex-1 items-center gap-3 rounded-xl px-2 py-2 text-left no-drag transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
-            >
-              <SquarePen className="h-4 w-4 text-[var(--text-muted)]" strokeWidth={1.9} />
-              <span className="text-base font-medium">New Thread</span>
-            </button>
+          {activeView === 'threads' ? (
+            <>
+              <div className="mt-4 mb-4 flex items-center gap-2 px-2">
+                <button
+                  onClick={() => {
+                    setShowSettings(false);
+                    setActiveSession(null);
+                    setShowNewSession(true);
+                  }}
+                  className="group flex flex-1 items-center gap-3 rounded-xl px-2 py-2 text-left no-drag transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
+                >
+                  <SquarePen className="h-4 w-4 text-[var(--text-muted)]" strokeWidth={1.9} />
+                  <span className="text-base font-medium">New Thread</span>
+                </button>
 
-            <button
-              onClick={() => {
-                void handleProjectFolderSelect();
-              }}
-              className="flex h-10 w-10 items-center justify-center rounded-xl no-drag text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-              title={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
-              aria-label="Select project folder"
-            >
-              <FolderOpen className="h-4.5 w-4.5" />
-            </button>
-          </div>
+                <button
+                  onClick={() => {
+                    void handleProjectFolderSelect();
+                  }}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl no-drag text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                  title={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
+                  aria-label="Select project folder"
+                >
+                  <FolderOpen className="h-4.5 w-4.5" />
+                </button>
+              </div>
 
-          {/* Sessions 标题栏 */}
-          <div className="px-4 py-2 flex items-center justify-between gap-2">
-            <span className="text-sm text-[var(--text-muted)]">Sessions</span>
-            <StatusFilter />
-          </div>
+              <div className="px-4 py-2 flex items-center justify-between gap-2">
+                <span className="text-sm text-[var(--text-muted)]">Sessions</span>
+                <StatusFilter />
+              </div>
 
-          {/* Session List */}
-          <div className="flex-1 overflow-y-auto px-2 pt-2">
-            <FolderTreeView
-              onSessionClick={(sessionId) => {
-                setShowSettings(false);
-                setActiveSession(sessionId);
-                setShowNewSession(false);
-              }}
-              onSessionDelete={handleDelete}
-              onCopyResume={handleResumeCommand}
-              onNewSessionForProject={(nextCwd) => {
-                setProjectCwd(nextCwd);
-                setShowSettings(false);
-                setActiveSession(null);
-                setShowNewSession(true);
-              }}
-            />
-          </div>
+              <div className="flex-1 overflow-y-auto px-2 pt-2">
+                <FolderTreeView
+                  onSessionClick={(sessionId) => {
+                    setShowSettings(false);
+                    setActiveSession(sessionId);
+                    setShowNewSession(false);
+                  }}
+                  onSessionDelete={handleDelete}
+                  onCopyResume={handleResumeCommand}
+                  onNewSessionForProject={(nextCwd) => {
+                    setProjectCwd(nextCwd);
+                    setShowSettings(false);
+                    setActiveSession(null);
+                    setShowNewSession(true);
+                  }}
+                />
+              </div>
+            </>
+          ) : (
+            <PromptLibraryPanel />
+          )}
 
           {/* Resize handle */}
           <div

@@ -18,6 +18,7 @@ import type {
   Theme,
   ColorThemeId,
   FontSettingsPayload,
+  PromptLibraryInsertMode,
 } from '../types';
 import { DEFAULT_COLOR_THEME_ID, applyThemePreferences } from '../theme/themes';
 import { applyFontPreferences, getDefaultFontSelections } from '../theme/fonts';
@@ -169,6 +170,7 @@ export const useAppStore = create<Store>()(
       // Settings 状态
       showSettings: false,
       activeSettingsTab: 'general' as SettingsTab,
+      promptLibraryInsertRequest: null,
       // 状态配置
       statusConfigs: [],
       statusFilter: 'all',
@@ -375,6 +377,22 @@ export const useAppStore = create<Store>()(
   // Settings Actions
   setShowSettings: (show) => set({ showSettings: show }),
   setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
+  requestPromptLibraryInsert: (content, mode: PromptLibraryInsertMode = 'append') =>
+    set({
+      promptLibraryInsertRequest: {
+        content,
+        mode,
+        nonce: Date.now(),
+      },
+    }),
+  consumePromptLibraryInsert: (nonce) =>
+    set((state) => {
+      if (!state.promptLibraryInsertRequest || state.promptLibraryInsertRequest.nonce !== nonce) {
+        return state;
+      }
+
+      return { promptLibraryInsertRequest: null };
+    }),
 
   // 状态配置 Actions
   setStatusConfigs: (configs) => set({ statusConfigs: configs }),

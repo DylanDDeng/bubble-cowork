@@ -54,6 +54,10 @@ export type {
   FeishuBridgeConfig,
   FeishuBridgeStatus,
   AgentProvider,
+  PromptLibraryItem,
+  UpsertPromptLibraryItemInput,
+  PromptLibraryImportResult,
+  PromptLibraryExportResult,
   TodoState,
   StatusConfig,
   StatusCategory,
@@ -130,6 +134,7 @@ export interface AppState {
   // Settings 状态
   showSettings: boolean;
   activeSettingsTab: SettingsTab;
+  promptLibraryInsertRequest: PromptLibraryInsertRequest | null;
   // 状态配置
   statusConfigs: StatusConfig[];
   statusFilter: TodoState | 'all' | 'open' | 'closed';
@@ -174,6 +179,8 @@ export interface AppActions {
   // Settings Actions
   setShowSettings: (show: boolean) => void;
   setActiveSettingsTab: (tab: SettingsTab) => void;
+  requestPromptLibraryInsert: (content: string, mode?: PromptLibraryInsertMode) => void;
+  consumePromptLibraryInsert: (nonce: number) => void;
   // 状态配置 Actions
   setStatusConfigs: (configs: StatusConfig[]) => void;
   setStatusFilter: (filter: TodoState | 'all' | 'open' | 'closed') => void;
@@ -185,6 +192,14 @@ export interface AppActions {
   setCustomThemeCss: (customThemeCss: string) => void;
   setFontSettings: (settings: import('../shared/types').FontSettingsPayload) => void;
   setSystemFonts: (fonts: import('../shared/types').SystemFontOption[]) => void;
+}
+
+export type PromptLibraryInsertMode = 'append' | 'replace';
+
+export interface PromptLibraryInsertRequest {
+  content: string;
+  mode: PromptLibraryInsertMode;
+  nonce: number;
 }
 
 // 工具状态映射（用于显示 pending/success/error）

@@ -15,6 +15,7 @@ import { ClaudeContextIndicator } from './ClaudeContextIndicator';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
+import { SavePromptButton } from './prompts/SavePromptButton';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
 import { useCompatibleProviderConfig } from '../hooks/useCompatibleProviderConfig';
 import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
@@ -77,7 +78,15 @@ const DOCX_QUICK_ACTION_PROMPT = [
 ].join('\n');
 
 export function NewSessionView() {
-  const { pendingStart, projectCwd, sessions, setPendingStart, setProjectCwd } = useAppStore();
+  const {
+    pendingStart,
+    projectCwd,
+    sessions,
+    setPendingStart,
+    setProjectCwd,
+    promptLibraryInsertRequest,
+    consumePromptLibraryInsert,
+  } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -151,6 +160,32 @@ export function NewSessionView() {
     projectPath: cwd || undefined,
     setPrompt,
   });
+  const promptLibraryContent = useMemo(
+    () => (
+      skillAutocomplete.selectedSkill
+        ? buildPromptWithSkill(skillAutocomplete.selectedSkill.name, skillAutocomplete.displayPrompt)
+        : skillAutocomplete.selectedCommand
+          ? buildPromptWithSlashCommand(skillAutocomplete.selectedCommand.name, skillAutocomplete.displayPrompt)
+          : prompt
+    ).trim(),
+    [prompt, skillAutocomplete.displayPrompt, skillAutocomplete.selectedCommand, skillAutocomplete.selectedSkill]
+  );
+
+  useEffect(() => {
+    if (!promptLibraryInsertRequest) {
+      return;
+    }
+
+    setPrompt((current) => {
+      if (promptLibraryInsertRequest.mode === 'replace' || !current.trim()) {
+        return promptLibraryInsertRequest.content;
+      }
+
+      return `${current.trimEnd()}\n\n${promptLibraryInsertRequest.content}`;
+    });
+    window.requestAnimationFrame(() => promptTextareaRef.current?.focus());
+    consumePromptLibraryInsert(promptLibraryInsertRequest.nonce);
+  }, [consumePromptLibraryInsert, promptLibraryInsertRequest]);
 
   // 加载最近工作目录
   useEffect(() => {
@@ -660,6 +695,8 @@ export function NewSessionView() {
                   disabled={pendingStart}
                 />
               )}
+
+              <SavePromptButton content={promptLibraryContent} disabled={pendingStart} />
 
               <div className="relative no-drag">
                 <button

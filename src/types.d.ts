@@ -11,10 +11,14 @@ import type {
   ChatMessageSearchResult,
   FontSettingsPayload,
   ProjectTreeNode,
+  PromptLibraryExportResult,
+  PromptLibraryImportResult,
+  PromptLibraryItem,
   SystemFontOption,
   ClaudeModelConfig,
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
+  UpsertPromptLibraryItemInput,
   CodexModelConfig,
   CodexRuntimeStatus,
   OpenCodeModelConfig,
@@ -41,6 +45,11 @@ declare global {
     getClaudeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getCodexUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getOpencodeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
+    getPromptLibrary: () => Promise<PromptLibraryItem[]>;
+    savePromptLibraryItem: (input: UpsertPromptLibraryItemInput) => Promise<PromptLibraryItem[]>;
+    deletePromptLibraryItem: (id: string) => Promise<PromptLibraryItem[]>;
+    importPromptLibrary: () => Promise<PromptLibraryImportResult>;
+    exportPromptLibrary: () => Promise<PromptLibraryExportResult>;
     searchChatMessages: (query: string, limit?: number) => Promise<ChatMessageSearchResult[]>;
     getCodexModelConfig: () => Promise<CodexModelConfig>;
     saveCodexModelVisibility: (enabledModels: string[]) => Promise<CodexModelConfig>;

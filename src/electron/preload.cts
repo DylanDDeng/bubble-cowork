@@ -4,10 +4,14 @@ import type {
   ClaudeUsageRangeDays,
   FeishuBridgeConfig,
   FontSettingsPayload,
+  PromptLibraryExportResult,
+  PromptLibraryImportResult,
+  PromptLibraryItem,
   SkillMarketDetail,
   SkillMarketInstallResult,
   SkillMarketItem,
   SystemFontOption,
+  UpsertPromptLibraryItemInput,
 } from '../shared/types';
 
 // 暴露 API 到渲染进程
@@ -84,6 +88,26 @@ contextBridge.exposeInMainWorld('electron', {
 
   getOpencodeUsageReport: (days?: ClaudeUsageRangeDays) => {
     return ipcRenderer.invoke('get-opencode-usage-report', days);
+  },
+
+  getPromptLibrary: (): Promise<PromptLibraryItem[]> => {
+    return ipcRenderer.invoke('get-prompt-library');
+  },
+
+  savePromptLibraryItem: (input: UpsertPromptLibraryItemInput): Promise<PromptLibraryItem[]> => {
+    return ipcRenderer.invoke('save-prompt-library-item', input);
+  },
+
+  deletePromptLibraryItem: (id: string): Promise<PromptLibraryItem[]> => {
+    return ipcRenderer.invoke('delete-prompt-library-item', id);
+  },
+
+  importPromptLibrary: (): Promise<PromptLibraryImportResult> => {
+    return ipcRenderer.invoke('import-prompt-library');
+  },
+
+  exportPromptLibrary: (): Promise<PromptLibraryExportResult> => {
+    return ipcRenderer.invoke('export-prompt-library');
   },
 
   // 获取 Codex 模型配置
