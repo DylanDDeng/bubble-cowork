@@ -381,24 +381,21 @@ function UserPromptCard({
               }}
             />
           ) : (
-            <div
-              className={
-                promptPrefixDisplay
-                  ? 'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[14px] leading-[1.5] text-[var(--text-primary)]'
-                  : ''
-              }
-            >
-              {promptPrefixDisplay &&
-                (promptPrefixDisplay.kind === 'skill' ? (
-                  <SelectedClaudeSkillChip skill={promptPrefixDisplay.skill} compact />
-                ) : promptPrefixDisplay.kind === 'command' ? (
-                  <SelectedClaudeCommandChip command={promptPrefixDisplay.command} compact />
-                ) : (
-                  <GenericSlashChip name={promptPrefixDisplay.name} compact />
-                ))}
+            <div className="text-[14px] leading-[1.5] text-[var(--text-primary)]">
+              {promptPrefixDisplay && (
+                <div className="mr-2 inline-flex align-middle">
+                  {promptPrefixDisplay.kind === 'skill' ? (
+                    <SelectedClaudeSkillChip skill={promptPrefixDisplay.skill} compact />
+                  ) : promptPrefixDisplay.kind === 'command' ? (
+                    <SelectedClaudeCommandChip command={promptPrefixDisplay.command} compact />
+                  ) : (
+                    <GenericSlashChip name={promptPrefixDisplay.name} compact />
+                  )}
+                </div>
+              )}
 
               {(!promptPrefixDisplay || promptPrefixDisplay.remainder) && (
-                <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] align-middle">
                   {promptPrefixDisplay ? promptPrefixDisplay.remainder : prompt}
                 </span>
               )}
