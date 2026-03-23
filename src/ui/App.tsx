@@ -13,6 +13,7 @@ import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { Sidebar } from './components/Sidebar';
 import { NewSessionView } from './components/NewSessionView';
+import { PodcastStudioView } from './components/podcast/PodcastStudioView';
 import { PromptInput } from './components/PromptInput';
 import { MessageCard } from './components/MessageCard';
 import { ToolExecutionBatch } from './components/ToolExecutionBatch';
@@ -167,6 +168,7 @@ export function App() {
     connected,
     sessions,
     activeSessionId,
+    activeWorkspace,
     showNewSession,
     showSettings,
     sidebarCollapsed,
@@ -397,7 +399,7 @@ export function App() {
 
   return (
     <div className="flex h-full">
-      {!showSettings && projectTreeCollapsed && (
+      {!showSettings && activeWorkspace === 'chat' && projectTreeCollapsed && (
         <FloatingProjectPanelDock
           className={isMacOS ? 'right-[14px] top-[56px]' : 'right-4 top-1/2 -translate-y-1/2'}
           activeView={projectPanelView}
@@ -418,6 +420,8 @@ export function App() {
             <Settings />
           </div>
         </div>
+      ) : activeWorkspace === 'podcast' ? (
+        <PodcastStudioView />
       ) : activeSession && !showNewSession ? (
         <div
           className="flex-1 min-w-0 flex flex-col transition-[padding] duration-200"
@@ -558,7 +562,7 @@ export function App() {
       )}
 
       {/* 右侧项目文件树 */}
-      {!showSettings && (
+      {!showSettings && activeWorkspace === 'chat' && (
         <ProjectTreePanel
           collapsed={projectTreeCollapsed}
           activeTab={projectPanelView}

@@ -369,6 +369,34 @@ export interface SessionStartPayload {
   codexPermissionMode?: CodexPermissionMode;
 }
 
+export interface YouTubeTranscriptResult {
+  url: string;
+  transcript: string;
+  title?: string;
+  language?: string;
+}
+
+export interface MiniMaxTtsConfig {
+  apiKey: string;
+}
+
+export interface GeneratePodcastAudioInput {
+  draftId: string;
+  title: string;
+  script: string;
+  hostAVoiceId: string;
+  hostBVoiceId: string;
+  speed: number;
+  volume: number;
+  pitch: number;
+  format: 'mp3';
+}
+
+export interface GeneratePodcastAudioResult {
+  outputPath: string;
+  segmentCount: number;
+}
+
 export interface SessionContinuePayload {
   sessionId: string;
   prompt: string;

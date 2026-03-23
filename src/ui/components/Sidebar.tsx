@@ -1,26 +1,31 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Bookmark, FolderOpen, MessageSquare, Search, Settings, SquarePen } from 'lucide-react';
+import { Bookmark, BookOpen, FolderOpen, MessageSquare, Search, Settings, SquarePen } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { SidebarMessageSearchDialog } from './search/SidebarMessageSearchDialog';
 import { StatusFilter } from './StatusFilter';
 import { FolderTreeView } from './FolderTreeView';
+import { PodcastSidebarPanel } from './podcast/PodcastSidebarPanel';
 import { PromptLibraryPanel } from './prompts/PromptLibraryPanel';
 import type { SessionView } from '../types';
 
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 420;
 
-type SidebarView = 'threads' | 'prompts';
-
 export function Sidebar() {
   const {
     sidebarWidth,
     projectCwd,
+    activeWorkspace,
+    chatSidebarView,
+    podcastDrafts,
     setSidebarWidth,
     setProjectCwd,
     setActiveSession,
+    setActiveWorkspace,
+    setChatSidebarView,
+    createPodcastDraft,
     setShowNewSession,
     setShowSettings,
   } = useAppStore();
@@ -28,7 +33,6 @@ export function Sidebar() {
   const [messageSearchOpen, setMessageSearchOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionView | null>(null);
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
-  const [activeView, setActiveView] = useState<SidebarView>('threads');
   const sidebarResizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(sidebarWidth);
@@ -121,22 +125,37 @@ export function Sidebar() {
           <div className="h-8 w-full drag-region flex-shrink-0" />
 
           {/* 导航图标 */}
-          <div className="flex flex-col items-center gap-0.5 pt-3">
+          <div className="flex flex-col items-center gap-2 pt-3">
             <RailIcon
               icon={<MessageSquare className="h-[17px] w-[17px]" />}
               title="Threads"
-              active={activeView === 'threads'}
+              active={activeWorkspace === 'chat' && chatSidebarView === 'threads'}
               onClick={() => {
-                setActiveView('threads');
+                setActiveWorkspace('chat');
+                setChatSidebarView('threads');
                 setShowSettings(false);
               }}
             />
             <RailIcon
               icon={<Bookmark className="h-[17px] w-[17px]" />}
               title="Prompt Library"
-              active={activeView === 'prompts'}
+              active={activeWorkspace === 'chat' && chatSidebarView === 'prompts'}
               onClick={() => {
-                setActiveView('prompts');
+                setActiveWorkspace('chat');
+                setChatSidebarView('prompts');
+                setShowSettings(false);
+              }}
+            />
+            <RailIcon
+              icon={<BookOpen className="h-[17px] w-[17px]" />}
+              title="Podcast Studio"
+              active={activeWorkspace === 'podcast'}
+              onClick={() => {
+                if (Object.keys(podcastDrafts).length === 0) {
+                  createPodcastDraft();
+                } else {
+                  setActiveWorkspace('podcast');
+                }
                 setShowSettings(false);
               }}
             />
@@ -166,7 +185,9 @@ export function Sidebar() {
           {/* 拖拽区域 */}
           <div className="h-8 drag-region flex-shrink-0" />
 
-          {activeView === 'threads' ? (
+          {activeWorkspace === 'podcast' ? (
+            <PodcastSidebarPanel />
+          ) : chatSidebarView === 'threads' ? (
             <>
               <div className="mt-4 mb-4 flex items-center gap-2 px-2">
                 <button

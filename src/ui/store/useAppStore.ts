@@ -2,8 +2,17 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { toast } from 'sonner';
 import type {
+  ActiveWorkspace,
   AppState,
   AppActions,
+  ChatSidebarView,
+  PodcastAudioFormat,
+  PodcastConfigView,
+  PodcastDraftView,
+  PodcastTranscriptSource,
+  PodcastSourceView,
+  PodcastTtsProvider,
+  PodcastTtsVoice,
   SessionView,
   ServerEvent,
   SessionInfo,
@@ -92,6 +101,177 @@ function createEmptyStreamingState() {
   };
 }
 
+function createDefaultPodcastConfig(): PodcastConfigView {
+  return {
+    pacing: 'balanced',
+    style: 'conversational',
+    tone: 'professional',
+    structure: 'duo',
+    duration: '10m',
+    voice: 'warm',
+    ttsProvider: 'minimax',
+    ttsVoice: 'male-qn-jingying',
+    ttsHostBVoice: 'female-yujie',
+    ttsDelivery: 'natural',
+    ttsSpeed: 1,
+    ttsVolume: 1,
+    ttsPitch: 0,
+    audioFormat: 'mp3',
+  };
+}
+
+function getDefaultPodcastTtsVoice(provider: PodcastTtsProvider): PodcastTtsVoice {
+  switch (provider) {
+    case 'minimax':
+      return 'male-qn-jingying';
+    case 'elevenlabs':
+      return 'rachel';
+    case 'cartesia':
+      return 'sonic';
+    case 'openai':
+    default:
+      return 'alloy';
+  }
+}
+
+function normalizePodcastAudioFormat(value: unknown): PodcastAudioFormat {
+  return 'mp3';
+}
+
+function normalizePodcastTtsProvider(value: unknown): PodcastTtsProvider {
+  return value === 'minimax' ? 'minimax' : 'minimax';
+}
+
+function clampPodcastNumber(value: unknown, fallback: number, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, value));
+}
+
+function normalizePodcastStyle(value: unknown): PodcastConfigView['style'] {
+  return value === 'deep_dive' ||
+    value === 'news_brief' ||
+    value === 'storytelling' ||
+    value === 'debate' ||
+    value === 'xiangsheng'
+    ? value
+    : 'conversational';
+}
+
+function normalizePodcastConfig(config?: Partial<PodcastConfigView> | null): PodcastConfigView {
+  const defaults = createDefaultPodcastConfig();
+  const merged = {
+    ...defaults,
+    ...(config || {}),
+  };
+  const normalizedProvider = normalizePodcastTtsProvider(merged.ttsProvider);
+
+  return {
+    ...merged,
+    structure: 'duo',
+    style: normalizePodcastStyle(merged.style),
+    ttsProvider: normalizedProvider,
+    ttsVoice:
+      typeof merged.ttsVoice === 'string' && merged.ttsVoice.trim()
+        ? merged.ttsVoice
+        : getDefaultPodcastTtsVoice(normalizedProvider),
+    ttsHostBVoice:
+      typeof merged.ttsHostBVoice === 'string' && merged.ttsHostBVoice.trim()
+        ? merged.ttsHostBVoice
+        : defaults.ttsHostBVoice,
+    ttsSpeed: clampPodcastNumber(merged.ttsSpeed, defaults.ttsSpeed, 0.5, 2),
+    ttsVolume: clampPodcastNumber(merged.ttsVolume, defaults.ttsVolume, 0.1, 10),
+    ttsPitch: clampPodcastNumber(merged.ttsPitch, defaults.ttsPitch, -12, 12),
+    audioFormat: normalizePodcastAudioFormat(merged.audioFormat),
+  };
+}
+
+function normalizePodcastDrafts(
+  drafts?: Record<string, PodcastDraftView>
+): Record<string, PodcastDraftView> {
+  if (!drafts) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(drafts).map(([draftId, draft]) => [
+      draftId,
+      (() => {
+        const normalizedScriptStatus =
+          draft.scriptStatus === 'ready' || draft.scriptStatus === 'error'
+            ? draft.scriptStatus
+            : 'idle';
+        const normalizedAudioStatus =
+          draft.audioStatus === 'ready' || draft.audioStatus === 'error'
+            ? draft.audioStatus
+            : 'idle';
+        const scriptWasInterrupted = draft.scriptStatus === 'generating';
+        const audioWasInterrupted = draft.audioStatus === 'generating';
+
+        return {
+          ...draft,
+          config: normalizePodcastConfig(draft.config),
+          transcript: draft.transcript || '',
+          transcriptSource:
+            draft.transcriptSource === 'manual' || draft.transcriptSource === 'youtube'
+              ? draft.transcriptSource
+              : 'none',
+          script: draft.script || '',
+          scriptStatus: normalizedScriptStatus,
+          scriptError: scriptWasInterrupted
+            ? '口播稿生成在应用重启后已中断，请重新生成。'
+            : draft.scriptError || undefined,
+          scriptSessionId: scriptWasInterrupted ? null : draft.scriptSessionId || null,
+          audioStatus: normalizedAudioStatus,
+          audioError: audioWasInterrupted
+            ? '音频生成在应用重启后已中断，请重新生成。'
+            : draft.audioError || undefined,
+          audioOutputPath: draft.audioOutputPath || undefined,
+          status:
+            normalizedAudioStatus === 'ready'
+              ? 'audio_ready'
+              : (draft.script || '').trim()
+                ? 'script_ready'
+                : 'draft',
+        };
+      })(),
+    ])
+  );
+}
+
+function buildPodcastDraft(title?: string, existingCount = 0): PodcastDraftView {
+  const now = Date.now();
+  return {
+    id: crypto.randomUUID(),
+    title: title?.trim() || `Podcast Episode ${existingCount + 1}`,
+    status: 'draft',
+    sources: [],
+    config: createDefaultPodcastConfig(),
+    transcript: '',
+    transcriptSource: 'none',
+    script: '',
+    scriptStatus: 'idle',
+    scriptError: undefined,
+    scriptSessionId: null,
+    audioStatus: 'idle',
+    audioError: undefined,
+    audioOutputPath: undefined,
+    updatedAt: now,
+  };
+}
+
+function createPodcastSource(
+  source: Omit<PodcastSourceView, 'id' | 'addedAt'>
+): PodcastSourceView {
+  return {
+    ...source,
+    id: crypto.randomUUID(),
+    addedAt: Date.now(),
+  };
+}
+
 function sanitizeHistoryMessages(messages: StreamMessage[]): StreamMessage[] {
   return messages.filter((message) => message.type !== 'stream_event');
 }
@@ -142,6 +322,8 @@ export const useAppStore = create<Store>()(
       connected: false,
       sessions: {},
       activeSessionId: null,
+      activeWorkspace: 'chat' as ActiveWorkspace,
+      chatSidebarView: 'threads' as ChatSidebarView,
       showNewSession: false,
       sidebarCollapsed: false,
       sidebarWidth: 256,
@@ -171,6 +353,8 @@ export const useAppStore = create<Store>()(
       showSettings: false,
       activeSettingsTab: 'general' as SettingsTab,
       promptLibraryInsertRequest: null,
+      podcastDrafts: {},
+      activePodcastDraftId: null,
       // 状态配置
       statusConfigs: [],
       statusFilter: 'all',
@@ -285,7 +469,7 @@ export const useAppStore = create<Store>()(
         return { activeSessionId: sessionId };
       }
 
-      return { activeSessionId: sessionId };
+      return { activeSessionId: sessionId, activeWorkspace: 'chat' };
     });
 
     if (sessionId && get().sessions[sessionId]?.runtimeNotice) {
@@ -293,7 +477,24 @@ export const useAppStore = create<Store>()(
     }
   },
 
-  setShowNewSession: (show) => set({ showNewSession: show }),
+  setActiveWorkspace: (activeWorkspace) =>
+    set((state) => {
+      if (activeWorkspace !== 'podcast') {
+        return { activeWorkspace };
+      }
+
+      const fallbackDraftId = state.activePodcastDraftId || Object.keys(state.podcastDrafts)[0] || null;
+
+      return {
+        activeWorkspace,
+        activePodcastDraftId: fallbackDraftId,
+        showNewSession: false,
+      };
+    }),
+
+  setChatSidebarView: (chatSidebarView) => set({ chatSidebarView }),
+
+  setShowNewSession: (show) => set({ showNewSession: show, activeWorkspace: show ? 'chat' : get().activeWorkspace }),
 
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
 
@@ -393,6 +594,268 @@ export const useAppStore = create<Store>()(
 
       return { promptLibraryInsertRequest: null };
     }),
+  createPodcastDraft: (title) => {
+    const draft = buildPodcastDraft(title, Object.keys(get().podcastDrafts).length);
+
+    set((state) => ({
+      podcastDrafts: {
+        [draft.id]: draft,
+        ...state.podcastDrafts,
+      },
+      activePodcastDraftId: draft.id,
+      activeWorkspace: 'podcast',
+      showNewSession: false,
+      showSettings: false,
+    }));
+
+    return draft.id;
+  },
+  setActivePodcastDraft: (activePodcastDraftId) =>
+    set({
+      activePodcastDraftId,
+      activeWorkspace: 'podcast',
+      showNewSession: false,
+    }),
+  renamePodcastDraft: (draftId, title) =>
+    set((state) => {
+      const draft = state.podcastDrafts[draftId];
+      const nextTitle = title.trim();
+      if (!draft || !nextTitle) {
+        return state;
+      }
+
+      return {
+        podcastDrafts: {
+          ...state.podcastDrafts,
+          [draftId]: {
+            ...draft,
+            title: nextTitle,
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }),
+  deletePodcastDraft: (draftId) =>
+    set((state) => {
+      if (!state.podcastDrafts[draftId]) {
+        return state;
+      }
+
+      const { [draftId]: _deleted, ...rest } = state.podcastDrafts;
+      const remainingDraftIds = Object.keys(rest);
+
+      return {
+        podcastDrafts: rest,
+        activePodcastDraftId:
+          state.activePodcastDraftId === draftId ? remainingDraftIds[0] || null : state.activePodcastDraftId,
+      };
+    }),
+  updatePodcastDraftConfig: (draftId, patch) =>
+    set((state) => {
+      const draft = state.podcastDrafts[draftId];
+      if (!draft) {
+        return state;
+      }
+
+      return {
+        podcastDrafts: {
+          ...state.podcastDrafts,
+          [draftId]: {
+            ...draft,
+            config: normalizePodcastConfig({
+              ...draft.config,
+              ...patch,
+            }),
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }),
+  updatePodcastDraftTranscript: (draftId, transcript, source: PodcastTranscriptSource = 'manual') =>
+    set((state) => {
+      const draft = state.podcastDrafts[draftId];
+      if (!draft) {
+        return state;
+      }
+
+      return {
+        podcastDrafts: {
+          ...state.podcastDrafts,
+          [draftId]: {
+            ...draft,
+            transcript,
+            transcriptSource: transcript.trim() ? source : 'none',
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }),
+  setPodcastScriptGeneration: (draftId, sessionId) =>
+    set((state) => {
+      const draft = state.podcastDrafts[draftId];
+      if (!draft) {
+        return state;
+      }
+
+      return {
+        podcastDrafts: {
+          ...state.podcastDrafts,
+          [draftId]: {
+            ...draft,
+            scriptStatus: 'generating',
+            scriptError: undefined,
+            scriptSessionId: sessionId,
+            audioStatus: 'idle',
+            audioError: undefined,
+            audioOutputPath: undefined,
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }),
+  setPodcastScriptContent: (draftId, script) =>
+    set((state) => {
+      const draft = state.podcastDrafts[draftId];
+      if (!draft) {
+        return state;
+      }
+
+      return {
+        podcastDrafts: {
+          ...state.podcastDrafts,
+          [draftId]: {
+            ...draft,
+            script,
+            scriptStatus: script.trim() ? 'ready' : 'idle',
+            scriptError: undefined,
+            status: script.trim() ? 'script_ready' : draft.status,
+            audioStatus: 'idle',
+            audioError: undefined,
+            audioOutputPath: undefined,
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }),
+  setPodcastScriptError: (draftId, error) =>
+    set((state) => {
+      const draft = state.podcastDrafts[draftId];
+      if (!draft) {
+        return state;
+      }
+
+      return {
+        podcastDrafts: {
+          ...state.podcastDrafts,
+          [draftId]: {
+            ...draft,
+            scriptStatus: 'error',
+            scriptError: error,
+            audioStatus: 'idle',
+            audioError: undefined,
+            audioOutputPath: undefined,
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }),
+  setPodcastAudioGeneration: (draftId) =>
+    set((state) => {
+      const draft = state.podcastDrafts[draftId];
+      if (!draft) {
+        return state;
+      }
+
+      return {
+        podcastDrafts: {
+          ...state.podcastDrafts,
+          [draftId]: {
+            ...draft,
+            audioStatus: 'generating',
+            audioError: undefined,
+            audioOutputPath: undefined,
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }),
+  setPodcastAudioReady: (draftId, outputPath) =>
+    set((state) => {
+      const draft = state.podcastDrafts[draftId];
+      if (!draft) {
+        return state;
+      }
+
+      return {
+        podcastDrafts: {
+          ...state.podcastDrafts,
+          [draftId]: {
+            ...draft,
+            status: 'audio_ready',
+            audioStatus: outputPath.trim() ? 'ready' : 'idle',
+            audioError: undefined,
+            audioOutputPath: outputPath.trim() || undefined,
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }),
+  setPodcastAudioError: (draftId, error) =>
+    set((state) => {
+      const draft = state.podcastDrafts[draftId];
+      if (!draft) {
+        return state;
+      }
+
+      return {
+        podcastDrafts: {
+          ...state.podcastDrafts,
+          [draftId]: {
+            ...draft,
+            audioStatus: 'error',
+            audioError: error,
+            audioOutputPath: undefined,
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }),
+  addPodcastSource: (draftId, source) =>
+    set((state) => {
+      const draft = state.podcastDrafts[draftId];
+      if (!draft) {
+        return state;
+      }
+
+      return {
+        podcastDrafts: {
+          ...state.podcastDrafts,
+          [draftId]: {
+            ...draft,
+            sources: [createPodcastSource(source), ...draft.sources],
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }),
+  removePodcastSource: (draftId, sourceId) =>
+    set((state) => {
+      const draft = state.podcastDrafts[draftId];
+      if (!draft) {
+        return state;
+      }
+
+      return {
+        podcastDrafts: {
+          ...state.podcastDrafts,
+          [draftId]: {
+            ...draft,
+            sources: draft.sources.filter((source) => source.id !== sourceId),
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }),
 
   // 状态配置 Actions
   setStatusConfigs: (configs) => set({ statusConfigs: configs }),
@@ -441,6 +904,10 @@ export const useAppStore = create<Store>()(
     {
       name: 'cowork-app-storage',
       partialize: (state) => ({
+        activeWorkspace: state.activeWorkspace,
+        chatSidebarView: state.chatSidebarView,
+        podcastDrafts: state.podcastDrafts,
+        activePodcastDraftId: state.activePodcastDraftId,
         sidebarWidth: state.sidebarWidth,
         theme: state.theme,
         colorThemeId: state.colorThemeId,
@@ -448,6 +915,10 @@ export const useAppStore = create<Store>()(
       }),
       merge: (persistedState: unknown, currentState: Store) => {
         const persisted = persistedState as {
+          activeWorkspace?: ActiveWorkspace;
+          chatSidebarView?: ChatSidebarView;
+          podcastDrafts?: Record<string, PodcastDraftView>;
+          activePodcastDraftId?: string | null;
           sidebarWidth?: number;
           theme?: Theme;
           colorThemeId?: ColorThemeId;
@@ -465,6 +936,15 @@ export const useAppStore = create<Store>()(
         });
         return {
           ...currentState,
+          activeWorkspace: persisted?.activeWorkspace || currentState.activeWorkspace,
+          chatSidebarView: persisted?.chatSidebarView || currentState.chatSidebarView,
+          podcastDrafts: Object.keys(normalizePodcastDrafts(persisted?.podcastDrafts)).length > 0
+            ? normalizePodcastDrafts(persisted?.podcastDrafts)
+            : currentState.podcastDrafts,
+          activePodcastDraftId:
+            persisted?.activePodcastDraftId !== undefined
+              ? persisted.activePodcastDraftId
+              : currentState.activePodcastDraftId,
           sidebarWidth: sanitizeSidebarWidth(persisted?.sidebarWidth, currentState.sidebarWidth),
           theme,
           colorThemeId,

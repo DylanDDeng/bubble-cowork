@@ -168,6 +168,26 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('stop-feishu-bridge');
   },
 
+  generatePodcastScript: (payload: unknown) => {
+    return ipcRenderer.invoke('generate-podcast-script', payload);
+  },
+
+  fetchYouTubeTranscript: (url: string) => {
+    return ipcRenderer.invoke('fetch-youtube-transcript', url);
+  },
+
+  getMiniMaxTtsConfig: () => {
+    return ipcRenderer.invoke('get-minimax-tts-config');
+  },
+
+  saveMiniMaxTtsConfig: (config: unknown) => {
+    return ipcRenderer.invoke('save-minimax-tts-config', config);
+  },
+
+  generatePodcastAudio: (input: unknown) => {
+    return ipcRenderer.invoke('generate-podcast-audio', input);
+  },
+
   // 字体设置
   getFontSettings: () => {
     return ipcRenderer.invoke('get-font-settings');
