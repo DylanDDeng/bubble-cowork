@@ -557,6 +557,8 @@ export interface ClaudeUsageDailyPoint {
 
 export interface ClaudeUsageReport {
   rangeDays: ClaudeUsageRangeDays;
+  costMode?: 'actual' | 'estimated' | 'unavailable';
+  note?: string;
   totals: {
     inputTokens: number;
     outputTokens: number;

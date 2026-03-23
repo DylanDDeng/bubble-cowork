@@ -1019,6 +1019,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return sessions.getClaudeUsageReport(days);
   });
 
+  ipcMainHandle('get-codex-usage-report', async (_, days?: ClaudeUsageRangeDays) => {
+    return sessions.getCodexUsageReport(days);
+  });
+
   // RPC: 获取 Codex 模型配置
   ipcMainHandle('get-codex-model-config', async () => {
     return getCodexModelConfig();

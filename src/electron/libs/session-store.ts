@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3';
 import { app } from 'electron';
+import { existsSync, readFileSync, readdirSync } from 'fs';
+import { homedir } from 'os';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { SessionRow, StreamMessage, SessionStatus } from '../types';
@@ -21,7 +23,13 @@ const claudeUsageReportCache = new Map<
   ClaudeUsageRangeDays,
   { version: number; dayStart: number; report: ClaudeUsageReport }
 >();
+const codexUsageReportCache = new Map<
+  ClaudeUsageRangeDays,
+  { version: number; dayStart: number; report: ClaudeUsageReport }
+>();
+let codexRolloutPathIndex: Map<string, string> | null = null;
 let claudeUsageReportDataVersion = 0;
+let codexUsageReportDataVersion = 0;
 
 function normalizeCodexPermissionMode(
   value?: string | null
@@ -102,6 +110,8 @@ function ensureColumn(table: string, column: string, definition: string): void {
 function invalidateClaudeUsageReportCache(): void {
   claudeUsageReportDataVersion += 1;
   claudeUsageReportCache.clear();
+  codexUsageReportDataVersion += 1;
+  codexUsageReportCache.clear();
 }
 
 // 获取数据库实例
@@ -476,6 +486,33 @@ type StoredClaudeResultMessage = Extract<StreamMessage, { type: 'result' }> & {
   modelUsage?: Record<string, Partial<ClaudeModelUsage>>;
 };
 
+type CodexSessionUsageRow = {
+  session_id: string;
+  codex_session_id: string;
+  session_model: string | null;
+};
+
+type CodexThreadRow = {
+  id: string;
+  rollout_path: string;
+  model: string | null;
+  tokens_used: number;
+};
+
+type CodexTokenUsage = {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+};
+
+type CodexUsageSnapshot = {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+};
+
 function normalizeClaudeModelUsage(value: Partial<ClaudeModelUsage> | undefined): ClaudeModelUsage | null {
   if (!value) {
     return null;
@@ -573,6 +610,327 @@ function emptyModelSummary(model: string): ClaudeUsageModelSummary {
     sessionCount: 0,
     cacheReadTokens: 0,
   };
+}
+
+function createEmptyUsageReport(
+  rangeDays: ClaudeUsageRangeDays,
+  costMode: ClaudeUsageReport['costMode'] = 'actual',
+  note?: string
+): ClaudeUsageReport {
+  return {
+    rangeDays,
+    costMode,
+    ...(note ? { note } : {}),
+    totals: {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      totalCostUsd: 0,
+      sessionCount: 0,
+      cacheReadTokens: 0,
+      cacheHitRate: 0,
+    },
+    models: [],
+    daily: [],
+  };
+}
+
+type CodexPriceEntry = {
+  inputUsdPerMillion: number;
+  outputUsdPerMillion: number;
+  cachedInputUsdPerMillion: number;
+};
+
+const CODEX_PRICE_TABLE: Array<{ pattern: RegExp; price: CodexPriceEntry }> = [
+  {
+    pattern: /^gpt-5\.4-mini(?:$|-)/i,
+    price: { inputUsdPerMillion: 0.75, outputUsdPerMillion: 4.5, cachedInputUsdPerMillion: 0.075 },
+  },
+  {
+    pattern: /^gpt-5\.4(?:$|-)/i,
+    price: { inputUsdPerMillion: 2.5, outputUsdPerMillion: 15, cachedInputUsdPerMillion: 0.25 },
+  },
+  {
+    pattern: /^gpt-5\.2(?:-codex)?(?:$|-)/i,
+    price: { inputUsdPerMillion: 1.75, outputUsdPerMillion: 14, cachedInputUsdPerMillion: 0.175 },
+  },
+  {
+    pattern: /^gpt-5\.1(?:-codex)?(?:$|-)/i,
+    price: { inputUsdPerMillion: 1.25, outputUsdPerMillion: 10, cachedInputUsdPerMillion: 0.125 },
+  },
+];
+
+function getCodexPriceEntry(model: string): CodexPriceEntry | null {
+  const normalized = model.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const matched = CODEX_PRICE_TABLE.find((entry) => entry.pattern.test(normalized));
+  return matched?.price || null;
+}
+
+function estimateCodexUsageCost(model: string, usage: CodexTokenUsage): number {
+  const price = getCodexPriceEntry(model);
+  if (!price) {
+    return 0;
+  }
+
+  const cachedInputTokens = Math.min(usage.cachedInputTokens, usage.inputTokens);
+  const uncachedInputTokens = Math.max(0, usage.inputTokens - cachedInputTokens);
+
+  return (
+    (uncachedInputTokens * price.inputUsdPerMillion) / 1_000_000 +
+    (cachedInputTokens * price.cachedInputUsdPerMillion) / 1_000_000 +
+    (usage.outputTokens * price.outputUsdPerMillion) / 1_000_000
+  );
+}
+
+function getCodexStateDbPath(): string {
+  return join(homedir(), '.codex', 'state_5.sqlite');
+}
+
+function getCodexSessionsRootPath(): string {
+  return join(homedir(), '.codex', 'sessions');
+}
+
+function buildCodexRolloutPathIndex(): Map<string, string> {
+  const result = new Map<string, string>();
+  const rootPath = getCodexSessionsRootPath();
+  if (!existsSync(rootPath)) {
+    return result;
+  }
+
+  const queue = [rootPath];
+  while (queue.length > 0) {
+    const currentPath = queue.pop();
+    if (!currentPath) {
+      continue;
+    }
+
+    let entries: Array<{ name: string; isDirectory: () => boolean; isFile: () => boolean }>;
+    try {
+      entries = readdirSync(currentPath, { withFileTypes: true, encoding: 'utf8' }) as Array<{
+        name: string;
+        isDirectory: () => boolean;
+        isFile: () => boolean;
+      }>;
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const nextPath = join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        queue.push(nextPath);
+        continue;
+      }
+
+      if (!entry.isFile() || !entry.name.startsWith('rollout-') || !entry.name.endsWith('.jsonl')) {
+        continue;
+      }
+
+      const idMatch = entry.name.match(/-([0-9a-f]{8}-[0-9a-f-]{27})\.jsonl$/i);
+      if (!idMatch) {
+        continue;
+      }
+
+      result.set(idMatch[1], nextPath);
+    }
+  }
+
+  return result;
+}
+
+function findCodexRolloutPathById(id: string): string | null {
+  if (!codexRolloutPathIndex) {
+    codexRolloutPathIndex = buildCodexRolloutPathIndex();
+  }
+
+  const cached = codexRolloutPathIndex.get(id);
+  if (cached) {
+    return cached;
+  }
+
+  codexRolloutPathIndex = buildCodexRolloutPathIndex();
+  return codexRolloutPathIndex.get(id) || null;
+}
+
+function readCodexThreadsById(ids: string[]): Map<string, CodexThreadRow> {
+  const result = new Map<string, CodexThreadRow>();
+  const stateDbPath = getCodexStateDbPath();
+  if (!existsSync(stateDbPath) || ids.length === 0) {
+    return result;
+  }
+
+  let stateDb: Database.Database | null = null;
+  try {
+    stateDb = new Database(stateDbPath, { readonly: true, fileMustExist: true });
+    const stmt = stateDb.prepare(`
+      SELECT id, rollout_path, model, tokens_used
+      FROM threads
+      WHERE id = ?
+    `);
+
+    for (const id of ids) {
+      const row = stmt.get(id) as CodexThreadRow | undefined;
+      if (row) {
+        result.set(id, row);
+      }
+    }
+  } catch {
+    return result;
+  } finally {
+    stateDb?.close();
+  }
+
+  return result;
+}
+
+function parseCodexSnapshot(value: unknown): CodexUsageSnapshot | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    inputTokens: toNumber(record.input_tokens),
+    cachedInputTokens: toNumber(record.cached_input_tokens),
+    outputTokens: toNumber(record.output_tokens),
+    totalTokens: toNumber(record.total_tokens),
+  };
+}
+
+function getCodexSnapshotKey(snapshot: CodexUsageSnapshot): string {
+  return [
+    snapshot.inputTokens,
+    snapshot.cachedInputTokens,
+    snapshot.outputTokens,
+    snapshot.totalTokens,
+  ].join(':');
+}
+
+function parseCodexRolloutUsage(params: {
+  rolloutPath: string;
+  fallbackModel: string;
+  rangeStart: number;
+  dailyMap: Map<string, {
+    totalTokens: number;
+    byModel: Record<string, number>;
+    byModelCostUsd: Record<string, number>;
+  }>;
+  modelSummaries: Map<string, ClaudeUsageModelSummary>;
+  modelSessions: Map<string, Set<string>>;
+  sessionId: string;
+}): {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  totalCostUsd: number;
+  totalTokens: number;
+} {
+  const result = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    totalCostUsd: 0,
+    totalTokens: 0,
+  };
+
+  if (!existsSync(params.rolloutPath)) {
+    return result;
+  }
+
+  const content = readFileSync(params.rolloutPath, 'utf8');
+  let currentModel = params.fallbackModel;
+  let previousSnapshotKey: string | null = null;
+
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    if (parsed.type === 'turn_context') {
+      const payload = parsed.payload as Record<string, unknown> | undefined;
+      if (typeof payload?.model === 'string' && payload.model.trim()) {
+        currentModel = payload.model.trim();
+      }
+      continue;
+    }
+
+    if (parsed.type !== 'event_msg') {
+      continue;
+    }
+
+    const payload = parsed.payload as Record<string, unknown> | undefined;
+    if (payload?.type !== 'token_count') {
+      continue;
+    }
+
+    const info = payload.info as Record<string, unknown> | undefined;
+    const lastUsage = parseCodexSnapshot(info?.last_token_usage);
+    const totalUsage = parseCodexSnapshot(info?.total_token_usage);
+    if (!lastUsage || !totalUsage) {
+      continue;
+    }
+
+    const snapshotKey = getCodexSnapshotKey(totalUsage);
+    if (snapshotKey === previousSnapshotKey) {
+      continue;
+    }
+    previousSnapshotKey = snapshotKey;
+
+    const timestamp = typeof parsed.timestamp === 'string' ? Date.parse(parsed.timestamp) : Number.NaN;
+    if (!Number.isFinite(timestamp) || timestamp < params.rangeStart) {
+      continue;
+    }
+
+    const model = currentModel || params.fallbackModel || 'Unknown';
+    const usage: CodexTokenUsage = {
+      inputTokens: lastUsage.inputTokens,
+      cachedInputTokens: lastUsage.cachedInputTokens,
+      outputTokens: lastUsage.outputTokens,
+      totalTokens: lastUsage.totalTokens || lastUsage.inputTokens + lastUsage.outputTokens,
+    };
+    const estimatedCostUsd = estimateCodexUsageCost(model, usage);
+    const dateKey = formatDateKey(timestamp);
+    const dayBucket = params.dailyMap.get(dateKey);
+    const summary = params.modelSummaries.get(model) || emptyModelSummary(model);
+
+    result.inputTokens += usage.inputTokens;
+    result.outputTokens += usage.outputTokens;
+    result.cacheReadTokens += Math.min(usage.cachedInputTokens, usage.inputTokens);
+    result.totalCostUsd += estimatedCostUsd;
+    result.totalTokens += usage.totalTokens;
+
+    summary.inputTokens += usage.inputTokens;
+    summary.outputTokens += usage.outputTokens;
+    summary.totalTokens += usage.totalTokens;
+    summary.totalCostUsd += estimatedCostUsd;
+    summary.cacheReadTokens += Math.min(usage.cachedInputTokens, usage.inputTokens);
+    params.modelSummaries.set(model, summary);
+
+    if (!params.modelSessions.has(model)) {
+      params.modelSessions.set(model, new Set());
+    }
+    params.modelSessions.get(model)!.add(params.sessionId);
+
+    if (dayBucket) {
+      dayBucket.totalTokens += usage.totalTokens;
+      dayBucket.byModel[model] = (dayBucket.byModel[model] || 0) + usage.totalTokens;
+      dayBucket.byModelCostUsd[model] = (dayBucket.byModelCostUsd[model] || 0) + estimatedCostUsd;
+    }
+  }
+
+  return result;
 }
 
 function backfillClaudeSessionModelsFromInitMessages(): number {
@@ -763,6 +1121,130 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
 
   claudeUsageReportCache.set(safeDays, {
     version: claudeUsageReportDataVersion,
+    dayStart: todayStart,
+    report,
+  });
+
+  return report;
+}
+
+export function getCodexUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsageReport {
+  const safeDays: ClaudeUsageRangeDays = days === 7 || days === 90 ? days : 30;
+  const todayStart = startOfLocalDay(Date.now());
+  const rangeStart = todayStart - (safeDays - 1) * DAY_MS;
+  const cached = codexUsageReportCache.get(safeDays);
+  if (cached && cached.version === codexUsageReportDataVersion && cached.dayStart === todayStart) {
+    return cached.report;
+  }
+
+  const report = createEmptyUsageReport(
+    safeDays,
+    'estimated',
+    'Cost is estimated from the OpenAI API price table. ChatGPT-plan billing may differ from this estimate.'
+  );
+  const dailyMap = new Map<string, {
+    totalTokens: number;
+    byModel: Record<string, number>;
+    byModelCostUsd: Record<string, number>;
+  }>();
+
+  for (let index = 0; index < safeDays; index += 1) {
+    const dayStart = rangeStart + index * DAY_MS;
+    dailyMap.set(formatDateKey(dayStart), { totalTokens: 0, byModel: {}, byModelCostUsd: {} });
+  }
+
+  const sessionRows = getDb().prepare(`
+    SELECT id AS session_id, codex_session_id AS codex_session_id, model AS session_model
+    FROM sessions
+    WHERE provider = 'codex'
+      AND codex_session_id IS NOT NULL
+      AND codex_session_id != ''
+  `).all() as CodexSessionUsageRow[];
+
+  if (sessionRows.length === 0) {
+    report.daily = Array.from(dailyMap.entries()).map(([date, bucket]) => ({
+      date,
+      totalTokens: bucket.totalTokens,
+      byModel: bucket.byModel,
+      byModelCostUsd: bucket.byModelCostUsd,
+    }));
+    codexUsageReportCache.set(safeDays, {
+      version: codexUsageReportDataVersion,
+      dayStart: todayStart,
+      report,
+    });
+    return report;
+  }
+
+  const rowsByThread = new Map<string, { sessionId: string; sessionModel: string | null }>();
+  for (const row of sessionRows) {
+    if (!rowsByThread.has(row.codex_session_id)) {
+      rowsByThread.set(row.codex_session_id, {
+        sessionId: row.session_id,
+        sessionModel: row.session_model,
+      });
+    }
+  }
+
+  const uniqueThreadIds = Array.from(rowsByThread.keys());
+  const threadsById = readCodexThreadsById(uniqueThreadIds);
+  const modelSummaries = new Map<string, ClaudeUsageModelSummary>();
+  const modelSessions = new Map<string, Set<string>>();
+  const sessionsWithUsage = new Set<string>();
+
+  for (const [threadId, sessionMeta] of rowsByThread.entries()) {
+    const thread = threadsById.get(threadId);
+    const rolloutPath = thread?.rollout_path || findCodexRolloutPathById(threadId);
+    if (!rolloutPath) {
+      continue;
+    }
+
+    const fallbackModel = sessionMeta.sessionModel || thread?.model || 'Unknown';
+    const usage = parseCodexRolloutUsage({
+      rolloutPath,
+      fallbackModel,
+      rangeStart,
+      dailyMap,
+      modelSummaries,
+      modelSessions,
+      sessionId: sessionMeta.sessionId,
+    });
+
+    if (usage.totalTokens <= 0 && usage.totalCostUsd <= 0) {
+      continue;
+    }
+
+    report.totals.inputTokens += usage.inputTokens;
+    report.totals.outputTokens += usage.outputTokens;
+    report.totals.totalTokens += usage.totalTokens;
+    report.totals.totalCostUsd += usage.totalCostUsd;
+    report.totals.cacheReadTokens += usage.cacheReadTokens;
+    sessionsWithUsage.add(sessionMeta.sessionId);
+  }
+
+  report.models = Array.from(modelSummaries.values())
+    .map((summary) => ({
+      ...summary,
+      sessionCount: modelSessions.get(summary.model)?.size || 0,
+    }))
+    .sort((left, right) =>
+      right.totalTokens - left.totalTokens ||
+      right.totalCostUsd - left.totalCostUsd ||
+      left.model.localeCompare(right.model)
+    );
+
+  report.daily = Array.from(dailyMap.entries()).map(([date, bucket]) => ({
+    date,
+    totalTokens: bucket.totalTokens,
+    byModel: bucket.byModel,
+    byModelCostUsd: bucket.byModelCostUsd,
+  }));
+  report.totals.sessionCount = sessionsWithUsage.size;
+  report.totals.cacheHitRate =
+    report.totals.inputTokens > 0 ? report.totals.cacheReadTokens / report.totals.inputTokens : 0;
+
+  codexUsageReportCache.set(safeDays, {
+    version: codexUsageReportDataVersion,
     dayStart: todayStart,
     report,
   });
