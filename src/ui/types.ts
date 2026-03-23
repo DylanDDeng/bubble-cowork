@@ -160,6 +160,7 @@ export interface SessionView {
   todoState?: TodoState;
   pinned?: boolean;
   folderPath?: string | null;
+  hiddenFromThreads?: boolean;
   latestClaudeModelUsage?: import('../shared/types').LatestClaudeModelUsage;
   messages: import('../shared/types').StreamMessage[];
   hydrated: boolean;

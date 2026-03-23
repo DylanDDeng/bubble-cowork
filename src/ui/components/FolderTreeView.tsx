@@ -37,7 +37,7 @@ export function FolderTreeView({
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
 
   const projectGroups = useMemo(() => {
-    let sessionList = Object.values(sessions);
+    let sessionList = Object.values(sessions).filter((session) => !session.hiddenFromThreads);
 
     // 搜索过滤
     if (sidebarSearchQuery.trim()) {

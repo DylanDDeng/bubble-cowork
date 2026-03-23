@@ -39,6 +39,7 @@ export interface SessionRow {
   todo_state: string | null;
   pinned: number | null;
   folder_path: string | null;
+  hidden_from_threads: number | null;
   created_at: number;
   updated_at: number;
 }

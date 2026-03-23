@@ -224,8 +224,11 @@ async function fetchYouTubeTranscript(url: string): Promise<YouTubeTranscriptRes
 
 const MINIMAX_TTS_MODEL = 'speech-2.8-hd';
 const MINIMAX_API_BASE = 'https://api.minimaxi.com';
-const MINIMAX_POLL_INTERVAL_MS = 2_000;
-const MINIMAX_MAX_POLL_ATTEMPTS = 90;
+const MINIMAX_INITIAL_POLL_INTERVAL_MS = 2_000;
+const MINIMAX_MID_POLL_INTERVAL_MS = 4_000;
+const MINIMAX_SLOW_POLL_INTERVAL_MS = 6_000;
+const MINIMAX_MAX_POLL_ATTEMPTS = 240;
+const MINIMAX_MAX_POLL_DURATION_MS = 15 * 60 * 1000;
 const MINIMAX_SEGMENT_CONCURRENCY = 3;
 
 type PodcastSpeaker = 'hostA' | 'hostB';
@@ -237,6 +240,18 @@ interface PodcastSpeakerSegment {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+}
+
+function getMiniMaxPollDelayMs(attempt: number): number {
+  if (attempt < 20) {
+    return MINIMAX_INITIAL_POLL_INTERVAL_MS;
+  }
+
+  if (attempt < 80) {
+    return MINIMAX_MID_POLL_INTERVAL_MS;
+  }
+
+  return MINIMAX_SLOW_POLL_INTERVAL_MS;
 }
 
 function logPodcastAudio(message: string, extra?: Record<string, unknown>): void {
@@ -442,6 +457,8 @@ async function waitForMiniMaxFileId(
   taskId: number,
   context?: { index: number; total: number },
 ): Promise<number> {
+  const startedAt = Date.now();
+
   for (let attempt = 0; attempt < MINIMAX_MAX_POLL_ATTEMPTS; attempt += 1) {
     const result = await minimaxJsonRequest<{
       status?: string;
@@ -455,7 +472,10 @@ async function waitForMiniMaxFileId(
 
     const status = (result.status || '').toLowerCase();
     if (context && (attempt === 0 || (attempt + 1) % 10 === 0)) {
-      logPodcastAudio(`Segment ${context.index}/${context.total} task ${taskId} status: ${status || 'unknown'}`);
+      logPodcastAudio(`Segment ${context.index}/${context.total} task ${taskId} status: ${status || 'unknown'}`, {
+        waitedSeconds: Math.round((Date.now() - startedAt) / 1000),
+        attempt: attempt + 1,
+      });
     }
 
     if (status === 'success' && result.file_id) {
@@ -466,10 +486,16 @@ async function waitForMiniMaxFileId(
       throw new Error(`MiniMax audio task ${taskId} ${status}.`);
     }
 
-    await delay(MINIMAX_POLL_INTERVAL_MS);
+    if (Date.now() - startedAt >= MINIMAX_MAX_POLL_DURATION_MS) {
+      break;
+    }
+
+    await delay(getMiniMaxPollDelayMs(attempt));
   }
 
-  throw new Error('MiniMax audio generation timed out.');
+  throw new Error(
+    `MiniMax audio generation timed out after waiting ${Math.round(MINIMAX_MAX_POLL_DURATION_MS / 60000)} minutes.`
+  );
 }
 
 async function downloadMiniMaxAudio(apiKey: string, fileId: number, outputPath: string): Promise<void> {
@@ -1199,6 +1225,7 @@ async function handleEditLatestPrompt(
       compatibleProviderId: requestedCompatibleProviderId,
       betas: requestedBetas,
       claudeAccessMode: nextClaudeAccessMode,
+      hiddenFromThreads: session.hidden_from_threads === 1,
     },
   });
 
@@ -1277,6 +1304,7 @@ async function handleEditLatestPrompt(
         compatibleProviderId: previousCompatibleProviderId || undefined,
         betas: previousBetas,
         claudeAccessMode: previousClaudeAccessMode,
+        hiddenFromThreads: session.hidden_from_threads === 1,
       },
     });
 
@@ -1312,6 +1340,7 @@ async function handleEditLatestPrompt(
       compatibleProviderId: refreshedSession.compatible_provider_id || undefined,
       betas: requestedBetas,
       claudeAccessMode: nextClaudeAccessMode,
+      hiddenFromThreads: refreshedSession.hidden_from_threads === 1,
     },
   });
 
@@ -2271,6 +2300,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     todoState: row.todo_state || 'todo',
     pinned: row.pinned === 1,
     folderPath: row.folder_path || null,
+    hiddenFromThreads: row.hidden_from_threads === 1,
     latestClaudeModelUsage: latestClaudeModelUsageBySession[row.id],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -2313,6 +2343,7 @@ async function handleSessionStart(
     betas,
     claudeAccessMode,
     codexPermissionMode,
+    hiddenFromThreads,
   } = payload;
   if (!cwd?.trim()) {
     broadcast(mainWindow, {
@@ -2370,6 +2401,7 @@ async function handleSessionStart(
     betas: selectedBetas,
     claudeAccessMode: chosenProvider === 'claude' ? (claudeAccessMode || 'default') : undefined,
     codexPermissionMode: chosenProvider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
+    hiddenFromThreads: hiddenFromThreads === true,
   });
 
   // 更新状态为 running
@@ -2389,6 +2421,7 @@ async function handleSessionStart(
       betas: selectedBetas,
       claudeAccessMode: chosenProvider === 'claude' ? (claudeAccessMode || 'default') : undefined,
       codexPermissionMode: chosenProvider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
+      hiddenFromThreads: session.hidden_from_threads === 1,
     },
   });
 
@@ -2415,6 +2448,7 @@ async function handleSessionStart(
           sessionId: session.id,
           status: currentStatus as SessionStatus,
           title: trimmedTitle,
+          hiddenFromThreads: latest?.hidden_from_threads === 1,
         },
       });
     }).catch((err) => {
@@ -2575,6 +2609,7 @@ async function handleSessionContinue(
       betas: nextBetas,
       claudeAccessMode: nextProvider === 'claude' ? (claudeAccessMode || 'default') : undefined,
       codexPermissionMode: nextProvider === 'codex' ? (nextCodexPermissionMode || 'defaultPermissions') : undefined,
+      hiddenFromThreads: session.hidden_from_threads === 1,
     },
   });
 
@@ -2734,6 +2769,7 @@ function startRunner(
               provider === 'codex'
                 ? normalizeCodexPermissionMode(sessions.getSession(session.id)?.codex_permission_mode || codexPermissionMode)
                 : undefined,
+            hiddenFromThreads: sessions.getSession(session.id)?.hidden_from_threads === 1,
           },
         });
       }
@@ -2799,6 +2835,7 @@ function startRunner(
               provider === 'codex'
                 ? normalizeCodexPermissionMode(sessions.getSession(session.id)?.codex_permission_mode || codexPermissionMode)
                 : undefined,
+            hiddenFromThreads: sessions.getSession(session.id)?.hidden_from_threads === 1,
           },
         });
         if (provider === 'claude' && runnerHandles.get(session.id)?.handle === handle) {
@@ -2813,7 +2850,11 @@ function startRunner(
       sessions.updateSessionStatus(session.id, 'error');
       broadcast(mainWindow, {
         type: 'session.status',
-        payload: { sessionId: session.id, status: 'error' },
+        payload: {
+          sessionId: session.id,
+          status: 'error',
+          hiddenFromThreads: session.hidden_from_threads === 1,
+        },
       });
       broadcast(mainWindow, {
         type: 'runner.error',
@@ -2884,6 +2925,7 @@ function handleSessionHistory(mainWindow: BrowserWindow, sessionId: string): voi
 
 // 停止会话
 function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
+  const session = sessions.getSession(sessionId);
   const entry = runnerHandles.get(sessionId);
   if (entry) {
     entry.handle.abort();
@@ -2904,7 +2946,11 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
 
   broadcast(mainWindow, {
     type: 'session.status',
-    payload: { sessionId, status: 'idle' },
+    payload: {
+      sessionId,
+      status: 'idle',
+      hiddenFromThreads: session?.hidden_from_threads === 1,
+    },
   });
 }
 

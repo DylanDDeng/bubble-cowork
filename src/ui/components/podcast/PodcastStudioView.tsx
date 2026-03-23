@@ -1049,6 +1049,7 @@ function buildPodcastScriptRequest(draft: PodcastDraftView, cwd: string, transcr
     title: `[Podcast] ${draft.title}`,
     prompt: buildPodcastScriptPrompt(draft, transcript),
     cwd,
+    hiddenFromThreads: true,
     provider: provider as AgentProvider,
     model,
     compatibleProviderId,

@@ -70,6 +70,7 @@ export function initialize(): void {
       cwd TEXT,
       allowed_tools TEXT,
       last_prompt TEXT,
+      hidden_from_threads INTEGER DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -97,6 +98,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'todo_state', "TEXT DEFAULT 'todo'");
   ensureColumn('sessions', 'pinned', 'INTEGER DEFAULT 0');
   ensureColumn('sessions', 'folder_path', 'TEXT');
+  ensureColumn('sessions', 'hidden_from_threads', 'INTEGER DEFAULT 0');
 
   const backfilledCount = backfillClaudeSessionModelsFromInitMessages();
   if (backfilledCount > 0) {
@@ -141,13 +143,14 @@ export function createSession(params: {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   codexPermissionMode?: CodexPermissionMode;
+  hiddenFromThreads?: boolean;
 }): SessionRow {
   const now = Date.now();
   const id = uuidv4();
 
   const stmt = getDb().prepare(`
-    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, codex_permission_mode, cwd, allowed_tools, last_prompt, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
+    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, codex_permission_mode, cwd, allowed_tools, last_prompt, hidden_from_threads, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
   `);
 
   stmt.run(
@@ -162,6 +165,7 @@ export function createSession(params: {
     params.cwd || null,
     params.allowedTools || null,
     params.prompt || null,
+    params.hiddenFromThreads ? 1 : 0,
     now,
     now
   );
@@ -181,7 +185,7 @@ export function getSession(sessionId: string): SessionRow | undefined {
 
 // 获取所有会话
 export function listSessions(): SessionRow[] {
-  const stmt = getDb().prepare('SELECT * FROM sessions ORDER BY updated_at DESC');
+  const stmt = getDb().prepare('SELECT * FROM sessions WHERE COALESCE(hidden_from_threads, 0) = 0 ORDER BY updated_at DESC');
   return stmt.all() as SessionRow[];
 }
 

@@ -996,6 +996,7 @@ function handleSessionList(
       todoState: session.todoState || 'todo',
       pinned: session.pinned || false,
       folderPath: session.folderPath || null,
+      hiddenFromThreads: session.hiddenFromThreads === true,
       latestClaudeModelUsage: session.latestClaudeModelUsage,
       messages: existing?.messages || [],
       hydrated: existing?.hydrated || false,
@@ -1004,6 +1005,12 @@ function handleSessionList(
       runtimeNotice: existing?.runtimeNotice,
       updatedAt: session.updatedAt,
     };
+  }
+
+  for (const existing of Object.values(get().sessions)) {
+    if (existing.hiddenFromThreads && !sessionsMap[existing.id]) {
+      sessionsMap[existing.id] = existing;
+    }
   }
 
   // 如果没有会话，显示新建弹窗
@@ -1035,11 +1042,24 @@ function handleSessionStatus(
     betas?: SessionInfo['betas'];
     claudeAccessMode?: SessionInfo['claudeAccessMode'];
     codexPermissionMode?: SessionInfo['codexPermissionMode'];
+    hiddenFromThreads?: boolean;
   },
   set: SetState,
   get: () => Store
 ) {
-  const { sessionId, status, title, cwd, provider, model, compatibleProviderId, betas, claudeAccessMode, codexPermissionMode } = payload;
+  const {
+    sessionId,
+    status,
+    title,
+    cwd,
+    provider,
+    model,
+    compatibleProviderId,
+    betas,
+    claudeAccessMode,
+    codexPermissionMode,
+    hiddenFromThreads,
+  } = payload;
   const state = get();
   const session = state.sessions[sessionId];
 
@@ -1072,6 +1092,8 @@ function handleSessionStatus(
           claudeAccessMode: claudeAccessMode !== undefined ? claudeAccessMode : session.claudeAccessMode,
           codexPermissionMode:
             codexPermissionMode !== undefined ? codexPermissionMode : session.codexPermissionMode,
+          hiddenFromThreads:
+            hiddenFromThreads !== undefined ? hiddenFromThreads : session.hiddenFromThreads,
           latestClaudeModelUsage: session.latestClaudeModelUsage,
           streaming:
             status === 'running'
@@ -1095,6 +1117,7 @@ function handleSessionStatus(
       betas,
       claudeAccessMode,
       codexPermissionMode,
+      hiddenFromThreads: hiddenFromThreads === true,
       latestClaudeModelUsage: undefined,
       messages: [],
       hydrated: true, // 新会话不需要 hydration
@@ -1104,12 +1127,14 @@ function handleSessionStatus(
       updatedAt: Date.now(),
     };
 
+    const shouldFocusNewSession = state.activeWorkspace === 'chat' && hiddenFromThreads !== true;
+
     set({
       sessions: {
         ...state.sessions,
         [sessionId]: newSession,
       },
-      activeSessionId: sessionId,
+      activeSessionId: shouldFocusNewSession ? sessionId : state.activeSessionId,
       showNewSession: false,
       pendingStart: false,
     });

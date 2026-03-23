@@ -367,6 +367,7 @@ export interface SessionStartPayload {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   codexPermissionMode?: CodexPermissionMode;
+  hiddenFromThreads?: boolean;
 }
 
 export interface YouTubeTranscriptResult {
@@ -424,6 +425,7 @@ export interface SessionInfo {
   todoState?: TodoState;
   pinned?: boolean;
   folderPath?: string | null;
+  hiddenFromThreads?: boolean;
   latestClaudeModelUsage?: LatestClaudeModelUsage;
   createdAt: number;
   updatedAt: number;
@@ -443,6 +445,7 @@ export interface SessionStatusPayload {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   codexPermissionMode?: CodexPermissionMode;
+  hiddenFromThreads?: boolean;
 }
 
 export interface SessionHistoryPayload {
