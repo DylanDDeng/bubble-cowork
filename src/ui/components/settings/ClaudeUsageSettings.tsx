@@ -23,10 +23,13 @@ export function ClaudeUsageSettingsContent() {
   const [activeProvider, setActiveProvider] = useState<AgentProvider>('claude');
   const [claudeReport, setClaudeReport] = useState<ClaudeUsageReport | null>(null);
   const [codexReport, setCodexReport] = useState<ClaudeUsageReport | null>(null);
+  const [opencodeReport, setOpencodeReport] = useState<ClaudeUsageReport | null>(null);
   const [claudeLoading, setClaudeLoading] = useState(true);
   const [codexLoading, setCodexLoading] = useState(true);
+  const [opencodeLoading, setOpencodeLoading] = useState(true);
   const [claudeError, setClaudeError] = useState<string | null>(null);
   const [codexError, setCodexError] = useState<string | null>(null);
+  const [opencodeError, setOpencodeError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,12 +37,15 @@ export function ClaudeUsageSettingsContent() {
     const load = async () => {
       setClaudeLoading(true);
       setCodexLoading(true);
+      setOpencodeLoading(true);
       setClaudeError(null);
       setCodexError(null);
+      setOpencodeError(null);
 
-      const [claudeResult, codexResult] = await Promise.allSettled([
+      const [claudeResult, codexResult, opencodeResult] = await Promise.allSettled([
         window.electron.getClaudeUsageReport(rangeDays),
         window.electron.getCodexUsageReport(rangeDays),
+        window.electron.getOpencodeUsageReport(rangeDays),
       ]);
 
       if (cancelled) {
@@ -60,8 +66,16 @@ export function ClaudeUsageSettingsContent() {
         setCodexError(normalizeUsageLoadError(codexResult.reason, 'get-codex-usage-report'));
       }
 
+      if (opencodeResult.status === 'fulfilled') {
+        setOpencodeReport(opencodeResult.value);
+      } else {
+        setOpencodeReport(null);
+        setOpencodeError(normalizeUsageLoadError(opencodeResult.reason, 'get-opencode-usage-report'));
+      }
+
       setClaudeLoading(false);
       setCodexLoading(false);
+      setOpencodeLoading(false);
     };
 
     void load();
@@ -95,19 +109,14 @@ export function ClaudeUsageSettingsContent() {
     {
       id: 'opencode',
       title: 'OpenCode ACP',
-      description: 'OpenCode usage is not wired into the Usage dashboard yet.',
+      description: 'Actual token and cost data from local OpenCode sessions launched in Aegis.',
       logo: <OpenCodeLogo className="h-5 w-5 flex-shrink-0" />,
-      report: null,
-      loading: false,
-      error: null,
-      status: {
-        label: 'Coming Soon',
-        tone: 'text-[var(--text-secondary)]',
-        dot: 'bg-[var(--text-muted)]',
-        summary: 'Usage tracking will appear here once OpenCode aggregation is connected.',
-      },
+      report: opencodeReport,
+      loading: opencodeLoading,
+      error: opencodeError,
+      status: buildProviderUsageStatus(opencodeReport, opencodeLoading, opencodeError, false),
     },
-  ]), [claudeError, claudeLoading, claudeReport, codexError, codexLoading, codexReport]);
+  ]), [claudeError, claudeLoading, claudeReport, codexError, codexLoading, codexReport, opencodeError, opencodeLoading, opencodeReport]);
 
   const activeProviderCard = providers.find((provider) => provider.id === activeProvider) || providers[0];
 

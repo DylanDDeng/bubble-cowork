@@ -27,9 +27,14 @@ const codexUsageReportCache = new Map<
   ClaudeUsageRangeDays,
   { version: number; dayStart: number; report: ClaudeUsageReport }
 >();
+const opencodeUsageReportCache = new Map<
+  ClaudeUsageRangeDays,
+  { version: number; dayStart: number; report: ClaudeUsageReport }
+>();
 let codexRolloutPathIndex: Map<string, string> | null = null;
 let claudeUsageReportDataVersion = 0;
 let codexUsageReportDataVersion = 0;
+let opencodeUsageReportDataVersion = 0;
 
 function normalizeCodexPermissionMode(
   value?: string | null
@@ -112,6 +117,8 @@ function invalidateClaudeUsageReportCache(): void {
   claudeUsageReportCache.clear();
   codexUsageReportDataVersion += 1;
   codexUsageReportCache.clear();
+  opencodeUsageReportDataVersion += 1;
+  opencodeUsageReportCache.clear();
 }
 
 // 获取数据库实例
@@ -499,6 +506,23 @@ type CodexThreadRow = {
   tokens_used: number;
 };
 
+type OpencodeSessionUsageRow = {
+  session_id: string;
+  opencode_session_id: string;
+  session_model: string | null;
+};
+
+type OpencodeAssistantUsageRow = {
+  session_id: string;
+  created_at: number;
+  model_id: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  total_cost_usd: number;
+};
+
 type CodexTokenUsage = {
   inputTokens: number;
   cachedInputTokens: number;
@@ -692,6 +716,48 @@ function getCodexStateDbPath(): string {
 
 function getCodexSessionsRootPath(): string {
   return join(homedir(), '.codex', 'sessions');
+}
+
+function getOpencodeDbPath(): string {
+  return join(homedir(), '.local', 'share', 'opencode', 'opencode.db');
+}
+
+function readOpencodeAssistantUsageRows(
+  sessionIds: string[],
+  rangeStart: number
+): OpencodeAssistantUsageRow[] {
+  const opencodeDbPath = getOpencodeDbPath();
+  if (!existsSync(opencodeDbPath) || sessionIds.length === 0) {
+    return [];
+  }
+
+  let opencodeDb: Database.Database | null = null;
+  try {
+    opencodeDb = new Database(opencodeDbPath, { readonly: true, fileMustExist: true });
+    const placeholders = sessionIds.map(() => '?').join(', ');
+    const stmt = opencodeDb.prepare(`
+      SELECT
+        session_id,
+        time_created AS created_at,
+        json_extract(data, '$.modelID') AS model_id,
+        COALESCE(json_extract(data, '$.tokens.input'), 0) AS input_tokens,
+        COALESCE(json_extract(data, '$.tokens.output'), 0) AS output_tokens,
+        COALESCE(json_extract(data, '$.tokens.cache.read'), 0) AS cache_read_tokens,
+        COALESCE(json_extract(data, '$.tokens.cache.write'), 0) AS cache_write_tokens,
+        COALESCE(json_extract(data, '$.cost'), 0) AS total_cost_usd
+      FROM message
+      WHERE session_id IN (${placeholders})
+        AND time_created >= ?
+        AND json_extract(data, '$.role') = 'assistant'
+      ORDER BY time_created ASC
+    `);
+
+    return stmt.all(...sessionIds, rangeStart) as OpencodeAssistantUsageRow[];
+  } catch {
+    return [];
+  } finally {
+    opencodeDb?.close();
+  }
 }
 
 function buildCodexRolloutPathIndex(): Map<string, string> {
@@ -1245,6 +1311,148 @@ export function getCodexUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsag
 
   codexUsageReportCache.set(safeDays, {
     version: codexUsageReportDataVersion,
+    dayStart: todayStart,
+    report,
+  });
+
+  return report;
+}
+
+export function getOpencodeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsageReport {
+  const safeDays: ClaudeUsageRangeDays = days === 7 || days === 90 ? days : 30;
+  const todayStart = startOfLocalDay(Date.now());
+  const rangeStart = todayStart - (safeDays - 1) * DAY_MS;
+  const cached = opencodeUsageReportCache.get(safeDays);
+  if (cached && cached.version === opencodeUsageReportDataVersion && cached.dayStart === todayStart) {
+    return cached.report;
+  }
+
+  const report = createEmptyUsageReport(
+    safeDays,
+    'actual',
+    'Only includes OpenCode sessions launched from Aegis.'
+  );
+  const dailyMap = new Map<string, {
+    totalTokens: number;
+    byModel: Record<string, number>;
+    byModelCostUsd: Record<string, number>;
+  }>();
+
+  for (let index = 0; index < safeDays; index += 1) {
+    const dayStart = rangeStart + index * DAY_MS;
+    dailyMap.set(formatDateKey(dayStart), { totalTokens: 0, byModel: {}, byModelCostUsd: {} });
+  }
+
+  const sessionRows = getDb().prepare(`
+    SELECT id AS session_id, opencode_session_id AS opencode_session_id, model AS session_model
+    FROM sessions
+    WHERE provider = 'opencode'
+      AND opencode_session_id IS NOT NULL
+      AND opencode_session_id != ''
+  `).all() as OpencodeSessionUsageRow[];
+
+  if (sessionRows.length === 0) {
+    report.daily = Array.from(dailyMap.entries()).map(([date, bucket]) => ({
+      date,
+      totalTokens: bucket.totalTokens,
+      byModel: bucket.byModel,
+      byModelCostUsd: bucket.byModelCostUsd,
+    }));
+    opencodeUsageReportCache.set(safeDays, {
+      version: opencodeUsageReportDataVersion,
+      dayStart: todayStart,
+      report,
+    });
+    return report;
+  }
+
+  const rowsByOpencodeSession = new Map<string, { sessionId: string; sessionModel: string | null }>();
+  for (const row of sessionRows) {
+    if (!rowsByOpencodeSession.has(row.opencode_session_id)) {
+      rowsByOpencodeSession.set(row.opencode_session_id, {
+        sessionId: row.session_id,
+        sessionModel: row.session_model,
+      });
+    }
+  }
+
+  const usageRows = readOpencodeAssistantUsageRows(Array.from(rowsByOpencodeSession.keys()), rangeStart);
+  const modelSummaries = new Map<string, ClaudeUsageModelSummary>();
+  const modelSessions = new Map<string, Set<string>>();
+  const sessionsWithUsage = new Set<string>();
+  let totalCacheWriteTokens = 0;
+
+  for (const row of usageRows) {
+    const sessionMeta = rowsByOpencodeSession.get(row.session_id);
+    if (!sessionMeta) {
+      continue;
+    }
+
+    const model = row.model_id || sessionMeta.sessionModel || 'Unknown';
+    const inputTokens = toNumber(row.input_tokens);
+    const outputTokens = toNumber(row.output_tokens);
+    const cacheReadTokens = toNumber(row.cache_read_tokens);
+    const cacheWriteTokens = toNumber(row.cache_write_tokens);
+    const totalCostUsd = toNumber(row.total_cost_usd);
+    const totalTokens = inputTokens + outputTokens;
+
+    if (totalTokens <= 0 && totalCostUsd <= 0 && cacheReadTokens <= 0 && cacheWriteTokens <= 0) {
+      continue;
+    }
+
+    const summary = modelSummaries.get(model) || emptyModelSummary(model);
+    summary.inputTokens += inputTokens;
+    summary.outputTokens += outputTokens;
+    summary.totalTokens += totalTokens;
+    summary.totalCostUsd += totalCostUsd;
+    summary.cacheReadTokens += cacheReadTokens;
+    modelSummaries.set(model, summary);
+
+    if (!modelSessions.has(model)) {
+      modelSessions.set(model, new Set());
+    }
+    modelSessions.get(model)!.add(sessionMeta.sessionId);
+
+    const dateKey = formatDateKey(row.created_at);
+    const dayBucket = dailyMap.get(dateKey);
+    if (dayBucket) {
+      dayBucket.totalTokens += totalTokens;
+      dayBucket.byModel[model] = (dayBucket.byModel[model] || 0) + totalTokens;
+      dayBucket.byModelCostUsd[model] = (dayBucket.byModelCostUsd[model] || 0) + totalCostUsd;
+    }
+
+    report.totals.inputTokens += inputTokens;
+    report.totals.outputTokens += outputTokens;
+    report.totals.totalTokens += totalTokens;
+    report.totals.totalCostUsd += totalCostUsd;
+    report.totals.cacheReadTokens += cacheReadTokens;
+    totalCacheWriteTokens += cacheWriteTokens;
+    sessionsWithUsage.add(sessionMeta.sessionId);
+  }
+
+  report.models = Array.from(modelSummaries.values())
+    .map((summary) => ({
+      ...summary,
+      sessionCount: modelSessions.get(summary.model)?.size || 0,
+    }))
+    .sort((left, right) =>
+      right.totalTokens - left.totalTokens ||
+      right.totalCostUsd - left.totalCostUsd ||
+      left.model.localeCompare(right.model)
+    );
+
+  report.daily = Array.from(dailyMap.entries()).map(([date, bucket]) => ({
+    date,
+    totalTokens: bucket.totalTokens,
+    byModel: bucket.byModel,
+    byModelCostUsd: bucket.byModelCostUsd,
+  }));
+  report.totals.sessionCount = sessionsWithUsage.size;
+  const cacheDenominator = report.totals.inputTokens + report.totals.cacheReadTokens + totalCacheWriteTokens;
+  report.totals.cacheHitRate = cacheDenominator > 0 ? report.totals.cacheReadTokens / cacheDenominator : 0;
+
+  opencodeUsageReportCache.set(safeDays, {
+    version: opencodeUsageReportDataVersion,
     dayStart: todayStart,
     report,
   });

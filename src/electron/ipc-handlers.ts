@@ -1023,6 +1023,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return sessions.getCodexUsageReport(days);
   });
 
+  ipcMainHandle('get-opencode-usage-report', async (_, days?: ClaudeUsageRangeDays) => {
+    return sessions.getOpencodeUsageReport(days);
+  });
+
   // RPC: 获取 Codex 模型配置
   ipcMainHandle('get-codex-model-config', async () => {
     return getCodexModelConfig();

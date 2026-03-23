@@ -82,6 +82,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-codex-usage-report', days);
   },
 
+  getOpencodeUsageReport: (days?: ClaudeUsageRangeDays) => {
+    return ipcRenderer.invoke('get-opencode-usage-report', days);
+  },
+
   // 获取 Codex 模型配置
   getCodexModelConfig: () => {
     return ipcRenderer.invoke('get-codex-model-config');
