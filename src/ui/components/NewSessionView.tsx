@@ -2,11 +2,8 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import type { Attachment, ClaudeAccessMode, ClaudeCompatibleProviderId, ClaudeSkillSummary, CodexPermissionMode } from '../types';
+import type { Attachment, ClaudeAccessMode, ClaudeCompatibleProviderId, CodexPermissionMode } from '../types';
 import coworkLogo from '../assets/cowork-logo.svg';
-import powerPointLogo from '../assets/powerpoint-2025-logo.svg';
-import pdfLogo from '../assets/pdf-svgrepo-com.svg';
-import wordLogo from '../assets/word-2025-logo.svg';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
@@ -35,47 +32,7 @@ import {
 import { buildCodexModelOptions, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
 import { loadPreferredCodexPermissionMode, savePreferredCodexPermissionMode } from '../utils/codex-permission';
 import { buildOpencodeModelOptions, loadPreferredOpencodeModel, savePreferredOpencodeModel } from '../utils/opencode-model';
-import { buildPromptWithSkill } from '../utils/claude-skills';
 import { buildPromptWithSlashCommand } from '../utils/claude-slash';
-
-const PPTX_QUICK_ACTION_PROMPT = [
-  'Create a polished PPTX presentation for this project.',
-  '',
-  'Content requirements:',
-  '- Explain what the app does, who it is for, and the main workflow.',
-  '- Summarize the most important capabilities using repo evidence only.',
-  '- Include a concise getting-started or how-to-run section if the repo supports it.',
-  '',
-  'Output requirements:',
-  '- Keep the deck concise, visual, and ready to present.',
-  '- Generate a .pptx file and include its filename/path in the final reply.',
-].join('\n');
-
-const PDF_QUICK_ACTION_PROMPT = [
-  'Create a polished PDF document for this project.',
-  '',
-  'Content requirements:',
-  '- Explain what the app does, who it is for, and the main workflow.',
-  '- Summarize the most important capabilities using repo evidence only.',
-  '- Include a concise getting-started or how-to-run section if the repo supports it.',
-  '',
-  'Output requirements:',
-  '- Keep the document concise, structured, and ready to share.',
-  '- Generate a .pdf file and include its filename/path in the final reply.',
-].join('\n');
-
-const DOCX_QUICK_ACTION_PROMPT = [
-  'Create a polished DOCX document for this project.',
-  '',
-  'Content requirements:',
-  '- Explain what the app does, who it is for, and the main workflow.',
-  '- Summarize the most important capabilities using repo evidence only.',
-  '- Include a concise getting-started or how-to-run section if the repo supports it.',
-  '',
-  'Output requirements:',
-  '- Keep the document concise, structured, and ready to share.',
-  '- Generate a .docx file and include its filename/path in the final reply.',
-].join('\n');
 
 export function NewSessionView() {
   const {
@@ -302,50 +259,6 @@ export function NewSessionView() {
     savePreferredOpencodeModel(opencodeModelOptions[0] || null);
   }, [opencodeModelOptions, selectedOpencodeModel]);
 
-  const pptxSkill = useMemo(
-    () => skillAutocomplete.availableSkills.find((skill) => skill.name === 'pptx') || null,
-    [skillAutocomplete.availableSkills]
-  );
-  const pdfSkill = useMemo(
-    () => skillAutocomplete.availableSkills.find((skill) => skill.name === 'pdf') || null,
-    [skillAutocomplete.availableSkills]
-  );
-  const docxSkill = useMemo(
-    () =>
-      skillAutocomplete.availableSkills.find((skill) =>
-        ['docx', 'docx-manipulation'].includes(skill.name.toLowerCase())
-      ) || null,
-    [skillAutocomplete.availableSkills]
-  );
-
-  const handleQuickAction = (
-    skill: ClaudeSkillSummary | null,
-    skillName: string,
-    remainder: string
-  ) => {
-    if (!skill) {
-      toast.error(`Install the /${skillName} Claude skill to use this shortcut.`);
-      return;
-    }
-
-    if (provider !== 'claude') {
-      setProvider('claude');
-      savePreferredProvider('claude');
-    }
-
-    setPrompt(buildPromptWithSkill(skill.name, remainder));
-    window.requestAnimationFrame(() => {
-      const textarea = promptTextareaRef.current;
-      if (!textarea) {
-        return;
-      }
-
-      textarea.focus();
-      const length = textarea.value.length;
-      textarea.setSelectionRange(length, length);
-    });
-  };
-
   const handleStart = () => {
     if (!prompt.trim()) return;
     if (!hasSelectedCwd) {
@@ -481,11 +394,11 @@ export function NewSessionView() {
       <div className="h-8 drag-region flex-shrink-0" />
 
       {/* 内容区域 */}
-      <div className="flex-1 flex justify-center px-8 pb-4 pt-16">
+      <div className="flex-1 flex justify-center px-8 pb-4 pt-10">
         <div className="flex h-full w-full max-w-[920px] flex-col">
           <div className="flex flex-1 items-center justify-center text-center">
-            <div className="-translate-y-10">
-              <div className="mb-7 flex justify-center no-drag">
+            <div>
+              <div className="mb-8 flex justify-center no-drag">
                 <img
                   src={coworkLogo}
                   alt=""
@@ -506,46 +419,6 @@ export function NewSessionView() {
                   Select a project folder to enable starting a new task.
                 </div>
               )}
-
-              <div className="mt-10 flex justify-center">
-                <div className="w-full max-w-[520px]">
-                  <div className="mb-2 text-[10px] uppercase tracking-[0.22em] text-[var(--text-muted)]">
-                    Quick paths
-                  </div>
-                  <div className="flex flex-col items-center gap-2.5">
-                    <QuickActionCard
-                      title="Create PPTX"
-                      description="Presentation deck"
-                      logoSrc={powerPointLogo}
-                      skill={pptxSkill}
-                      fallbackSkillName="pptx"
-                      fallbackSkillTitle="PPTX Skill"
-                      unavailable={!pptxSkill}
-                      onClick={() => handleQuickAction(pptxSkill, 'pptx', PPTX_QUICK_ACTION_PROMPT)}
-                    />
-                    <QuickActionCard
-                      title="Create PDF"
-                      description="Shareable document"
-                      logoSrc={pdfLogo}
-                      skill={pdfSkill}
-                      fallbackSkillName="pdf"
-                      fallbackSkillTitle="PDF Skill"
-                      unavailable={!pdfSkill}
-                      onClick={() => handleQuickAction(pdfSkill, 'pdf', PDF_QUICK_ACTION_PROMPT)}
-                    />
-                    <QuickActionCard
-                      title="Create Word"
-                      description="DOCX document"
-                      logoSrc={wordLogo}
-                      skill={docxSkill}
-                      fallbackSkillName="docx"
-                      fallbackSkillTitle="DOCX Skill"
-                      unavailable={!docxSkill}
-                      onClick={() => handleQuickAction(docxSkill, 'docx', DOCX_QUICK_ACTION_PROMPT)}
-                    />
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
 
@@ -762,66 +635,6 @@ export function NewSessionView() {
         </div>
       </div>
     </div>
-  );
-}
-
-function QuickActionCard({
-  title,
-  description,
-  logoSrc,
-  skill,
-  fallbackSkillName,
-  fallbackSkillTitle,
-  unavailable,
-  onClick,
-}: {
-  title: string;
-  description: string;
-  logoSrc: string;
-  skill: ClaudeSkillSummary | null;
-  fallbackSkillName: string;
-  fallbackSkillTitle: string;
-  unavailable?: boolean;
-  onClick: () => void;
-}) {
-  const badgeSkill: ClaudeSkillSummary = skill || {
-    name: fallbackSkillName,
-    title: fallbackSkillTitle,
-    description: undefined,
-    path: '',
-    source: 'user',
-  };
-
-  return (
-    <button
-      type="button"
-      aria-disabled={unavailable}
-      onClick={onClick}
-      className={`group w-full max-w-[320px] rounded-[16px] border bg-[var(--bg-secondary)]/95 px-3.5 py-3 text-left shadow-sm transition-all ${
-        unavailable
-          ? 'cursor-not-allowed border-[var(--border)] opacity-60'
-          : 'border-[var(--border)] hover:-translate-y-0.5 hover:border-black/15 hover:shadow-[0_10px_24px_rgba(15,23,42,0.08)]'
-      }`}
-    >
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[12px] bg-white/80 shadow-sm ring-1 ring-black/5 transition-transform group-hover:scale-[1.03]">
-          <img src={logoSrc} alt="" className="h-7 w-7" />
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] font-semibold leading-5 text-[var(--text-primary)]">
-            {title}
-          </div>
-          <div className="mt-0.5 truncate text-[12px] font-medium text-[var(--text-muted)]">
-            {unavailable ? `Install /${fallbackSkillName}` : description}
-          </div>
-        </div>
-
-        <div className="pointer-events-none flex-shrink-0">
-          <SelectedClaudeSkillChip skill={badgeSkill} compact />
-        </div>
-      </div>
-    </button>
   );
 }
 
