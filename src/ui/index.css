@@ -282,6 +282,35 @@ body {
   border-radius: 6px;
 }
 
+.markdown-content .md-inline-code-path {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--code-inline-border);
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+}
+
+.markdown-content .md-inline-code-path:hover:not(:disabled) {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+.markdown-content .md-inline-code-path:focus-visible {
+  outline: none;
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.markdown-content .md-inline-code-path:disabled {
+  opacity: 0.72;
+  cursor: wait;
+}
+
 .markdown-content .md-code-block {
   margin: 0.9rem 0;
   border-radius: 12px;

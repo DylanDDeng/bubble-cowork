@@ -105,6 +105,23 @@ const projectWatchers = new Map<
   { watcher: FSWatcher; timer?: NodeJS.Timeout }
 >();
 
+function normalizeShellPath(filePath: string): string {
+  const trimmed = filePath.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  if (trimmed === '~') {
+    return app.getPath('home');
+  }
+
+  if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+    return join(app.getPath('home'), trimmed.slice(2));
+  }
+
+  return trimmed;
+}
+
 function parseVttTranscript(raw: string): string {
   return raw
     .split(/\r?\n/)
@@ -2074,7 +2091,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // RPC: 用系统默认应用打开文件
   ipcMainHandle('open-path', async (_event, filePath: string) => {
     try {
-      const errMsg = await shell.openPath(filePath);
+      const errMsg = await shell.openPath(normalizeShellPath(filePath));
       return errMsg ? { ok: false, message: errMsg } : { ok: true };
     } catch (error) {
       return { ok: false, message: String(error) };
@@ -2084,7 +2101,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // RPC: 在文件管理器中展示文件
   ipcMainHandle('reveal-path', async (_event, filePath: string) => {
     try {
-      shell.showItemInFolder(filePath);
+      shell.showItemInFolder(normalizeShellPath(filePath));
       return { ok: true };
     } catch (error) {
       return { ok: false, message: String(error) };

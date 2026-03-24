@@ -6,6 +6,7 @@ import rehypeRaw from 'rehype-raw';
 import rehypeKatex from 'rehype-katex';
 import type { Components } from 'react-markdown';
 import { Check, Copy } from 'lucide-react';
+import { toast } from 'sonner';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { HighlightedCode } from '../components/HighlightedCode';
 
@@ -71,6 +72,52 @@ function extractCodeChild(children: ReactNode): {
     className: props.className,
     codeChildren: props.children,
   };
+}
+
+function looksLikeRevealablePath(value: string): boolean {
+  const text = value.trim();
+  if (!text || /[\r\n\t]/.test(text)) {
+    return false;
+  }
+
+  return (
+    text === '~' ||
+    text.startsWith('~/') ||
+    text.startsWith('~\\') ||
+    /^\/(Users|home|tmp|var|etc|opt|private|Volumes|mnt)\//.test(text) ||
+    /^[A-Za-z]:[\\/]/.test(text)
+  );
+}
+
+function InlinePathCode({ text }: { text: string }) {
+  const [revealing, setRevealing] = useState(false);
+
+  const handleReveal = async () => {
+    setRevealing(true);
+    try {
+      const result = await window.electron.revealPath(text);
+      if (!result?.ok) {
+        toast.error(result?.message || 'Failed to reveal path.');
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to reveal path.');
+    } finally {
+      setRevealing(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleReveal()}
+      disabled={revealing}
+      className="md-inline-code md-inline-code-path"
+      title={revealing ? 'Revealing...' : 'Reveal in file manager'}
+      aria-label={revealing ? `Revealing ${text}` : `Reveal ${text} in file manager`}
+    >
+      {text}
+    </button>
+  );
 }
 
 function CodeBlock({
@@ -147,6 +194,11 @@ const components: Components = {
     </blockquote>
   ),
   code: ({ className, children, ...props }) => {
+    const text = extractTextContent(children);
+    if (!className && looksLikeRevealablePath(text)) {
+      return <InlinePathCode text={text} />;
+    }
+
     return (
       <code
         className="md-inline-code"
