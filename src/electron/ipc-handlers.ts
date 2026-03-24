@@ -66,6 +66,7 @@ import type {
 import type {
   CreateStatusInput,
   ClaudeCompatibleProvidersConfig,
+  ClaudeCompatibleProviderId,
   ClaudeUsageRangeDays,
   UpdateStatusInput,
   TodoState,
@@ -1006,6 +1007,103 @@ function isLocalUtilityAssistantText(text: string): boolean {
   );
 }
 
+function isInvalidThinkingBlock(block: unknown): boolean {
+  if (!block || typeof block !== 'object' || Array.isArray(block)) {
+    return false;
+  }
+
+  const candidate = block as { type?: unknown; signature?: unknown };
+  return (
+    candidate.type === 'thinking' &&
+    (typeof candidate.signature !== 'string' || candidate.signature.trim().length === 0)
+  );
+}
+
+function sanitizeClaudeAssistantMessage(message: StreamMessage): {
+  message: StreamMessage | null;
+  removedInvalidThinking: boolean;
+} {
+  if (message.type !== 'assistant') {
+    return { message, removedInvalidThinking: false };
+  }
+
+  const content = (message.message as { content?: unknown }).content;
+  if (!Array.isArray(content)) {
+    return { message, removedInvalidThinking: false };
+  }
+
+  let removedInvalidThinking = false;
+  const nextContent = content.filter((block) => {
+    const shouldKeep = !isInvalidThinkingBlock(block);
+    if (!shouldKeep) {
+      removedInvalidThinking = true;
+    }
+    return shouldKeep;
+  });
+
+  if (!removedInvalidThinking) {
+    return { message, removedInvalidThinking: false };
+  }
+
+  if (nextContent.length === 0) {
+    return { message: null, removedInvalidThinking: true };
+  }
+
+  return {
+    message: {
+      ...message,
+      message: {
+        ...message.message,
+        content: nextContent as typeof message.message.content,
+      },
+    },
+    removedInvalidThinking: true,
+  };
+}
+
+function sanitizeClaudeHistory(messages: StreamMessage[]): {
+  messages: StreamMessage[];
+  hadInvalidThinking: boolean;
+  changed: boolean;
+} {
+  let hadInvalidThinking = false;
+  let changed = false;
+  const nextMessages: StreamMessage[] = [];
+
+  for (const message of messages) {
+    const sanitized = sanitizeClaudeAssistantMessage(message);
+    if (sanitized.removedInvalidThinking) {
+      hadInvalidThinking = true;
+      changed = true;
+    }
+    if (sanitized.message) {
+      nextMessages.push(sanitized.message);
+    }
+  }
+
+  return {
+    messages: changed ? nextMessages : messages,
+    hadInvalidThinking,
+    changed,
+  };
+}
+
+function sanitizeStoredClaudeHistory(sessionId: string, messages: StreamMessage[]): {
+  messages: StreamMessage[];
+  hadInvalidThinking: boolean;
+} {
+  const sanitized = sanitizeClaudeHistory(messages);
+  if (sanitized.changed) {
+    sessions.replaceSessionHistory(sessionId, sanitized.messages);
+    sessions.setClaudeSessionId(sessionId, null);
+  }
+
+  return {
+    messages: sanitized.messages,
+    hadInvalidThinking: sanitized.hadInvalidThinking,
+  };
+}
+
 function buildHistoryTranscript(history: StreamMessage[]): string {
   const entries: string[] = [];
 
@@ -1076,6 +1174,65 @@ function buildDirectEditBootstrapPrompt(params: {
   );
 
   return lines.join('\n');
+}
+
+async function bootstrapClaudeSessionFromHistory(params: {
+  history: StreamMessage[];
+  cwd?: string | null;
+  model?: string | null;
+  compatibleProviderId?: ClaudeCompatibleProviderId;
+  betas?: string[];
+}): Promise<{ sessionId: string; model?: string | null }> {
+  const transcript = buildHistoryTranscript(params.history);
+  const canDirectBootstrap =
+    transcript.length > 0 &&
+    transcript.length <= DIRECT_EDIT_BOOTSTRAP_MAX_TRANSCRIPT_CHARS;
+
+  const bootstrapResult = canDirectBootstrap
+    ? await runClaudeOneShot({
+        prompt: buildDirectEditBootstrapPrompt({
+          transcript,
+          cwd: params.cwd,
+        }),
+        cwd: params.cwd ?? undefined,
+        model: params.model || undefined,
+        compatibleProviderId: params.compatibleProviderId,
+        betas: params.betas,
+      })
+    : await (async () => {
+        const summaryResult = await runClaudeOneShot({
+          prompt: buildLatestEditSummaryPrompt(params.history),
+          cwd: params.cwd ?? undefined,
+          model: params.model || undefined,
+          compatibleProviderId: params.compatibleProviderId,
+          betas: params.betas,
+        });
+        const summary = extractSummaryContent(summaryResult.text);
+        if (!summary) {
+          throw new Error('Claude returned an empty bootstrap summary.');
+        }
+
+        return runClaudeOneShot({
+          prompt: buildCompactBootstrapPrompt({
+            summary,
+            cwd: params.cwd,
+            recentConversation: buildRecentConversationContext(params.history),
+          }),
+          cwd: params.cwd ?? undefined,
+          model: summaryResult.model || params.model || undefined,
+          compatibleProviderId: params.compatibleProviderId,
+          betas: params.betas,
+        });
+      })();
+
+  if (!bootstrapResult.sessionId) {
+    throw new Error('Claude did not return a bootstrap session id.');
+  }
+
+  return {
+    sessionId: bootstrapResult.sessionId,
+    model: normalizeModel(bootstrapResult.model || params.model || undefined),
+  };
 }
 
 function extractSummaryContent(text: string): string {
@@ -1168,7 +1325,7 @@ async function handleEditLatestPrompt(
     runnerHandles.delete(sessionId);
   }
 
-  const history = sessions.getSessionHistory(sessionId);
+  const history = sanitizeStoredClaudeHistory(sessionId, sessions.getSessionHistory(sessionId)).messages;
   const previousStatus = (session.status as SessionStatus) || 'completed';
   const previousClaudeSessionId = session.claude_session_id || null;
   const previousModel = session.model || null;
@@ -1200,11 +1357,6 @@ async function handleEditLatestPrompt(
   }
 
   const preservedHistory = history.slice(0, latestUserPromptIndex);
-  const preservedTranscript = buildHistoryTranscript(preservedHistory);
-  const canDirectBootstrap =
-    preservedHistory.length > 0 &&
-    preservedTranscript.length > 0 &&
-    preservedTranscript.length <= DIRECT_EDIT_BOOTSTRAP_MAX_TRANSCRIPT_CHARS;
   const requestedModel = normalizeModel(model ?? session.model ?? undefined);
   const requestedCompatibleProviderId =
     compatibleProviderId ?? session.compatible_provider_id ?? undefined;
@@ -1258,49 +1410,15 @@ async function handleEditLatestPrompt(
 
   try {
     if (preservedHistory.length > 0) {
-      const bootstrapResult = canDirectBootstrap
-        ? await runClaudeOneShot({
-            prompt: buildDirectEditBootstrapPrompt({
-              transcript: preservedTranscript,
-              cwd: session.cwd,
-            }),
-            cwd: session.cwd ?? undefined,
-            model: requestedModel || undefined,
-            compatibleProviderId: requestedCompatibleProviderId,
-            betas: requestedBetas,
-          })
-        : await (async () => {
-            const summaryResult = await runClaudeOneShot({
-              prompt: buildLatestEditSummaryPrompt(preservedHistory),
-              cwd: session.cwd ?? undefined,
-              model: requestedModel || undefined,
-              compatibleProviderId: requestedCompatibleProviderId,
-              betas: requestedBetas,
-            });
-            const summary = extractSummaryContent(summaryResult.text);
-            if (!summary) {
-              throw new Error('Claude returned an empty edit summary.');
-            }
-
-            return runClaudeOneShot({
-              prompt: buildCompactBootstrapPrompt({
-                summary,
-                cwd: session.cwd,
-                recentConversation: buildRecentConversationContext(preservedHistory),
-              }),
-              cwd: session.cwd ?? undefined,
-              model: summaryResult.model || requestedModel || undefined,
-              compatibleProviderId: requestedCompatibleProviderId,
-              betas: requestedBetas,
-            });
-          })();
-
-      if (!bootstrapResult.sessionId) {
-        throw new Error('Claude did not return a bootstrap session id while editing the latest prompt.');
-      }
-
-      nextClaudeSessionId = bootstrapResult.sessionId;
-      resolvedModel = normalizeModel(bootstrapResult.model || requestedModel || undefined);
+      const bootstrap = await bootstrapClaudeSessionFromHistory({
+        history: preservedHistory,
+        cwd: session.cwd,
+        model: requestedModel,
+        compatibleProviderId: requestedCompatibleProviderId,
+        betas: requestedBetas,
+      });
+      nextClaudeSessionId = bootstrap.sessionId;
+      resolvedModel = normalizeModel(bootstrap.model || requestedModel || undefined);
     }
   } catch (error) {
     sessions.replaceSessionHistory(sessionId, history);
@@ -2550,6 +2668,12 @@ async function handleSessionContinue(
     return true;
   }
 
+  const sanitizedHistoryResult =
+    session.provider === 'claude'
+      ? sanitizeStoredClaudeHistory(sessionId, sessions.getSessionHistory(sessionId))
+      : { messages: sessions.getSessionHistory(sessionId), hadInvalidThinking: false };
+  const historyBeforeContinue = sanitizedHistoryResult.messages;
+
   const existingEntry = runnerHandles.get(sessionId);
   const previousProvider = session.provider || 'claude';
   const nextProvider = provider || previousProvider;
@@ -2691,24 +2815,66 @@ async function handleSessionContinue(
     runnerHandles.delete(sessionId);
   }
 
+  let startModel = nextModel;
+
   // 启动 Runner（带 resume）
   const resumeSessionId =
     providerChanged
       ? undefined
       : nextProvider === 'claude'
-        ? session.claude_session_id ?? undefined
+        ? sessions.getSession(sessionId)?.claude_session_id ?? undefined
         : nextProvider === 'codex'
         ? session.codex_session_id ?? undefined
         : session.opencode_session_id ?? undefined;
+  let nextResumeSessionId = resumeSessionId;
+
+  if (
+    nextProvider === 'claude' &&
+    !providerChanged &&
+    !nextResumeSessionId &&
+    historyBeforeContinue.length > 0
+  ) {
+    try {
+      const bootstrap = await bootstrapClaudeSessionFromHistory({
+        history: historyBeforeContinue,
+        cwd: session.cwd,
+        model: nextModel,
+        compatibleProviderId: nextCompatibleProviderId,
+        betas: nextBetas,
+      });
+      nextResumeSessionId = bootstrap.sessionId;
+      startModel = normalizeModel(bootstrap.model || nextModel || undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      sessions.updateSessionStatus(sessionId, 'error');
+      broadcast(mainWindow, {
+        type: 'session.status',
+        payload: {
+          sessionId,
+          status: 'error',
+          provider: nextProvider,
+          hiddenFromThreads: session.hidden_from_threads === 1,
+        },
+      });
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: `Failed to rebuild Claude conversation context: ${message}`,
+          sessionId,
+        },
+      });
+      return false;
+    }
+  }
 
   startRunner(
     mainWindow,
     sessions.getSession(sessionId),
     prompt,
-    resumeSessionId,
+    nextResumeSessionId,
     attachments,
     nextProvider,
-    nextModel,
+    startModel,
     nextProvider === 'claude' ? nextCompatibleProviderId : undefined,
     nextBetas,
     claudeAccessMode,
@@ -2826,15 +2992,23 @@ function startRunner(
         sawTurnOutput = true;
       }
 
-      // 保存消息
-      sessions.addMessage(session.id, message);
+      const sanitizedStreamMessage =
+        provider === 'claude' ? sanitizeClaudeAssistantMessage(message) : { message, removedInvalidThinking: false };
+      if (provider === 'claude' && sanitizedStreamMessage.removedInvalidThinking) {
+        sessions.setClaudeSessionId(session.id, null);
+      }
 
-      // 广播消息
-      broadcast(mainWindow, {
-        type: 'stream.message',
-        payload: { sessionId: session.id, message },
-      });
-      void feishuBridge.handleSessionMessage(session.id, message);
+      if (sanitizedStreamMessage.message) {
+        // 保存消息
+        sessions.addMessage(session.id, sanitizedStreamMessage.message);
+
+        // 广播消息
+        broadcast(mainWindow, {
+          type: 'stream.message',
+          payload: { sessionId: session.id, message: sanitizedStreamMessage.message },
+        });
+        void feishuBridge.handleSessionMessage(session.id, sanitizedStreamMessage.message);
+      }
 
       // 检查是否为 result 消息，更新状态
       if (message.type === 'result') {
@@ -2959,7 +3133,10 @@ function handleSessionHistory(mainWindow: BrowserWindow, sessionId: string): voi
     return;
   }
 
-  const messages = sessions.getSessionHistory(sessionId);
+  const messages =
+    session.provider === 'claude'
+      ? sanitizeStoredClaudeHistory(sessionId, sessions.getSessionHistory(sessionId)).messages
+      : sessions.getSessionHistory(sessionId);
 
   broadcast(mainWindow, {
     type: 'session.history',

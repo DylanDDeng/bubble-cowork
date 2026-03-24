@@ -570,14 +570,14 @@ export interface UserMessage {
 
 export type ContentBlock =
   | { type: 'text'; text: string }
-  | { type: 'thinking'; thinking: string }
+  | { type: 'thinking'; thinking: string; signature?: string }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
 
 export interface StreamEvent {
   type: 'content_block_start' | 'content_block_delta' | 'content_block_stop';
   index?: number;
-  delta?: { type: string; text?: string; thinking?: string };
+  delta?: { type: string; text?: string; thinking?: string; signature?: string };
 }
 
 export interface Usage {

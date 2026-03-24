@@ -65,6 +65,7 @@ interface SDKMessage {
       type?: string;
       text?: string;
       thinking?: string;
+      signature?: string;
     };
   };
 }
@@ -76,6 +77,7 @@ interface ContentBlock {
   name?: string;
   input?: unknown;
   thinking?: string;
+  signature?: string;
 }
 
 type StreamEventType =
@@ -619,6 +621,10 @@ function convertSDKMessage(message: SDKMessage): StreamMessage | null {
                 thinking:
                   typeof rawEvent.delta.thinking === 'string'
                     ? rawEvent.delta.thinking
+                    : undefined,
+                signature:
+                  typeof rawEvent.delta.signature === 'string'
+                    ? rawEvent.delta.signature
                     : undefined,
               }
             : undefined,
