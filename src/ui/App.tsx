@@ -401,7 +401,6 @@ export function App() {
       {!showSettings && activeWorkspace === 'chat' && projectTreeCollapsed && (
         <FloatingProjectPanelDock
           className={isMacOS ? 'right-[14px] top-[56px]' : 'right-4 top-1/2 -translate-y-1/2'}
-          activeView={projectPanelView}
           onOpen={(view) => {
             setProjectPanelView(view);
             setProjectTreeCollapsed(false);
@@ -616,11 +615,9 @@ export function App() {
 }
 
 function FloatingProjectPanelDock({
-  activeView,
   onOpen,
   className,
 }: {
-  activeView: 'files' | 'changes';
   onOpen: (view: 'files' | 'changes') => void;
   className: string;
 }) {
@@ -649,7 +646,6 @@ function FloatingProjectPanelDock({
         <div className="flex flex-col gap-1 rounded-[12px] border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-1 shadow-[0_10px_22px_rgba(15,23,42,0.10)] backdrop-blur-md">
           {items.map((item) => {
             const Icon = item.icon;
-            const active = activeView === item.id;
 
             return (
               <button
@@ -658,11 +654,7 @@ function FloatingProjectPanelDock({
                 onClick={() => onOpen(item.id)}
                 title={item.label}
                 aria-label={`Open ${item.label} panel`}
-                className={`flex h-8 w-8 items-center justify-center rounded-[9px] border text-[var(--text-secondary)] transition-[background-color,border-color,color,transform,box-shadow] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:scale-[1.01] ${
-                  active
-                    ? 'border-[var(--tree-file-accent-fg)]/18 bg-[var(--tree-file-accent-fg)]/10 text-[var(--tree-file-accent-fg)] shadow-[0_6px_16px_rgba(15,23,42,0.08)]'
-                    : 'border-transparent bg-transparent hover:border-[var(--border)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]'
-                }`}
+                className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-transparent bg-transparent text-[var(--text-secondary)] transition-[background-color,border-color,color,transform,box-shadow] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:scale-[1.01] hover:border-[var(--border)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]"
               >
                 <Icon className="h-[14px] w-[14px]" aria-hidden="true" />
               </button>
