@@ -1,7 +1,7 @@
 // UI 层类型定义
 
 // Settings 标签类型
-export type SettingsTab = 'mcp' | 'general' | 'providers' | 'skills' | 'usage' | 'bridge';
+export type SettingsTab = 'mcp' | 'general' | 'providers' | 'usage' | 'bridge';
 
 // 从共享类型导入
 import type { AgentProvider, ProjectTreeNode, TodoState, StatusConfig, FolderConfig } from '../shared/types';
@@ -76,7 +76,7 @@ export interface SessionStreamingState {
   thinking: string;
 }
 
-export type ActiveWorkspace = 'chat';
+export type ActiveWorkspace = 'chat' | 'skills';
 export type ChatSidebarView = 'threads' | 'prompts';
 
 // UI 会话视图状态

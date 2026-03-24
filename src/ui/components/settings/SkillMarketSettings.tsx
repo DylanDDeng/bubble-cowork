@@ -30,7 +30,6 @@ function normalizeRemoteErrorMessage(error: unknown, fallback: string): string {
 
 export function SkillMarketSettingsContent() {
   const {
-    showSettings,
     activeSessionId,
     sessions,
     claudeUserSkills,
@@ -69,10 +68,6 @@ export function SkillMarketSettingsContent() {
         : 'wide';
 
   useEffect(() => {
-    if (!showSettings) {
-      return;
-    }
-
     let cancelled = false;
     const load = async () => {
       setLoading(true);
@@ -110,10 +105,10 @@ export function SkillMarketSettingsContent() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [showSettings, trimmedQuery]);
+  }, [trimmedQuery]);
 
   useEffect(() => {
-    if (!showSettings || view !== 'market') {
+    if (view !== 'market') {
       return;
     }
 
@@ -123,10 +118,10 @@ export function SkillMarketSettingsContent() {
     return () => {
       window.removeEventListener('resize', updateWindowWidth);
     };
-  }, [showSettings, view]);
+  }, [view]);
 
   useEffect(() => {
-    if (!showSettings || !selectedId) {
+    if (!selectedId) {
       setDetail(null);
       return;
     }
@@ -155,7 +150,7 @@ export function SkillMarketSettingsContent() {
     return () => {
       cancelled = true;
     };
-  }, [selectedId, showSettings]);
+  }, [selectedId]);
 
   useEffect(() => {
     if (view === 'market') {

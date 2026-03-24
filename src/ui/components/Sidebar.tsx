@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Bookmark, FolderOpen, MessageSquare, Search, Settings, SquarePen } from 'lucide-react';
+import { Bookmark, Boxes, FolderOpen, MessageSquare, Search, Settings, SquarePen } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { SidebarMessageSearchDialog } from './search/SidebarMessageSearchDialog';
@@ -134,6 +134,12 @@ export function Sidebar() {
               }}
             />
             <RailIcon
+              icon={<Search className="h-[17px] w-[17px]" />}
+              title="Search messages"
+              active={messageSearchOpen}
+              onClick={() => setMessageSearchOpen(true)}
+            />
+            <RailIcon
               icon={<Bookmark className="h-[17px] w-[17px]" />}
               title="Prompt Library"
               active={activeWorkspace === 'chat' && chatSidebarView === 'prompts'}
@@ -144,10 +150,13 @@ export function Sidebar() {
               }}
             />
             <RailIcon
-              icon={<Search className="h-[17px] w-[17px]" />}
-              title="Search messages"
-              active={messageSearchOpen}
-              onClick={() => setMessageSearchOpen(true)}
+              icon={<Boxes className="h-[17px] w-[17px]" />}
+              title="Skills"
+              active={activeWorkspace === 'skills'}
+              onClick={() => {
+                setActiveWorkspace('skills');
+                setShowSettings(false);
+              }}
             />
           </div>
 
@@ -162,6 +171,7 @@ export function Sidebar() {
         </div>
 
         {/* ===== 内容面板 ===== */}
+        {activeWorkspace === 'chat' && (
         <div
           className="relative flex h-full flex-col border-r border-[var(--border)] bg-[var(--bg-tertiary)]"
           style={{ width: sidebarWidth }}
@@ -231,6 +241,7 @@ export function Sidebar() {
             <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
           </div>
         </div>
+        )}
       </div>
 
       {/* Resume Command Dialog */}
@@ -287,17 +298,22 @@ function RailIcon({
   onClick: () => void;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className={`flex h-8 w-8 items-center justify-center rounded-lg no-drag transition-colors duration-150 ${
-        active
-          ? 'text-[var(--text-primary)] bg-[var(--sidebar-item-hover)]'
-          : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]'
-      }`}
-      title={title}
-      aria-label={title}
-    >
-      {icon}
-    </button>
+    <div className="group relative flex items-center">
+      <button
+        onClick={onClick}
+        className={`flex h-8 w-8 items-center justify-center rounded-lg no-drag transition-colors duration-150 ${
+          active
+            ? 'text-[var(--text-primary)] bg-[var(--sidebar-item-hover)]'
+            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]'
+        }`}
+        title={title}
+        aria-label={title}
+      >
+        {icon}
+      </button>
+      <div className="pointer-events-none absolute left-full top-1/2 z-40 ml-2 -translate-y-1/2 translate-x-1 whitespace-nowrap rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5 text-[12px] font-medium text-[var(--text-primary)] opacity-0 shadow-[0_8px_24px_rgba(15,23,42,0.12)] transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:translate-x-0 group-focus-within:opacity-100">
+        {title}
+      </div>
+    </div>
   );
 }

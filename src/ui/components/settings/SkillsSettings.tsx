@@ -12,7 +12,6 @@ export function SkillsSettingsContent() {
 
 export function SkillsSettingsContentInner({ embedded = false }: { embedded?: boolean }) {
   const {
-    showSettings,
     activeSessionId,
     sessions,
     claudeUserSkills,
@@ -30,15 +29,11 @@ export function SkillsSettingsContentInner({ embedded = false }: { embedded?: bo
   const currentProjectName = currentProjectPath?.split('/').filter(Boolean).pop();
 
   useEffect(() => {
-    if (!showSettings) {
-      return;
-    }
-
     sendEvent({
       type: 'skills.list',
       payload: { projectPath: currentProjectPath },
     });
-  }, [showSettings, currentProjectPath]);
+  }, [currentProjectPath]);
 
   useEffect(() => {
     if (!refreshing) {

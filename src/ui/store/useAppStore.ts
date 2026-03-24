@@ -496,7 +496,7 @@ export const useAppStore = create<Store>()(
         });
         return {
           ...currentState,
-          activeWorkspace: 'chat',
+          activeWorkspace: persisted?.activeWorkspace === 'skills' ? 'skills' : 'chat',
           chatSidebarView: persisted?.chatSidebarView || currentState.chatSidebarView,
           sidebarWidth: sanitizeSidebarWidth(persisted?.sidebarWidth, currentState.sidebarWidth),
           theme,

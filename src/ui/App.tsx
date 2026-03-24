@@ -18,6 +18,7 @@ import { MessageCard } from './components/MessageCard';
 import { ToolExecutionBatch } from './components/ToolExecutionBatch';
 import { InSessionSearch } from './components/search/InSessionSearch';
 import { Settings } from './components/settings/Settings';
+import { SkillMarketSettingsContent } from './components/settings/SkillMarketSettings';
 import { ProjectTreePanel } from './components/ProjectTreePanel';
 import { ThinkingIndicator } from './components/ThinkingIndicator';
 import { ThinkingBlock } from './components/ThinkingBlock';
@@ -417,6 +418,15 @@ export function App() {
           <div className="flex-1 min-h-0">
             <Settings />
           </div>
+        </div>
+      ) : activeWorkspace === 'skills' ? (
+        <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
+          <div className="h-8 drag-region flex-shrink-0" />
+          <main className="min-w-0 flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-[1360px] px-8 py-8">
+              <SkillMarketSettingsContent />
+            </div>
+          </main>
         </div>
       ) : activeSession && !showNewSession ? (
         <div

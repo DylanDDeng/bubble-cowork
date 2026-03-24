@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, BookOpen, ChartColumn, PlugZap, Eraser, ChevronDown, Check, Bot } from 'lucide-react';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Eraser, ChevronDown, Check, Bot } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
 import { McpSettingsContent } from './McpSettings';
 import { ProviderPicker } from '../ProviderPicker';
-import { SkillMarketSettingsContent } from './SkillMarketSettings';
 import { BridgeSettingsContent } from './BridgeSettings';
 import type { ColorThemeId, FontSelection, FontSettingsPayload, FontSlot, ImportedFontFace, SystemFontOption, Theme } from '../../types';
 import { BUILTIN_FONT_OPTIONS, getDefaultFontSelections, getFontPreviewLabel } from '../../theme/fonts';
@@ -32,12 +31,6 @@ const SETTINGS_TABS = {
     title: 'Providers',
     description: 'Configure Anthropic-compatible providers and route Claude sessions through them.',
     icon: <PlugZap className="w-4 h-4" />,
-  },
-  skills: {
-    label: 'Skills',
-    title: 'Skills',
-    description: 'Review installed skills and browse new ones from skills.sh.',
-    icon: <BookOpen className="w-4 h-4" />,
   },
   usage: {
     label: 'Usage',
@@ -76,8 +69,6 @@ export function Settings() {
   if (!showSettings) return null;
 
   const activeMeta = SETTINGS_TABS[activeSettingsTab];
-  const isSkillsTab = activeSettingsTab === 'skills';
-
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-primary)]">
       <div className="flex h-8 flex-shrink-0">
@@ -112,20 +103,18 @@ export function Settings() {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className={`mx-auto ${isSkillsTab ? 'max-w-[1360px] px-8 py-8' : 'max-w-5xl px-12 py-12'}`}>
-          {!isSkillsTab && (
-            <header className="mb-10">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                {activeMeta.label}
-              </div>
-              <h1 className="mt-3 text-[36px] font-semibold tracking-[-0.04em] text-[var(--text-primary)]">
-                {activeMeta.title}
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--text-secondary)]">
-                {activeMeta.description}
-              </p>
-            </header>
-          )}
+        <div className="mx-auto max-w-5xl px-12 py-12">
+          <header className="mb-10">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+              {activeMeta.label}
+            </div>
+            <h1 className="mt-3 text-[36px] font-semibold tracking-[-0.04em] text-[var(--text-primary)]">
+              {activeMeta.title}
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--text-secondary)]">
+              {activeMeta.description}
+            </p>
+          </header>
 
           {activeSettingsTab === 'general' && (
             <GeneralSettingsContent
@@ -144,7 +133,6 @@ export function Settings() {
           )}
           {activeSettingsTab === 'mcp' && <McpSettingsContent />}
           {activeSettingsTab === 'providers' && <CompatibleProviderSettingsContent />}
-          {activeSettingsTab === 'skills' && <SkillMarketSettingsContent />}
           {activeSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}
           {activeSettingsTab === 'bridge' && <BridgeSettingsContent />}
         </div>
