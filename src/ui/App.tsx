@@ -191,6 +191,7 @@ export function App() {
   const historyRequested = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const [projectPanelView, setProjectPanelView] = useState<'files' | 'changes'>('files');
+  const [projectChangeCount, setProjectChangeCount] = useState(0);
 
   const { partialMessage, partialThinking, isStreaming: showPartialMessage } = useMemo(() => {
     if (!activeSession) {
@@ -402,6 +403,7 @@ export function App() {
       {!showSettings && activeWorkspace === 'chat' && projectTreeCollapsed && (
         <FloatingProjectPanelDock
           className={isMacOS ? 'right-[14px] top-[56px]' : 'right-4 top-1/2 -translate-y-1/2'}
+          changeCount={projectChangeCount}
           onOpen={(view) => {
             setProjectPanelView(view);
             setProjectTreeCollapsed(false);
@@ -574,6 +576,7 @@ export function App() {
           activeTab={projectPanelView}
           onChangeTab={setProjectPanelView}
           onClose={() => setProjectTreeCollapsed(true)}
+          onChangeCountChange={setProjectChangeCount}
         />
       )}
 
@@ -627,9 +630,11 @@ export function App() {
 function FloatingProjectPanelDock({
   onOpen,
   className,
+  changeCount,
 }: {
   onOpen: (view: 'files' | 'changes') => void;
   className: string;
+  changeCount: number;
 }) {
   const items = [
     {
@@ -664,9 +669,14 @@ function FloatingProjectPanelDock({
                 onClick={() => onOpen(item.id)}
                 title={item.label}
                 aria-label={`Open ${item.label} panel`}
-                className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-transparent bg-transparent text-[var(--text-secondary)] transition-[background-color,border-color,color,transform,box-shadow] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:scale-[1.01] hover:border-[var(--border)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]"
+                className="relative flex h-8 w-8 items-center justify-center rounded-[9px] border border-transparent bg-transparent text-[var(--text-secondary)] transition-[background-color,border-color,color,transform,box-shadow] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:scale-[1.01] hover:border-[var(--border)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]"
               >
                 <Icon className="h-[14px] w-[14px]" aria-hidden="true" />
+                {item.id === 'changes' && changeCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 min-w-[16px] rounded-full bg-[var(--accent)] px-1 text-center text-[10px] font-semibold leading-4 text-[var(--accent-foreground)] shadow-[0_4px_10px_rgba(15,23,42,0.16)]">
+                    {changeCount > 99 ? '99+' : changeCount}
+                  </span>
+                ) : null}
               </button>
             );
           })}

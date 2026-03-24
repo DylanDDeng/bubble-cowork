@@ -269,11 +269,13 @@ export function ProjectTreePanel({
   activeTab,
   onChangeTab,
   onClose,
+  onChangeCountChange,
 }: {
   collapsed?: boolean;
   activeTab: 'files' | 'changes';
   onChangeTab: (tab: 'files' | 'changes') => void;
   onClose: () => void;
+  onChangeCountChange?: (count: number) => void;
 }) {
   const defaultRailWidth = 280;
   const minRailWidth = 260;
@@ -415,10 +417,18 @@ export function ProjectTreePanel({
   };
 
   useEffect(() => {
-    if (activeTab === 'changes' && cwd) {
+    if (cwd) {
       void loadChangeRecords();
+      return;
     }
-  }, [activeTab, cwd, messageCount, sessionStatus, projectTreeCwd, projectTree]);
+
+    setChangeRecords([]);
+    setChangesError(null);
+  }, [cwd, messageCount, sessionStatus, projectTreeCwd, projectTree]);
+
+  useEffect(() => {
+    onChangeCountChange?.(changeRecords.length);
+  }, [changeRecords.length, onChangeCountChange]);
 
   useEffect(() => {
     latestPanelWidthRef.current = panelWidth;
