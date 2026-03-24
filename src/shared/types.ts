@@ -358,6 +358,7 @@ export type ServerEvent =
 export interface SessionStartPayload {
   title: string;
   prompt: string;
+  effectivePrompt?: string;
   cwd?: string;
   allowedTools?: string;
   attachments?: Attachment[];
@@ -373,6 +374,7 @@ export interface SessionStartPayload {
 export interface SessionContinuePayload {
   sessionId: string;
   prompt: string;
+  effectivePrompt?: string;
   attachments?: Attachment[];
   provider?: AgentProvider;
   model?: string;

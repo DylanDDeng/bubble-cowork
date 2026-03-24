@@ -32,6 +32,7 @@ import {
 import { buildCodexModelOptions, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
 import { loadPreferredCodexPermissionMode, savePreferredCodexPermissionMode } from '../utils/codex-permission';
 import { buildOpencodeModelOptions, loadPreferredOpencodeModel, savePreferredOpencodeModel } from '../utils/opencode-model';
+import { buildPromptWithSkill } from '../utils/claude-skills';
 import { buildPromptWithSlashCommand } from '../utils/claude-slash';
 
 export function NewSessionView() {
@@ -111,7 +112,7 @@ export function NewSessionView() {
   }, [cwd, recentCwds]);
   const skillAutocomplete = useClaudeSkillAutocomplete({
     enabled: true,
-    enableSkills: provider === 'claude',
+    enableSkills: true,
     provider,
     prompt,
     projectPath: cwd || undefined,
@@ -168,6 +169,41 @@ export function NewSessionView() {
       promptTextareaRef.current.style.height = `${Math.min(promptTextareaRef.current.scrollHeight, 200)}px`;
     }
   }, [prompt]);
+
+  const buildDispatchPrompt = async (): Promise<string | null> => {
+    if (skillAutocomplete.selectedSkill) {
+      const displayPrompt = buildPromptWithSkill(
+        skillAutocomplete.selectedSkill.name,
+        skillAutocomplete.displayPrompt
+      ).trim();
+
+      if (provider === 'claude') {
+        return displayPrompt;
+      }
+
+      const result = await window.electron.expandClaudeSkillPrompt(
+        skillAutocomplete.selectedSkill.path,
+        skillAutocomplete.selectedSkill.name,
+        skillAutocomplete.displayPrompt
+      );
+
+      if (!result.ok || !result.prompt) {
+        toast.error(result.message || `Failed to expand /${skillAutocomplete.selectedSkill.name}.`);
+        return null;
+      }
+
+      return result.prompt.trim();
+    }
+
+    if (skillAutocomplete.selectedCommand) {
+      return buildPromptWithSlashCommand(
+        skillAutocomplete.selectedCommand.name,
+        skillAutocomplete.displayPrompt
+      ).trim();
+    }
+
+    return prompt.trim();
+  };
 
   useEffect(() => {
     const fallbackModel =
@@ -259,7 +295,7 @@ export function NewSessionView() {
     savePreferredOpencodeModel(opencodeModelOptions[0] || null);
   }, [opencodeModelOptions, selectedOpencodeModel]);
 
-  const handleStart = () => {
+  const handleStart = async () => {
     if (!prompt.trim()) return;
     if (!hasSelectedCwd) {
       toast.error('Select a project folder before starting a task.');
@@ -270,23 +306,29 @@ export function NewSessionView() {
     setPendingStart(true);
     setMenuOpen(false);
 
-    const normalizedPrompt = (
+    const displayPrompt = (
       skillAutocomplete.selectedSkill
         ? buildPromptWithSkill(skillAutocomplete.selectedSkill.name, skillAutocomplete.displayPrompt)
         : skillAutocomplete.selectedCommand
           ? buildPromptWithSlashCommand(skillAutocomplete.selectedCommand.name, skillAutocomplete.displayPrompt)
           : prompt
     ).trim();
+    const normalizedPrompt = await buildDispatchPrompt();
+    if (!normalizedPrompt) {
+      setPendingStart(false);
+      return;
+    }
 
     // 用 prompt 前 30 字符作为临时标题（后台会异步生成更好的标题）
-    const tempTitle = normalizedPrompt.slice(0, 30) + (normalizedPrompt.length > 30 ? '...' : '');
+    const tempTitle = displayPrompt.slice(0, 30) + (displayPrompt.length > 30 ? '...' : '');
 
     // 立即发送开始会话事件
     sendEvent({
       type: 'session.start',
       payload: {
         title: tempTitle,
-        prompt: normalizedPrompt,
+        prompt: displayPrompt,
+        effectivePrompt: normalizedPrompt,
         cwd: cwd || undefined,
         attachments: attachments.length > 0 ? attachments : undefined,
         provider,
@@ -448,7 +490,7 @@ export function NewSessionView() {
               </div>
             )}
 
-            {provider === 'claude' && skillAutocomplete.selectedSkill && (
+            {skillAutocomplete.selectedSkill && (
               <div className="px-5 pt-3">
                 <SelectedClaudeSkillChip
                   skill={skillAutocomplete.selectedSkill}
@@ -492,12 +534,8 @@ export function NewSessionView() {
                 suggestions={skillAutocomplete.suggestions}
                 selectedIndex={skillAutocomplete.selectedIndex}
                 empty={skillAutocomplete.suggestions.length === 0}
-                title={provider === 'claude' ? 'Commands & Skills' : 'Commands'}
-                emptyMessage={
-                  provider === 'claude'
-                    ? 'No matching Claude commands or skills.'
-                    : 'No matching ACP slash commands.'
-                }
+                title="Commands & Skills"
+                emptyMessage="No matching commands or skills."
                 onSelect={skillAutocomplete.selectSuggestion}
               />
             )}

@@ -62,6 +62,7 @@ declare global {
     searchSkillMarket: (query: string, limit?: number) => Promise<SkillMarketItem[]>;
     getSkillMarketDetail: (id: string) => Promise<SkillMarketDetail>;
     installSkillFromMarket: (id: string) => Promise<SkillMarketInstallResult>;
+    expandClaudeSkillPrompt: (skillFilePath: string, skillName: string, userPrompt: string) => Promise<{ ok: boolean; prompt?: string; message?: string }>;
     getFontSettings: () => Promise<FontSettingsPayload>;
     saveFontSelections: (selections: FontSettingsPayload['selections']) => Promise<FontSettingsPayload>;
     listSystemFonts: () => Promise<SystemFontOption[]>;

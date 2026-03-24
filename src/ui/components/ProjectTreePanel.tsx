@@ -277,6 +277,7 @@ export function ProjectTreePanel({
   onClose: () => void;
   onChangeCountChange?: (count: number) => void;
 }) {
+  const MIN_CHANGES_SPINNER_MS = 450;
   const defaultRailWidth = 280;
   const minRailWidth = 260;
   const maxRailWidth = 560;
@@ -329,6 +330,7 @@ export function ProjectTreePanel({
 
   const loadChangeRecords = async () => {
     if (!cwd) return;
+    const startedAt = Date.now();
     setChangesLoading(true);
     setChangesError(null);
     try {
@@ -350,7 +352,11 @@ export function ProjectTreePanel({
       setChangesError('git-error');
       setChangeRecords([]);
     } finally {
-      setChangesLoading(false);
+      const elapsed = Date.now() - startedAt;
+      const remaining = Math.max(MIN_CHANGES_SPINNER_MS - elapsed, 0);
+      window.setTimeout(() => {
+        setChangesLoading(false);
+      }, remaining);
     }
   };
 
@@ -858,10 +864,15 @@ export function ProjectTreePanel({
                 <button
                   onClick={() => void loadChangeRecords()}
                   disabled={changesLoading}
-                  className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors disabled:opacity-40"
+                  className={`rounded-[10px] border p-1.5 transition-all ${
+                    changesLoading
+                      ? 'cursor-wait border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] shadow-sm'
+                      : 'border-transparent text-[var(--text-muted)] hover:border-[var(--border)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] active:scale-[0.97]'
+                  } disabled:opacity-70`}
                   title="Refresh changes"
+                  aria-label="Refresh changes"
                 >
-                  <RefreshCw className={`w-3 h-3 ${changesLoading ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`h-3.5 w-3.5 ${changesLoading ? 'animate-spin' : ''}`} />
                 </button>
               )}
             </div>

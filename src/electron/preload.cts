@@ -151,6 +151,9 @@ contextBridge.exposeInMainWorld('electron', {
   installSkillFromMarket: (id: string): Promise<SkillMarketInstallResult> => {
     return ipcRenderer.invoke('install-skill-from-market', id);
   },
+  expandClaudeSkillPrompt: (skillFilePath: string, skillName: string, userPrompt: string) => {
+    return ipcRenderer.invoke('expand-claude-skill-prompt', skillFilePath, skillName, userPrompt);
+  },
 
   getFeishuBridgeConfig: () => {
     return ipcRenderer.invoke('get-feishu-bridge-config');

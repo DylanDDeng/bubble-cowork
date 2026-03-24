@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { Paperclip, Plus, Square } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import type { Attachment, ClaudeAccessMode, ClaudeCompatibleProviderId, CodexPermissionMode } from '../types';
@@ -191,7 +192,7 @@ export function PromptInput() {
   };
   const skillAutocomplete = useClaudeSkillAutocomplete({
     enabled: true,
-    enableSkills: provider === 'claude',
+    enableSkills: true,
     provider,
     prompt,
     projectPath: activeSession?.cwd,
@@ -408,17 +409,56 @@ export function PromptInput() {
     }
   }, [prompt]);
 
+  const buildDispatchPrompt = async (): Promise<string | null> => {
+    if (skillAutocomplete.selectedSkill) {
+      const displayPrompt = buildPromptWithSkill(
+        skillAutocomplete.selectedSkill.name,
+        skillAutocomplete.displayPrompt
+      ).trim();
+
+      if (provider === 'claude') {
+        return displayPrompt;
+      }
+
+      const result = await window.electron.expandClaudeSkillPrompt(
+        skillAutocomplete.selectedSkill.path,
+        skillAutocomplete.selectedSkill.name,
+        skillAutocomplete.displayPrompt
+      );
+
+      if (!result.ok || !result.prompt) {
+        toast.error(result.message || `Failed to expand /${skillAutocomplete.selectedSkill.name}.`);
+        return null;
+      }
+
+      return result.prompt.trim();
+    }
+
+    if (skillAutocomplete.selectedCommand) {
+      return buildPromptWithSlashCommand(
+        skillAutocomplete.selectedCommand.name,
+        skillAutocomplete.displayPrompt
+      ).trim();
+    }
+
+    return prompt.trim();
+  };
+
   const handleSend = async () => {
     if (!prompt.trim()) return;
     setMenuOpen(false);
 
-    const normalizedPrompt = (
+    const displayPrompt = (
       skillAutocomplete.selectedSkill
         ? buildPromptWithSkill(skillAutocomplete.selectedSkill.name, skillAutocomplete.displayPrompt)
         : skillAutocomplete.selectedCommand
           ? buildPromptWithSlashCommand(skillAutocomplete.selectedCommand.name, skillAutocomplete.displayPrompt)
           : prompt
     ).trim();
+    const normalizedPrompt = await buildDispatchPrompt();
+    if (!normalizedPrompt) {
+      return;
+    }
 
     if (activeSessionId && activeSession) {
       // 继续现有会话
@@ -426,7 +466,8 @@ export function PromptInput() {
         type: 'session.continue',
         payload: {
           sessionId: activeSessionId,
-          prompt: normalizedPrompt,
+          prompt: displayPrompt,
+          effectivePrompt: normalizedPrompt,
           attachments: attachments.length > 0 ? attachments : undefined,
           provider,
           model:
@@ -544,15 +585,15 @@ export function PromptInput() {
             </div>
           )}
 
-          {provider === 'claude' && skillAutocomplete.selectedSkill && (
-            <div className="px-5 pt-3">
-              <SelectedClaudeSkillChip
-                skill={skillAutocomplete.selectedSkill}
-                onClear={skillAutocomplete.clearSelectedSkill}
-                compact
-              />
-            </div>
-          )}
+            {skillAutocomplete.selectedSkill && (
+              <div className="px-5 pt-3">
+                <SelectedClaudeSkillChip
+                  skill={skillAutocomplete.selectedSkill}
+                  onClear={skillAutocomplete.clearSelectedSkill}
+                  compact
+                />
+              </div>
+            )}
 
           {!skillAutocomplete.selectedSkill && skillAutocomplete.selectedCommand && (
             <div className="px-5 pt-3">
@@ -592,12 +633,8 @@ export function PromptInput() {
               suggestions={skillAutocomplete.suggestions}
               selectedIndex={skillAutocomplete.selectedIndex}
               empty={skillAutocomplete.suggestions.length === 0}
-              title={provider === 'claude' ? 'Commands & Skills' : 'Commands'}
-              emptyMessage={
-                provider === 'claude'
-                  ? 'No matching Claude commands or skills.'
-                  : 'No matching ACP slash commands.'
-              }
+              title="Commands & Skills"
+              emptyMessage="No matching commands or skills."
               onSelect={skillAutocomplete.selectSuggestion}
             />
           )}

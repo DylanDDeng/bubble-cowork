@@ -72,6 +72,13 @@ function parseSkillMetadata(
   }
 }
 
+function readSkillBody(skillFilePath: string): string {
+  const content = readFileSync(skillFilePath, 'utf-8');
+  const frontmatter = parseFrontmatter(content);
+  const body = frontmatter ? content.slice(frontmatter.bodyStartIndex) : content;
+  return body.trim();
+}
+
 function parseFrontmatter(content: string): {
   title?: string;
   description?: string;
@@ -196,4 +203,30 @@ export function listClaudeSkills(projectPath?: string): {
     userSkills: listSkillsInRoot(USER_SKILLS_ROOT, 'user'),
     projectSkills: listSkillsInRoot(projectRoot, 'project'),
   };
+}
+
+export function expandClaudeSkillPrompt(params: {
+  skillFilePath: string;
+  skillName: string;
+  userPrompt: string;
+}): string {
+  const { skillFilePath, skillName, userPrompt } = params;
+  const metadata = parseSkillMetadata(skillFilePath, skillName);
+  const body = readSkillBody(skillFilePath);
+  const trimmedUserPrompt = userPrompt.trim();
+
+  return [
+    `You are executing the Claude skill \`/${skillName}\`.`,
+    'Apply the skill instructions below for this turn as closely as possible.',
+    metadata.title ? `Skill title: ${metadata.title}` : null,
+    metadata.description ? `Skill description: ${metadata.description}` : null,
+    '',
+    '<skill_instructions>',
+    body,
+    '</skill_instructions>',
+    '',
+    trimmedUserPrompt ? `User request:\n${trimmedUserPrompt}` : 'User request:\nUse this skill for the current task.',
+  ]
+    .filter((line): line is string => typeof line === 'string')
+    .join('\n');
 }

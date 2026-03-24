@@ -33,7 +33,7 @@ import {
   listPromptLibraryItems,
   savePromptLibraryItem,
 } from './libs/prompt-library';
-import { listClaudeSkills } from './libs/claude-skills';
+import { expandClaudeSkillPrompt, listClaudeSkills } from './libs/claude-skills';
 import { loadFeishuBridgeConfig, saveFeishuBridgeConfig } from './libs/feishu-bridge-config';
 import { feishuBridge } from './libs/feishu-bridge';
 import { formatClaudeRuntimeBlockingMessage, getClaudeRuntimeStatus } from './libs/claude-runtime-status';
@@ -1284,6 +1284,27 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return installSkillFromMarket(id);
   });
 
+  ipcMainHandle(
+    'expand-claude-skill-prompt',
+    async (_event, skillFilePath: string, skillName: string, userPrompt: string) => {
+      try {
+        return {
+          ok: true,
+          prompt: expandClaudeSkillPrompt({
+            skillFilePath,
+            skillName,
+            userPrompt,
+          }),
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+  );
+
   ipcMainHandle('get-feishu-bridge-config', async () => {
     return loadFeishuBridgeConfig();
   });
@@ -1895,6 +1916,7 @@ async function handleSessionStart(
   const {
     title,
     prompt,
+    effectivePrompt,
     cwd,
     allowedTools,
     attachments,
@@ -1906,6 +1928,7 @@ async function handleSessionStart(
     codexPermissionMode,
     hiddenFromThreads,
   } = payload;
+  const runnerPrompt = (effectivePrompt || prompt).trim();
   if (!cwd?.trim()) {
     broadcast(mainWindow, {
       type: 'runner.error',
@@ -2031,7 +2054,7 @@ async function handleSessionStart(
   startRunner(
     mainWindow,
     session,
-    prompt,
+    runnerPrompt,
     undefined,
     attachments,
     chosenProvider,
@@ -2049,7 +2072,8 @@ async function handleSessionContinue(
   mainWindow: BrowserWindow,
   payload: SessionContinuePayload
 ): Promise<boolean> {
-  const { sessionId, prompt, attachments, provider, model, compatibleProviderId, betas, claudeAccessMode, codexPermissionMode } = payload;
+  const { sessionId, prompt, effectivePrompt, attachments, provider, model, compatibleProviderId, betas, claudeAccessMode, codexPermissionMode } = payload;
+  const runnerPrompt = (effectivePrompt || prompt).trim();
 
   const session = sessions.getSession(sessionId);
   if (!session) {
@@ -2201,7 +2225,7 @@ async function handleSessionContinue(
       existingEntry.handle.abort();
       runnerHandles.delete(sessionId);
     } else {
-      existingEntry.handle.send(prompt, attachments, nextModel);
+      existingEntry.handle.send(runnerPrompt, attachments, nextModel);
       return true;
     }
   }
@@ -2266,7 +2290,7 @@ async function handleSessionContinue(
   startRunner(
     mainWindow,
     sessions.getSession(sessionId),
-    prompt,
+    runnerPrompt,
     nextResumeSessionId,
     attachments,
     nextProvider,
