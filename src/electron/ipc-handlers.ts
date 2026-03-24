@@ -80,6 +80,7 @@ import type {
 } from '../shared/types';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
+const MAX_AUDIO_PREVIEW_BYTES = 25 * 1024 * 1024; // 25MB
 const MAX_FILE_PREVIEW_BYTES = 5 * 1024 * 1024; // 5MB
 const DIRECT_EDIT_BOOTSTRAP_MAX_TRANSCRIPT_CHARS = 20_000;
 const execFileAsync = promisify(execFile);
@@ -94,6 +95,9 @@ const ATTACHMENT_MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
 };
 
 const projectWatchers = new Map<
@@ -665,6 +669,12 @@ function normalizeCodexPermissionMode(
     : 'defaultPermissions';
 }
 
+function normalizeClaudeAccessMode(
+  value?: string | null
+): import('../shared/types').ClaudeAccessMode {
+  return value === 'fullAccess' ? 'fullAccess' : 'default';
+}
+
 type ProjectFilePreview =
   | {
       kind: 'text' | 'markdown' | 'html';
@@ -1147,7 +1157,7 @@ async function handleEditLatestPrompt(
   const previousModel = session.model || null;
   const previousCompatibleProviderId = session.compatible_provider_id || null;
   const previousBetas = parseStoredBetas(session.betas);
-  const previousClaudeAccessMode = session.claude_access_mode || 'default';
+  const previousClaudeAccessMode = normalizeClaudeAccessMode(session.claude_access_mode);
   let latestUserPromptIndex = -1;
   for (let index = history.length - 1; index >= 0; index -= 1) {
     if (history[index]?.type === 'user_prompt') {
@@ -1183,7 +1193,7 @@ async function handleEditLatestPrompt(
     compatibleProviderId ?? session.compatible_provider_id ?? undefined;
   const requestedBetas = normalizeBetas(betas ?? parseStoredBetas(session.betas));
   const nextPrompt = prompt.trim();
-  const nextClaudeAccessMode = claudeAccessMode || 'default';
+  const nextClaudeAccessMode = normalizeClaudeAccessMode(claudeAccessMode);
   const createdAt = Date.now();
   const editedUserPrompt: StreamMessage = {
     type: 'user_prompt',
@@ -1849,6 +1859,26 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
+  ipcMainHandle('read-audio-preview', async (_event, filePath: string) => {
+    const ext = extname(filePath).toLowerCase();
+    const mimeType = ATTACHMENT_MIME_TYPES[ext];
+    if (!mimeType || !mimeType.startsWith('audio/')) {
+      return null;
+    }
+
+    try {
+      const stat = statSync(filePath);
+      if (!stat.isFile() || stat.size > MAX_AUDIO_PREVIEW_BYTES) {
+        return null;
+      }
+
+      const buffer = readFileSync(filePath);
+      return `data:${mimeType};base64,${buffer.toString('base64')}`;
+    } catch {
+      return null;
+    }
+  });
+
   // RPC: 获取项目文件树
   ipcMainHandle('get-project-tree', async (_event, cwd: string) => {
     if (!cwd) {
@@ -2295,7 +2325,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     model: row.model || undefined,
     compatibleProviderId: row.compatible_provider_id || undefined,
     betas: parseStoredBetas(row.betas),
-    claudeAccessMode: row.claude_access_mode || 'default',
+    claudeAccessMode: normalizeClaudeAccessMode(row.claude_access_mode),
     codexPermissionMode: normalizeCodexPermissionMode(row.codex_permission_mode),
     todoState: row.todo_state || 'todo',
     pinned: row.pinned === 1,
@@ -2399,7 +2429,7 @@ async function handleSessionStart(
     model: selectedModel,
     compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
     betas: selectedBetas,
-    claudeAccessMode: chosenProvider === 'claude' ? (claudeAccessMode || 'default') : undefined,
+    claudeAccessMode: chosenProvider === 'claude' ? normalizeClaudeAccessMode(claudeAccessMode) : undefined,
     codexPermissionMode: chosenProvider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
     hiddenFromThreads: hiddenFromThreads === true,
   });
@@ -2419,7 +2449,7 @@ async function handleSessionStart(
       model: selectedModel,
       compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
       betas: selectedBetas,
-      claudeAccessMode: chosenProvider === 'claude' ? (claudeAccessMode || 'default') : undefined,
+      claudeAccessMode: chosenProvider === 'claude' ? normalizeClaudeAccessMode(claudeAccessMode) : undefined,
       codexPermissionMode: chosenProvider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
       hiddenFromThreads: session.hidden_from_threads === 1,
     },
@@ -2521,7 +2551,8 @@ async function handleSessionContinue(
   const compatibleProviderChanged = nextCompatibleProviderId !== previousCompatibleProviderId;
   const modelChanged = nextModel !== previousModel;
   const betasChanged = JSON.stringify(nextBetas || []) !== JSON.stringify(previousBetas || []);
-  const nextClaudeAccessMode = nextProvider === 'claude' ? (claudeAccessMode || 'default') : undefined;
+  const nextClaudeAccessMode =
+    nextProvider === 'claude' ? normalizeClaudeAccessMode(claudeAccessMode) : undefined;
   const previousCodexPermissionMode = normalizeCodexPermissionMode(session.codex_permission_mode);
   const nextCodexPermissionMode = nextProvider === 'codex'
     ? normalizeCodexPermissionMode(codexPermissionMode || previousCodexPermissionMode)
@@ -2607,7 +2638,7 @@ async function handleSessionContinue(
       model: nextModel ?? '',
       compatibleProviderId: nextProvider === 'claude' ? nextCompatibleProviderId : undefined,
       betas: nextBetas,
-      claudeAccessMode: nextProvider === 'claude' ? (claudeAccessMode || 'default') : undefined,
+      claudeAccessMode: nextProvider === 'claude' ? normalizeClaudeAccessMode(claudeAccessMode) : undefined,
       codexPermissionMode: nextProvider === 'codex' ? (nextCodexPermissionMode || 'defaultPermissions') : undefined,
       hiddenFromThreads: session.hidden_from_threads === 1,
     },
@@ -2763,7 +2794,7 @@ function startRunner(
                 : undefined,
             claudeAccessMode:
               provider === 'claude'
-                ? sessions.getSession(session.id)?.claude_access_mode || claudeAccessMode || 'default'
+                ? normalizeClaudeAccessMode(sessions.getSession(session.id)?.claude_access_mode || claudeAccessMode)
                 : undefined,
             codexPermissionMode:
               provider === 'codex'
@@ -2829,7 +2860,7 @@ function startRunner(
                 : undefined,
             claudeAccessMode:
               provider === 'claude'
-                ? sessions.getSession(session.id)?.claude_access_mode || claudeAccessMode || 'default'
+                ? normalizeClaudeAccessMode(sessions.getSession(session.id)?.claude_access_mode || claudeAccessMode)
                 : undefined,
             codexPermissionMode:
               provider === 'codex'

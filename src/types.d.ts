@@ -29,11 +29,6 @@ import type {
   SkillMarketInstallResult,
   FeishuBridgeConfig,
   FeishuBridgeStatus,
-  GeneratePodcastAudioInput,
-  GeneratePodcastAudioResult,
-  MiniMaxTtsConfig,
-  SessionStartPayload,
-  YouTubeTranscriptResult,
 } from './shared/types';
 
 declare global {
@@ -77,11 +72,6 @@ declare global {
     getFeishuBridgeStatus: () => Promise<FeishuBridgeStatus>;
     startFeishuBridge: () => Promise<FeishuBridgeStatus>;
     stopFeishuBridge: () => Promise<FeishuBridgeStatus>;
-    generatePodcastScript: (payload: SessionStartPayload) => Promise<string | null>;
-    fetchYouTubeTranscript: (url: string) => Promise<YouTubeTranscriptResult>;
-    getMiniMaxTtsConfig: () => Promise<MiniMaxTtsConfig>;
-    saveMiniMaxTtsConfig: (config: MiniMaxTtsConfig) => Promise<MiniMaxTtsConfig>;
-    generatePodcastAudio: (input: GeneratePodcastAudioInput) => Promise<GeneratePodcastAudioResult>;
     selectDirectory: () => Promise<string | null>;
     selectAttachments: () => Promise<Attachment[]>;
     readAttachmentPreview: (filePath: string) => Promise<string | null>;

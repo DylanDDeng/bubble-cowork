@@ -76,73 +76,8 @@ export interface SessionStreamingState {
   thinking: string;
 }
 
-export type ActiveWorkspace = 'chat' | 'podcast';
+export type ActiveWorkspace = 'chat';
 export type ChatSidebarView = 'threads' | 'prompts';
-export type PodcastSourceKind = 'youtube' | 'web' | 'file';
-export type PodcastDraftStatus = 'draft' | 'script_ready' | 'audio_ready';
-export type PodcastPacing = 'fast' | 'balanced' | 'slow';
-export type PodcastStyle =
-  | 'conversational'
-  | 'deep_dive'
-  | 'news_brief'
-  | 'storytelling'
-  | 'debate'
-  | 'xiangsheng';
-export type PodcastTone = 'professional' | 'casual' | 'opinionated';
-export type PodcastStructure = 'solo' | 'duo';
-export type PodcastDuration = '5m' | '10m' | '20m';
-export type PodcastVoice = 'neutral' | 'warm' | 'energetic';
-export type PodcastTtsProvider = 'minimax' | 'openai' | 'elevenlabs' | 'cartesia';
-export type PodcastTtsVoice = string;
-export type PodcastTtsDelivery = 'natural' | 'expressive' | 'broadcast';
-export type PodcastAudioFormat = 'mp3';
-export type PodcastTranscriptSource = 'none' | 'youtube' | 'manual';
-export type PodcastScriptStatus = 'idle' | 'generating' | 'ready' | 'error';
-export type PodcastAudioStatus = 'idle' | 'generating' | 'ready' | 'error';
-
-export interface PodcastSourceView {
-  id: string;
-  kind: PodcastSourceKind;
-  title: string;
-  value: string;
-  filePath?: string;
-  addedAt: number;
-}
-
-export interface PodcastConfigView {
-  pacing: PodcastPacing;
-  style: PodcastStyle;
-  tone: PodcastTone;
-  structure: PodcastStructure;
-  duration: PodcastDuration;
-  voice: PodcastVoice;
-  ttsProvider: PodcastTtsProvider;
-  ttsVoice: PodcastTtsVoice;
-  ttsHostBVoice: PodcastTtsVoice;
-  ttsDelivery: PodcastTtsDelivery;
-  ttsSpeed: number;
-  ttsVolume: number;
-  ttsPitch: number;
-  audioFormat: PodcastAudioFormat;
-}
-
-export interface PodcastDraftView {
-  id: string;
-  title: string;
-  status: PodcastDraftStatus;
-  sources: PodcastSourceView[];
-  config: PodcastConfigView;
-  transcript: string;
-  transcriptSource: PodcastTranscriptSource;
-  script: string;
-  scriptStatus: PodcastScriptStatus;
-  scriptError?: string;
-  scriptSessionId?: string | null;
-  audioStatus: PodcastAudioStatus;
-  audioError?: string;
-  audioOutputPath?: string;
-  updatedAt: number;
-}
 
 // UI 会话视图状态
 export interface SessionView {
@@ -206,8 +141,6 @@ export interface AppState {
   showSettings: boolean;
   activeSettingsTab: SettingsTab;
   promptLibraryInsertRequest: PromptLibraryInsertRequest | null;
-  podcastDrafts: Record<string, PodcastDraftView>;
-  activePodcastDraftId: string | null;
   // 状态配置
   statusConfigs: StatusConfig[];
   statusFilter: TodoState | 'all' | 'open' | 'closed';
@@ -256,20 +189,6 @@ export interface AppActions {
   setActiveSettingsTab: (tab: SettingsTab) => void;
   requestPromptLibraryInsert: (content: string, mode?: PromptLibraryInsertMode) => void;
   consumePromptLibraryInsert: (nonce: number) => void;
-  createPodcastDraft: (title?: string) => string;
-  setActivePodcastDraft: (draftId: string | null) => void;
-  renamePodcastDraft: (draftId: string, title: string) => void;
-  deletePodcastDraft: (draftId: string) => void;
-  updatePodcastDraftConfig: (draftId: string, patch: Partial<PodcastConfigView>) => void;
-  updatePodcastDraftTranscript: (draftId: string, transcript: string, source?: PodcastTranscriptSource) => void;
-  setPodcastScriptGeneration: (draftId: string, sessionId: string) => void;
-  setPodcastScriptContent: (draftId: string, script: string) => void;
-  setPodcastScriptError: (draftId: string, error: string) => void;
-  setPodcastAudioGeneration: (draftId: string) => void;
-  setPodcastAudioReady: (draftId: string, outputPath: string) => void;
-  setPodcastAudioError: (draftId: string, error: string) => void;
-  addPodcastSource: (draftId: string, source: Omit<PodcastSourceView, 'id' | 'addedAt'>) => void;
-  removePodcastSource: (draftId: string, sourceId: string) => void;
   // 状态配置 Actions
   setStatusConfigs: (configs: StatusConfig[]) => void;
   setStatusFilter: (filter: TodoState | 'all' | 'open' | 'closed') => void;

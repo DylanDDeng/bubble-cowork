@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Bookmark, BookOpen, FolderOpen, MessageSquare, Search, Settings, SquarePen } from 'lucide-react';
+import { Bookmark, FolderOpen, MessageSquare, Search, Settings, SquarePen } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { SidebarMessageSearchDialog } from './search/SidebarMessageSearchDialog';
 import { StatusFilter } from './StatusFilter';
 import { FolderTreeView } from './FolderTreeView';
-import { PodcastSidebarPanel } from './podcast/PodcastSidebarPanel';
 import { PromptLibraryPanel } from './prompts/PromptLibraryPanel';
 import type { SessionView } from '../types';
 
@@ -19,13 +18,11 @@ export function Sidebar() {
     projectCwd,
     activeWorkspace,
     chatSidebarView,
-    podcastDrafts,
     setSidebarWidth,
     setProjectCwd,
     setActiveSession,
     setActiveWorkspace,
     setChatSidebarView,
-    createPodcastDraft,
     setShowNewSession,
     setShowSettings,
   } = useAppStore();
@@ -147,19 +144,6 @@ export function Sidebar() {
               }}
             />
             <RailIcon
-              icon={<BookOpen className="h-[17px] w-[17px]" />}
-              title="Podcast Studio"
-              active={activeWorkspace === 'podcast'}
-              onClick={() => {
-                if (Object.keys(podcastDrafts).length === 0) {
-                  createPodcastDraft();
-                } else {
-                  setActiveWorkspace('podcast');
-                }
-                setShowSettings(false);
-              }}
-            />
-            <RailIcon
               icon={<Search className="h-[17px] w-[17px]" />}
               title="Search messages"
               active={messageSearchOpen}
@@ -185,9 +169,7 @@ export function Sidebar() {
           {/* 拖拽区域 */}
           <div className="h-8 drag-region flex-shrink-0" />
 
-          {activeWorkspace === 'podcast' ? (
-            <PodcastSidebarPanel />
-          ) : chatSidebarView === 'threads' ? (
+          {chatSidebarView === 'threads' ? (
             <>
               <div className="mt-4 mb-4 flex items-center gap-2 px-2">
                 <button

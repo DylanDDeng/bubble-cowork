@@ -13,7 +13,6 @@ import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { Sidebar } from './components/Sidebar';
 import { NewSessionView } from './components/NewSessionView';
-import { PodcastStudioView } from './components/podcast/PodcastStudioView';
 import { PromptInput } from './components/PromptInput';
 import { MessageCard } from './components/MessageCard';
 import { ToolExecutionBatch } from './components/ToolExecutionBatch';
@@ -420,8 +419,6 @@ export function App() {
             <Settings />
           </div>
         </div>
-      ) : activeWorkspace === 'podcast' ? (
-        <PodcastStudioView />
       ) : activeSession && !showNewSession ? (
         <div
           className="flex-1 min-w-0 flex flex-col transition-[padding] duration-200"

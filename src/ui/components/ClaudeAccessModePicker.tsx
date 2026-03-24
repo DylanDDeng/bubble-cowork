@@ -12,7 +12,8 @@ export function ClaudeAccessModePicker({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const current = ACCESS_MODE_META[value];
+  const normalizedValue = value === 'fullAccess' ? 'fullAccess' : 'default';
+  const current = ACCESS_MODE_META[normalizedValue];
 
   return (
     <div className="relative no-drag">
@@ -21,7 +22,7 @@ export function ClaudeAccessModePicker({
         onClick={() => setOpen((currentOpen) => !currentOpen)}
         disabled={disabled}
         className={`inline-flex items-center gap-2 rounded-[14px] border px-3 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-          value === 'fullAccess'
+          normalizedValue === 'fullAccess'
             ? 'border-[rgba(239,68,68,0.24)] bg-[rgba(239,68,68,0.08)] text-[#b42318] hover:bg-[rgba(239,68,68,0.12)]'
             : 'border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
         }`}
@@ -37,7 +38,7 @@ export function ClaudeAccessModePicker({
           <div className="absolute bottom-full left-0 z-20 mb-2 flex min-w-[168px] flex-col gap-1 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-lg">
             <AccessModeOption
               mode="default"
-              current={value}
+              current={normalizedValue}
               onSelect={(mode) => {
                 onChange(mode);
                 setOpen(false);
@@ -45,7 +46,7 @@ export function ClaudeAccessModePicker({
             />
             <AccessModeOption
               mode="fullAccess"
-              current={value}
+              current={normalizedValue}
               onSelect={(mode) => {
                 onChange(mode);
                 setOpen(false);
