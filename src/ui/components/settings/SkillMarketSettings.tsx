@@ -22,10 +22,25 @@ const DEFAULT_SEARCH_LIMIT = 80;
 const SEARCH_DEBOUNCE_MS = 250;
 const NARROW_MARKET_BREAKPOINT = 860;
 const MEDIUM_MARKET_BREAKPOINT = 1180;
+const SKILLS_MIN_WINDOW_WIDTH = 900;
+const DEFAULT_MIN_WINDOW_WIDTH = 800;
+const DEFAULT_MIN_WINDOW_HEIGHT = 600;
 
 function normalizeRemoteErrorMessage(error: unknown, fallback: string): string {
   const rawMessage = error instanceof Error ? error.message : fallback;
   return rawMessage.replace(/^Error invoking remote method '[^']+':\s*/, '').trim();
+}
+
+async function setWindowMinSizeSafely(width: number, height: number): Promise<void> {
+  try {
+    await window.electron.setWindowMinSize(width, height);
+  } catch (error) {
+    const message = normalizeRemoteErrorMessage(error, 'Failed to set window minimum size.');
+    if (message.includes("No handler registered for 'set-window-min-size'")) {
+      return;
+    }
+    console.warn('[Skills] Failed to set window minimum size:', error);
+  }
 }
 
 export function SkillMarketSettingsContent() {
@@ -66,6 +81,13 @@ export function SkillMarketSettingsContent() {
       : windowWidth < MEDIUM_MARKET_BREAKPOINT
         ? 'medium'
         : 'wide';
+
+  useEffect(() => {
+    void setWindowMinSizeSafely(SKILLS_MIN_WINDOW_WIDTH, DEFAULT_MIN_WINDOW_HEIGHT);
+    return () => {
+      void setWindowMinSizeSafely(DEFAULT_MIN_WINDOW_WIDTH, DEFAULT_MIN_WINDOW_HEIGHT);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

@@ -37,6 +37,7 @@ declare global {
     sendClientEvent: (event: ClientEvent) => void;
     generateSessionTitle: (prompt: string) => Promise<string>;
     getRecentCwds: (limit?: number) => Promise<string[]>;
+    setWindowMinSize: (width: number, height: number) => Promise<{ ok: boolean }>;
     getAppVersion: () => Promise<string>;
     checkForUpdates: () => Promise<{ ok: boolean }>;
     getClaudeModelConfig: () => Promise<ClaudeModelConfig>;

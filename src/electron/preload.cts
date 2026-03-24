@@ -50,6 +50,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-recent-cwds', limit);
   },
 
+  setWindowMinSize: (width: number, height: number) => {
+    return ipcRenderer.invoke('set-window-min-size', width, height);
+  },
+
   searchChatMessages: (query: string, limit?: number) => {
     return ipcRenderer.invoke('search-chat-messages', query, limit);
   },

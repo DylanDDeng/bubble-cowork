@@ -1149,6 +1149,22 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return sessions.listRecentCwds(limit);
   });
 
+  ipcMainHandle('set-window-min-size', async (_event, width: number, height: number) => {
+    const safeWidth = Number.isFinite(width) ? Math.max(400, Math.round(width)) : 800;
+    const safeHeight = Number.isFinite(height) ? Math.max(400, Math.round(height)) : 600;
+
+    mainWindow.setMinimumSize(safeWidth, safeHeight);
+
+    const [currentWidth, currentHeight] = mainWindow.getSize();
+    const nextWidth = Math.max(currentWidth, safeWidth);
+    const nextHeight = Math.max(currentHeight, safeHeight);
+    if (nextWidth !== currentWidth || nextHeight !== currentHeight) {
+      mainWindow.setSize(nextWidth, nextHeight);
+    }
+
+    return { ok: true };
+  });
+
   ipcMainHandle('search-chat-messages', async (_event, query: string, limit?: number) => {
     return sessions.searchChatMessages(query, limit);
   });
