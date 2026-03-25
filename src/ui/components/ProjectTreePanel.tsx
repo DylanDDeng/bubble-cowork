@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Files as FilesIcon, FileDiff } from 'lucide-react';
+import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Files as FilesIcon, FileDiff, SquareTerminal } from 'lucide-react';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { useAppStore } from '../store/useAppStore';
 import { MDContent } from '../render/markdown';
 import { HighlightedCode } from './HighlightedCode';
+import { SessionTerminal } from './SessionTerminal';
 import {
   applyDiffToChangeRecord,
   applyTextMetaToChangeRecord,
@@ -272,8 +273,8 @@ export function ProjectTreePanel({
   onChangeCountChange,
 }: {
   collapsed?: boolean;
-  activeTab: 'files' | 'changes';
-  onChangeTab: (tab: 'files' | 'changes') => void;
+  activeTab: 'files' | 'changes' | 'terminal';
+  onChangeTab: (tab: 'files' | 'changes' | 'terminal') => void;
   onClose: () => void;
   onChangeCountChange?: (count: number) => void;
 }) {
@@ -859,6 +860,17 @@ export function ProjectTreePanel({
                 <span className="ml-0.5 text-[9px] opacity-70">{changeRecords.length}</span>
               )}
             </button>
+            <button
+              onClick={() => { onChangeTab('terminal'); setSelectedFilePath(null); setSelectedPreview(null); }}
+              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${
+                activeTab === 'terminal'
+                  ? 'text-[var(--tree-file-accent-fg)] bg-[var(--tree-file-accent-fg)]/10'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+              }`}
+            >
+              <SquareTerminal className="h-3.5 w-3.5" strokeWidth={2} />
+              <span>Terminal</span>
+            </button>
             <div className="ml-auto flex items-center gap-1">
               {activeTab === 'changes' && (
                 <button
@@ -918,7 +930,7 @@ export function ProjectTreePanel({
                   </div>
                 )}
               </>
-            ) : (
+            ) : activeTab === 'changes' ? (
               <>
                 {!cwd && (
                   <div className="text-sm text-[var(--text-muted)] px-1 py-2">
@@ -953,6 +965,11 @@ export function ProjectTreePanel({
                   />
                 ))}
               </>
+            ) : (
+              <SessionTerminal
+                sessionId={activeSessionId}
+                cwd={cwd}
+              />
             )}
           </div>
         </div>

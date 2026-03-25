@@ -7,6 +7,7 @@ import {
   FileDiff,
   Files,
   FolderOpen,
+  SquareTerminal,
 } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
 import { useIPC, sendEvent } from './hooks/useIPC';
@@ -190,7 +191,7 @@ export function App() {
   // 历史请求记录（防止重复请求）
   const historyRequested = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
-  const [projectPanelView, setProjectPanelView] = useState<'files' | 'changes'>('files');
+  const [projectPanelView, setProjectPanelView] = useState<'files' | 'changes' | 'terminal'>('files');
   const [projectChangeCount, setProjectChangeCount] = useState(0);
 
   const { partialMessage, partialThinking, isStreaming: showPartialMessage } = useMemo(() => {
@@ -632,7 +633,7 @@ function FloatingProjectPanelDock({
   className,
   changeCount,
 }: {
-  onOpen: (view: 'files' | 'changes') => void;
+  onOpen: (view: 'files' | 'changes' | 'terminal') => void;
   className: string;
   changeCount: number;
 }) {
@@ -646,6 +647,11 @@ function FloatingProjectPanelDock({
       id: 'changes' as const,
       label: 'Changes',
       icon: FileDiff,
+    },
+    {
+      id: 'terminal' as const,
+      label: 'Terminal',
+      icon: SquareTerminal,
     },
   ];
 

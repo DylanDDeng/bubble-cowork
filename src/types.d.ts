@@ -35,8 +35,13 @@ declare global {
   interface ElectronAPI {
     onServerEvent: (callback: (event: ServerEvent) => void) => () => void;
     sendClientEvent: (event: ClientEvent) => void;
+    onTerminalEvent: (callback: (event: { type: 'data' | 'exit'; sessionId: string; data?: string; exitCode?: number | null }) => void) => () => void;
     generateSessionTitle: (prompt: string) => Promise<string>;
     getRecentCwds: (limit?: number) => Promise<string[]>;
+    startTerminalSession: (sessionId: string, cwd: string, cols?: number, rows?: number) => Promise<{ ok: boolean; history?: string; message?: string }>;
+    writeTerminalSession: (sessionId: string, data: string) => Promise<{ ok: boolean; message?: string }>;
+    resizeTerminalSession: (sessionId: string, cols: number, rows: number) => Promise<{ ok: boolean; message?: string }>;
+    stopTerminalSession: (sessionId: string) => Promise<{ ok: boolean; message?: string }>;
     setWindowMinSize: (width: number, height: number) => Promise<{ ok: boolean }>;
     getAppVersion: () => Promise<string>;
     checkForUpdates: () => Promise<{ ok: boolean }>;

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import { readFileSync, statSync, watch, type FSWatcher, promises as fsPromises } from 'fs';
+import { chmodSync, existsSync, readFileSync, statSync, watch, type FSWatcher, promises as fsPromises } from 'fs';
 import { execFile } from 'child_process';
+import { spawn as spawnPty, type IPty } from 'node-pty';
 import { promisify } from 'util';
 import { basename, extname, resolve, relative, isAbsolute, join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -97,6 +98,176 @@ const projectWatchers = new Map<
   string,
   { watcher: FSWatcher; timer?: NodeJS.Timeout }
 >();
+const terminalSessions = new Map<string, {
+  process: IPty;
+  cwd: string;
+  history: string;
+}>();
+const TERMINAL_HISTORY_MAX_CHARS = 200_000;
+const TERMINAL_STARTUP_BUFFER_MS = 180;
+
+type TerminalEventPayload = {
+  type: 'data' | 'exit';
+  sessionId: string;
+  data?: string;
+  exitCode?: number | null;
+};
+
+function emitTerminalEvent(mainWindow: BrowserWindow, payload: TerminalEventPayload): void {
+  if (mainWindow.isDestroyed()) {
+    return;
+  }
+
+  mainWindow.webContents.send('terminal-event', JSON.stringify(payload));
+}
+
+function appendTerminalHistory(session: { history: string }, data: string): void {
+  session.history = `${session.history}${data}`;
+  if (session.history.length > TERMINAL_HISTORY_MAX_CHARS) {
+    session.history = session.history.slice(session.history.length - TERMINAL_HISTORY_MAX_CHARS);
+  }
+}
+
+function sanitizeTerminalEnv(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries({
+      ...process.env,
+      TERM: process.env.TERM || 'xterm-256color',
+      COLORTERM: process.env.COLORTERM || 'truecolor',
+    }).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+  );
+}
+
+let terminalHelperPrepared = false;
+
+function ensureNodePtyHelpersExecutable(): void {
+  if (terminalHelperPrepared) {
+    return;
+  }
+
+  try {
+    const baseDir = join(app.getAppPath(), 'node_modules', 'node-pty');
+    const archDir = `${process.platform}-${process.arch}`;
+    const candidatePaths = [
+      join(baseDir, 'prebuilds', archDir, 'spawn-helper'),
+      join(baseDir, 'build', 'Release', 'spawn-helper'),
+    ];
+
+    for (const helperPath of candidatePaths) {
+      if (!existsSync(helperPath)) {
+        continue;
+      }
+      chmodSync(helperPath, 0o755);
+    }
+  } catch (error) {
+    if (isDev()) {
+      console.warn('[Terminal] Failed to mark node-pty helper executable:', error);
+    }
+  } finally {
+    terminalHelperPrepared = true;
+  }
+}
+
+function getTerminalLaunchSpecs(): Array<{ command: string; args: string[] }> {
+  if (process.platform === 'win32') {
+    return [
+      {
+        command: process.env.COMSPEC || 'powershell.exe',
+        args: process.env.COMSPEC ? [] : ['-NoLogo'],
+      },
+    ];
+  }
+
+  const candidates = Array.from(
+    new Set([
+      process.env.SHELL,
+      '/bin/zsh',
+      '/bin/bash',
+      '/bin/sh',
+    ].filter((value): value is string => Boolean(value && existsSync(value))))
+  );
+
+  const specs: Array<{ command: string; args: string[] }> = [];
+  for (const command of candidates) {
+    specs.push({ command, args: ['-i'] });
+    if (command.endsWith('zsh') || command.endsWith('bash')) {
+      specs.push({ command, args: ['-il'] });
+    }
+  }
+
+  return specs;
+}
+
+function disposeTerminalSession(sessionId: string): void {
+  const existing = terminalSessions.get(sessionId);
+  if (!existing) {
+    return;
+  }
+
+  existing.process.kill();
+  terminalSessions.delete(sessionId);
+}
+
+function createTerminalSession(
+  mainWindow: BrowserWindow,
+  sessionId: string,
+  cwd: string
+): { ok: boolean; history?: string; message?: string } {
+  disposeTerminalSession(sessionId);
+  ensureNodePtyHelpersExecutable();
+
+  const env = sanitizeTerminalEnv();
+  const attempted: string[] = [];
+  let proc: IPty | null = null;
+
+  for (const launch of getTerminalLaunchSpecs()) {
+    attempted.push(`${launch.command} ${launch.args.join(' ')}`.trim());
+    try {
+      proc = spawnPty(launch.command, launch.args, {
+        name: env.TERM || 'xterm-256color',
+        cols: 120,
+        rows: 32,
+        cwd,
+        env,
+      });
+      break;
+    } catch (error) {
+      if (isDev()) {
+        console.warn('[Terminal] Failed to spawn shell', {
+          command: launch.command,
+          args: launch.args,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  if (!proc) {
+    return {
+      ok: false,
+      message: `Unable to start a terminal shell. Tried: ${attempted.join(' | ')}`,
+    };
+  }
+
+  const session = {
+    process: proc,
+    cwd,
+    history: '',
+  };
+  terminalSessions.set(sessionId, session);
+
+  proc.onData((data: string) => {
+    appendTerminalHistory(session, data);
+    emitTerminalEvent(mainWindow, { type: 'data', sessionId, data });
+  });
+
+  proc.onExit(({ exitCode }: { exitCode: number; signal?: number }) => {
+    emitTerminalEvent(mainWindow, { type: 'exit', sessionId, exitCode });
+    terminalSessions.delete(sessionId);
+  });
+
+  return { ok: true, history: session.history };
+}
 
 function normalizeShellPath(filePath: string): string {
   const trimmed = filePath.trim();
@@ -1147,6 +1318,67 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // RPC: 获取最近工作目录
   ipcMainHandle('get-recent-cwds', async (_, limit?: number) => {
     return sessions.listRecentCwds(limit);
+  });
+
+  ipcMainHandle('start-terminal-session', async (_event, sessionId: string, cwd: string, cols?: number, rows?: number) => {
+    const normalizedSessionId = sessionId.trim();
+    const normalizedCwd = cwd.trim();
+    if (!normalizedSessionId || !normalizedCwd) {
+      return { ok: false, message: 'Missing terminal session id or cwd.' };
+    }
+
+    const existing = terminalSessions.get(normalizedSessionId);
+    if (existing && existing.cwd === normalizedCwd) {
+      if (typeof cols === 'number' && typeof rows === 'number') {
+        existing.process.resize(Math.max(40, Math.round(cols)), Math.max(12, Math.round(rows)));
+      }
+      await new Promise((resolve) => setTimeout(resolve, TERMINAL_STARTUP_BUFFER_MS));
+      return { ok: true, history: existing.history };
+    }
+
+    const created = createTerminalSession(mainWindow, normalizedSessionId, normalizedCwd);
+    if (created.ok && typeof cols === 'number' && typeof rows === 'number') {
+      terminalSessions.get(normalizedSessionId)?.process.resize(
+        Math.max(40, Math.round(cols)),
+        Math.max(12, Math.round(rows))
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, TERMINAL_STARTUP_BUFFER_MS));
+    return {
+      ...created,
+      history: terminalSessions.get(normalizedSessionId)?.history || created.history,
+    };
+  });
+
+  ipcMainHandle('write-terminal-session', async (_event, sessionId: string, data: string) => {
+    const existing = terminalSessions.get(sessionId);
+    if (!existing) {
+      return { ok: false, message: 'Terminal session is not running.' };
+    }
+
+    existing.process.write(data);
+    return { ok: true };
+  });
+
+  ipcMainHandle('resize-terminal-session', async (_event, sessionId: string, cols: number, rows: number) => {
+    const existing = terminalSessions.get(sessionId);
+    if (!existing) {
+      return { ok: false, message: 'Terminal session is not running.' };
+    }
+
+    existing.process.resize(Math.max(40, Math.round(cols)), Math.max(12, Math.round(rows)));
+    return { ok: true };
+  });
+
+  ipcMainHandle('stop-terminal-session', async (_event, sessionId: string) => {
+    const existing = terminalSessions.get(sessionId);
+    if (!existing) {
+      return { ok: true };
+    }
+
+    existing.process.kill();
+    terminalSessions.delete(sessionId);
+    return { ok: true };
   });
 
   ipcMainHandle('set-window-min-size', async (_event, width: number, height: number) => {
@@ -2923,6 +3155,9 @@ export function cleanup(): void {
   }
   runnerHandles.clear();
   sessionStates.clear();
+  for (const sessionId of terminalSessions.keys()) {
+    disposeTerminalSession(sessionId);
+  }
 
   // 关闭数据库
   sessions.close();

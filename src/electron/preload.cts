@@ -40,6 +40,21 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.send('client-event', JSON.stringify(event));
   },
 
+  onTerminalEvent: (callback: (event: unknown) => void) => {
+    const handler = (_: unknown, eventJson: string) => {
+      try {
+        callback(JSON.parse(eventJson));
+      } catch (error) {
+        console.error('Failed to parse terminal event:', error);
+      }
+    };
+
+    ipcRenderer.on('terminal-event', handler);
+    return () => {
+      ipcRenderer.removeListener('terminal-event', handler);
+    };
+  },
+
   // 生成会话标题
   generateSessionTitle: (prompt: string) => {
     return ipcRenderer.invoke('generate-session-title', prompt);
@@ -48,6 +63,22 @@ contextBridge.exposeInMainWorld('electron', {
   // 获取最近工作目录
   getRecentCwds: (limit?: number) => {
     return ipcRenderer.invoke('get-recent-cwds', limit);
+  },
+
+  startTerminalSession: (sessionId: string, cwd: string, cols?: number, rows?: number) => {
+    return ipcRenderer.invoke('start-terminal-session', sessionId, cwd, cols, rows);
+  },
+
+  writeTerminalSession: (sessionId: string, data: string) => {
+    return ipcRenderer.invoke('write-terminal-session', sessionId, data);
+  },
+
+  resizeTerminalSession: (sessionId: string, cols: number, rows: number) => {
+    return ipcRenderer.invoke('resize-terminal-session', sessionId, cols, rows);
+  },
+
+  stopTerminalSession: (sessionId: string) => {
+    return ipcRenderer.invoke('stop-terminal-session', sessionId);
   },
 
   setWindowMinSize: (width: number, height: number) => {
