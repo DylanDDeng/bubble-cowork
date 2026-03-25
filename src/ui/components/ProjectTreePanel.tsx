@@ -77,6 +77,15 @@ type ProjectFilePreview =
       message: string;
     };
 
+type GitHistoryEntry = {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  authorName: string;
+  authoredAt: string;
+  relativeTime: string;
+};
+
 function TreeNode({
   node,
   depth,
@@ -330,6 +339,8 @@ export function ProjectTreePanel({
   const [gitEntries, setGitEntries] = useState<GitChangeEntry[]>([]);
   const [gitBranch, setGitBranch] = useState<string | null>(null);
   const [gitError, setGitError] = useState<string | null>(null);
+  const [gitHistoryEntries, setGitHistoryEntries] = useState<GitHistoryEntry[]>([]);
+  const [gitHistoryError, setGitHistoryError] = useState<string | null>(null);
   const [gitActionPath, setGitActionPath] = useState<string | null>(null);
   const [gitCommitMessage, setGitCommitMessage] = useState('');
   const [gitCommitLoading, setGitCommitLoading] = useState(false);
@@ -346,9 +357,10 @@ export function ProjectTreePanel({
     setGitError(null);
     try {
       const toolRecords = extractToolChangeRecords(activeSession?.messages || []);
-      const [result, branchResult] = await Promise.all([
+      const [result, branchResult, historyResult] = await Promise.all([
         window.electron.getGitChanges(cwd),
         window.electron.getGitBranch(cwd),
+        window.electron.getGitHistory(cwd),
       ]);
       if (result.ok) {
         const merged = mergeChangeRecords(toolRecords, result.entries);
@@ -356,11 +368,15 @@ export function ProjectTreePanel({
         setChangeRecords(enriched);
         setGitEntries(result.entries);
         setGitBranch(branchResult.ok ? branchResult.branch : null);
+        setGitHistoryEntries(historyResult.ok ? historyResult.entries : []);
+        setGitHistoryError(historyResult.ok ? null : historyResult.error);
         setChangesError(null);
       } else if (result.error === 'not-a-repo') {
         setChangeRecords(toolRecords);
         setGitEntries([]);
         setGitBranch(null);
+        setGitHistoryEntries([]);
+        setGitHistoryError(null);
         setChangesError(toolRecords.length > 0 ? null : 'not-a-repo');
         setGitError(toolRecords.length > 0 ? null : 'not-a-repo');
       } else {
@@ -368,6 +384,8 @@ export function ProjectTreePanel({
         setChangeRecords(toolRecords);
         setGitEntries([]);
         setGitBranch(null);
+        setGitHistoryEntries([]);
+        setGitHistoryError(null);
         setGitError(result.error);
       }
     } catch {
@@ -375,6 +393,8 @@ export function ProjectTreePanel({
       setChangeRecords([]);
       setGitEntries([]);
       setGitBranch(null);
+      setGitHistoryEntries([]);
+      setGitHistoryError(null);
       setGitError('git-error');
     } finally {
       const elapsed = Date.now() - startedAt;
@@ -457,6 +477,8 @@ export function ProjectTreePanel({
     setChangesError(null);
     setGitEntries([]);
     setGitBranch(null);
+    setGitHistoryEntries([]);
+    setGitHistoryError(null);
     setGitError(null);
   }, [cwd, messageCount, sessionStatus, projectTreeCwd, projectTree]);
 
@@ -485,9 +507,6 @@ export function ProjectTreePanel({
         return;
       }
       await loadChangeRecords();
-      if (selectedGitPath === filePath) {
-        setSelectedGitPath(filePath);
-      }
     } finally {
       setGitActionPath((current) => (current === filePath ? null : current));
     }
@@ -1117,6 +1136,8 @@ export function ProjectTreePanel({
                 error={gitError}
                 stagedEntries={stagedGitEntries}
                 unstagedEntries={unstagedGitEntries}
+                recentCommits={gitHistoryEntries}
+                historyError={gitHistoryError}
                 actionPath={gitActionPath}
                 onStage={(filePath) => void runGitAction(filePath, () => window.electron.gitStagePath(cwd || '', filePath))}
                 onUnstage={(filePath) => void runGitAction(filePath, () => window.electron.gitUnstagePath(cwd || '', filePath))}
@@ -1704,6 +1725,8 @@ function GitPanel({
   error,
   stagedEntries,
   unstagedEntries,
+  recentCommits,
+  historyError,
   actionPath,
   onStage,
   onUnstage,
@@ -1720,6 +1743,8 @@ function GitPanel({
   error: string | null;
   stagedEntries: GitChangeEntry[];
   unstagedEntries: GitChangeEntry[];
+  recentCommits: GitHistoryEntry[];
+  historyError: string | null;
   actionPath: string | null;
   onStage: (filePath: string) => void;
   onUnstage: (filePath: string) => void;
@@ -1828,7 +1853,19 @@ function GitPanel({
             </div>
           </GitFoldSection>
           <GitFoldSection title="Branches" summary={branch || 'HEAD'} />
-          <GitFoldSection title="History" summary="Recent commits" />
+          <GitFoldSection
+            title="History"
+            summary={
+              historyError
+                ? 'Unavailable'
+                : recentCommits.length > 0
+                  ? `${recentCommits.length} recent`
+                  : 'No commits yet'
+            }
+            defaultOpen
+          >
+            <GitHistoryList entries={recentCommits} error={historyError} />
+          </GitFoldSection>
           <GitFoldSection title="Worktrees" summary="Default workspace" />
         </div>
       </div>
@@ -1961,6 +1998,50 @@ function GitFileList({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function GitHistoryList({
+  entries,
+  error,
+}: {
+  entries: GitHistoryEntry[];
+  error: string | null;
+}) {
+  if (error) {
+    return <div className="px-2 py-2 text-sm text-[var(--text-muted)]">Failed to load recent commits.</div>;
+  }
+
+  if (entries.length === 0) {
+    return <div className="px-2 py-2 text-sm text-[var(--text-muted)]">No commits yet.</div>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {entries.map((entry) => (
+        <div
+          key={entry.hash}
+          className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-secondary)]/92 px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[14px] font-medium text-[var(--text-primary)]">
+                {entry.subject}
+              </div>
+              <div className="mt-1 flex items-center gap-2 text-[12px] text-[var(--text-muted)]">
+                <span className="truncate">{entry.authorName}</span>
+                <span>•</span>
+                <span title={new Date(entry.authoredAt).toLocaleString()}>{entry.relativeTime}</span>
+              </div>
+            </div>
+            <div className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-1 text-[11px] font-semibold text-[var(--text-secondary)]">
+              <Clock3 className="h-3 w-3" />
+              <span>{entry.shortHash}</span>
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

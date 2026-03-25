@@ -2023,6 +2023,58 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
+  ipcMainHandle('get-git-history', async (_event, cwd: string) => {
+    if (!cwd) return { ok: false, error: 'no-cwd', entries: [] };
+
+    try {
+      await execFileAsync('git', ['rev-parse', '--git-dir'], { cwd, timeout: 5000 });
+    } catch {
+      return { ok: false, error: 'not-a-repo', entries: [] };
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        'git',
+        [
+          'log',
+          '--max-count=12',
+          '--date=iso-strict',
+          '--pretty=format:%H%x1f%h%x1f%an%x1f%aI%x1f%ar%x1f%s%x1e',
+        ],
+        {
+          cwd,
+          timeout: 10000,
+          maxBuffer: 2 * 1024 * 1024,
+        }
+      );
+
+      const entries = stdout
+        .split('\x1e')
+        .map((record) => record.trim())
+        .filter(Boolean)
+        .map((record) => {
+          const [hash, shortHash, authorName, authoredAt, relativeTime, subject] = record.split('\x1f');
+          return {
+            hash: hash?.trim() || '',
+            shortHash: shortHash?.trim() || '',
+            authorName: authorName?.trim() || 'Unknown author',
+            authoredAt: authoredAt?.trim() || '',
+            relativeTime: relativeTime?.trim() || '',
+            subject: subject?.trim() || '(no commit message)',
+          };
+        })
+        .filter((entry) => entry.hash && entry.shortHash);
+
+      return { ok: true, error: null, entries };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/does not have any commits yet|your current branch .* does not have any commits yet/i.test(message)) {
+        return { ok: true, error: null, entries: [] };
+      }
+      return { ok: false, error: 'git-error', entries: [] };
+    }
+  });
+
   ipcMainHandle('git-stage-path', async (_event, cwd: string, filePath: string) => {
     if (!cwd || !filePath) return { ok: false, message: 'Missing cwd or file path.' };
     try {
