@@ -2244,7 +2244,28 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   ipcMainHandle('git-push', async (_event, cwd: string) => {
     if (!cwd) return { ok: false, message: 'Missing cwd.' };
     try {
-      const { stdout, stderr } = await execFileAsync('git', ['push'], {
+      let pushArgs = ['push'];
+
+      try {
+        const { stdout: upstreamStdout } = await execFileAsync(
+          'git',
+          ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
+          {
+            cwd,
+            timeout: 5000,
+          }
+        );
+        const upstreamRef = upstreamStdout.trim();
+        const upstreamMatch = upstreamRef.match(/^([^/]+)\/(.+)$/);
+        if (upstreamMatch) {
+          const [, remoteName, remoteBranchName] = upstreamMatch;
+          pushArgs = ['push', remoteName, `HEAD:${remoteBranchName}`];
+        }
+      } catch {
+        // Fall back to the repository's default push behavior when no upstream exists.
+      }
+
+      const { stdout, stderr } = await execFileAsync('git', pushArgs, {
         cwd,
         timeout: 120000,
         maxBuffer: 4 * 1024 * 1024,

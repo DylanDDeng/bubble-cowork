@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Files as FilesIcon, FileDiff, SquareTerminal, GitBranch, GitCommit, Minus, Undo2, Upload, FolderGit2 } from 'lucide-react';
+import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Files as FilesIcon, FileDiff, SquareTerminal, GitBranch, GitCommit, Minus, Upload, FolderGit2 } from 'lucide-react';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
@@ -551,6 +551,11 @@ export function ProjectTreePanel({
       return;
     }
 
+    if (stagedGitEntries.length + unstagedGitEntries.length === 0) {
+      toast.error('Nothing to commit. Working tree is clean.');
+      return;
+    }
+
     setGitCommitLoading(true);
     try {
       for (const entry of unstagedGitEntries) {
@@ -563,6 +568,10 @@ export function ProjectTreePanel({
 
       const result = await window.electron.gitCommit(cwd, gitCommitMessage.trim());
       if (!result.ok) {
+        if (/nothing to commit, working tree clean/i.test(result.message || '')) {
+          toast.error('Nothing to commit. Working tree is clean.');
+          return;
+        }
         toast.error(result.message || 'Commit failed.');
         return;
       }
@@ -1809,6 +1818,17 @@ function GitPanel({
   const negativeCount = [...stagedEntries, ...unstagedEntries].filter((entry) => entry.status === 'D').length;
   const localBranchCount = branches.filter((entry) => !entry.remote).length;
   const remoteBranchCount = branches.filter((entry) => entry.remote).length;
+  const currentBranchEntry = branches.find((entry) => !entry.remote && (entry.current || entry.name === branch));
+  const currentUpstream = currentBranchEntry?.upstream || null;
+  const hasUpstreamMismatch =
+    !!branch &&
+    !!currentUpstream &&
+    !currentUpstream.endsWith(`/${branch}`);
+  const branchSummary = detachedHead
+    ? 'Detached HEAD'
+    : hasUpstreamMismatch && currentUpstream
+      ? `${branch || 'HEAD'} → ${currentUpstream}`
+      : branch || 'HEAD';
 
   if (!cwd) {
     return (
@@ -1841,6 +1861,12 @@ function GitPanel({
           <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-[13px] font-medium text-[var(--text-primary)]">
             <GitBranch className="h-4 w-4 text-[var(--text-secondary)]" />
             <span>{branch || 'HEAD'}</span>
+            {hasUpstreamMismatch && currentUpstream ? (
+              <>
+                <span className="text-[var(--text-muted)]">→</span>
+                <span className="text-[var(--text-secondary)]">{currentUpstream}</span>
+              </>
+            ) : null}
             <span className="text-[var(--text-muted)]">•</span>
             <span className="font-medium text-[#D97706]">{totalChanges}</span>
           </div>
@@ -1848,7 +1874,8 @@ function GitPanel({
             <button
               type="button"
               onClick={() => setCommitOpen(true)}
-              disabled={commitLoading}
+              disabled={commitLoading || totalChanges === 0}
+              title={totalChanges === 0 ? 'No local changes to commit' : 'Commit all current changes'}
               className="inline-flex items-center gap-2 rounded-[12px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
             >
               <GitCommit className="h-4 w-4" />
@@ -1858,6 +1885,7 @@ function GitPanel({
               type="button"
               onClick={onPush}
               disabled={pushLoading}
+              title={currentUpstream ? `Push to ${currentUpstream}` : 'Push current branch'}
               className="inline-flex items-center gap-2 rounded-[12px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
             >
               <Upload className="h-4 w-4" />
@@ -1874,7 +1902,7 @@ function GitPanel({
           </div>
           <GitFoldSection
             title="Status"
-            summary={`${totalChanges} changes`}
+            summary={totalChanges > 0 ? `${totalChanges} changes` : 'Working tree clean'}
           >
             <div className="space-y-3">
               <div className="flex items-center gap-4 text-sm">
@@ -1904,11 +1932,9 @@ function GitPanel({
             summary={
               branchesError
                 ? 'Unavailable'
-                : detachedHead
-                  ? 'Detached HEAD'
-                  : remoteBranchCount > 0
-                    ? `${localBranchCount} local · ${remoteBranchCount} remote`
-                    : `${localBranchCount} local`
+                : remoteBranchCount > 0
+                  ? `${branchSummary} · ${localBranchCount} local · ${remoteBranchCount} remote`
+                  : `${branchSummary} · ${localBranchCount} local`
             }
           >
             <GitBranchList
@@ -2013,6 +2039,7 @@ function GitFileList({
     <div className="space-y-3">
       {entries.map((entry) => {
         const busy = actionPath === entry.filePath;
+        const secondaryBusyLabel = secondaryActionLabel === 'Discard' ? 'Discarding…' : 'Working…';
         return (
           <div
             key={`${entry.filePath}:${entry.staged ? 'staged' : 'unstaged'}`}
@@ -2045,10 +2072,11 @@ function GitFileList({
                 type="button"
                 onClick={() => onSecondaryAction(entry)}
                 disabled={busy}
-                className="inline-flex items-center gap-1 rounded-[10px] border border-[var(--border)] px-2.5 py-1.5 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                title={secondaryActionLabel === 'Discard' ? 'Discard local changes for this file' : secondaryActionLabel}
+                className="inline-flex items-center gap-1.5 rounded-[10px] border border-[#F2C6CD] bg-[#FFF7F8] px-2.5 py-1.5 text-[12px] font-medium text-[#B4233D] transition-colors hover:border-[#E7A8B3] hover:bg-[#FDEEEF] disabled:opacity-50"
               >
-                <Undo2 className="h-3 w-3" />
-                <span>↩</span>
+                <X className="h-3 w-3" />
+                <span>{busy ? secondaryBusyLabel : secondaryActionLabel}</span>
               </button>
             ) : null}
             <button
