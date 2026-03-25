@@ -1874,7 +1874,6 @@ function GitPanel({
           </div>
           <GitFoldSection
             title="Status"
-            defaultOpen
             summary={`${totalChanges} changes`}
           >
             <div className="space-y-3">
@@ -1929,7 +1928,6 @@ function GitPanel({
                   ? `${recentCommits.length} recent`
                   : 'No commits yet'
             }
-            defaultOpen
           >
             <GitHistoryList entries={recentCommits} error={historyError} />
           </GitFoldSection>
