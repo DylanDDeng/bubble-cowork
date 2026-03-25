@@ -1274,6 +1274,30 @@ function mapGitChangeStatus(indexStatus: string, workStatus: string): {
   return { status: 'M', staged: false };
 }
 
+function parseGitStatusEntries(stdout: string): Array<{ filePath: string; status: string; staged: boolean }> {
+  const entries: Array<{ filePath: string; status: string; staged: boolean }> = [];
+  const records = stdout.split('\0');
+
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index];
+    if (!record) continue;
+
+    const indexStatus = record[0];
+    const workStatus = record[1];
+    const filePath = record.slice(3);
+    if (!filePath) continue;
+
+    const { status, staged } = mapGitChangeStatus(indexStatus, workStatus);
+    entries.push({ filePath, status, staged });
+
+    if (indexStatus === 'R' || indexStatus === 'C' || workStatus === 'R' || workStatus === 'C') {
+      index += 1;
+    }
+  }
+
+  return entries;
+}
+
 // 初始化 IPC 处理器
 export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // 初始化数据库
@@ -1947,28 +1971,12 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
 
     try {
-      const { stdout } = await execFileAsync('git', ['status', '--porcelain', '-uall'], {
+      const { stdout } = await execFileAsync('git', ['-c', 'core.quotepath=false', 'status', '--porcelain', '-uall', '-z'], {
         cwd,
         maxBuffer: 1024 * 1024,
         timeout: 10000,
       });
-
-      const entries: Array<{ filePath: string; status: string; staged: boolean }> = [];
-      for (const line of stdout.split('\n')) {
-        if (!line) continue;
-        const indexStatus = line[0];
-        const workStatus = line[1];
-        let filePath = line.slice(3);
-        if (filePath.includes(' -> ')) {
-          filePath = filePath.split(' -> ')[1];
-        }
-        filePath = filePath.trim();
-        if (!filePath) continue;
-
-        const { status, staged } = mapGitChangeStatus(indexStatus, workStatus);
-
-        entries.push({ filePath, status, staged });
-      }
+      const entries = parseGitStatusEntries(stdout);
       return { ok: true, error: null, entries };
     } catch {
       return { ok: false, error: 'git-error', entries: [] };
@@ -2020,6 +2028,72 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         branch: null,
         message: error instanceof Error ? error.message : String(error),
       };
+    }
+  });
+
+  ipcMainHandle('get-git-branches', async (_event, cwd: string) => {
+    if (!cwd) return { ok: false, error: 'no-cwd', detachedHead: false, headShortHash: null, entries: [] };
+
+    try {
+      await execFileAsync('git', ['rev-parse', '--git-dir'], { cwd, timeout: 5000 });
+    } catch {
+      return { ok: false, error: 'not-a-repo', detachedHead: false, headShortHash: null, entries: [] };
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        'git',
+        [
+          'for-each-ref',
+          '--sort=-committerdate',
+          '--format=%(refname:short)%09%(refname)%09%(HEAD)%09%(upstream:short)%09%(objectname:short)',
+          'refs/heads',
+          'refs/remotes',
+        ],
+        {
+          cwd,
+          timeout: 10000,
+          maxBuffer: 2 * 1024 * 1024,
+        }
+      );
+
+      const entries = stdout
+        .split('\n')
+        .map((record) => record.trim())
+        .filter(Boolean)
+        .map((record) => {
+          const [name, fullRef, headMarker, upstream, shortHash] = record.split('\t');
+          const normalizedFullRef = fullRef?.trim() || '';
+          const remote = normalizedFullRef.startsWith('refs/remotes/');
+          return {
+            name: name?.trim() || '',
+            fullRef: normalizedFullRef,
+            current: (headMarker?.trim() || '') === '*' && !remote,
+            remote,
+            upstream: upstream?.trim() || null,
+            shortHash: shortHash?.trim() || '',
+          };
+        })
+        .filter((entry) => entry.name && entry.fullRef && !entry.name.endsWith('/HEAD'));
+
+      let detachedHead = !entries.some((entry) => entry.current);
+      let headShortHash: string | null = null;
+
+      if (detachedHead) {
+        try {
+          const { stdout: headStdout } = await execFileAsync('git', ['rev-parse', '--short', 'HEAD'], {
+            cwd,
+            timeout: 5000,
+          });
+          headShortHash = headStdout.trim() || null;
+        } catch {
+          detachedHead = false;
+        }
+      }
+
+      return { ok: true, error: null, detachedHead, headShortHash, entries };
+    } catch {
+      return { ok: false, error: 'git-error', detachedHead: false, headShortHash: null, entries: [] };
     }
   });
 

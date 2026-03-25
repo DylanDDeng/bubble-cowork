@@ -91,6 +91,20 @@ declare global {
     unwatchProjectTree: (cwd: string) => Promise<boolean>;
     getGitChanges: (cwd: string) => Promise<{ ok: boolean; error: string | null; entries: Array<{ filePath: string; status: string; staged: boolean }> }>;
     getGitBranch: (cwd: string) => Promise<{ ok: boolean; branch: string | null; message?: string }>;
+    getGitBranches: (cwd: string) => Promise<{
+      ok: boolean;
+      error: string | null;
+      detachedHead: boolean;
+      headShortHash: string | null;
+      entries: Array<{
+        name: string;
+        fullRef: string;
+        current: boolean;
+        remote: boolean;
+        upstream: string | null;
+        shortHash: string;
+      }>;
+    }>;
     getGitHistory: (cwd: string) => Promise<{
       ok: boolean;
       error: string | null;

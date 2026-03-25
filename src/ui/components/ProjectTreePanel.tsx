@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Files as FilesIcon, FileDiff, SquareTerminal, GitBranch, GitCommit, Minus, Undo2, Upload, Clock3, FolderGit2 } from 'lucide-react';
+import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Files as FilesIcon, FileDiff, SquareTerminal, GitBranch, GitCommit, Minus, Undo2, Upload, FolderGit2 } from 'lucide-react';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
@@ -84,6 +84,15 @@ type GitHistoryEntry = {
   authorName: string;
   authoredAt: string;
   relativeTime: string;
+};
+
+type GitBranchEntry = {
+  name: string;
+  fullRef: string;
+  current: boolean;
+  remote: boolean;
+  upstream: string | null;
+  shortHash: string;
 };
 
 function TreeNode({
@@ -339,6 +348,10 @@ export function ProjectTreePanel({
   const [gitEntries, setGitEntries] = useState<GitChangeEntry[]>([]);
   const [gitBranch, setGitBranch] = useState<string | null>(null);
   const [gitError, setGitError] = useState<string | null>(null);
+  const [gitBranchEntries, setGitBranchEntries] = useState<GitBranchEntry[]>([]);
+  const [gitBranchesError, setGitBranchesError] = useState<string | null>(null);
+  const [gitDetachedHead, setGitDetachedHead] = useState(false);
+  const [gitHeadShortHash, setGitHeadShortHash] = useState<string | null>(null);
   const [gitHistoryEntries, setGitHistoryEntries] = useState<GitHistoryEntry[]>([]);
   const [gitHistoryError, setGitHistoryError] = useState<string | null>(null);
   const [gitActionPath, setGitActionPath] = useState<string | null>(null);
@@ -357,9 +370,10 @@ export function ProjectTreePanel({
     setGitError(null);
     try {
       const toolRecords = extractToolChangeRecords(activeSession?.messages || []);
-      const [result, branchResult, historyResult] = await Promise.all([
+      const [result, branchResult, branchesResult, historyResult] = await Promise.all([
         window.electron.getGitChanges(cwd),
         window.electron.getGitBranch(cwd),
+        window.electron.getGitBranches(cwd),
         window.electron.getGitHistory(cwd),
       ]);
       if (result.ok) {
@@ -368,6 +382,10 @@ export function ProjectTreePanel({
         setChangeRecords(enriched);
         setGitEntries(result.entries);
         setGitBranch(branchResult.ok ? branchResult.branch : null);
+        setGitBranchEntries(branchesResult.ok ? branchesResult.entries : []);
+        setGitBranchesError(branchesResult.ok ? null : branchesResult.error);
+        setGitDetachedHead(branchesResult.ok ? branchesResult.detachedHead : false);
+        setGitHeadShortHash(branchesResult.ok ? branchesResult.headShortHash : null);
         setGitHistoryEntries(historyResult.ok ? historyResult.entries : []);
         setGitHistoryError(historyResult.ok ? null : historyResult.error);
         setChangesError(null);
@@ -375,6 +393,10 @@ export function ProjectTreePanel({
         setChangeRecords(toolRecords);
         setGitEntries([]);
         setGitBranch(null);
+        setGitBranchEntries([]);
+        setGitBranchesError(null);
+        setGitDetachedHead(false);
+        setGitHeadShortHash(null);
         setGitHistoryEntries([]);
         setGitHistoryError(null);
         setChangesError(toolRecords.length > 0 ? null : 'not-a-repo');
@@ -384,6 +406,10 @@ export function ProjectTreePanel({
         setChangeRecords(toolRecords);
         setGitEntries([]);
         setGitBranch(null);
+        setGitBranchEntries([]);
+        setGitBranchesError(null);
+        setGitDetachedHead(false);
+        setGitHeadShortHash(null);
         setGitHistoryEntries([]);
         setGitHistoryError(null);
         setGitError(result.error);
@@ -393,6 +419,10 @@ export function ProjectTreePanel({
       setChangeRecords([]);
       setGitEntries([]);
       setGitBranch(null);
+      setGitBranchEntries([]);
+      setGitBranchesError(null);
+      setGitDetachedHead(false);
+      setGitHeadShortHash(null);
       setGitHistoryEntries([]);
       setGitHistoryError(null);
       setGitError('git-error');
@@ -477,6 +507,10 @@ export function ProjectTreePanel({
     setChangesError(null);
     setGitEntries([]);
     setGitBranch(null);
+    setGitBranchEntries([]);
+    setGitBranchesError(null);
+    setGitDetachedHead(false);
+    setGitHeadShortHash(null);
     setGitHistoryEntries([]);
     setGitHistoryError(null);
     setGitError(null);
@@ -1136,6 +1170,10 @@ export function ProjectTreePanel({
                 error={gitError}
                 stagedEntries={stagedGitEntries}
                 unstagedEntries={unstagedGitEntries}
+                branches={gitBranchEntries}
+                branchesError={gitBranchesError}
+                detachedHead={gitDetachedHead}
+                headShortHash={gitHeadShortHash}
                 recentCommits={gitHistoryEntries}
                 historyError={gitHistoryError}
                 actionPath={gitActionPath}
@@ -1725,6 +1763,10 @@ function GitPanel({
   error,
   stagedEntries,
   unstagedEntries,
+  branches,
+  branchesError,
+  detachedHead,
+  headShortHash,
   recentCommits,
   historyError,
   actionPath,
@@ -1743,6 +1785,10 @@ function GitPanel({
   error: string | null;
   stagedEntries: GitChangeEntry[];
   unstagedEntries: GitChangeEntry[];
+  branches: GitBranchEntry[];
+  branchesError: string | null;
+  detachedHead: boolean;
+  headShortHash: string | null;
   recentCommits: GitHistoryEntry[];
   historyError: string | null;
   actionPath: string | null;
@@ -1761,6 +1807,8 @@ function GitPanel({
   const totalChanges = stagedEntries.length + unstagedEntries.length;
   const positiveCount = [...stagedEntries, ...unstagedEntries].filter((entry) => entry.status !== 'D').length;
   const negativeCount = [...stagedEntries, ...unstagedEntries].filter((entry) => entry.status === 'D').length;
+  const localBranchCount = branches.filter((entry) => !entry.remote).length;
+  const remoteBranchCount = branches.filter((entry) => entry.remote).length;
 
   if (!cwd) {
     return (
@@ -1852,7 +1900,26 @@ function GitPanel({
               />
             </div>
           </GitFoldSection>
-          <GitFoldSection title="Branches" summary={branch || 'HEAD'} />
+          <GitFoldSection
+            title="Branches"
+            summary={
+              branchesError
+                ? 'Unavailable'
+                : detachedHead
+                  ? 'Detached HEAD'
+                  : remoteBranchCount > 0
+                    ? `${localBranchCount} local · ${remoteBranchCount} remote`
+                    : `${localBranchCount} local`
+            }
+          >
+            <GitBranchList
+              branch={branch}
+              entries={branches}
+              error={branchesError}
+              detachedHead={detachedHead}
+              headShortHash={headShortHash}
+            />
+          </GitFoldSection>
           <GitFoldSection
             title="History"
             summary={
@@ -2002,6 +2069,107 @@ function GitFileList({
   );
 }
 
+function GitBranchList({
+  branch,
+  entries,
+  error,
+  detachedHead,
+  headShortHash,
+}: {
+  branch: string | null;
+  entries: GitBranchEntry[];
+  error: string | null;
+  detachedHead: boolean;
+  headShortHash: string | null;
+}) {
+  if (error) {
+    return <div className="px-2 py-2 text-sm text-[var(--text-muted)]">Failed to load branches.</div>;
+  }
+
+  const localBranches = entries.filter((entry) => !entry.remote);
+  const remoteBranches = entries.filter((entry) => entry.remote);
+
+  if (localBranches.length === 0 && remoteBranches.length === 0) {
+    return (
+      <div className="px-2 py-2 text-sm text-[var(--text-muted)]">
+        {detachedHead ? `Detached at ${headShortHash || 'HEAD'}.` : 'No branches yet.'}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {detachedHead ? (
+        <div className="rounded-xl border border-[var(--border)]/70 bg-[var(--bg-secondary)]/55 px-3 py-2 text-[12px] text-[var(--text-muted)]">
+          Detached HEAD at <span className="font-mono text-[var(--text-secondary)]">{headShortHash || 'HEAD'}</span>
+        </div>
+      ) : null}
+      <GitBranchGroup title="Local" entries={localBranches} currentBranch={branch} />
+      {remoteBranches.length > 0 ? (
+        <GitBranchGroup title="Remote" entries={remoteBranches} currentBranch={branch} />
+      ) : null}
+    </div>
+  );
+}
+
+function GitBranchGroup({
+  title,
+  entries,
+  currentBranch,
+}: {
+  title: string;
+  entries: GitBranchEntry[];
+  currentBranch: string | null;
+}) {
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+        {title}
+      </div>
+      <div className="space-y-1">
+        {entries.map((entry) => {
+          const isCurrent = entry.current || (!entry.remote && currentBranch === entry.name);
+          return (
+            <div
+              key={entry.fullRef}
+              className={`flex items-center justify-between gap-3 rounded-xl px-2.5 py-2 text-[13px] transition-colors ${
+                isCurrent
+                  ? 'bg-[var(--bg-secondary)] text-[var(--text-primary)]'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]/55 hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <span
+                  className={`flex h-4 w-4 items-center justify-center rounded-full border ${
+                    isCurrent
+                      ? 'border-[var(--accent)]/45 bg-[var(--accent)]/12 text-[var(--accent)]'
+                      : 'border-[var(--border)] text-[var(--text-muted)]'
+                  }`}
+                >
+                  {isCurrent ? <Check className="h-3 w-3" /> : <GitBranch className="h-3 w-3" />}
+                </span>
+                <span className="truncate">{entry.name}</span>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {entry.upstream ? (
+                  <span className="max-w-[128px] truncate text-[11px] text-[var(--text-muted)]">
+                    {entry.upstream}
+                  </span>
+                ) : null}
+                <span className="font-mono text-[11px] text-[var(--text-muted)]">{entry.shortHash}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function GitHistoryList({
   entries,
   error,
@@ -2018,27 +2186,31 @@ function GitHistoryList({
   }
 
   return (
-    <div className="space-y-3">
-      {entries.map((entry) => (
+    <div className="relative ml-2 border-l border-[var(--border)]/65 pl-4">
+      {entries.map((entry, index) => (
         <div
           key={entry.hash}
-          className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-secondary)]/92 px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+          className={`group relative py-3 transition-[transform,color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:translate-x-[2px] ${index < entries.length - 1 ? 'border-b border-[var(--border)]/35' : ''}`}
         >
+          <div className="absolute -left-px top-0 h-full w-px bg-[var(--text-primary)]/0 transition-colors duration-300 group-hover:bg-[var(--text-primary)]/18" />
+          <div className="absolute -left-[27px] top-[16px] flex h-5 w-5 items-center justify-center">
+            <div className="absolute h-5 w-5 scale-75 rounded-full bg-[var(--bg-secondary)] opacity-0 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-100 group-hover:opacity-100" />
+            <div className="relative h-2 w-2 rounded-full bg-[var(--text-muted)]/75 ring-4 ring-[var(--bg-primary)] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:h-2.5 group-hover:w-2.5 group-hover:bg-[var(--text-primary)] group-hover:ring-[6px]" />
+          </div>
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[14px] font-medium text-[var(--text-primary)]">
+            <div className="min-w-0 flex-1 rounded-xl px-2 py-1 transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:bg-[var(--bg-secondary)]/72 group-hover:shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
+              <div className="truncate text-[13px] font-medium text-[var(--text-primary)] transition-colors duration-300 group-hover:text-[var(--text-primary)]">
                 {entry.subject}
               </div>
-              <div className="mt-1 flex items-center gap-2 text-[12px] text-[var(--text-muted)]">
-                <span className="truncate">{entry.authorName}</span>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-[var(--text-muted)] transition-colors duration-300 group-hover:text-[var(--text-secondary)]">
+                <span className="max-w-[160px] truncate">{entry.authorName}</span>
                 <span>•</span>
                 <span title={new Date(entry.authoredAt).toLocaleString()}>{entry.relativeTime}</span>
               </div>
             </div>
-            <div className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-1 text-[11px] font-semibold text-[var(--text-secondary)]">
-              <Clock3 className="h-3 w-3" />
-              <span>{entry.shortHash}</span>
-            </div>
+            <span className="shrink-0 px-2 pt-1 font-mono text-[11px] text-[var(--text-muted)] opacity-75 transition-[opacity,transform,color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:translate-x-0.5 group-hover:opacity-100 group-hover:text-[var(--text-secondary)]">
+              {entry.shortHash}
+            </span>
           </div>
         </div>
       ))}
