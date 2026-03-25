@@ -7,6 +7,7 @@ import {
   FileDiff,
   Files,
   FolderOpen,
+  GitCommit,
   SquareTerminal,
 } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
@@ -191,7 +192,7 @@ export function App() {
   // 历史请求记录（防止重复请求）
   const historyRequested = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
-  const [projectPanelView, setProjectPanelView] = useState<'files' | 'changes' | 'terminal'>('files');
+  const [projectPanelView, setProjectPanelView] = useState<'files' | 'changes' | 'git' | 'terminal'>('files');
   const [projectChangeCount, setProjectChangeCount] = useState(0);
 
   const { partialMessage, partialThinking, isStreaming: showPartialMessage } = useMemo(() => {
@@ -633,7 +634,7 @@ function FloatingProjectPanelDock({
   className,
   changeCount,
 }: {
-  onOpen: (view: 'files' | 'changes' | 'terminal') => void;
+  onOpen: (view: 'files' | 'changes' | 'git' | 'terminal') => void;
   className: string;
   changeCount: number;
 }) {
@@ -647,6 +648,11 @@ function FloatingProjectPanelDock({
       id: 'changes' as const,
       label: 'Changes',
       icon: FileDiff,
+    },
+    {
+      id: 'git' as const,
+      label: 'Commit',
+      icon: GitCommit,
     },
     {
       id: 'terminal' as const,

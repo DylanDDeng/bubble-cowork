@@ -278,8 +278,32 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-git-changes', cwd);
   },
 
+  getGitBranch: (cwd: string) => {
+    return ipcRenderer.invoke('get-git-branch', cwd);
+  },
+
   getGitDiff: (cwd: string, filePath: string) => {
     return ipcRenderer.invoke('get-git-diff', cwd, filePath);
+  },
+
+  gitStagePath: (cwd: string, filePath: string) => {
+    return ipcRenderer.invoke('git-stage-path', cwd, filePath);
+  },
+
+  gitUnstagePath: (cwd: string, filePath: string) => {
+    return ipcRenderer.invoke('git-unstage-path', cwd, filePath);
+  },
+
+  gitDiscardPath: (cwd: string, filePath: string, status?: string) => {
+    return ipcRenderer.invoke('git-discard-path', cwd, filePath, status);
+  },
+
+  gitCommit: (cwd: string, message: string) => {
+    return ipcRenderer.invoke('git-commit', cwd, message);
+  },
+
+  gitPush: (cwd: string) => {
+    return ipcRenderer.invoke('git-push', cwd);
   },
 
   // 订阅系统统计（预留）

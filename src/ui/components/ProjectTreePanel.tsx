@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Files as FilesIcon, FileDiff, SquareTerminal } from 'lucide-react';
+import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Files as FilesIcon, FileDiff, SquareTerminal, GitBranch, GitCommit, Minus, Undo2, Upload, Clock3, FolderGit2 } from 'lucide-react';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
+import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { MDContent } from '../render/markdown';
 import { HighlightedCode } from './HighlightedCode';
@@ -10,6 +11,7 @@ import {
   applyTextMetaToChangeRecord,
   extractToolChangeRecords,
   getOperationLabel,
+  type GitChangeEntry,
   mergeChangeRecords,
   summarizeChangeRecords,
   type ChangeOperation,
@@ -273,8 +275,8 @@ export function ProjectTreePanel({
   onChangeCountChange,
 }: {
   collapsed?: boolean;
-  activeTab: 'files' | 'changes' | 'terminal';
-  onChangeTab: (tab: 'files' | 'changes' | 'terminal') => void;
+  activeTab: 'files' | 'changes' | 'git' | 'terminal';
+  onChangeTab: (tab: 'files' | 'changes' | 'git' | 'terminal') => void;
   onClose: () => void;
   onChangeCountChange?: (count: number) => void;
 }) {
@@ -325,6 +327,13 @@ export function ProjectTreePanel({
   const [changesError, setChangesError] = useState<string | null>(null);
   const [changesLoading, setChangesLoading] = useState(false);
   const [expandedChangeId, setExpandedChangeId] = useState<string | null>(null);
+  const [gitEntries, setGitEntries] = useState<GitChangeEntry[]>([]);
+  const [gitBranch, setGitBranch] = useState<string | null>(null);
+  const [gitError, setGitError] = useState<string | null>(null);
+  const [gitActionPath, setGitActionPath] = useState<string | null>(null);
+  const [gitCommitMessage, setGitCommitMessage] = useState('');
+  const [gitCommitLoading, setGitCommitLoading] = useState(false);
+  const [gitPushLoading, setGitPushLoading] = useState(false);
 
   const activeCwd = activeSessionId ? sessions[activeSessionId]?.cwd : null;
   const cwd = activeCwd || projectCwd || null;
@@ -334,24 +343,39 @@ export function ProjectTreePanel({
     const startedAt = Date.now();
     setChangesLoading(true);
     setChangesError(null);
+    setGitError(null);
     try {
       const toolRecords = extractToolChangeRecords(activeSession?.messages || []);
-      const result = await window.electron.getGitChanges(cwd);
+      const [result, branchResult] = await Promise.all([
+        window.electron.getGitChanges(cwd),
+        window.electron.getGitBranch(cwd),
+      ]);
       if (result.ok) {
         const merged = mergeChangeRecords(toolRecords, result.entries);
         const enriched = await enrichChangeRecords(cwd, merged);
         setChangeRecords(enriched);
+        setGitEntries(result.entries);
+        setGitBranch(branchResult.ok ? branchResult.branch : null);
         setChangesError(null);
       } else if (result.error === 'not-a-repo') {
         setChangeRecords(toolRecords);
+        setGitEntries([]);
+        setGitBranch(null);
         setChangesError(toolRecords.length > 0 ? null : 'not-a-repo');
+        setGitError(toolRecords.length > 0 ? null : 'not-a-repo');
       } else {
         setChangesError(result.error);
         setChangeRecords(toolRecords);
+        setGitEntries([]);
+        setGitBranch(null);
+        setGitError(result.error);
       }
     } catch {
       setChangesError('git-error');
       setChangeRecords([]);
+      setGitEntries([]);
+      setGitBranch(null);
+      setGitError('git-error');
     } finally {
       const elapsed = Date.now() - startedAt;
       const remaining = Math.max(MIN_CHANGES_SPINNER_MS - elapsed, 0);
@@ -431,11 +455,98 @@ export function ProjectTreePanel({
 
     setChangeRecords([]);
     setChangesError(null);
+    setGitEntries([]);
+    setGitBranch(null);
+    setGitError(null);
   }, [cwd, messageCount, sessionStatus, projectTreeCwd, projectTree]);
 
   useEffect(() => {
     onChangeCountChange?.(changeRecords.length);
   }, [changeRecords.length, onChangeCountChange]);
+
+  const stagedGitEntries = useMemo(
+    () => gitEntries.filter((entry) => entry.staged),
+    [gitEntries]
+  );
+  const unstagedGitEntries = useMemo(
+    () => gitEntries.filter((entry) => !entry.staged),
+    [gitEntries]
+  );
+
+  const runGitAction = async (
+    filePath: string,
+    action: () => Promise<{ ok: boolean; message?: string }>
+  ) => {
+    setGitActionPath(filePath);
+    try {
+      const result = await action();
+      if (!result.ok) {
+        toast.error(result.message || 'Git operation failed.');
+        return;
+      }
+      await loadChangeRecords();
+      if (selectedGitPath === filePath) {
+        setSelectedGitPath(filePath);
+      }
+    } finally {
+      setGitActionPath((current) => (current === filePath ? null : current));
+    }
+  };
+
+  const handleGitCommit = async (mode: 'commit' | 'commit_push') => {
+    if (!cwd) {
+      return;
+    }
+
+    setGitCommitLoading(true);
+    try {
+      for (const entry of unstagedGitEntries) {
+        const stageResult = await window.electron.gitStagePath(cwd, entry.filePath);
+        if (!stageResult.ok) {
+          toast.error(stageResult.message || `Failed to stage ${entry.filePath}.`);
+          return;
+        }
+      }
+
+      const result = await window.electron.gitCommit(cwd, gitCommitMessage.trim());
+      if (!result.ok) {
+        toast.error(result.message || 'Commit failed.');
+        return;
+      }
+
+      if (mode === 'commit_push') {
+        const pushResult = await window.electron.gitPush(cwd);
+        if (!pushResult.ok) {
+          toast.error(pushResult.message || 'Push failed.');
+          return;
+        }
+      }
+
+      setGitCommitMessage('');
+      toast.success(mode === 'commit_push' ? 'Commit and push completed.' : 'Commit created.');
+      await loadChangeRecords();
+    } finally {
+      setGitCommitLoading(false);
+    }
+  };
+
+  const handleGitPush = async () => {
+    if (!cwd) {
+      return;
+    }
+    setGitPushLoading(true);
+    try {
+      const result = await window.electron.gitPush(cwd);
+      if (!result.ok) {
+        toast.error(result.message || 'Push failed.');
+        return;
+      }
+      toast.success('Push completed.');
+      await loadChangeRecords();
+    } finally {
+      setGitPushLoading(false);
+    }
+  };
 
   useEffect(() => {
     latestPanelWidthRef.current = panelWidth;
@@ -861,6 +972,20 @@ export function ProjectTreePanel({
               )}
             </button>
             <button
+              onClick={() => { onChangeTab('git'); setSelectedFilePath(null); setSelectedPreview(null); }}
+              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${
+                activeTab === 'git'
+                  ? 'text-[var(--tree-file-accent-fg)] bg-[var(--tree-file-accent-fg)]/10'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+              }`}
+            >
+              <GitCommit className="h-3.5 w-3.5" strokeWidth={2} />
+              <span>Commit</span>
+              {gitEntries.length > 0 && (
+                <span className="ml-0.5 text-[9px] opacity-70">{gitEntries.length}</span>
+              )}
+            </button>
+            <button
               onClick={() => { onChangeTab('terminal'); setSelectedFilePath(null); setSelectedPreview(null); }}
               className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${
                 activeTab === 'terminal'
@@ -883,6 +1008,21 @@ export function ProjectTreePanel({
                   } disabled:opacity-70`}
                   title="Refresh changes"
                   aria-label="Refresh changes"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${changesLoading ? 'animate-spin' : ''}`} />
+                </button>
+              )}
+              {activeTab === 'git' && (
+                <button
+                  onClick={() => void loadChangeRecords()}
+                  disabled={changesLoading}
+                  className={`rounded-[10px] border p-1.5 transition-all ${
+                    changesLoading
+                      ? 'cursor-wait border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] shadow-sm'
+                      : 'border-transparent text-[var(--text-muted)] hover:border-[var(--border)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] active:scale-[0.97]'
+                  } disabled:opacity-70`}
+                  title="Refresh git state"
+                  aria-label="Refresh git state"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${changesLoading ? 'animate-spin' : ''}`} />
                 </button>
@@ -965,10 +1105,28 @@ export function ProjectTreePanel({
                   />
                 ))}
               </>
-            ) : (
+            ) : activeTab === 'terminal' ? (
               <SessionTerminal
                 sessionId={activeSessionId}
                 cwd={cwd}
+              />
+            ) : (
+              <GitPanel
+                cwd={cwd}
+                branch={gitBranch}
+                error={gitError}
+                stagedEntries={stagedGitEntries}
+                unstagedEntries={unstagedGitEntries}
+                actionPath={gitActionPath}
+                onStage={(filePath) => void runGitAction(filePath, () => window.electron.gitStagePath(cwd || '', filePath))}
+                onUnstage={(filePath) => void runGitAction(filePath, () => window.electron.gitUnstagePath(cwd || '', filePath))}
+                onDiscard={(filePath, status) => void runGitAction(filePath, () => window.electron.gitDiscardPath(cwd || '', filePath, status))}
+                commitMessage={gitCommitMessage}
+                onCommitMessageChange={setGitCommitMessage}
+                onCommit={(mode) => void handleGitCommit(mode)}
+                commitLoading={gitCommitLoading}
+                onPush={() => void handleGitPush()}
+                pushLoading={gitPushLoading}
               />
             )}
           </div>
@@ -1535,6 +1693,382 @@ function ChangeSummaryHeader({
         {summary.totalSizeBytes > 0 && (
           <span className="text-[var(--text-muted)]">{formatBytes(summary.totalSizeBytes)}</span>
         )}
+      </div>
+    </div>
+  );
+}
+
+function GitPanel({
+  cwd,
+  branch,
+  error,
+  stagedEntries,
+  unstagedEntries,
+  actionPath,
+  onStage,
+  onUnstage,
+  onDiscard,
+  commitMessage,
+  onCommitMessageChange,
+  onCommit,
+  commitLoading,
+  onPush,
+  pushLoading,
+}: {
+  cwd: string | null;
+  branch: string | null;
+  error: string | null;
+  stagedEntries: GitChangeEntry[];
+  unstagedEntries: GitChangeEntry[];
+  actionPath: string | null;
+  onStage: (filePath: string) => void;
+  onUnstage: (filePath: string) => void;
+  onDiscard: (filePath: string, status: string) => void;
+  commitMessage: string;
+  onCommitMessageChange: (value: string) => void;
+  onCommit: (mode: 'commit' | 'commit_push') => void;
+  commitLoading: boolean;
+  onPush: () => void;
+  pushLoading: boolean;
+}) {
+  const [commitOpen, setCommitOpen] = useState(false);
+  const [commitMode, setCommitMode] = useState<'commit' | 'commit_push'>('commit');
+  const totalChanges = stagedEntries.length + unstagedEntries.length;
+  const positiveCount = [...stagedEntries, ...unstagedEntries].filter((entry) => entry.status !== 'D').length;
+  const negativeCount = [...stagedEntries, ...unstagedEntries].filter((entry) => entry.status === 'D').length;
+
+  if (!cwd) {
+    return (
+      <div className="px-1 py-2 text-sm text-[var(--text-muted)]">
+        Select a folder to use Git.
+      </div>
+    );
+  }
+
+  if (error === 'not-a-repo') {
+    return (
+      <div className="px-1 py-2 text-sm text-[var(--text-muted)]">
+        This folder is not a git repository.
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="px-1 py-2 text-sm text-[var(--text-muted)]">
+        Failed to read git state.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="border-b border-[var(--border)] px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-[13px] font-medium text-[var(--text-primary)]">
+            <GitBranch className="h-4 w-4 text-[var(--text-secondary)]" />
+            <span>{branch || 'HEAD'}</span>
+            <span className="text-[var(--text-muted)]">•</span>
+            <span className="font-medium text-[#D97706]">{totalChanges}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCommitOpen(true)}
+              disabled={commitLoading}
+              className="inline-flex items-center gap-2 rounded-[12px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+            >
+              <GitCommit className="h-4 w-4" />
+              <span>Commit All</span>
+            </button>
+            <button
+              type="button"
+              onClick={onPush}
+              disabled={pushLoading}
+              className="inline-flex items-center gap-2 rounded-[12px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+            >
+              <Upload className="h-4 w-4" />
+              <span>{pushLoading ? 'Pushing…' : 'Push'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-auto px-4 py-4">
+        <div className="space-y-4">
+          <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+            Git
+          </div>
+          <GitFoldSection
+            title="Status"
+            defaultOpen
+            summary={`${totalChanges} changes`}
+          >
+            <div className="space-y-3">
+              <div className="flex items-center gap-4 text-sm">
+                <span className="font-medium text-[#159D6C]">+{positiveCount}</span>
+                <span className="font-medium text-[#D1435B]">-{negativeCount}</span>
+              </div>
+              <GitFileList
+                entries={stagedEntries}
+                emptyMessage="Nothing staged."
+                actionPath={actionPath}
+                primaryActionLabel="Unstage"
+                onPrimaryAction={(entry) => onUnstage(entry.filePath)}
+              />
+              <GitFileList
+                entries={unstagedEntries}
+                emptyMessage="Working tree clean."
+                actionPath={actionPath}
+                primaryActionLabel="Stage"
+                onPrimaryAction={(entry) => onStage(entry.filePath)}
+                onSecondaryAction={(entry) => onDiscard(entry.filePath, entry.status)}
+                secondaryActionLabel="Discard"
+              />
+            </div>
+          </GitFoldSection>
+          <GitFoldSection title="Branches" summary={branch || 'HEAD'} />
+          <GitFoldSection title="History" summary="Recent commits" />
+          <GitFoldSection title="Worktrees" summary="Default workspace" />
+        </div>
+      </div>
+
+      {commitOpen ? (
+        <CommitModal
+          branch={branch}
+          changeCount={totalChanges}
+          positiveCount={positiveCount}
+          negativeCount={negativeCount}
+          commitMessage={commitMessage}
+          onCommitMessageChange={onCommitMessageChange}
+          mode={commitMode}
+          onModeChange={setCommitMode}
+          onClose={() => setCommitOpen(false)}
+          onSubmit={() => {
+            onCommit(commitMode);
+            setCommitOpen(false);
+          }}
+          loading={commitLoading}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function GitFoldSection({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  summary?: string;
+  defaultOpen?: boolean;
+  children?: ReactNode;
+}) {
+  const [open, setOpen] = useState(Boolean(defaultOpen));
+
+  return (
+    <div className="border-b border-[var(--border)]/75">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="flex w-full items-center justify-between py-3 text-left"
+      >
+        <div className="flex items-center gap-2 text-[14px] font-semibold text-[var(--text-secondary)]">
+          <ChevronRight className={`h-4 w-4 transition-transform ${open ? 'rotate-90' : ''}`} />
+          <span>{title}</span>
+        </div>
+        {summary ? <span className="text-sm text-[var(--text-muted)]">{summary}</span> : null}
+      </button>
+      {open && children ? <div className="pb-3">{children}</div> : null}
+    </div>
+  );
+}
+
+function GitFileList({
+  entries,
+  emptyMessage,
+  actionPath,
+  primaryActionLabel,
+  onPrimaryAction,
+  secondaryActionLabel,
+  onSecondaryAction,
+}: {
+  entries: GitChangeEntry[];
+  emptyMessage: string;
+  actionPath: string | null;
+  primaryActionLabel: string;
+  onPrimaryAction: (entry: GitChangeEntry) => void;
+  secondaryActionLabel?: string;
+  onSecondaryAction?: (entry: GitChangeEntry) => void;
+}) {
+  if (entries.length === 0) {
+    return <div className="px-2 py-2 text-sm text-[var(--text-muted)]">{emptyMessage}</div>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {entries.map((entry) => {
+        const busy = actionPath === entry.filePath;
+        return (
+          <div
+            key={`${entry.filePath}:${entry.staged ? 'staged' : 'unstaged'}`}
+            className="flex items-center gap-3 rounded-[18px] border border-[var(--border)] bg-[var(--bg-secondary)]/92 px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+          >
+            <div className="min-w-0 flex-1 text-left">
+              <div className="truncate text-[15px] font-medium text-[var(--text-primary)]">
+                {entry.filePath}
+              </div>
+              <div className="mt-1 flex items-center gap-3 text-[13px]">
+                {entry.status === '?' ? (
+                  <span className="font-medium text-[#159D6C]">New</span>
+                ) : null}
+                {entry.status === 'A' ? (
+                  <span className="font-medium text-[#159D6C]">Added</span>
+                ) : null}
+                {entry.status === 'M' ? (
+                  <span className="font-medium text-[#159D6C]">Modified</span>
+                ) : null}
+                {entry.status === 'D' ? (
+                  <span className="font-medium text-[#D1435B]">Deleted</span>
+                ) : null}
+                {entry.status === 'R' ? (
+                  <span className="font-medium text-[#159D6C]">Renamed</span>
+                ) : null}
+              </div>
+            </div>
+            {secondaryActionLabel && onSecondaryAction ? (
+              <button
+                type="button"
+                onClick={() => onSecondaryAction(entry)}
+                disabled={busy}
+                className="inline-flex items-center gap-1 rounded-[10px] border border-[var(--border)] px-2.5 py-1.5 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+              >
+                <Undo2 className="h-3 w-3" />
+                <span>↩</span>
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => onPrimaryAction(entry)}
+              disabled={busy}
+              className="inline-flex items-center gap-1 rounded-[10px] border border-[var(--border)] px-2.5 py-1.5 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+            >
+              {primaryActionLabel === 'Stage' ? <GitBranch className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
+              <span>{busy ? 'Working…' : primaryActionLabel}</span>
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CommitModal({
+  branch,
+  changeCount,
+  positiveCount,
+  negativeCount,
+  commitMessage,
+  onCommitMessageChange,
+  mode,
+  onModeChange,
+  onClose,
+  onSubmit,
+  loading,
+}: {
+  branch: string | null;
+  changeCount: number;
+  positiveCount: number;
+  negativeCount: number;
+  commitMessage: string;
+  onCommitMessageChange: (value: string) => void;
+  mode: 'commit' | 'commit_push';
+  onModeChange: (value: 'commit' | 'commit_push') => void;
+  onClose: () => void;
+  onSubmit: () => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="absolute inset-0 z-40 flex items-center justify-center bg-[rgba(15,23,42,0.14)] p-4 backdrop-blur-[1px]">
+      <div className="w-full max-w-[420px] overflow-hidden rounded-[22px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)]">
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+          <div className="text-[18px] font-semibold text-[var(--text-primary)]">Commit changes</div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-4 px-4 py-4">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <div className="text-[var(--text-secondary)]">Branch</div>
+            <div className="flex items-center gap-2 font-medium text-[var(--text-primary)]">
+              <GitBranch className="h-4 w-4 text-[var(--text-secondary)]" />
+              <span>{branch || 'HEAD'}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <div className="text-[var(--text-secondary)]">Changes</div>
+            <div className="flex items-center gap-3">
+              <span className="text-[var(--text-muted)]">{changeCount} files</span>
+              <span className="font-medium text-[#159D6C]">+{positiveCount}</span>
+              <span className="font-medium text-[#D1435B]">-{negativeCount}</span>
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-[16px] border border-[var(--border)] bg-[var(--bg-secondary)]/92">
+            <textarea
+              value={commitMessage}
+              onChange={(event) => onCommitMessageChange(event.target.value)}
+              placeholder="Commit message..."
+              rows={4}
+              className="w-full resize-none border-0 bg-transparent px-4 py-4 text-[16px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+            />
+          </div>
+
+          <div className="space-y-2 rounded-[16px] border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-3">
+            <label className="flex items-center gap-3 text-[15px] text-[var(--text-primary)]">
+              <input
+                type="radio"
+                checked={mode === 'commit'}
+                onChange={() => onModeChange('commit')}
+              />
+              <span>Commit</span>
+            </label>
+            <label className="flex items-center gap-3 text-[15px] text-[var(--text-primary)]">
+              <input
+                type="radio"
+                checked={mode === 'commit_push'}
+                onChange={() => onModeChange('commit_push')}
+              />
+              <span>Commit & Push</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 border-t border-[var(--border)] px-4 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center justify-center rounded-[12px] px-4 py-2 text-[15px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)]"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={loading || !commitMessage.trim()}
+            className="inline-flex min-w-[132px] items-center justify-center rounded-[12px] bg-[var(--accent)] px-4 py-2 text-[15px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading ? 'Working…' : mode === 'commit_push' ? 'Commit & Push' : 'Commit'}
+          </button>
+        </div>
       </div>
     </div>
   );

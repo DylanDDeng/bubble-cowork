@@ -2005,6 +2005,131 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       return '';
     }
   });
+
+  ipcMainHandle('get-git-branch', async (_event, cwd: string) => {
+    if (!cwd) return { ok: false, branch: null, message: 'no-cwd' };
+    try {
+      const { stdout } = await execFileAsync('git', ['branch', '--show-current'], {
+        cwd,
+        timeout: 5000,
+      });
+      return { ok: true, branch: stdout.trim() || 'HEAD' };
+    } catch (error) {
+      return {
+        ok: false,
+        branch: null,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  ipcMainHandle('git-stage-path', async (_event, cwd: string, filePath: string) => {
+    if (!cwd || !filePath) return { ok: false, message: 'Missing cwd or file path.' };
+    try {
+      await execFileAsync('git', ['add', '--', filePath], {
+        cwd,
+        timeout: 10000,
+        maxBuffer: 2 * 1024 * 1024,
+      });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMainHandle('git-unstage-path', async (_event, cwd: string, filePath: string) => {
+    if (!cwd || !filePath) return { ok: false, message: 'Missing cwd or file path.' };
+    try {
+      await execFileAsync('git', ['restore', '--staged', '--', filePath], {
+        cwd,
+        timeout: 10000,
+        maxBuffer: 2 * 1024 * 1024,
+      });
+      return { ok: true };
+    } catch {
+      try {
+        await execFileAsync('git', ['reset', 'HEAD', '--', filePath], {
+          cwd,
+          timeout: 10000,
+          maxBuffer: 2 * 1024 * 1024,
+        });
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  });
+
+  ipcMainHandle('git-discard-path', async (_event, cwd: string, filePath: string, status?: string) => {
+    if (!cwd || !filePath) return { ok: false, message: 'Missing cwd or file path.' };
+
+    try {
+      if (status === '?') {
+        await execFileAsync('git', ['clean', '-f', '--', filePath], {
+          cwd,
+          timeout: 10000,
+          maxBuffer: 2 * 1024 * 1024,
+        });
+        return { ok: true };
+      }
+
+      try {
+        await execFileAsync('git', ['restore', '--staged', '--worktree', '--', filePath], {
+          cwd,
+          timeout: 10000,
+          maxBuffer: 2 * 1024 * 1024,
+        });
+      } catch {
+        await execFileAsync('git', ['reset', 'HEAD', '--', filePath], {
+          cwd,
+          timeout: 10000,
+          maxBuffer: 2 * 1024 * 1024,
+        });
+        await execFileAsync('git', ['checkout', '--', filePath], {
+          cwd,
+          timeout: 10000,
+          maxBuffer: 2 * 1024 * 1024,
+        });
+      }
+
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMainHandle('git-commit', async (_event, cwd: string, message: string) => {
+    const trimmed = message.trim();
+    if (!cwd || !trimmed) return { ok: false, message: 'Commit message cannot be empty.' };
+    try {
+      const { stdout, stderr } = await execFileAsync('git', ['commit', '-m', trimmed], {
+        cwd,
+        timeout: 120000,
+        maxBuffer: 4 * 1024 * 1024,
+      });
+      return { ok: true, output: `${stdout}${stderr}`.trim() };
+    } catch (error) {
+      const err = error as { stdout?: string; stderr?: string; message?: string };
+      const combined = [err.stderr, err.stdout, err.message].filter(Boolean).join('\n').trim();
+      return { ok: false, message: combined || 'git commit failed.' };
+    }
+  });
+
+  ipcMainHandle('git-push', async (_event, cwd: string) => {
+    if (!cwd) return { ok: false, message: 'Missing cwd.' };
+    try {
+      const { stdout, stderr } = await execFileAsync('git', ['push'], {
+        cwd,
+        timeout: 120000,
+        maxBuffer: 4 * 1024 * 1024,
+      });
+      return { ok: true, output: `${stdout}${stderr}`.trim() };
+    } catch (error) {
+      const err = error as { stdout?: string; stderr?: string; message?: string };
+      const combined = [err.stderr, err.stdout, err.message].filter(Boolean).join('\n').trim();
+      return { ok: false, message: combined || 'git push failed.' };
+    }
+  });
 }
 
 // 处理客户端事件
