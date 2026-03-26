@@ -725,25 +725,6 @@ export function PromptInput() {
               }}
             />
 
-            {provider === 'claude' && (
-              <ClaudeAccessModePicker
-                value={selectedClaudeAccessMode}
-                onChange={setSelectedClaudeAccessMode}
-                disabled={isRunning}
-              />
-            )}
-
-            {provider === 'codex' && (
-              <CodexPermissionModePicker
-                value={selectedCodexPermissionMode}
-                onChange={(mode) => {
-                  setSelectedCodexPermissionMode(mode);
-                  savePreferredCodexPermissionMode(mode);
-                }}
-                disabled={isRunning}
-              />
-            )}
-
             <SavePromptButton content={promptLibraryContent} disabled={isRunning} />
 
             <div className="relative">
@@ -816,7 +797,29 @@ export function PromptInput() {
             )}
           </div>
         </div>
-
+        {(provider === 'claude' || provider === 'codex') && (
+          <div className="flex items-center justify-start gap-3 px-2 pt-2 text-[12px]">
+            <span className="text-[var(--text-muted)]">
+              {provider === 'claude' ? 'Access' : 'Permission'}
+            </span>
+            {provider === 'claude' ? (
+              <ClaudeAccessModePicker
+                value={selectedClaudeAccessMode}
+                onChange={setSelectedClaudeAccessMode}
+                disabled={isRunning}
+              />
+            ) : (
+              <CodexPermissionModePicker
+                value={selectedCodexPermissionMode}
+                onChange={(mode) => {
+                  setSelectedCodexPermissionMode(mode);
+                  savePreferredCodexPermissionMode(mode);
+                }}
+                disabled={isRunning}
+              />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

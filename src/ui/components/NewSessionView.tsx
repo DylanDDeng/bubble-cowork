@@ -623,25 +623,6 @@ export function NewSessionView() {
               }}
             />
 
-              {provider === 'claude' && (
-                <ClaudeAccessModePicker
-                  value={claudeAccessMode}
-                  onChange={setClaudeAccessMode}
-                  disabled={pendingStart}
-                />
-              )}
-
-              {provider === 'codex' && (
-                <CodexPermissionModePicker
-                  value={selectedCodexPermissionMode}
-                  onChange={(mode) => {
-                    setSelectedCodexPermissionMode(mode);
-                    savePreferredCodexPermissionMode(mode);
-                  }}
-                  disabled={pendingStart}
-                />
-              )}
-
               <SavePromptButton content={promptLibraryContent} disabled={pendingStart} />
 
               <div className="relative no-drag">
@@ -702,9 +683,31 @@ export function NewSessionView() {
                 )}
               </button>
             </div>
-            </div>
-
           </div>
+          {(provider === 'claude' || provider === 'codex') && (
+            <div className="flex items-center justify-start gap-3 px-2 pt-2 text-[12px]">
+              <span className="text-[var(--text-muted)]">
+                {provider === 'claude' ? 'Access' : 'Permission'}
+              </span>
+              {provider === 'claude' ? (
+                <ClaudeAccessModePicker
+                  value={claudeAccessMode}
+                  onChange={setClaudeAccessMode}
+                  disabled={pendingStart}
+                />
+              ) : (
+                <CodexPermissionModePicker
+                  value={selectedCodexPermissionMode}
+                  onChange={(mode) => {
+                    setSelectedCodexPermissionMode(mode);
+                    savePreferredCodexPermissionMode(mode);
+                  }}
+                  disabled={pendingStart}
+                />
+              )}
+            </div>
+          )}
+        </div>
         </div>
       </div>
     </div>
