@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
@@ -44,6 +44,8 @@ export function NewSessionView() {
     setProjectCwd,
     promptLibraryInsertRequest,
     consumePromptLibraryInsert,
+    fontSelections,
+    importedFonts,
   } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -163,12 +165,45 @@ export function NewSessionView() {
     return () => window.clearTimeout(timer);
   }, [showCwdHint]);
 
-  useEffect(() => {
-    if (promptTextareaRef.current) {
-      promptTextareaRef.current.style.height = 'auto';
-      promptTextareaRef.current.style.height = `${Math.min(promptTextareaRef.current.scrollHeight, 200)}px`;
+  const resizePromptTextarea = useCallback(() => {
+    if (!promptTextareaRef.current) {
+      return;
     }
-  }, [prompt]);
+
+    promptTextareaRef.current.style.height = 'auto';
+    promptTextareaRef.current.style.height = `${Math.min(promptTextareaRef.current.scrollHeight, 200)}px`;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const frameId = window.requestAnimationFrame(() => {
+      if (!cancelled) {
+        resizePromptTextarea();
+      }
+    });
+
+    resizePromptTextarea();
+
+    if (document.fonts?.ready) {
+      document.fonts.ready.then(() => {
+        if (!cancelled) {
+          resizePromptTextarea();
+        }
+      }).catch(() => undefined);
+    }
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [
+    fontSelections,
+    importedFonts,
+    resizePromptTextarea,
+    skillAutocomplete.displayPrompt,
+    skillAutocomplete.selectedCommand,
+    skillAutocomplete.selectedSkill,
+  ]);
 
   const buildDispatchPrompt = async (): Promise<string | null> => {
     if (skillAutocomplete.selectedSkill) {

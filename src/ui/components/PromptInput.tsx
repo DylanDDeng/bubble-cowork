@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Paperclip, Plus, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
@@ -58,6 +58,8 @@ export function PromptInput() {
     setShowNewSession,
     promptLibraryInsertRequest,
     consumePromptLibraryInsert,
+    fontSelections,
+    importedFonts,
   } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -400,14 +402,46 @@ export function PromptInput() {
     opencodeModelOptions,
   ]);
 
-
-  // 自动调整高度
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+  const resizeTextarea = useCallback(() => {
+    if (!textareaRef.current) {
+      return;
     }
-  }, [prompt]);
+
+    textareaRef.current.style.height = 'auto';
+    textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const frameId = window.requestAnimationFrame(() => {
+      if (!cancelled) {
+        resizeTextarea();
+      }
+    });
+
+    resizeTextarea();
+
+    if (document.fonts?.ready) {
+      document.fonts.ready.then(() => {
+        if (!cancelled) {
+          resizeTextarea();
+        }
+      }).catch(() => undefined);
+    }
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [
+    activeSessionId,
+    fontSelections,
+    importedFonts,
+    resizeTextarea,
+    skillAutocomplete.displayPrompt,
+    skillAutocomplete.selectedCommand,
+    skillAutocomplete.selectedSkill,
+  ]);
 
   const buildDispatchPrompt = async (): Promise<string | null> => {
     if (skillAutocomplete.selectedSkill) {
