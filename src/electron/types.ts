@@ -32,6 +32,7 @@ export interface SessionRow {
   betas: string | null;
   claude_access_mode: import('../shared/types').ClaudeAccessMode | null;
   codex_permission_mode: import('../shared/types').CodexPermissionMode | null;
+  opencode_permission_mode: import('../shared/types').OpenCodePermissionMode | null;
   status: string;
   cwd: string | null;
   allowed_tools: string | null;
@@ -62,6 +63,7 @@ export interface RunnerOptions {
   betas?: string[];
   claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
   codexPermissionMode?: import('../shared/types').CodexPermissionMode;
+  opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   onMessage: (message: import('../shared/types').StreamMessage) => void;
   onError?: (error: Error) => void;
   onPermissionRequest: (

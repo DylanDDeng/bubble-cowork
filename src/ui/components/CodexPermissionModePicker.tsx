@@ -61,7 +61,7 @@ const MODE_META: Record<
   }
 > = {
   defaultPermissions: {
-    label: 'Default Permissions',
+    label: 'Default',
     icon: Shield,
   },
   fullAccess: {

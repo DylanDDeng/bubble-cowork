@@ -470,6 +470,7 @@ export const useAppStore = create<Store>()(
       partialize: (state) => ({
         activeWorkspace: state.activeWorkspace,
         chatSidebarView: state.chatSidebarView,
+        sidebarCollapsed: state.sidebarCollapsed,
         sidebarWidth: state.sidebarWidth,
         theme: state.theme,
         colorThemeId: state.colorThemeId,
@@ -479,6 +480,7 @@ export const useAppStore = create<Store>()(
         const persisted = persistedState as {
           activeWorkspace?: ActiveWorkspace;
           chatSidebarView?: ChatSidebarView;
+          sidebarCollapsed?: boolean;
           sidebarWidth?: number;
           theme?: Theme;
           colorThemeId?: ColorThemeId;
@@ -498,6 +500,7 @@ export const useAppStore = create<Store>()(
           ...currentState,
           activeWorkspace: persisted?.activeWorkspace === 'skills' ? 'skills' : 'chat',
           chatSidebarView: persisted?.chatSidebarView || currentState.chatSidebarView,
+          sidebarCollapsed: persisted?.sidebarCollapsed ?? currentState.sidebarCollapsed,
           sidebarWidth: sanitizeSidebarWidth(persisted?.sidebarWidth, currentState.sidebarWidth),
           theme,
           colorThemeId,
@@ -546,6 +549,7 @@ function handleSessionList(
       betas: session.betas,
       claudeAccessMode: normalizeClaudeAccessMode(session.claudeAccessMode),
       codexPermissionMode: session.codexPermissionMode,
+      opencodePermissionMode: session.opencodePermissionMode,
       todoState: session.todoState || 'todo',
       pinned: session.pinned || false,
       folderPath: session.folderPath || null,
@@ -598,6 +602,7 @@ function handleSessionStatus(
     betas?: SessionInfo['betas'];
     claudeAccessMode?: SessionInfo['claudeAccessMode'];
     codexPermissionMode?: SessionInfo['codexPermissionMode'];
+    opencodePermissionMode?: SessionInfo['opencodePermissionMode'];
     hiddenFromThreads?: boolean;
   },
   set: SetState,
@@ -614,6 +619,7 @@ function handleSessionStatus(
     betas,
     claudeAccessMode,
     codexPermissionMode,
+    opencodePermissionMode,
     hiddenFromThreads,
   } = payload;
   const state = get();
@@ -651,6 +657,10 @@ function handleSessionStatus(
               : normalizeClaudeAccessMode(session.claudeAccessMode),
           codexPermissionMode:
             codexPermissionMode !== undefined ? codexPermissionMode : session.codexPermissionMode,
+          opencodePermissionMode:
+            opencodePermissionMode !== undefined
+              ? opencodePermissionMode
+              : session.opencodePermissionMode,
           hiddenFromThreads:
             hiddenFromThreads !== undefined ? hiddenFromThreads : session.hiddenFromThreads,
           latestClaudeModelUsage: session.latestClaudeModelUsage,
@@ -676,6 +686,7 @@ function handleSessionStatus(
       betas,
       claudeAccessMode: normalizeClaudeAccessMode(claudeAccessMode),
       codexPermissionMode,
+      opencodePermissionMode,
       hiddenFromThreads: hiddenFromThreads === true,
       latestClaudeModelUsage: undefined,
       messages: [],

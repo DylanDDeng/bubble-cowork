@@ -10,6 +10,7 @@ import type {
   ClaudeAccessMode,
   ClaudeCompatibleProviderId,
   CodexPermissionMode,
+  OpenCodePermissionMode,
   ClaudeModelUsage,
   LatestClaudeModelUsage,
   ClaudeUsageModelSummary,
@@ -36,9 +37,23 @@ let claudeUsageReportDataVersion = 0;
 let codexUsageReportDataVersion = 0;
 let opencodeUsageReportDataVersion = 0;
 
+function normalizeClaudeAccessMode(
+  value?: string | null
+): ClaudeAccessMode {
+  return value === 'fullAccess' ? 'fullAccess' : 'default';
+}
+
 function normalizeCodexPermissionMode(
   value?: string | null
 ): CodexPermissionMode {
+  return value === 'fullAccess' || value === 'fullAuto'
+    ? 'fullAccess'
+    : 'defaultPermissions';
+}
+
+function normalizeOpenCodePermissionMode(
+  value?: string | null
+): OpenCodePermissionMode {
   return value === 'fullAccess' || value === 'fullAuto'
     ? 'fullAccess'
     : 'defaultPermissions';
@@ -66,6 +81,7 @@ export function initialize(): void {
       betas TEXT,
       claude_access_mode TEXT DEFAULT 'default',
       codex_permission_mode TEXT DEFAULT 'defaultPermissions',
+      opencode_permission_mode TEXT DEFAULT 'defaultPermissions',
       status TEXT NOT NULL DEFAULT 'idle',
       cwd TEXT,
       allowed_tools TEXT,
@@ -95,6 +111,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'betas', 'TEXT');
   ensureColumn('sessions', 'claude_access_mode', "TEXT DEFAULT 'default'");
   ensureColumn('sessions', 'codex_permission_mode', "TEXT DEFAULT 'defaultPermissions'");
+  ensureColumn('sessions', 'opencode_permission_mode', "TEXT DEFAULT 'defaultPermissions'");
   ensureColumn('sessions', 'todo_state', "TEXT DEFAULT 'todo'");
   ensureColumn('sessions', 'pinned', 'INTEGER DEFAULT 0');
   ensureColumn('sessions', 'folder_path', 'TEXT');
@@ -143,14 +160,15 @@ export function createSession(params: {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   codexPermissionMode?: CodexPermissionMode;
+  opencodePermissionMode?: OpenCodePermissionMode;
   hiddenFromThreads?: boolean;
 }): SessionRow {
   const now = Date.now();
   const id = uuidv4();
 
   const stmt = getDb().prepare(`
-    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, codex_permission_mode, cwd, allowed_tools, last_prompt, hidden_from_threads, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
+    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, codex_permission_mode, opencode_permission_mode, cwd, allowed_tools, last_prompt, hidden_from_threads, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
   `);
 
   stmt.run(
@@ -160,8 +178,9 @@ export function createSession(params: {
     params.model || null,
     params.provider === 'claude' ? params.compatibleProviderId || null : null,
     params.betas && params.betas.length > 0 ? JSON.stringify(params.betas) : null,
-    params.provider === 'claude' ? params.claudeAccessMode || 'default' : null,
+    params.provider === 'claude' ? normalizeClaudeAccessMode(params.claudeAccessMode) : null,
     params.provider === 'codex' ? normalizeCodexPermissionMode(params.codexPermissionMode) : null,
+    params.provider === 'opencode' ? normalizeOpenCodePermissionMode(params.opencodePermissionMode) : null,
     params.cwd || null,
     params.allowedTools || null,
     params.prompt || null,
@@ -313,7 +332,7 @@ export function updateSessionClaudeAccessMode(
   const stmt = getDb().prepare(`
     UPDATE sessions SET claude_access_mode = ?, updated_at = ? WHERE id = ?
   `);
-  stmt.run(mode ? normalizeCodexPermissionMode(mode) : null, now, sessionId);
+  stmt.run(mode ? normalizeClaudeAccessMode(mode) : null, now, sessionId);
 }
 
 export function updateSessionCodexPermissionMode(
@@ -324,7 +343,18 @@ export function updateSessionCodexPermissionMode(
   const stmt = getDb().prepare(`
     UPDATE sessions SET codex_permission_mode = ?, updated_at = ? WHERE id = ?
   `);
-  stmt.run(mode, now, sessionId);
+  stmt.run(mode ? normalizeCodexPermissionMode(mode) : null, now, sessionId);
+}
+
+export function updateSessionOpenCodePermissionMode(
+  sessionId: string,
+  mode: OpenCodePermissionMode | null
+): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET opencode_permission_mode = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(mode ? normalizeOpenCodePermissionMode(mode) : null, now, sessionId);
 }
 
 // 更新 Session TodoState

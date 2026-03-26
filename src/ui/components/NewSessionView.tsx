@@ -2,13 +2,18 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import type { Attachment, ClaudeAccessMode, ClaudeCompatibleProviderId, CodexPermissionMode } from '../types';
+import type {
+  Attachment,
+  ClaudeAccessMode,
+  ClaudeCompatibleProviderId,
+  CodexPermissionMode,
+  OpenCodePermissionMode,
+} from '../types';
 import coworkLogo from '../assets/cowork-logo.svg';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
-import { ClaudeContextIndicator } from './ClaudeContextIndicator';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
@@ -32,6 +37,10 @@ import {
 import { buildCodexModelOptions, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
 import { loadPreferredCodexPermissionMode, savePreferredCodexPermissionMode } from '../utils/codex-permission';
 import { buildOpencodeModelOptions, loadPreferredOpencodeModel, savePreferredOpencodeModel } from '../utils/opencode-model';
+import {
+  loadPreferredOpencodePermissionMode,
+  savePreferredOpencodePermissionMode,
+} from '../utils/opencode-permission';
 import { buildPromptWithSkill } from '../utils/claude-skills';
 import { buildPromptWithSlashCommand } from '../utils/claude-slash';
 
@@ -69,6 +78,8 @@ export function NewSessionView() {
   const [selectedCodexPermissionMode, setSelectedCodexPermissionMode] = useState<CodexPermissionMode>(
     loadPreferredCodexPermissionMode()
   );
+  const [selectedOpencodePermissionMode, setSelectedOpencodePermissionMode] =
+    useState<OpenCodePermissionMode>(loadPreferredOpencodePermissionMode());
   const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const cwd = projectCwd || '';
   const hasSelectedCwd = cwd.trim().length > 0;
@@ -385,6 +396,8 @@ export function NewSessionView() {
             : undefined,
         claudeAccessMode: provider === 'claude' ? claudeAccessMode : undefined,
         codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
+        opencodePermissionMode:
+          provider === 'opencode' ? selectedOpencodePermissionMode : undefined,
       },
     });
 
@@ -657,15 +670,6 @@ export function NewSessionView() {
                   </>
                 )}
               </div>
-
-              {provider === 'claude' && (
-                <ClaudeContextIndicator
-                  snapshot={null}
-                  modelLabel={selectedClaudeModel || pickerClaudeRuntimeModel || claudeModelConfig.defaultModel || 'Claude'}
-                  emptyMessage="Starts tracking after the first Claude response"
-                />
-              )}
-
               <div className="flex-1" />
               <button
                 onClick={handleStart}
@@ -684,23 +688,29 @@ export function NewSessionView() {
               </button>
             </div>
           </div>
-          {(provider === 'claude' || provider === 'codex') && (
-            <div className="flex items-center justify-start gap-3 px-2 pt-2 text-[12px]">
-              <span className="text-[var(--text-muted)]">
-                {provider === 'claude' ? 'Access' : 'Permission'}
-              </span>
+          {(provider === 'claude' || provider === 'codex' || provider === 'opencode') && (
+            <div className="flex items-center justify-start px-2 pt-2 text-[12px]">
               {provider === 'claude' ? (
                 <ClaudeAccessModePicker
                   value={claudeAccessMode}
                   onChange={setClaudeAccessMode}
                   disabled={pendingStart}
                 />
-              ) : (
+              ) : provider === 'codex' ? (
                 <CodexPermissionModePicker
                   value={selectedCodexPermissionMode}
                   onChange={(mode) => {
                     setSelectedCodexPermissionMode(mode);
                     savePreferredCodexPermissionMode(mode);
+                  }}
+                  disabled={pendingStart}
+                />
+              ) : (
+                <CodexPermissionModePicker
+                  value={selectedOpencodePermissionMode}
+                  onChange={(mode) => {
+                    setSelectedOpencodePermissionMode(mode);
+                    savePreferredOpencodePermissionMode(mode);
                   }}
                   disabled={pendingStart}
                 />

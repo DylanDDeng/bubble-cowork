@@ -3,12 +3,17 @@ import { Paperclip, Plus, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import type { Attachment, ClaudeAccessMode, ClaudeCompatibleProviderId, CodexPermissionMode } from '../types';
+import type {
+  Attachment,
+  ClaudeAccessMode,
+  ClaudeCompatibleProviderId,
+  CodexPermissionMode,
+  OpenCodePermissionMode,
+} from '../types';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
-import { ClaudeContextIndicator } from './ClaudeContextIndicator';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
@@ -35,9 +40,12 @@ import {
 import { buildCodexModelOptions, formatCodexModelLabel, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
 import { loadPreferredCodexPermissionMode, savePreferredCodexPermissionMode } from '../utils/codex-permission';
 import { buildOpencodeModelOptions, loadPreferredOpencodeModel, savePreferredOpencodeModel } from '../utils/opencode-model';
+import {
+  loadPreferredOpencodePermissionMode,
+  savePreferredOpencodePermissionMode,
+} from '../utils/opencode-permission';
 import { buildPromptWithSkill } from '../utils/claude-skills';
 import { buildPromptWithSlashCommand } from '../utils/claude-slash';
-import { getLatestClaudeContextSnapshot } from '../utils/context-usage';
 
 function isVisibleClaudePickerModel(
   model: string | null | undefined,
@@ -81,6 +89,8 @@ export function PromptInput() {
   const [selectedCodexPermissionMode, setSelectedCodexPermissionMode] = useState<CodexPermissionMode>(
     loadPreferredCodexPermissionMode()
   );
+  const [selectedOpencodePermissionMode, setSelectedOpencodePermissionMode] =
+    useState<OpenCodePermissionMode>(loadPreferredOpencodePermissionMode());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
@@ -112,50 +122,6 @@ export function PromptInput() {
 
     return activeSession.model.trim();
   }, [activeClaudeModel, activeSession?.model, compatibleOptions]);
-  const contextSnapshot = useMemo(
-    () => {
-      if (activeSession?.provider !== 'claude') {
-        return null;
-      }
-
-      const fromMessages = getLatestClaudeContextSnapshot(
-        activeSession.messages,
-        activeSession.model || visibleActiveClaudeModel || selectedClaudeModel
-      );
-      if (fromMessages) {
-        return fromMessages;
-      }
-
-      const latest = activeSession.latestClaudeModelUsage;
-      if (!latest?.usage) {
-        return null;
-      }
-
-      const cacheReadTokens = latest.usage.cacheReadInputTokens || 0;
-      const cacheCreationTokens = latest.usage.cacheCreationInputTokens || 0;
-      const inputTokens = latest.usage.inputTokens || 0;
-      const outputTokens = latest.usage.outputTokens || 0;
-
-      return {
-        model: latest.model,
-        total: latest.usage.contextWindow || 0,
-        inputTokens,
-        outputTokens,
-        cacheReadTokens,
-        cacheCreationTokens,
-        maxOutputTokens: latest.usage.maxOutputTokens || 0,
-        webSearchRequests: latest.usage.webSearchRequests || 0,
-      };
-    },
-    [
-      activeSession?.latestClaudeModelUsage,
-      activeSession?.messages,
-      activeSession?.model,
-      activeSession?.provider,
-      selectedClaudeModel,
-      visibleActiveClaudeModel,
-    ]
-  );
   const handleAutoSubmitClaudeCommand = (nextPrompt: string) => {
     if (!activeSessionId || !activeSession) {
       setPrompt(nextPrompt);
@@ -187,6 +153,8 @@ export function PromptInput() {
             : undefined,
         claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
         codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
+        opencodePermissionMode:
+          provider === 'opencode' ? selectedOpencodePermissionMode : undefined,
       },
     });
     setPrompt('');
@@ -257,6 +225,17 @@ export function PromptInput() {
       setSelectedCodexPermissionMode(loadPreferredCodexPermissionMode());
     }
   }, [activeSession?.codexPermissionMode, activeSession?.provider, activeSessionId]);
+
+  useEffect(() => {
+    if (activeSession?.provider === 'opencode') {
+      setSelectedOpencodePermissionMode(activeSession.opencodePermissionMode || 'defaultPermissions');
+      return;
+    }
+
+    if (!activeSessionId) {
+      setSelectedOpencodePermissionMode(loadPreferredOpencodePermissionMode());
+    }
+  }, [activeSession?.opencodePermissionMode, activeSession?.provider, activeSessionId]);
 
   useEffect(() => {
     if (activeSession?.provider !== 'claude') {
@@ -522,6 +501,8 @@ export function PromptInput() {
               : undefined,
           claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
           codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
+          opencodePermissionMode:
+            provider === 'opencode' ? selectedOpencodePermissionMode : undefined,
         },
       });
       setPrompt('');
@@ -760,15 +741,6 @@ export function PromptInput() {
                 </>
                 )}
               </div>
-
-            {provider === 'claude' && (
-              <ClaudeContextIndicator
-                snapshot={contextSnapshot}
-                modelLabel={selectedClaudeModel || visibleActiveClaudeModel || activeSession?.model || 'Claude'}
-                emptyMessage="Starts tracking after the first Claude response"
-              />
-            )}
-
             <div className="flex-1" />
 
             {isRunning ? (
@@ -797,23 +769,29 @@ export function PromptInput() {
             )}
           </div>
         </div>
-        {(provider === 'claude' || provider === 'codex') && (
-          <div className="flex items-center justify-start gap-3 px-2 pt-2 text-[12px]">
-            <span className="text-[var(--text-muted)]">
-              {provider === 'claude' ? 'Access' : 'Permission'}
-            </span>
+        {(provider === 'claude' || provider === 'codex' || provider === 'opencode') && (
+          <div className="flex items-center justify-start px-2 pt-2 text-[12px]">
             {provider === 'claude' ? (
               <ClaudeAccessModePicker
                 value={selectedClaudeAccessMode}
                 onChange={setSelectedClaudeAccessMode}
                 disabled={isRunning}
               />
-            ) : (
+            ) : provider === 'codex' ? (
               <CodexPermissionModePicker
                 value={selectedCodexPermissionMode}
                 onChange={(mode) => {
                   setSelectedCodexPermissionMode(mode);
                   savePreferredCodexPermissionMode(mode);
+                }}
+                disabled={isRunning}
+              />
+            ) : (
+              <CodexPermissionModePicker
+                value={selectedOpencodePermissionMode}
+                onChange={(mode) => {
+                  setSelectedOpencodePermissionMode(mode);
+                  savePreferredOpencodePermissionMode(mode);
                 }}
                 disabled={isRunning}
               />

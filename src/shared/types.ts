@@ -123,6 +123,7 @@ export interface ClaudeModelConfig {
 
 export type ClaudeAccessMode = 'default' | 'fullAccess';
 export type CodexPermissionMode = 'defaultPermissions' | 'fullAccess';
+export type OpenCodePermissionMode = 'defaultPermissions' | 'fullAccess';
 
 export interface CodexModelConfig {
   defaultModel: string | null;
@@ -368,6 +369,7 @@ export interface SessionStartPayload {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   codexPermissionMode?: CodexPermissionMode;
+  opencodePermissionMode?: OpenCodePermissionMode;
   hiddenFromThreads?: boolean;
 }
 
@@ -382,6 +384,7 @@ export interface SessionContinuePayload {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   codexPermissionMode?: CodexPermissionMode;
+  opencodePermissionMode?: OpenCodePermissionMode;
 }
 
 export interface SessionInfo {
@@ -396,6 +399,7 @@ export interface SessionInfo {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   codexPermissionMode?: CodexPermissionMode;
+  opencodePermissionMode?: OpenCodePermissionMode;
   todoState?: TodoState;
   pinned?: boolean;
   folderPath?: string | null;
@@ -419,6 +423,7 @@ export interface SessionStatusPayload {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   codexPermissionMode?: CodexPermissionMode;
+  opencodePermissionMode?: OpenCodePermissionMode;
   hiddenFromThreads?: boolean;
 }
 

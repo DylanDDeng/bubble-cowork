@@ -173,8 +173,6 @@ export function App() {
     activeWorkspace,
     showNewSession,
     showSettings,
-    sidebarCollapsed,
-    setSidebarCollapsed,
     projectTreeCollapsed,
     setProjectTreeCollapsed,
     globalError,
@@ -262,12 +260,6 @@ export function App() {
       sendEvent({ type: 'mcp.get-config' });
     }
   }, [connected]);
-
-  useEffect(() => {
-    if (sidebarCollapsed) {
-      setSidebarCollapsed(false);
-    }
-  }, [sidebarCollapsed, setSidebarCollapsed]);
 
   useEffect(() => {
     applyThemePreferences({
@@ -515,6 +507,10 @@ export function App() {
                                     codexPermissionMode:
                                       activeSession.provider === 'codex'
                                         ? activeSession.codexPermissionMode || 'defaultPermissions'
+                                        : undefined,
+                                    opencodePermissionMode:
+                                      activeSession.provider === 'opencode'
+                                        ? activeSession.opencodePermissionMode || 'defaultPermissions'
                                         : undefined,
                                   },
                                 });

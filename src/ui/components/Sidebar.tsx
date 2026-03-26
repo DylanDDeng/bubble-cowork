@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Bookmark, Boxes, FolderOpen, MessageSquare, Search, Settings, SquarePen } from 'lucide-react';
+import {
+  Bookmark,
+  Boxes,
+  ChevronLeft,
+  ChevronRight,
+  FolderOpen,
+  MessageSquare,
+  Search,
+  Settings,
+  SquarePen,
+} from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { SidebarMessageSearchDialog } from './search/SidebarMessageSearchDialog';
@@ -14,10 +24,12 @@ const MAX_SIDEBAR_WIDTH = 420;
 
 export function Sidebar() {
   const {
+    sidebarCollapsed,
     sidebarWidth,
     projectCwd,
     activeWorkspace,
     chatSidebarView,
+    setSidebarCollapsed,
     setSidebarWidth,
     setProjectCwd,
     setActiveSession,
@@ -105,6 +117,20 @@ export function Sidebar() {
     setShowNewSession(true);
   };
 
+  const toggleSidebarCollapsed = () => {
+    finishSidebarResize();
+    setSidebarCollapsed(!sidebarCollapsed);
+  };
+
+  const openChatSidebarView = (view: 'threads' | 'prompts') => {
+    setActiveWorkspace('chat');
+    setChatSidebarView(view);
+    setShowSettings(false);
+    if (sidebarCollapsed) {
+      setSidebarCollapsed(false);
+    }
+  };
+
   return (
     <>
       {isSidebarResizing && (
@@ -127,11 +153,7 @@ export function Sidebar() {
               icon={<MessageSquare className="h-[17px] w-[17px]" />}
               title="Threads"
               active={activeWorkspace === 'chat' && chatSidebarView === 'threads'}
-              onClick={() => {
-                setActiveWorkspace('chat');
-                setChatSidebarView('threads');
-                setShowSettings(false);
-              }}
+              onClick={() => openChatSidebarView('threads')}
             />
             <RailIcon
               icon={<Search className="h-[17px] w-[17px]" />}
@@ -143,11 +165,7 @@ export function Sidebar() {
               icon={<Bookmark className="h-[17px] w-[17px]" />}
               title="Prompt Library"
               active={activeWorkspace === 'chat' && chatSidebarView === 'prompts'}
-              onClick={() => {
-                setActiveWorkspace('chat');
-                setChatSidebarView('prompts');
-                setShowSettings(false);
-              }}
+              onClick={() => openChatSidebarView('prompts')}
             />
             <RailIcon
               icon={<Boxes className="h-[17px] w-[17px]" />}
@@ -161,7 +179,21 @@ export function Sidebar() {
           </div>
 
           {/* 底部图标 */}
-          <div className="mt-auto flex flex-col items-center gap-0.5">
+          <div className="mt-auto flex flex-col items-center gap-1.5">
+            {activeWorkspace === 'chat' && (
+              <RailIcon
+                icon={
+                  sidebarCollapsed ? (
+                    <ChevronRight className="h-[17px] w-[17px]" />
+                  ) : (
+                    <ChevronLeft className="h-[17px] w-[17px]" />
+                  )
+                }
+                title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                active={sidebarCollapsed}
+                onClick={toggleSidebarCollapsed}
+              />
+            )}
             <RailIcon
               icon={<Settings className="h-[17px] w-[17px]" />}
               title="Settings"
@@ -172,75 +204,84 @@ export function Sidebar() {
 
         {/* ===== 内容面板 ===== */}
         {activeWorkspace === 'chat' && (
-        <div
-          className="relative flex h-full flex-col border-r border-[var(--border)] bg-[var(--bg-tertiary)]"
-          style={{ width: sidebarWidth }}
-        >
-          {/* 拖拽区域 */}
-          <div className="h-8 drag-region flex-shrink-0" />
-
-          {chatSidebarView === 'threads' ? (
-            <>
-              <div className="mt-4 mb-4 flex items-center gap-2 px-2">
-                <button
-                  onClick={() => {
-                    setShowSettings(false);
-                    setActiveSession(null);
-                    setShowNewSession(true);
-                  }}
-                  className="group flex flex-1 items-center gap-3 rounded-xl px-2 py-2 text-left no-drag transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
-                >
-                  <SquarePen className="h-4 w-4 text-[var(--text-muted)]" strokeWidth={1.9} />
-                  <span className="text-base font-medium">New Thread</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    void handleProjectFolderSelect();
-                  }}
-                  className="flex h-10 w-10 items-center justify-center rounded-xl no-drag text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                  title={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
-                  aria-label="Select project folder"
-                >
-                  <FolderOpen className="h-4.5 w-4.5" />
-                </button>
-              </div>
-
-              <div className="px-4 py-2 flex items-center justify-between gap-2">
-                <span className="text-sm text-[var(--text-muted)]">Sessions</span>
-                <StatusFilter />
-              </div>
-
-              <div className="flex-1 overflow-y-auto px-2 pt-2">
-                <FolderTreeView
-                  onSessionClick={(sessionId) => {
-                    setShowSettings(false);
-                    setActiveSession(sessionId);
-                    setShowNewSession(false);
-                  }}
-                  onSessionDelete={handleDelete}
-                  onCopyResume={handleResumeCommand}
-                  onNewSessionForProject={(nextCwd) => {
-                    setProjectCwd(nextCwd);
-                    setShowSettings(false);
-                    setActiveSession(null);
-                    setShowNewSession(true);
-                  }}
-                />
-              </div>
-            </>
-          ) : (
-            <PromptLibraryPanel />
-          )}
-
-          {/* Resize handle */}
           <div
-            className="group absolute right-0 top-0 bottom-0 w-3 translate-x-1/2 cursor-col-resize no-drag"
-            onMouseDown={handleSidebarResizeStart}
+            className="relative flex h-full flex-shrink-0 transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]"
+            style={{ width: sidebarCollapsed ? 0 : sidebarWidth }}
           >
-            <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
+            <div
+              aria-hidden={sidebarCollapsed}
+              className={`relative flex h-full w-full flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--bg-tertiary)] transition-opacity duration-150 ${
+                sidebarCollapsed ? 'pointer-events-none opacity-0' : 'opacity-100'
+              }`}
+            >
+              {/* 拖拽区域 */}
+              <div className="h-8 drag-region flex-shrink-0" />
+
+              {chatSidebarView === 'threads' ? (
+                <>
+                  <div className="mt-4 mb-4 flex items-center gap-2 px-2">
+                    <button
+                      onClick={() => {
+                        setShowSettings(false);
+                        setActiveSession(null);
+                        setShowNewSession(true);
+                      }}
+                      className="group flex flex-1 items-center gap-3 rounded-xl px-2 py-2 text-left no-drag transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
+                    >
+                      <SquarePen className="h-4 w-4 text-[var(--text-muted)]" strokeWidth={1.9} />
+                      <span className="text-base font-medium">New Thread</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        void handleProjectFolderSelect();
+                      }}
+                      className="flex h-10 w-10 items-center justify-center rounded-xl no-drag text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                      title={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
+                      aria-label="Select project folder"
+                    >
+                      <FolderOpen className="h-4.5 w-4.5" />
+                    </button>
+                  </div>
+
+                  <div className="px-4 py-2 flex items-center justify-between gap-2">
+                    <span className="text-sm text-[var(--text-muted)]">Sessions</span>
+                    <StatusFilter />
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto px-2 pt-2">
+                    <FolderTreeView
+                      onSessionClick={(sessionId) => {
+                        setShowSettings(false);
+                        setActiveSession(sessionId);
+                        setShowNewSession(false);
+                      }}
+                      onSessionDelete={handleDelete}
+                      onCopyResume={handleResumeCommand}
+                      onNewSessionForProject={(nextCwd) => {
+                        setProjectCwd(nextCwd);
+                        setShowSettings(false);
+                        setActiveSession(null);
+                        setShowNewSession(true);
+                      }}
+                    />
+                  </div>
+                </>
+              ) : (
+                <PromptLibraryPanel />
+              )}
+
+              {!sidebarCollapsed && (
+                <div
+                  className="group absolute right-0 top-0 bottom-0 w-3 translate-x-1/2 cursor-col-resize no-drag"
+                  onMouseDown={handleSidebarResizeStart}
+                >
+                  <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
+                </div>
+              )}
+            </div>
+
           </div>
-        </div>
         )}
       </div>
 

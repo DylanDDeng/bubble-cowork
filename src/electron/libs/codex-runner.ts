@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { RunnerOptions, RunnerHandle, StreamMessage, Attachment } from '../types';
 import { isDev } from '../util';
 import { getMcpServers } from './claude-settings';
-import type { CodexPermissionMode } from '../../shared/types';
+import type { CodexPermissionMode, OpenCodePermissionMode } from '../../shared/types';
 
 type JsonRpcRequest = {
   jsonrpc: '2.0';
@@ -80,10 +80,20 @@ function getCodexPermissionOverrides(mode: CodexPermissionMode | undefined): str
   }
 }
 
-function buildAcpProcessEnv(adapter: AcpAdapter, selectedModel?: string): NodeJS.ProcessEnv {
+function buildOpenCodePermissionConfig(
+  mode: OpenCodePermissionMode | undefined
+): 'allow' | { '*': 'ask' } {
+  return mode === 'fullAccess' ? 'allow' : { '*': 'ask' };
+}
+
+function buildAcpProcessEnv(
+  adapter: AcpAdapter,
+  selectedModel?: string,
+  opencodePermissionMode?: OpenCodePermissionMode
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
 
-  if (adapter.id !== 'opencode' || !selectedModel) {
+  if (adapter.id !== 'opencode') {
     return env;
   }
 
@@ -102,7 +112,8 @@ function buildAcpProcessEnv(adapter: AcpAdapter, selectedModel?: string): NodeJS
 
   env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
     ...inlineConfig,
-    model: selectedModel,
+    ...(selectedModel ? { model: selectedModel } : {}),
+    permission: buildOpenCodePermissionConfig(opencodePermissionMode),
   });
 
   return env;
@@ -273,6 +284,7 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
     session,
     resumeSessionId,
     codexPermissionMode,
+    opencodePermissionMode,
     onMessage,
     onError,
     onPermissionRequest,
@@ -297,7 +309,7 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
     ...adapter.getArgs(selectedModel),
     ...(adapter.id === 'codex' ? getCodexPermissionOverrides(codexPermissionMode) : []),
   ];
-  const env = buildAcpProcessEnv(adapter, selectedModel);
+  const env = buildAcpProcessEnv(adapter, selectedModel, opencodePermissionMode);
   const proc = spawn(adapter.command, spawnArgs, {
     cwd: session.cwd || process.cwd(),
     env,
