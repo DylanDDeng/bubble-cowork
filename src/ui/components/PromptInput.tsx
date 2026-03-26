@@ -770,7 +770,7 @@ export function PromptInput() {
           </div>
         </div>
         {(provider === 'claude' || provider === 'codex' || provider === 'opencode') && (
-          <div className="flex items-center justify-start pl-8 pr-2 pt-2 text-[12px]">
+          <div className="flex items-center justify-start px-4 pt-2 text-[12px]">
             {provider === 'claude' ? (
               <ClaudeAccessModePicker
                 value={selectedClaudeAccessMode}
