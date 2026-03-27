@@ -29,6 +29,8 @@ export type {
   ClaudeCompatibleProviderId,
   ClaudeAccessMode,
   CodexPermissionMode,
+  CodexReasoningEffort,
+  CodexReasoningLevelOption,
   OpenCodePermissionMode,
   ClaudeUsageDailyPoint,
   ClaudeUsageModelSummary,
@@ -93,6 +95,8 @@ export interface SessionView {
   betas?: string[];
   claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
   codexPermissionMode?: import('../shared/types').CodexPermissionMode;
+  codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
+  codexFastMode?: boolean;
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   todoState?: TodoState;
   pinned?: boolean;

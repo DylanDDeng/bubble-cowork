@@ -508,6 +508,14 @@ export function App() {
                                       activeSession.provider === 'codex'
                                         ? activeSession.codexPermissionMode || 'defaultPermissions'
                                         : undefined,
+                                    codexReasoningEffort:
+                                      activeSession.provider === 'codex'
+                                        ? activeSession.codexReasoningEffort
+                                        : undefined,
+                                    codexFastMode:
+                                      activeSession.provider === 'codex'
+                                        ? activeSession.codexFastMode === true
+                                        : undefined,
                                     opencodePermissionMode:
                                       activeSession.provider === 'opencode'
                                         ? activeSession.opencodePermissionMode || 'defaultPermissions'

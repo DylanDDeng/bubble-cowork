@@ -4,7 +4,11 @@ import { v4 as uuidv4 } from 'uuid';
 import type { RunnerOptions, RunnerHandle, StreamMessage, Attachment } from '../types';
 import { isDev } from '../util';
 import { getMcpServers } from './claude-settings';
-import type { CodexPermissionMode, OpenCodePermissionMode } from '../../shared/types';
+import type {
+  CodexPermissionMode,
+  CodexReasoningEffort,
+  OpenCodePermissionMode,
+} from '../../shared/types';
 
 type JsonRpcRequest = {
   jsonrpc: '2.0';
@@ -78,6 +82,22 @@ function getCodexPermissionOverrides(mode: CodexPermissionMode | undefined): str
     default:
       return ['-c', 'approval_policy="on-request"', '-c', 'sandbox_mode="workspace-write"'];
   }
+}
+
+function getCodexReasoningOverrides(effort: CodexReasoningEffort | undefined): string[] {
+  if (!effort) {
+    return [];
+  }
+
+  return ['-c', `model_reasoning_effort=${JSON.stringify(effort)}`];
+}
+
+function getCodexFastModeOverrides(enabled: boolean | undefined): string[] {
+  if (enabled === undefined) {
+    return [];
+  }
+
+  return ['-c', `fast_mode=${enabled ? 'true' : 'false'}`];
 }
 
 function buildOpenCodePermissionConfig(
@@ -284,6 +304,8 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
     session,
     resumeSessionId,
     codexPermissionMode,
+    codexReasoningEffort,
+    codexFastMode,
     opencodePermissionMode,
     onMessage,
     onError,
@@ -308,6 +330,8 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
   const spawnArgs = [
     ...adapter.getArgs(selectedModel),
     ...(adapter.id === 'codex' ? getCodexPermissionOverrides(codexPermissionMode) : []),
+    ...(adapter.id === 'codex' ? getCodexReasoningOverrides(codexReasoningEffort) : []),
+    ...(adapter.id === 'codex' ? getCodexFastModeOverrides(codexFastMode) : []),
   ];
   const env = buildAcpProcessEnv(adapter, selectedModel, opencodePermissionMode);
   const proc = spawn(adapter.command, spawnArgs, {

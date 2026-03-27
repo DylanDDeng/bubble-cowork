@@ -294,6 +294,24 @@ function normalizeCodexPermissionMode(
     : 'defaultPermissions';
 }
 
+function normalizeCodexReasoningEffort(
+  value?: string | null
+): import('../shared/types').CodexReasoningEffort | undefined {
+  switch ((value || '').trim().toLowerCase()) {
+    case 'low':
+    case 'medium':
+    case 'high':
+    case 'xhigh':
+      return value!.trim().toLowerCase() as import('../shared/types').CodexReasoningEffort;
+    default:
+      return undefined;
+  }
+}
+
+function normalizeCodexFastMode(value: unknown): boolean {
+  return value === true || value === 1 || value === '1';
+}
+
 function normalizeOpenCodePermissionMode(
   value?: string | null
 ): import('../shared/types').OpenCodePermissionMode {
@@ -1226,6 +1244,8 @@ const runnerHandles = new Map<
     compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
     claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
     codexPermissionMode?: import('../shared/types').CodexPermissionMode;
+    codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
+    codexFastMode?: boolean;
     opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   }
 >();
@@ -2445,6 +2465,8 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     betas: parseStoredBetas(row.betas),
     claudeAccessMode: normalizeClaudeAccessMode(row.claude_access_mode),
     codexPermissionMode: normalizeCodexPermissionMode(row.codex_permission_mode),
+    codexReasoningEffort: normalizeCodexReasoningEffort(row.codex_reasoning_effort),
+    codexFastMode: normalizeCodexFastMode(row.codex_fast_mode),
     opencodePermissionMode: normalizeOpenCodePermissionMode(row.opencode_permission_mode),
     todoState: row.todo_state || 'todo',
     pinned: row.pinned === 1,
@@ -2493,6 +2515,8 @@ async function handleSessionStart(
     betas,
     claudeAccessMode,
     codexPermissionMode,
+    codexReasoningEffort,
+    codexFastMode,
     opencodePermissionMode,
     hiddenFromThreads,
   } = payload;
@@ -2553,6 +2577,9 @@ async function handleSessionStart(
     betas: selectedBetas,
     claudeAccessMode: chosenProvider === 'claude' ? normalizeClaudeAccessMode(claudeAccessMode) : undefined,
     codexPermissionMode: chosenProvider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
+    codexReasoningEffort:
+      chosenProvider === 'codex' ? normalizeCodexReasoningEffort(codexReasoningEffort) : undefined,
+    codexFastMode: chosenProvider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
     opencodePermissionMode:
       chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
     hiddenFromThreads: hiddenFromThreads === true,
@@ -2575,6 +2602,9 @@ async function handleSessionStart(
       betas: selectedBetas,
       claudeAccessMode: chosenProvider === 'claude' ? normalizeClaudeAccessMode(claudeAccessMode) : undefined,
       codexPermissionMode: chosenProvider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
+      codexReasoningEffort:
+        chosenProvider === 'codex' ? normalizeCodexReasoningEffort(codexReasoningEffort) : undefined,
+      codexFastMode: chosenProvider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
       opencodePermissionMode:
         chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
       hiddenFromThreads: session.hidden_from_threads === 1,
@@ -2635,6 +2665,8 @@ async function handleSessionStart(
     selectedBetas,
     claudeAccessMode,
     chosenProvider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
+    chosenProvider === 'codex' ? normalizeCodexReasoningEffort(codexReasoningEffort) : undefined,
+    chosenProvider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
     chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined
   );
   return session.id;
@@ -2656,6 +2688,8 @@ async function handleSessionContinue(
     betas,
     claudeAccessMode,
     codexPermissionMode,
+    codexReasoningEffort,
+    codexFastMode,
     opencodePermissionMode,
   } = payload;
   const runnerPrompt = (effectivePrompt || prompt).trim();
@@ -2703,6 +2737,14 @@ async function handleSessionContinue(
   const nextCodexPermissionMode = nextProvider === 'codex'
     ? normalizeCodexPermissionMode(codexPermissionMode || previousCodexPermissionMode)
     : undefined;
+  const previousCodexReasoningEffort = normalizeCodexReasoningEffort(session.codex_reasoning_effort);
+  const nextCodexReasoningEffort = nextProvider === 'codex'
+    ? normalizeCodexReasoningEffort(codexReasoningEffort || previousCodexReasoningEffort)
+    : undefined;
+  const previousCodexFastMode = normalizeCodexFastMode(session.codex_fast_mode);
+  const nextCodexFastMode = nextProvider === 'codex'
+    ? normalizeCodexFastMode(codexFastMode ?? previousCodexFastMode)
+    : undefined;
   const previousOpenCodePermissionMode = normalizeOpenCodePermissionMode(session.opencode_permission_mode);
   const nextOpenCodePermissionMode = nextProvider === 'opencode'
     ? normalizeOpenCodePermissionMode(opencodePermissionMode || previousOpenCodePermissionMode)
@@ -2713,6 +2755,15 @@ async function handleSessionContinue(
   const codexPermissionModeChanged =
     nextProvider === 'codex' &&
     normalizeCodexPermissionMode(runnerHandles.get(sessionId)?.codexPermissionMode || previousCodexPermissionMode) !== nextCodexPermissionMode;
+  const codexReasoningEffortChanged =
+    nextProvider === 'codex' &&
+    normalizeCodexReasoningEffort(
+      runnerHandles.get(sessionId)?.codexReasoningEffort || previousCodexReasoningEffort
+    ) !== nextCodexReasoningEffort;
+  const codexFastModeChanged =
+    nextProvider === 'codex' &&
+    normalizeCodexFastMode(runnerHandles.get(sessionId)?.codexFastMode ?? previousCodexFastMode) !==
+      nextCodexFastMode;
   const opencodePermissionModeChanged =
     nextProvider === 'opencode' &&
     normalizeOpenCodePermissionMode(
@@ -2759,6 +2810,8 @@ async function handleSessionContinue(
       betasChanged,
       accessModeChanged,
       codexPermissionModeChanged,
+      codexReasoningEffortChanged,
+      codexFastModeChanged,
       opencodePermissionModeChanged,
       hasExistingRunner: !!existingEntry,
     });
@@ -2778,6 +2831,8 @@ async function handleSessionContinue(
   }
   if (nextProvider === 'codex') {
     sessions.updateSessionCodexPermissionMode(sessionId, nextCodexPermissionMode || 'defaultPermissions');
+    sessions.updateSessionCodexReasoningEffort(sessionId, nextCodexReasoningEffort || null);
+    sessions.updateSessionCodexFastMode(sessionId, nextCodexFastMode === true);
   }
   if (nextProvider === 'opencode') {
     sessions.updateSessionOpenCodePermissionMode(
@@ -2802,6 +2857,8 @@ async function handleSessionContinue(
       betas: nextBetas,
       claudeAccessMode: nextProvider === 'claude' ? normalizeClaudeAccessMode(claudeAccessMode) : undefined,
       codexPermissionMode: nextProvider === 'codex' ? (nextCodexPermissionMode || 'defaultPermissions') : undefined,
+      codexReasoningEffort: nextProvider === 'codex' ? nextCodexReasoningEffort : undefined,
+      codexFastMode: nextProvider === 'codex' ? nextCodexFastMode : undefined,
       opencodePermissionMode:
         nextProvider === 'opencode' ? (nextOpenCodePermissionMode || 'defaultPermissions') : undefined,
       hiddenFromThreads: session.hidden_from_threads === 1,
@@ -2822,6 +2879,8 @@ async function handleSessionContinue(
     if (
       ((nextProvider === 'codex' || nextProvider === 'opencode') && modelChanged) ||
       (nextProvider === 'codex' && codexPermissionModeChanged) ||
+      (nextProvider === 'codex' && codexReasoningEffortChanged) ||
+      (nextProvider === 'codex' && codexFastModeChanged) ||
       (nextProvider === 'opencode' && opencodePermissionModeChanged) ||
       (nextProvider === 'claude' &&
         (modelChanged || compatibleProviderChanged || betasChanged || accessModeChanged))
@@ -2903,6 +2962,8 @@ async function handleSessionContinue(
     nextBetas,
     claudeAccessMode,
     nextProvider === 'codex' ? (nextCodexPermissionMode || 'defaultPermissions') : undefined,
+    nextProvider === 'codex' ? nextCodexReasoningEffort : undefined,
+    nextProvider === 'codex' ? nextCodexFastMode : undefined,
     nextProvider === 'opencode' ? (nextOpenCodePermissionMode || 'defaultPermissions') : undefined
   );
   return true;
@@ -2921,6 +2982,8 @@ function startRunner(
   betasOverride?: string[],
   claudeAccessMode?: import('../shared/types').ClaudeAccessMode,
   codexPermissionMode?: import('../shared/types').CodexPermissionMode,
+  codexReasoningEffort?: import('../shared/types').CodexReasoningEffort,
+  codexFastMode?: boolean,
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode
 ): void {
   if (!session) return;
@@ -2958,6 +3021,8 @@ function startRunner(
     betas: provider === 'claude' ? betasOverride || parseStoredBetas(session.betas) : undefined,
     claudeAccessMode,
     codexPermissionMode,
+    codexReasoningEffort,
+    codexFastMode,
     opencodePermissionMode,
     onMessage: (message) => {
       // 提取并保存 claude session id
@@ -3009,6 +3074,16 @@ function startRunner(
             codexPermissionMode:
               provider === 'codex'
                 ? normalizeCodexPermissionMode(sessions.getSession(session.id)?.codex_permission_mode || codexPermissionMode)
+                : undefined,
+            codexReasoningEffort:
+              provider === 'codex'
+                ? normalizeCodexReasoningEffort(
+                    sessions.getSession(session.id)?.codex_reasoning_effort || codexReasoningEffort
+                  )
+                : undefined,
+            codexFastMode:
+              provider === 'codex'
+                ? normalizeCodexFastMode(sessions.getSession(session.id)?.codex_fast_mode ?? codexFastMode)
                 : undefined,
             opencodePermissionMode:
               provider === 'opencode'
@@ -3090,6 +3165,16 @@ function startRunner(
               provider === 'codex'
                 ? normalizeCodexPermissionMode(sessions.getSession(session.id)?.codex_permission_mode || codexPermissionMode)
                 : undefined,
+            codexReasoningEffort:
+              provider === 'codex'
+                ? normalizeCodexReasoningEffort(
+                    sessions.getSession(session.id)?.codex_reasoning_effort || codexReasoningEffort
+                  )
+                : undefined,
+            codexFastMode:
+              provider === 'codex'
+                ? normalizeCodexFastMode(sessions.getSession(session.id)?.codex_fast_mode ?? codexFastMode)
+                : undefined,
             opencodePermissionMode:
               provider === 'opencode'
                 ? normalizeOpenCodePermissionMode(
@@ -3158,6 +3243,10 @@ function startRunner(
     compatibleProviderId,
     claudeAccessMode: provider === 'claude' ? (claudeAccessMode || 'default') : undefined,
     codexPermissionMode: provider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
+    codexReasoningEffort:
+      provider === 'codex' ? normalizeCodexReasoningEffort(codexReasoningEffort) : undefined,
+    codexFastMode:
+      provider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
     opencodePermissionMode:
       provider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
   });

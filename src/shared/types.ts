@@ -124,14 +124,23 @@ export interface ClaudeModelConfig {
 export type ClaudeAccessMode = 'default' | 'fullAccess';
 export type CodexPermissionMode = 'defaultPermissions' | 'fullAccess';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'fullAccess';
+export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
+
+export interface CodexReasoningLevelOption {
+  effort: CodexReasoningEffort;
+  description: string;
+}
 
 export interface CodexModelConfig {
   defaultModel: string | null;
+  defaultReasoningEffort: CodexReasoningEffort | null;
   options: string[];
   availableModels: Array<{
     name: string;
     enabled: boolean;
     isDefault: boolean;
+    defaultReasoningEffort?: CodexReasoningEffort | null;
+    supportedReasoningLevels?: CodexReasoningLevelOption[];
   }>;
 }
 
@@ -369,6 +378,8 @@ export interface SessionStartPayload {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   codexPermissionMode?: CodexPermissionMode;
+  codexReasoningEffort?: CodexReasoningEffort;
+  codexFastMode?: boolean;
   opencodePermissionMode?: OpenCodePermissionMode;
   hiddenFromThreads?: boolean;
 }
@@ -384,6 +395,8 @@ export interface SessionContinuePayload {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   codexPermissionMode?: CodexPermissionMode;
+  codexReasoningEffort?: CodexReasoningEffort;
+  codexFastMode?: boolean;
   opencodePermissionMode?: OpenCodePermissionMode;
 }
 
@@ -399,6 +412,8 @@ export interface SessionInfo {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   codexPermissionMode?: CodexPermissionMode;
+  codexReasoningEffort?: CodexReasoningEffort;
+  codexFastMode?: boolean;
   opencodePermissionMode?: OpenCodePermissionMode;
   todoState?: TodoState;
   pinned?: boolean;
@@ -423,6 +438,8 @@ export interface SessionStatusPayload {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   codexPermissionMode?: CodexPermissionMode;
+  codexReasoningEffort?: CodexReasoningEffort;
+  codexFastMode?: boolean;
   opencodePermissionMode?: OpenCodePermissionMode;
   hiddenFromThreads?: boolean;
 }

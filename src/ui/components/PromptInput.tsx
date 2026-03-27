@@ -8,11 +8,14 @@ import type {
   ClaudeAccessMode,
   ClaudeCompatibleProviderId,
   CodexPermissionMode,
+  CodexReasoningEffort,
   OpenCodePermissionMode,
 } from '../types';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
+import { CodexFastModeToggle } from './CodexFastModeToggle';
+import { CodexReasoningEffortPicker } from './CodexReasoningEffortPicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
@@ -41,6 +44,16 @@ import {
 } from '../utils/claude-model';
 import { buildCodexModelOptions, formatCodexModelLabel, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
 import { loadPreferredCodexPermissionMode, savePreferredCodexPermissionMode } from '../utils/codex-permission';
+import {
+  getCodexReasoningOptions,
+  getDefaultCodexReasoningEffort,
+  savePreferredCodexReasoningEffort,
+} from '../utils/codex-reasoning';
+import {
+  loadPreferredCodexFastMode,
+  savePreferredCodexFastMode,
+  supportsCodexFastMode,
+} from '../utils/codex-fast';
 import { buildOpencodeModelOptions, loadPreferredOpencodeModel, savePreferredOpencodeModel } from '../utils/opencode-model';
 import {
   loadPreferredOpencodePermissionMode,
@@ -92,6 +105,9 @@ export function PromptInput() {
   const [selectedCodexPermissionMode, setSelectedCodexPermissionMode] = useState<CodexPermissionMode>(
     loadPreferredCodexPermissionMode()
   );
+  const [selectedCodexReasoningEffort, setSelectedCodexReasoningEffort] =
+    useState<CodexReasoningEffort>('medium');
+  const [selectedCodexFastMode, setSelectedCodexFastMode] = useState(false);
   const [selectedOpencodePermissionMode, setSelectedOpencodePermissionMode] =
     useState<OpenCodePermissionMode>(loadPreferredOpencodePermissionMode());
   const [cursorIndex, setCursorIndex] = useState(0);
@@ -109,6 +125,14 @@ export function PromptInput() {
   const codexModelOptions = useMemo(
     () => buildCodexModelOptions(codexModelConfig),
     [codexModelConfig]
+  );
+  const codexReasoningOptions = useMemo(
+    () => getCodexReasoningOptions(codexModelConfig, selectedCodexModel),
+    [codexModelConfig, selectedCodexModel]
+  );
+  const codexFastModeSupported = useMemo(
+    () => supportsCodexFastMode(selectedCodexModel),
+    [selectedCodexModel]
   );
   const opencodeModelConfig = useOpencodeModelConfig();
   const opencodeModelOptions = useMemo(
@@ -157,6 +181,10 @@ export function PromptInput() {
             : undefined,
         claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
         codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
+        codexReasoningEffort:
+          provider === 'codex' ? selectedCodexReasoningEffort : undefined,
+        codexFastMode:
+          provider === 'codex' ? selectedCodexFastMode : undefined,
         opencodePermissionMode:
           provider === 'opencode' ? selectedOpencodePermissionMode : undefined,
       },
@@ -227,13 +255,27 @@ export function PromptInput() {
   useEffect(() => {
     if (activeSession?.provider === 'codex') {
       setSelectedCodexPermissionMode(activeSession.codexPermissionMode || 'defaultPermissions');
+      setSelectedCodexReasoningEffort(
+        activeSession.codexReasoningEffort ||
+          getDefaultCodexReasoningEffort(codexModelConfig, activeSession.model || selectedCodexModel)
+      );
+      setSelectedCodexFastMode(activeSession.codexFastMode === true);
       return;
     }
 
     if (!activeSessionId) {
       setSelectedCodexPermissionMode(loadPreferredCodexPermissionMode());
     }
-  }, [activeSession?.codexPermissionMode, activeSession?.provider, activeSessionId]);
+  }, [
+    activeSession?.codexPermissionMode,
+    activeSession?.codexReasoningEffort,
+    activeSession?.codexFastMode,
+    activeSession?.model,
+    activeSession?.provider,
+    activeSessionId,
+    codexModelConfig,
+    selectedCodexModel,
+  ]);
 
   useEffect(() => {
     if (activeSession?.provider === 'opencode') {
@@ -355,6 +397,31 @@ export function PromptInput() {
     activeSession?.provider,
     activeSession?.model,
     codexModelOptions,
+  ]);
+
+  useEffect(() => {
+    if (!selectedCodexModel) {
+      return;
+    }
+
+    if (activeSession?.provider === 'codex' && activeSession.model && selectedCodexModel === activeSession.model) {
+      return;
+    }
+
+    const nextEffort = getDefaultCodexReasoningEffort(codexModelConfig, selectedCodexModel);
+    if (nextEffort !== selectedCodexReasoningEffort) {
+      setSelectedCodexReasoningEffort(nextEffort);
+    }
+    const nextFastMode = loadPreferredCodexFastMode(selectedCodexModel);
+    if (nextFastMode !== selectedCodexFastMode) {
+      setSelectedCodexFastMode(nextFastMode);
+    }
+  }, [
+    activeSession?.provider,
+    codexModelConfig,
+    selectedCodexModel,
+    selectedCodexReasoningEffort,
+    selectedCodexFastMode,
   ]);
 
   useEffect(() => {
@@ -510,6 +577,10 @@ export function PromptInput() {
               : undefined,
           claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
           codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
+          codexReasoningEffort:
+            provider === 'codex' ? selectedCodexReasoningEffort : undefined,
+          codexFastMode:
+            provider === 'codex' ? selectedCodexFastMode : undefined,
           opencodePermissionMode:
             provider === 'opencode' ? selectedOpencodePermissionMode : undefined,
         },
@@ -787,6 +858,30 @@ export function PromptInput() {
                 },
               }}
             />
+
+            {provider === 'codex' && (
+              <div className="flex items-center gap-4">
+                <CodexReasoningEffortPicker
+                  value={selectedCodexReasoningEffort}
+                  options={codexReasoningOptions}
+                  onChange={(effort) => {
+                    setSelectedCodexReasoningEffort(effort);
+                    savePreferredCodexReasoningEffort(selectedCodexModel, effort);
+                  }}
+                  disabled={isRunning}
+                />
+                {codexFastModeSupported && (
+                  <CodexFastModeToggle
+                    enabled={selectedCodexFastMode}
+                    onToggle={(enabled) => {
+                      setSelectedCodexFastMode(enabled);
+                      savePreferredCodexFastMode(selectedCodexModel, enabled);
+                    }}
+                    disabled={isRunning}
+                  />
+                )}
+              </div>
+            )}
 
             <SavePromptButton content={promptLibraryContent} disabled={isRunning} />
 

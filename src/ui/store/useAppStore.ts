@@ -549,6 +549,8 @@ function handleSessionList(
       betas: session.betas,
       claudeAccessMode: normalizeClaudeAccessMode(session.claudeAccessMode),
       codexPermissionMode: session.codexPermissionMode,
+      codexReasoningEffort: session.codexReasoningEffort,
+      codexFastMode: session.codexFastMode,
       opencodePermissionMode: session.opencodePermissionMode,
       todoState: session.todoState || 'todo',
       pinned: session.pinned || false,
@@ -602,6 +604,8 @@ function handleSessionStatus(
     betas?: SessionInfo['betas'];
     claudeAccessMode?: SessionInfo['claudeAccessMode'];
     codexPermissionMode?: SessionInfo['codexPermissionMode'];
+    codexReasoningEffort?: SessionInfo['codexReasoningEffort'];
+    codexFastMode?: SessionInfo['codexFastMode'];
     opencodePermissionMode?: SessionInfo['opencodePermissionMode'];
     hiddenFromThreads?: boolean;
   },
@@ -619,6 +623,8 @@ function handleSessionStatus(
     betas,
     claudeAccessMode,
     codexPermissionMode,
+    codexReasoningEffort,
+    codexFastMode,
     opencodePermissionMode,
     hiddenFromThreads,
   } = payload;
@@ -657,6 +663,12 @@ function handleSessionStatus(
               : normalizeClaudeAccessMode(session.claudeAccessMode),
           codexPermissionMode:
             codexPermissionMode !== undefined ? codexPermissionMode : session.codexPermissionMode,
+          codexReasoningEffort:
+            codexReasoningEffort !== undefined
+              ? codexReasoningEffort
+              : session.codexReasoningEffort,
+          codexFastMode:
+            codexFastMode !== undefined ? codexFastMode : session.codexFastMode,
           opencodePermissionMode:
             opencodePermissionMode !== undefined
               ? opencodePermissionMode
@@ -686,6 +698,8 @@ function handleSessionStatus(
       betas,
       claudeAccessMode: normalizeClaudeAccessMode(claudeAccessMode),
       codexPermissionMode,
+      codexReasoningEffort,
+      codexFastMode,
       opencodePermissionMode,
       hiddenFromThreads: hiddenFromThreads === true,
       latestClaudeModelUsage: undefined,
