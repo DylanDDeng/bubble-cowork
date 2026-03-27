@@ -143,14 +143,9 @@ export function ClaudeUsageSettingsContent() {
           <PanelCard className="p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)]">
-                    {activeProviderCard.logo}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xl font-semibold text-[var(--text-primary)]">{activeProviderCard.title}</div>
-                    <div className="mt-1 text-sm text-[var(--text-secondary)]">{activeProviderCard.description}</div>
-                  </div>
+                <div className="min-w-0">
+                  <div className="text-xl font-semibold text-[var(--text-primary)]">{activeProviderCard.title}</div>
+                  <div className="mt-1 text-sm text-[var(--text-secondary)]">{activeProviderCard.description}</div>
                 </div>
                 {activeProviderCard.report?.note ? (
                   <div className="mt-3 text-sm text-[var(--text-muted)]">{activeProviderCard.report.note}</div>
