@@ -141,6 +141,7 @@ export interface CodexModelConfig {
     isDefault: boolean;
     defaultReasoningEffort?: CodexReasoningEffort | null;
     supportedReasoningLevels?: CodexReasoningLevelOption[];
+    supportsFastMode?: boolean;
   }>;
 }
 

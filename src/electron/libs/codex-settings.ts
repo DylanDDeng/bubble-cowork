@@ -16,6 +16,9 @@ type CodexCachedModel = {
   slug?: string;
   visibility?: string;
   default_reasoning_level?: string;
+  supported_in_api?: boolean;
+  priority?: number;
+  upgrade?: unknown;
   supported_reasoning_levels?: Array<{
     effort?: string;
     description?: string;
@@ -154,6 +157,11 @@ export function getCodexModelConfig(): CodexModelConfig {
       defaultReasoningEffort:
         normalizeCodexReasoningEffort(cached?.default_reasoning_level) || defaultReasoningEffort,
       supportedReasoningLevels: normalizeSupportedReasoningLevels(cached?.supported_reasoning_levels),
+      supportsFastMode:
+        cached?.supported_in_api === true &&
+        typeof cached?.priority === 'number' &&
+        cached.priority === 1 &&
+        !cached?.upgrade,
     };
   });
   const options = availableModels.filter((model) => model.enabled).map((model) => model.name);

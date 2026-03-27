@@ -30,6 +30,7 @@ function normalizeCodexModelConfig(raw: Partial<CodexModelConfig> | null | undef
             effort: level.effort,
             description: level.description,
           })),
+          supportsFastMode: model.supportsFastMode === true,
         }))
       : Array.from(new Set([defaultModel, ...options].filter((value): value is string => Boolean(value)))).map(
           (name) => ({
@@ -38,6 +39,7 @@ function normalizeCodexModelConfig(raw: Partial<CodexModelConfig> | null | undef
             isDefault: defaultModel === name,
             defaultReasoningEffort,
             supportedReasoningLevels: [],
+            supportsFastMode: false,
           })
         );
 

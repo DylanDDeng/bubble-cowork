@@ -1,7 +1,13 @@
+import type { CodexModelConfig } from '../types';
+
 const STORAGE_KEY = 'cowork.preferredCodexFastModeByModel';
 
-export function supportsCodexFastMode(model: string | null | undefined): boolean {
-  return (model || '').trim().toLowerCase() === 'gpt-5.4';
+export function supportsCodexFastMode(
+  config: CodexModelConfig,
+  model: string | null | undefined
+): boolean {
+  const matched = config.availableModels.find((entry) => entry.name === model);
+  return matched?.supportsFastMode === true;
 }
 
 function loadPreferences(): Record<string, boolean> {
@@ -32,16 +38,20 @@ function savePreferences(preferences: Record<string, boolean>): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
 }
 
-export function loadPreferredCodexFastMode(model: string | null): boolean {
-  if (!model || !supportsCodexFastMode(model)) {
+export function loadPreferredCodexFastMode(config: CodexModelConfig, model: string | null): boolean {
+  if (!model || !supportsCodexFastMode(config, model)) {
     return false;
   }
 
   return loadPreferences()[model] === true;
 }
 
-export function savePreferredCodexFastMode(model: string | null, enabled: boolean): void {
-  if (!model || !supportsCodexFastMode(model) || typeof window === 'undefined') {
+export function savePreferredCodexFastMode(
+  config: CodexModelConfig,
+  model: string | null,
+  enabled: boolean
+): void {
+  if (!model || !supportsCodexFastMode(config, model) || typeof window === 'undefined') {
     return;
   }
 

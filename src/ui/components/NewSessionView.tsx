@@ -119,8 +119,8 @@ export function NewSessionView() {
     [codexModelConfig, selectedCodexModel]
   );
   const codexFastModeSupported = useMemo(
-    () => supportsCodexFastMode(selectedCodexModel),
-    [selectedCodexModel]
+    () => supportsCodexFastMode(codexModelConfig, selectedCodexModel),
+    [codexModelConfig, selectedCodexModel]
   );
   const opencodeModelConfig = useOpencodeModelConfig();
   const opencodeModelOptions = useMemo(
@@ -367,7 +367,7 @@ export function NewSessionView() {
     if (nextEffort !== selectedCodexReasoningEffort) {
       setSelectedCodexReasoningEffort(nextEffort);
     }
-    const nextFastMode = loadPreferredCodexFastMode(selectedCodexModel);
+    const nextFastMode = loadPreferredCodexFastMode(codexModelConfig, selectedCodexModel);
     if (nextFastMode !== selectedCodexFastMode) {
       setSelectedCodexFastMode(nextFastMode);
     }
@@ -777,7 +777,7 @@ export function NewSessionView() {
                       enabled={selectedCodexFastMode}
                       onToggle={(enabled) => {
                         setSelectedCodexFastMode(enabled);
-                        savePreferredCodexFastMode(selectedCodexModel, enabled);
+                        savePreferredCodexFastMode(codexModelConfig, selectedCodexModel, enabled);
                       }}
                       disabled={pendingStart}
                     />
