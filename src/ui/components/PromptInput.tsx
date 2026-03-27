@@ -15,6 +15,7 @@ import { AttachmentChips } from './AttachmentChips';
 import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
+import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { SavePromptButton } from './prompts/SavePromptButton';
@@ -24,6 +25,7 @@ import { useCompatibleProviderConfig } from '../hooks/useCompatibleProviderConfi
 import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
 import { useOpencodeRuntimeStatus } from '../hooks/useOpencodeRuntimeStatus';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
+import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import { getSessionModel } from '../utils/session-model';
 import {
@@ -46,6 +48,7 @@ import {
 } from '../utils/opencode-permission';
 import { buildPromptWithSkill } from '../utils/claude-skills';
 import { buildPromptWithSlashCommand } from '../utils/claude-slash';
+import { removeProjectFileMention } from '../utils/project-file-mentions';
 
 function isVisibleClaudePickerModel(
   model: string | null | undefined,
@@ -91,6 +94,7 @@ export function PromptInput() {
   );
   const [selectedOpencodePermissionMode, setSelectedOpencodePermissionMode] =
     useState<OpenCodePermissionMode>(loadPreferredOpencodePermissionMode());
+  const [cursorIndex, setCursorIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
@@ -169,6 +173,11 @@ export function PromptInput() {
     sessionMessages: activeSession?.messages || [],
     setPrompt,
     onAutoSubmitCommand: handleAutoSubmitClaudeCommand,
+  });
+  const projectFileMentions = useProjectFileMentions({
+    cwd: activeSession?.cwd,
+    prompt: skillAutocomplete.displayPrompt,
+    cursorIndex,
   });
   const promptLibraryContent = useMemo(
     () => (
@@ -540,7 +549,70 @@ export function PromptInput() {
     });
   };
 
+  const handleSelectProjectFile = useCallback(
+    async (file: { path: string }) => {
+      const cwd = activeSession?.cwd;
+      const mention = projectFileMentions.mention;
+      if (!cwd || !mention) {
+        return;
+      }
+
+      const attachment = await window.electron.createProjectAttachment(cwd, file.path);
+      if (!attachment) {
+        toast.error('Unable to attach that project file.');
+        return;
+      }
+
+      setAttachments((prev) => {
+        if (prev.some((item) => item.path === attachment.path)) {
+          return prev;
+        }
+        return [...prev, attachment];
+      });
+
+      const nextPrompt = removeProjectFileMention(skillAutocomplete.displayPrompt, mention);
+      skillAutocomplete.setDisplayPrompt(nextPrompt);
+      setCursorIndex(mention.start);
+      window.requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+        textareaRef.current?.setSelectionRange(mention.start, mention.start);
+      });
+    },
+    [activeSession?.cwd, projectFileMentions.mention, skillAutocomplete]
+  );
+
+  const handlePromptChange = (value: string, nextCursorIndex: number) => {
+    skillAutocomplete.setDisplayPrompt(value);
+    setCursorIndex(nextCursorIndex);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (projectFileMentions.hasMentionQuery) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        projectFileMentions.moveSelection(1);
+        return;
+      }
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        projectFileMentions.moveSelection(-1);
+        return;
+      }
+
+      if (
+        (e.key === 'Enter' || e.key === 'Tab') &&
+        projectFileMentions.suggestions.length > 0
+      ) {
+        e.preventDefault();
+        const currentSuggestion = projectFileMentions.getCurrentSuggestion();
+        if (currentSuggestion) {
+          void handleSelectProjectFile(currentSuggestion);
+        }
+        return;
+      }
+    }
+
     if (skillAutocomplete.hasSlashQuery) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -623,7 +695,8 @@ export function PromptInput() {
           <textarea
             ref={textareaRef}
             value={skillAutocomplete.displayPrompt}
-            onChange={(e) => skillAutocomplete.setDisplayPrompt(e.target.value)}
+            onChange={(e) => handlePromptChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+            onSelect={(e) => setCursorIndex(e.currentTarget.selectionStart ?? 0)}
             onKeyDown={handleKeyDown}
             placeholder={
               isRunning
@@ -643,7 +716,16 @@ export function PromptInput() {
             }`}
           />
 
-          {skillAutocomplete.hasSlashQuery && (
+          {projectFileMentions.hasMentionQuery ? (
+            <ProjectFileMentionMenu
+              suggestions={projectFileMentions.suggestions}
+              selectedIndex={projectFileMentions.selectedIndex}
+              loading={projectFileMentions.loading}
+              onSelect={(suggestion) => {
+                void handleSelectProjectFile(suggestion);
+              }}
+            />
+          ) : skillAutocomplete.hasSlashQuery && (
             <ClaudeSkillMenu
               suggestions={skillAutocomplete.suggestions}
               selectedIndex={skillAutocomplete.selectedIndex}

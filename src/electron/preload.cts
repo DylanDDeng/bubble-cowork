@@ -243,6 +243,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('read-project-file-preview', cwd, filePath);
   },
 
+  createProjectAttachment: (cwd: string, filePath: string) => {
+    return ipcRenderer.invoke('create-project-attachment', cwd, filePath);
+  },
+
   // 保存项目文本文件（仅 .txt）
   writeProjectTextFile: (cwd: string, filePath: string, content: string) => {
     return ipcRenderer.invoke('write-project-text-file', cwd, filePath, content);

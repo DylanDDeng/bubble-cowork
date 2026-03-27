@@ -83,6 +83,7 @@ declare global {
     selectAttachments: () => Promise<Attachment[]>;
     readAttachmentPreview: (filePath: string) => Promise<string | null>;
     readProjectFilePreview: (cwd: string, filePath: string) => Promise<unknown>;
+    createProjectAttachment: (cwd: string, filePath: string) => Promise<Attachment | null>;
     writeProjectTextFile: (cwd: string, filePath: string, content: string) => Promise<{ ok: boolean; message?: string }>;
     openPath: (filePath: string) => Promise<{ ok: boolean; message?: string }>;
     revealPath: (filePath: string) => Promise<{ ok: boolean; message?: string }>;

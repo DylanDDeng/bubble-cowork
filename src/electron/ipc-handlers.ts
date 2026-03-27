@@ -1188,6 +1188,35 @@ function toAttachment(filePath: string): Attachment | null {
   }
 }
 
+async function toProjectAttachment(cwd: string, filePath: string): Promise<Attachment | null> {
+  const resolved = resolve(cwd || '.', filePath || '');
+  const validation = await validateProjectFilePath(cwd, resolved);
+  if (!validation.ok) {
+    return null;
+  }
+
+  try {
+    const stat = await fsPromises.stat(validation.targetReal);
+    if (!stat.isFile() || stat.size > MAX_ATTACHMENT_BYTES) {
+      return null;
+    }
+
+    const ext = extname(validation.targetReal).toLowerCase();
+    const isImage = ext === '.png' || ext === '.jpg' || ext === '.jpeg';
+
+    return {
+      id: uuidv4(),
+      path: validation.targetReal,
+      name: basename(validation.targetReal),
+      size: stat.size,
+      mimeType: ATTACHMENT_MIME_TYPES[ext] || (isImage ? 'image/png' : 'application/octet-stream'),
+      kind: isImage ? 'image' : 'file',
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Runner 句柄映射（带 Provider）
 const runnerHandles = new Map<
   string,
@@ -1718,6 +1747,14 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       return null;
     }
     return readProjectTree(cwd);
+  });
+
+  ipcMainHandle('create-project-attachment', async (_event, cwd: string, filePath: string) => {
+    if (!cwd || !filePath) {
+      return null;
+    }
+
+    return toProjectAttachment(cwd, filePath);
   });
 
   // RPC: 读取项目文件预览（安全：仅允许 cwd 内的文件，<=5MB）

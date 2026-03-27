@@ -448,6 +448,15 @@ function getProviderLogoForModel(model: string): string | null {
     return null;
   }
 
+  if (
+    normalized.startsWith('gpt-') ||
+    normalized.startsWith('codex') ||
+    normalized === 'chatgpt' ||
+    /^o[134]/.test(normalized)
+  ) {
+    return openaiLogo;
+  }
+
   if (normalized.startsWith('claude-') || normalized === 'opus' || normalized === 'sonnet' || normalized === 'haiku') {
     return claudeLogo;
   }
@@ -743,9 +752,10 @@ function UsageChart({
       <div className="mt-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-[var(--text-secondary)]">
         {models.map((model) => (
           <div key={model.model} className="flex items-center gap-2">
-            <span
-              className="h-2.5 w-2.5 rounded-full"
-              style={{ backgroundColor: modelColors[model.model] }}
+            <ModelProviderLogo
+              model={model.model}
+              color={modelColors[model.model]}
+              className="h-3.5 w-3.5"
             />
             <span>{model.model}</span>
           </div>
