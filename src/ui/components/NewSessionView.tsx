@@ -640,80 +640,81 @@ export function NewSessionView() {
             </div>
 
             {/* Composer */}
-            <div className="mx-auto max-w-4xl bg-[var(--bg-secondary)] border border-[var(--border)] rounded-[22px] shadow-sm transition-colors">
-            {attachments.length > 0 && (
-              <div className="px-5 pt-4">
-                <AttachmentChips
-                  attachments={attachments}
-                  onRemove={(id) =>
-                    setAttachments((prev) => prev.filter((a) => a.id !== id))
-                  }
-                />
-              </div>
-            )}
+            <div className="mx-auto max-w-4xl">
+              <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-[22px] shadow-sm transition-colors">
+              {attachments.length > 0 && (
+                <div className="px-5 pt-4">
+                  <AttachmentChips
+                    attachments={attachments}
+                    onRemove={(id) =>
+                      setAttachments((prev) => prev.filter((a) => a.id !== id))
+                    }
+                  />
+                </div>
+              )}
 
-            {skillAutocomplete.selectedSkill && (
-              <div className="px-5 pt-3">
-                <SelectedClaudeSkillChip
-                  skill={skillAutocomplete.selectedSkill}
-                  onClear={skillAutocomplete.clearSelectedSkill}
-                  compact
-                />
-              </div>
-            )}
+              {skillAutocomplete.selectedSkill && (
+                <div className="px-5 pt-3">
+                  <SelectedClaudeSkillChip
+                    skill={skillAutocomplete.selectedSkill}
+                    onClear={skillAutocomplete.clearSelectedSkill}
+                    compact
+                  />
+                </div>
+              )}
 
-            {!skillAutocomplete.selectedSkill && skillAutocomplete.selectedCommand && (
-              <div className="px-5 pt-3">
-                <SelectedClaudeCommandChip
-                  command={skillAutocomplete.selectedCommand}
-                  onClear={skillAutocomplete.clearSelectedCommand}
-                  compact
-                />
-              </div>
-            )}
+              {!skillAutocomplete.selectedSkill && skillAutocomplete.selectedCommand && (
+                <div className="px-5 pt-3">
+                  <SelectedClaudeCommandChip
+                    command={skillAutocomplete.selectedCommand}
+                    onClear={skillAutocomplete.clearSelectedCommand}
+                    compact
+                  />
+                </div>
+              )}
 
-            <textarea
-              ref={promptTextareaRef}
-              value={skillAutocomplete.displayPrompt}
-              onChange={(e) => handlePromptChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
-              onSelect={(e) => setCursorIndex(e.currentTarget.selectionStart ?? 0)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                skillAutocomplete.selectedSkill
-                  ? `Add instructions for ${skillAutocomplete.selectedSkill.name}...`
-                  : skillAutocomplete.selectedCommand
-                    ? `Add instructions for ${skillAutocomplete.selectedCommand.title.replace(/^\//, '')}...`
-                  : 'Describe your task...'
-              }
-              rows={1}
-              className={`w-full bg-transparent px-5 pb-3 text-[14px] outline-none resize-none no-drag max-h-[200px] ${
-                skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-1.5 min-h-[56px]' : 'pt-4 min-h-[56px]'
-              }`}
-              autoFocus
-            />
-
-            {projectFileMentions.hasMentionQuery ? (
-              <ProjectFileMentionMenu
-                suggestions={projectFileMentions.suggestions}
-                selectedIndex={projectFileMentions.selectedIndex}
-                loading={projectFileMentions.loading}
-                onSelect={(suggestion) => {
-                  void handleSelectProjectFile(suggestion);
-                }}
+              <textarea
+                ref={promptTextareaRef}
+                value={skillAutocomplete.displayPrompt}
+                onChange={(e) => handlePromptChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+                onSelect={(e) => setCursorIndex(e.currentTarget.selectionStart ?? 0)}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  skillAutocomplete.selectedSkill
+                    ? `Add instructions for ${skillAutocomplete.selectedSkill.name}...`
+                    : skillAutocomplete.selectedCommand
+                      ? `Add instructions for ${skillAutocomplete.selectedCommand.title.replace(/^\//, '')}...`
+                    : 'Describe your task...'
+                }
+                rows={1}
+                className={`w-full bg-transparent px-5 pb-3 text-[14px] outline-none resize-none no-drag max-h-[200px] ${
+                  skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-1.5 min-h-[56px]' : 'pt-4 min-h-[56px]'
+                }`}
+                autoFocus
               />
-            ) : skillAutocomplete.hasSlashQuery && (
-              <ClaudeSkillMenu
-                suggestions={skillAutocomplete.suggestions}
-                selectedIndex={skillAutocomplete.selectedIndex}
-                empty={skillAutocomplete.suggestions.length === 0}
-                title="Commands & Skills"
-                emptyMessage="No matching commands or skills."
-                onSelect={skillAutocomplete.selectSuggestion}
-              />
-            )}
 
-            {/* 底部工具栏 */}
-            <div className="flex items-center gap-2 px-4 pb-4">
+              {projectFileMentions.hasMentionQuery ? (
+                <ProjectFileMentionMenu
+                  suggestions={projectFileMentions.suggestions}
+                  selectedIndex={projectFileMentions.selectedIndex}
+                  loading={projectFileMentions.loading}
+                  onSelect={(suggestion) => {
+                    void handleSelectProjectFile(suggestion);
+                  }}
+                />
+              ) : skillAutocomplete.hasSlashQuery && (
+                <ClaudeSkillMenu
+                  suggestions={skillAutocomplete.suggestions}
+                  selectedIndex={skillAutocomplete.selectedIndex}
+                  empty={skillAutocomplete.suggestions.length === 0}
+                  title="Commands & Skills"
+                  emptyMessage="No matching commands or skills."
+                  onSelect={skillAutocomplete.selectSuggestion}
+                />
+              )}
+
+              {/* 底部工具栏 */}
+              <div className="flex items-center gap-2 px-4 pb-4">
               <AgentModelPicker
                 provider={provider}
                 onProviderChange={handleProviderChange}
@@ -834,38 +835,39 @@ export function NewSessionView() {
                   <ArrowUpIcon />
                 )}
               </button>
-            </div>
-          </div>
-          {(provider === 'claude' || provider === 'codex' || provider === 'opencode') && (
-            <div className="flex items-center justify-start px-4 pt-2 text-[12px]">
-              {provider === 'claude' ? (
-                <ClaudeAccessModePicker
-                  value={claudeAccessMode}
-                  onChange={setClaudeAccessMode}
-                  disabled={pendingStart}
-                />
-              ) : provider === 'codex' ? (
-                <CodexPermissionModePicker
-                  value={selectedCodexPermissionMode}
-                  onChange={(mode) => {
-                    setSelectedCodexPermissionMode(mode);
-                    savePreferredCodexPermissionMode(mode);
-                  }}
-                  disabled={pendingStart}
-                />
-              ) : (
-                <CodexPermissionModePicker
-                  value={selectedOpencodePermissionMode}
-                  onChange={(mode) => {
-                    setSelectedOpencodePermissionMode(mode);
-                    savePreferredOpencodePermissionMode(mode);
-                  }}
-                  disabled={pendingStart}
-                />
+              </div>
+              </div>
+              {(provider === 'claude' || provider === 'codex' || provider === 'opencode') && (
+                <div className="flex items-center justify-start px-4 pt-2 text-[12px]">
+                  {provider === 'claude' ? (
+                    <ClaudeAccessModePicker
+                      value={claudeAccessMode}
+                      onChange={setClaudeAccessMode}
+                      disabled={pendingStart}
+                    />
+                  ) : provider === 'codex' ? (
+                    <CodexPermissionModePicker
+                      value={selectedCodexPermissionMode}
+                      onChange={(mode) => {
+                        setSelectedCodexPermissionMode(mode);
+                        savePreferredCodexPermissionMode(mode);
+                      }}
+                      disabled={pendingStart}
+                    />
+                  ) : (
+                    <CodexPermissionModePicker
+                      value={selectedOpencodePermissionMode}
+                      onChange={(mode) => {
+                        setSelectedOpencodePermissionMode(mode);
+                        savePreferredOpencodePermissionMode(mode);
+                      }}
+                      disabled={pendingStart}
+                    />
+                  )}
+                </div>
               )}
             </div>
-          )}
-        </div>
+          </div>
         </div>
       </div>
     </div>
