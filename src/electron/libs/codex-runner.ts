@@ -268,6 +268,10 @@ async function buildPromptContent(
     return blocks;
   }
 
+  if (imageAttachments.length > 0 && !capabilities.image) {
+    throw new Error('The current Codex/OpenCode session did not advertise image attachment support.');
+  }
+
   if (capabilities.image && imageAttachments.length > 0) {
     for (const image of imageAttachments) {
       try {
@@ -278,9 +282,9 @@ async function buildPromptContent(
           data: buffer.toString('base64'),
         });
       } catch (error) {
-        if (isDev()) {
-          console.warn('[ACP Runner] Failed to read image attachment:', image.path, error);
-        }
+        const reason = error instanceof Error ? error.message : String(error);
+        console.error('[ACP Runner] Failed to read image attachment:', image.path, reason);
+        throw new Error(`Failed to prepare image attachment "${image.name}": ${reason}`);
       }
     }
   }

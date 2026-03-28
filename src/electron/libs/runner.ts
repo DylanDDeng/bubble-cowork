@@ -249,7 +249,9 @@ async function buildUserMessage(
         },
       });
     } catch (error) {
-      console.warn('Failed to read image attachment:', image.path, error);
+      const reason = error instanceof Error ? error.message : String(error);
+      console.error('Failed to read image attachment:', image.path, reason);
+      throw new Error(`Failed to prepare image attachment "${image.name}": ${reason}`);
     }
   }
 

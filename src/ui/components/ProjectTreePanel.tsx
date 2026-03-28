@@ -299,8 +299,8 @@ export function ProjectTreePanel({
   onChangeCountChange?: (count: number) => void;
 }) {
   const MIN_CHANGES_SPINNER_MS = 450;
-  const defaultRailWidth = 280;
-  const minRailWidth = 260;
+  const defaultRailWidth = 320;
+  const minRailWidth = 320;
   const maxRailWidth = 560;
   const defaultPreviewWidth = 520;
   const minPreviewWidth = 340;
@@ -1006,7 +1006,7 @@ export function ProjectTreePanel({
           </div>
         )}
         <div className="h-8 drag-region" />
-        <div className="px-4 pt-2 pb-2 pr-12">
+        <div className="px-4 pt-2 pb-2 pr-14">
           <div className="flex items-center gap-1">
             <button
               onClick={() => { onChangeTab('files'); setExpandedChangeId(null); }}
