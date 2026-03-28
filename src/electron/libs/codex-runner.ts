@@ -300,6 +300,177 @@ export function runOpenCode(options: RunnerOptions): RunnerHandle {
   return runAcp(options, OPENCODE_ADAPTER);
 }
 
+export async function runCodexOneShot(params: {
+  prompt: string;
+  cwd?: string;
+  resumeSessionId?: string;
+  model?: string;
+  codexPermissionMode?: CodexPermissionMode;
+  codexReasoningEffort?: CodexReasoningEffort;
+  codexFastMode?: boolean;
+}): Promise<{ text: string; sessionId?: string; model?: string }> {
+  const selectedModel =
+    typeof params.model === 'string' && params.model.trim().length > 0 ? params.model.trim() : undefined;
+  const spawnArgs = [
+    ...CODEX_ADAPTER.getArgs(selectedModel),
+    ...getCodexPermissionOverrides(params.codexPermissionMode),
+    ...getCodexReasoningOverrides(params.codexReasoningEffort),
+    ...getCodexFastModeOverrides(params.codexFastMode),
+  ];
+  const proc = spawn(CODEX_ADAPTER.command, spawnArgs, {
+    cwd: params.cwd || process.cwd(),
+    env: process.env,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  let promptCapabilities: PromptCapabilities = {};
+  let currentSessionId = params.resumeSessionId || '';
+  let resolvedModel = selectedModel;
+  let assistantText = '';
+  let settled = false;
+  let resolveCompletion: (() => void) | null = null;
+  const completionPromise = new Promise<void>((resolve) => {
+    resolveCompletion = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+  });
+  const client = new JsonRpcClient(
+    proc,
+    (method, params) => {
+      if (method !== 'session/update') {
+        return;
+      }
+
+      const update = (params?.update as SessionUpdate) || (params as SessionUpdate);
+      if (!update) return;
+      const updateType =
+        typeof update.sessionUpdate === 'string' ? update.sessionUpdate.toLowerCase() : '';
+
+      if (
+        updateType === 'agent_message_chunk' ||
+        updateType.includes('message_chunk') ||
+        updateType.includes('message_delta')
+      ) {
+        let rawContent = update.content as
+          | { type?: string; text?: string; content?: unknown }
+          | undefined;
+        if (rawContent?.type === 'content' && rawContent.content) {
+          rawContent = rawContent.content as { type?: string; text?: string };
+        }
+        if (rawContent?.type === 'text' && typeof rawContent.text === 'string') {
+          assistantText += rawContent.text;
+        }
+        return;
+      }
+
+      if (updateType === 'agent_message' || updateType.endsWith('agent_message')) {
+        const text = extractText(update as Record<string, unknown>);
+        if (text) {
+          assistantText += text;
+        }
+      }
+
+      const completion = updateSignalsCompletion(update as Record<string, unknown>);
+      if (completion) {
+        resolveCompletion?.();
+      }
+    },
+    (id, method) => {
+      client.respond(id, undefined, { code: -32601, message: `Method not supported: ${method}` });
+    },
+    () => undefined
+  );
+
+  proc.stderr?.on('data', (chunk) => {
+    const line = String(chunk).trim();
+    if (line) {
+      console.warn('[Codex ACP one-shot]', line);
+    }
+  });
+
+  try {
+    const initResult = (await client.request('initialize', {
+      protocolVersion: CODEX_ADAPTER.protocolVersion,
+      clientCapabilities: {
+        fs: { readTextFile: false, writeTextFile: false },
+        terminal: false,
+      },
+      clientInfo: ACP_CLIENT_INFO,
+    })) as Record<string, unknown> | undefined;
+
+    const caps =
+      (initResult?.agentCapabilities as Record<string, unknown>) ||
+      (initResult?.capabilities as Record<string, unknown>) ||
+      {};
+    const promptCaps =
+      (caps.promptCapabilities as Record<string, unknown>) ||
+      (caps.prompt as Record<string, unknown>) ||
+      {};
+    promptCapabilities = { image: !!promptCaps.image };
+
+    const cwd = params.cwd || process.cwd();
+    let sessionResult: Record<string, unknown> | undefined;
+
+    if (params.resumeSessionId) {
+      try {
+        sessionResult = (await client.request('session/load', {
+          sessionId: params.resumeSessionId,
+          id: params.resumeSessionId,
+          cwd,
+          mcpServers: [],
+        })) as Record<string, unknown>;
+      } catch {
+        sessionResult = undefined;
+      }
+    }
+
+    if (!sessionResult) {
+      sessionResult = (await client.request('session/new', {
+        cwd,
+        mcpServers: [],
+      })) as Record<string, unknown>;
+    }
+
+    currentSessionId = String(sessionResult?.sessionId || sessionResult?.id || '');
+    if (!currentSessionId) {
+      throw new Error('Codex ACP did not return a bootstrap session id.');
+    }
+
+    const content = await buildPromptContent(params.prompt, undefined, promptCapabilities);
+    const result = (await client.request('session/prompt', {
+      sessionId: currentSessionId,
+      prompt: content,
+    })) as Record<string, unknown>;
+
+    resolvedModel =
+      String(result?.model || sessionResult?.model || selectedModel || '').trim() || selectedModel;
+
+    const stopReason = String(result?.stopReason || result?.stop_reason || '');
+    const status = String(result?.status || '');
+    const done = Boolean(result?.done || result?.completed);
+    if (!stopReason && !status && !done) {
+      await Promise.race([
+        completionPromise,
+        new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+      ]);
+    }
+
+    return {
+      text: assistantText.trim(),
+      sessionId: currentSessionId,
+      model: resolvedModel,
+    };
+  } finally {
+    try {
+      proc.kill();
+    } catch {
+      // ignore
+    }
+  }
+}
+
 function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
   const {
     prompt,

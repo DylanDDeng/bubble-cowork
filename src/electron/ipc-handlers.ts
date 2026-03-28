@@ -7,7 +7,7 @@ import { basename, extname, resolve, relative, isAbsolute, join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
 import { runClaude } from './libs/runner';
-import { runCodex, runOpenCode } from './libs/codex-runner';
+import { runCodex, runCodexOneShot, runOpenCode } from './libs/codex-runner';
 import { generateSessionTitle, runClaudeOneShot } from './libs/util';
 import { readProjectTree } from './libs/project-tree';
 import { normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
@@ -782,12 +782,67 @@ function buildLatestEditSummaryPrompt(history: StreamMessage[]): string {
   return lines.join('\n');
 }
 
+function buildLatestEditSummaryPromptForProvider(
+  providerLabel: string,
+  history: StreamMessage[]
+): string {
+  const transcript = buildHistoryTranscript(history);
+  const lines = [
+    `You are helping Aegis rebuild a ${providerLabel} conversation before the latest edited user turn.`,
+    'Do not continue the task. Do not ask questions. Do not use tools.',
+    'Summarize the conversation state so a fresh session can continue from this exact point.',
+    '',
+    'Preserve:',
+    '- the user goal and expected deliverable',
+    '- completed work and intermediate findings',
+    '- important decisions, preferences, and constraints',
+    '- relevant files, commands, and technical details',
+    '- unresolved questions and next steps',
+    '',
+    'Conversation transcript:',
+    transcript || '[No prior conversation context]',
+    '',
+    'Return only a summary wrapped in <summary></summary>.',
+    'Do not include any text outside the summary tags.',
+  ];
+
+  return lines.join('\n');
+}
+
 function buildDirectEditBootstrapPrompt(params: {
   transcript: string;
   cwd?: string | null;
 }): string {
   const lines = [
     'You are resuming an Aegis Claude Code conversation after the latest user message was edited.',
+    'Treat the following transcript as the conversation state immediately before the edited user turn.',
+    'Absorb the context so future turns can continue naturally from this point.',
+    'Do not continue the task yet. Do not ask questions. Do not use tools.',
+  ];
+
+  if (params.cwd) {
+    lines.push(`Project working directory: ${params.cwd}`);
+  }
+
+  lines.push(
+    '',
+    'Conversation transcript:',
+    params.transcript || '[No prior conversation context]',
+    '',
+    'Do not repeat the transcript or summarize it back.',
+    'Reply with exactly READY.'
+  );
+
+  return lines.join('\n');
+}
+
+function buildDirectEditBootstrapPromptForProvider(params: {
+  providerLabel: string;
+  transcript: string;
+  cwd?: string | null;
+}): string {
+  const lines = [
+    `You are resuming an Aegis ${params.providerLabel} conversation after the latest user message was edited.`,
     'Treat the following transcript as the conversation state immediately before the edited user turn.',
     'Absorb the context so future turns can continue naturally from this point.',
     'Do not continue the task yet. Do not ask questions. Do not use tools.',
@@ -868,6 +923,70 @@ async function bootstrapClaudeSessionFromHistory(params: {
   };
 }
 
+async function bootstrapCodexSessionFromHistory(params: {
+  history: StreamMessage[];
+  cwd?: string | null;
+  model?: string | null;
+  codexPermissionMode?: import('../shared/types').CodexPermissionMode;
+  codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
+  codexFastMode?: boolean;
+}): Promise<{ sessionId: string; model?: string | null }> {
+  const transcript = buildHistoryTranscript(params.history);
+  const canDirectBootstrap =
+    transcript.length > 0 &&
+    transcript.length <= DIRECT_EDIT_BOOTSTRAP_MAX_TRANSCRIPT_CHARS;
+
+  const bootstrapResult = canDirectBootstrap
+    ? await runCodexOneShot({
+        prompt: buildDirectEditBootstrapPromptForProvider({
+          providerLabel: 'Codex',
+          transcript,
+          cwd: params.cwd,
+        }),
+        cwd: params.cwd ?? undefined,
+        model: params.model || undefined,
+        codexPermissionMode: params.codexPermissionMode,
+        codexReasoningEffort: params.codexReasoningEffort,
+        codexFastMode: params.codexFastMode,
+      })
+    : await (async () => {
+        const summaryResult = await runCodexOneShot({
+          prompt: buildLatestEditSummaryPromptForProvider('Codex', params.history),
+          cwd: params.cwd ?? undefined,
+          model: params.model || undefined,
+          codexPermissionMode: params.codexPermissionMode,
+          codexReasoningEffort: params.codexReasoningEffort,
+          codexFastMode: params.codexFastMode,
+        });
+        const summary = extractSummaryContent(summaryResult.text);
+        if (!summary) {
+          throw new Error('Codex returned an empty bootstrap summary.');
+        }
+
+        return runCodexOneShot({
+          prompt: buildCompactBootstrapPrompt({
+            summary,
+            cwd: params.cwd,
+            recentConversation: buildRecentConversationContext(params.history),
+          }),
+          cwd: params.cwd ?? undefined,
+          model: summaryResult.model || params.model || undefined,
+          codexPermissionMode: params.codexPermissionMode,
+          codexReasoningEffort: params.codexReasoningEffort,
+          codexFastMode: params.codexFastMode,
+        });
+      })();
+
+  if (!bootstrapResult.sessionId) {
+    throw new Error('Codex did not return a bootstrap session id.');
+  }
+
+  return {
+    sessionId: bootstrapResult.sessionId,
+    model: normalizeModel(bootstrapResult.model || params.model || undefined),
+  };
+}
+
 function extractSummaryContent(text: string): string {
   const match = text.match(/<summary>([\s\S]*?)<\/summary>/i);
   return (match ? match[1] : text).trim();
@@ -934,7 +1053,18 @@ async function handleEditLatestPrompt(
   mainWindow: BrowserWindow,
   payload: SessionContinuePayload
 ): Promise<void> {
-  const { sessionId, prompt, attachments, model, compatibleProviderId, betas, claudeAccessMode } = payload;
+  const {
+    sessionId,
+    prompt,
+    attachments,
+    model,
+    compatibleProviderId,
+    betas,
+    claudeAccessMode,
+    codexPermissionMode,
+    codexReasoningEffort,
+    codexFastMode,
+  } = payload;
   const session = sessions.getSession(sessionId);
   if (!session) {
     broadcast(mainWindow, {
@@ -944,10 +1074,23 @@ async function handleEditLatestPrompt(
     return;
   }
 
+  if (session.provider === 'codex') {
+    await handleEditLatestCodexPrompt(mainWindow, {
+      sessionId,
+      prompt,
+      attachments,
+      model,
+      codexPermissionMode,
+      codexReasoningEffort,
+      codexFastMode,
+    }, session);
+    return;
+  }
+
   if (session.provider !== 'claude') {
     broadcast(mainWindow, {
       type: 'runner.error',
-      payload: { message: 'Editing the latest sent message is currently available only for Claude sessions.', sessionId },
+      payload: { message: 'Editing the latest sent message is currently available only for Claude and Codex sessions.', sessionId },
     });
     return;
   }
@@ -1133,6 +1276,224 @@ async function handleEditLatestPrompt(
     requestedCompatibleProviderId,
     requestedBetas,
     nextClaudeAccessMode
+  );
+}
+
+async function handleEditLatestCodexPrompt(
+  mainWindow: BrowserWindow,
+  payload: {
+    sessionId: string;
+    prompt: string;
+    attachments?: Attachment[];
+    model?: string;
+    codexPermissionMode?: import('../shared/types').CodexPermissionMode;
+    codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
+    codexFastMode?: boolean;
+  },
+  session: ReturnType<typeof sessions.getSession>
+): Promise<void> {
+  const {
+    sessionId,
+    prompt,
+    attachments,
+    model,
+    codexPermissionMode,
+    codexReasoningEffort,
+    codexFastMode,
+  } = payload;
+  if (!session) {
+    return;
+  }
+
+  const existingEntry = runnerHandles.get(sessionId);
+  if (existingEntry && session.status === 'running') {
+    existingEntry.handle.abort();
+    runnerHandles.delete(sessionId);
+  }
+
+  const history = sessions.getSessionHistory(sessionId);
+  const previousStatus = (session.status as SessionStatus) || 'completed';
+  const previousCodexSessionId = session.codex_session_id || null;
+  const previousModel = session.model || null;
+  const previousCodexPermissionMode = normalizeCodexPermissionMode(session.codex_permission_mode);
+  const previousCodexReasoningEffort = normalizeCodexReasoningEffort(session.codex_reasoning_effort);
+  const previousCodexFastMode = normalizeCodexFastMode(session.codex_fast_mode);
+  let latestUserPromptIndex = -1;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    if (history[index]?.type === 'user_prompt') {
+      latestUserPromptIndex = index;
+      break;
+    }
+  }
+
+  if (latestUserPromptIndex === -1) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'No editable user prompt found for this session.', sessionId },
+    });
+    return;
+  }
+
+  const previousEditablePrompt = history[latestUserPromptIndex];
+  if (!previousEditablePrompt || previousEditablePrompt.type !== 'user_prompt') {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'Failed to resolve the editable user prompt for this session.', sessionId },
+    });
+    return;
+  }
+
+  const preservedHistory = history.slice(0, latestUserPromptIndex);
+  const requestedModel = normalizeModel(model ?? session.model ?? undefined);
+  const nextPrompt = prompt.trim();
+  const nextCodexPermissionMode = normalizeCodexPermissionMode(
+    codexPermissionMode || previousCodexPermissionMode
+  );
+  const nextCodexReasoningEffort = normalizeCodexReasoningEffort(
+    codexReasoningEffort || previousCodexReasoningEffort
+  );
+  const nextCodexFastMode = normalizeCodexFastMode(codexFastMode ?? previousCodexFastMode);
+  const createdAt = Date.now();
+  const editedUserPrompt: StreamMessage = {
+    type: 'user_prompt',
+    prompt: nextPrompt,
+    attachments,
+    createdAt,
+  };
+  const rewrittenHistory = [...preservedHistory, editedUserPrompt];
+  let nextCodexSessionId: string | undefined;
+  let resolvedModel = requestedModel;
+
+  sessions.replaceSessionHistory(sessionId, rewrittenHistory);
+  sessions.updateSessionStatus(sessionId, 'running');
+  sessions.updateLastPrompt(sessionId, nextPrompt);
+  sessions.setCodexSessionId(sessionId, null);
+  sessions.updateSessionModel(sessionId, requestedModel || null);
+  sessions.updateSessionCodexPermissionMode(sessionId, nextCodexPermissionMode);
+  sessions.updateSessionCodexReasoningEffort(sessionId, nextCodexReasoningEffort || null);
+  sessions.updateSessionCodexFastMode(sessionId, nextCodexFastMode);
+
+  broadcast(mainWindow, {
+    type: 'session.history',
+    payload: {
+      sessionId,
+      status: 'running',
+      messages: rewrittenHistory,
+    },
+  });
+
+  broadcast(mainWindow, {
+    type: 'session.status',
+    payload: {
+      sessionId,
+      status: 'running',
+      provider: 'codex',
+      model: requestedModel || undefined,
+      codexPermissionMode: nextCodexPermissionMode,
+      codexReasoningEffort: nextCodexReasoningEffort,
+      codexFastMode: nextCodexFastMode,
+      hiddenFromThreads: session.hidden_from_threads === 1,
+    },
+  });
+
+  try {
+    if (preservedHistory.length > 0) {
+      const bootstrap = await bootstrapCodexSessionFromHistory({
+        history: preservedHistory,
+        cwd: session.cwd,
+        model: requestedModel,
+        codexPermissionMode: nextCodexPermissionMode,
+        codexReasoningEffort: nextCodexReasoningEffort,
+        codexFastMode: nextCodexFastMode,
+      });
+      nextCodexSessionId = bootstrap.sessionId;
+      resolvedModel = normalizeModel(bootstrap.model || requestedModel || undefined);
+    }
+  } catch (error) {
+    sessions.replaceSessionHistory(sessionId, history);
+    sessions.updateSessionStatus(sessionId, previousStatus);
+    sessions.updateLastPrompt(sessionId, previousEditablePrompt.prompt);
+    sessions.setCodexSessionId(sessionId, previousCodexSessionId);
+    sessions.updateSessionModel(sessionId, previousModel);
+    sessions.updateSessionCodexPermissionMode(sessionId, previousCodexPermissionMode);
+    sessions.updateSessionCodexReasoningEffort(sessionId, previousCodexReasoningEffort || null);
+    sessions.updateSessionCodexFastMode(sessionId, previousCodexFastMode);
+
+    broadcast(mainWindow, {
+      type: 'session.history',
+      payload: {
+        sessionId,
+        status: previousStatus,
+        messages: history,
+      },
+    });
+
+    broadcast(mainWindow, {
+      type: 'session.status',
+      payload: {
+        sessionId,
+        status: previousStatus,
+        provider: session.provider || 'codex',
+        model: previousModel || undefined,
+        codexPermissionMode: previousCodexPermissionMode,
+        codexReasoningEffort: previousCodexReasoningEffort,
+        codexFastMode: previousCodexFastMode,
+        hiddenFromThreads: session.hidden_from_threads === 1,
+      },
+    });
+
+    const message = error instanceof Error ? error.message : String(error);
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: `Failed to edit latest message: ${message}`, sessionId },
+    });
+    return;
+  }
+
+  sessions.setCodexSessionId(sessionId, nextCodexSessionId || null);
+  sessions.updateSessionModel(sessionId, resolvedModel || null);
+  sessions.updateSessionCodexPermissionMode(sessionId, nextCodexPermissionMode);
+  sessions.updateSessionCodexReasoningEffort(sessionId, nextCodexReasoningEffort || null);
+  sessions.updateSessionCodexFastMode(sessionId, nextCodexFastMode);
+
+  const refreshedSession = sessions.getSession(sessionId);
+  if (!refreshedSession) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'Failed to refresh session after editing the latest message.', sessionId },
+    });
+    return;
+  }
+
+  broadcast(mainWindow, {
+    type: 'session.status',
+    payload: {
+      sessionId,
+      status: 'running',
+      provider: refreshedSession.provider,
+      model: resolvedModel || undefined,
+      codexPermissionMode: nextCodexPermissionMode,
+      codexReasoningEffort: nextCodexReasoningEffort,
+      codexFastMode: nextCodexFastMode,
+      hiddenFromThreads: refreshedSession.hidden_from_threads === 1,
+    },
+  });
+
+  startRunner(
+    mainWindow,
+    refreshedSession,
+    nextPrompt,
+    nextCodexSessionId,
+    attachments,
+    'codex',
+    resolvedModel || undefined,
+    undefined,
+    undefined,
+    undefined,
+    nextCodexPermissionMode,
+    nextCodexReasoningEffort || undefined,
+    nextCodexFastMode,
+    undefined
   );
 }
 

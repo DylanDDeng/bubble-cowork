@@ -300,6 +300,14 @@ export function updateCodexSessionId(sessionId: string, codexSessionId: string):
   stmt.run(codexSessionId, now, sessionId);
 }
 
+export function setCodexSessionId(sessionId: string, codexSessionId: string | null): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET codex_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(codexSessionId, now, sessionId);
+}
+
 // 更新 OpenCode Session ID
 export function updateOpencodeSessionId(sessionId: string, opencodeSessionId: string): void {
   const now = Date.now();

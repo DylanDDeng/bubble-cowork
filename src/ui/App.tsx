@@ -481,7 +481,8 @@ export function App() {
                       permissionRequests={activeSession.permissionRequests}
                       onPermissionResult={handlePermissionResult}
                       userPromptActions={
-                        item.message.type === 'user_prompt'
+                        item.message.type === 'user_prompt' &&
+                        (activeSession.provider === 'claude' || activeSession.provider === 'codex')
                           ? {
                               canEditAndRetry: item.originalIndex === lastUserPromptIndex,
                               isSessionRunning: activeSession.status === 'running',
