@@ -72,6 +72,10 @@ let devFileWatcher: fs.FSWatcher | null = null;
 let updateCheckStarted = false;
 const RELEASES_URL = 'https://github.com/DylanDDeng/bubble-cowork/releases';
 
+function shouldAutoOpenDevTools(): boolean {
+  return process.env.AEGIS_OPEN_DEVTOOLS === '1';
+}
+
 function stripSimpleHtml(input: string): string {
   return input
     .replace(/<br\s*\/?>/gi, '\n')
@@ -246,7 +250,9 @@ function createWindow(): void {
           console.error('[Dev] Failed to load dist-react fallback UI:', fallbackError);
         }
       });
-    mainWindow.webContents.openDevTools();
+    if (shouldAutoOpenDevTools()) {
+      mainWindow.webContents.openDevTools();
+    }
   } else {
     mainWindow.loadFile(getUIPath());
   }
