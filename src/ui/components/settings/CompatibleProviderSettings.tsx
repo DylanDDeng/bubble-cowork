@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Eye,
   EyeOff,
@@ -24,6 +25,12 @@ import { formatCodexModelLabel } from '../../utils/codex-model';
 import { Badge } from '../ui/badge';
 import { OpenCodeLogo } from '../OpenCodeLogo';
 import { Input } from '../ui/input';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
 import {
   Dialog,
   DialogContent,
@@ -85,6 +92,106 @@ const PROVIDER_META: Record<
   },
 };
 
+const PROVIDER_MODEL_SUGGESTIONS: Record<
+  ClaudeCompatibleProviderId,
+  { model: string; smallFastModel?: string }[]
+> = {
+  minimaxCn: [
+    { model: 'MiniMax-M2.5', smallFastModel: 'MiniMax-M2.5' },
+  ],
+  minimax: [
+    { model: 'MiniMax-M2.5', smallFastModel: 'MiniMax-M2.5' },
+  ],
+  mimo: [
+    { model: 'mimo-v2-pro', smallFastModel: 'mimo-v2-flash' },
+    { model: 'mimo-v2-flash', smallFastModel: 'mimo-v2-flash' },
+  ],
+  zhipu: [
+    { model: 'glm-5', smallFastModel: 'glm-5' },
+    { model: 'glm-4.6', smallFastModel: 'glm-4.6' },
+  ],
+  moonshot: [
+    { model: 'kimi-k2.5', smallFastModel: 'kimi-k2-turbo' },
+    { model: 'kimi-k2-turbo', smallFastModel: 'kimi-k2-turbo' },
+  ],
+  deepseek: [
+    { model: 'deepseek-chat', smallFastModel: 'deepseek-chat' },
+    { model: 'deepseek-reasoner', smallFastModel: 'deepseek-chat' },
+  ],
+};
+
+const MODEL_HISTORY_STORAGE_KEY = 'cowork.compatible-provider-model-history';
+
+type ProviderModelHistory = Partial<
+  Record<ClaudeCompatibleProviderId, { model?: string[]; smallFastModel?: string[] }>
+>;
+
+function loadProviderModelHistory(): ProviderModelHistory {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+
+  try {
+    const raw = window.localStorage.getItem(MODEL_HISTORY_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+
+    return JSON.parse(raw) as ProviderModelHistory;
+  } catch {
+    return {};
+  }
+}
+
+function saveProviderModelHistory(nextHistory: ProviderModelHistory): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.localStorage.setItem(MODEL_HISTORY_STORAGE_KEY, JSON.stringify(nextHistory));
+}
+
+function rememberProviderModelValue(
+  providerId: ClaudeCompatibleProviderId,
+  field: 'model' | 'smallFastModel',
+  value: string | undefined
+): void {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return;
+  }
+
+  const current = loadProviderModelHistory();
+  const providerHistory = current[providerId] || {};
+  const existingValues = providerHistory[field] || [];
+  const nextValues = [normalized, ...existingValues.filter((item) => item !== normalized)].slice(0, 12);
+  current[providerId] = {
+    ...providerHistory,
+    [field]: nextValues,
+  };
+  saveProviderModelHistory(current);
+}
+
+function getProviderModelSuggestions(
+  providerId: ClaudeCompatibleProviderId,
+  field: 'model' | 'smallFastModel',
+  draftProvider: ClaudeCompatibleProviderConfig
+): string[] {
+  const builtins = PROVIDER_MODEL_SUGGESTIONS[providerId]
+    .map((item) => (field === 'model' ? item.model : item.smallFastModel))
+    .filter((value): value is string => Boolean(value));
+  const currentValue = field === 'model' ? draftProvider.model : draftProvider.smallFastModel || '';
+  const history = loadProviderModelHistory()[providerId]?.[field] || [];
+
+  return Array.from(
+    new Set(
+      [currentValue, ...history, ...builtins]
+        .map((value) => value.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
 export function CompatibleProviderSettingsContent() {
   const [config, setConfig] = useState<ClaudeCompatibleProvidersConfig>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
@@ -143,6 +250,14 @@ export function CompatibleProviderSettingsContent() {
   const selectedProviderMeta = PROVIDER_META[selectedProviderId];
   const selectedProvider = config.providers[selectedProviderId];
   const providerMessage = message?.providerId === selectedProviderId ? message.text : null;
+  const modelSuggestions = useMemo(
+    () => getProviderModelSuggestions(selectedProviderId, 'model', draftProvider),
+    [draftProvider, selectedProviderId]
+  );
+  const smallFastModelSuggestions = useMemo(
+    () => getProviderModelSuggestions(selectedProviderId, 'smallFastModel', draftProvider),
+    [draftProvider, selectedProviderId]
+  );
 
   const isDirty = useMemo(
     () => JSON.stringify(draftProvider) !== JSON.stringify(selectedProvider),
@@ -168,6 +283,8 @@ export function CompatibleProviderSettingsContent() {
       });
       const saved = await window.electron.saveClaudeCompatibleProviderConfig(nextConfig);
       setConfig(normalizeCompatibleProvidersConfig(saved));
+      rememberProviderModelValue(selectedProviderId, 'model', draftProvider.model);
+      rememberProviderModelValue(selectedProviderId, 'smallFastModel', draftProvider.smallFastModel);
       window.dispatchEvent(new CustomEvent('claude-compatible-provider-updated'));
       setMessage({
         providerId: selectedProviderId,
@@ -360,16 +477,16 @@ export function CompatibleProviderSettingsContent() {
                 label="Model"
                 description="Default model name passed to the compatible provider."
               >
-                <input
+                <SuggestionInput
                   value={draftProvider.model}
-                  onChange={(event) =>
+                  onChange={(value) =>
                     updateDraftProvider((current) => ({
                       ...current,
-                      model: event.target.value,
+                      model: value,
                     }))
                   }
+                  suggestions={modelSuggestions}
                   placeholder={getProviderModelPlaceholder(selectedProviderId)}
-                  className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
                   disabled={savingProvider !== null}
                 />
               </Field>
@@ -378,20 +495,20 @@ export function CompatibleProviderSettingsContent() {
                 label="Small Fast Model"
                 description="Optional lower-latency override for lightweight Claude Code requests."
               >
-                <input
+                <SuggestionInput
                   value={draftProvider.smallFastModel || ''}
-                  onChange={(event) =>
+                  onChange={(value) =>
                     updateDraftProvider((current) => ({
                       ...current,
-                      smallFastModel: event.target.value,
+                      smallFastModel: value,
                     }))
                   }
+                  suggestions={smallFastModelSuggestions}
                   placeholder={
                     selectedProviderId === 'deepseek'
                       ? 'deepseek-chat or deepseek-reasoner'
                       : 'Optional override'
                   }
-                  className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
                   disabled={savingProvider !== null}
                 />
               </Field>
@@ -873,6 +990,58 @@ function Field({
         <div className="text-[13px] leading-5 text-[var(--text-secondary)]">{description}</div>
       ) : null}
       {children}
+    </div>
+  );
+}
+
+function SuggestionInput({
+  value,
+  onChange,
+  suggestions,
+  placeholder,
+  disabled,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  suggestions: string[];
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="relative">
+      <Input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="h-11 rounded-xl border-[var(--border)] bg-[var(--bg-secondary)] pr-11 text-sm text-[var(--text-primary)] focus-visible:ring-[var(--accent)]"
+        disabled={disabled}
+      />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-xl text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+            disabled={disabled}
+            aria-label="Open model suggestions"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-[320px]">
+          {suggestions.length > 0 ? (
+            suggestions.map((suggestion) => (
+              <DropdownMenuItem
+                key={suggestion}
+                onSelect={() => onChange(suggestion)}
+              >
+                {suggestion}
+              </DropdownMenuItem>
+            ))
+          ) : (
+            <div className="px-3 py-2 text-sm text-[var(--text-muted)]">No suggestions yet.</div>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
