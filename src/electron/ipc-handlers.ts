@@ -7,7 +7,7 @@ import { basename, extname, resolve, relative, isAbsolute, join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
 import { runClaude } from './libs/runner';
-import { runCodex, runCodexOneShot, runOpenCode } from './libs/codex-runner';
+import { runCodex, runCodexOneShot, runOpenCode, runOpenCodeOneShot } from './libs/codex-runner';
 import { generateSessionTitle, runClaudeOneShot } from './libs/util';
 import { readProjectTree } from './libs/project-tree';
 import { normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
@@ -987,6 +987,62 @@ async function bootstrapCodexSessionFromHistory(params: {
   };
 }
 
+async function bootstrapOpenCodeSessionFromHistory(params: {
+  history: StreamMessage[];
+  cwd?: string | null;
+  model?: string | null;
+  opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
+}): Promise<{ sessionId: string; model?: string | null }> {
+  const transcript = buildHistoryTranscript(params.history);
+  const canDirectBootstrap =
+    transcript.length > 0 &&
+    transcript.length <= DIRECT_EDIT_BOOTSTRAP_MAX_TRANSCRIPT_CHARS;
+
+  const bootstrapResult = canDirectBootstrap
+    ? await runOpenCodeOneShot({
+        prompt: buildDirectEditBootstrapPromptForProvider({
+          providerLabel: 'OpenCode',
+          transcript,
+          cwd: params.cwd,
+        }),
+        cwd: params.cwd ?? undefined,
+        model: params.model || undefined,
+        opencodePermissionMode: params.opencodePermissionMode,
+      })
+    : await (async () => {
+        const summaryResult = await runOpenCodeOneShot({
+          prompt: buildLatestEditSummaryPromptForProvider('OpenCode', params.history),
+          cwd: params.cwd ?? undefined,
+          model: params.model || undefined,
+          opencodePermissionMode: params.opencodePermissionMode,
+        });
+        const summary = extractSummaryContent(summaryResult.text);
+        if (!summary) {
+          throw new Error('OpenCode returned an empty bootstrap summary.');
+        }
+
+        return runOpenCodeOneShot({
+          prompt: buildCompactBootstrapPrompt({
+            summary,
+            cwd: params.cwd,
+            recentConversation: buildRecentConversationContext(params.history),
+          }),
+          cwd: params.cwd ?? undefined,
+          model: summaryResult.model || params.model || undefined,
+          opencodePermissionMode: params.opencodePermissionMode,
+        });
+      })();
+
+  if (!bootstrapResult.sessionId) {
+    throw new Error('OpenCode did not return a bootstrap session id.');
+  }
+
+  return {
+    sessionId: bootstrapResult.sessionId,
+    model: normalizeModel(bootstrapResult.model || params.model || undefined),
+  };
+}
+
 function extractSummaryContent(text: string): string {
   const match = text.match(/<summary>([\s\S]*?)<\/summary>/i);
   return (match ? match[1] : text).trim();
@@ -1087,10 +1143,21 @@ async function handleEditLatestPrompt(
     return;
   }
 
+  if (session.provider === 'opencode') {
+    await handleEditLatestOpenCodePrompt(mainWindow, {
+      sessionId,
+      prompt,
+      attachments,
+      model,
+      opencodePermissionMode: payload.opencodePermissionMode,
+    }, session);
+    return;
+  }
+
   if (session.provider !== 'claude') {
     broadcast(mainWindow, {
       type: 'runner.error',
-      payload: { message: 'Editing the latest sent message is currently available only for Claude and Codex sessions.', sessionId },
+      payload: { message: 'Editing the latest sent message is currently available only for Claude, Codex, and OpenCode sessions.', sessionId },
     });
     return;
   }
@@ -1276,6 +1343,194 @@ async function handleEditLatestPrompt(
     requestedCompatibleProviderId,
     requestedBetas,
     nextClaudeAccessMode
+  );
+}
+
+async function handleEditLatestOpenCodePrompt(
+  mainWindow: BrowserWindow,
+  payload: {
+    sessionId: string;
+    prompt: string;
+    attachments?: Attachment[];
+    model?: string;
+    opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
+  },
+  session: ReturnType<typeof sessions.getSession>
+): Promise<void> {
+  const { sessionId, prompt, attachments, model, opencodePermissionMode } = payload;
+  if (!session) {
+    return;
+  }
+
+  const existingEntry = runnerHandles.get(sessionId);
+  if (existingEntry && session.status === 'running') {
+    existingEntry.handle.abort();
+    runnerHandles.delete(sessionId);
+  }
+
+  const history = sessions.getSessionHistory(sessionId);
+  const previousStatus = (session.status as SessionStatus) || 'completed';
+  const previousOpenCodeSessionId = session.opencode_session_id || null;
+  const previousModel = session.model || null;
+  const previousOpenCodePermissionMode = normalizeOpenCodePermissionMode(session.opencode_permission_mode);
+  let latestUserPromptIndex = -1;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    if (history[index]?.type === 'user_prompt') {
+      latestUserPromptIndex = index;
+      break;
+    }
+  }
+
+  if (latestUserPromptIndex === -1) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'No editable user prompt found for this session.', sessionId },
+    });
+    return;
+  }
+
+  const previousEditablePrompt = history[latestUserPromptIndex];
+  if (!previousEditablePrompt || previousEditablePrompt.type !== 'user_prompt') {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'Failed to resolve the editable user prompt for this session.', sessionId },
+    });
+    return;
+  }
+
+  const preservedHistory = history.slice(0, latestUserPromptIndex);
+  const requestedModel = normalizeModel(model ?? session.model ?? undefined);
+  const nextPrompt = prompt.trim();
+  const nextOpenCodePermissionMode = normalizeOpenCodePermissionMode(
+    opencodePermissionMode || previousOpenCodePermissionMode
+  );
+  const createdAt = Date.now();
+  const editedUserPrompt: StreamMessage = {
+    type: 'user_prompt',
+    prompt: nextPrompt,
+    attachments,
+    createdAt,
+  };
+  const rewrittenHistory = [...preservedHistory, editedUserPrompt];
+  let nextOpenCodeSessionId: string | undefined;
+  let resolvedModel = requestedModel;
+
+  sessions.replaceSessionHistory(sessionId, rewrittenHistory);
+  sessions.updateSessionStatus(sessionId, 'running');
+  sessions.updateLastPrompt(sessionId, nextPrompt);
+  sessions.setOpencodeSessionId(sessionId, null);
+  sessions.updateSessionModel(sessionId, requestedModel || null);
+  sessions.updateSessionOpenCodePermissionMode(sessionId, nextOpenCodePermissionMode);
+
+  broadcast(mainWindow, {
+    type: 'session.history',
+    payload: {
+      sessionId,
+      status: 'running',
+      messages: rewrittenHistory,
+    },
+  });
+
+  broadcast(mainWindow, {
+    type: 'session.status',
+    payload: {
+      sessionId,
+      status: 'running',
+      provider: 'opencode',
+      model: requestedModel || undefined,
+      opencodePermissionMode: nextOpenCodePermissionMode,
+      hiddenFromThreads: session.hidden_from_threads === 1,
+    },
+  });
+
+  try {
+    if (preservedHistory.length > 0) {
+      const bootstrap = await bootstrapOpenCodeSessionFromHistory({
+        history: preservedHistory,
+        cwd: session.cwd,
+        model: requestedModel,
+        opencodePermissionMode: nextOpenCodePermissionMode,
+      });
+      nextOpenCodeSessionId = bootstrap.sessionId;
+      resolvedModel = normalizeModel(bootstrap.model || requestedModel || undefined);
+    }
+  } catch (error) {
+    sessions.replaceSessionHistory(sessionId, history);
+    sessions.updateSessionStatus(sessionId, previousStatus);
+    sessions.updateLastPrompt(sessionId, previousEditablePrompt.prompt);
+    sessions.setOpencodeSessionId(sessionId, previousOpenCodeSessionId);
+    sessions.updateSessionModel(sessionId, previousModel);
+    sessions.updateSessionOpenCodePermissionMode(sessionId, previousOpenCodePermissionMode);
+
+    broadcast(mainWindow, {
+      type: 'session.history',
+      payload: {
+        sessionId,
+        status: previousStatus,
+        messages: history,
+      },
+    });
+
+    broadcast(mainWindow, {
+      type: 'session.status',
+      payload: {
+        sessionId,
+        status: previousStatus,
+        provider: session.provider || 'opencode',
+        model: previousModel || undefined,
+        opencodePermissionMode: previousOpenCodePermissionMode,
+        hiddenFromThreads: session.hidden_from_threads === 1,
+      },
+    });
+
+    const message = error instanceof Error ? error.message : String(error);
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: `Failed to edit latest message: ${message}`, sessionId },
+    });
+    return;
+  }
+
+  sessions.setOpencodeSessionId(sessionId, nextOpenCodeSessionId || null);
+  sessions.updateSessionModel(sessionId, resolvedModel || null);
+  sessions.updateSessionOpenCodePermissionMode(sessionId, nextOpenCodePermissionMode);
+
+  const refreshedSession = sessions.getSession(sessionId);
+  if (!refreshedSession) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'Failed to refresh session after editing the latest message.', sessionId },
+    });
+    return;
+  }
+
+  broadcast(mainWindow, {
+    type: 'session.status',
+    payload: {
+      sessionId,
+      status: 'running',
+      provider: refreshedSession.provider,
+      model: resolvedModel || undefined,
+      opencodePermissionMode: nextOpenCodePermissionMode,
+      hiddenFromThreads: refreshedSession.hidden_from_threads === 1,
+    },
+  });
+
+  startRunner(
+    mainWindow,
+    refreshedSession,
+    nextPrompt,
+    nextOpenCodeSessionId,
+    attachments,
+    'opencode',
+    resolvedModel || undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    nextOpenCodePermissionMode
   );
 }
 

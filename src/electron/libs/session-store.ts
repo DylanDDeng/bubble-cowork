@@ -317,6 +317,14 @@ export function updateOpencodeSessionId(sessionId: string, opencodeSessionId: st
   stmt.run(opencodeSessionId, now, sessionId);
 }
 
+export function setOpencodeSessionId(sessionId: string, opencodeSessionId: string | null): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET opencode_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(opencodeSessionId, now, sessionId);
+}
+
 // 更新 Session Provider
 export function updateSessionProvider(sessionId: string, provider: 'claude' | 'codex' | 'opencode'): void {
   const now = Date.now();

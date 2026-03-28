@@ -309,17 +309,44 @@ export async function runCodexOneShot(params: {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
 }): Promise<{ text: string; sessionId?: string; model?: string }> {
+  return runAcpOneShot(CODEX_ADAPTER, params);
+}
+
+export async function runOpenCodeOneShot(params: {
+  prompt: string;
+  cwd?: string;
+  resumeSessionId?: string;
+  model?: string;
+  opencodePermissionMode?: OpenCodePermissionMode;
+}): Promise<{ text: string; sessionId?: string; model?: string }> {
+  return runAcpOneShot(OPENCODE_ADAPTER, params);
+}
+
+async function runAcpOneShot(
+  adapter: AcpAdapter,
+  params: {
+    prompt: string;
+    cwd?: string;
+    resumeSessionId?: string;
+    model?: string;
+    codexPermissionMode?: CodexPermissionMode;
+    codexReasoningEffort?: CodexReasoningEffort;
+    codexFastMode?: boolean;
+    opencodePermissionMode?: OpenCodePermissionMode;
+  }
+): Promise<{ text: string; sessionId?: string; model?: string }> {
   const selectedModel =
     typeof params.model === 'string' && params.model.trim().length > 0 ? params.model.trim() : undefined;
   const spawnArgs = [
-    ...CODEX_ADAPTER.getArgs(selectedModel),
-    ...getCodexPermissionOverrides(params.codexPermissionMode),
-    ...getCodexReasoningOverrides(params.codexReasoningEffort),
-    ...getCodexFastModeOverrides(params.codexFastMode),
+    ...adapter.getArgs(selectedModel),
+    ...(adapter.id === 'codex' ? getCodexPermissionOverrides(params.codexPermissionMode) : []),
+    ...(adapter.id === 'codex' ? getCodexReasoningOverrides(params.codexReasoningEffort) : []),
+    ...(adapter.id === 'codex' ? getCodexFastModeOverrides(params.codexFastMode) : []),
   ];
-  const proc = spawn(CODEX_ADAPTER.command, spawnArgs, {
+  const env = buildAcpProcessEnv(adapter, selectedModel, params.opencodePermissionMode);
+  const proc = spawn(adapter.command, spawnArgs, {
     cwd: params.cwd || process.cwd(),
-    env: process.env,
+    env,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
@@ -392,7 +419,7 @@ export async function runCodexOneShot(params: {
 
   try {
     const initResult = (await client.request('initialize', {
-      protocolVersion: CODEX_ADAPTER.protocolVersion,
+      protocolVersion: adapter.protocolVersion,
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
         terminal: false,
@@ -435,7 +462,7 @@ export async function runCodexOneShot(params: {
 
     currentSessionId = String(sessionResult?.sessionId || sessionResult?.id || '');
     if (!currentSessionId) {
-      throw new Error('Codex ACP did not return a bootstrap session id.');
+      throw new Error(`${adapter.label} ACP did not return a bootstrap session id.`);
     }
 
     const content = await buildPromptContent(params.prompt, undefined, promptCapabilities);
