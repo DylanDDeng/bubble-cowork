@@ -174,7 +174,9 @@ export function App() {
     showNewSession,
     showSettings,
     projectTreeCollapsed,
+    projectPanelView,
     setProjectTreeCollapsed,
+    setProjectPanelView,
     globalError,
     clearGlobalError,
     removePermissionRequest,
@@ -190,7 +192,6 @@ export function App() {
   // 历史请求记录（防止重复请求）
   const historyRequested = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
-  const [projectPanelView, setProjectPanelView] = useState<'files' | 'changes' | 'git' | 'terminal'>('files');
   const [projectChangeCount, setProjectChangeCount] = useState(0);
 
   const { partialMessage, partialThinking, isStreaming: showPartialMessage } = useMemo(() => {

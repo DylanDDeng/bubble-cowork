@@ -81,6 +81,7 @@ export interface SessionStreamingState {
 
 export type ActiveWorkspace = 'chat' | 'skills';
 export type ChatSidebarView = 'threads' | 'prompts';
+export type ProjectPanelView = 'files' | 'changes' | 'git' | 'terminal';
 
 // UI 会话视图状态
 export interface SessionView {
@@ -127,6 +128,7 @@ export interface AppState {
   projectTreeCwd: string | null;
   projectTree: ProjectTreeNode | null;
   projectTreeCollapsed: boolean;
+  projectPanelView: ProjectPanelView;
   // 搜索状态
   sidebarSearchQuery: string;
   activeFilters: SearchFilters;
@@ -175,6 +177,7 @@ export interface AppActions {
   setProjectCwd: (cwd: string | null) => void;
   setProjectTree: (cwd: string | null, tree: ProjectTreeNode | null) => void;
   setProjectTreeCollapsed: (collapsed: boolean) => void;
+  setProjectPanelView: (view: ProjectPanelView) => void;
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;
   removePermissionRequest: (sessionId: string, toolUseId: string) => void;

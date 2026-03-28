@@ -159,6 +159,7 @@ export const useAppStore = create<Store>()(
       projectTreeCwd: null,
       projectTree: null,
       projectTreeCollapsed: false,
+      projectPanelView: 'files',
       // 搜索状态
       sidebarSearchQuery: '',
       activeFilters: { timeRange: 'all' },
@@ -334,6 +335,8 @@ export const useAppStore = create<Store>()(
 
   setProjectTreeCollapsed: (collapsed) => set({ projectTreeCollapsed: collapsed }),
 
+  setProjectPanelView: (projectPanelView) => set({ projectPanelView }),
+
 
   clearGlobalError: () => set({ globalError: null }),
 
@@ -472,6 +475,8 @@ export const useAppStore = create<Store>()(
         chatSidebarView: state.chatSidebarView,
         sidebarCollapsed: state.sidebarCollapsed,
         sidebarWidth: state.sidebarWidth,
+        projectTreeCollapsed: state.projectTreeCollapsed,
+        projectPanelView: state.projectPanelView,
         theme: state.theme,
         colorThemeId: state.colorThemeId,
         customThemeCss: state.customThemeCss,
@@ -482,6 +487,8 @@ export const useAppStore = create<Store>()(
           chatSidebarView?: ChatSidebarView;
           sidebarCollapsed?: boolean;
           sidebarWidth?: number;
+          projectTreeCollapsed?: boolean;
+          projectPanelView?: import('../types').ProjectPanelView;
           theme?: Theme;
           colorThemeId?: ColorThemeId;
           customThemeCss?: string;
@@ -502,6 +509,8 @@ export const useAppStore = create<Store>()(
           chatSidebarView: persisted?.chatSidebarView || currentState.chatSidebarView,
           sidebarCollapsed: persisted?.sidebarCollapsed ?? currentState.sidebarCollapsed,
           sidebarWidth: sanitizeSidebarWidth(persisted?.sidebarWidth, currentState.sidebarWidth),
+          projectTreeCollapsed: persisted?.projectTreeCollapsed ?? currentState.projectTreeCollapsed,
+          projectPanelView: persisted?.projectPanelView || currentState.projectPanelView,
           theme,
           colorThemeId,
           customThemeCss,
