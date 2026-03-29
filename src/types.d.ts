@@ -24,6 +24,7 @@ import type {
   OpenCodeModelConfig,
   OpenCodeRuntimeStatus,
   ClaudeRuntimeStatus,
+  UiResumeState,
   SkillMarketItem,
   SkillMarketDetail,
   SkillMarketInstallResult,
@@ -44,6 +45,8 @@ declare global {
     stopTerminalSession: (sessionId: string) => Promise<{ ok: boolean; message?: string }>;
     setWindowMinSize: (width: number, height: number) => Promise<{ ok: boolean }>;
     getAppVersion: () => Promise<string>;
+    getUiResumeState: () => Promise<UiResumeState | null>;
+    saveUiResumeState: (state: UiResumeState) => Promise<{ ok: boolean }>;
     checkForUpdates: () => Promise<{ ok: boolean }>;
     getClaudeModelConfig: () => Promise<ClaudeModelConfig>;
     getClaudeCompatibleProviderConfig: () => Promise<ClaudeCompatibleProvidersConfig>;

@@ -11,6 +11,7 @@ import type {
   SkillMarketInstallResult,
   SkillMarketItem,
   SystemFontOption,
+  UiResumeState,
   UpsertPromptLibraryItemInput,
 } from '../shared/types';
 
@@ -91,6 +92,14 @@ contextBridge.exposeInMainWorld('electron', {
 
   getAppVersion: () => {
     return ipcRenderer.invoke('get-app-version');
+  },
+
+  getUiResumeState: (): Promise<UiResumeState | null> => {
+    return ipcRenderer.invoke('get-ui-resume-state');
+  },
+
+  saveUiResumeState: (state: UiResumeState) => {
+    return ipcRenderer.invoke('save-ui-resume-state', state);
   },
 
   checkForUpdates: () => {

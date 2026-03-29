@@ -160,6 +160,7 @@ export const useAppStore = create<Store>()(
       projectTree: null,
       projectTreeCollapsed: false,
       projectPanelView: 'files',
+      sessionsLoaded: false,
       // 搜索状态
       sidebarSearchQuery: '',
       activeFilters: { timeRange: 'all' },
@@ -336,6 +337,22 @@ export const useAppStore = create<Store>()(
   setProjectTreeCollapsed: (collapsed) => set({ projectTreeCollapsed: collapsed }),
 
   setProjectPanelView: (projectPanelView) => set({ projectPanelView }),
+
+  applyUiResumeState: (resumeState) =>
+    set((state) => {
+      if (!resumeState) {
+        return { sessionsLoaded: false };
+      }
+
+      return {
+        activeSessionId: resumeState.activeSessionId,
+        showNewSession: resumeState.showNewSession,
+        projectTreeCollapsed: resumeState.projectTreeCollapsed,
+        projectPanelView: resumeState.projectPanelView,
+        activeWorkspace: 'chat',
+        sessionsLoaded: false,
+      };
+    }),
 
 
   clearGlobalError: () => set({ globalError: null }),
@@ -581,8 +598,8 @@ function handleSessionList(
     }
   }
 
-  // 如果没有会话，显示新建弹窗
-  const showNewSession = sessions.length === 0;
+  // 如果当前 UI 明确恢复到新建页，则不要在会话列表返回时把它覆盖回旧会话
+  const showNewSession = get().showNewSession || sessions.length === 0;
 
   // 默认选中最新更新的会话
   let activeSessionId = get().activeSessionId;
@@ -597,6 +614,7 @@ function handleSessionList(
     sessions: sessionsMap,
     showNewSession,
     activeSessionId,
+    sessionsLoaded: true,
   });
 }
 

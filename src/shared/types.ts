@@ -90,6 +90,13 @@ export interface PromptLibraryExportResult {
   count: number;
 }
 
+export interface UiResumeState {
+  activeSessionId: string | null;
+  showNewSession: boolean;
+  projectTreeCollapsed: boolean;
+  projectPanelView: 'files' | 'changes' | 'git' | 'terminal';
+}
+
 // MCP 服务器配置类型
 export interface McpServerConfig {
   type?: 'stdio' | 'http' | 'sse';

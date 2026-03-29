@@ -175,8 +175,10 @@ export function App() {
     showSettings,
     projectTreeCollapsed,
     projectPanelView,
+    sessionsLoaded,
     setProjectTreeCollapsed,
     setProjectPanelView,
+    applyUiResumeState,
     globalError,
     clearGlobalError,
     removePermissionRequest,
@@ -193,6 +195,7 @@ export function App() {
   const historyRequested = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const [projectChangeCount, setProjectChangeCount] = useState(0);
+  const [uiResumeLoaded, setUiResumeLoaded] = useState(false);
 
   const { partialMessage, partialThinking, isStreaming: showPartialMessage } = useMemo(() => {
     if (!activeSession) {
@@ -256,11 +259,45 @@ export function App() {
 
   // 连接后请求会话列表和 MCP 配置
   useEffect(() => {
+    let cancelled = false;
+
+    window.electron
+      .getUiResumeState()
+      .then((resumeState) => {
+        if (!cancelled) {
+          applyUiResumeState(resumeState);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setUiResumeLoaded(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applyUiResumeState]);
+
+  useEffect(() => {
     if (connected) {
       sendEvent({ type: 'session.list' });
       sendEvent({ type: 'mcp.get-config' });
     }
   }, [connected]);
+
+  useEffect(() => {
+    if (!uiResumeLoaded) {
+      return;
+    }
+
+    void window.electron.saveUiResumeState({
+      activeSessionId,
+      showNewSession,
+      projectTreeCollapsed,
+      projectPanelView,
+    });
+  }, [activeSessionId, projectPanelView, projectTreeCollapsed, showNewSession, uiResumeLoaded]);
 
   useEffect(() => {
     applyThemePreferences({
@@ -410,7 +447,9 @@ export function App() {
       {!showSettings && <Sidebar />}
 
       {/* 主内容区 */}
-      {showSettings ? (
+      {!showSettings && activeWorkspace === 'chat' && (!uiResumeLoaded || !sessionsLoaded) ? (
+        <div className="flex-1 min-w-0 bg-[var(--bg-primary)]" />
+      ) : showSettings ? (
         <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
           <div className="flex-1 min-h-0">
             <Settings />

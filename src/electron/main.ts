@@ -142,6 +142,41 @@ function getWindowStateFile(): string {
   return path.join(app.getPath('userData'), 'window-state.json');
 }
 
+function getUiResumeStateFile(): string {
+  return path.join(app.getPath('userData'), 'ui-resume-state.json');
+}
+
+function loadUiResumeState(): import('../shared/types').UiResumeState | null {
+  try {
+    const file = getUiResumeStateFile();
+    if (!fs.existsSync(file)) {
+      return null;
+    }
+    return JSON.parse(fs.readFileSync(file, 'utf-8')) as import('../shared/types').UiResumeState;
+  } catch {
+    return null;
+  }
+}
+
+function saveUiResumeState(state: import('../shared/types').UiResumeState): void {
+  try {
+    fs.writeFileSync(getUiResumeStateFile(), JSON.stringify(state));
+  } catch {
+    // ignore
+  }
+}
+
+function clearUiResumeState(): void {
+  try {
+    const file = getUiResumeStateFile();
+    if (fs.existsSync(file)) {
+      fs.unlinkSync(file);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function loadWindowState(): WindowState {
   try {
     const windowStateFile = getWindowStateFile();
@@ -442,6 +477,13 @@ app.whenReady().then(() => {
     checkForUpdates();
     return { ok: true };
   });
+  ipcMainHandle('get-ui-resume-state', async () => {
+    return loadUiResumeState();
+  });
+  ipcMainHandle('save-ui-resume-state', async (_event, state: import('../shared/types').UiResumeState) => {
+    saveUiResumeState(state);
+    return { ok: true };
+  });
   ipcMainHandle('get-app-version', async () => {
     return app.getVersion();
   });
@@ -464,6 +506,7 @@ app.on('window-all-closed', () => {
 
 // 应用退出前清理
 app.on('before-quit', () => {
+  clearUiResumeState();
   devFileWatcher?.close();
   devFileWatcher = null;
   cleanup();

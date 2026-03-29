@@ -21,6 +21,7 @@ export type {
   PermissionResult,
   ClientEvent,
   ServerEvent,
+  UiResumeState,
   McpServerConfig,
   McpServerStatus,
   AvailableCommand,
@@ -129,6 +130,7 @@ export interface AppState {
   projectTree: ProjectTreeNode | null;
   projectTreeCollapsed: boolean;
   projectPanelView: ProjectPanelView;
+  sessionsLoaded: boolean;
   // 搜索状态
   sidebarSearchQuery: string;
   activeFilters: SearchFilters;
@@ -178,6 +180,7 @@ export interface AppActions {
   setProjectTree: (cwd: string | null, tree: ProjectTreeNode | null) => void;
   setProjectTreeCollapsed: (collapsed: boolean) => void;
   setProjectPanelView: (view: ProjectPanelView) => void;
+  applyUiResumeState: (state: import('../shared/types').UiResumeState | null) => void;
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;
   removePermissionRequest: (sessionId: string, toolUseId: string) => void;
