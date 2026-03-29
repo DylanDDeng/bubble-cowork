@@ -71,6 +71,7 @@ let updaterInitialized = false;
 let devFileWatcher: fs.FSWatcher | null = null;
 let updateCheckStarted = false;
 let latestUiResumeState: import('../shared/types').UiResumeState | null = null;
+let isQuitting = false;
 const RELEASES_URL = 'https://github.com/DylanDDeng/bubble-cowork/releases';
 
 function shouldAutoOpenDevTools(): boolean {
@@ -296,18 +297,42 @@ function createWindow(): void {
   }
 
   // 保存窗口状态
-  mainWindow.on('close', () => {
-    if (mainWindow) {
-      saveWindowState(mainWindow);
-      if (latestUiResumeState) {
-        saveUiResumeState(latestUiResumeState);
-      }
+  mainWindow.on('close', (event) => {
+    if (!mainWindow) {
+      return;
+    }
+
+    saveWindowState(mainWindow);
+    if (latestUiResumeState) {
+      saveUiResumeState(latestUiResumeState);
+    }
+
+    if (process.platform === 'darwin' && !isQuitting) {
+      event.preventDefault();
+      mainWindow.hide();
     }
   });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+}
+
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+
+  if (!mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+
+  mainWindow.focus();
 }
 
 function setupAutoUpdater(): void {
@@ -505,9 +530,7 @@ app.whenReady().then(() => {
   scheduleAutomaticUpdateCheck();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    showMainWindow();
   });
 });
 
@@ -520,6 +543,7 @@ app.on('window-all-closed', () => {
 
 // 应用退出前清理
 app.on('before-quit', () => {
+  isQuitting = true;
   clearUiResumeState();
   devFileWatcher?.close();
   devFileWatcher = null;
