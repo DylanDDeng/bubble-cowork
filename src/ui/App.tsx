@@ -172,13 +172,13 @@ export function App() {
     activeSessionId,
     activeWorkspace,
     showNewSession,
+    projectCwd,
     showSettings,
     projectTreeCollapsed,
     projectPanelView,
     sessionsLoaded,
     setProjectTreeCollapsed,
     setProjectPanelView,
-    applyUiResumeState,
     globalError,
     clearGlobalError,
     removePermissionRequest,
@@ -195,7 +195,6 @@ export function App() {
   const historyRequested = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const [projectChangeCount, setProjectChangeCount] = useState(0);
-  const [uiResumeLoaded, setUiResumeLoaded] = useState(false);
 
   const { partialMessage, partialThinking, isStreaming: showPartialMessage } = useMemo(() => {
     if (!activeSession) {
@@ -257,28 +256,6 @@ export function App() {
     [activeSession?.messages]
   );
 
-  // 连接后请求会话列表和 MCP 配置
-  useEffect(() => {
-    let cancelled = false;
-
-    window.electron
-      .getUiResumeState()
-      .then((resumeState) => {
-        if (!cancelled) {
-          applyUiResumeState(resumeState);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setUiResumeLoaded(true);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [applyUiResumeState]);
-
   useEffect(() => {
     if (connected) {
       sendEvent({ type: 'session.list' });
@@ -287,17 +264,14 @@ export function App() {
   }, [connected]);
 
   useEffect(() => {
-    if (!uiResumeLoaded) {
-      return;
-    }
-
     void window.electron.saveUiResumeState({
       activeSessionId,
       showNewSession,
+      projectCwd,
       projectTreeCollapsed,
       projectPanelView,
     });
-  }, [activeSessionId, projectPanelView, projectTreeCollapsed, showNewSession, uiResumeLoaded]);
+  }, [activeSessionId, projectCwd, projectPanelView, projectTreeCollapsed, showNewSession]);
 
   useEffect(() => {
     applyThemePreferences({
@@ -447,7 +421,7 @@ export function App() {
       {!showSettings && <Sidebar />}
 
       {/* 主内容区 */}
-      {!showSettings && activeWorkspace === 'chat' && (!uiResumeLoaded || !sessionsLoaded) ? (
+      {!showSettings && activeWorkspace === 'chat' && !sessionsLoaded ? (
         <div className="flex-1 min-w-0 bg-[var(--bg-primary)]" />
       ) : showSettings ? (
         <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">

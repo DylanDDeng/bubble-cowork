@@ -86,6 +86,37 @@ function sanitizeSidebarWidth(width: number | undefined, fallback: number): numb
   return Math.min(420, Math.max(220, Math.round(width)));
 }
 
+function persistUiResumeStateSnapshot(state: Pick<
+  AppState,
+  'activeSessionId' | 'showNewSession' | 'projectCwd' | 'projectTreeCollapsed' | 'projectPanelView'
+>): void {
+  if (typeof window === 'undefined' || !window.electron?.saveUiResumeState) {
+    return;
+  }
+
+  void window.electron.saveUiResumeState({
+    activeSessionId: state.activeSessionId,
+    showNewSession: state.showNewSession,
+    projectCwd: state.projectCwd,
+    projectTreeCollapsed: state.projectTreeCollapsed,
+    projectPanelView: state.projectPanelView,
+  });
+}
+
+function getInitialUiResumeState(): import('../shared/types').UiResumeState | null {
+  if (typeof window === 'undefined' || !window.electron?.getUiResumeStateSync) {
+    return null;
+  }
+
+  try {
+    return window.electron.getUiResumeStateSync();
+  } catch {
+    return null;
+  }
+}
+
+const initialUiResumeState = getInitialUiResumeState();
+
 function createEmptyStreamingState() {
   return {
     isStreaming: false,
@@ -147,19 +178,19 @@ export const useAppStore = create<Store>()(
       // 状态
       connected: false,
       sessions: {},
-      activeSessionId: null,
+      activeSessionId: initialUiResumeState?.activeSessionId ?? null,
       activeWorkspace: 'chat' as ActiveWorkspace,
       chatSidebarView: 'threads' as ChatSidebarView,
-      showNewSession: false,
+      showNewSession: initialUiResumeState?.showNewSession ?? false,
       sidebarCollapsed: false,
       sidebarWidth: 256,
       globalError: null,
       pendingStart: false,
-      projectCwd: null,
+      projectCwd: initialUiResumeState?.projectCwd ?? null,
       projectTreeCwd: null,
       projectTree: null,
-      projectTreeCollapsed: false,
-      projectPanelView: 'files',
+      projectTreeCollapsed: initialUiResumeState?.projectTreeCollapsed ?? false,
+      projectPanelView: initialUiResumeState?.projectPanelView ?? 'files',
       sessionsLoaded: false,
       // 搜索状态
       sidebarSearchQuery: '',
@@ -298,6 +329,8 @@ export const useAppStore = create<Store>()(
       return { activeSessionId: sessionId, activeWorkspace: 'chat' };
     });
 
+    persistUiResumeStateSnapshot(get());
+
     if (sessionId && get().sessions[sessionId]?.runtimeNotice) {
       scheduleRuntimeNoticeClear(sessionId, set);
     }
@@ -322,7 +355,10 @@ export const useAppStore = create<Store>()(
 
   setChatSidebarView: (chatSidebarView) => set({ chatSidebarView }),
 
-  setShowNewSession: (show) => set({ showNewSession: show, activeWorkspace: 'chat' }),
+  setShowNewSession: (show) => {
+    set({ showNewSession: show, activeWorkspace: 'chat' });
+    persistUiResumeStateSnapshot(get());
+  },
 
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
 
@@ -330,13 +366,22 @@ export const useAppStore = create<Store>()(
     sidebarWidth: sanitizeSidebarWidth(width, state.sidebarWidth),
   })),
 
-  setProjectCwd: (cwd) => set({ projectCwd: cwd }),
+  setProjectCwd: (cwd) => {
+    set({ projectCwd: cwd });
+    persistUiResumeStateSnapshot(get());
+  },
 
   setProjectTree: (cwd, tree) => set({ projectTreeCwd: cwd, projectTree: tree }),
 
-  setProjectTreeCollapsed: (collapsed) => set({ projectTreeCollapsed: collapsed }),
+  setProjectTreeCollapsed: (collapsed) => {
+    set({ projectTreeCollapsed: collapsed });
+    persistUiResumeStateSnapshot(get());
+  },
 
-  setProjectPanelView: (projectPanelView) => set({ projectPanelView }),
+  setProjectPanelView: (projectPanelView) => {
+    set({ projectPanelView });
+    persistUiResumeStateSnapshot(get());
+  },
 
   applyUiResumeState: (resumeState) =>
     set((state) => {
@@ -347,6 +392,7 @@ export const useAppStore = create<Store>()(
       return {
         activeSessionId: resumeState.activeSessionId,
         showNewSession: resumeState.showNewSession,
+        projectCwd: resumeState.projectCwd ?? null,
         projectTreeCollapsed: resumeState.projectTreeCollapsed,
         projectPanelView: resumeState.projectPanelView,
         activeWorkspace: 'chat',
@@ -601,9 +647,12 @@ function handleSessionList(
   // 如果当前 UI 明确恢复到新建页，则不要在会话列表返回时把它覆盖回旧会话
   const showNewSession = get().showNewSession || sessions.length === 0;
 
-  // 默认选中最新更新的会话
-  let activeSessionId = get().activeSessionId;
+  const keepNewSessionOpen = get().showNewSession;
+
+  // 默认选中最新更新的会话，但如果当前明确停留在 New Thread，就不要偷偷回填旧会话
+  let activeSessionId = keepNewSessionOpen ? null : get().activeSessionId;
   if (
+    !keepNewSessionOpen &&
     sessions.length > 0 &&
     (!activeSessionId || !sessionsMap[activeSessionId] || sessionsMap[activeSessionId].hiddenFromThreads)
   ) {

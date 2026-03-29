@@ -98,8 +98,12 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-ui-resume-state');
   },
 
+  getUiResumeStateSync: (): UiResumeState | null => {
+    return ipcRenderer.sendSync('get-ui-resume-state-sync');
+  },
+
   saveUiResumeState: (state: UiResumeState) => {
-    return ipcRenderer.invoke('save-ui-resume-state', state);
+    return Promise.resolve(ipcRenderer.sendSync('save-ui-resume-state-sync', state));
   },
 
   checkForUpdates: () => {

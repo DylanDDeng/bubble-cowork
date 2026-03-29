@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog, shell } from 'electron';
+import { app, BrowserWindow, Menu, dialog, shell, ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -70,6 +70,7 @@ let mainWindow: BrowserWindow | null = null;
 let updaterInitialized = false;
 let devFileWatcher: fs.FSWatcher | null = null;
 let updateCheckStarted = false;
+let latestUiResumeState: import('../shared/types').UiResumeState | null = null;
 const RELEASES_URL = 'https://github.com/DylanDDeng/bubble-cowork/releases';
 
 function shouldAutoOpenDevTools(): boolean {
@@ -159,6 +160,7 @@ function loadUiResumeState(): import('../shared/types').UiResumeState | null {
 }
 
 function saveUiResumeState(state: import('../shared/types').UiResumeState): void {
+  latestUiResumeState = state;
   try {
     fs.writeFileSync(getUiResumeStateFile(), JSON.stringify(state));
   } catch {
@@ -167,6 +169,7 @@ function saveUiResumeState(state: import('../shared/types').UiResumeState): void
 }
 
 function clearUiResumeState(): void {
+  latestUiResumeState = null;
   try {
     const file = getUiResumeStateFile();
     if (fs.existsSync(file)) {
@@ -296,6 +299,9 @@ function createWindow(): void {
   mainWindow.on('close', () => {
     if (mainWindow) {
       saveWindowState(mainWindow);
+      if (latestUiResumeState) {
+        saveUiResumeState(latestUiResumeState);
+      }
     }
   });
 
@@ -471,6 +477,7 @@ function setupMenu(): void {
 
 // 应用启动
 app.whenReady().then(() => {
+  latestUiResumeState = loadUiResumeState();
   setupMenu();
   setupAutoUpdater();
   ipcMainHandle('check-for-updates', async () => {
@@ -478,11 +485,18 @@ app.whenReady().then(() => {
     return { ok: true };
   });
   ipcMainHandle('get-ui-resume-state', async () => {
-    return loadUiResumeState();
+    return latestUiResumeState;
+  });
+  ipcMain.on('get-ui-resume-state-sync', (event) => {
+    event.returnValue = latestUiResumeState;
   });
   ipcMainHandle('save-ui-resume-state', async (_event, state: import('../shared/types').UiResumeState) => {
     saveUiResumeState(state);
     return { ok: true };
+  });
+  ipcMain.on('save-ui-resume-state-sync', (event, state: import('../shared/types').UiResumeState) => {
+    saveUiResumeState(state);
+    event.returnValue = { ok: true };
   });
   ipcMainHandle('get-app-version', async () => {
     return app.getVersion();

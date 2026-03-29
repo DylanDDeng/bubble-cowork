@@ -46,6 +46,7 @@ declare global {
     setWindowMinSize: (width: number, height: number) => Promise<{ ok: boolean }>;
     getAppVersion: () => Promise<string>;
     getUiResumeState: () => Promise<UiResumeState | null>;
+    getUiResumeStateSync: () => UiResumeState | null;
     saveUiResumeState: (state: UiResumeState) => Promise<{ ok: boolean }>;
     checkForUpdates: () => Promise<{ ok: boolean }>;
     getClaudeModelConfig: () => Promise<ClaudeModelConfig>;

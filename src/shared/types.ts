@@ -93,6 +93,7 @@ export interface PromptLibraryExportResult {
 export interface UiResumeState {
   activeSessionId: string | null;
   showNewSession: boolean;
+  projectCwd: string | null;
   projectTreeCollapsed: boolean;
   projectPanelView: 'files' | 'changes' | 'git' | 'terminal';
 }
