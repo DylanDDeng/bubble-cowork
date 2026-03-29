@@ -72,7 +72,7 @@ export type {
 
 // 主题类型
 export type Theme = 'light' | 'dark' | 'system';
-export type ColorThemeId = 'paper' | 'graphite' | 'sepia' | 'rose';
+export type ColorThemeId = 'paper' | 'graphite' | 'sepia' | 'rose' | 'forest' | 'amber' | 'studio';
 
 export interface SessionStreamingState {
   isStreaming: boolean;
