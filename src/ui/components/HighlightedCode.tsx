@@ -74,10 +74,19 @@ interface HighlightedCodeProps {
   language?: string;
   fileName?: string;
   className?: string;
+  showLineNumbers?: boolean;
+  wrapLongLines?: boolean;
 }
 
-export function HighlightedCode({ code, language, fileName, className }: HighlightedCodeProps) {
-  const { html, lines } = useMemo(() => {
+export function HighlightedCode({
+  code,
+  language,
+  fileName,
+  className,
+  showLineNumbers = true,
+  wrapLongLines = false,
+}: HighlightedCodeProps) {
+  const { lines } = useMemo(() => {
     const lang = language || inferLanguage(fileName);
     let result: string;
     try {
@@ -95,7 +104,7 @@ export function HighlightedCode({ code, language, fileName, className }: Highlig
 
     // 按行拆分，保留每行的 HTML（处理跨行 span 标签）
     const lineArray = splitHighlightedLines(result);
-    return { html: result, lines: lineArray };
+    return { lines: lineArray };
   }, [code, language, fileName]);
 
   const lineCount = lines.length;
@@ -103,24 +112,34 @@ export function HighlightedCode({ code, language, fileName, className }: Highlig
   const gutterWidth = Math.max(2, String(lineCount).length);
 
   return (
-    <div className={`highlighted-code-block rounded-lg overflow-hidden ${className || ''}`}>
-      <table className="highlighted-code-table">
-        <tbody>
+    <div
+      className={[
+        'highlighted-code-block overflow-hidden',
+        showLineNumbers ? 'with-line-numbers' : 'without-line-numbers',
+        wrapLongLines ? 'wrap-long-lines' : 'no-wrap-lines',
+        className || '',
+      ].join(' ')}
+    >
+      <div className="highlighted-code-scroll">
+        <div className="highlighted-code-lines">
           {lines.map((lineHtml, i) => (
-            <tr key={i} className="highlighted-code-line">
-              <td
-                className="highlighted-code-gutter"
-                style={{ width: `${gutterWidth + 2}ch` }}
-              >
-                {i + 1}
-              </td>
-              <td className="highlighted-code-content">
-                <span dangerouslySetInnerHTML={{ __html: lineHtml || '&nbsp;' }} />
-              </td>
-            </tr>
+            <div key={i} className="highlighted-code-line">
+              {showLineNumbers ? (
+                <span
+                  className="highlighted-code-gutter"
+                  style={{ width: `${gutterWidth + 2}ch` }}
+                >
+                  {i + 1}
+                </span>
+              ) : null}
+              <span
+                className="highlighted-code-content"
+                dangerouslySetInnerHTML={{ __html: lineHtml || '&nbsp;' }}
+              />
+            </div>
           ))}
-        </tbody>
-      </table>
+        </div>
+      </div>
     </div>
   );
 }

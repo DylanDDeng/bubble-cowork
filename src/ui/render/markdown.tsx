@@ -130,6 +130,7 @@ function CodeBlock({
   const [copied, setCopied] = useState(false);
   const rawCode = extractTextContent(children).replace(/\n$/, '');
   const showLanguageLabel = shouldDisplayLanguageLabel(language);
+  const languageLabel = showLanguageLabel ? formatLanguageLabel(language!) : 'Snippet';
 
   const handleCopy = async () => {
     try {
@@ -144,9 +145,9 @@ function CodeBlock({
   return (
     <div className="md-code-block">
       <div className="md-code-header">
-        <span className="md-code-language">
-          {showLanguageLabel ? formatLanguageLabel(language!) : ''}
-        </span>
+        <div className="md-code-meta">
+          <span className="md-code-language">{languageLabel}</span>
+        </div>
         <button
           type="button"
           onClick={() => void handleCopy()}
@@ -155,10 +156,11 @@ function CodeBlock({
           aria-label={copied ? 'Copied' : 'Copy code'}
         >
           {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+          <span className="md-code-copy-label">{copied ? 'Copied' : 'Copy'}</span>
         </button>
       </div>
 
-      <HighlightedCode code={rawCode} language={language} />
+      <HighlightedCode code={rawCode} language={language} showLineNumbers={false} />
     </div>
   );
 }
@@ -245,7 +247,7 @@ export function MDContent({ content, className = '', allowHtml = false }: MDCont
 
   const fallback = (
     <div className="md-code-block">
-      <HighlightedCode code={content} />
+      <HighlightedCode code={content} showLineNumbers={false} />
     </div>
   );
 
