@@ -37,7 +37,7 @@ export type {
   ClaudeUsageModelSummary,
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
-  ChatMessageSearchResult,
+  ChatSessionSearchResult,
   ClaudeModelUsage,
   LatestClaudeModelUsage,
   CodexModelConfig,
@@ -58,6 +58,7 @@ export type {
   FeishuBridgeConfig,
   FeishuBridgeStatus,
   AgentProvider,
+  SessionSource,
   PromptLibraryItem,
   UpsertPromptLibraryItemInput,
   PromptLibraryImportResult,
@@ -104,6 +105,8 @@ export interface SessionView {
   pinned?: boolean;
   folderPath?: string | null;
   hiddenFromThreads?: boolean;
+  source?: import('../shared/types').SessionSource;
+  readOnly?: boolean;
   latestClaudeModelUsage?: import('../shared/types').LatestClaudeModelUsage;
   messages: import('../shared/types').StreamMessage[];
   hydrated: boolean;
@@ -138,6 +141,11 @@ export interface AppState {
   inSessionSearchQuery: string;
   inSessionSearchResults: SearchMatch[];
   inSessionSearchCurrentIndex: number;
+  historyNavigationTarget: {
+    sessionId: string;
+    messageCreatedAt: number;
+    nonce: number;
+  } | null;
   // MCP 状态
   mcpServers: Record<string, import('../shared/types').McpServerConfig>;
   mcpGlobalServers: Record<string, import('../shared/types').McpServerConfig>;
@@ -193,6 +201,7 @@ export interface AppActions {
   setInSessionSearchQuery: (query: string) => void;
   setInSessionSearchResults: (results: SearchMatch[]) => void;
   navigateSearchResult: (direction: 'next' | 'prev') => void;
+  setHistoryNavigationTarget: (target: AppState['historyNavigationTarget']) => void;
   // MCP Actions
   setMcpServers: (servers: Record<string, import('../shared/types').McpServerConfig>) => void;
   setMcpServerStatus: (status: import('../shared/types').McpServerStatus[]) => void;
@@ -246,6 +255,7 @@ export interface SearchState {
   inSessionSearchQuery: string;
   inSessionSearchResults: SearchMatch[];
   inSessionSearchCurrentIndex: number;
+  historyNavigationTarget: AppState['historyNavigationTarget'];
 }
 
 // 搜索 Actions
@@ -258,6 +268,7 @@ export interface SearchActions {
   setInSessionSearchQuery: (query: string) => void;
   setInSessionSearchResults: (results: SearchMatch[]) => void;
   navigateSearchResult: (direction: 'next' | 'prev') => void;
+  setHistoryNavigationTarget: (target: AppState['historyNavigationTarget']) => void;
 }
 
 // Turn Phase 状态机类型

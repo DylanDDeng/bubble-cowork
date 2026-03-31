@@ -31,6 +31,7 @@ import { applyFontPreferences } from './theme/fonts';
 import { applyThemePreferences } from './theme/themes';
 import { MDContent } from './render/markdown';
 import { getMessageContentBlocks } from './utils/message-content';
+import { aggregateMessages } from './utils/aggregated-messages';
 import {
   deriveTurnPhase,
   shouldShowThinkingIndicator,
@@ -47,99 +48,6 @@ import type {
 
 // 工具结果块类型
 type ToolResultBlock = ContentBlock & { type: 'tool_result' };
-
-// 聚合项类型
-type AggregatedItem =
-  | { type: 'message'; message: StreamMessage; originalIndex: number }
-  | { type: 'tool_batch'; messages: (StreamMessage & { type: 'assistant' })[]; originalIndices: number[] };
-
-// 判断消息是否包含可折叠的执行痕迹（thinking / tool_use）
-function hasTraceAssistantContent(
-  msg: StreamMessage
-): msg is StreamMessage & { type: 'assistant' } {
-  if (msg.type !== 'assistant') return false;
-  const content = getMessageContentBlocks(msg);
-  if (content.length === 0) return false;
-  return content.some((block) => block.type === 'thinking' || block.type === 'tool_use');
-}
-
-// 判断是否为 tool_result-only 的 user 消息（这类消息不应该打断聚合）
-function isToolResultOnlyMessage(msg: StreamMessage): boolean {
-  if (msg.type !== 'user') return false;
-  const content = getMessageContentBlocks(msg);
-  return content.length > 0 && content.every((block) => block.type === 'tool_result');
-}
-
-function pushSegment(
-  items: AggregatedItem[],
-  segment: Array<{ message: StreamMessage; index: number }>
-) {
-  if (segment.length === 0) return;
-
-  const lastTraceIndex = segment.reduce((lastIndex, entry, index) => {
-    if (hasTraceAssistantContent(entry.message) || isToolResultOnlyMessage(entry.message)) {
-      return index;
-    }
-    return lastIndex;
-  }, -1);
-
-  if (lastTraceIndex === -1) {
-    segment.forEach((entry) =>
-      items.push({ type: 'message', message: entry.message, originalIndex: entry.index })
-    );
-    return;
-  }
-
-  const traceAssistantEntries = segment
-    .slice(0, lastTraceIndex + 1)
-    .filter(
-      (
-        entry
-      ): entry is {
-        message: StreamMessage & { type: 'assistant' };
-        index: number;
-      } => entry.message.type === 'assistant'
-    );
-
-  if (traceAssistantEntries.length > 0) {
-    items.push({
-      type: 'tool_batch',
-      messages: traceAssistantEntries.map((entry) => entry.message),
-      originalIndices: traceAssistantEntries.map((entry) => entry.index),
-    });
-  }
-
-  segment.slice(lastTraceIndex + 1).forEach((entry) =>
-    items.push({ type: 'message', message: entry.message, originalIndex: entry.index })
-  );
-}
-
-// 按 turn 聚合执行过程：把最终回答之前的 thinking / tool / 中间说明文字收进一个面板
-function aggregateMessages(messages: StreamMessage[]): AggregatedItem[] {
-  const items: AggregatedItem[] = [];
-  let currentSegment: Array<{ message: StreamMessage; index: number }> = [];
-
-  for (let i = 0; i < messages.length; i += 1) {
-    const message = messages[i];
-
-    if (message.type === 'stream_event') {
-      continue;
-    }
-
-    if (message.type === 'user_prompt') {
-      pushSegment(items, currentSegment);
-      currentSegment = [];
-      items.push({ type: 'message', message, originalIndex: i });
-      continue;
-    }
-
-    currentSegment.push({ message, index: i });
-  }
-
-  pushSegment(items, currentSegment);
-
-  return items;
-}
 
 function isExternalFilePermissionInput(input: unknown): input is ExternalFilePermissionInput {
   return (
@@ -170,6 +78,7 @@ export function App() {
     connected,
     sessions,
     activeSessionId,
+    historyNavigationTarget,
     activeWorkspace,
     showNewSession,
     projectCwd,
@@ -189,12 +98,15 @@ export function App() {
     importedFonts,
     setFontSettings,
     setSystemFonts,
+    setHistoryNavigationTarget,
   } = useAppStore();
 
   // 历史请求记录（防止重复请求）
   const historyRequested = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const [projectChangeCount, setProjectChangeCount] = useState(0);
+  const [highlightedHistoryAnchor, setHighlightedHistoryAnchor] = useState<string | null>(null);
+  const historyHighlightTimerRef = useRef<number | null>(null);
 
   const { partialMessage, partialThinking, isStreaming: showPartialMessage } = useMemo(() => {
     if (!activeSession) {
@@ -255,6 +167,29 @@ export function App() {
     () => (activeSession ? aggregateMessages(activeSession.messages) : []),
     [activeSession?.messages]
   );
+  const historyNavigationAnchor = useMemo(() => {
+    if (!activeSessionId || !historyNavigationTarget || historyNavigationTarget.sessionId !== activeSessionId) {
+      return null;
+    }
+
+    for (const item of aggregatedMessages) {
+      if (
+        item.type === 'message' &&
+        item.message.createdAt === historyNavigationTarget.messageCreatedAt
+      ) {
+        return String(item.originalIndex);
+      }
+
+      if (
+        item.type === 'tool_batch' &&
+        item.messages.some((message) => message.createdAt === historyNavigationTarget.messageCreatedAt)
+      ) {
+        return String(item.originalIndices[0]);
+      }
+    }
+
+    return null;
+  }, [activeSessionId, aggregatedMessages, historyNavigationTarget]);
 
   useEffect(() => {
     if (connected) {
@@ -345,6 +280,53 @@ export function App() {
     partialThinking,
     showPartialMessage,
   ]);
+
+  useEffect(() => {
+    if (!historyNavigationTarget || !activeSessionId || historyNavigationTarget.sessionId !== activeSessionId) {
+      return;
+    }
+
+    if (!activeSession?.hydrated) {
+      return;
+    }
+
+    if (!historyNavigationAnchor) {
+      return;
+    }
+
+    const selector = `[data-message-index="${historyNavigationAnchor}"]`;
+    const messageEl = document.querySelector(selector);
+    if (!messageEl) {
+      return;
+    }
+
+    messageEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightedHistoryAnchor(historyNavigationAnchor);
+    setHistoryNavigationTarget(null);
+
+    if (historyHighlightTimerRef.current !== null) {
+      window.clearTimeout(historyHighlightTimerRef.current);
+    }
+
+    historyHighlightTimerRef.current = window.setTimeout(() => {
+      setHighlightedHistoryAnchor((current) => (current === historyNavigationAnchor ? null : current));
+      historyHighlightTimerRef.current = null;
+    }, 2400);
+  }, [
+    activeSession?.hydrated,
+    activeSessionId,
+    historyNavigationAnchor,
+    historyNavigationTarget,
+    setHistoryNavigationTarget,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (historyHighlightTimerRef.current !== null) {
+        window.clearTimeout(historyHighlightTimerRef.current);
+      }
+    };
+  }, []);
 
   // 全局错误通知
   useEffect(() => {
@@ -455,9 +437,14 @@ export function App() {
             {activeSession.cwd && (
               <div className="mb-4 flex justify-center">
                 <div
-                  className="inline-flex max-w-[560px] items-center gap-1.5 text-xs text-[var(--text-muted)]"
+                  className="inline-flex max-w-[760px] flex-wrap items-center justify-center gap-1.5 text-xs text-[var(--text-muted)]"
                   title={activeSession.cwd}
                 >
+                  {activeSession.source === 'claude_code' && (
+                    <span className="rounded-full border border-[var(--border)] bg-[var(--accent-light)] px-2 py-0.5 uppercase tracking-[0.08em] text-[var(--text-secondary)]">
+                      Claude Code
+                    </span>
+                  )}
                   <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center text-[var(--tree-file-accent-fg)]">
                     <FolderOpen className="h-3.5 w-3.5" />
                   </span>
@@ -467,15 +454,34 @@ export function App() {
               </div>
             )}
 
+            {activeSession.readOnly && (
+              <div className="mb-4 flex justify-center">
+                <div className="max-w-[760px] rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+                  This Claude Code session is indexed from your local terminal history. It is read-only in Aegis for now.
+                </div>
+              </div>
+            )}
+
             {/* 居中容器 */}
             <div className="message-container">
               {/* 渲染消息（聚合连续的工具执行） */}
               {aggregatedMessages.map((item, idx) => {
                 if (item.type === 'tool_batch') {
+                  const anchor = String(item.originalIndices[0]);
+                  const highlighted = highlightedHistoryAnchor === anchor;
                   return (
                     <div
                       key={`batch-${idx}`}
                       data-message-index={item.originalIndices[0]}
+                      className={highlighted ? 'rounded-2xl transition-colors duration-300' : undefined}
+                      style={
+                        highlighted
+                          ? {
+                              backgroundColor: 'color-mix(in srgb, var(--accent-light) 70%, transparent)',
+                              boxShadow: '0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent)',
+                            }
+                          : undefined
+                      }
                     >
                       <ToolExecutionBatch
                         messages={item.messages}
@@ -486,8 +492,22 @@ export function App() {
                     </div>
                   );
                 }
+                const anchor = String(item.originalIndex);
+                const highlighted = highlightedHistoryAnchor === anchor;
                 return (
-                  <div key={idx} data-message-index={item.originalIndex}>
+                  <div
+                    key={idx}
+                    data-message-index={item.originalIndex}
+                    className={highlighted ? 'rounded-2xl transition-colors duration-300' : undefined}
+                    style={
+                      highlighted
+                        ? {
+                            backgroundColor: 'color-mix(in srgb, var(--accent-light) 70%, transparent)',
+                            boxShadow: '0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent)',
+                          }
+                        : undefined
+                    }
+                  >
                     <MessageCard
                       message={item.message}
                       toolStatusMap={toolStatusMap}
@@ -496,6 +516,7 @@ export function App() {
                       onPermissionResult={handlePermissionResult}
                       userPromptActions={
                         item.message.type === 'user_prompt' &&
+                        activeSession.readOnly !== true &&
                         (
                           activeSession.provider === 'claude' ||
                           activeSession.provider === 'codex' ||
@@ -586,9 +607,11 @@ export function App() {
           </div>
 
           {/* 输入区域 */}
-          <div className="px-8 pb-4">
-            <PromptInput />
-          </div>
+          {activeSession.readOnly ? null : (
+            <div className="px-8 pb-4">
+              <PromptInput />
+            </div>
+          )}
         </div>
       ) : (
         <NewSessionView />

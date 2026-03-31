@@ -43,6 +43,9 @@ export interface SessionRow {
   pinned: number | null;
   folder_path: string | null;
   hidden_from_threads: number | null;
+  session_origin: import('../shared/types').SessionSource | null;
+  external_file_path: string | null;
+  external_file_mtime: number | null;
   created_at: number;
   updated_at: number;
 }

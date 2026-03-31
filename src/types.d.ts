@@ -8,7 +8,7 @@ import type {
   StatisticsData,
   StaticData,
   Attachment,
-  ChatMessageSearchResult,
+  ChatSessionSearchResult,
   FontSettingsPayload,
   ProjectTreeNode,
   PromptLibraryExportResult,
@@ -60,7 +60,7 @@ declare global {
     deletePromptLibraryItem: (id: string) => Promise<PromptLibraryItem[]>;
     importPromptLibrary: () => Promise<PromptLibraryImportResult>;
     exportPromptLibrary: () => Promise<PromptLibraryExportResult>;
-    searchChatMessages: (query: string, limit?: number) => Promise<ChatMessageSearchResult[]>;
+    searchChatMessages: (query: string, limit?: number) => Promise<ChatSessionSearchResult[]>;
     getCodexModelConfig: () => Promise<CodexModelConfig>;
     saveCodexModelVisibility: (enabledModels: string[]) => Promise<CodexModelConfig>;
     getCodexRuntimeStatus: () => Promise<CodexRuntimeStatus>;

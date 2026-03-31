@@ -199,6 +199,7 @@ export const useAppStore = create<Store>()(
       inSessionSearchQuery: '',
       inSessionSearchResults: [],
       inSessionSearchCurrentIndex: 0,
+      historyNavigationTarget: null,
       // MCP 状态
       mcpServers: {},
       mcpGlobalServers: {},
@@ -464,6 +465,8 @@ export const useAppStore = create<Store>()(
       return { inSessionSearchCurrentIndex: newIndex };
     }),
 
+  setHistoryNavigationTarget: (historyNavigationTarget) => set({ historyNavigationTarget }),
+
   // MCP Actions
   setMcpServers: (servers) => set({ mcpServers: servers }),
   setMcpServerStatus: (status) => set({ mcpServerStatus: status }),
@@ -613,6 +616,8 @@ function handleSessionList(
       id: session.id,
       title: session.title,
       status: session.status,
+      source: session.source || 'aegis',
+      readOnly: session.readOnly === true,
       cwd: session.cwd,
       claudeSessionId: session.claudeSessionId,
       provider: session.provider || 'claude',
@@ -767,6 +772,8 @@ function handleSessionStatus(
       id: sessionId,
       title: title || 'New Session',
       status,
+      source: 'aegis',
+      readOnly: false,
       cwd,
       provider: provider || 'claude',
       model,

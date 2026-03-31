@@ -157,7 +157,7 @@ export function Sidebar() {
             />
             <RailIcon
               icon={<Search className="h-[17px] w-[17px]" />}
-              title="Search messages"
+              title="Search history"
               active={messageSearchOpen}
               onClick={() => setMessageSearchOpen(true)}
             />

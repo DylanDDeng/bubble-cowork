@@ -47,6 +47,7 @@ import {
 import * as statusConfig from './libs/status-config';
 import * as folderConfig from './libs/folder-config';
 import { ipcMainHandle, isDev } from './util';
+import { scheduleExternalClaudeSessionSync } from './libs/external-claude-sessions';
 import type {
   ClientEvent,
   ServerEvent,
@@ -3067,12 +3068,15 @@ async function handleClientEvent(
 
 // 会话列表
 function handleSessionList(mainWindow: BrowserWindow): void {
+  scheduleExternalClaudeSessionSync(mainWindow, () => handleSessionList(mainWindow));
   const rows = sessions.listSessions();
   const latestClaudeModelUsageBySession = sessions.getLatestClaudeModelUsageBySession();
   const sessionInfos: SessionInfo[] = rows.map((row) => ({
     id: row.id,
     title: row.title,
     status: row.status as SessionInfo['status'],
+    source: row.session_origin || 'aegis',
+    readOnly: row.session_origin === 'claude_code',
     cwd: row.cwd || undefined,
     claudeSessionId: row.claude_session_id || undefined,
     provider: row.provider || 'claude',
@@ -3880,7 +3884,7 @@ function handleSessionHistory(mainWindow: BrowserWindow, sessionId: string): voi
   }
 
   const messages =
-    session.provider === 'claude'
+    session.provider === 'claude' && session.session_origin !== 'claude_code'
       ? sanitizeStoredClaudeHistory(sessionId, sessions.getSessionHistory(sessionId)).messages
       : sessions.getSessionHistory(sessionId);
 
@@ -3927,6 +3931,15 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
 
 // 删除会话
 function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void {
+  const session = sessions.getSession(sessionId);
+  if (session?.session_origin === 'claude_code') {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'External Claude Code sessions are read-only in Aegis.', sessionId },
+    });
+    return;
+  }
+
   // 先停止运行中的会话
   const entry = runnerHandles.get(sessionId);
   if (entry) {

@@ -6,7 +6,7 @@ import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { SessionRow, StreamMessage, SessionStatus } from '../types';
 import type {
-  ChatMessageSearchResult,
+  ChatSessionSearchResult,
   ClaudeAccessMode,
   ClaudeCompatibleProviderId,
   CodexPermissionMode,
@@ -17,6 +17,7 @@ import type {
   ClaudeUsageModelSummary,
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
+  SessionSource,
 } from '../../shared/types';
 
 let db: Database.Database | null = null;
@@ -103,6 +104,9 @@ export function initialize(): void {
       cwd TEXT,
       allowed_tools TEXT,
       last_prompt TEXT,
+      session_origin TEXT NOT NULL DEFAULT 'aegis',
+      external_file_path TEXT,
+      external_file_mtime INTEGER,
       hidden_from_threads INTEGER DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -134,6 +138,9 @@ export function initialize(): void {
   ensureColumn('sessions', 'todo_state', "TEXT DEFAULT 'todo'");
   ensureColumn('sessions', 'pinned', 'INTEGER DEFAULT 0');
   ensureColumn('sessions', 'folder_path', 'TEXT');
+  ensureColumn('sessions', 'session_origin', "TEXT NOT NULL DEFAULT 'aegis'");
+  ensureColumn('sessions', 'external_file_path', 'TEXT');
+  ensureColumn('sessions', 'external_file_mtime', 'INTEGER');
   ensureColumn('sessions', 'hidden_from_threads', 'INTEGER DEFAULT 0');
 
   const backfilledCount = backfillClaudeSessionModelsFromInitMessages();
@@ -188,8 +195,8 @@ export function createSession(params: {
   const id = uuidv4();
 
   const stmt = getDb().prepare(`
-    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, codex_permission_mode, codex_reasoning_effort, codex_fast_mode, opencode_permission_mode, cwd, allowed_tools, last_prompt, hidden_from_threads, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
+    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, codex_permission_mode, codex_reasoning_effort, codex_fast_mode, opencode_permission_mode, cwd, allowed_tools, last_prompt, session_origin, external_file_path, external_file_mtime, hidden_from_threads, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aegis', NULL, NULL, ?, 'idle', ?, ?)
   `);
 
   stmt.run(
@@ -229,6 +236,101 @@ export function getSession(sessionId: string): SessionRow | undefined {
 export function listSessions(): SessionRow[] {
   const stmt = getDb().prepare('SELECT * FROM sessions WHERE COALESCE(hidden_from_threads, 0) = 0 ORDER BY updated_at DESC');
   return stmt.all() as SessionRow[];
+}
+
+export function getExternalSessionSyncInfo(sessionId: string): Pick<
+  SessionRow,
+  'id' | 'external_file_path' | 'external_file_mtime' | 'session_origin'
+> | undefined {
+  const stmt = getDb().prepare(`
+    SELECT id, external_file_path, external_file_mtime, session_origin
+    FROM sessions
+    WHERE id = ?
+  `);
+  return stmt.get(sessionId) as Pick<
+    SessionRow,
+    'id' | 'external_file_path' | 'external_file_mtime' | 'session_origin'
+  > | undefined;
+}
+
+export function upsertExternalClaudeSession(params: {
+  sessionId: string;
+  title: string;
+  cwd?: string | null;
+  model?: string | null;
+  createdAt: number;
+  updatedAt: number;
+  externalFilePath: string;
+  externalFileMtime: number;
+}): void {
+  const stmt = getDb().prepare(`
+    INSERT INTO sessions (
+      id,
+      title,
+      claude_session_id,
+      codex_session_id,
+      opencode_session_id,
+      provider,
+      model,
+      compatible_provider_id,
+      betas,
+      claude_access_mode,
+      codex_permission_mode,
+      codex_reasoning_effort,
+      codex_fast_mode,
+      opencode_permission_mode,
+      status,
+      cwd,
+      allowed_tools,
+      last_prompt,
+      session_origin,
+      external_file_path,
+      external_file_mtime,
+      hidden_from_threads,
+      created_at,
+      updated_at
+    )
+    VALUES (?, ?, NULL, NULL, NULL, 'claude', ?, NULL, NULL, 'default', NULL, NULL, 0, NULL, 'idle', ?, NULL, NULL, 'claude_code', ?, ?, 0, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      title = excluded.title,
+      provider = 'claude',
+      model = excluded.model,
+      status = 'idle',
+      cwd = excluded.cwd,
+      session_origin = 'claude_code',
+      external_file_path = excluded.external_file_path,
+      external_file_mtime = excluded.external_file_mtime,
+      updated_at = excluded.updated_at
+  `);
+
+  stmt.run(
+    params.sessionId,
+    params.title,
+    params.model || null,
+    params.cwd || null,
+    params.externalFilePath,
+    params.externalFileMtime,
+    params.createdAt,
+    params.updatedAt
+  );
+}
+
+export function pruneMissingExternalClaudeSessions(validSessionIds: string[]): number {
+  const existing = getDb()
+    .prepare(`SELECT id FROM sessions WHERE session_origin = 'claude_code'`)
+    .all() as Array<{ id: string }>;
+
+  const valid = new Set(validSessionIds);
+  const deleteStmt = getDb().prepare(`DELETE FROM sessions WHERE id = ? AND session_origin = 'claude_code'`);
+  const transaction = getDb().transaction((ids: string[]) => {
+    for (const id of ids) {
+      deleteStmt.run(id);
+    }
+  });
+
+  const staleIds = existing.map((row) => row.id).filter((id) => !valid.has(id));
+  transaction(staleIds);
+  return staleIds.length;
 }
 
 export function getLatestClaudeModelUsageBySession(): Record<string, LatestClaudeModelUsage> {
@@ -703,7 +805,19 @@ function toNumber(value: unknown): number {
 }
 
 function extractSearchableMessageText(message: StreamMessage): string {
-  return message.type === 'user_prompt' ? message.prompt || '' : '';
+  if (message.type === 'user_prompt') {
+    return message.prompt || '';
+  }
+
+  if (message.type === 'assistant') {
+    return message.message.content
+      .map((block) => (block.type === 'text' ? block.text : ''))
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+  }
+
+  return '';
 }
 
 function buildSearchSnippet(text: string, query: string): string {
@@ -1555,7 +1669,7 @@ export function getOpencodeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeU
   return report;
 }
 
-export function searchChatMessages(query: string, limit = 60): ChatMessageSearchResult[] {
+export function searchChatMessages(query: string, limit = 60): ChatSessionSearchResult[] {
   const normalizedQuery = query.trim().toLowerCase();
   if (!normalizedQuery) {
     return [];
@@ -1567,7 +1681,10 @@ export function searchChatMessages(query: string, limit = 60): ChatMessageSearch
       m.data AS data,
       m.created_at AS created_at,
       m.session_id AS session_id,
-      s.title AS session_title
+      s.title AS session_title,
+      s.session_origin AS session_origin,
+      s.cwd AS session_cwd,
+      s.updated_at AS session_updated_at
     FROM messages m
     INNER JOIN sessions s ON s.id = m.session_id
     WHERE lower(m.data) LIKE ?
@@ -1578,14 +1695,17 @@ export function searchChatMessages(query: string, limit = 60): ChatMessageSearch
     created_at: number;
     session_id: string;
     session_title: string;
+    session_origin: SessionSource | null;
+    session_cwd: string | null;
+    session_updated_at: number;
   }>;
 
-  const results: ChatMessageSearchResult[] = [];
+  const grouped = new Map<string, ChatSessionSearchResult>();
 
   for (const row of rows) {
     try {
       const message = JSON.parse(row.data) as StreamMessage;
-      if (message.type !== 'user_prompt') {
+      if (message.type !== 'user_prompt' && message.type !== 'assistant') {
         continue;
       }
 
@@ -1594,23 +1714,42 @@ export function searchChatMessages(query: string, limit = 60): ChatMessageSearch
         continue;
       }
 
-      results.push({
-        sessionId: row.session_id,
-        sessionTitle: row.session_title,
-        snippet: buildSearchSnippet(text, normalizedQuery),
-        messageType: message.type,
-        createdAt: row.created_at,
-      });
+      let entry = grouped.get(row.session_id);
+      if (!entry) {
+        if (grouped.size >= safeLimit) {
+          continue;
+        }
 
-      if (results.length >= safeLimit) {
-        break;
+        entry = {
+          sessionId: row.session_id,
+          sessionTitle: row.session_title,
+          sessionSource: row.session_origin || 'aegis',
+          sessionCwd: row.session_cwd || undefined,
+          sessionUpdatedAt: row.session_updated_at,
+          matchCount: 0,
+          matches: [],
+        };
+        grouped.set(row.session_id, entry);
+      }
+
+      entry.matchCount += 1;
+      if (entry.matches.length < 3) {
+        entry.matches.push({
+          snippet: buildSearchSnippet(text, normalizedQuery),
+          messageType: message.type,
+          createdAt: row.created_at,
+        });
       }
     } catch {
       continue;
     }
   }
 
-  return results;
+  return Array.from(grouped.values()).sort((left, right) => {
+    const leftLatest = left.matches[0]?.createdAt || left.sessionUpdatedAt || 0;
+    const rightLatest = right.matches[0]?.createdAt || right.sessionUpdatedAt || 0;
+    return rightLatest - leftLatest;
+  });
 }
 
 // 获取最近使用的工作目录

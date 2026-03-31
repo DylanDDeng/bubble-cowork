@@ -37,7 +37,9 @@ export function FolderTreeView({
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
 
   const projectGroups = useMemo(() => {
-    let sessionList = Object.values(sessions).filter((session) => !session.hiddenFromThreads);
+    let sessionList = Object.values(sessions).filter(
+      (session) => !session.hiddenFromThreads && session.source !== 'claude_code'
+    );
 
     // 搜索过滤
     if (sidebarSearchQuery.trim()) {
@@ -236,6 +238,11 @@ function SessionItem({
           </span>
         )}
         <span className="flex-1 truncate text-[14px] font-medium leading-[1.3]">{session.title}</span>
+        {session.source === 'claude_code' && (
+          <span className="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--text-secondary)]">
+            Claude Code
+          </span>
+        )}
         {runtimeBadge && (
           <span
             className={`status-dot ${runtimeBadge} flex-shrink-0`}
@@ -292,13 +299,15 @@ function SessionItem({
                 Copy Resume Command
               </DropdownMenu.Item>
             )}
-            <DropdownMenu.Item
-              className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150 text-red-400"
-              onClick={onDelete}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Delete
-            </DropdownMenu.Item>
+            {session.readOnly !== true && (
+              <DropdownMenu.Item
+                className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150 text-red-400"
+                onClick={onDelete}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete
+              </DropdownMenu.Item>
+            )}
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>

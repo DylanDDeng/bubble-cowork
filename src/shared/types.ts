@@ -291,6 +291,7 @@ export interface Attachment {
 
 // Agent 提供商
 export type AgentProvider = 'claude' | 'codex' | 'opencode';
+export type SessionSource = 'aegis' | 'claude_code';
 
 // 项目文件树节点
 export interface ProjectTreeNode {
@@ -413,6 +414,8 @@ export interface SessionInfo {
   id: string;
   title: string;
   status: SessionStatus;
+  source?: SessionSource;
+  readOnly?: boolean;
   cwd?: string;
   claudeSessionId?: string;
   provider?: AgentProvider;
@@ -438,6 +441,8 @@ export type SessionStatus = 'idle' | 'running' | 'completed' | 'error';
 export interface SessionStatusPayload {
   sessionId: string;
   status: SessionStatus;
+  source?: SessionSource;
+  readOnly?: boolean;
   title?: string;
   cwd?: string;
   error?: string;
@@ -644,12 +649,20 @@ export interface ClaudeUsageReport {
   daily: ClaudeUsageDailyPoint[];
 }
 
-export interface ChatMessageSearchResult {
-  sessionId: string;
-  sessionTitle: string;
+export interface ChatMessageSearchMatch {
   snippet: string;
   messageType: 'user_prompt' | 'assistant' | 'user';
   createdAt: number;
+}
+
+export interface ChatSessionSearchResult {
+  sessionId: string;
+  sessionTitle: string;
+  sessionSource?: SessionSource;
+  sessionCwd?: string;
+  sessionUpdatedAt: number;
+  matchCount: number;
+  matches: ChatMessageSearchMatch[];
 }
 
 export interface SkillMarketItem {
