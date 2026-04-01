@@ -611,7 +611,7 @@ export function NewSessionView() {
   return (
     <div className="flex-1 min-w-0 flex flex-col">
       {/* 顶部拖拽区域 */}
-      <div className="h-8 drag-region flex-shrink-0" />
+      <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]" />
 
       {/* 内容区域 */}
       <div className="flex-1 flex justify-center px-8 pb-4 pt-10">

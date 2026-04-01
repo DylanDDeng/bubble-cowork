@@ -404,7 +404,7 @@ export function App() {
   }, []);
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full bg-[var(--bg-primary)]">
       {!showSettings && activeWorkspace === 'chat' && projectTreeCollapsed && (
         <FloatingProjectPanelDock
           className={isMacOS ? 'right-[14px] top-[56px]' : 'right-4 top-1/2 -translate-y-1/2'}
@@ -430,7 +430,7 @@ export function App() {
         </div>
       ) : activeWorkspace === 'skills' ? (
         <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
-          <div className="h-8 drag-region flex-shrink-0" />
+          <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]" />
           <main className="min-w-0 flex-1 overflow-y-auto">
             <div className="mx-auto max-w-[1360px] px-8 py-8">
               <SkillMarketSettingsContent />
@@ -443,7 +443,7 @@ export function App() {
           style={{ paddingRight: 'var(--project-preview-space, 0px)' }}
         >
           {/* 顶部拖拽区域 */}
-          <div className="h-8 drag-region flex-shrink-0" />
+          <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]" />
 
           {/* 消息区域 */}
           <div className="flex-1 overflow-auto p-4 relative">

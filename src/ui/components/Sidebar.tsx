@@ -143,9 +143,9 @@ export function Sidebar() {
 
       <div className="relative flex h-full flex-shrink-0 select-none">
         {/* ===== 图标栏 ===== */}
-        <div className="flex h-full w-11 flex-shrink-0 flex-col items-center bg-[var(--bg-tertiary)] pt-0 pb-3">
+        <div className="flex h-full w-11 flex-shrink-0 flex-col items-center border-r border-[var(--border)] bg-[var(--bg-tertiary)] pt-0 pb-3">
           {/* macOS 红绿灯区域 */}
-          <div className="h-8 w-full drag-region flex-shrink-0" />
+          <div className="h-8 w-full drag-region flex-shrink-0 border-b border-[var(--border)]" />
 
           {/* 导航图标 */}
           <div className="flex flex-col items-center gap-2 pt-3">
@@ -215,7 +215,7 @@ export function Sidebar() {
               }`}
             >
               {/* 拖拽区域 */}
-              <div className="h-8 drag-region flex-shrink-0" />
+              <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]" />
 
               {chatSidebarView === 'threads' ? (
                 <>
