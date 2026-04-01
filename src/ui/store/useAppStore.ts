@@ -186,6 +186,66 @@ export const useAppStore = create<Store>()(
       sidebarWidth: 256,
       globalError: null,
       pendingStart: false,
+      loadOlderSessionHistory: (sessionId) => {
+        const session = get().sessions[sessionId];
+        if (!session?.historyCursor || session.loadingMoreHistory) {
+          return;
+        }
+
+        set((state) => {
+          const current = state.sessions[sessionId];
+          if (!current) return state;
+          return {
+            sessions: {
+              ...state.sessions,
+              [sessionId]: {
+                ...current,
+                loadingMoreHistory: true,
+              },
+            },
+          };
+        });
+
+        window.electron
+          .loadOlderSessionHistory(sessionId, session.historyCursor, 100)
+          .then((payload) => {
+            set((state) => {
+              const current = state.sessions[sessionId];
+              if (!current) return state;
+              const sanitizedMessages = sanitizeHistoryMessages(payload.messages);
+              return {
+                sessions: {
+                  ...state.sessions,
+                  [sessionId]: {
+                    ...current,
+                    messages: [...sanitizedMessages, ...current.messages],
+                    historyCursor: payload.cursor ?? null,
+                    hasMoreHistory: payload.hasMore === true,
+                    loadingMoreHistory: false,
+                    latestClaudeModelUsage:
+                      extractLatestClaudeModelUsage([...sanitizedMessages, ...current.messages], current.model),
+                  },
+                },
+              };
+            });
+          })
+          .catch((error) => {
+            console.error('Failed to load older session history:', error);
+            set((state) => {
+              const current = state.sessions[sessionId];
+              if (!current) return state;
+              return {
+                sessions: {
+                  ...state.sessions,
+                  [sessionId]: {
+                    ...current,
+                    loadingMoreHistory: false,
+                  },
+                },
+              };
+            });
+          });
+      },
       projectCwd: initialUiResumeState?.projectCwd ?? null,
       projectTreeCwd: null,
       projectTree: null,
@@ -636,6 +696,9 @@ function handleSessionList(
       latestClaudeModelUsage: session.latestClaudeModelUsage,
       messages: existing?.messages || [],
       hydrated: existing?.hydrated || false,
+      historyCursor: existing?.historyCursor ?? null,
+      hasMoreHistory: existing?.hasMoreHistory ?? false,
+      loadingMoreHistory: false,
       permissionRequests: existing?.permissionRequests || [],
       streaming: existing?.streaming || createEmptyStreamingState(),
       runtimeNotice: existing?.runtimeNotice,
@@ -788,6 +851,9 @@ function handleSessionStatus(
       latestClaudeModelUsage: undefined,
       messages: [],
       hydrated: true, // 新会话不需要 hydration
+      historyCursor: null,
+      hasMoreHistory: false,
+      loadingMoreHistory: false,
       permissionRequests: [],
       streaming: createEmptyStreamingState(),
       runtimeNotice: undefined,
@@ -814,10 +880,12 @@ function handleSessionHistory(
     sessionId: string;
     status: SessionInfo['status'];
     messages: StreamMessage[];
+    cursor?: string | null;
+    hasMore?: boolean;
   },
   set: SetState
 ) {
-  const { sessionId, status, messages } = payload;
+  const { sessionId, status, messages, cursor, hasMore } = payload;
   const sanitizedMessages = sanitizeHistoryMessages(messages);
 
   set((state) => {
@@ -834,6 +902,9 @@ function handleSessionHistory(
           messages: sanitizedMessages,
           latestClaudeModelUsage: extractLatestClaudeModelUsage(sanitizedMessages, session.model),
           hydrated: true,
+          historyCursor: cursor ?? null,
+          hasMoreHistory: hasMore === true,
+          loadingMoreHistory: false,
           streaming: createEmptyStreamingState(),
         },
       },

@@ -2101,6 +2101,60 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return sessions.searchChatMessages(query, limit);
   });
 
+  ipcMainHandle('load-older-session-history', async (_event, sessionId: string, cursor: string, limit?: number) => {
+    const session = sessions.getSession(sessionId);
+    if (!session) {
+      throw new Error('Unknown session');
+    }
+
+    const unifiedSession = toUnifiedSessionRecord(session);
+    const source = getHistorySourceForSession(unifiedSession);
+    const page = await source.loadBefore(unifiedSession, cursor, Math.max(1, Math.min(200, Math.trunc(limit || 100))));
+    const finalMessages =
+      session.provider === 'claude' && session.session_origin === 'aegis'
+        ? sanitizeStoredClaudeHistory(sessionId, page.messages).messages
+        : page.messages;
+
+    return {
+      sessionId,
+      status: session.status as SessionInfo['status'],
+      messages: finalMessages,
+      cursor: page.cursor,
+      hasMore: page.hasMore,
+    };
+  });
+
+  ipcMainHandle(
+    'load-session-history-around',
+    async (_event, sessionId: string, messageCreatedAt: number, before?: number, after?: number) => {
+      const session = sessions.getSession(sessionId);
+      if (!session) {
+        throw new Error('Unknown session');
+      }
+
+      const unifiedSession = toUnifiedSessionRecord(session);
+      const source = getHistorySourceForSession(unifiedSession);
+      const page = await source.loadAround(
+        unifiedSession,
+        messageCreatedAt,
+        Math.max(0, Math.min(200, Math.trunc(before ?? 30))),
+        Math.max(0, Math.min(200, Math.trunc(after ?? 30)))
+      );
+      const finalMessages =
+        session.provider === 'claude' && session.session_origin === 'aegis'
+          ? sanitizeStoredClaudeHistory(sessionId, page.messages).messages
+          : page.messages;
+
+      return {
+        sessionId,
+        status: session.status as SessionInfo['status'],
+        messages: finalMessages,
+        cursor: page.cursor,
+        hasMore: page.hasMore,
+      };
+    }
+  );
+
   // RPC: 获取 Claude 模型配置
   ipcMainHandle('get-claude-model-config', async () => {
     return getClaudeModelConfig();
@@ -3887,7 +3941,8 @@ function handleSessionHistory(mainWindow: BrowserWindow, sessionId: string): voi
   void (async () => {
     const unifiedSession = toUnifiedSessionRecord(session);
     const source = getHistorySourceForSession(unifiedSession);
-    const messages = await source.loadAll(unifiedSession);
+    const page = await source.loadLatest(unifiedSession, 100);
+    const messages = page.messages;
     const finalMessages =
       session.provider === 'claude' && session.session_origin === 'aegis'
         ? sanitizeStoredClaudeHistory(sessionId, messages).messages
@@ -3899,6 +3954,8 @@ function handleSessionHistory(mainWindow: BrowserWindow, sessionId: string): voi
         sessionId,
         status: session.status as SessionInfo['status'],
         messages: finalMessages,
+        cursor: page.cursor,
+        hasMore: page.hasMore,
       },
     });
   })().catch((error) => {

@@ -48,6 +48,13 @@ declare global {
     getUiResumeState: () => Promise<UiResumeState | null>;
     getUiResumeStateSync: () => UiResumeState | null;
     saveUiResumeState: (state: UiResumeState) => Promise<{ ok: boolean }>;
+    loadOlderSessionHistory: (sessionId: string, cursor: string, limit?: number) => Promise<import('./shared/types').SessionHistoryPayload>;
+    loadSessionHistoryAround: (
+      sessionId: string,
+      messageCreatedAt: number,
+      before?: number,
+      after?: number
+    ) => Promise<import('./shared/types').SessionHistoryPayload>;
     checkForUpdates: () => Promise<{ ok: boolean }>;
     getClaudeModelConfig: () => Promise<ClaudeModelConfig>;
     getClaudeCompatibleProviderConfig: () => Promise<ClaudeCompatibleProvidersConfig>;

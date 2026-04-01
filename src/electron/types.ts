@@ -53,8 +53,36 @@ export interface SessionRow {
 export interface MessageRow {
   id: string;
   session_id: string;
+  message_type: string | null;
+  source_origin: import('../shared/types').SessionSource | null;
+  search_text: string | null;
+  sort_key: number | null;
   data: string; // JSON string of StreamMessage
   created_at: number;
+}
+
+export interface ArtifactRow {
+  id: string;
+  session_id: string;
+  message_id: string | null;
+  kind: string;
+  file_path: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  sha256: string | null;
+  created_at: number;
+}
+
+export interface DerivedSummaryRow {
+  id: string;
+  session_id: string;
+  message_id: string | null;
+  scope: string;
+  source_ids: string | null;
+  summary: string;
+  model: string | null;
+  created_at: number;
+  updated_at: number;
 }
 
 // Runner 相关类型

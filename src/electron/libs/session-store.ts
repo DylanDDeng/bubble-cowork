@@ -1,10 +1,12 @@
 import Database from 'better-sqlite3';
 import { app } from 'electron';
-import { existsSync, readFileSync, readdirSync } from 'fs';
+import { createHash } from 'crypto';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { SessionRow, StreamMessage, SessionStatus } from '../types';
+import type { ArtifactRow, DerivedSummaryRow } from '../types';
 import type {
   ChatSessionSearchResult,
   ClaudeAccessMode,
@@ -38,6 +40,35 @@ let codexRolloutPathIndex: Map<string, string> | null = null;
 let claudeUsageReportDataVersion = 0;
 let codexUsageReportDataVersion = 0;
 let opencodeUsageReportDataVersion = 0;
+const EXTERNALIZED_MESSAGE_THRESHOLD_BYTES = 64 * 1024;
+const MESSAGE_PAYLOAD_ARTIFACT_KIND = 'message-payload';
+const MAX_SEARCH_TEXT_CHARS = 12_000;
+
+type ExternalizedMessagePointer = {
+  __aegisStorage: 'external-message-payload-v1';
+  artifactKind: typeof MESSAGE_PAYLOAD_ARTIFACT_KIND;
+  artifactPath: string;
+};
+
+type MessageArtifactPersistenceRecord = {
+  kind: typeof MESSAGE_PAYLOAD_ARTIFACT_KIND;
+  filePath: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+};
+
+type MessagePersistenceRecord = {
+  id: string;
+  sessionId: string;
+  messageType: string;
+  sourceOrigin: SessionSource;
+  searchText: string;
+  sortKey: number;
+  data: string;
+  createdAt: number;
+  artifact?: MessageArtifactPersistenceRecord;
+};
 
 function normalizeClaudeAccessMode(
   value?: string | null
@@ -115,13 +146,52 @@ export function initialize(): void {
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
+      message_type TEXT,
+      source_origin TEXT,
+      search_text TEXT,
+      sort_key INTEGER,
       data TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
 
-    CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
-    CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
+    CREATE TABLE IF NOT EXISTS artifacts (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      message_id TEXT,
+      kind TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      mime_type TEXT,
+      size_bytes INTEGER,
+      sha256 TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS derived_summaries (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      message_id TEXT,
+      scope TEXT NOT NULL,
+      source_ids TEXT,
+      summary TEXT NOT NULL,
+      model TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS search_index (
+      message_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      source_origin TEXT NOT NULL,
+      text TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
   `);
 
   ensureColumn('sessions', 'codex_session_id', 'TEXT');
@@ -142,63 +212,28 @@ export function initialize(): void {
   ensureColumn('sessions', 'external_file_path', 'TEXT');
   ensureColumn('sessions', 'external_file_mtime', 'INTEGER');
   ensureColumn('sessions', 'hidden_from_threads', 'INTEGER DEFAULT 0');
+  ensureColumn('messages', 'message_type', 'TEXT');
+  ensureColumn('messages', 'source_origin', 'TEXT');
+  ensureColumn('messages', 'search_text', 'TEXT');
+  ensureColumn('messages', 'sort_key', 'INTEGER');
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
+    CREATE INDEX IF NOT EXISTS idx_messages_sort_key ON messages(sort_key);
+    CREATE INDEX IF NOT EXISTS idx_messages_message_type ON messages(message_type);
+    CREATE INDEX IF NOT EXISTS idx_artifacts_session_id ON artifacts(session_id);
+    CREATE INDEX IF NOT EXISTS idx_derived_summaries_session_id ON derived_summaries(session_id);
+    CREATE INDEX IF NOT EXISTS idx_search_index_session_id ON search_index(session_id);
+  `);
 
   const backfilledCount = backfillClaudeSessionModelsFromInitMessages();
   if (backfilledCount > 0) {
     console.log(`[session-store] Backfilled ${backfilledCount} Claude session model values from init messages.`);
   }
-
-  // 启动时自动维护：清理超过 90 天的旧消息，防止数据库无限膨胀
-  runStartupMaintenance();
-}
-
-const MESSAGE_RETENTION_DAYS = 90;
-
-function runStartupMaintenance(): void {
-  const database = getDb();
-  try {
-    const cutoff = Date.now() - MESSAGE_RETENTION_DAYS * DAY_MS;
-
-    // 删除超过保留期的旧消息
-    const deleteResult = database.prepare(
-      'DELETE FROM messages WHERE created_at < ?'
-    ).run(cutoff);
-
-    if (deleteResult.changes > 0) {
-      console.log(
-        `[session-store] Maintenance: purged ${deleteResult.changes} messages older than ${MESSAGE_RETENTION_DAYS} days.`
-      );
-
-      // 删除没有任何消息的非置顶会话
-      const orphanResult = database.prepare(`
-        DELETE FROM sessions
-        WHERE pinned = 0
-          AND id NOT IN (SELECT DISTINCT session_id FROM messages)
-      `).run();
-
-      if (orphanResult.changes > 0) {
-        console.log(
-          `[session-store] Maintenance: removed ${orphanResult.changes} empty sessions.`
-        );
-      }
-
-      // 增量回收空间
-      database.pragma('incremental_vacuum(1000)');
-      console.log('[session-store] Maintenance: incremental vacuum completed.');
-    }
-
-    // 确保 auto_vacuum 为 incremental 模式（需要在非 WAL checkpoint 之后生效）
-    const autoVacuum = database.pragma('auto_vacuum', true) as number;
-    if (autoVacuum !== 2) {
-      // auto_vacuum 模式只能在 VACUUM 后改变，记录日志但不阻塞启动
-      console.log(
-        `[session-store] auto_vacuum is ${autoVacuum}, recommend running VACUUM to switch to incremental (2).`
-      );
-    }
-  } catch (err) {
-    // 维护失败不阻塞应用启动
-    console.error('[session-store] Startup maintenance failed:', err);
-  }
+  backfillMessageMetadata();
+  backfillExternalizedMessagePayloads();
+  rebalanceSearchIndexText();
 }
 
 function ensureColumn(table: string, column: string, definition: string): void {
@@ -216,6 +251,453 @@ function invalidateClaudeUsageReportCache(): void {
   codexUsageReportCache.clear();
   opencodeUsageReportDataVersion += 1;
   opencodeUsageReportCache.clear();
+}
+
+function extractMessageType(message: StreamMessage): string {
+  return message.type;
+}
+
+function extractSearchableMessageText(message: StreamMessage): string {
+  if (message.type === 'user_prompt') {
+    return message.prompt || '';
+  }
+
+  if (message.type === 'assistant') {
+    return message.message.content
+      .map((block) => {
+        if (block.type === 'text') return block.text;
+        if (block.type === 'thinking') return block.thinking;
+        if (block.type === 'tool_use') {
+          try {
+            return `${block.name} ${JSON.stringify(block.input)}`;
+          } catch {
+            return block.name;
+          }
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+  }
+
+  if (message.type === 'user') {
+    return message.message.content
+      .map((block) => {
+        if (block.type === 'text') return block.text;
+        if (block.type === 'tool_result') return block.content;
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+  }
+
+  if (message.type === 'system') {
+    if (message.subtype === 'compact_boundary') {
+      return 'Conversation compacted';
+    }
+    if (message.subtype === 'available_commands_update') {
+      return message.availableCommands.map((command) => `${command.name} ${command.description}`).join('\n');
+    }
+    if (message.subtype === 'init') {
+      return `${message.model} ${message.cwd}`;
+    }
+  }
+
+  if (message.type === 'result') {
+    return message.subtype || '';
+  }
+
+  return '';
+}
+
+function normalizeSearchText(text: string): string {
+  if (!text) {
+    return '';
+  }
+
+  if (text.length <= MAX_SEARCH_TEXT_CHARS) {
+    return text;
+  }
+
+  const headLength = 8_000;
+  const tailLength = 3_500;
+  return `${text.slice(0, headLength)}\n\n[...truncated for search index...]\n\n${text.slice(-tailLength)}`;
+}
+
+function getSessionSourceOrigin(sessionId: string): SessionSource {
+  const row = getDb().prepare(
+    'SELECT session_origin, provider FROM sessions WHERE id = ?'
+  ).get(sessionId) as { session_origin?: string | null; provider?: string | null } | undefined;
+
+  if (!row) {
+    return 'aegis';
+  }
+
+  if (row.session_origin === 'claude_code') {
+    return 'claude_code';
+  }
+  if (row.session_origin === 'claude_remote') {
+    return 'claude_remote';
+  }
+  if (row.provider === 'codex') {
+    return 'codex_local';
+  }
+  if (row.provider === 'opencode') {
+    return 'opencode_local';
+  }
+  return 'aegis';
+}
+
+function getMessageArtifactsRoot(): string {
+  const root = join(app.getPath('userData'), 'message-artifacts');
+  mkdirSync(root, { recursive: true });
+  return root;
+}
+
+function getMessageArtifactPath(sessionId: string, messageId: string): string {
+  const sessionDir = join(getMessageArtifactsRoot(), sessionId);
+  mkdirSync(sessionDir, { recursive: true });
+  return join(sessionDir, `${messageId}.json`);
+}
+
+function isExternalizedMessagePointer(value: unknown): value is ExternalizedMessagePointer {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    '__aegisStorage' in value &&
+    (value as { __aegisStorage?: unknown }).__aegisStorage === 'external-message-payload-v1'
+  );
+}
+
+function shouldExternalizeMessagePayload(message: StreamMessage, rawData: string): boolean {
+  if (message.type === 'stream_event') {
+    return false;
+  }
+
+  return Buffer.byteLength(rawData, 'utf8') >= EXTERNALIZED_MESSAGE_THRESHOLD_BYTES;
+}
+
+function externalizeMessagePayload(
+  sessionId: string,
+  messageId: string,
+  rawData: string
+): { storedData: string; artifact: MessageArtifactPersistenceRecord } {
+  const filePath = getMessageArtifactPath(sessionId, messageId);
+  writeFileSync(filePath, rawData, 'utf8');
+
+  const sizeBytes = Buffer.byteLength(rawData, 'utf8');
+  const sha256 = createHash('sha256').update(rawData).digest('hex');
+  const pointer: ExternalizedMessagePointer = {
+    __aegisStorage: 'external-message-payload-v1',
+    artifactKind: MESSAGE_PAYLOAD_ARTIFACT_KIND,
+    artifactPath: filePath,
+  };
+
+  return {
+    storedData: JSON.stringify(pointer),
+    artifact: {
+      kind: MESSAGE_PAYLOAD_ARTIFACT_KIND,
+      filePath,
+      mimeType: 'application/json',
+      sizeBytes,
+      sha256,
+    },
+  };
+}
+
+function readStoredMessagePayload(data: string, createdAt: number): StreamMessage {
+  const parsed = JSON.parse(data) as StreamMessage | ExternalizedMessagePointer;
+  const materialized = isExternalizedMessagePointer(parsed)
+    ? (JSON.parse(readFileSync(parsed.artifactPath, 'utf8')) as StreamMessage)
+    : (parsed as StreamMessage);
+
+  if (typeof (materialized as StreamMessage & { createdAt?: number }).createdAt !== 'number') {
+    (materialized as StreamMessage & { createdAt?: number }).createdAt = createdAt;
+  }
+
+  return materialized;
+}
+
+function buildUnavailableStoredMessage(createdAt: number, reason: string): StreamMessage {
+  return {
+    type: 'assistant',
+    uuid: uuidv4(),
+    createdAt,
+    message: {
+      content: [
+        {
+          type: 'text',
+          text: `[stored message payload unavailable: ${reason}]`,
+        },
+      ],
+    },
+  };
+}
+
+function buildMessagePersistenceRecord(
+  sessionId: string,
+  sourceOrigin: SessionSource,
+  message: StreamMessage
+): MessagePersistenceRecord {
+  const createdAt =
+    typeof (message as StreamMessage & { createdAt?: number }).createdAt === 'number'
+      ? ((message as StreamMessage & { createdAt?: number }).createdAt as number)
+      : Date.now();
+  const id = (message as { uuid?: string }).uuid || uuidv4();
+  const rawData = JSON.stringify(message);
+  const externalized = shouldExternalizeMessagePayload(message, rawData)
+    ? externalizeMessagePayload(sessionId, id, rawData)
+    : null;
+
+  return {
+    id,
+    sessionId,
+    messageType: extractMessageType(message),
+    sourceOrigin,
+    searchText: normalizeSearchText(extractSearchableMessageText(message)),
+    sortKey: createdAt,
+    data: externalized?.storedData || rawData,
+    createdAt,
+    artifact: externalized?.artifact,
+  };
+}
+
+function upsertMessagePayloadArtifact(
+  sessionId: string,
+  messageId: string,
+  artifact: MessageArtifactPersistenceRecord
+): void {
+  const existing = getDb().prepare(`
+    SELECT id, file_path
+    FROM artifacts
+    WHERE session_id = ? AND message_id = ? AND kind = ?
+    LIMIT 1
+  `).get(sessionId, messageId, MESSAGE_PAYLOAD_ARTIFACT_KIND) as { id: string; file_path: string } | undefined;
+
+  if (existing) {
+    getDb().prepare(`
+      UPDATE artifacts
+      SET file_path = ?, mime_type = ?, size_bytes = ?, sha256 = ?
+      WHERE id = ?
+    `).run(artifact.filePath, artifact.mimeType, artifact.sizeBytes, artifact.sha256, existing.id);
+    if (existing.file_path !== artifact.filePath) {
+      try {
+        unlinkSync(existing.file_path);
+      } catch {
+        // ignore stale artifact file cleanup failures
+      }
+    }
+    return;
+  }
+
+  addArtifact({
+    sessionId,
+    messageId,
+    kind: artifact.kind,
+    filePath: artifact.filePath,
+    mimeType: artifact.mimeType,
+    sizeBytes: artifact.sizeBytes,
+    sha256: artifact.sha256,
+  });
+}
+
+function deleteArtifactFiles(filePaths: string[]): void {
+  for (const filePath of filePaths) {
+    try {
+      unlinkSync(filePath);
+    } catch {
+      // ignore cleanup failures
+    }
+  }
+}
+
+function listMessagePayloadArtifactsForSession(sessionId: string): Array<{ id: string; message_id: string | null; file_path: string }> {
+  return getDb().prepare(`
+    SELECT id, message_id, file_path
+    FROM artifacts
+    WHERE session_id = ? AND kind = ?
+  `).all(sessionId, MESSAGE_PAYLOAD_ARTIFACT_KIND) as Array<{ id: string; message_id: string | null; file_path: string }>;
+}
+
+function deleteMessagePayloadArtifactForMessage(sessionId: string, messageId: string): void {
+  const rows = getDb().prepare(`
+    SELECT id, file_path
+    FROM artifacts
+    WHERE session_id = ? AND message_id = ? AND kind = ?
+  `).all(sessionId, messageId, MESSAGE_PAYLOAD_ARTIFACT_KIND) as Array<{ id: string; file_path: string }>;
+
+  if (rows.length === 0) {
+    return;
+  }
+
+  const deleteStmt = getDb().prepare('DELETE FROM artifacts WHERE id = ?');
+  for (const row of rows) {
+    deleteStmt.run(row.id);
+    try {
+      unlinkSync(row.file_path);
+    } catch {
+      // ignore cleanup failures
+    }
+  }
+}
+
+function backfillMessageMetadata(): void {
+  const rows = getDb().prepare(`
+    SELECT m.id, m.session_id, m.data, m.created_at, s.session_origin, s.provider
+    FROM messages m
+    INNER JOIN sessions s ON s.id = m.session_id
+    WHERE m.message_type IS NULL
+       OR m.source_origin IS NULL
+       OR m.search_text IS NULL
+       OR m.sort_key IS NULL
+  `).all() as Array<{
+    id: string;
+    session_id: string;
+    data: string;
+    created_at: number;
+    session_origin: string | null;
+    provider: string | null;
+  }>;
+
+  if (rows.length === 0) {
+    return;
+  }
+
+  const updateStmt = getDb().prepare(`
+    UPDATE messages
+    SET message_type = ?, source_origin = ?, search_text = ?, sort_key = ?
+    WHERE id = ?
+  `);
+  const upsertSearchIndexStmt = getDb().prepare(`
+    INSERT INTO search_index (message_id, session_id, source_origin, text, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(message_id) DO UPDATE SET
+      session_id = excluded.session_id,
+      source_origin = excluded.source_origin,
+      text = excluded.text,
+      updated_at = excluded.updated_at
+  `);
+
+  const transaction = getDb().transaction(() => {
+    for (const row of rows) {
+      try {
+        const parsed = readStoredMessagePayload(row.data, row.created_at);
+        const sourceOrigin =
+          row.session_origin === 'claude_code'
+            ? 'claude_code'
+            : row.session_origin === 'claude_remote'
+              ? 'claude_remote'
+              : row.provider === 'codex'
+                ? 'codex_local'
+                : row.provider === 'opencode'
+                  ? 'opencode_local'
+                  : 'aegis';
+        const searchText = normalizeSearchText(extractSearchableMessageText(parsed));
+        updateStmt.run(extractMessageType(parsed), sourceOrigin, searchText, row.created_at, row.id);
+        upsertSearchIndexStmt.run(row.id, row.session_id, sourceOrigin, searchText, row.created_at);
+      } catch {
+        continue;
+      }
+    }
+  });
+
+  transaction();
+}
+
+function rebalanceSearchIndexText(): void {
+  const rows = getDb().prepare(`
+    SELECT m.id, m.session_id, m.data, m.created_at, si.text AS indexed_text
+    FROM messages m
+    INNER JOIN search_index si ON si.message_id = m.id
+    WHERE LENGTH(si.text) > ?
+  `).all(MAX_SEARCH_TEXT_CHARS) as Array<{
+    id: string;
+    session_id: string;
+    data: string;
+    created_at: number;
+    indexed_text: string;
+  }>;
+
+  if (rows.length === 0) {
+    return;
+  }
+
+  const updateMessageStmt = getDb().prepare(`
+    UPDATE messages
+    SET search_text = ?
+    WHERE id = ?
+  `);
+  const updateSearchIndexStmt = getDb().prepare(`
+    UPDATE search_index
+    SET text = ?, updated_at = ?
+    WHERE message_id = ?
+  `);
+
+  const transaction = getDb().transaction(() => {
+    for (const row of rows) {
+      try {
+        const message = readStoredMessagePayload(row.data, row.created_at);
+        const nextSearchText = normalizeSearchText(extractSearchableMessageText(message));
+        updateMessageStmt.run(nextSearchText, row.id);
+        updateSearchIndexStmt.run(nextSearchText, row.created_at, row.id);
+      } catch {
+        continue;
+      }
+    }
+  });
+
+  transaction();
+}
+
+function backfillExternalizedMessagePayloads(): void {
+  const rows = getDb().prepare(`
+    SELECT m.id, m.session_id, m.data, m.created_at
+    FROM messages m
+    LEFT JOIN artifacts a
+      ON a.message_id = m.id
+      AND a.kind = ?
+    WHERE a.id IS NULL
+      AND LENGTH(m.data) >= ?
+  `).all(MESSAGE_PAYLOAD_ARTIFACT_KIND, EXTERNALIZED_MESSAGE_THRESHOLD_BYTES / 2) as Array<{
+    id: string;
+    session_id: string;
+    data: string;
+    created_at: number;
+  }>;
+
+  if (rows.length === 0) {
+    return;
+  }
+
+  const updateStmt = getDb().prepare(`
+    UPDATE messages
+    SET data = ?
+    WHERE id = ?
+  `);
+
+  const transaction = getDb().transaction(() => {
+    for (const row of rows) {
+      try {
+        const parsed = JSON.parse(row.data) as StreamMessage | ExternalizedMessagePointer;
+        if (isExternalizedMessagePointer(parsed)) {
+          continue;
+        }
+        if (!shouldExternalizeMessagePayload(parsed as StreamMessage, row.data)) {
+          continue;
+        }
+
+        const externalized = externalizeMessagePayload(row.session_id, row.id, row.data);
+        updateStmt.run(externalized.storedData, row.id);
+        upsertMessagePayloadArtifact(row.session_id, row.id, externalized.artifact);
+      } catch {
+        continue;
+      }
+    }
+  });
+
+  transaction();
 }
 
 // 获取数据库实例
@@ -373,15 +855,10 @@ export function pruneMissingExternalClaudeSessions(validSessionIds: string[]): n
     .all() as Array<{ id: string }>;
 
   const valid = new Set(validSessionIds);
-  const deleteStmt = getDb().prepare(`DELETE FROM sessions WHERE id = ? AND session_origin = 'claude_code'`);
-  const transaction = getDb().transaction((ids: string[]) => {
-    for (const id of ids) {
-      deleteStmt.run(id);
-    }
-  });
-
   const staleIds = existing.map((row) => row.id).filter((id) => !valid.has(id));
-  transaction(staleIds);
+  for (const id of staleIds) {
+    deleteSession(id);
+  }
   return staleIds.length;
 }
 
@@ -390,13 +867,14 @@ export function getLatestClaudeModelUsageBySession(): Record<string, LatestClaud
     SELECT
       m.session_id AS session_id,
       m.data AS data,
+      m.created_at AS created_at,
       s.model AS session_model
     FROM messages m
     INNER JOIN sessions s ON s.id = m.session_id
     WHERE s.provider = 'claude'
-      AND json_extract(m.data, '$.type') = 'result'
+      AND m.message_type = 'result'
     ORDER BY m.created_at DESC
-  `).all() as Array<{ session_id: string; data: string; session_model: string | null }>;
+  `).all() as Array<{ session_id: string; data: string; created_at: number; session_model: string | null }>;
 
   const result: Record<string, LatestClaudeModelUsage> = {};
 
@@ -406,7 +884,7 @@ export function getLatestClaudeModelUsageBySession(): Record<string, LatestClaud
     }
 
     try {
-      const parsed = JSON.parse(row.data) as StoredClaudeResultMessage;
+      const parsed = readStoredMessagePayload(row.data, row.created_at) as StoredClaudeResultMessage;
       const latest = selectLatestClaudeModelUsage(parsed, row.session_model);
       if (latest) {
         result[row.session_id] = latest;
@@ -664,24 +1142,67 @@ export function updateSessionTitle(sessionId: string, title: string): void {
 
 // 删除会话
 export function deleteSession(sessionId: string): void {
+  const artifactRows = listArtifactsForSession(sessionId);
+  const artifactPaths = artifactRows.map((row) => row.file_path);
   // 由于设置了 CASCADE，删除 session 会自动删除关联的 messages
   const stmt = getDb().prepare('DELETE FROM sessions WHERE id = ?');
   stmt.run(sessionId);
+  deleteArtifactFiles(artifactPaths);
+  try {
+    rmSync(join(getMessageArtifactsRoot(), sessionId), { recursive: true, force: true });
+  } catch {
+    // ignore session artifact directory cleanup failures
+  }
   invalidateClaudeUsageReportCache();
 }
 
 // 添加消息
 export function addMessage(sessionId: string, message: StreamMessage): void {
-  const now = Date.now();
-  // 优先使用 SDK 消息的 uuid，否则生成新的
-  const id = (message as { uuid?: string }).uuid || uuidv4();
+  const sourceOrigin = getSessionSourceOrigin(sessionId);
+  const record = buildMessagePersistenceRecord(sessionId, sourceOrigin, message);
 
   const stmt = getDb().prepare(`
-    INSERT INTO messages (id, session_id, data, created_at)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET data = excluded.data
+    INSERT INTO messages (id, session_id, message_type, source_origin, search_text, sort_key, data, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      message_type = excluded.message_type,
+      source_origin = excluded.source_origin,
+      search_text = excluded.search_text,
+      sort_key = excluded.sort_key,
+      data = excluded.data,
+      created_at = excluded.created_at
   `);
-  stmt.run(id, sessionId, JSON.stringify(message), now);
+  const searchIndexStmt = getDb().prepare(`
+    INSERT INTO search_index (message_id, session_id, source_origin, text, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(message_id) DO UPDATE SET
+      session_id = excluded.session_id,
+      source_origin = excluded.source_origin,
+      text = excluded.text,
+      updated_at = excluded.updated_at
+  `);
+  stmt.run(
+    record.id,
+    record.sessionId,
+    record.messageType,
+    record.sourceOrigin,
+    record.searchText,
+    record.sortKey,
+    record.data,
+    record.createdAt
+  );
+  if (record.artifact) {
+    upsertMessagePayloadArtifact(sessionId, record.id, record.artifact);
+  } else {
+    deleteMessagePayloadArtifactForMessage(sessionId, record.id);
+  }
+  searchIndexStmt.run(
+    record.id,
+    record.sessionId,
+    record.sourceOrigin,
+    record.searchText,
+    record.createdAt
+  );
 
   if (
     message.type === 'result' ||
@@ -692,43 +1213,208 @@ export function addMessage(sessionId: string, message: StreamMessage): void {
 }
 
 export function replaceSessionHistory(sessionId: string, messages: StreamMessage[]): void {
+  const previousArtifacts = listMessagePayloadArtifactsForSession(sessionId);
   const deleteStmt = getDb().prepare('DELETE FROM messages WHERE session_id = ?');
+  const deleteArtifactsStmt = getDb().prepare('DELETE FROM artifacts WHERE session_id = ? AND kind = ?');
+  const deleteSearchIndexStmt = getDb().prepare('DELETE FROM search_index WHERE session_id = ?');
   const insertStmt = getDb().prepare(`
-    INSERT INTO messages (id, session_id, data, created_at)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO messages (id, session_id, message_type, source_origin, search_text, sort_key, data, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  const insertSearchIndexStmt = getDb().prepare(`
+    INSERT INTO search_index (message_id, session_id, source_origin, text, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const sourceOrigin = getSessionSourceOrigin(sessionId);
+  const nextArtifactPaths = new Set<string>();
 
   const transaction = getDb().transaction((nextMessages: StreamMessage[]) => {
     deleteStmt.run(sessionId);
+    deleteArtifactsStmt.run(sessionId, MESSAGE_PAYLOAD_ARTIFACT_KIND);
+    deleteSearchIndexStmt.run(sessionId);
 
     for (const message of nextMessages) {
-      const createdAt =
-        typeof (message as StreamMessage & { createdAt?: number }).createdAt === 'number'
-          ? (message as StreamMessage & { createdAt?: number }).createdAt as number
-          : Date.now();
-      const id = (message as { uuid?: string }).uuid || uuidv4();
-      insertStmt.run(id, sessionId, JSON.stringify(message), createdAt);
+      const record = buildMessagePersistenceRecord(sessionId, sourceOrigin, message);
+      insertStmt.run(
+        record.id,
+        record.sessionId,
+        record.messageType,
+        record.sourceOrigin,
+        record.searchText,
+        record.sortKey,
+        record.data,
+        record.createdAt
+      );
+      if (record.artifact) {
+        upsertMessagePayloadArtifact(sessionId, record.id, record.artifact);
+        nextArtifactPaths.add(record.artifact.filePath);
+      }
+      insertSearchIndexStmt.run(
+        record.id,
+        record.sessionId,
+        record.sourceOrigin,
+        record.searchText,
+        record.createdAt
+      );
     }
   });
 
   transaction(messages);
+  deleteArtifactFiles(
+    previousArtifacts
+      .map((artifact) => artifact.file_path)
+      .filter((filePath) => !nextArtifactPaths.has(filePath))
+  );
   invalidateClaudeUsageReportCache();
 }
 
 // 获取会话历史消息
 export function getSessionHistory(sessionId: string): StreamMessage[] {
   const stmt = getDb().prepare(`
-    SELECT data, created_at FROM messages WHERE session_id = ? ORDER BY created_at ASC
+    SELECT data, created_at FROM messages WHERE session_id = ? ORDER BY COALESCE(sort_key, created_at) ASC, created_at ASC
   `);
   const rows = stmt.all(sessionId) as { data: string; created_at: number }[];
 
   return rows.map((row) => {
-    const message = JSON.parse(row.data) as StreamMessage;
-    if (typeof (message as StreamMessage & { createdAt?: number }).createdAt !== 'number') {
-      (message as StreamMessage & { createdAt?: number }).createdAt = row.created_at;
+    try {
+      return readStoredMessagePayload(row.data, row.created_at);
+    } catch (error) {
+      return buildUnavailableStoredMessage(
+        row.created_at,
+        error instanceof Error ? error.message : 'unknown storage error'
+      );
     }
-    return message;
   });
+}
+
+export function addArtifact(params: {
+  sessionId: string;
+  messageId?: string | null;
+  kind: string;
+  filePath: string;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  sha256?: string | null;
+}): ArtifactRow {
+  const id = uuidv4();
+  const createdAt = Date.now();
+  getDb().prepare(`
+    INSERT INTO artifacts (id, session_id, message_id, kind, file_path, mime_type, size_bytes, sha256, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    params.sessionId,
+    params.messageId || null,
+    params.kind,
+    params.filePath,
+    params.mimeType || null,
+    params.sizeBytes ?? null,
+    params.sha256 || null,
+    createdAt
+  );
+
+  return {
+    id,
+    session_id: params.sessionId,
+    message_id: params.messageId || null,
+    kind: params.kind,
+    file_path: params.filePath,
+    mime_type: params.mimeType || null,
+    size_bytes: params.sizeBytes ?? null,
+    sha256: params.sha256 || null,
+    created_at: createdAt,
+  };
+}
+
+export function listArtifactsForSession(sessionId: string): ArtifactRow[] {
+  return getDb()
+    .prepare(`
+      SELECT id, session_id, message_id, kind, file_path, mime_type, size_bytes, sha256, created_at
+      FROM artifacts
+      WHERE session_id = ?
+      ORDER BY created_at DESC
+    `)
+    .all(sessionId) as ArtifactRow[];
+}
+
+export function upsertDerivedSummary(params: {
+  sessionId: string;
+  scope: string;
+  summary: string;
+  messageId?: string | null;
+  sourceIds?: string[] | null;
+  model?: string | null;
+}): DerivedSummaryRow {
+  const sourceIds = params.sourceIds && params.sourceIds.length > 0 ? JSON.stringify(params.sourceIds) : null;
+  const existing = getDb().prepare(`
+    SELECT id, created_at
+    FROM derived_summaries
+    WHERE session_id = ? AND scope = ? AND COALESCE(message_id, '') = COALESCE(?, '') AND COALESCE(source_ids, '') = COALESCE(?, '')
+    LIMIT 1
+  `).get(
+    params.sessionId,
+    params.scope,
+    params.messageId || null,
+    sourceIds
+  ) as { id: string; created_at: number } | undefined;
+
+  const now = Date.now();
+  if (existing) {
+    getDb().prepare(`
+      UPDATE derived_summaries
+      SET summary = ?, model = ?, updated_at = ?
+      WHERE id = ?
+    `).run(params.summary, params.model || null, now, existing.id);
+
+    return {
+      id: existing.id,
+      session_id: params.sessionId,
+      message_id: params.messageId || null,
+      scope: params.scope,
+      source_ids: sourceIds,
+      summary: params.summary,
+      model: params.model || null,
+      created_at: existing.created_at,
+      updated_at: now,
+    };
+  }
+
+  const id = uuidv4();
+  getDb().prepare(`
+    INSERT INTO derived_summaries (id, session_id, message_id, scope, source_ids, summary, model, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    params.sessionId,
+    params.messageId || null,
+    params.scope,
+    sourceIds,
+    params.summary,
+    params.model || null,
+    now,
+    now
+  );
+
+  return {
+    id,
+    session_id: params.sessionId,
+    message_id: params.messageId || null,
+    scope: params.scope,
+    source_ids: sourceIds,
+    summary: params.summary,
+    model: params.model || null,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+export function listDerivedSummariesForSession(sessionId: string): DerivedSummaryRow[] {
+  return getDb().prepare(`
+    SELECT id, session_id, message_id, scope, source_ids, summary, model, created_at, updated_at
+    FROM derived_summaries
+    WHERE session_id = ?
+    ORDER BY updated_at DESC
+  `).all(sessionId) as DerivedSummaryRow[];
 }
 
 type JoinedClaudeMessageRow = {
@@ -854,22 +1540,6 @@ function formatDateKey(timestamp: number): string {
 
 function toNumber(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
-}
-
-function extractSearchableMessageText(message: StreamMessage): string {
-  if (message.type === 'user_prompt') {
-    return message.prompt || '';
-  }
-
-  if (message.type === 'assistant') {
-    return message.message.content
-      .map((block) => (block.type === 'text' ? block.text : ''))
-      .filter(Boolean)
-      .join('\n')
-      .trim();
-  }
-
-  return '';
 }
 
 function buildSearchSnippet(text: string, query: string): string {
@@ -1261,33 +1931,47 @@ function parseCodexRolloutUsage(params: {
 }
 
 function backfillClaudeSessionModelsFromInitMessages(): number {
-  const result = getDb().prepare(`
-    UPDATE sessions
-    SET model = (
-      SELECT json_extract(m.data, '$.model')
-      FROM messages m
-      WHERE m.session_id = sessions.id
-        AND json_extract(m.data, '$.type') = 'system'
-        AND json_extract(m.data, '$.subtype') = 'init'
-        AND json_extract(m.data, '$.model') IS NOT NULL
-        AND json_extract(m.data, '$.model') != ''
-      ORDER BY m.created_at DESC
-      LIMIT 1
-    )
-    WHERE provider = 'claude'
-      AND (model IS NULL OR model = '')
-      AND EXISTS (
-        SELECT 1
-        FROM messages m
-        WHERE m.session_id = sessions.id
-          AND json_extract(m.data, '$.type') = 'system'
-          AND json_extract(m.data, '$.subtype') = 'init'
-          AND json_extract(m.data, '$.model') IS NOT NULL
-          AND json_extract(m.data, '$.model') != ''
-      )
-  `).run();
+  const rows = getDb().prepare(`
+    SELECT
+      s.id AS session_id,
+      m.data AS data,
+      m.created_at AS created_at
+    FROM sessions s
+    INNER JOIN messages m ON m.session_id = s.id
+    WHERE s.provider = 'claude'
+      AND (s.model IS NULL OR s.model = '')
+      AND m.message_type = 'system'
+    ORDER BY s.id ASC, m.created_at DESC
+  `).all() as Array<{ session_id: string; data: string; created_at: number }>;
 
-  return result.changes || 0;
+  const updates = new Map<string, string>();
+  for (const row of rows) {
+    if (updates.has(row.session_id)) {
+      continue;
+    }
+
+    try {
+      const parsed = readStoredMessagePayload(row.data, row.created_at);
+      if (parsed.type === 'system' && parsed.subtype === 'init' && parsed.model?.trim()) {
+        updates.set(row.session_id, parsed.model.trim());
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  if (updates.size === 0) {
+    return 0;
+  }
+
+  const updateStmt = getDb().prepare('UPDATE sessions SET model = ? WHERE id = ?');
+  const transaction = getDb().transaction(() => {
+    for (const [sessionId, model] of updates.entries()) {
+      updateStmt.run(model, sessionId);
+    }
+  });
+  transaction();
+  return updates.size;
 }
 
 export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsageReport {
@@ -1309,7 +1993,7 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
     INNER JOIN sessions s ON s.id = m.session_id
     WHERE s.provider = 'claude'
       AND m.created_at >= ?
-      AND json_extract(m.data, '$.type') = 'result'
+      AND m.message_type = 'result'
     ORDER BY m.created_at ASC
   `).all(rangeStart) as JoinedClaudeMessageRow[];
 
@@ -1335,7 +2019,7 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
   for (const row of rows) {
     let parsed: StreamMessage;
     try {
-      parsed = JSON.parse(row.data) as StreamMessage;
+      parsed = readStoredMessagePayload(row.data, row.created_at);
     } catch {
       continue;
     }
@@ -1731,19 +2415,22 @@ export function searchChatMessages(query: string, limit = 60): ChatSessionSearch
   const rows = getDb().prepare(`
     SELECT
       m.data AS data,
+      m.message_type AS message_type,
       m.created_at AS created_at,
       m.session_id AS session_id,
       s.title AS session_title,
       s.session_origin AS session_origin,
       s.cwd AS session_cwd,
       s.updated_at AS session_updated_at
-    FROM messages m
+    FROM search_index si
+    INNER JOIN messages m ON m.id = si.message_id
     INNER JOIN sessions s ON s.id = m.session_id
-    WHERE lower(m.data) LIKE ?
+    WHERE lower(si.text) LIKE ?
     ORDER BY m.created_at DESC
     LIMIT ?
   `).all(`%${normalizedQuery}%`, safeLimit * 8) as Array<{
     data: string;
+    message_type: string | null;
     created_at: number;
     session_id: string;
     session_title: string;
@@ -1756,11 +2443,11 @@ export function searchChatMessages(query: string, limit = 60): ChatSessionSearch
 
   for (const row of rows) {
     try {
-      const message = JSON.parse(row.data) as StreamMessage;
-      if (message.type !== 'user_prompt' && message.type !== 'assistant') {
+      if (row.message_type !== 'user_prompt' && row.message_type !== 'assistant') {
         continue;
       }
 
+      const message = readStoredMessagePayload(row.data, row.created_at);
       const text = extractSearchableMessageText(message).trim();
       if (!text || !text.toLowerCase().includes(normalizedQuery)) {
         continue;
@@ -1786,9 +2473,10 @@ export function searchChatMessages(query: string, limit = 60): ChatSessionSearch
 
       entry.matchCount += 1;
       if (entry.matches.length < 3) {
+        const messageType = message.type === 'assistant' ? 'assistant' : 'user_prompt';
         entry.matches.push({
           snippet: buildSearchSnippet(text, normalizedQuery),
-          messageType: message.type,
+          messageType,
           createdAt: row.created_at,
         });
       }

@@ -467,6 +467,8 @@ export interface SessionHistoryPayload {
   sessionId: string;
   status: SessionStatus;
   messages: StreamMessage[];
+  cursor?: string | null;
+  hasMore?: boolean;
 }
 
 export interface PermissionRequestPayload {

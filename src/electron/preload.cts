@@ -106,6 +106,19 @@ contextBridge.exposeInMainWorld('electron', {
     return Promise.resolve(ipcRenderer.sendSync('save-ui-resume-state-sync', state));
   },
 
+  loadOlderSessionHistory: (sessionId: string, cursor: string, limit?: number) => {
+    return ipcRenderer.invoke('load-older-session-history', sessionId, cursor, limit);
+  },
+
+  loadSessionHistoryAround: (
+    sessionId: string,
+    messageCreatedAt: number,
+    before?: number,
+    after?: number
+  ) => {
+    return ipcRenderer.invoke('load-session-history-around', sessionId, messageCreatedAt, before, after);
+  },
+
   checkForUpdates: () => {
     return ipcRenderer.invoke('check-for-updates');
   },

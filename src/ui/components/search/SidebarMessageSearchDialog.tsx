@@ -11,11 +11,10 @@ import {
 } from 'lucide-react';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useAppStore } from '../../store/useAppStore';
-import { sendEvent } from '../../hooks/useIPC';
 import { aggregateMessages } from '../../utils/aggregated-messages';
 import { MessageCard } from '../MessageCard';
 import { ToolExecutionBatch } from '../ToolExecutionBatch';
-import type { ChatSessionSearchResult, ToolStatus } from '../../types';
+import type { ChatSessionSearchResult, SessionHistoryPayload, ToolStatus } from '../../types';
 import { getMessageContentBlocks } from '../../utils/message-content';
 
 function formatSessionSourceLabel(source: ChatSessionSearchResult['sessionSource']): string {
@@ -225,38 +224,76 @@ function SearchHistoryPreview({
   selectedMessageCreatedAt: number | null;
   onOpenInMainThread: (sessionId: string, messageCreatedAt: number) => void;
 }) {
-  const session = useAppStore((state) => (result ? state.sessions[result.sessionId] : null));
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
   const [highlightedAnchor, setHighlightedAnchor] = useState<string | null>(null);
+  const [previewPayload, setPreviewPayload] = useState<SessionHistoryPayload | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const highlightTimerRef = useRef<number | null>(null);
-  const historyRequestedRef = useRef(new Set<string>());
+  const previewRequestNonceRef = useRef(0);
 
   useEffect(() => {
-    if (!result || !session || session.hydrated || historyRequestedRef.current.has(result.sessionId)) {
+    if (!result) {
+      setPreviewPayload(null);
+      setPreviewError(null);
+      setLoadingPreview(false);
       return;
     }
 
-    historyRequestedRef.current.add(result.sessionId);
-    sendEvent({
-      type: 'session.history',
-      payload: { sessionId: result.sessionId },
-    });
-  }, [result, session]);
+    const targetCreatedAt = selectedMessageCreatedAt || result.matches[0]?.createdAt;
+    if (!targetCreatedAt) {
+      setPreviewPayload(null);
+      setPreviewError('No preview target available for this result.');
+      setLoadingPreview(false);
+      return;
+    }
+
+    const requestNonce = previewRequestNonceRef.current + 1;
+    previewRequestNonceRef.current = requestNonce;
+    setLoadingPreview(true);
+    setPreviewError(null);
+
+    window.electron
+      .loadSessionHistoryAround(result.sessionId, targetCreatedAt, 24, 24)
+      .then((payload) => {
+        if (previewRequestNonceRef.current !== requestNonce) {
+          return;
+        }
+        setPreviewPayload(payload);
+      })
+      .catch((error) => {
+        if (previewRequestNonceRef.current !== requestNonce) {
+          return;
+        }
+        setPreviewPayload(null);
+        setPreviewError(error instanceof Error ? error.message : 'Failed to load conversation preview.');
+      })
+      .finally(() => {
+        if (previewRequestNonceRef.current === requestNonce) {
+          setLoadingPreview(false);
+        }
+      });
+  }, [result, selectedMessageCreatedAt]);
+
+  const previewMessages = previewPayload?.messages || [];
+  const previewStatus = previewPayload?.status || 'completed';
+  const previewCursor = previewPayload?.cursor || null;
+  const previewHasMore = previewPayload?.hasMore === true;
 
   const aggregatedMessages = useMemo(
-    () => (session ? aggregateMessages(session.messages) : []),
-    [session?.messages]
+    () => aggregateMessages(previewMessages),
+    [previewMessages]
   );
 
   const { toolStatusMap, toolResultsMap } = useMemo(() => {
     const statusMap = new Map<string, ToolStatus>();
     const resultsMap = new Map<string, { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }>();
 
-    if (!session) {
+    if (!previewPayload) {
       return { toolStatusMap: statusMap, toolResultsMap: resultsMap };
     }
 
-    for (const msg of session.messages) {
+    for (const msg of previewMessages) {
       if (msg.type === 'assistant') {
         for (const block of getMessageContentBlocks(msg)) {
           if (block.type === 'tool_use') {
@@ -274,10 +311,10 @@ function SearchHistoryPreview({
     }
 
     return { toolStatusMap: statusMap, toolResultsMap: resultsMap };
-  }, [session]);
+  }, [previewMessages, previewPayload]);
 
   const previewAnchor = useMemo(() => {
-    if (!session || !selectedMessageCreatedAt) {
+    if (!previewPayload || !selectedMessageCreatedAt) {
       return null;
     }
 
@@ -295,10 +332,38 @@ function SearchHistoryPreview({
     }
 
     return null;
-  }, [aggregatedMessages, selectedMessageCreatedAt, session]);
+  }, [aggregatedMessages, previewPayload, selectedMessageCreatedAt]);
+
+  const handleLoadOlderPreview = () => {
+    if (!result || !previewCursor || loadingPreview) {
+      return;
+    }
+
+    setLoadingPreview(true);
+    setPreviewError(null);
+    window.electron
+      .loadOlderSessionHistory(result.sessionId, previewCursor, 100)
+      .then((payload) => {
+        setPreviewPayload((current) => {
+          if (!current) {
+            return payload;
+          }
+          return {
+            ...payload,
+            messages: [...payload.messages, ...current.messages],
+          };
+        });
+      })
+      .catch((error) => {
+        setPreviewError(error instanceof Error ? error.message : 'Failed to load older preview messages.');
+      })
+      .finally(() => {
+        setLoadingPreview(false);
+      });
+  };
 
   useEffect(() => {
-    if (!previewAnchor || !previewContainerRef.current || !session?.hydrated) {
+    if (!previewAnchor || !previewContainerRef.current || !previewPayload) {
       return;
     }
 
@@ -317,7 +382,7 @@ function SearchHistoryPreview({
       setHighlightedAnchor((current) => (current === previewAnchor ? null : current));
       highlightTimerRef.current = null;
     }, 2200);
-  }, [previewAnchor, session?.hydrated]);
+  }, [previewAnchor, previewPayload]);
 
   useEffect(() => {
     return () => {
@@ -331,8 +396,27 @@ function SearchHistoryPreview({
     return <PreviewEmptyState />;
   }
 
-  if (!session || !session.hydrated) {
+  if (loadingPreview && !previewPayload) {
     return <PreviewLoadingState />;
+  }
+
+  if (previewError && !previewPayload) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="max-w-[420px] text-center">
+          <div className="text-sm font-medium text-[var(--text-primary)]">
+            Unable to preview this conversation
+          </div>
+          <div className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
+            {previewError}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!previewPayload) {
+    return <PreviewEmptyState />;
   }
 
   return (
@@ -371,6 +455,25 @@ function SearchHistoryPreview({
       </div>
 
       <div ref={previewContainerRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        {previewHasMore && (
+          <div className="mb-4 flex justify-center">
+            <button
+              type="button"
+              onClick={handleLoadOlderPreview}
+              disabled={loadingPreview}
+              className="rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-wait disabled:opacity-60"
+            >
+              {loadingPreview ? 'Loading older messages…' : 'Load older messages'}
+            </button>
+          </div>
+        )}
+
+        {previewError ? (
+          <div className="mb-4 rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+            {previewError}
+          </div>
+        ) : null}
+
         <div className="message-container">
           {aggregatedMessages.map((item, index) => {
             const anchor = item.type === 'tool_batch'
@@ -396,7 +499,7 @@ function SearchHistoryPreview({
                     messages={item.messages}
                     toolStatusMap={toolStatusMap}
                     toolResultsMap={toolResultsMap}
-                    isSessionRunning={session.status === 'running'}
+                    isSessionRunning={previewStatus === 'running'}
                   />
                 </div>
               );
@@ -413,7 +516,7 @@ function SearchHistoryPreview({
                   message={item.message}
                   toolStatusMap={toolStatusMap}
                   toolResultsMap={toolResultsMap}
-                  permissionRequests={session.permissionRequests}
+                  permissionRequests={[]}
                   onPermissionResult={() => {}}
                 />
               </div>

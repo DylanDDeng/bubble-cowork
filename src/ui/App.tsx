@@ -79,6 +79,7 @@ export function App() {
     sessions,
     activeSessionId,
     historyNavigationTarget,
+    loadOlderSessionHistory,
     activeWorkspace,
     showNewSession,
     projectCwd,
@@ -190,6 +191,10 @@ export function App() {
 
     return null;
   }, [activeSessionId, aggregatedMessages, historyNavigationTarget]);
+  const historyNavigationPending =
+    !!historyNavigationTarget &&
+    historyNavigationTarget.sessionId === activeSessionId &&
+    !historyNavigationAnchor;
 
   useEffect(() => {
     if (connected) {
@@ -291,6 +296,15 @@ export function App() {
     }
 
     if (!historyNavigationAnchor) {
+      if (activeSession.hasMoreHistory && !activeSession.loadingMoreHistory) {
+        loadOlderSessionHistory(activeSessionId);
+        return;
+      }
+
+      if (!activeSession.hasMoreHistory && !activeSession.loadingMoreHistory) {
+        toast.error('Could not locate the selected message in session history.');
+        setHistoryNavigationTarget(null);
+      }
       return;
     }
 
@@ -314,9 +328,12 @@ export function App() {
     }, 2400);
   }, [
     activeSession?.hydrated,
+    activeSession?.hasMoreHistory,
+    activeSession?.loadingMoreHistory,
     activeSessionId,
     historyNavigationAnchor,
     historyNavigationTarget,
+    loadOlderSessionHistory,
     setHistoryNavigationTarget,
   ]);
 
@@ -464,6 +481,29 @@ export function App() {
 
             {/* 居中容器 */}
             <div className="message-container">
+              {historyNavigationPending && (
+                <div className="mb-4 flex justify-center">
+                  <div className="rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-secondary)]">
+                    {activeSession.loadingMoreHistory
+                      ? 'Loading matched message from older history…'
+                      : 'Locating matched message…'}
+                  </div>
+                </div>
+              )}
+
+              {activeSession.hasMoreHistory && (
+                <div className="mb-4 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => loadOlderSessionHistory(activeSessionId!)}
+                    disabled={activeSession.loadingMoreHistory}
+                    className="rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {activeSession.loadingMoreHistory ? 'Loading older messages…' : 'Load older messages'}
+                  </button>
+                </div>
+              )}
+
               {/* 渲染消息（聚合连续的工具执行） */}
               {aggregatedMessages.map((item, idx) => {
                 if (item.type === 'tool_batch') {

@@ -38,6 +38,7 @@ export type {
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
   ChatSessionSearchResult,
+  SessionHistoryPayload,
   ClaudeModelUsage,
   LatestClaudeModelUsage,
   CodexModelConfig,
@@ -110,6 +111,9 @@ export interface SessionView {
   latestClaudeModelUsage?: import('../shared/types').LatestClaudeModelUsage;
   messages: import('../shared/types').StreamMessage[];
   hydrated: boolean;
+  historyCursor?: string | null;
+  hasMoreHistory?: boolean;
+  loadingMoreHistory?: boolean;
   permissionRequests: import('../shared/types').PermissionRequestPayload[];
   streaming: SessionStreamingState;
   runtimeNotice?: 'completed' | 'error';
@@ -191,6 +195,7 @@ export interface AppActions {
   applyUiResumeState: (state: import('../shared/types').UiResumeState | null) => void;
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;
+  loadOlderSessionHistory: (sessionId: string) => void;
   removePermissionRequest: (sessionId: string, toolUseId: string) => void;
   // 搜索 Actions
   setSidebarSearchQuery: (query: string) => void;

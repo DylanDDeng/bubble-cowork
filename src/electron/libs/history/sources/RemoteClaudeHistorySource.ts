@@ -19,6 +19,15 @@ export class RemoteClaudeHistorySource implements SessionHistorySource {
     return unsupported();
   }
 
+  async loadAround(
+    _session: UnifiedSessionRecord,
+    _anchorCreatedAt: number,
+    _before: number,
+    _after: number
+  ): Promise<UnifiedHistoryPage> {
+    return unsupported();
+  }
+
   async loadAll(_session: UnifiedSessionRecord) {
     return unsupported();
   }
