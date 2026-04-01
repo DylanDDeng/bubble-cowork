@@ -143,44 +143,44 @@ export function Sidebar() {
 
       <div className="relative flex h-full flex-shrink-0 select-none">
         {/* ===== 图标栏 ===== */}
-        <div className="flex h-full w-11 flex-shrink-0 flex-col items-center border-r border-[var(--border)] bg-[var(--bg-tertiary)] pt-0 pb-3">
+        <div className="flex h-full w-11 flex-shrink-0 flex-col items-center bg-[var(--bg-tertiary)] pt-0 pb-3">
           {/* macOS 红绿灯区域 */}
           <div className="h-8 w-full drag-region flex-shrink-0 border-b border-[var(--border)]" />
 
-          {/* 导航图标 */}
-          <div className="flex flex-col items-center gap-2 pt-3">
-            <RailIcon
-              icon={<MessageSquare className="h-[17px] w-[17px]" />}
-              title="Threads"
-              active={activeWorkspace === 'chat' && chatSidebarView === 'threads'}
-              onClick={() => openChatSidebarView('threads')}
-            />
-            <RailIcon
-              icon={<Search className="h-[17px] w-[17px]" />}
-              title="Search history"
-              active={messageSearchOpen}
-              onClick={() => setMessageSearchOpen(true)}
-            />
-            <RailIcon
-              icon={<Bookmark className="h-[17px] w-[17px]" />}
-              title="Prompt Library"
-              active={activeWorkspace === 'chat' && chatSidebarView === 'prompts'}
-              onClick={() => openChatSidebarView('prompts')}
-            />
-            <RailIcon
-              icon={<Boxes className="h-[17px] w-[17px]" />}
-              title="Skills"
-              active={activeWorkspace === 'skills'}
-              onClick={() => {
-                setActiveWorkspace('skills');
-                setShowSettings(false);
-              }}
-            />
-          </div>
+          <div className="flex w-full flex-1 flex-col items-center border-r border-[var(--border)]">
+            {/* 导航图标 */}
+            <div className="flex flex-col items-center gap-2 pt-3">
+              <RailIcon
+                icon={<MessageSquare className="h-[17px] w-[17px]" />}
+                title="Threads"
+                active={activeWorkspace === 'chat' && chatSidebarView === 'threads'}
+                onClick={() => openChatSidebarView('threads')}
+              />
+              <RailIcon
+                icon={<Search className="h-[17px] w-[17px]" />}
+                title="Search history"
+                active={messageSearchOpen}
+                onClick={() => setMessageSearchOpen(true)}
+              />
+              <RailIcon
+                icon={<Bookmark className="h-[17px] w-[17px]" />}
+                title="Prompt Library"
+                active={activeWorkspace === 'chat' && chatSidebarView === 'prompts'}
+                onClick={() => openChatSidebarView('prompts')}
+              />
+              <RailIcon
+                icon={<Boxes className="h-[17px] w-[17px]" />}
+                title="Skills"
+                active={activeWorkspace === 'skills'}
+                onClick={() => {
+                  setActiveWorkspace('skills');
+                  setShowSettings(false);
+                }}
+              />
+            </div>
 
-          {/* 底部图标 */}
-          <div className="mt-auto flex flex-col items-center gap-1.5">
-            {activeWorkspace === 'chat' && (
+            {/* 底部图标 */}
+            <div className="mt-auto flex flex-col items-center gap-1.5 pb-1">
               <RailIcon
                 icon={
                   sidebarCollapsed ? (
@@ -193,12 +193,12 @@ export function Sidebar() {
                 active={sidebarCollapsed}
                 onClick={toggleSidebarCollapsed}
               />
-            )}
-            <RailIcon
-              icon={<Settings className="h-[17px] w-[17px]" />}
-              title="Settings"
-              onClick={() => setShowSettings(true)}
-            />
+              <RailIcon
+                icon={<Settings className="h-[17px] w-[17px]" />}
+                title="Settings"
+                onClick={() => setShowSettings(true)}
+              />
+            </div>
           </div>
         </div>
 
