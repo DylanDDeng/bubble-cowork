@@ -631,7 +631,12 @@ export const useAppStore = create<Store>()(
         });
         return {
           ...currentState,
-          activeWorkspace: persisted?.activeWorkspace === 'skills' ? 'skills' : 'chat',
+          activeWorkspace:
+            persisted?.activeWorkspace === 'skills'
+              ? 'skills'
+              : persisted?.activeWorkspace === 'board'
+                ? 'board'
+                : 'chat',
           chatSidebarView: persisted?.chatSidebarView || currentState.chatSidebarView,
           sidebarCollapsed: persisted?.sidebarCollapsed ?? currentState.sidebarCollapsed,
           sidebarWidth: sanitizeSidebarWidth(persisted?.sidebarWidth, currentState.sidebarWidth),

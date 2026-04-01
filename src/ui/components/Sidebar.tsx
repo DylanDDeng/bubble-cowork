@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FolderOpen,
+  KanbanSquare,
   MessageSquare,
   Search,
   Settings,
@@ -161,6 +162,15 @@ export function Sidebar() {
                 title="Search history"
                 active={messageSearchOpen}
                 onClick={() => setMessageSearchOpen(true)}
+              />
+              <RailIcon
+                icon={<KanbanSquare className="h-[17px] w-[17px]" />}
+                title="Board"
+                active={activeWorkspace === 'board'}
+                onClick={() => {
+                  setActiveWorkspace('board');
+                  setShowSettings(false);
+                }}
               />
               <RailIcon
                 icon={<Bookmark className="h-[17px] w-[17px]" />}
