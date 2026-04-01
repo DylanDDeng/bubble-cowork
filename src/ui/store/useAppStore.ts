@@ -181,7 +181,7 @@ export const useAppStore = create<Store>()(
       activeSessionId: initialUiResumeState?.activeSessionId ?? null,
       activeWorkspace: 'chat' as ActiveWorkspace,
       chatSidebarView: 'threads' as ChatSidebarView,
-      showNewSession: initialUiResumeState?.showNewSession ?? false,
+      showNewSession: initialUiResumeState?.showNewSession ?? true,
       sidebarCollapsed: false,
       sidebarWidth: 256,
       globalError: null,

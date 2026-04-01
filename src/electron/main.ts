@@ -502,7 +502,7 @@ function setupMenu(): void {
 
 // 应用启动
 app.whenReady().then(() => {
-  latestUiResumeState = loadUiResumeState();
+  clearUiResumeState();
   setupMenu();
   setupAutoUpdater();
   ipcMainHandle('check-for-updates', async () => {
