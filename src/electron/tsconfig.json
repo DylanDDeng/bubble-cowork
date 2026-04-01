@@ -10,7 +10,7 @@
     "outDir": "../../dist-electron",
     "rootDir": "..",
     "declaration": false,
-    "typeRoots": ["../../node_modules/@types", "./libs"]
+    "typeRoots": ["../../node_modules/@types"]
   },
   "include": ["./**/*.ts", "./**/*.cts", "../shared/**/*.ts"],
   "exclude": ["node_modules"]

@@ -147,6 +147,58 @@ export function initialize(): void {
   if (backfilledCount > 0) {
     console.log(`[session-store] Backfilled ${backfilledCount} Claude session model values from init messages.`);
   }
+
+  // 启动时自动维护：清理超过 90 天的旧消息，防止数据库无限膨胀
+  runStartupMaintenance();
+}
+
+const MESSAGE_RETENTION_DAYS = 90;
+
+function runStartupMaintenance(): void {
+  const database = getDb();
+  try {
+    const cutoff = Date.now() - MESSAGE_RETENTION_DAYS * DAY_MS;
+
+    // 删除超过保留期的旧消息
+    const deleteResult = database.prepare(
+      'DELETE FROM messages WHERE created_at < ?'
+    ).run(cutoff);
+
+    if (deleteResult.changes > 0) {
+      console.log(
+        `[session-store] Maintenance: purged ${deleteResult.changes} messages older than ${MESSAGE_RETENTION_DAYS} days.`
+      );
+
+      // 删除没有任何消息的非置顶会话
+      const orphanResult = database.prepare(`
+        DELETE FROM sessions
+        WHERE pinned = 0
+          AND id NOT IN (SELECT DISTINCT session_id FROM messages)
+      `).run();
+
+      if (orphanResult.changes > 0) {
+        console.log(
+          `[session-store] Maintenance: removed ${orphanResult.changes} empty sessions.`
+        );
+      }
+
+      // 增量回收空间
+      database.pragma('incremental_vacuum(1000)');
+      console.log('[session-store] Maintenance: incremental vacuum completed.');
+    }
+
+    // 确保 auto_vacuum 为 incremental 模式（需要在非 WAL checkpoint 之后生效）
+    const autoVacuum = database.pragma('auto_vacuum', true) as number;
+    if (autoVacuum !== 2) {
+      // auto_vacuum 模式只能在 VACUUM 后改变，记录日志但不阻塞启动
+      console.log(
+        `[session-store] auto_vacuum is ${autoVacuum}, recommend running VACUUM to switch to incremental (2).`
+      );
+    }
+  } catch (err) {
+    // 维护失败不阻塞应用启动
+    console.error('[session-store] Startup maintenance failed:', err);
+  }
 }
 
 function ensureColumn(table: string, column: string, definition: string): void {

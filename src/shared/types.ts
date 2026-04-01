@@ -291,7 +291,12 @@ export interface Attachment {
 
 // Agent 提供商
 export type AgentProvider = 'claude' | 'codex' | 'opencode';
-export type SessionSource = 'aegis' | 'claude_code';
+export type SessionSource =
+  | 'aegis'
+  | 'claude_code'
+  | 'claude_remote'
+  | 'codex_local'
+  | 'opencode_local';
 
 // 项目文件树节点
 export interface ProjectTreeNode {

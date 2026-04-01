@@ -48,6 +48,7 @@ import * as statusConfig from './libs/status-config';
 import * as folderConfig from './libs/folder-config';
 import { ipcMainHandle, isDev } from './util';
 import { scheduleExternalClaudeSessionSync } from './libs/external-claude-sessions';
+import { getHistorySourceForSession, toUnifiedSessionRecord } from './libs/history/registry';
 import type {
   ClientEvent,
   ServerEvent,
@@ -3076,7 +3077,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     title: row.title,
     status: row.status as SessionInfo['status'],
     source: row.session_origin || 'aegis',
-    readOnly: row.session_origin === 'claude_code',
+    readOnly: row.session_origin === 'claude_code' || row.session_origin === 'claude_remote',
     cwd: row.cwd || undefined,
     claudeSessionId: row.claude_session_id || undefined,
     provider: row.provider || 'claude',
@@ -3883,18 +3884,31 @@ function handleSessionHistory(mainWindow: BrowserWindow, sessionId: string): voi
     return;
   }
 
-  const messages =
-    session.provider === 'claude' && session.session_origin !== 'claude_code'
-      ? sanitizeStoredClaudeHistory(sessionId, sessions.getSessionHistory(sessionId)).messages
-      : sessions.getSessionHistory(sessionId);
+  void (async () => {
+    const unifiedSession = toUnifiedSessionRecord(session);
+    const source = getHistorySourceForSession(unifiedSession);
+    const messages = await source.loadAll(unifiedSession);
+    const finalMessages =
+      session.provider === 'claude' && session.session_origin === 'aegis'
+        ? sanitizeStoredClaudeHistory(sessionId, messages).messages
+        : messages;
 
-  broadcast(mainWindow, {
-    type: 'session.history',
-    payload: {
-      sessionId,
-      status: session.status as SessionInfo['status'],
-      messages,
-    },
+    broadcast(mainWindow, {
+      type: 'session.history',
+      payload: {
+        sessionId,
+        status: session.status as SessionInfo['status'],
+        messages: finalMessages,
+      },
+    });
+  })().catch((error) => {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: {
+        message: error instanceof Error ? error.message : 'Failed to load session history.',
+        sessionId,
+      },
+    });
   });
 }
 
@@ -3932,7 +3946,7 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
 // 删除会话
 function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void {
   const session = sessions.getSession(sessionId);
-  if (session?.session_origin === 'claude_code') {
+  if (session?.session_origin === 'claude_code' || session?.session_origin === 'claude_remote') {
     broadcast(mainWindow, {
       type: 'runner.error',
       payload: { message: 'External Claude Code sessions are read-only in Aegis.', sessionId },
