@@ -63,6 +63,17 @@ import { buildPromptWithSkill } from '../utils/claude-skills';
 import { buildPromptWithSlashCommand } from '../utils/claude-slash';
 import { removeProjectFileMention } from '../utils/project-file-mentions';
 
+function isImeComposingEvent(
+  event: React.KeyboardEvent,
+  isComposingRef: React.MutableRefObject<boolean>
+): boolean {
+  return (
+    isComposingRef.current ||
+    event.nativeEvent.isComposing === true ||
+    (event.nativeEvent as KeyboardEvent).keyCode === 229
+  );
+}
+
 function isVisibleClaudePickerModel(
   model: string | null | undefined,
   compatibleOptions: Array<{ model: string }>
@@ -112,6 +123,7 @@ export function PromptInput() {
     useState<OpenCodePermissionMode>(loadPreferredOpencodePermissionMode());
   const [cursorIndex, setCursorIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isComposingRef = useRef(false);
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const isRunning = activeSession?.status === 'running';
@@ -658,6 +670,10 @@ export function PromptInput() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (isImeComposingEvent(e, isComposingRef)) {
+      return;
+    }
+
     if (projectFileMentions.hasMentionQuery) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -768,6 +784,13 @@ export function PromptInput() {
             value={skillAutocomplete.displayPrompt}
             onChange={(e) => handlePromptChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
             onSelect={(e) => setCursorIndex(e.currentTarget.selectionStart ?? 0)}
+            onCompositionStart={() => {
+              isComposingRef.current = true;
+            }}
+            onCompositionEnd={(e) => {
+              isComposingRef.current = false;
+              setCursorIndex(e.currentTarget.selectionStart ?? e.currentTarget.value.length);
+            }}
             onKeyDown={handleKeyDown}
             placeholder={
               isRunning
