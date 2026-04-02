@@ -4,6 +4,8 @@ import {
   Clock3,
   FolderOpen,
   KanbanSquare,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   PlayCircle,
   Send,
@@ -23,6 +25,8 @@ type RuntimeColumnId = 'claude' | 'codex' | 'opencode' | 'other';
 
 type BoardSession = SessionView & {
   latestSummary: string;
+  providerLabel: string;
+  modelLabel: string;
   runtimeLabel: string;
   executionLabel: string;
   waitingPermission: boolean;
@@ -36,15 +40,26 @@ function truncate(text: string, max = 120): string {
   return `${normalized.slice(0, max - 1)}…`;
 }
 
-function getRuntimeLabel(session: SessionView): string {
+function getProviderLabel(session: SessionView): string {
   const provider = session.provider || 'claude';
-  const base =
-    provider === 'codex'
-      ? 'Codex'
-      : provider === 'opencode'
-        ? 'OpenCode'
-        : 'Claude';
-  return session.model ? `${base} · ${session.model}` : base;
+  if (provider === 'codex') return 'Codex';
+  if (provider === 'opencode') return 'OpenCode';
+  return 'Claude';
+}
+
+function getShortModelLabel(model?: string): string {
+  if (!model) return '';
+  return model
+    .replace(/^claude-/, '')
+    .replace(/^codex-/, '')
+    .replace(/^opencode-/, '')
+    .replace(/-\d{8}$/, '');
+}
+
+function getRuntimeLabel(session: SessionView): string {
+  const base = getProviderLabel(session);
+  const short = getShortModelLabel(session.model);
+  return short ? `${base} · ${short}` : base;
 }
 
 function getExecutionLabel(session: SessionView): string {
@@ -183,9 +198,48 @@ function sortSessions(left: BoardSession, right: BoardSession): number {
   return right.updatedAt - left.updatedAt;
 }
 
+const COLUMN_ACCENT_COLORS: Record<string, string> = {
+  backlog: 'bg-gray-300 dark:bg-gray-600',
+  todo: 'bg-blue-400 dark:bg-blue-500',
+  'needs-review': 'bg-amber-400 dark:bg-amber-500',
+  done: 'bg-green-400 dark:bg-green-500',
+  cancelled: 'bg-gray-300 dark:bg-gray-500',
+};
+
+const COLUMN_BADGE_COLORS: Record<string, string> = {
+  backlog: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
+  todo: 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400',
+  'needs-review': 'bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400',
+  done: 'bg-green-50 text-green-600 dark:bg-green-950 dark:text-green-400',
+  cancelled: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
+};
+
+function getColumnBadgeClass(columnId: string): string {
+  return COLUMN_BADGE_COLORS[columnId] || 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]';
+}
+
+function getColumnAccentColor(columnId: string, statusColor?: string): string {
+  if (COLUMN_ACCENT_COLORS[columnId]) {
+    return COLUMN_ACCENT_COLORS[columnId];
+  }
+  if (statusColor?.startsWith('#')) {
+    return '';
+  }
+  return 'bg-gray-300 dark:bg-gray-500';
+}
+
+function getColumnAccentStyle(columnId: string, statusColor?: string): React.CSSProperties | undefined {
+  if (COLUMN_ACCENT_COLORS[columnId]) {
+    return undefined;
+  }
+  if (statusColor?.startsWith('#')) {
+    return { backgroundColor: statusColor };
+  }
+  return undefined;
+}
+
 function BoardCard({
   session,
-  statusConfig,
   selected,
   onSelect,
   draggable,
@@ -193,7 +247,6 @@ function BoardCard({
   onDragEnd,
 }: {
   session: BoardSession;
-  statusConfig?: StatusConfig;
   selected: boolean;
   onSelect: () => void;
   draggable?: boolean;
@@ -207,6 +260,8 @@ function BoardCard({
     }
   };
 
+  const hasActivity = session.latestSummary !== 'No activity yet';
+
   return (
     <div
       role="button"
@@ -216,45 +271,47 @@ function BoardCard({
       onKeyDown={handleKeyDown}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className={`w-full rounded-[18px] border px-4 py-3 text-left transition-colors ${
+      className={`w-full rounded-[14px] border px-3 py-2.5 text-left transition-colors ${
         selected
           ? 'border-[var(--accent)]/35 bg-[var(--accent-light)]/35'
           : 'border-[var(--border)] bg-[var(--bg-primary)] hover:border-[var(--accent)]/20 hover:bg-[var(--bg-secondary)]'
       } ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-[var(--text-primary)]">
+          <div className="truncate text-[13px] font-semibold text-[var(--text-primary)]">
             {session.title}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
-            {statusConfig ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-secondary)] px-2 py-0.5">
-                <StatusIcon status={statusConfig} />
-                {statusConfig.label}
+          <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-[var(--text-muted)]">
+            <span className="rounded-full border border-[var(--border)] px-1.5 py-[1px] text-[var(--text-secondary)]">
+              {session.providerLabel}
+            </span>
+            {session.modelLabel ? (
+              <span className="truncate max-w-[120px] text-[var(--text-muted)]">
+                {session.modelLabel}
               </span>
             ) : null}
-            <span className="rounded-full bg-[var(--accent-light)] px-2 py-0.5 font-medium text-[var(--text-secondary)]">
-              {session.runtimeLabel}
-            </span>
+            <span className="text-[var(--text-muted)]">·</span>
             <span>{session.executionLabel}</span>
           </div>
         </div>
-        <span className="text-[11px] text-[var(--text-muted)]">{formatRelativeTimestamp(session.updatedAt)}</span>
+        <span className="flex-shrink-0 text-[11px] text-[var(--text-muted)]">{formatRelativeTimestamp(session.updatedAt)}</span>
       </div>
 
-      <div className="mt-3 flex items-center gap-2 text-xs text-[var(--text-muted)]">
-        <FolderOpen className="h-3.5 w-3.5" />
+      <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+        <FolderOpen className="h-3 w-3 flex-shrink-0" />
         <span className="truncate">{getProjectLabel(session.cwd)}</span>
       </div>
 
-      <div className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
-        {session.latestSummary}
-      </div>
+      {hasActivity ? (
+        <div className="mt-1.5 line-clamp-2 text-[12px] leading-[18px] text-[var(--text-secondary)]">
+          {session.latestSummary}
+        </div>
+      ) : null}
 
       {session.waitingPermission ? (
-        <div className="mt-3 inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-primary)]">
-          <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />
+        <div className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-primary)]">
+          <ShieldAlert className="h-3 w-3 text-amber-500" />
           Waiting for permission
         </div>
       ) : null}
@@ -275,13 +332,13 @@ export function BoardView() {
   } = useAppStore();
   const [groupBy, setGroupBy] = useState<BoardGrouping>('status');
   const [providerFilter, setProviderFilter] = useState<'all' | 'claude' | 'codex' | 'opencode'>('all');
-  const [showClosed, setShowClosed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [pendingTodoOverrides, setPendingTodoOverrides] = useState<Record<string, string>>({});
   const [knownTodoStates, setKnownTodoStates] = useState<Record<string, string>>({});
   const [draggingSessionId, setDraggingSessionId] = useState<string | null>(null);
   const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(true);
   const [replyPrompt, setReplyPrompt] = useState('');
   const [newRunOpen, setNewRunOpen] = useState(false);
   const [newRunPrompt, setNewRunPrompt] = useState('');
@@ -329,23 +386,19 @@ export function BoardView() {
           session.cwd?.toLowerCase().includes(query)
         );
       })
-      .filter((session) => {
-        if (showClosed) return true;
-        const status = statusMap.get(
-          getResolvedTodoStateId(session.todoState, statusMap, fallbackTodoStateId)
-        );
-        return status ? status.category !== 'closed' : true;
-      })
+      
       .map((session) => ({
         ...session,
         latestSummary: getLatestActivitySummary(session),
+        providerLabel: getProviderLabel(session),
+        modelLabel: getShortModelLabel(session.model),
         runtimeLabel: getRuntimeLabel(session),
         executionLabel: getExecutionLabel(session),
         waitingPermission: session.permissionRequests.length > 0,
       })) satisfies BoardSession[];
 
     return list.sort(sortSessions);
-  }, [fallbackTodoStateId, knownTodoStates, pendingTodoOverrides, providerFilter, searchQuery, sessions, showClosed, statusMap]);
+  }, [fallbackTodoStateId, knownTodoStates, pendingTodoOverrides, providerFilter, searchQuery, sessions, statusMap]);
 
   useEffect(() => {
     setKnownTodoStates((current) => {
@@ -456,9 +509,7 @@ export function BoardView() {
       ) {
         excludedReasons.push('searchFilter');
       }
-      if (!showClosed && resolvedStatus?.category === 'closed') {
-        excludedReasons.push('closedHidden');
-      }
+      
 
       return {
         id: session.id,
@@ -490,7 +541,6 @@ export function BoardView() {
     providerFilter,
     searchQuery,
     sessions,
-    showClosed,
     statusMap,
   ]);
 
@@ -525,7 +575,7 @@ export function BoardView() {
     }
 
     return statusConfigs
-      .filter((status) => (showClosed ? true : status.category !== 'closed'))
+      
       .sort((left, right) => left.order - right.order)
       .map((status) => ({
         id: status.id,
@@ -535,7 +585,7 @@ export function BoardView() {
           (session) => getResolvedTodoStateId(session.todoState, statusMap, fallbackTodoStateId) === status.id
         ),
       }));
-  }, [boardSessions, fallbackTodoStateId, groupBy, showClosed, statusConfigs, statusMap]);
+  }, [boardSessions, fallbackTodoStateId, groupBy, statusConfigs, statusMap]);
 
   const openThread = (sessionId: string) => {
     setShowNewSession(false);
@@ -705,23 +755,18 @@ export function BoardView() {
                 <option value="opencode">OpenCode</option>
               </select>
 
-              <label className="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-                <input
-                  type="checkbox"
-                  checked={showClosed}
-                  onChange={(event) => setShowClosed(event.target.checked)}
-                  className="h-4 w-4 rounded border-[var(--border)]"
-                />
-                Show closed
-              </label>
+              
             </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-4 py-4">
-            <div className="flex h-full min-w-max gap-4">
+            <div className="flex h-full gap-3">
               {columns.map((column) => {
                 const runningCount = column.sessions.filter((session) => session.status === 'running').length;
                 const blockedCount = column.sessions.filter((session) => session.waitingPermission).length;
+                const statusColor = 'status' in column ? column.status?.color : undefined;
+                const accentClass = getColumnAccentColor(column.id, statusColor);
+                const accentStyle = getColumnAccentStyle(column.id, statusColor);
                 return (
                   <div
                     key={column.id}
@@ -753,39 +798,44 @@ export function BoardView() {
                           }
                         : undefined
                     }
-                    className={`flex h-full w-[320px] flex-shrink-0 flex-col rounded-[22px] border bg-[var(--bg-secondary)] transition-colors ${
+                    className={`flex h-full min-w-[260px] flex-1 flex-col overflow-hidden border bg-[var(--bg-secondary)] transition-colors ${
                       dragOverColumnId === column.id && groupBy === 'status'
                         ? 'border-[var(--accent)]/45 bg-[var(--accent-light)]/20'
                         : 'border-[var(--border)]'
                     }`}
                   >
-                    <div className="border-b border-[var(--border)] px-4 py-3">
+                    <div
+                      className={`h-[3px] flex-shrink-0 ${accentClass}`}
+                      style={accentStyle}
+                    />
+                    <div className="border-b border-[var(--border)] px-4 py-2.5">
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           {'status' in column && column.status ? <StatusIcon status={column.status} /> : null}
-                          <div className="text-sm font-semibold text-[var(--text-primary)]">{column.label}</div>
+                          <div className="text-[13px] font-semibold text-[var(--text-primary)]">{column.label}</div>
                         </div>
-                        <div className="text-xs text-[var(--text-muted)]">{column.sessions.length}</div>
+                        <span className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[11px] font-semibold ${getColumnBadgeClass(column.id)}`}>
+                          {column.sessions.length}
+                        </span>
                       </div>
-                      <div className="mt-1 text-xs text-[var(--text-muted)]">
-                        {runningCount} running · {blockedCount} waiting
-                      </div>
+                      {(runningCount > 0 || blockedCount > 0) ? (
+                        <div className="mt-1 text-[11px] text-[var(--text-muted)]">
+                          {runningCount > 0 ? `${runningCount} running` : ''}{runningCount > 0 && blockedCount > 0 ? ' · ' : ''}{blockedCount > 0 ? `${blockedCount} waiting` : ''}
+                        </div>
+                      ) : null}
                     </div>
 
-                    <div className="min-h-0 flex-1 overflow-y-auto p-3">
+                    <div className="min-h-0 flex-1 overflow-y-auto p-2">
                       {column.sessions.length === 0 ? (
-                        <div className="rounded-[16px] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-4 py-6 text-center text-sm text-[var(--text-muted)]">
-                          No runs in this column.
+                        <div className="flex items-center justify-center py-8 text-[12px] text-[var(--text-muted)]">
+                          <span className="border-b border-dashed border-[var(--border)]">No runs</span>
                         </div>
                       ) : (
-                        <div className="space-y-3">
+                        <div className="space-y-2">
                           {column.sessions.map((session) => (
                             <BoardCard
                               key={session.id}
                               session={session}
-                              statusConfig={statusMap.get(
-                                getResolvedTodoStateId(session.todoState, statusMap, fallbackTodoStateId)
-                              )}
                               selected={selectedSessionId === session.id}
                               onSelect={() => setSelectedSessionId(session.id)}
                               draggable={groupBy === 'status'}
@@ -806,157 +856,169 @@ export function BoardView() {
           </div>
         </div>
 
-        <aside className="flex w-[360px] flex-shrink-0 flex-col border-l border-[var(--border)] bg-[var(--bg-secondary)]">
-          <div className="border-b border-[var(--border)] px-5 py-4">
-            <div className="text-sm font-semibold text-[var(--text-primary)]">Run Details</div>
-            <div className="mt-1 text-sm text-[var(--text-secondary)]">
-              Inspect the selected run without leaving the board.
-            </div>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-            {!selectedSession ? (
-              <div className="rounded-[18px] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-5 py-8 text-center text-sm text-[var(--text-secondary)]">
-                Pick a run card to inspect its runtime, status, and recent activity.
+        {detailOpen ? (
+          <aside className="flex w-[340px] flex-shrink-0 flex-col border-l border-[var(--border)] bg-[var(--bg-secondary)]">
+            <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
+              <div>
+                <div className="text-[13px] font-semibold text-[var(--text-primary)]">Run Details</div>
+                <div className="mt-0.5 text-[12px] text-[var(--text-secondary)]">
+                  Inspect the selected run.
+                </div>
               </div>
-            ) : (
-              <div className="space-y-4">
-                <section className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] p-4">
-                  <div className="text-base font-semibold text-[var(--text-primary)]">{selectedSession.title}</div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
-                    {statusMap.get(
-                      getResolvedTodoStateId(selectedSession.todoState, statusMap, fallbackTodoStateId)
-                    ) ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-secondary)] px-2 py-0.5">
-                        <StatusIcon
-                          status={
-                            statusMap.get(
-                              getResolvedTodoStateId(selectedSession.todoState, statusMap, fallbackTodoStateId)
-                            )!
-                          }
-                        />
-                        {
-                          statusMap.get(
-                            getResolvedTodoStateId(selectedSession.todoState, statusMap, fallbackTodoStateId)
-                          )!.label
-                        }
+              <button
+                type="button"
+                onClick={() => setDetailOpen(false)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                title="Collapse panel"
+              >
+                <PanelRightClose className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+              {!selectedSession ? (
+                <div className="flex items-center justify-center py-8 text-[12px] text-[var(--text-muted)]">
+                  <span className="border-b border-dashed border-[var(--border)]">Select a run to inspect</span>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <section className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-3">
+                    <div className="text-[14px] font-semibold text-[var(--text-primary)]">{selectedSession.title}</div>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+                      {(() => {
+                        const resolvedId = getResolvedTodoStateId(selectedSession.todoState, statusMap, fallbackTodoStateId);
+                        const resolvedStatus = statusMap.get(resolvedId);
+                        return resolvedStatus ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-secondary)] px-2 py-0.5">
+                            <StatusIcon status={resolvedStatus} />
+                            {resolvedStatus.label}
+                          </span>
+                        ) : null;
+                      })()}
+                      <span className="rounded-full bg-[var(--accent-light)] px-1.5 py-0.5 text-[var(--text-secondary)]">
+                        {selectedSession.runtimeLabel}
                       </span>
-                    ) : null}
-                    <span className="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[var(--text-secondary)]">
-                      {selectedSession.runtimeLabel}
-                    </span>
-                    <span>{selectedSession.executionLabel}</span>
-                  </div>
+                      <span>{selectedSession.executionLabel}</span>
+                    </div>
 
-                  <div className="mt-4 space-y-2 text-sm text-[var(--text-secondary)]">
-                    <div className="flex items-center justify-between gap-3 rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2">
-                      <span className="text-sm text-[var(--text-secondary)]">Status</span>
-                      <select
-                        value={getResolvedTodoStateId(selectedSession.todoState, statusMap, fallbackTodoStateId)}
-                        onChange={(event) => requestTodoStateChange(selectedSession.id, event.target.value)}
-                        className="h-9 rounded-[10px] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none"
-                      >
-                        {statusConfigs
-                          .slice()
-                          .sort((left, right) => left.order - right.order)
-                          .map((status) => (
-                            <option key={status.id} value={status.id}>
-                              {status.label}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <FolderOpen className="h-4 w-4 text-[var(--text-muted)]" />
-                      <span className="truncate">{selectedSession.cwd || 'No project selected'}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Clock3 className="h-4 w-4 text-[var(--text-muted)]" />
-                      <span>Updated {formatRelativeTimestamp(selectedSession.updatedAt)}</span>
-                    </div>
-                    {selectedSession.waitingPermission ? (
-                      <div className="flex items-center gap-2 text-amber-600">
-                        <ShieldAlert className="h-4 w-4" />
-                        <span>Waiting for permission approval</span>
+                    <div className="mt-3 space-y-1.5 text-[13px] text-[var(--text-secondary)]">
+                      <div className="flex items-center justify-between gap-3 rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5">
+                        <span className="text-[12px] text-[var(--text-muted)]">Status</span>
+                        <select
+                          value={getResolvedTodoStateId(selectedSession.todoState, statusMap, fallbackTodoStateId)}
+                          onChange={(event) => requestTodoStateChange(selectedSession.id, event.target.value)}
+                          className="h-7 rounded-[8px] border border-[var(--border)] bg-[var(--bg-primary)] px-2 text-[12px] text-[var(--text-primary)] outline-none"
+                        >
+                          {statusConfigs
+                            .slice()
+                            .sort((left, right) => left.order - right.order)
+                            .map((status) => (
+                              <option key={status.id} value={status.id}>
+                                {status.label}
+                              </option>
+                            ))}
+                        </select>
                       </div>
-                    ) : null}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => openThread(selectedSession.id)}
-                    className="mt-4 inline-flex h-10 items-center gap-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
-                  >
-                    <ArrowUpRight className="h-4 w-4" />
-                    Open Thread
-                  </button>
-                </section>
-
-                <section className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] p-4">
-                  <div className="text-sm font-semibold text-[var(--text-primary)]">Latest Activity</div>
-                  <div className="mt-3 space-y-2">
-                    {getRecentActivityItems(selectedSession).map((item, index) => (
-                      <div
-                        key={`${selectedSession.id}-activity-${index}`}
-                        className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-secondary)]"
-                      >
-                        {item}
+                      <div className="flex items-center gap-2 px-1">
+                        <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+                        <span className="truncate text-[12px]">{selectedSession.cwd || 'No project selected'}</span>
                       </div>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] p-4">
-                  <div className="text-sm font-semibold text-[var(--text-primary)]">Run Snapshot</div>
-                  <div className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
-                    {selectedSession.latestSummary}
-                  </div>
-                  {!selectedSession.hydrated ? (
-                    <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-secondary)]">
-                      <PlayCircle className="h-3.5 w-3.5" />
-                      Loading session history…
+                      <div className="flex items-center gap-2 px-1">
+                        <Clock3 className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+                        <span className="text-[12px]">Updated {formatRelativeTimestamp(selectedSession.updatedAt)}</span>
+                      </div>
+                      {selectedSession.waitingPermission ? (
+                        <div className="flex items-center gap-2 px-1 text-amber-600">
+                          <ShieldAlert className="h-3.5 w-3.5" />
+                          <span className="text-[12px]">Waiting for permission</span>
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
-                </section>
 
-                <section className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] p-4">
-                  <div className="text-sm font-semibold text-[var(--text-primary)]">Reply to Run</div>
-                  <div className="mt-1 text-sm text-[var(--text-secondary)]">
-                    Send a follow-up without leaving the board.
-                  </div>
-                  <textarea
-                    value={replyPrompt}
-                    onChange={(event) => setReplyPrompt(event.target.value)}
-                    placeholder={
-                      selectedSession.readOnly
-                        ? 'This run is read-only'
-                        : selectedSession.status === 'running'
-                          ? 'This run is already in progress'
-                          : 'Reply to this run...'
-                    }
-                    disabled={selectedSession.readOnly || selectedSession.status === 'running'}
-                    className="mt-3 min-h-[108px] w-full resize-y rounded-[16px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm leading-6 text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
-                  />
-                  <div className="mt-3 flex justify-end">
                     <button
                       type="button"
-                      onClick={handleSendReply}
-                      disabled={
-                        selectedSession.readOnly ||
-                        selectedSession.status === 'running' ||
-                        !replyPrompt.trim()
-                      }
-                      className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={() => openThread(selectedSession.id)}
+                      className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
                     >
-                      <Send className="h-4 w-4" />
-                      Send
+                      <ArrowUpRight className="h-3.5 w-3.5" />
+                      Open Thread
                     </button>
-                  </div>
-                </section>
-              </div>
-            )}
+                  </section>
+
+                  <section className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-3">
+                    <div className="text-[12px] font-semibold text-[var(--text-primary)]">Latest Activity</div>
+                    <div className="mt-2 space-y-1.5">
+                      {getRecentActivityItems(selectedSession).map((item, index) => (
+                        <div
+                          key={`${selectedSession.id}-activity-${index}`}
+                          className="rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5 text-[12px] leading-[18px] text-[var(--text-secondary)]"
+                        >
+                          {item}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-3">
+                    <div className="text-[12px] font-semibold text-[var(--text-primary)]">Run Snapshot</div>
+                    <div className="mt-2 text-[12px] leading-[18px] text-[var(--text-secondary)]">
+                      {selectedSession.latestSummary}
+                    </div>
+                    {!selectedSession.hydrated ? (
+                      <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]">
+                        <PlayCircle className="h-3 w-3" />
+                        Loading history…
+                      </div>
+                    ) : null}
+                  </section>
+
+                  <section className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-3">
+                    <div className="text-[12px] font-semibold text-[var(--text-primary)]">Reply to Run</div>
+                    <textarea
+                      value={replyPrompt}
+                      onChange={(event) => setReplyPrompt(event.target.value)}
+                      placeholder={
+                        selectedSession.readOnly
+                          ? 'This run is read-only'
+                          : selectedSession.status === 'running'
+                            ? 'Run in progress'
+                            : 'Reply to this run...'
+                      }
+                      disabled={selectedSession.readOnly || selectedSession.status === 'running'}
+                      className="mt-2 min-h-[80px] w-full resize-y rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-[12px] leading-[18px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
+                    />
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={handleSendReply}
+                        disabled={
+                          selectedSession.readOnly ||
+                          selectedSession.status === 'running' ||
+                          !replyPrompt.trim()
+                        }
+                        className="inline-flex h-8 items-center gap-1.5 rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <Send className="h-3.5 w-3.5" />
+                        Send
+                      </button>
+                    </div>
+                  </section>
+                </div>
+              )}
+            </div>
+          </aside>
+        ) : (
+          <div className="flex flex-shrink-0 flex-col items-center border-l border-[var(--border)] bg-[var(--bg-secondary)] px-1.5 py-3">
+            <button
+              type="button"
+              onClick={() => setDetailOpen(true)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+              title="Expand panel"
+            >
+              <PanelRightOpen className="h-4 w-4" />
+            </button>
           </div>
-        </aside>
+        )}
       </div>
 
       {newRunOpen && (
