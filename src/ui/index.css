@@ -235,6 +235,17 @@ body {
   background: var(--text-muted);
 }
 
+/* Board column thin scrollbar */
+.board-column-scroll {
+  scrollbar-width: thin;
+}
+.board-column-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.board-column-scroll::-webkit-scrollbar-thumb {
+  border-radius: 2px;
+}
+
 /* Markdown 内容样式 */
 .markdown-content {
   line-height: 1.6;

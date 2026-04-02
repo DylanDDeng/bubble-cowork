@@ -238,6 +238,21 @@ function getColumnAccentStyle(columnId: string, statusColor?: string): React.CSS
   return undefined;
 }
 
+const EXECUTION_STATUS_COLORS: Record<string, string> = {
+  running: 'bg-blue-400',
+  error: 'bg-red-400',
+  completed: 'bg-green-400',
+  idle: 'bg-gray-300 dark:bg-gray-600',
+};
+
+const EXECUTION_LABEL_COLORS: Record<string, string> = {
+  Running: 'text-blue-600 dark:text-blue-400',
+  Waiting: 'text-amber-600 dark:text-amber-400',
+  Error: 'text-red-600 dark:text-red-400',
+  Completed: 'text-green-600 dark:text-green-400',
+  Idle: 'text-[var(--text-muted)]',
+};
+
 function BoardCard({
   session,
   selected,
@@ -261,6 +276,8 @@ function BoardCard({
   };
 
   const hasActivity = session.latestSummary !== 'No activity yet';
+  const statusBarColor = EXECUTION_STATUS_COLORS[session.status] || EXECUTION_STATUS_COLORS.idle;
+  const executionLabelColor = EXECUTION_LABEL_COLORS[session.executionLabel] || 'text-[var(--text-muted)]';
 
   return (
     <div
@@ -271,50 +288,53 @@ function BoardCard({
       onKeyDown={handleKeyDown}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className={`w-full rounded-[14px] border px-3 py-2.5 text-left transition-colors ${
+      className={`flex w-full overflow-hidden rounded-[10px] border text-left outline-none transition-all ${
         selected
-          ? 'border-[var(--accent)]/35 bg-[var(--accent-light)]/35'
-          : 'border-[var(--border)] bg-[var(--bg-primary)] hover:border-[var(--accent)]/20 hover:bg-[var(--bg-secondary)]'
+          ? 'border-blue-400 bg-blue-50/40 shadow-[0_0_0_1px_rgba(96,165,250,0.5)] dark:border-blue-500 dark:bg-blue-950/30 dark:shadow-[0_0_0_1px_rgba(59,130,246,0.35)]'
+          : 'border-[var(--border)] bg-[var(--bg-primary)] hover:border-blue-300/50 hover:bg-[var(--bg-secondary)] focus-visible:border-blue-400/50 dark:hover:border-blue-500/30 dark:focus-visible:border-blue-500/40'
       } ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] font-semibold text-[var(--text-primary)]">
-            {session.title}
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-[var(--text-muted)]">
-            <span className="rounded-full border border-[var(--border)] px-1.5 py-[1px] text-[var(--text-secondary)]">
-              {session.providerLabel}
-            </span>
-            {session.modelLabel ? (
-              <span className="truncate max-w-[120px] text-[var(--text-muted)]">
-                {session.modelLabel}
+      <div className={`w-[3px] flex-shrink-0 ${statusBarColor}`} />
+      <div className="min-w-0 flex-1 px-2.5 py-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[13px] font-semibold text-[var(--text-primary)]">
+              {session.title}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-[var(--text-muted)]">
+              <span className="rounded-full border border-[var(--border)] px-1.5 py-[1px] text-[var(--text-secondary)]">
+                {session.providerLabel}
               </span>
-            ) : null}
-            <span className="text-[var(--text-muted)]">·</span>
-            <span>{session.executionLabel}</span>
+              {session.modelLabel ? (
+                <span className="max-w-[120px] truncate text-[var(--text-muted)]">
+                  {session.modelLabel}
+                </span>
+              ) : null}
+              <span className="text-[var(--text-muted)]">·</span>
+              <span className={`font-medium ${executionLabelColor}`}>{session.executionLabel}</span>
+            </div>
           </div>
+          <span className="flex-shrink-0 text-[10px] text-[var(--text-muted)]">{formatRelativeTimestamp(session.updatedAt)}</span>
         </div>
-        <span className="flex-shrink-0 text-[11px] text-[var(--text-muted)]">{formatRelativeTimestamp(session.updatedAt)}</span>
+
+        <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+          <FolderOpen className="h-3 w-3 flex-shrink-0" />
+          <span className="truncate">{getProjectLabel(session.cwd)}</span>
+        </div>
+
+        {hasActivity ? (
+          <div className="mt-1.5 line-clamp-2 text-[12px] leading-[18px] text-[var(--text-secondary)]">
+            {session.latestSummary}
+          </div>
+        ) : null}
+
+        {session.waitingPermission ? (
+          <div className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-primary)]">
+            <ShieldAlert className="h-3 w-3 text-amber-500" />
+            Waiting for permission
+          </div>
+        ) : null}
       </div>
-
-      <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
-        <FolderOpen className="h-3 w-3 flex-shrink-0" />
-        <span className="truncate">{getProjectLabel(session.cwd)}</span>
-      </div>
-
-      {hasActivity ? (
-        <div className="mt-1.5 line-clamp-2 text-[12px] leading-[18px] text-[var(--text-secondary)]">
-          {session.latestSummary}
-        </div>
-      ) : null}
-
-      {session.waitingPermission ? (
-        <div className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-primary)]">
-          <ShieldAlert className="h-3 w-3 text-amber-500" />
-          Waiting for permission
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -697,65 +717,58 @@ export function BoardView() {
 
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="border-b border-[var(--border)] px-6 py-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2 text-[15px] font-semibold text-[var(--text-primary)]">
-                  <KanbanSquare className="h-4.5 w-4.5 text-[var(--text-secondary)]" />
-                  Board
-                </div>
-                <div className="mt-1 text-sm text-[var(--text-secondary)]">
-                  Track active runs by workflow status or runtime.
-                </div>
-              </div>
+          <div className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] px-4 py-2.5">
+            <div className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--text-primary)]">
+              <KanbanSquare className="h-4 w-4 text-[var(--text-secondary)]" />
+              Board
+            </div>
 
+            <div className="h-4 w-px bg-[var(--border)]" />
+
+            <div className="inline-flex rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] p-0.5">
+              {(['status', 'runtime'] as BoardGrouping[]).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setGroupBy(mode)}
+                  className={`rounded-[8px] px-2.5 py-1 text-[12px] transition-colors ${
+                    groupBy === mode
+                      ? 'bg-[var(--accent-light)] font-medium text-[var(--text-primary)]'
+                      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
+                  }`}
+                >
+                  {mode === 'status' ? 'Status' : 'Runtime'}
+                </button>
+              ))}
+            </div>
+
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Filter..."
+              className="h-8 w-[160px] rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 text-[12px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+            />
+
+            <select
+              value={providerFilter}
+              onChange={(event) => setProviderFilter(event.target.value as typeof providerFilter)}
+              className="h-8 rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] px-2 text-[12px] text-[var(--text-primary)] outline-none"
+            >
+              <option value="all">All runtimes</option>
+              <option value="claude">Claude</option>
+              <option value="codex">Codex</option>
+              <option value="opencode">OpenCode</option>
+            </select>
+
+            <div className="ml-auto">
               <button
                 type="button"
                 onClick={() => setNewRunOpen(true)}
-                className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                className="inline-flex h-8 items-center gap-1.5 rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-3.5 w-3.5" />
                 New Run
               </button>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <div className="inline-flex rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] p-1">
-                {(['status', 'runtime'] as BoardGrouping[]).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setGroupBy(mode)}
-                    className={`rounded-[10px] px-3 py-1.5 text-sm transition-colors ${
-                      groupBy === mode
-                        ? 'bg-[var(--accent-light)] text-[var(--text-primary)]'
-                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
-                    }`}
-                  >
-                    {mode === 'status' ? 'By Status' : 'By Runtime'}
-                  </button>
-                ))}
-              </div>
-
-              <input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Filter by title or project..."
-                className="h-10 min-w-[240px] rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-sm text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
-              />
-
-              <select
-                value={providerFilter}
-                onChange={(event) => setProviderFilter(event.target.value as typeof providerFilter)}
-                className="h-10 rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-sm text-[var(--text-primary)] outline-none"
-              >
-                <option value="all">All runtimes</option>
-                <option value="claude">Claude</option>
-                <option value="codex">Codex</option>
-                <option value="opencode">OpenCode</option>
-              </select>
-
-              
             </div>
           </div>
 
@@ -825,7 +838,7 @@ export function BoardView() {
                       ) : null}
                     </div>
 
-                    <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                    <div className="board-column-scroll min-h-0 flex-1 overflow-y-auto p-2">
                       {column.sessions.length === 0 ? (
                         <div className="flex items-center justify-center py-8 text-[12px] text-[var(--text-muted)]">
                           <span className="border-b border-dashed border-[var(--border)]">No runs</span>
