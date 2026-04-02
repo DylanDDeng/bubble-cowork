@@ -4,10 +4,14 @@ import {
   Clock3,
   FolderOpen,
   KanbanSquare,
+  Plus,
   PlayCircle,
+  Send,
   ShieldAlert,
   Sparkles,
+  X,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { StatusIcon } from './StatusIcon';
@@ -163,16 +167,19 @@ function getRuntimeColumnId(session: SessionView): RuntimeColumnId {
   return 'other';
 }
 
-function sortSessions(left: BoardSession, right: BoardSession): number {
-  const leftRank =
-    left.status === 'running' ? 0 : left.waitingPermission ? 1 : left.status === 'error' ? 2 : 3;
-  const rightRank =
-    right.status === 'running' ? 0 : right.waitingPermission ? 1 : right.status === 'error' ? 2 : 3;
-
-  if (leftRank !== rightRank) {
-    return leftRank - rightRank;
+function getResolvedTodoStateId(
+  todoState: string | null | undefined,
+  statusMap: Map<string, StatusConfig>,
+  fallbackTodoStateId: string
+): string {
+  if (todoState && statusMap.has(todoState)) {
+    return todoState;
   }
 
+  return fallbackTodoStateId;
+}
+
+function sortSessions(left: BoardSession, right: BoardSession): number {
   return right.updatedAt - left.updatedAt;
 }
 
@@ -259,8 +266,11 @@ export function BoardView() {
   const {
     sessions,
     statusConfigs,
+    pendingStart,
+    projectCwd,
     setActiveSession,
     setActiveWorkspace,
+    setPendingStart,
     setShowNewSession,
   } = useAppStore();
   const [groupBy, setGroupBy] = useState<BoardGrouping>('status');
@@ -269,20 +279,46 @@ export function BoardView() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [pendingTodoOverrides, setPendingTodoOverrides] = useState<Record<string, string>>({});
+  const [knownTodoStates, setKnownTodoStates] = useState<Record<string, string>>({});
   const [draggingSessionId, setDraggingSessionId] = useState<string | null>(null);
   const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
+  const [replyPrompt, setReplyPrompt] = useState('');
+  const [newRunOpen, setNewRunOpen] = useState(false);
+  const [newRunPrompt, setNewRunPrompt] = useState('');
+  const [newRunProvider, setNewRunProvider] = useState<'claude' | 'codex' | 'opencode'>('claude');
+  const [newRunCwd, setNewRunCwd] = useState('');
 
   const statusMap = useMemo(
     () => new Map(statusConfigs.map((status) => [status.id, status])),
     [statusConfigs]
   );
+  const fallbackTodoStateId = useMemo(() => {
+    if (statusMap.has('todo')) {
+      return 'todo';
+    }
+
+    const firstOpen = statusConfigs
+      .slice()
+      .sort((left, right) => left.order - right.order)
+      .find((status) => status.category === 'open');
+
+    return firstOpen?.id || statusConfigs[0]?.id || 'todo';
+  }, [statusConfigs, statusMap]);
 
   const boardSessions = useMemo(() => {
     const list = Object.values(sessions)
       .filter((session) => !session.hiddenFromThreads && session.source !== 'claude_code')
       .map((session) => {
         const pendingTodoState = pendingTodoOverrides[session.id];
-        return pendingTodoState ? { ...session, todoState: pendingTodoState } : session;
+        const knownTodoState = knownTodoStates[session.id];
+        const resolvedTodoState = getResolvedTodoStateId(
+          pendingTodoState ?? session.todoState ?? knownTodoState,
+          statusMap,
+          fallbackTodoStateId
+        );
+        return resolvedTodoState !== session.todoState
+          ? { ...session, todoState: resolvedTodoState }
+          : session;
       })
       .filter((session) => (providerFilter === 'all' ? true : session.provider === providerFilter))
       .filter((session) => {
@@ -295,7 +331,9 @@ export function BoardView() {
       })
       .filter((session) => {
         if (showClosed) return true;
-        const status = statusMap.get(session.todoState || 'todo');
+        const status = statusMap.get(
+          getResolvedTodoStateId(session.todoState, statusMap, fallbackTodoStateId)
+        );
         return status ? status.category !== 'closed' : true;
       })
       .map((session) => ({
@@ -307,14 +345,48 @@ export function BoardView() {
       })) satisfies BoardSession[];
 
     return list.sort(sortSessions);
-  }, [pendingTodoOverrides, providerFilter, searchQuery, sessions, showClosed, statusMap]);
+  }, [fallbackTodoStateId, knownTodoStates, pendingTodoOverrides, providerFilter, searchQuery, sessions, showClosed, statusMap]);
+
+  useEffect(() => {
+    setKnownTodoStates((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      for (const session of Object.values(sessions)) {
+        if (session.hiddenFromThreads || session.source === 'claude_code') {
+          continue;
+        }
+
+        if (session.todoState && statusMap.has(session.todoState) && next[session.id] !== session.todoState) {
+          next[session.id] = session.todoState;
+          changed = true;
+        } else if (!next[session.id]) {
+          next[session.id] = fallbackTodoStateId;
+          changed = true;
+        }
+      }
+
+      for (const sessionId of Object.keys(next)) {
+        if (!sessions[sessionId]) {
+          delete next[sessionId];
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [fallbackTodoStateId, sessions, statusMap]);
 
   useEffect(() => {
     setPendingTodoOverrides((current) => {
       let changed = false;
       const next = { ...current };
       for (const [sessionId, todoState] of Object.entries(current)) {
-        const actual = sessions[sessionId]?.todoState || 'todo';
+        const actual = getResolvedTodoStateId(
+          sessions[sessionId]?.todoState,
+          statusMap,
+          fallbackTodoStateId
+        );
         if (actual === todoState) {
           delete next[sessionId];
           changed = true;
@@ -322,7 +394,7 @@ export function BoardView() {
       }
       return changed ? next : current;
     });
-  }, [sessions]);
+  }, [fallbackTodoStateId, sessions, statusMap]);
 
   useEffect(() => {
     if (!selectedSessionId || !boardSessions.some((session) => session.id === selectedSessionId)) {
@@ -335,6 +407,19 @@ export function BoardView() {
     [boardSessions, selectedSessionId]
   );
 
+  const projectOptions = useMemo(() => {
+    const unique = new Set<string>();
+    if (projectCwd?.trim()) {
+      unique.add(projectCwd.trim());
+    }
+    for (const session of Object.values(sessions)) {
+      if (session.cwd?.trim()) {
+        unique.add(session.cwd.trim());
+      }
+    }
+    return Array.from(unique.values()).sort((left, right) => left.localeCompare(right));
+  }, [projectCwd, sessions]);
+
   useEffect(() => {
     if (!selectedSession || selectedSession.hydrated) {
       return;
@@ -345,6 +430,83 @@ export function BoardView() {
       payload: { sessionId: selectedSession.id },
     });
   }, [selectedSession]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !import.meta.env.DEV) {
+      return;
+    }
+
+    const allSessions = Object.values(sessions).map((session) => {
+      const resolvedTodoState = getResolvedTodoStateId(
+        pendingTodoOverrides[session.id] ?? session.todoState ?? knownTodoStates[session.id],
+        statusMap,
+        fallbackTodoStateId
+      );
+      const resolvedStatus = statusMap.get(resolvedTodoState);
+      const query = searchQuery.trim().toLowerCase();
+      const excludedReasons: string[] = [];
+
+      if (session.hiddenFromThreads) excludedReasons.push('hiddenFromThreads');
+      if (session.source === 'claude_code') excludedReasons.push('externalClaude');
+      if (providerFilter !== 'all' && session.provider !== providerFilter) excludedReasons.push('providerFilter');
+      if (
+        query &&
+        !session.title.toLowerCase().includes(query) &&
+        !session.cwd?.toLowerCase().includes(query)
+      ) {
+        excludedReasons.push('searchFilter');
+      }
+      if (!showClosed && resolvedStatus?.category === 'closed') {
+        excludedReasons.push('closedHidden');
+      }
+
+      return {
+        id: session.id,
+        title: session.title,
+        status: session.status,
+        todoState: session.todoState ?? null,
+        knownTodoState: knownTodoStates[session.id] ?? null,
+        pendingTodoState: pendingTodoOverrides[session.id] ?? null,
+        resolvedTodoState,
+        resolvedCategory: resolvedStatus?.category ?? null,
+        hiddenFromThreads: session.hiddenFromThreads === true,
+        source: session.source ?? null,
+        provider: session.provider ?? null,
+        included: excludedReasons.length === 0,
+        excludedReasons: excludedReasons.join(', ') || null,
+      };
+    });
+
+    console.groupCollapsed(
+      `[BoardView] ${groupBy} view · ${allSessions.filter((item) => item.included).length} visible / ${allSessions.length} total`
+    );
+    console.table(allSessions);
+    console.groupEnd();
+  }, [
+    fallbackTodoStateId,
+    groupBy,
+    knownTodoStates,
+    pendingTodoOverrides,
+    providerFilter,
+    searchQuery,
+    sessions,
+    showClosed,
+    statusMap,
+  ]);
+
+  useEffect(() => {
+    setReplyPrompt('');
+  }, [selectedSessionId]);
+
+  useEffect(() => {
+    if (!newRunOpen) {
+      return;
+    }
+
+    if (!newRunCwd && projectOptions.length > 0) {
+      setNewRunCwd(projectOptions[0]);
+    }
+  }, [newRunCwd, newRunOpen, projectOptions]);
 
   const columns = useMemo(() => {
     if (groupBy === 'runtime') {
@@ -369,9 +531,11 @@ export function BoardView() {
         id: status.id,
         label: status.label,
         status,
-        sessions: boardSessions.filter((session) => (session.todoState || 'todo') === status.id),
+        sessions: boardSessions.filter(
+          (session) => getResolvedTodoStateId(session.todoState, statusMap, fallbackTodoStateId) === status.id
+        ),
       }));
-  }, [boardSessions, groupBy, showClosed, statusConfigs]);
+  }, [boardSessions, fallbackTodoStateId, groupBy, showClosed, statusConfigs, statusMap]);
 
   const openThread = (sessionId: string) => {
     setShowNewSession(false);
@@ -381,7 +545,12 @@ export function BoardView() {
 
   const requestTodoStateChange = (sessionId: string, todoState: string) => {
     const currentSession = sessions[sessionId];
-    if (!currentSession || (currentSession.todoState || 'todo') === todoState) {
+    const currentTodoState = getResolvedTodoStateId(
+      currentSession?.todoState,
+      statusMap,
+      fallbackTodoStateId
+    );
+    if (!currentSession || currentTodoState === todoState) {
       return;
     }
 
@@ -389,7 +558,87 @@ export function BoardView() {
       ...state,
       [sessionId]: todoState,
     }));
+    setKnownTodoStates((state) => ({
+      ...state,
+      [sessionId]: todoState,
+    }));
     sendEvent({ type: 'session.setTodoState', payload: { sessionId, todoState } });
+  };
+
+  const handleSendReply = () => {
+    if (!selectedSession) {
+      return;
+    }
+
+    if (selectedSession.readOnly) {
+      toast.error('This run is read-only.');
+      return;
+    }
+
+    if (selectedSession.status === 'running') {
+      toast.error('This run is already in progress.');
+      return;
+    }
+
+    const prompt = replyPrompt.trim();
+    if (!prompt) {
+      return;
+    }
+
+    sendEvent({
+      type: 'session.continue',
+      payload: {
+        sessionId: selectedSession.id,
+        prompt,
+        provider: selectedSession.provider,
+        model: selectedSession.model,
+        compatibleProviderId: selectedSession.compatibleProviderId,
+        betas: selectedSession.betas,
+        claudeAccessMode:
+          selectedSession.provider === 'claude' ? selectedSession.claudeAccessMode : undefined,
+        codexPermissionMode:
+          selectedSession.provider === 'codex' ? selectedSession.codexPermissionMode : undefined,
+        codexReasoningEffort:
+          selectedSession.provider === 'codex' ? selectedSession.codexReasoningEffort : undefined,
+        codexFastMode:
+          selectedSession.provider === 'codex' ? selectedSession.codexFastMode : undefined,
+        opencodePermissionMode:
+          selectedSession.provider === 'opencode' ? selectedSession.opencodePermissionMode : undefined,
+      },
+    });
+    setReplyPrompt('');
+  };
+
+  const handleStartNewRun = () => {
+    const prompt = newRunPrompt.trim();
+    const cwd = newRunCwd.trim();
+
+    if (!prompt) {
+      toast.error('Enter a prompt to start a new run.');
+      return;
+    }
+
+    if (!cwd) {
+      toast.error('Select a project folder before starting a run.');
+      return;
+    }
+
+    setPendingStart(true);
+    const title = prompt.slice(0, 30) + (prompt.length > 30 ? '...' : '');
+
+    sendEvent({
+      type: 'session.start',
+      payload: {
+        title,
+        prompt,
+        cwd,
+        todoState: 'todo',
+        provider: newRunProvider,
+      },
+    });
+
+    setNewRunPrompt('');
+    setNewRunOpen(false);
   };
 
   return (
@@ -412,15 +661,11 @@ export function BoardView() {
 
               <button
                 type="button"
-                onClick={() => {
-                  setActiveWorkspace('chat');
-                  setActiveSession(null);
-                  setShowNewSession(true);
-                }}
+                onClick={() => setNewRunOpen(true)}
                 className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
               >
-                <Sparkles className="h-4 w-4" />
-                New Thread
+                <Plus className="h-4 w-4" />
+                New Run
               </button>
             </div>
 
@@ -538,7 +783,9 @@ export function BoardView() {
                             <BoardCard
                               key={session.id}
                               session={session}
-                              statusConfig={statusMap.get(session.todoState || 'todo')}
+                              statusConfig={statusMap.get(
+                                getResolvedTodoStateId(session.todoState, statusMap, fallbackTodoStateId)
+                              )}
                               selected={selectedSessionId === session.id}
                               onSelect={() => setSelectedSessionId(session.id)}
                               draggable={groupBy === 'status'}
@@ -577,10 +824,22 @@ export function BoardView() {
                 <section className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] p-4">
                   <div className="text-base font-semibold text-[var(--text-primary)]">{selectedSession.title}</div>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
-                    {statusMap.get(selectedSession.todoState || 'todo') ? (
+                    {statusMap.get(
+                      getResolvedTodoStateId(selectedSession.todoState, statusMap, fallbackTodoStateId)
+                    ) ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-secondary)] px-2 py-0.5">
-                        <StatusIcon status={statusMap.get(selectedSession.todoState || 'todo')!} />
-                        {statusMap.get(selectedSession.todoState || 'todo')!.label}
+                        <StatusIcon
+                          status={
+                            statusMap.get(
+                              getResolvedTodoStateId(selectedSession.todoState, statusMap, fallbackTodoStateId)
+                            )!
+                          }
+                        />
+                        {
+                          statusMap.get(
+                            getResolvedTodoStateId(selectedSession.todoState, statusMap, fallbackTodoStateId)
+                          )!.label
+                        }
                       </span>
                     ) : null}
                     <span className="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[var(--text-secondary)]">
@@ -593,7 +852,7 @@ export function BoardView() {
                     <div className="flex items-center justify-between gap-3 rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2">
                       <span className="text-sm text-[var(--text-secondary)]">Status</span>
                       <select
-                        value={selectedSession.todoState || 'todo'}
+                        value={getResolvedTodoStateId(selectedSession.todoState, statusMap, fallbackTodoStateId)}
                         onChange={(event) => requestTodoStateChange(selectedSession.id, event.target.value)}
                         className="h-9 rounded-[10px] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none"
                       >
@@ -659,11 +918,130 @@ export function BoardView() {
                     </div>
                   ) : null}
                 </section>
+
+                <section className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] p-4">
+                  <div className="text-sm font-semibold text-[var(--text-primary)]">Reply to Run</div>
+                  <div className="mt-1 text-sm text-[var(--text-secondary)]">
+                    Send a follow-up without leaving the board.
+                  </div>
+                  <textarea
+                    value={replyPrompt}
+                    onChange={(event) => setReplyPrompt(event.target.value)}
+                    placeholder={
+                      selectedSession.readOnly
+                        ? 'This run is read-only'
+                        : selectedSession.status === 'running'
+                          ? 'This run is already in progress'
+                          : 'Reply to this run...'
+                    }
+                    disabled={selectedSession.readOnly || selectedSession.status === 'running'}
+                    className="mt-3 min-h-[108px] w-full resize-y rounded-[16px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm leading-6 text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
+                  />
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleSendReply}
+                      disabled={
+                        selectedSession.readOnly ||
+                        selectedSession.status === 'running' ||
+                        !replyPrompt.trim()
+                      }
+                      className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Send className="h-4 w-4" />
+                      Send
+                    </button>
+                  </div>
+                </section>
               </div>
             )}
           </div>
         </aside>
       </div>
+
+      {newRunOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/18 px-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-2xl rounded-[24px] border border-[var(--border)] bg-[var(--bg-secondary)] shadow-2xl">
+            <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
+              <div>
+                <div className="text-base font-semibold text-[var(--text-primary)]">New Run</div>
+                <div className="mt-1 text-sm text-[var(--text-secondary)]">
+                  Start a new session directly from the board.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNewRunOpen(false)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-[12px] border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 py-5">
+              <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
+                <label className="block">
+                  <div className="mb-2 text-sm font-medium text-[var(--text-primary)]">Project</div>
+                  <input
+                    list="board-project-options"
+                    value={newRunCwd}
+                    onChange={(event) => setNewRunCwd(event.target.value)}
+                    placeholder="Select or paste a project path"
+                    className="h-11 w-full rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+                  />
+                  <datalist id="board-project-options">
+                    {projectOptions.map((option) => (
+                      <option key={option} value={option} />
+                    ))}
+                  </datalist>
+                </label>
+
+                <label className="block">
+                  <div className="mb-2 text-sm font-medium text-[var(--text-primary)]">Runtime</div>
+                  <select
+                    value={newRunProvider}
+                    onChange={(event) => setNewRunProvider(event.target.value as typeof newRunProvider)}
+                    className="h-11 w-full rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none"
+                  >
+                    <option value="claude">Claude</option>
+                    <option value="codex">Codex</option>
+                    <option value="opencode">OpenCode</option>
+                  </select>
+                </label>
+              </div>
+
+              <label className="block">
+                <div className="mb-2 text-sm font-medium text-[var(--text-primary)]">Prompt</div>
+                <textarea
+                  value={newRunPrompt}
+                  onChange={(event) => setNewRunPrompt(event.target.value)}
+                  placeholder="Describe the task you want this run to handle..."
+                  className="min-h-[160px] w-full resize-y rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3 text-sm leading-6 text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+                />
+              </label>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-[var(--border)] px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setNewRunOpen(false)}
+                className="inline-flex h-10 items-center rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleStartNewRun}
+                disabled={pendingStart || !newRunPrompt.trim() || !newRunCwd.trim()}
+                className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Sparkles className="h-4 w-4" />
+                {pendingStart ? 'Starting…' : 'Start Run'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -756,6 +756,7 @@ function handleSessionStatus(
     codexReasoningEffort?: SessionInfo['codexReasoningEffort'];
     codexFastMode?: SessionInfo['codexFastMode'];
     opencodePermissionMode?: SessionInfo['opencodePermissionMode'];
+    todoState?: SessionInfo['todoState'];
     hiddenFromThreads?: boolean;
   },
   set: SetState,
@@ -775,6 +776,7 @@ function handleSessionStatus(
     codexReasoningEffort,
     codexFastMode,
     opencodePermissionMode,
+    todoState,
     hiddenFromThreads,
   } = payload;
   const state = get();
@@ -822,6 +824,7 @@ function handleSessionStatus(
             opencodePermissionMode !== undefined
               ? opencodePermissionMode
               : session.opencodePermissionMode,
+          todoState: todoState !== undefined ? todoState : session.todoState,
           hiddenFromThreads:
             hiddenFromThreads !== undefined ? hiddenFromThreads : session.hiddenFromThreads,
           latestClaudeModelUsage: session.latestClaudeModelUsage,
@@ -852,6 +855,7 @@ function handleSessionStatus(
       codexReasoningEffort,
       codexFastMode,
       opencodePermissionMode,
+      todoState: todoState || 'todo',
       hiddenFromThreads: hiddenFromThreads === true,
       latestClaudeModelUsage: undefined,
       messages: [],

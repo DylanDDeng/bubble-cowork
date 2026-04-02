@@ -3182,6 +3182,7 @@ async function handleSessionStart(
     prompt,
     effectivePrompt,
     cwd,
+    todoState,
     allowedTools,
     attachments,
     provider,
@@ -3244,6 +3245,7 @@ async function handleSessionStart(
   const session = sessions.createSession({
     title,
     cwd,
+    todoState,
     allowedTools,
     prompt,
     provider: chosenProvider,
@@ -3269,6 +3271,7 @@ async function handleSessionStart(
     payload: {
       sessionId: session.id,
       status: 'running',
+      todoState: session.todo_state || 'todo',
       title: session.title,
       cwd: session.cwd || undefined,
       provider: chosenProvider,
@@ -3822,6 +3825,7 @@ function startRunner(
           payload: {
             sessionId: session.id,
             status,
+            todoState: sessions.getSession(session.id)?.todo_state || 'todo',
             provider,
             model: sessions.getSession(session.id)?.model || modelOverride || undefined,
             compatibleProviderId:
@@ -3874,6 +3878,7 @@ function startRunner(
         payload: {
           sessionId: session.id,
           status: 'error',
+          todoState: sessions.getSession(session.id)?.todo_state || 'todo',
           hiddenFromThreads: session.hidden_from_threads === 1,
         },
       });

@@ -712,6 +712,7 @@ function getDb(): Database.Database {
 export function createSession(params: {
   title: string;
   cwd?: string;
+  todoState?: string;
   allowedTools?: string;
   prompt?: string;
   provider?: 'claude' | 'codex' | 'opencode';
@@ -729,8 +730,8 @@ export function createSession(params: {
   const id = uuidv4();
 
   const stmt = getDb().prepare(`
-    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, codex_permission_mode, codex_reasoning_effort, codex_fast_mode, opencode_permission_mode, cwd, allowed_tools, last_prompt, session_origin, external_file_path, external_file_mtime, hidden_from_threads, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aegis', NULL, NULL, ?, 'idle', ?, ?)
+    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, codex_permission_mode, codex_reasoning_effort, codex_fast_mode, opencode_permission_mode, cwd, allowed_tools, last_prompt, todo_state, session_origin, external_file_path, external_file_mtime, hidden_from_threads, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aegis', NULL, NULL, ?, 'idle', ?, ?)
   `);
 
   stmt.run(
@@ -748,6 +749,7 @@ export function createSession(params: {
     params.cwd || null,
     params.allowedTools || null,
     params.prompt || null,
+    params.todoState || 'todo',
     params.hiddenFromThreads ? 1 : 0,
     now,
     now

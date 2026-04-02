@@ -385,6 +385,7 @@ export interface SessionStartPayload {
   prompt: string;
   effectivePrompt?: string;
   cwd?: string;
+  todoState?: TodoState;
   allowedTools?: string;
   attachments?: Attachment[];
   provider?: AgentProvider;
@@ -446,6 +447,7 @@ export type SessionStatus = 'idle' | 'running' | 'completed' | 'error';
 export interface SessionStatusPayload {
   sessionId: string;
   status: SessionStatus;
+  todoState?: TodoState;
   source?: SessionSource;
   readOnly?: boolean;
   title?: string;

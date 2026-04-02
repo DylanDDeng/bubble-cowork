@@ -436,6 +436,7 @@ export function NewSessionView() {
         prompt: displayPrompt,
         effectivePrompt: normalizedPrompt,
         cwd: cwd || undefined,
+        todoState: 'todo',
         attachments: attachments.length > 0 ? attachments : undefined,
         provider,
         model:
