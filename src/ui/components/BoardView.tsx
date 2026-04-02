@@ -145,22 +145,56 @@ function getProjectLabel(cwd?: string): string {
   return parts[parts.length - 1] || cwd;
 }
 
-function getRecentActivityItems(session: SessionView): string[] {
-  const items: string[] = [];
+type ActivityItem = {
+  kind: 'prompt' | 'assistant' | 'result' | 'system';
+  lines: string[];
+};
+
+const ACTIVITY_DOT_COLORS: Record<ActivityItem['kind'], string> = {
+  prompt: 'bg-blue-400 dark:bg-blue-500',
+  assistant: 'bg-purple-400 dark:bg-purple-500',
+  result: 'bg-green-400 dark:bg-green-500',
+  system: 'bg-gray-300 dark:bg-gray-500',
+};
+
+function getRecentActivityItems(session: SessionView): ActivityItem[] {
+  // Collect raw entries newest-first
+  const raw: Array<{ role: 'user' | 'ai'; text: string }> = [];
   for (let index = session.messages.length - 1; index >= 0; index -= 1) {
     const message = session.messages[index];
     if (message.type === 'user_prompt' && message.prompt.trim()) {
-      items.push(`Prompt: ${truncate(message.prompt, 90)}`);
+      raw.push({ role: 'user', text: truncate(message.prompt, 90) });
     } else if (message.type === 'assistant') {
-      items.push(`Assistant: ${extractAssistantSummary(message)}`);
+      const summary = extractAssistantSummary(message);
+      if (summary !== 'Assistant responded') {
+        raw.push({ role: 'ai', text: summary });
+      }
     } else if (message.type === 'user') {
       const blocks = getMessageContentBlocks(message);
       const toolResult = blocks.find((block) => block.type === 'tool_result');
       if (toolResult?.content?.trim()) {
-        items.push(`Tool result: ${truncate(toolResult.content, 90)}`);
+        raw.push({ role: 'ai', text: truncate(toolResult.content, 90) });
       }
     } else if (message.type === 'result') {
-      items.push(message.subtype === 'success' ? 'Run completed successfully' : `Run ${message.subtype}`);
+      raw.push({ role: 'ai', text: message.subtype === 'success' ? 'Completed' : `${message.subtype}` });
+    }
+
+    if (raw.length >= 8) {
+      break;
+    }
+  }
+
+  // Group consecutive same-role entries into single timeline nodes
+  const items: ActivityItem[] = [];
+  for (const entry of raw) {
+    const last = items[items.length - 1];
+    if (last && ((entry.role === 'user' && last.kind === 'prompt') || (entry.role === 'ai' && last.kind === 'assistant'))) {
+      last.lines.push(entry.text);
+    } else {
+      items.push({
+        kind: entry.role === 'user' ? 'prompt' : 'assistant',
+        lines: [entry.text],
+      });
     }
 
     if (items.length >= 4) {
@@ -169,7 +203,7 @@ function getRecentActivityItems(session: SessionView): string[] {
   }
 
   if (items.length === 0) {
-    items.push(session.status === 'running' ? 'Run in progress' : 'No activity yet');
+    items.push({ kind: 'system', lines: [session.status === 'running' ? 'Run in progress' : 'No activity yet'] });
   }
 
   return items;
@@ -871,154 +905,180 @@ export function BoardView() {
 
         {detailOpen ? (
           <aside className="flex w-[340px] flex-shrink-0 flex-col border-l border-[var(--border)] bg-[var(--bg-secondary)]">
-            <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
-              <div>
-                <div className="text-[13px] font-semibold text-[var(--text-primary)]">Run Details</div>
-                <div className="mt-0.5 text-[12px] text-[var(--text-secondary)]">
-                  Inspect the selected run.
-                </div>
-              </div>
+            <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-2.5">
+              <span className="text-[12px] font-semibold text-[var(--text-secondary)]">Details</span>
               <button
                 type="button"
                 onClick={() => setDetailOpen(false)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
                 title="Collapse panel"
               >
-                <PanelRightClose className="h-4 w-4" />
+                <PanelRightClose className="h-3.5 w-3.5" />
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-              {!selectedSession ? (
-                <div className="flex items-center justify-center py-8 text-[12px] text-[var(--text-muted)]">
-                  <span className="border-b border-dashed border-[var(--border)]">Select a run to inspect</span>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <section className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-3">
-                    <div className="text-[14px] font-semibold text-[var(--text-primary)]">{selectedSession.title}</div>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+            {!selectedSession ? (
+              <div className="flex flex-1 items-center justify-center text-[12px] text-[var(--text-muted)]">
+                Select a run to inspect
+              </div>
+            ) : (
+              <>
+                <div className="board-column-scroll min-h-0 flex-1 overflow-y-auto px-4 py-3">
+                  {/* Header: title */}
+                  <div>
+                    <div className="text-[14px] font-semibold leading-tight text-[var(--text-primary)]">
+                      {selectedSession.title}
+                    </div>
+
+                    {/* Tags row */}
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[10px]">
                       {(() => {
                         const resolvedId = getResolvedTodoStateId(selectedSession.todoState, statusMap, fallbackTodoStateId);
                         const resolvedStatus = statusMap.get(resolvedId);
                         return resolvedStatus ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-secondary)] px-2 py-0.5">
-                            <StatusIcon status={resolvedStatus} />
+                          <span className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-1.5 py-[1px] text-[var(--text-secondary)]">
+                            <StatusIcon status={resolvedStatus} className="text-[10px]" />
                             {resolvedStatus.label}
                           </span>
                         ) : null;
                       })()}
-                      <span className="rounded-full bg-[var(--accent-light)] px-1.5 py-0.5 text-[var(--text-secondary)]">
-                        {selectedSession.runtimeLabel}
+                      <span className="rounded-full border border-[var(--border)] px-1.5 py-[1px] text-[var(--text-secondary)]">
+                        {selectedSession.providerLabel}
                       </span>
-                      <span>{selectedSession.executionLabel}</span>
-                    </div>
-
-                    <div className="mt-3 space-y-1.5 text-[13px] text-[var(--text-secondary)]">
-                      <div className="flex items-center justify-between gap-3 rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5">
-                        <span className="text-[12px] text-[var(--text-muted)]">Status</span>
-                        <select
-                          value={getResolvedTodoStateId(selectedSession.todoState, statusMap, fallbackTodoStateId)}
-                          onChange={(event) => requestTodoStateChange(selectedSession.id, event.target.value)}
-                          className="h-7 rounded-[8px] border border-[var(--border)] bg-[var(--bg-primary)] px-2 text-[12px] text-[var(--text-primary)] outline-none"
-                        >
-                          {statusConfigs
-                            .slice()
-                            .sort((left, right) => left.order - right.order)
-                            .map((status) => (
-                              <option key={status.id} value={status.id}>
-                                {status.label}
-                              </option>
-                            ))}
-                        </select>
-                      </div>
-                      <div className="flex items-center gap-2 px-1">
-                        <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
-                        <span className="truncate text-[12px]">{selectedSession.cwd || 'No project selected'}</span>
-                      </div>
-                      <div className="flex items-center gap-2 px-1">
-                        <Clock3 className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
-                        <span className="text-[12px]">Updated {formatRelativeTimestamp(selectedSession.updatedAt)}</span>
-                      </div>
-                      {selectedSession.waitingPermission ? (
-                        <div className="flex items-center gap-2 px-1 text-amber-600">
-                          <ShieldAlert className="h-3.5 w-3.5" />
-                          <span className="text-[12px]">Waiting for permission</span>
-                        </div>
+                      {selectedSession.modelLabel ? (
+                        <span className="text-[var(--text-muted)]">{selectedSession.modelLabel}</span>
                       ) : null}
+                      <span className={`font-medium ${EXECUTION_LABEL_COLORS[selectedSession.executionLabel] || 'text-[var(--text-muted)]'}`}>
+                        {selectedSession.executionLabel}
+                      </span>
                     </div>
+                  </div>
 
+                  {/* Meta: project + time in compact two-column */}
+                  <div className="mt-3 grid grid-cols-[14px_1fr] gap-x-1.5 gap-y-1 text-[11px] text-[var(--text-muted)]">
+                    <FolderOpen className="mt-px h-3.5 w-3.5" />
+                    <span className="truncate">{selectedSession.cwd || 'No project'}</span>
+                    <Clock3 className="mt-px h-3.5 w-3.5" />
+                    <span>{formatRelativeTimestamp(selectedSession.updatedAt)}</span>
+                    {selectedSession.waitingPermission ? (
+                      <>
+                        <ShieldAlert className="mt-px h-3.5 w-3.5 text-amber-500" />
+                        <span className="text-amber-600 dark:text-amber-400">Waiting for permission</span>
+                      </>
+                    ) : null}
+                  </div>
+
+                  {/* Actions row */}
+                  <div className="mt-3 flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => openThread(selectedSession.id)}
-                      className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                      className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[8px] bg-blue-500 text-[12px] font-medium text-white transition-colors hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-500"
                     >
                       <ArrowUpRight className="h-3.5 w-3.5" />
                       Open Thread
                     </button>
-                  </section>
+                    <select
+                      value={getResolvedTodoStateId(selectedSession.todoState, statusMap, fallbackTodoStateId)}
+                      onChange={(event) => requestTodoStateChange(selectedSession.id, event.target.value)}
+                      className="h-8 rounded-[8px] border border-[var(--border)] bg-[var(--bg-primary)] px-2 text-[11px] text-[var(--text-primary)] outline-none"
+                    >
+                      {statusConfigs
+                        .slice()
+                        .sort((left, right) => left.order - right.order)
+                        .map((status) => (
+                          <option key={status.id} value={status.id}>
+                            {status.label}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
 
-                  <section className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-3">
-                    <div className="text-[12px] font-semibold text-[var(--text-primary)]">Latest Activity</div>
-                    <div className="mt-2 space-y-1.5">
-                      {getRecentActivityItems(selectedSession).map((item, index) => (
-                        <div
-                          key={`${selectedSession.id}-activity-${index}`}
-                          className="rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5 text-[12px] leading-[18px] text-[var(--text-secondary)]"
-                        >
-                          {item}
-                        </div>
-                      ))}
-                    </div>
-                  </section>
+                  {/* Divider */}
+                  <div className="my-3 border-t border-[var(--border)]" />
 
-                  <section className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-3">
-                    <div className="text-[12px] font-semibold text-[var(--text-primary)]">Run Snapshot</div>
-                    <div className="mt-2 text-[12px] leading-[18px] text-[var(--text-secondary)]">
-                      {selectedSession.latestSummary}
+                  {/* Activity timeline */}
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Activity</div>
+                    <div className="mt-2">
+                      <div className="space-y-0">
+                        {getRecentActivityItems(selectedSession).map((item, index) => (
+                          <div
+                            key={`${selectedSession.id}-activity-${index}`}
+                            className="relative flex gap-2.5"
+                          >
+                            {/* Dot + line segment */}
+                            <div className="relative flex w-[10px] flex-shrink-0 flex-col items-center">
+                              <div className="flex h-[18px] items-center justify-center">
+                                <div className={`h-[7px] w-[7px] rounded-full ring-2 ring-[var(--bg-secondary)] ${ACTIVITY_DOT_COLORS[item.kind]}`} />
+                              </div>
+                              {index < getRecentActivityItems(selectedSession).length - 1 ? (
+                                <div className="w-px flex-1 bg-[var(--border)]" />
+                              ) : null}
+                            </div>
+                            {/* Content */}
+                            <div className="min-w-0 flex-1 pb-3">
+                              {item.lines.map((line, lineIndex) => (
+                                <div
+                                  key={lineIndex}
+                                  className="text-[12px] leading-[18px] text-[var(--text-secondary)]"
+                                >
+                                  {line}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                     {!selectedSession.hydrated ? (
-                      <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]">
+                      <div className="mt-2 inline-flex items-center gap-1.5 pl-5 text-[11px] text-[var(--text-muted)]">
                         <PlayCircle className="h-3 w-3" />
                         Loading history…
                       </div>
                     ) : null}
-                  </section>
+                  </div>
+                </div>
 
-                  <section className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-3">
-                    <div className="text-[12px] font-semibold text-[var(--text-primary)]">Reply to Run</div>
+                {/* Reply - fixed bottom bar */}
+                <div className="border-t border-[var(--border)] px-3 py-2.5">
+                  <div className="flex items-end gap-2">
                     <textarea
                       value={replyPrompt}
                       onChange={(event) => setReplyPrompt(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && !event.shiftKey && replyPrompt.trim()) {
+                          event.preventDefault();
+                          handleSendReply();
+                        }
+                      }}
                       placeholder={
                         selectedSession.readOnly
-                          ? 'This run is read-only'
+                          ? 'Read-only'
                           : selectedSession.status === 'running'
-                            ? 'Run in progress'
-                            : 'Reply to this run...'
+                            ? 'Run in progress…'
+                            : 'Reply…'
                       }
                       disabled={selectedSession.readOnly || selectedSession.status === 'running'}
-                      className="mt-2 min-h-[80px] w-full resize-y rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-[12px] leading-[18px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
+                      rows={1}
+                      className="min-h-[32px] max-h-[120px] flex-1 resize-none rounded-[8px] border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1.5 text-[12px] leading-[18px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-blue-400 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:border-blue-500"
                     />
-                    <div className="mt-2 flex justify-end">
-                      <button
-                        type="button"
-                        onClick={handleSendReply}
-                        disabled={
-                          selectedSession.readOnly ||
-                          selectedSession.status === 'running' ||
-                          !replyPrompt.trim()
-                        }
-                        className="inline-flex h-8 items-center gap-1.5 rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        <Send className="h-3.5 w-3.5" />
-                        Send
-                      </button>
-                    </div>
-                  </section>
+                    <button
+                      type="button"
+                      onClick={handleSendReply}
+                      disabled={
+                        selectedSession.readOnly ||
+                        selectedSession.status === 'running' ||
+                        !replyPrompt.trim()
+                      }
+                      className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[8px] bg-blue-500 text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-blue-600 dark:hover:bg-blue-500"
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
-              )}
-            </div>
+              </>
+            )}
           </aside>
         ) : (
           <div className="flex flex-shrink-0 flex-col items-center border-l border-[var(--border)] bg-[var(--bg-secondary)] px-1.5 py-3">
