@@ -14,6 +14,9 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import claudeLogo from '../assets/claude-color.svg';
+import openaiLogo from '../assets/openai.svg';
+import { OpenCodeLogo } from './OpenCodeLogo';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { StatusIcon } from './StatusIcon';
@@ -59,7 +62,17 @@ function getShortModelLabel(model?: string): string {
 function getRuntimeLabel(session: SessionView): string {
   const base = getProviderLabel(session);
   const short = getShortModelLabel(session.model);
-  return short ? `${base} · ${short}` : base;
+  return short ? `${base} ${short}` : base;
+}
+
+function RuntimeLogo({ provider, className = 'h-3.5 w-3.5' }: { provider: string; className?: string }) {
+  if (provider === 'codex') {
+    return <img src={openaiLogo} alt="" className={`${className} flex-shrink-0`} aria-hidden="true" />;
+  }
+  if (provider === 'opencode') {
+    return <OpenCodeLogo className={`${className} flex-shrink-0`} />;
+  }
+  return <img src={claudeLogo} alt="" className={`${className} flex-shrink-0`} aria-hidden="true" />;
 }
 
 function getExecutionLabel(session: SessionView): string {
@@ -335,17 +348,13 @@ function BoardCard({
             <div className="truncate text-[13px] font-semibold text-[var(--text-primary)]">
               {session.title}
             </div>
-            <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-[var(--text-muted)]">
-              <span className="rounded-full border border-[var(--border)] px-1.5 py-[1px] text-[var(--text-secondary)]">
-                {session.providerLabel}
+            <div className="mt-1 flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
+              <span className="inline-flex items-center gap-1 truncate rounded-full border border-[var(--border)] px-1.5 py-[1px] text-[var(--text-secondary)]">
+                <RuntimeLogo provider={session.provider || 'claude'} className="h-3 w-3 flex-shrink-0" />
+                <span className="truncate">{session.runtimeLabel}</span>
               </span>
-              {session.modelLabel ? (
-                <span className="max-w-[120px] truncate text-[var(--text-muted)]">
-                  {session.modelLabel}
-                </span>
-              ) : null}
               <span className="text-[var(--text-muted)]">·</span>
-              <span className={`font-medium ${executionLabelColor}`}>{session.executionLabel}</span>
+              <span className={`flex-shrink-0 font-medium ${executionLabelColor}`}>{session.executionLabel}</span>
             </div>
           </div>
           <span className="flex-shrink-0 text-[10px] text-[var(--text-muted)]">{formatRelativeTimestamp(session.updatedAt)}</span>
