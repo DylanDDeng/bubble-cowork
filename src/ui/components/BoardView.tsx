@@ -973,7 +973,7 @@ export function BoardView() {
                     <button
                       type="button"
                       onClick={() => openThread(selectedSession.id)}
-                      className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[8px] bg-blue-500 text-[12px] font-medium text-white transition-colors hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-500"
+                      className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[8px] bg-[var(--accent)] text-[12px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
                     >
                       <ArrowUpRight className="h-3.5 w-3.5" />
                       Open Thread
@@ -1071,7 +1071,7 @@ export function BoardView() {
                         selectedSession.status === 'running' ||
                         !replyPrompt.trim()
                       }
-                      className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[8px] bg-blue-500 text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-blue-600 dark:hover:bg-blue-500"
+                      className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[8px] bg-[var(--accent)] text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <Send className="h-3.5 w-3.5" />
                     </button>
