@@ -338,7 +338,10 @@ function RailIcon({
   return (
     <div className="group relative flex items-center">
       <button
-        onClick={onClick}
+        onClick={(e) => {
+          onClick();
+          (e.currentTarget as HTMLButtonElement).blur();
+        }}
         className={`flex h-8 w-8 items-center justify-center rounded-[var(--radius-lg)] no-drag transition-colors duration-150 ${
           active
             ? 'text-[var(--accent)] bg-[var(--sidebar-item-active)]'
@@ -348,7 +351,7 @@ function RailIcon({
       >
         {icon}
       </button>
-      <div className="pointer-events-none absolute left-full top-1/2 z-40 ml-2 -translate-y-1/2 translate-x-1 whitespace-nowrap rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5 text-[12px] font-medium text-[var(--text-primary)] opacity-0 shadow-[0_8px_24px_rgba(15,23,42,0.12)] transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:translate-x-0 group-focus-within:opacity-100">
+      <div className="pointer-events-none absolute left-full top-1/2 z-40 ml-2 -translate-y-1/2 translate-x-1 whitespace-nowrap rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5 text-[12px] font-medium text-[var(--text-primary)] opacity-0 shadow-[0_8px_24px_rgba(15,23,42,0.12)] transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100">
         {title}
       </div>
     </div>
