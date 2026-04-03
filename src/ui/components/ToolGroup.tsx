@@ -96,7 +96,7 @@ export function ToolGroup({
   }
 
   return (
-    <div className="my-2 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)]/70">
+    <div className="my-2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)]/70">
       {/* 折叠头部 */}
       <button
         onClick={() => setExpanded(!expanded)}

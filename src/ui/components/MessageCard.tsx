@@ -354,7 +354,7 @@ function UserPromptCard({
           </div>
         )}
         <div
-          className={`${isEditing ? 'w-full px-4 py-3 rounded-[18px]' : 'max-w-full px-5 py-2.5 rounded-[14px]'}`}
+          className={`${isEditing ? 'w-full px-4 py-3 rounded-[var(--radius-2xl)]' : 'max-w-full px-5 py-2.5 rounded-[var(--radius-xl)]'}`}
           style={{
             background: 'var(--user-bubble-bg)',
             border: '1px solid var(--user-bubble-border)',

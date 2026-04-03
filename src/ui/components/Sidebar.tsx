@@ -150,7 +150,7 @@ export function Sidebar() {
               />
               <RailIcon
                 icon={<Search className="h-[17px] w-[17px]" />}
-                title="Search history"
+                title="Search history  (⌘K)"
                 active={messageSearchOpen}
                 onClick={() => setMessageSearchOpen(true)}
               />
@@ -228,7 +228,7 @@ export function Sidebar() {
                     setActiveSession(null);
                     setShowNewSession(true);
                   }}
-                  className="group flex flex-1 items-center gap-3 rounded-xl px-2 py-2 text-left no-drag transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
+                  className="group flex flex-1 items-center gap-3 rounded-[var(--radius-xl)] px-2 py-2 text-left no-drag transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
                 >
                   <SquarePen className="h-4 w-4 text-[var(--text-muted)]" strokeWidth={1.9} />
                   <span className="text-base font-medium">New Thread</span>
@@ -238,7 +238,7 @@ export function Sidebar() {
                   onClick={() => {
                     void handleProjectFolderSelect();
                   }}
-                  className="flex h-10 w-10 items-center justify-center rounded-xl no-drag text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                  className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-xl)] no-drag text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
                   aria-label={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
                 >
                   <FolderOpen className="h-4.5 w-4.5" />
@@ -286,7 +286,7 @@ export function Sidebar() {
       <Dialog.Root open={resumeDialogOpen} onOpenChange={setResumeDialogOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg p-6 w-[480px] shadow-xl">
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-[var(--radius-2xl)] p-6 w-[480px] shadow-xl">
             <Dialog.Title className="text-lg font-semibold mb-4">
               Resume in Claude Code
             </Dialog.Title>
@@ -294,20 +294,20 @@ export function Sidebar() {
               Run this command in your terminal to continue this session in Claude Code:
             </Dialog.Description>
 
-            <div className="bg-[var(--bg-tertiary)] rounded-lg p-3 font-mono text-sm mb-4 break-all">
+            <div className="bg-[var(--bg-tertiary)] rounded-[var(--radius-xl)] p-3 font-mono text-sm mb-4 break-all">
               claude --teleport {selectedSession?.claudeSessionId}
             </div>
 
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setResumeDialogOpen(false)}
-                className="px-4 py-2 rounded-lg text-sm hover:bg-[var(--bg-tertiary)] transition-colors"
+                className="px-4 py-2 rounded-[var(--radius-lg)] text-sm hover:bg-[var(--bg-tertiary)] transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={copyResumeCommand}
-                className="px-4 py-2 rounded-lg text-sm bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] transition-colors"
+                className="px-4 py-2 rounded-[var(--radius-lg)] text-sm bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] transition-colors"
               >
                 Copy Command
               </button>
@@ -339,16 +339,16 @@ function RailIcon({
     <div className="group relative flex items-center">
       <button
         onClick={onClick}
-        className={`flex h-8 w-8 items-center justify-center rounded-lg no-drag transition-colors duration-150 ${
+        className={`flex h-8 w-8 items-center justify-center rounded-[var(--radius-lg)] no-drag transition-colors duration-150 ${
           active
-            ? 'text-[var(--text-primary)] bg-[var(--sidebar-item-hover)]'
+            ? 'text-[var(--accent)] bg-[var(--sidebar-item-active)]'
             : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]'
         }`}
         aria-label={title}
       >
         {icon}
       </button>
-      <div className="pointer-events-none absolute left-full top-1/2 z-40 ml-2 -translate-y-1/2 translate-x-1 whitespace-nowrap rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5 text-[12px] font-medium text-[var(--text-primary)] opacity-0 shadow-[0_8px_24px_rgba(15,23,42,0.12)] transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:translate-x-0 group-focus-within:opacity-100">
+      <div className="pointer-events-none absolute left-full top-1/2 z-40 ml-2 -translate-y-1/2 translate-x-1 whitespace-nowrap rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5 text-[12px] font-medium text-[var(--text-primary)] opacity-0 shadow-[0_8px_24px_rgba(15,23,42,0.12)] transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:translate-x-0 group-focus-within:opacity-100">
         {title}
       </div>
     </div>

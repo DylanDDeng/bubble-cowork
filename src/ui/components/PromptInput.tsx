@@ -747,7 +747,7 @@ export function PromptInput() {
   return (
     <div className="bg-transparent">
       <div className="mx-auto max-w-4xl">
-        <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-[22px] shadow-sm transition-colors">
+        <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-[var(--radius-2xl)] shadow-sm transition-colors">
           {attachments.length > 0 && (
             <div className="px-5 pt-4">
               <AttachmentChips
@@ -946,7 +946,7 @@ export function PromptInput() {
             {isRunning ? (
               <button
                 onClick={handleStop}
-                className="flex h-10 w-10 items-center justify-center rounded-[14px] border border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
+                className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-xl)] border border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
                 title="Stop"
                 aria-label="Stop"
               >
@@ -956,7 +956,7 @@ export function PromptInput() {
               <button
                 onClick={handleSend}
                 disabled={!prompt.trim()}
-                className="flex h-10 w-10 items-center justify-center rounded-[14px] transition-colors disabled:cursor-not-allowed"
+                className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-xl)] transition-colors disabled:cursor-not-allowed"
                 style={{
                   backgroundColor: !prompt.trim() ? 'var(--text-muted)' : 'var(--accent)',
                   color: !prompt.trim() ? 'var(--bg-primary)' : 'var(--accent-foreground)'

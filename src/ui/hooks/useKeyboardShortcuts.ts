@@ -2,10 +2,10 @@ import { useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 
 /**
- * 全局快捷键 hook
- * - Cmd/Ctrl + K: 聚焦侧边栏搜索
- * - Cmd/Ctrl + F: 打开会话内搜索
- * - Escape: 关闭搜索面板
+ * Global keyboard shortcuts
+ * - Cmd/Ctrl + K: Focus sidebar search
+ * - Cmd/Ctrl + F: Open in-session search
+ * - Escape: Close search panel
  */
 export function useKeyboardShortcuts() {
   const sidebarSearchRef = useRef<HTMLInputElement>(null);

@@ -3,7 +3,7 @@ import { Component, type ReactNode } from 'react';
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
-  /** 当此 key 变化时，重置错误状态 */
+  /** Reset error state when this key changes */
   resetKey?: string | number;
 }
 
@@ -21,8 +21,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   static getDerivedStateFromProps(props: Props, state: State): Partial<State> | null {
-    // 当 resetKey 变化时，重置错误状态
-    // 这允许在内容变化时重新尝试渲染
+    // Reset error state when resetKey changes
     if (
       state.hasError &&
       props.resetKey !== undefined &&
@@ -34,7 +33,7 @@ export class ErrorBoundary extends Component<Props, State> {
         prevResetKey: props.resetKey,
       };
     }
-    // 保存当前的 resetKey 以便下次比较
+    // Save current resetKey for comparison
     if (props.resetKey !== state.prevResetKey) {
       return { prevResetKey: props.resetKey };
     }
@@ -49,7 +48,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return this.props.fallback || (
         <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
-          <p className="text-sm text-red-400">渲染出错，请刷新页面</p>
+          <p className="text-sm text-red-400">Rendering error. Please refresh the page.</p>
         </div>
       );
     }

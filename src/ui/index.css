@@ -2,28 +2,28 @@
 @import 'tw-animate-css';
 @import 'katex/dist/katex.min.css';
 
-/* 自定义主题变量 - 浅色主题 */
+/* Theme variables - Light */
 :root {
-  --bg-primary: #FFFFFF;       /* 主背景：纯白 */
-  --bg-secondary: #FFFFFF;     /* 次背景：纯白 */
-  --bg-tertiary: #F8F7F8;      /* 第三背景：浅灰 */
-  --text-primary: #111111;     /* 主文本：近黑 */
-  --text-secondary: #62646A;   /* 次文本：中灰 */
-  --text-muted: #989BA3;       /* 弱化文本 */
-  --accent: #111827;           /* 强调色：石墨黑 */
-  --accent-hover: #030712;     /* 强调色悬停：更深 */
-  --accent-light: rgba(17, 24, 39, 0.08); /* 强调色浅色：选中高亮 */
-  --accent-foreground: #F9FAFB; /* 强调色按钮文字 */
-  --success: #22c55e;
-  --error: #ef4444;
-  --warning: #f59e0b;
-  --border: #E5E7EB;           /* 边框：浅灰 */
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #F5F5F7;
+  --text-primary: #111111;
+  --text-secondary: #62646A;
+  --text-muted: #8E9196;
+  --accent: #4F46E5;
+  --accent-hover: #4338CA;
+  --accent-light: rgba(79, 70, 229, 0.08);
+  --accent-foreground: #FFFFFF;
+  --success: #16a34a;
+  --error: #dc2626;
+  --warning: #d97706;
+  --border: #E5E7EB;
 
-  /* Tool 状态颜色 */
-  --tool-pending: #f59e0b;    /* 同 --warning */
-  --tool-running: #6B7280;    /* 中性灰 */
-  --tool-success: #22c55e;    /* 同 --success */
-  --tool-error: #ef4444;      /* 同 --error */
+  /* Tool status colors */
+  --tool-pending: #d97706;
+  --tool-running: #4F46E5;
+  --tool-success: #16a34a;
+  --tool-error: #dc2626;
 
   /* Markdown / code */
   --code-inline-bg: #F0F0F2;
@@ -66,38 +66,38 @@
 
   /* Sidebar interaction */
   --sidebar-item-hover: #EEEEEE;
-  --sidebar-item-active: #EEEEEE;
+  --sidebar-item-active: rgba(79, 70, 229, 0.08);
   --sidebar-item-border: rgba(17, 24, 39, 0.08);
 
-  /* 圆角系统 */
+  /* Radius system */
   --radius: 0.5rem;
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
 }
 
-/* 暗色主题 */
+/* Dark theme */
 .dark {
-  --bg-primary: #111214;       /* 主背景：炭黑 */
-  --bg-secondary: #17181B;     /* 次背景：深灰 */
-  --bg-tertiary: #22242A;      /* 第三背景：更浅 */
-  --text-primary: #F5F5F5;     /* 主文本：浅色 */
-  --text-secondary: #B2B5BB;   /* 次文本：灰色 */
-  --text-muted: #80838A;       /* 弱化文本 */
-  --accent: #E5E7EB;           /* 强调色：亮灰 */
-  --accent-hover: #F5F5F5;     /* 强调色悬停：白灰 */
-  --accent-light: rgba(229, 231, 235, 0.12); /* 强调色浅色 */
-  --accent-foreground: #111214; /* 强调色按钮文字 */
+  --bg-primary: #111214;
+  --bg-secondary: #17181B;
+  --bg-tertiary: #22242A;
+  --text-primary: #F5F5F5;
+  --text-secondary: #B2B5BB;
+  --text-muted: #80838A;
+  --accent: #818CF8;
+  --accent-hover: #A5B4FC;
+  --accent-light: rgba(129, 140, 248, 0.12);
+  --accent-foreground: #111214;
   --success: #4ade80;
   --error: #f87171;
   --warning: #fbbf24;
-  --border: rgba(255, 255, 255, 0.12); /* 边框：半透明白 */
+  --border: rgba(255, 255, 255, 0.12);
 
-  /* Tool 状态颜色 */
+  /* Tool status colors */
   --tool-pending: #fbbf24;
-  --tool-running: #9CA3AF;
+  --tool-running: #818CF8;
   --tool-success: #4ade80;
   --tool-error: #f87171;
 
@@ -142,11 +142,11 @@
 
   /* Sidebar interaction */
   --sidebar-item-hover: rgba(255, 255, 255, 0.08);
-  --sidebar-item-active: rgba(255, 255, 255, 0.12);
+  --sidebar-item-active: rgba(129, 140, 248, 0.14);
   --sidebar-item-border: rgba(255, 255, 255, 0.12);
 }
 
-/* 基础样式 */
+/* Base styles */
 * {
   box-sizing: border-box;
 }
@@ -157,46 +157,21 @@ body,
   height: 100%;
   margin: 0;
   padding: 0;
-  overflow-x: hidden; /* 禁止页面级水平滚动，防止 macOS 双指滑动移动界面 */
+  overflow-x: hidden;
 }
 
 html {
-  font-size: 93.75%;
+  font-size: 100%;
 }
 
 body {
   font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
   font-size: 13px;
+  line-height: 1.5;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-.text-sm,
-.text-base,
-.text-lg,
-.text-xl,
-.text-4xl,
-.text-6xl,
-.text-\[10px\],
-.text-\[11px\],
-.text-\[12px\],
-.text-\[13px\],
-.text-\[14px\],
-.text-\[15px\],
-.text-\[16px\],
-.text-\[22px\],
-.text-\[24px\],
-.text-\[28px\],
-.text-\[30px\],
-.text-\[32px\],
-.text-\[34px\],
-.text-\[36px\],
-.markdown-content h1,
-.markdown-content h2,
-.markdown-content h3 {
-  font-size: 13px !important;
 }
 
 /* Serif display heading (cross-platform system font stack) */
@@ -246,27 +221,32 @@ body {
   border-radius: 2px;
 }
 
-/* Markdown 内容样式 */
+/* Markdown content */
 .markdown-content {
-  line-height: 1.6;
+  line-height: 1.7;
 }
 
 .markdown-content h1 {
-  font-size: 1.5rem;
-  font-weight: 600;
-  margin: 1rem 0 0.5rem;
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 1.25rem 0 0.5rem;
+  color: var(--text-primary);
 }
 
 .markdown-content h2 {
-  font-size: 1.25rem;
-  font-weight: 600;
+  font-size: 1.125rem;
+  font-weight: 650;
+  letter-spacing: -0.005em;
   margin: 1rem 0 0.5rem;
+  color: var(--text-primary);
 }
 
 .markdown-content h3 {
-  font-size: 1.1rem;
+  font-size: 0.975rem;
   font-weight: 600;
-  margin: 0.75rem 0 0.5rem;
+  margin: 0.75rem 0 0.375rem;
+  color: var(--text-primary);
 }
 
 .markdown-content p {
@@ -290,7 +270,7 @@ body {
   background: var(--code-inline-bg);
   border: 1px solid var(--code-inline-border);
   padding: 0.12rem 0.38rem;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
 }
 
 .markdown-content .md-inline-code-path {
@@ -324,7 +304,7 @@ body {
 
 .markdown-content .md-code-block {
   margin: 1rem 0;
-  border-radius: 16px;
+  border-radius: var(--radius-2xl);
   overflow: hidden;
   border: 1px solid var(--code-block-border);
   background:
@@ -602,7 +582,7 @@ body {
   background: var(--bg-tertiary);
 }
 
-/* Shimmer 加载动画 */
+/* Shimmer loading animation */
 @keyframes shimmer {
   0% {
     background-position: -200% 0;
@@ -623,7 +603,7 @@ body {
   animation: shimmer 1.5s infinite;
 }
 
-/* 状态指示器 */
+/* Status indicators */
 .status-dot {
   width: 8px;
   height: 8px;
@@ -717,7 +697,7 @@ body {
   }
 }
 
-/* 工具状态 */
+/* Tool status */
 .tool-status {
   width: 6px;
   height: 6px;
@@ -740,7 +720,7 @@ body {
   background-color: var(--tool-error);
 }
 
-/* 窗口拖拽区域 */
+/* Window drag region */
 .drag-region {
   -webkit-app-region: drag;
 }
@@ -749,28 +729,28 @@ body {
   -webkit-app-region: no-drag;
 }
 
-/* 响应式内容容器 */
+/* Responsive content container */
 .message-container {
   max-width: 56rem; /* max-w-4xl */
   margin: 0 auto;
   width: 100%;
 }
 
-/* 确保长文本换行 */
+/* Word wrap for long content */
 .markdown-content,
 .tool-summary {
   word-wrap: break-word;
   overflow-wrap: break-word;
 }
 
-/* 小屏幕调整 */
+/* Small screens */
 @media (max-width: 768px) {
   .message-container {
     padding: 0 1rem;
   }
 }
 
-/* 工具组折叠样式 */
+/* Tool group collapse */
 .tool-group-header {
   cursor: pointer;
   user-select: none;
@@ -780,7 +760,7 @@ body {
   background-color: var(--bg-tertiary);
 }
 
-/* 展开/折叠箭头动画 */
+/* Expand/collapse chevron animation */
 .chevron-icon {
   transition: transform 0.2s ease;
 }
@@ -789,7 +769,7 @@ body {
   transform: rotate(90deg);
 }
 
-/* Tree 连接线样式 */
+/* Tree connector lines */
 .tree-item {
   position: relative;
   padding-left: 1.25rem;
@@ -819,7 +799,7 @@ body {
   height: 0.875rem;
 }
 
-/* 小状态点 */
+/* Small status dots */
 .status-dot-sm {
   width: 6px;
   height: 6px;
@@ -843,7 +823,7 @@ body {
   background-color: var(--tool-error);
 }
 
-/* 小箭头 */
+/* Small chevron */
 .chevron-icon-sm {
   width: 12px;
   height: 12px;
@@ -854,7 +834,7 @@ body {
   transform: rotate(90deg);
 }
 
-/* Thinking Indicator 入场动画 */
+/* Thinking indicator entrance animation */
 @keyframes fadeSlideIn {
   from {
     opacity: 0;
@@ -881,12 +861,12 @@ body {
   animation: fadeSlideIn 0.2s ease-out;
 }
 
-/* Streaming 内容入场动画 */
+/* Streaming content entrance animation */
 .streaming-content {
   animation: fadeSlideIn 0.15s ease-out;
 }
 
-/* 状态点脉冲动画增强 */
+/* Enhanced status dot pulse animation */
 .status-dot.running {
   animation: statusPulse 1.5s infinite ease-in-out;
 }

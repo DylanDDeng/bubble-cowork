@@ -630,14 +630,28 @@ export function NewSessionView() {
                 />
               </div>
 
-            {/* 标题 */}
-              <h1 className="text-[18px] font-bold serif-display leading-tight text-[var(--text-primary)]">
+              <h1 className="text-[20px] font-bold serif-display leading-tight text-[var(--text-primary)]">
                 What can I help you with?
               </h1>
 
-              {!hasSelectedCwd && (
+              {!hasSelectedCwd ? (
                 <div className="mt-5 text-[13px] text-[var(--text-secondary)]">
                   Select a project folder to enable starting a new task.
+                </div>
+              ) : (
+                <div className="mt-5 flex flex-wrap items-center justify-center gap-3 text-[12px] text-[var(--text-muted)]">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-1">
+                    <kbd className="rounded bg-[var(--bg-primary)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)] border border-[var(--border)]">/</kbd>
+                    Commands
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-1">
+                    <kbd className="rounded bg-[var(--bg-primary)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)] border border-[var(--border)]">@</kbd>
+                    Mention files
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-1">
+                    <kbd className="rounded bg-[var(--bg-primary)] px-1 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)] border border-[var(--border)]">Shift+Enter</kbd>
+                    New line
+                  </span>
                 </div>
               )}
             </div>
@@ -651,14 +665,14 @@ export function NewSessionView() {
                   : 'mb-0 max-h-0 opacity-0 -translate-y-1 pointer-events-none'
               }`}
             >
-              <div className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-primary)] shadow-sm">
+              <div className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-primary)] shadow-sm">
                 Select a project folder before starting a new task.
               </div>
             </div>
 
             {/* Composer */}
             <div className="mx-auto max-w-4xl">
-              <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-[22px] shadow-sm transition-colors">
+              <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-[var(--radius-2xl)] shadow-sm transition-colors">
               {attachments.length > 0 && (
                 <div className="px-5 pt-4">
                   <AttachmentChips
@@ -847,7 +861,7 @@ export function NewSessionView() {
               <button
                 onClick={handleStart}
                 disabled={!canStartTask}
-                className="flex h-10 w-10 items-center justify-center rounded-[14px] transition-colors no-drag disabled:cursor-not-allowed"
+                className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-xl)] transition-colors no-drag disabled:cursor-not-allowed"
                 style={{
                   backgroundColor: !canStartTask ? 'var(--text-muted)' : 'var(--accent)',
                   color: !canStartTask ? 'var(--bg-primary)' : 'var(--accent-foreground)'

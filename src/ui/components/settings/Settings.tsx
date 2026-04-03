@@ -81,7 +81,7 @@ export function Settings() {
         <div className="flex h-full flex-col px-3 pb-6 pt-4">
           <button
             onClick={() => setShowSettings(false)}
-            className="mb-5 flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+            className="mb-5 flex items-center gap-2 rounded-[var(--radius-xl)] px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back to app</span>
@@ -154,9 +154,9 @@ function SettingsNavItem({
     <li>
       <button
         onClick={onClick}
-        className={`group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm transition-colors ${
+        className={`group flex w-full items-center gap-3 rounded-[var(--radius-xl)] px-3 py-3 text-left text-sm transition-colors ${
           active
-            ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+            ? 'bg-[var(--sidebar-item-active)] text-[var(--accent)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
         }`}
       >

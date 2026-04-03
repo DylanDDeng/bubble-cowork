@@ -322,14 +322,14 @@ function BoardCard({
       onKeyDown={handleKeyDown}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className={`flex w-full overflow-hidden rounded-[10px] border text-left outline-none transition-all ${
+      className={`flex w-full overflow-hidden rounded-[var(--radius-lg)] border text-left outline-none transition-all ${
         selected
-          ? 'border-blue-400 bg-blue-50/40 shadow-[0_0_0_1px_rgba(96,165,250,0.5)] dark:border-blue-500 dark:bg-blue-950/30 dark:shadow-[0_0_0_1px_rgba(59,130,246,0.35)]'
-          : 'border-[var(--border)] bg-[var(--bg-primary)] hover:border-blue-300/50 hover:bg-[var(--bg-secondary)] focus-visible:border-blue-400/50 dark:hover:border-blue-500/30 dark:focus-visible:border-blue-500/40'
+          ? 'border-[var(--accent)]/40 bg-[var(--accent-light)] shadow-[0_0_0_1px_var(--accent)]/20'
+          : 'border-[var(--border)] bg-[var(--bg-primary)] hover:border-[var(--accent)]/25 hover:bg-[var(--bg-secondary)] focus-visible:border-[var(--accent)]/40'
       } ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
     >
       <div className={`w-[3px] flex-shrink-0 ${statusBarColor}`} />
-      <div className="min-w-0 flex-1 px-2.5 py-2">
+      <div className="min-w-0 flex-1 px-3 py-2.5">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <div className="truncate text-[13px] font-semibold text-[var(--text-primary)]">
@@ -759,15 +759,15 @@ export function BoardView() {
 
             <div className="h-4 w-px bg-[var(--border)]" />
 
-            <div className="inline-flex rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] p-0.5">
+            <div className="inline-flex rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] p-0.5">
               {(['status', 'runtime'] as BoardGrouping[]).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   onClick={() => setGroupBy(mode)}
-                  className={`rounded-[8px] px-2.5 py-1 text-[12px] transition-colors ${
+                  className={`rounded-[var(--radius-md)] px-2.5 py-1 text-[12px] transition-colors ${
                     groupBy === mode
-                      ? 'bg-[var(--accent-light)] font-medium text-[var(--text-primary)]'
+                      ? 'bg-[var(--accent-light)] font-medium text-[var(--accent)]'
                       : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
                   }`}
                 >
@@ -780,13 +780,13 @@ export function BoardView() {
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Filter..."
-              className="h-8 w-[160px] rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 text-[12px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+              className="h-8 w-[160px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 text-[12px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
             />
 
             <select
               value={providerFilter}
               onChange={(event) => setProviderFilter(event.target.value as typeof providerFilter)}
-              className="h-8 rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] px-2 text-[12px] text-[var(--text-primary)] outline-none"
+              className="h-8 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2 text-[12px] text-[var(--text-primary)] outline-none"
             >
               <option value="all">All runtimes</option>
               <option value="claude">Claude</option>
@@ -798,7 +798,7 @@ export function BoardView() {
               <button
                 type="button"
                 onClick={() => setNewRunOpen(true)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-[10px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--accent)]/20 bg-[var(--accent)] px-3 text-[12px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
               >
                 <Plus className="h-3.5 w-3.5" />
                 New Run
@@ -845,17 +845,17 @@ export function BoardView() {
                           }
                         : undefined
                     }
-                    className={`flex h-full min-w-[260px] flex-1 flex-col overflow-hidden border bg-[var(--bg-secondary)] transition-colors ${
+                    className={`flex h-full min-w-[260px] flex-1 flex-col overflow-hidden rounded-[var(--radius-xl)] border bg-[var(--bg-secondary)] transition-colors ${
                       dragOverColumnId === column.id && groupBy === 'status'
                         ? 'border-[var(--accent)]/45 bg-[var(--accent-light)]/20'
                         : 'border-[var(--border)]'
                     }`}
                   >
                     <div
-                      className={`h-[3px] flex-shrink-0 ${accentClass}`}
+                      className={`h-[3px] flex-shrink-0 rounded-t-[var(--radius-xl)] ${accentClass}`}
                       style={accentStyle}
                     />
-                    <div className="border-b border-[var(--border)] px-4 py-2.5">
+                    <div className="border-b border-[var(--border)] px-4 py-3">
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           {'status' in column && column.status ? <StatusIcon status={column.status} /> : null}
@@ -910,7 +910,7 @@ export function BoardView() {
               <button
                 type="button"
                 onClick={() => setDetailOpen(false)}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-md)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
                 title="Collapse panel"
               >
                 <PanelRightClose className="h-3.5 w-3.5" />

@@ -4,33 +4,36 @@ import { App } from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './index.css';
 
-// 全局错误处理 - 捕获未处理的 Promise 错误
 window.addEventListener('unhandledrejection', (event) => {
   console.error('Unhandled promise rejection:', event.reason);
 });
 
-// 全局错误处理 - 捕获未处理的 JS 错误
 window.addEventListener('error', (event) => {
   console.error('Uncaught error:', event.error);
 });
 
-// 全局错误 fallback UI
 function GlobalErrorFallback() {
   return (
     <div className="h-screen w-screen flex items-center justify-center bg-[var(--bg-primary)]">
       <div className="text-center p-8 max-w-md">
-        <div className="text-6xl mb-4">⚠️</div>
-        <h1 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
-          应用渲染出错
+        <div className="mb-5 flex justify-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--error)]/10">
+            <svg className="h-6 w-6 text-[var(--error)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+            </svg>
+          </div>
+        </div>
+        <h1 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
+          Something went wrong
         </h1>
-        <p className="text-sm text-[var(--text-secondary)] mb-4">
-          请尝试刷新页面或重启应用
+        <p className="text-sm text-[var(--text-secondary)] mb-5">
+          The application encountered an unexpected error. Please try refreshing or restarting the app.
         </p>
         <button
           onClick={() => window.location.reload()}
-          className="px-4 py-2 bg-[var(--accent)] text-[var(--accent-foreground)] rounded-lg hover:bg-[var(--accent-hover)] transition-colors"
+          className="px-5 py-2.5 bg-[var(--accent)] text-[var(--accent-foreground)] rounded-[var(--radius-xl)] font-medium text-sm hover:bg-[var(--accent-hover)] transition-colors"
         >
-          刷新页面
+          Refresh Page
         </button>
       </div>
     </div>
