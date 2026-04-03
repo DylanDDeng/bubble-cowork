@@ -81,13 +81,19 @@ export function Settings() {
         <div className="flex h-full flex-col px-3 pb-6 pt-4">
           <button
             onClick={() => setShowSettings(false)}
-            className="mb-5 flex items-center gap-2 rounded-[var(--radius-xl)] px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+            className="mb-2 flex items-center gap-2 rounded-[var(--radius-lg)] px-3 py-2 text-[13px] text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
           >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Back to app</span>
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Back</span>
           </button>
 
-          <ul className="space-y-1">
+          <div className="mb-3 border-b border-[var(--border)]" />
+
+          <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+            Settings
+          </div>
+
+          <ul className="space-y-0.5">
             {Object.entries(SETTINGS_TABS).map(([key, tab]) => (
               <SettingsNavItem
                 key={key}
@@ -104,11 +110,11 @@ export function Settings() {
 
       <main className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-5xl px-12 py-8">
-          <header className="mb-6 flex items-baseline gap-3">
+          <header className="mb-8">
             <h1 className="text-[22px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
               {activeMeta.title}
             </h1>
-            <p className="text-[13px] text-[var(--text-muted)]">
+            <p className="mt-1 text-[13px] leading-5 text-[var(--text-muted)]">
               {activeMeta.description}
             </p>
           </header>
@@ -154,13 +160,13 @@ function SettingsNavItem({
     <li>
       <button
         onClick={onClick}
-        className={`group flex w-full items-center gap-3 rounded-[var(--radius-xl)] px-3 py-3 text-left text-sm transition-colors ${
+        className={`group flex w-full items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] transition-colors ${
           active
             ? 'bg-[var(--sidebar-item-active)] text-[var(--accent)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
         }`}
       >
-        <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center text-[var(--text-muted)] group-hover:text-[var(--text-primary)]">
+        <span className={`flex h-4 w-4 flex-shrink-0 items-center justify-center ${active ? 'text-[var(--accent)]' : 'text-[var(--text-muted)] group-hover:text-[var(--text-primary)]'}`}>
           {icon}
         </span>
         <span className="font-medium">{label}</span>
@@ -253,7 +259,7 @@ function GeneralSettingsContent({
   };
 
   return (
-    <div className="space-y-8 pb-8">
+    <div className="space-y-6 pb-8">
       {/* General group */}
       <SettingsSection title="General">
         <SettingsRow label="Default Agent" description="New sessions use this agent.">
@@ -272,7 +278,7 @@ function GeneralSettingsContent({
             type="button"
             onClick={() => void handleCheckForUpdates()}
             disabled={checkingUpdates}
-            className="h-9 rounded-[10px] border border-[var(--border)] bg-[var(--accent-light)] px-4 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+            className="h-9 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--accent-light)] px-4 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
           >
             {checkingUpdates ? 'Checking...' : 'Check for Updates'}
           </button>
@@ -282,7 +288,7 @@ function GeneralSettingsContent({
       {/* Appearance group */}
       <SettingsSection title="Appearance">
         <SettingsRow label="Mode" description="Light, dark, or follow system.">
-          <div className="inline-flex items-center gap-0.5 rounded-[10px] border border-[var(--border)] bg-[var(--bg-primary)] p-0.5">
+          <div className="inline-flex items-center gap-0.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] p-0.5">
             <ThemeOption label="Light" value="light" current={theme} onClick={() => setTheme('light')} icon={<Sun className="w-3.5 h-3.5" />} />
             <ThemeOption label="Dark" value="dark" current={theme} onClick={() => setTheme('dark')} icon={<Moon className="w-3.5 h-3.5" />} />
             <ThemeOption label="System" value="system" current={theme} onClick={() => setTheme('system')} icon={<Monitor className="w-3.5 h-3.5" />} />
@@ -294,7 +300,7 @@ function GeneralSettingsContent({
             <button
               type="button"
               onClick={() => setThemePickerOpen((current) => !current)}
-              className="flex h-9 w-full items-center rounded-[10px] border border-[var(--border)] bg-[var(--accent-light)] px-3 text-left text-[13px] transition-colors hover:border-[var(--accent)]"
+              className="flex h-9 w-full items-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--accent-light)] px-3 text-left text-[13px] transition-colors hover:border-[var(--accent)]"
             >
               <div className="min-w-0 flex-1 truncate font-medium text-[var(--text-primary)]">{activeTheme.label}</div>
               <ChevronDown className={`h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)] transition-transform ${themePickerOpen ? 'rotate-180' : ''}`} />
@@ -303,7 +309,7 @@ function GeneralSettingsContent({
             {themePickerOpen && (
               <>
                 <div className="fixed inset-0 z-20" onClick={() => setThemePickerOpen(false)} />
-                <div className="absolute left-0 right-0 top-full z-30 mt-1 rounded-[10px] border border-[var(--border)] bg-[var(--bg-primary)] p-1 shadow-sm">
+                <div className="absolute left-0 right-0 top-full z-30 mt-1 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] p-1 shadow-sm">
                   <div className="space-y-0.5">
                     {COLOR_THEME_FAMILIES.map((family) => {
                       const selected = family.id === colorThemeId;
@@ -347,7 +353,7 @@ function GeneralSettingsContent({
             <button
               type="button"
               onClick={() => setCustomCssOpen((current) => !current)}
-              className="flex h-9 w-full items-center gap-2 rounded-[10px] border border-[var(--border)] bg-[var(--accent-light)] px-3 text-left text-[13px] transition-colors hover:border-[var(--accent)]"
+              className="flex h-9 w-full items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--accent-light)] px-3 text-left text-[13px] transition-colors hover:border-[var(--accent)]"
             >
               <div className="min-w-0 flex-1 truncate font-medium text-[var(--text-primary)]">
                 {customThemeCss.trim() ? customCssSummary : 'None'}
@@ -356,7 +362,7 @@ function GeneralSettingsContent({
             </button>
 
             {customCssOpen && (
-              <div className="mt-1.5 rounded-[10px] border border-[var(--border)] bg-[var(--bg-primary)] p-2.5 shadow-sm">
+              <div className="mt-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] p-2.5 shadow-sm">
                 <div className="mb-2 flex justify-end">
                   <button
                     type="button"
@@ -416,8 +422,8 @@ function SettingsSection({
   children: React.ReactNode;
 }) {
   return (
-    <section>
-      <h2 className="mb-1 text-[18px] font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
+    <section className="border-b border-[var(--border)] pb-6 last:border-b-0 last:pb-0">
+      <h2 className="mb-3 text-[13px] font-semibold uppercase tracking-[0.06em] text-[var(--text-muted)]">
         {title}
       </h2>
       <div>{children}</div>
@@ -600,7 +606,7 @@ function FontSlotControl({
   return (
     <div className="w-full max-w-[520px] space-y-2">
       <div ref={triggerRef} className="relative ml-auto w-full max-w-[320px]">
-        <div className="rounded-[16px] border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] transition-colors focus-within:border-[var(--text-muted)]">
+        <div className="rounded-[var(--radius-lg)] border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] transition-colors focus-within:border-[var(--text-muted)]">
           <input
             value={fontInput}
             onChange={(event) => {
@@ -630,7 +636,7 @@ function FontSlotControl({
               }
             }}
             placeholder="Type or pick a font..."
-            className="h-11 w-full min-w-0 rounded-[16px] bg-transparent px-4 pr-10 text-[14px] font-medium text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+            className="h-9 w-full min-w-0 rounded-[var(--radius-lg)] bg-transparent px-3 pr-10 text-[13px] font-medium text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
           />
           <button
             type="button"
@@ -651,7 +657,7 @@ function FontSlotControl({
           <>
             <div className="fixed inset-0 z-20" onMouseDown={() => setMenuOpen(false)} />
             <div
-              className="fixed z-30 overflow-hidden rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_14px_32px_rgba(15,23,42,0.08)]"
+              className="fixed z-30 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_14px_32px_rgba(15,23,42,0.08)]"
               style={{
                 top: menuPosition.top,
                 left: menuPosition.left,
@@ -670,7 +676,7 @@ function FontSlotControl({
                         event.preventDefault();
                         handleOptionSelect(option.selection);
                       }}
-                      className={`flex w-full items-center justify-between gap-3 rounded-[14px] px-4 py-2.5 text-left transition-colors ${
+                      className={`flex w-full items-center justify-between gap-3 rounded-[var(--radius-lg)] px-3 py-2 text-left transition-colors ${
                         selectedOption
                           ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
                           : 'text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'

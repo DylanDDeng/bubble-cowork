@@ -94,9 +94,9 @@ export function McpSettingsContent() {
   const hasNoServers = !hasGlobalServers && !hasProjectServers && isAddingNew === null;
 
   return (
-    <div className="p-8 pt-6">
+    <div>
       {hasNoServers ? (
-        <section className="rounded-[20px] border border-[var(--border)] bg-[var(--bg-primary)]/82 p-8 text-center shadow-[0_10px_30px_rgba(0,0,0,0.04)]">
+        <section className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-8 text-center">
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
             MCP Setup
           </div>
@@ -109,14 +109,14 @@ export function McpSettingsContent() {
           <div className="mt-6 flex justify-center gap-3">
             <button
               onClick={() => setIsAddingNew('global')}
-              className="px-4 py-2 bg-[var(--accent)] text-[var(--accent-foreground)] rounded-[14px] hover:bg-[var(--accent-hover)] transition-colors"
+              className="px-4 py-2 bg-[var(--accent)] text-[var(--accent-foreground)] rounded-[var(--radius-lg)] hover:bg-[var(--accent-hover)] transition-colors text-[13px] font-medium"
             >
               Add Global Server
             </button>
             {currentProjectPath && (
               <button
                 onClick={() => setIsAddingNew('project')}
-                className="px-4 py-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                className="px-4 py-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors text-[13px] font-medium"
               >
                 Add Project Server
               </button>
@@ -163,14 +163,14 @@ export function McpSettingsContent() {
             <div className="flex gap-2">
               <button
                 onClick={() => setIsAddingNew('global')}
-                className="px-4 py-2 bg-[var(--accent)] text-[var(--accent-foreground)] rounded-lg hover:bg-[var(--accent-hover)] transition-colors"
+                className="px-4 py-2 bg-[var(--accent)] text-[var(--accent-foreground)] rounded-[var(--radius-lg)] hover:bg-[var(--accent-hover)] transition-colors text-[13px] font-medium"
               >
                 + Add Global Server
               </button>
               {currentProjectPath && (
                 <button
                   onClick={() => setIsAddingNew('project')}
-                  className="px-4 py-2 border border-[var(--border)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+                  className="px-4 py-2 border border-[var(--border)] rounded-[var(--radius-lg)] hover:bg-[var(--bg-tertiary)] transition-colors text-[13px] font-medium"
                 >
                   + Add Project Server
                 </button>
@@ -189,7 +189,7 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-[20px] border border-[var(--border)] bg-[var(--bg-primary)]/82 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.04)]">
+    <section className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-5">
       {children}
     </section>
   );
