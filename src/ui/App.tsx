@@ -48,7 +48,7 @@ import type {
   ContentBlock,
 } from './types';
 
-// 工具结果块类型
+// Tool result block type
 type ToolResultBlock = ContentBlock & { type: 'tool_result' };
 
 function isExternalFilePermissionInput(input: unknown): input is ExternalFilePermissionInput {
@@ -70,10 +70,10 @@ function isAskUserQuestionInput(input: unknown): input is AskUserQuestionInput {
 }
 
 export function App() {
-  // 初始化 IPC 通信
+  // Initialize IPC communication
   useIPC();
 
-  // 初始化全局快捷键
+  // Initialize global keyboard shortcuts
   useKeyboardShortcuts();
 
   const {
@@ -84,6 +84,7 @@ export function App() {
     loadOlderSessionHistory,
     activeWorkspace,
     showNewSession,
+    newSessionKey,
     projectCwd,
     showSettings,
     projectTreeCollapsed,
@@ -104,7 +105,7 @@ export function App() {
     setHistoryNavigationTarget,
   } = useAppStore();
 
-  // 历史请求记录（防止重复请求）
+  // Track history requests (prevent duplicates)
   const historyRequested = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const [projectChangeCount, setProjectChangeCount] = useState(0);
@@ -127,10 +128,10 @@ export function App() {
     activeSession?.streaming.isStreaming,
   ]);
 
-  // 消息列表引用（用于滚动）
+  // Messages list ref (for scrolling)
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // 工具状态映射和结果映射
+  // Tool status and results maps
   const { toolStatusMap, toolResultsMap } = useMemo(() => {
     const statusMap = new Map<string, ToolStatus>();
     const resultsMap = new Map<string, ToolResultBlock>();
@@ -156,7 +157,7 @@ export function App() {
     return { toolStatusMap: statusMap, toolResultsMap: resultsMap };
   }, [activeSession?.messages]);
 
-  // 计算当前 Turn 阶段
+  // Compute current turn phase
   const turnPhase = useMemo(() => {
     if (!activeSession) return 'complete' as const;
 
@@ -260,13 +261,13 @@ export function App() {
     };
   }, [setFontSettings, setSystemFonts]);
 
-  // 切换会话时请求历史
+  // Request history when switching sessions
   useEffect(() => {
     if (!activeSessionId) return;
 
     if (!activeSession) return;
 
-    // 如果会话未 hydrated 且未请求过，则请求历史
+    // If session not hydrated and not yet requested, fetch history
     if (!activeSession.hydrated && !historyRequested.current.has(activeSessionId)) {
       historyRequested.current.add(activeSessionId);
       sendEvent({
@@ -276,7 +277,7 @@ export function App() {
     }
   }, [activeSessionId, activeSession]);
 
-  // 自动滚动到底部
+  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: showPartialMessage ? 'auto' : 'smooth' });
   }, [
@@ -347,7 +348,7 @@ export function App() {
     };
   }, []);
 
-  // 全局错误通知
+  // Global error notification
   useEffect(() => {
     if (globalError) {
       toast.error(globalError, {
@@ -358,7 +359,7 @@ export function App() {
     }
   }, [globalError, clearGlobalError]);
 
-  // 处理权限响应
+  // Handle permission response
   const handlePermissionResult = (toolUseId: string, result: PermissionResult) => {
     if (!activeSessionId) return;
 
@@ -418,10 +419,10 @@ export function App() {
         />
       )}
 
-      {/* 侧边栏 */}
+      {/* Sidebar */}
       {!showSettings && <Sidebar />}
 
-      {/* 主内容区 */}
+      {/* Main content area */}
       {!showSettings && activeWorkspace === 'chat' && !sessionsLoaded ? (
         <div className="flex-1 min-w-0 bg-[var(--bg-primary)]" />
       ) : showSettings ? (
@@ -448,15 +449,15 @@ export function App() {
           className="flex-1 min-w-0 flex flex-col transition-[padding] duration-200"
           style={{ paddingRight: 'var(--project-preview-space, 0px)' }}
         >
-          {/* 顶部拖拽区域 */}
+          {/* Top drag region */}
           <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]" />
 
-          {/* 消息区域 */}
+          {/* Messages area */}
           <div className="flex-1 overflow-auto p-4 relative">
-            {/* 会话内搜索 */}
+            {/* In-session search */}
             <InSessionSearch />
 
-            {/* CWD 显示栏 */}
+            {/* Working directory indicator */}
             {activeSession.cwd && (
               <div className="mb-4 flex justify-center">
                 <div
@@ -479,13 +480,13 @@ export function App() {
 
             {activeSession.readOnly && (
               <div className="mb-4 flex justify-center">
-                <div className="max-w-[760px] rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+                <div className="max-w-[760px] rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
                   This Claude Code session is indexed from your local terminal history. It is read-only in Aegis for now.
                 </div>
               </div>
             )}
 
-            {/* 居中容器 */}
+            {/* Centered container */}
             <div className="message-container">
               {historyNavigationPending && (
                 <div className="mb-4 flex justify-center">
@@ -510,7 +511,7 @@ export function App() {
                 </div>
               )}
 
-              {/* 渲染消息（聚合连续的工具执行） */}
+              {/* Render messages (with aggregated tool execution batches) */}
               {aggregatedMessages.map((item, idx) => {
                 if (item.type === 'tool_batch') {
                   const anchor = String(item.originalIndices[0]);
@@ -652,7 +653,7 @@ export function App() {
             </div>
           </div>
 
-          {/* 输入区域 */}
+          {/* Input area */}
           {activeSession.readOnly ? null : (
             <div className="px-8 pb-4">
               <PromptInput />
@@ -660,10 +661,10 @@ export function App() {
           )}
         </div>
       ) : (
-        <NewSessionView />
+        <NewSessionView key={newSessionKey} />
       )}
 
-      {/* 右侧项目文件树 */}
+      {/* Right project tree panel */}
       {!showSettings && activeWorkspace === 'chat' && (
         <ProjectTreePanel
           collapsed={projectTreeCollapsed}
@@ -674,7 +675,7 @@ export function App() {
         />
       )}
 
-      {/* Toast 通知 */}
+      {/* Toast notifications */}
       <Toaster
         position="bottom-center"
         toastOptions={{
@@ -697,7 +698,7 @@ export function App() {
 
       {activeGenericPermissionRequest && isAskUserQuestionInput(activeGenericPermissionRequest.input) && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/18 px-4 backdrop-blur-[1px]">
-          <div className="w-full max-w-2xl rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5 shadow-2xl">
+          <div className="w-full max-w-2xl rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] p-5 shadow-2xl">
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
               Permission Request
             </div>
@@ -762,7 +763,7 @@ function FloatingProjectPanelDock({
         transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
         className={`fixed z-50 no-drag ${className}`}
       >
-        <div className="flex flex-col gap-1 rounded-[12px] border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-1 shadow-[0_10px_22px_rgba(15,23,42,0.10)] backdrop-blur-md">
+        <div className="flex flex-col gap-1 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-1 shadow-[0_10px_22px_rgba(15,23,42,0.10)] backdrop-blur-md">
           {items.map((item) => {
             const Icon = item.icon;
 
@@ -773,7 +774,7 @@ function FloatingProjectPanelDock({
                 onClick={() => onOpen(item.id)}
                 title={item.label}
                 aria-label={`Open ${item.label} panel`}
-                className="relative flex h-8 w-8 items-center justify-center rounded-[9px] border border-transparent bg-transparent text-[var(--text-secondary)] transition-[background-color,border-color,color,transform,box-shadow] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:scale-[1.01] hover:border-[var(--border)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]"
+                className="relative flex h-8 w-8 items-center justify-center rounded-[var(--radius-lg)] border border-transparent bg-transparent text-[var(--text-secondary)] transition-[background-color,border-color,color,transform,box-shadow] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:scale-[1.01] hover:border-[var(--border)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]"
               >
                 <Icon className="h-[14px] w-[14px]" aria-hidden="true" />
                 {item.id === 'changes' && changeCount > 0 ? (
@@ -795,7 +796,7 @@ function getPathLeaf(path: string): string {
   return segments.at(-1) || path;
 }
 
-// 复制按钮组件
+// Copy button component
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -805,7 +806,7 @@ function CopyButton({ text }: { text: string }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // 复制失败
+      // Copy failed
     }
   };
 

@@ -182,6 +182,7 @@ export const useAppStore = create<Store>()(
       activeWorkspace: 'chat' as ActiveWorkspace,
       chatSidebarView: 'threads' as ChatSidebarView,
       showNewSession: initialUiResumeState?.showNewSession ?? true,
+      newSessionKey: 0,
       sidebarCollapsed: false,
       sidebarWidth: 256,
       globalError: null,
@@ -417,7 +418,11 @@ export const useAppStore = create<Store>()(
   setChatSidebarView: (chatSidebarView) => set({ chatSidebarView }),
 
   setShowNewSession: (show) => {
-    set({ showNewSession: show, activeWorkspace: 'chat' });
+    set((state) => ({
+      showNewSession: show,
+      activeWorkspace: 'chat',
+      newSessionKey: show ? state.newSessionKey + 1 : state.newSessionKey,
+    }));
     persistUiResumeStateSnapshot(get());
   },
 

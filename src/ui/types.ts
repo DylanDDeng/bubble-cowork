@@ -128,6 +128,7 @@ export interface AppState {
   activeWorkspace: ActiveWorkspace;
   chatSidebarView: ChatSidebarView;
   showNewSession: boolean;
+  newSessionKey: number;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
   globalError: string | null;
