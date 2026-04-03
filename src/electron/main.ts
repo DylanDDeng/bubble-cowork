@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog, shell, ipcMain } from 'electron';
+import { app, BrowserWindow, Menu, dialog, shell, ipcMain, session } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -12,7 +12,7 @@ function fixEnvironment(): void {
     try {
       // 从用户的默认 shell 获取完整环境变量
       const shell = process.env.SHELL || '/bin/zsh';
-      const envOutput = execSync(`${shell} -ilc 'env'`, {
+      const envOutput = execSync(`${shell} -lc 'env'`, {
         encoding: 'utf-8',
         timeout: 5000,
       });
@@ -54,6 +54,23 @@ function fixEnvironment(): void {
 
 // 在应用启动前修复环境变量
 fixEnvironment();
+
+// 禁用 macOS 窗口恢复提示（避免强制退出后弹出 "reopen windows" 对话框卡住启动）
+if (process.platform === 'darwin') {
+  try {
+    const savedStatePath = path.join(
+      app.getPath('home'),
+      'Library',
+      'Saved Application State',
+      'com.github.electron.savedState'
+    );
+    if (fs.existsSync(savedStatePath)) {
+      fs.rmSync(savedStatePath, { recursive: true, force: true });
+    }
+  } catch {
+    // ignore
+  }
+}
 
 function configureUserDataPath(): void {
   if (!isDev()) {
@@ -215,6 +232,69 @@ async function waitForUiFile(filePath: string, timeoutMs = 15000): Promise<void>
   }
 }
 
+async function waitForDevServer(url: string, timeoutMs = 15000): Promise<boolean> {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1500);
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      if (response.ok) {
+        clearTimeout(timeout);
+        return true;
+      }
+    } catch {
+      // keep waiting
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  return false;
+}
+
+async function loadDistFallbackUi(win: BrowserWindow): Promise<void> {
+  try {
+    const uiPath = getUIPath();
+    await waitForUiFile(uiPath);
+    if (win.isDestroyed()) {
+      return;
+    }
+    await win.loadFile(uiPath);
+    startDevFileReloadWatcher(win);
+  } catch (fallbackError) {
+    console.error('[Dev] Failed to load dist-react fallback UI:', fallbackError);
+  }
+}
+
+async function loadDevUi(win: BrowserWindow): Promise<void> {
+  const devServerReady = await waitForDevServer(DEV_SERVER_URL, 10000);
+
+  if (!devServerReady) {
+    console.warn('[Dev] Vite dev server not reachable in time, falling back to dist-react');
+    await loadDistFallbackUi(win);
+    return;
+  }
+
+  try {
+    if (win.isDestroyed()) {
+      return;
+    }
+    await win.loadURL(DEV_SERVER_URL);
+  } catch (error) {
+    console.warn('[Dev] Failed to load Vite dev server, falling back to dist-react:', error);
+    await loadDistFallbackUi(win);
+  }
+}
+
 function startDevFileReloadWatcher(win: BrowserWindow): void {
   if (devFileWatcher) {
     return;
@@ -274,21 +354,7 @@ function createWindow(): void {
 
   // 加载页面
   if (isDev()) {
-    mainWindow
-      .loadURL(DEV_SERVER_URL)
-      .catch(async (error) => {
-        console.warn('[Dev] Failed to load Vite dev server, falling back to dist-react:', error);
-        try {
-          const uiPath = getUIPath();
-          await waitForUiFile(uiPath);
-          await mainWindow?.loadFile(uiPath);
-          if (mainWindow) {
-            startDevFileReloadWatcher(mainWindow);
-          }
-        } catch (fallbackError) {
-          console.error('[Dev] Failed to load dist-react fallback UI:', fallbackError);
-        }
-      });
+    void loadDevUi(mainWindow);
     if (shouldAutoOpenDevTools()) {
       mainWindow.webContents.openDevTools();
     }
@@ -502,6 +568,20 @@ function setupMenu(): void {
 
 // 应用启动
 app.whenReady().then(() => {
+  // 生产环境设置 CSP；开发环境不限制（Vite HMR 需要 WebSocket 和 eval）
+  if (!isDev()) {
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; frame-src 'self' blob: data:; object-src 'self' blob: data:; connect-src 'self'",
+          ],
+        },
+      });
+    });
+  }
+
   clearUiResumeState();
   setupMenu();
   setupAutoUpdater();
