@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import {
   ArrowUpRight,
+  CheckCircle2,
   Clock3,
   FolderOpen,
   KanbanSquare,
@@ -11,6 +12,7 @@ import {
   Send,
   ShieldAlert,
   Sparkles,
+  User,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -163,36 +165,64 @@ type ActivityItem = {
   lines: string[];
 };
 
-const ACTIVITY_DOT_COLORS: Record<ActivityItem['kind'], string> = {
-  prompt: 'bg-blue-400 dark:bg-blue-500',
-  assistant: 'bg-purple-400 dark:bg-purple-500',
-  result: 'bg-green-400 dark:bg-green-500',
-  system: 'bg-gray-300 dark:bg-gray-500',
-};
+function ActivityIcon({ kind, provider }: { kind: ActivityItem['kind']; provider: string }) {
+  const iconSize = 'h-[16px] w-[16px]';
+  if (kind === 'prompt') {
+    return (
+      <div className={`${iconSize} flex items-center justify-center rounded-full bg-blue-500/15 text-blue-500`}>
+        <User className="h-[10px] w-[10px]" />
+      </div>
+    );
+  }
+  if (kind === 'result') {
+    return (
+      <div className={`${iconSize} flex items-center justify-center rounded-full bg-green-500/15 text-green-500`}>
+        <CheckCircle2 className="h-[10px] w-[10px]" />
+      </div>
+    );
+  }
+  if (kind === 'assistant') {
+    return <RuntimeLogo provider={provider} className={`${iconSize} flex-shrink-0`} />;
+  }
+  return (
+    <div className={`${iconSize} flex items-center justify-center rounded-full bg-gray-400/15 text-[var(--text-muted)]`}>
+      <Sparkles className="h-[10px] w-[10px]" />
+    </div>
+  );
+}
 
 function getRecentActivityItems(session: SessionView): ActivityItem[] {
-  // Collect raw entries newest-first
-  const raw: Array<{ role: 'user' | 'ai'; text: string }> = [];
+  // Collect raw entries newest-first.
+  // user_prompt entries are exempt from the AI count limit so they are
+  // never crowded out by intermediate tool-call / assistant messages.
+  const raw: Array<{ role: 'user' | 'ai' | 'result'; text: string }> = [];
+  let aiCount = 0;
+  let hasUserPrompt = false;
+
   for (let index = session.messages.length - 1; index >= 0; index -= 1) {
     const message = session.messages[index];
     if (message.type === 'user_prompt' && message.prompt.trim()) {
       raw.push({ role: 'user', text: truncate(message.prompt, 90) });
+      hasUserPrompt = true;
     } else if (message.type === 'assistant') {
       const summary = extractAssistantSummary(message);
       if (summary !== 'Assistant responded') {
         raw.push({ role: 'ai', text: summary });
+        aiCount += 1;
       }
     } else if (message.type === 'user') {
       const blocks = getMessageContentBlocks(message);
       const toolResult = blocks.find((block) => block.type === 'tool_result');
       if (toolResult?.content?.trim()) {
         raw.push({ role: 'ai', text: truncate(toolResult.content, 90) });
+        aiCount += 1;
       }
     } else if (message.type === 'result') {
-      raw.push({ role: 'ai', text: message.subtype === 'success' ? 'Completed' : `${message.subtype}` });
+      raw.push({ role: 'result', text: message.subtype === 'success' ? 'Completed' : `${message.subtype}` });
+      aiCount += 1;
     }
 
-    if (raw.length >= 8) {
+    if (aiCount >= 8 && hasUserPrompt) {
       break;
     }
   }
@@ -200,17 +230,16 @@ function getRecentActivityItems(session: SessionView): ActivityItem[] {
   // Group consecutive same-role entries into single timeline nodes
   const items: ActivityItem[] = [];
   for (const entry of raw) {
+    const kind: ActivityItem['kind'] =
+      entry.role === 'user' ? 'prompt' : entry.role === 'result' ? 'result' : 'assistant';
     const last = items[items.length - 1];
-    if (last && ((entry.role === 'user' && last.kind === 'prompt') || (entry.role === 'ai' && last.kind === 'assistant'))) {
+    if (last && last.kind === kind) {
       last.lines.push(entry.text);
     } else {
-      items.push({
-        kind: entry.role === 'user' ? 'prompt' : 'assistant',
-        lines: [entry.text],
-      });
+      items.push({ kind, lines: [entry.text] });
     }
 
-    if (items.length >= 4) {
+    if (items.length >= 5) {
       break;
     }
   }
@@ -1011,17 +1040,17 @@ export function BoardView() {
                     <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Activity</div>
                     <div className="mt-2">
                       <div className="space-y-0">
-                        {getRecentActivityItems(selectedSession).map((item, index) => (
+                        {getRecentActivityItems(selectedSession).map((item, index, arr) => (
                           <div
                             key={`${selectedSession.id}-activity-${index}`}
                             className="relative flex gap-2.5"
                           >
-                            {/* Dot + line segment */}
-                            <div className="relative flex w-[10px] flex-shrink-0 flex-col items-center">
+                            {/* Icon + line segment */}
+                            <div className="relative flex w-[16px] flex-shrink-0 flex-col items-center">
                               <div className="flex h-[18px] items-center justify-center">
-                                <div className={`h-[7px] w-[7px] rounded-full ring-2 ring-[var(--bg-secondary)] ${ACTIVITY_DOT_COLORS[item.kind]}`} />
+                                <ActivityIcon kind={item.kind} provider={selectedSession.provider || 'claude'} />
                               </div>
-                              {index < getRecentActivityItems(selectedSession).length - 1 ? (
+                              {index < arr.length - 1 ? (
                                 <div className="w-px flex-1 bg-[var(--border)]" />
                               ) : null}
                             </div>
