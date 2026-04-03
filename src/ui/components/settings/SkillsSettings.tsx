@@ -253,7 +253,7 @@ function SkillCard({
   onReveal: (filePath: string) => Promise<void>;
 }) {
   return (
-    <article className="rounded-[22px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4 shadow-[0_6px_18px_rgba(0,0,0,0.03)]">
+    <article className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4 shadow-[0_6px_18px_rgba(0,0,0,0.03)]">
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
           <Boxes className="w-4.5 h-4.5" />

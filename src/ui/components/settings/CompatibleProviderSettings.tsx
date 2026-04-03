@@ -331,7 +331,7 @@ export function CompatibleProviderSettingsContent() {
     <section className="space-y-6">
       <SectionCard>
         <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
-          <div className="overflow-hidden rounded-[18px] border border-[var(--border)] bg-[var(--bg-secondary)]">
+          <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]">
             <div className="p-2.5">
               <RailSection
                 label="Agent Checks"
@@ -403,8 +403,8 @@ export function CompatibleProviderSettingsContent() {
       </SectionCard>
 
       <Dialog open={providerDialogOpen} onOpenChange={(open) => !open && closeProviderDialog()}>
-        <DialogContent className="max-w-2xl rounded-[20px] border border-[var(--border)] bg-[var(--bg-primary)] p-0 shadow-[0_18px_48px_rgba(0,0,0,0.12)]">
-          <div className="overflow-hidden rounded-[20px]">
+        <DialogContent className="max-w-2xl rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-0 shadow-[0_18px_48px_rgba(0,0,0,0.12)]">
+          <div className="overflow-hidden rounded-[var(--radius-2xl)]">
             <div className="border-b border-[var(--border)] bg-[var(--bg-secondary)] px-6 py-5">
               <DialogHeader className="space-y-2 text-left">
                 <div className="flex items-start justify-between gap-4">
@@ -568,7 +568,7 @@ export function CompatibleProviderSettingsContent() {
               </Field>
 
               {providerMessage && (
-                <div className="rounded-[16px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+                <div className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
                   {providerMessage}
                 </div>
               )}
@@ -582,7 +582,7 @@ export function CompatibleProviderSettingsContent() {
                 type="button"
                 onClick={closeProviderDialog}
                 disabled={savingProvider !== null}
-                className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+                className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
               >
                 Close
               </button>
@@ -590,7 +590,7 @@ export function CompatibleProviderSettingsContent() {
                 type="button"
                 onClick={handleResetDraft}
                 disabled={!isDirty || savingProvider !== null}
-                className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+                className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
               >
                 Reset
               </button>
@@ -598,7 +598,7 @@ export function CompatibleProviderSettingsContent() {
                 type="button"
                 onClick={handleSave}
                 disabled={!isDirty || savingProvider !== null}
-                className="rounded-[14px] border border-[var(--border)] bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+                className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
               >
                 {savingProvider === selectedProviderId ? 'Saving...' : 'Save'}
               </button>
@@ -641,7 +641,7 @@ function ClaudeProviderWorkspace({
       ) : null}
 
       <div className="grid gap-4">
-        <div className="overflow-hidden rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)]">
+        <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)]">
           <div className="border-b border-[var(--border)] px-4 py-3">
             <SectionEyebrow>Compatible Providers</SectionEyebrow>
           </div>
@@ -738,10 +738,10 @@ function CodexRuntimeDetailPanel({
   };
 
   return (
-    <div className="overflow-hidden rounded-[18px] border border-[var(--border)] bg-[var(--bg-secondary)]">
+    <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]">
       <div className="space-y-5 px-5 py-5">
       {saveError ? (
-        <div className="rounded-[14px] border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#b91c1c]">
+        <div className="rounded-[var(--radius-xl)] border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#b91c1c]">
           {saveError}
         </div>
       ) : null}
@@ -754,7 +754,7 @@ function CodexRuntimeDetailPanel({
               value={modelSearchQuery}
               onChange={(event) => setModelSearchQuery(event.target.value)}
               placeholder="Search models"
-              className="h-11 rounded-[14px] border-[var(--border)] bg-[var(--bg-primary)] pl-9 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:ring-[var(--accent)]"
+              className="h-11 rounded-[var(--radius-xl)] border-[var(--border)] bg-[var(--bg-primary)] pl-9 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:ring-[var(--accent)]"
             />
           </div>
 
@@ -766,7 +766,7 @@ function CodexRuntimeDetailPanel({
             return (
               <div
                 key={model.name}
-                className="flex items-center gap-4 rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3"
+                className="flex items-center gap-4 rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
@@ -817,7 +817,7 @@ function CodexRuntimeDetailPanel({
           })}
 
           {filteredModels.length === 0 ? (
-            <div className="rounded-[16px] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-4 py-6 text-sm leading-6 text-[var(--text-secondary)]">
+            <div className="rounded-[var(--radius-2xl)] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-4 py-6 text-sm leading-6 text-[var(--text-secondary)]">
               No models match "{modelSearchQuery.trim()}".
             </div>
           ) : null}
@@ -825,7 +825,7 @@ function CodexRuntimeDetailPanel({
         </div>
         </>
       ) : (
-        <div className="rounded-[16px] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-4 py-6 text-sm leading-6 text-[var(--text-secondary)]">
+        <div className="rounded-[var(--radius-2xl)] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-4 py-6 text-sm leading-6 text-[var(--text-secondary)]">
           {loading ? loadingMessage : emptyMessage}
         </div>
       )}
@@ -872,7 +872,7 @@ function RuntimeRailItem({
     <button
       type="button"
       onClick={onSelect}
-      className={`group flex w-full items-start gap-3 rounded-[16px] border px-3.5 py-3 text-left transition-colors ${
+      className={`group flex w-full items-start gap-3 rounded-[var(--radius-2xl)] border px-3.5 py-3 text-left transition-colors ${
         selected
           ? 'border-[var(--sidebar-item-border)] bg-[var(--sidebar-item-active)] shadow-sm'
           : 'border-transparent bg-[var(--bg-secondary)]/92 hover:bg-[var(--bg-tertiary)]/55'
@@ -926,7 +926,7 @@ function ProviderRailItem({
       type="button"
       onClick={onSelect}
       disabled={disabled}
-      className={`group flex w-full items-start gap-3 rounded-[16px] border px-3.5 py-3 text-left transition-colors disabled:opacity-60 ${
+      className={`group flex w-full items-start gap-3 rounded-[var(--radius-2xl)] border px-3.5 py-3 text-left transition-colors disabled:opacity-60 ${
         selected
           ? 'border-[var(--sidebar-item-border)] bg-[var(--sidebar-item-active)] shadow-sm'
           : 'border-transparent bg-[var(--bg-secondary)]/92 hover:bg-[var(--bg-tertiary)]/55'
@@ -960,7 +960,7 @@ function ProviderRailItem({
 
 function SectionCard({ children }: { children: ReactNode }) {
   return (
-    <section className="rounded-[20px] border border-[var(--border)] bg-[var(--bg-primary)]/82 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.04)]">
+    <section className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)]/82 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.04)]">
       {children}
     </section>
   );

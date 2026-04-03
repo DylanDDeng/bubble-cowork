@@ -318,7 +318,7 @@ function GeneralSettingsContent({
                           key={family.id}
                           type="button"
                           onClick={() => { setColorThemeId(family.id); setThemePickerOpen(false); }}
-                          className={`flex w-full items-center gap-2 rounded-[8px] px-2.5 py-1.5 text-left text-[13px] transition-colors ${
+                          className={`flex w-full items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 text-left text-[13px] transition-colors ${
                             selected ? 'bg-[var(--accent-light)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
                           }`}
                         >
@@ -333,12 +333,12 @@ function GeneralSettingsContent({
             )}
 
             {hasColorThemeOverrides && (
-              <div className="mt-1.5 rounded-[8px] border border-[var(--border)] bg-[var(--bg-tertiary)]/70 px-2.5 py-2 text-[12px]">
+              <div className="mt-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-tertiary)]/70 px-2.5 py-2 text-[12px]">
                 <div className="font-medium text-[var(--text-primary)]">Custom CSS overriding theme</div>
                 <button
                   type="button"
                   onClick={() => setCustomThemeCss('')}
-                  className="mt-1.5 inline-flex items-center gap-1.5 rounded-[8px] border border-[var(--border)] bg-[var(--bg-primary)] px-2 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+                  className="mt-1.5 inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-2 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
                 >
                   <Eraser className="w-3 h-3" />
                   Clear
@@ -367,7 +367,7 @@ function GeneralSettingsContent({
                   <button
                     type="button"
                     onClick={() => setCustomThemeCss('')}
-                    className="inline-flex items-center gap-1.5 rounded-[8px] border border-[var(--border)] bg-[var(--bg-tertiary)] px-2 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+                    className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-tertiary)] px-2 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
                   >
                     <Eraser className="w-3 h-3" />
                     Clear
@@ -377,7 +377,7 @@ function GeneralSettingsContent({
                   value={customThemeCss}
                   onChange={(event) => setCustomThemeCss(event.target.value)}
                   placeholder={`:root {\n  --bg-primary: #0f1117;\n  --accent: #7aa2f7;\n}`}
-                  className="min-h-[140px] w-full rounded-[8px] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 font-mono text-[12px] leading-5 text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+                  className="min-h-[140px] w-full rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 font-mono text-[12px] leading-5 text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
                   spellCheck={false}
                 />
               </div>
@@ -470,7 +470,7 @@ function ThemeOption({
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-[8px] px-3 py-1.5 text-[12px] transition-colors ${
+      className={`inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] px-3 py-1.5 text-[12px] transition-colors ${
         isActive
           ? 'bg-[var(--accent-light)] font-medium text-[var(--text-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
           : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'

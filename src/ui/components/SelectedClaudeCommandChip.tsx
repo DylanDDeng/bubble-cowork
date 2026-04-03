@@ -15,7 +15,7 @@ export function SelectedClaudeCommandChip({
   return (
     <div
       className={`inline-flex max-w-full items-center border border-[var(--border)] bg-[var(--bg-tertiary)] shadow-sm ${
-        compact ? 'gap-1.5 rounded-[10px] px-2 py-0.5' : 'gap-2 rounded-[14px] px-2.5 py-2'
+        compact ? 'gap-1.5 rounded-[var(--radius-lg)] px-2 py-0.5' : 'gap-2 rounded-[var(--radius-xl)] px-2.5 py-2'
       }`}
     >
       <div

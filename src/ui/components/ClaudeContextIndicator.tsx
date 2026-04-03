@@ -53,7 +53,7 @@ export function ClaudeContextIndicator({
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-1/2 z-40 mb-2 w-[248px] -translate-x-1/2 rounded-[20px] border border-[var(--border)] bg-[var(--bg-secondary)] p-4 text-[var(--text-primary)] shadow-[0_18px_48px_rgba(0,0,0,0.12)]">
+        <div className="absolute bottom-full left-1/2 z-40 mb-2 w-[248px] -translate-x-1/2 rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] p-4 text-[var(--text-primary)] shadow-[0_18px_48px_rgba(0,0,0,0.12)]">
           <MetricRow label="Model" value={resolvedModelLabel} mono />
           {snapshot ? (
             <>

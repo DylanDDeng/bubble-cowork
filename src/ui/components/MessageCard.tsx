@@ -417,7 +417,7 @@ function UserPromptCard({
             <div className="flex items-center gap-2">
               <button
                 onClick={handleCancelEdit}
-                className="inline-flex items-center rounded-[12px] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                className="inline-flex items-center rounded-[var(--radius-xl)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
                 title="Cancel"
               >
                 Cancel
@@ -425,7 +425,7 @@ function UserPromptCard({
               <button
                 onClick={handleSaveAndRetry}
                 disabled={!draft.trim()}
-                className="inline-flex items-center gap-1.5 rounded-[12px] border border-[var(--border)] bg-[var(--accent-light)] px-3 py-1.5 text-xs font-medium text-[var(--text-primary)] shadow-sm transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-1.5 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--accent-light)] px-3 py-1.5 text-xs font-medium text-[var(--text-primary)] shadow-sm transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Send"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
@@ -493,7 +493,7 @@ function GenericSlashChip({ name, compact = false }: { name: string; compact?: b
   return (
     <div
       className={`inline-flex max-w-full items-center border border-[var(--border)] bg-[var(--bg-tertiary)] shadow-sm ${
-        compact ? 'rounded-[10px] px-2 py-0.5' : 'rounded-[14px] px-2.5 py-2'
+        compact ? 'rounded-[var(--radius-lg)] px-2 py-0.5' : 'rounded-[var(--radius-xl)] px-2.5 py-2'
       }`}
     >
       <div

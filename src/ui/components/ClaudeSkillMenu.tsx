@@ -17,7 +17,7 @@ export function ClaudeSkillMenu({
   onSelect: (suggestion: ClaudeSlashSuggestion) => void;
 }) {
   return (
-    <div className="mx-4 mb-3 overflow-hidden rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_8px_24px_rgba(0,0,0,0.04)]">
+    <div className="mx-4 mb-3 overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_8px_24px_rgba(0,0,0,0.04)]">
       <div className="px-4 pt-3 pb-2">
         <div className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
           <Search className="w-3.5 h-3.5" />
@@ -54,7 +54,7 @@ export function ClaudeSkillMenu({
                   event.preventDefault();
                   onSelect(suggestion);
                 }}
-                className={`w-full flex items-center gap-3 rounded-[14px] px-3 py-2 text-left transition-colors ${
+                className={`w-full flex items-center gap-3 rounded-[var(--radius-xl)] px-3 py-2 text-left transition-colors ${
                   selected ? 'bg-[var(--bg-tertiary)]' : 'hover:bg-[var(--bg-tertiary)]/80'
                 }`}
               >

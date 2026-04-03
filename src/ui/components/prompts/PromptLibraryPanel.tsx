@@ -224,11 +224,11 @@ export function PromptLibraryPanel() {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-1">
         {loading ? (
-          <div className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-8 text-sm text-[var(--text-secondary)]">
+          <div className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-8 text-sm text-[var(--text-secondary)]">
             Loading prompts...
           </div>
         ) : filteredItems.length === 0 ? (
-          <div className="flex flex-col items-center rounded-[18px] border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-10 text-center">
+          <div className="flex flex-col items-center rounded-[var(--radius-2xl)] border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-10 text-center">
             <Bookmark className="mb-3 h-8 w-8 text-[var(--text-muted)]" strokeWidth={1.5} />
             <div className="text-sm text-[var(--text-secondary)]">
               {items.length === 0
@@ -254,7 +254,7 @@ export function PromptLibraryPanel() {
             {filteredItems.map((item) => (
               <div
                 key={item.id}
-                className="group/card relative overflow-hidden rounded-[18px] border border-[var(--border)] bg-[var(--bg-secondary)]"
+                className="group/card relative overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]"
               >
                 {item.tags.length > 0 && (
                   <div

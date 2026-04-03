@@ -160,7 +160,7 @@ export function ClaudeUsageSettingsContent() {
                       key={days}
                       type="button"
                       onClick={() => setRangeDays(days)}
-                      className={`rounded-[14px] border px-3 py-1.5 text-sm font-medium transition-colors ${
+                      className={`rounded-[var(--radius-xl)] border px-3 py-1.5 text-sm font-medium transition-colors ${
                         isActive
                           ? 'border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
                           : 'border-transparent bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
@@ -261,7 +261,7 @@ function UsageProviderRailItem({
     <button
       type="button"
       onClick={onSelect}
-      className={`group flex w-full items-start gap-3 rounded-[16px] border px-3.5 py-3 text-left transition-colors ${
+      className={`group flex w-full items-start gap-3 rounded-[var(--radius-2xl)] border px-3.5 py-3 text-left transition-colors ${
         selected
           ? 'border-[var(--sidebar-item-border)] bg-[var(--sidebar-item-active)] shadow-sm'
           : 'border-transparent bg-[var(--bg-secondary)]/92 hover:bg-[var(--bg-tertiary)]/55'
@@ -365,7 +365,7 @@ function ProviderUsageDetail({ provider }: { provider: UsageProviderCard }) {
                 costEstimated={provider.report.costMode === 'estimated'}
               />
             ) : (
-              <div className="rounded-[20px] border border-dashed border-[var(--border)] px-5 py-12 text-center text-sm text-[var(--text-secondary)]">
+              <div className="rounded-[var(--radius-2xl)] border border-dashed border-[var(--border)] px-5 py-12 text-center text-sm text-[var(--text-secondary)]">
                 No usage recorded in this period.
               </div>
             )}
@@ -508,7 +508,7 @@ function PanelCard({
   className?: string;
 }) {
   return (
-    <div className={`rounded-[20px] border border-[var(--border)] bg-[var(--bg-secondary)] ${className}`}>
+    <div className={`rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] ${className}`}>
       {children}
     </div>
   );

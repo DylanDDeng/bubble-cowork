@@ -93,7 +93,7 @@ export function PromptLibraryEditorDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(680px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-[24px] border border-[var(--border)] bg-[var(--bg-secondary)] p-5 shadow-2xl outline-none">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(680px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] p-5 shadow-2xl outline-none">
           <Dialog.Title className="text-lg font-semibold text-[var(--text-primary)]">
             {dialogTitle}
           </Dialog.Title>

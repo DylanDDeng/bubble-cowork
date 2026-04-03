@@ -973,7 +973,7 @@ export function BoardView() {
                     <button
                       type="button"
                       onClick={() => openThread(selectedSession.id)}
-                      className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[8px] bg-[var(--accent)] text-[12px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
+                      className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-lg)] bg-[var(--accent)] text-[12px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
                     >
                       <ArrowUpRight className="h-3.5 w-3.5" />
                       Open Thread
@@ -981,7 +981,7 @@ export function BoardView() {
                     <select
                       value={getResolvedTodoStateId(selectedSession.todoState, statusMap, fallbackTodoStateId)}
                       onChange={(event) => requestTodoStateChange(selectedSession.id, event.target.value)}
-                      className="h-8 rounded-[8px] border border-[var(--border)] bg-[var(--bg-primary)] px-2 text-[11px] text-[var(--text-primary)] outline-none"
+                      className="h-8 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-2 text-[11px] text-[var(--text-primary)] outline-none"
                     >
                       {statusConfigs
                         .slice()
@@ -1061,7 +1061,7 @@ export function BoardView() {
                       }
                       disabled={selectedSession.readOnly || selectedSession.status === 'running'}
                       rows={1}
-                      className="min-h-[32px] max-h-[120px] flex-1 resize-none rounded-[8px] border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1.5 text-[12px] leading-[18px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-blue-400 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:border-blue-500"
+                      className="min-h-[32px] max-h-[120px] flex-1 resize-none rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1.5 text-[12px] leading-[18px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-blue-400 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:border-blue-500"
                     />
                     <button
                       type="button"
@@ -1071,7 +1071,7 @@ export function BoardView() {
                         selectedSession.status === 'running' ||
                         !replyPrompt.trim()
                       }
-                      className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[8px] bg-[var(--accent)] text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+                      className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--accent)] text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <Send className="h-3.5 w-3.5" />
                     </button>
@@ -1085,7 +1085,7 @@ export function BoardView() {
             <button
               type="button"
               onClick={() => setDetailOpen(true)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-lg)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
               title="Expand panel"
             >
               <PanelRightOpen className="h-4 w-4" />
@@ -1096,7 +1096,7 @@ export function BoardView() {
 
       {newRunOpen && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/18 px-4 backdrop-blur-[1px]">
-          <div className="w-full max-w-2xl rounded-[24px] border border-[var(--border)] bg-[var(--bg-secondary)] shadow-2xl">
+          <div className="w-full max-w-2xl rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] shadow-2xl">
             <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
               <div>
                 <div className="text-base font-semibold text-[var(--text-primary)]">New Run</div>
@@ -1107,7 +1107,7 @@ export function BoardView() {
               <button
                 type="button"
                 onClick={() => setNewRunOpen(false)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-[12px] border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1122,7 +1122,7 @@ export function BoardView() {
                     value={newRunCwd}
                     onChange={(event) => setNewRunCwd(event.target.value)}
                     placeholder="Select or paste a project path"
-                    className="h-11 w-full rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+                    className="h-11 w-full rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
                   />
                   <datalist id="board-project-options">
                     {projectOptions.map((option) => (
@@ -1136,7 +1136,7 @@ export function BoardView() {
                   <select
                     value={newRunProvider}
                     onChange={(event) => setNewRunProvider(event.target.value as typeof newRunProvider)}
-                    className="h-11 w-full rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none"
+                    className="h-11 w-full rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none"
                   >
                     <option value="claude">Claude</option>
                     <option value="codex">Codex</option>
@@ -1151,7 +1151,7 @@ export function BoardView() {
                   value={newRunPrompt}
                   onChange={(event) => setNewRunPrompt(event.target.value)}
                   placeholder="Describe the task you want this run to handle..."
-                  className="min-h-[160px] w-full resize-y rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3 text-sm leading-6 text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+                  className="min-h-[160px] w-full resize-y rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3 text-sm leading-6 text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
                 />
               </label>
             </div>
@@ -1160,7 +1160,7 @@ export function BoardView() {
               <button
                 type="button"
                 onClick={() => setNewRunOpen(false)}
-                className="inline-flex h-10 items-center rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                className="inline-flex h-10 items-center rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
               >
                 Cancel
               </button>
@@ -1168,7 +1168,7 @@ export function BoardView() {
                 type="button"
                 onClick={handleStartNewRun}
                 disabled={pendingStart || !newRunPrompt.trim() || !newRunCwd.trim()}
-                className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-10 items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Sparkles className="h-4 w-4" />
                 {pendingStart ? 'Starting…' : 'Start Run'}

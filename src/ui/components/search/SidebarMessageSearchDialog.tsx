@@ -127,7 +127,7 @@ function HistorySearchResultCard({
     <button
       type="button"
       onClick={onSelectSession}
-      className={`w-full rounded-[18px] border px-4 py-3 text-left transition-colors ${
+      className={`w-full rounded-[var(--radius-2xl)] border px-4 py-3 text-left transition-colors ${
         selected
           ? 'border-[var(--accent)]/35 bg-[var(--accent-light)]/35'
           : 'border-[var(--border)] bg-[var(--bg-primary)] hover:border-[var(--accent)]/20 hover:bg-[var(--bg-tertiary)]/40'
@@ -166,7 +166,7 @@ function HistorySearchResultCard({
                 event.stopPropagation();
                 onSelectMatch(match.createdAt);
               }}
-              className={`block w-full rounded-[12px] border px-3 py-2 text-left transition-colors ${
+              className={`block w-full rounded-[var(--radius-xl)] border px-3 py-2 text-left transition-colors ${
                 isSelectedMatch
                   ? 'border-[var(--accent)]/30 bg-[var(--bg-secondary)]'
                   : 'border-[var(--border)]/60 bg-[var(--bg-secondary)]/60 hover:bg-[var(--bg-secondary)]'
@@ -446,7 +446,7 @@ function SearchHistoryPreview({
                 selectedMessageCreatedAt || result.matches[0]?.createdAt || Date.now();
               onOpenInMainThread(result.sessionId, targetCreatedAt);
             }}
-            className="inline-flex h-9 items-center gap-2 rounded-[12px] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+            className="inline-flex h-9 items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
           >
             <ArrowUpRight className="h-4 w-4" />
             Open in Main Thread
@@ -469,7 +469,7 @@ function SearchHistoryPreview({
         )}
 
         {previewError ? (
-          <div className="mb-4 rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+          <div className="mb-4 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
             {previewError}
           </div>
         ) : null}
@@ -662,7 +662,7 @@ export function SidebarMessageSearchDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[90] bg-[rgba(15,23,42,0.18)] backdrop-blur-[1px]" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-[100] flex h-[min(78vh,860px)] w-[min(1180px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[24px] border border-[var(--border)] bg-[var(--bg-secondary)] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[100] flex h-[min(78vh,860px)] w-[min(1180px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] p-0 shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
           <div className="border-b border-[var(--border)] px-5 py-4">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -677,7 +677,7 @@ export function SidebarMessageSearchDialog({
               <Dialog.Close asChild>
                 <button
                   type="button"
-                  className="flex h-8 w-8 items-center justify-center rounded-[10px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                  className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-lg)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
                   aria-label="Close search"
                 >
                   <X className="h-4 w-4" />
@@ -695,13 +695,13 @@ export function SidebarMessageSearchDialog({
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search Aegis and Claude Code history..."
-                className="h-11 w-full rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] pl-10 pr-10 text-sm text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+                className="h-11 w-full rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] pl-10 pr-10 text-sm text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
               />
               {query ? (
                 <button
                   type="button"
                   onClick={() => setQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-[10px] p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-[var(--radius-lg)] p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
                   aria-label="Clear search"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -714,7 +714,7 @@ export function SidebarMessageSearchDialog({
             <div className="flex w-[420px] min-w-0 flex-col border-r border-[var(--border)]">
               <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
                 {!debouncedQuery.trim() ? (
-                  <div className="flex flex-col items-center justify-center rounded-[16px] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-6 py-12 text-center">
+                  <div className="flex flex-col items-center justify-center rounded-[var(--radius-2xl)] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-6 py-12 text-center">
                     <Search className="mb-3 h-5 w-5 text-[var(--text-muted)]" />
                     <div className="text-sm font-medium text-[var(--text-primary)]">
                       Search across indexed history
@@ -724,7 +724,7 @@ export function SidebarMessageSearchDialog({
                     </div>
                   </div>
                 ) : results.length === 0 && !loading ? (
-                  <div className="rounded-[16px] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-6 py-10 text-center text-sm text-[var(--text-secondary)]">
+                  <div className="rounded-[var(--radius-2xl)] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-6 py-10 text-center text-sm text-[var(--text-secondary)]">
                     No matching conversations found.
                   </div>
                 ) : (

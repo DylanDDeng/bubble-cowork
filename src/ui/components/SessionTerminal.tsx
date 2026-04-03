@@ -301,7 +301,7 @@ export function SessionTerminal({
             return (
               <div
                 key={tab.id}
-                className={`group flex items-center gap-1 rounded-[10px] border px-2.5 py-1.5 text-[12px] transition-colors ${
+                className={`group flex items-center gap-1 rounded-[var(--radius-lg)] border px-2.5 py-1.5 text-[12px] transition-colors ${
                   active
                     ? 'border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
                     : 'border-transparent bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
@@ -330,7 +330,7 @@ export function SessionTerminal({
           type="button"
           onClick={handleAddTab}
           disabled={!canStart}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] border border-[var(--border)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-lg)] border border-[var(--border)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
           aria-label="New terminal"
         >
           <Plus className="h-4 w-4" />
@@ -352,7 +352,7 @@ export function SessionTerminal({
             onClick={() => {
               terminalRef.current?.focus();
             }}
-            className="h-full w-full overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-2"
+            className="h-full w-full overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-2"
           />
         </div>
       )}

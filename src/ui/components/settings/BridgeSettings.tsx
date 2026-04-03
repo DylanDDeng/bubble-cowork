@@ -112,11 +112,11 @@ export function BridgeSettingsContent() {
 
   return (
     <div className="space-y-8 pb-12">
-      <section className="rounded-[20px] border border-[var(--border)] bg-[var(--bg-secondary)] p-6">
+      <section className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-[12px] bg-[var(--bg-tertiary)] text-[var(--text-primary)]">
+              <div className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-xl)] bg-[var(--bg-tertiary)] text-[var(--text-primary)]">
                 <Bot className="h-5 w-5" />
               </div>
               <div>
@@ -133,7 +133,7 @@ export function BridgeSettingsContent() {
               type="button"
               onClick={() => void handleToggle('start')}
               disabled={toggling || isRunning}
-              className="inline-flex items-center gap-2 rounded-[14px] border border-[var(--border)] bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
             >
               <Play className="h-4 w-4" />
               <span>Start</span>
@@ -142,7 +142,7 @@ export function BridgeSettingsContent() {
               type="button"
               onClick={() => void handleToggle('stop')}
               disabled={toggling || !isRunning}
-              className="inline-flex items-center gap-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
             >
               <Square className="h-3.5 w-3.5" fill="currentColor" />
               <span>Stop</span>
@@ -158,13 +158,13 @@ export function BridgeSettingsContent() {
         </div>
 
         {status?.lastError && (
-          <div className="mt-4 rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+          <div className="mt-4 rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
             <span className="font-medium text-[var(--text-primary)]">Last error:</span> {status.lastError}
           </div>
         )}
       </section>
 
-      <section className="rounded-[20px] border border-[var(--border)] bg-[var(--bg-secondary)]">
+      <section className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]">
         <BridgeField
           label="Bridge enabled"
           description="Required before the bridge can start."
@@ -176,7 +176,7 @@ export function BridgeSettingsContent() {
           <input
             value={config.appId}
             onChange={(event) => updateConfig('appId', event.target.value)}
-            className="h-10 w-full rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+            className="h-10 w-full rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
           />
         </BridgeField>
 
@@ -185,7 +185,7 @@ export function BridgeSettingsContent() {
             type="password"
             value={config.appSecret}
             onChange={(event) => updateConfig('appSecret', event.target.value)}
-            className="h-10 w-full rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+            className="h-10 w-full rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
           />
         </BridgeField>
 
@@ -194,12 +194,12 @@ export function BridgeSettingsContent() {
             <input
               value={config.defaultCwd}
               onChange={(event) => updateConfig('defaultCwd', event.target.value)}
-              className="h-10 min-w-0 flex-1 rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+              className="h-10 min-w-0 flex-1 rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
             />
             <button
               type="button"
               onClick={() => void handlePickDirectory()}
-              className="inline-flex h-10 items-center gap-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+              className="inline-flex h-10 items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
             >
               <FolderOpen className="h-4 w-4" />
               <span>Browse</span>
@@ -208,7 +208,7 @@ export function BridgeSettingsContent() {
         </BridgeField>
 
         <BridgeField label="Runtime" description="Choose which agent runtime handles Feishu chats.">
-          <div className="inline-flex items-center gap-1 rounded-[14px] bg-[var(--bg-tertiary)] p-1">
+          <div className="inline-flex items-center gap-1 rounded-[var(--radius-xl)] bg-[var(--bg-tertiary)] p-1">
             <ProviderModeButton
               label="Claude"
               value="claude"
@@ -228,7 +228,7 @@ export function BridgeSettingsContent() {
           <input
             value={config.model}
             onChange={(event) => updateConfig('model', event.target.value)}
-            className="h-10 w-full rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+            className="h-10 w-full rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
           />
         </BridgeField>
 
@@ -236,7 +236,7 @@ export function BridgeSettingsContent() {
           <input
             value={config.allowedUserIds}
             onChange={(event) => updateConfig('allowedUserIds', event.target.value)}
-            className="h-10 w-full rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+            className="h-10 w-full rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
           />
         </BridgeField>
 
@@ -250,7 +250,7 @@ export function BridgeSettingsContent() {
           type="button"
           onClick={() => void handleSave()}
           disabled={saving}
-          className="rounded-[14px] border border-[var(--border)] bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+          className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
         >
           {saving ? 'Saving...' : 'Save'}
         </button>
@@ -281,7 +281,7 @@ function BridgeField({
 
 function StatusCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3">
+    <div className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3">
       <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">{label}</div>
       <div className="mt-2 truncate text-sm font-medium text-[var(--text-primary)]">{value}</div>
     </div>
@@ -304,7 +304,7 @@ function ProviderModeButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-[14px] px-4 py-2 text-sm transition-colors ${
+      className={`rounded-[var(--radius-xl)] px-4 py-2 text-sm transition-colors ${
         active
           ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.08)]'
           : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'

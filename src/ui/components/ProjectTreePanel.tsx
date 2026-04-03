@@ -989,7 +989,7 @@ export function ProjectTreePanel({
           <button
             type="button"
             onClick={onClose}
-            className="absolute right-3 top-10 z-30 flex h-7 w-7 items-center justify-center rounded-[10px] border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-muted)] shadow-[0_4px_14px_rgba(15,23,42,0.08)] transition-colors hover:text-[var(--text-secondary)]"
+            className="absolute right-3 top-10 z-30 flex h-7 w-7 items-center justify-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-muted)] shadow-[0_4px_14px_rgba(15,23,42,0.08)] transition-colors hover:text-[var(--text-secondary)]"
             title="Close panel"
             aria-label="Close panel"
           >
@@ -1063,7 +1063,7 @@ export function ProjectTreePanel({
                 <button
                   onClick={() => void loadChangeRecords()}
                   disabled={changesLoading}
-                  className={`rounded-[10px] border p-1.5 transition-all ${
+                  className={`rounded-[var(--radius-lg)] border p-1.5 transition-all ${
                     changesLoading
                       ? 'cursor-wait border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] shadow-sm'
                       : 'border-transparent text-[var(--text-muted)] hover:border-[var(--border)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] active:scale-[0.97]'
@@ -1078,7 +1078,7 @@ export function ProjectTreePanel({
                 <button
                   onClick={() => void loadChangeRecords()}
                   disabled={changesLoading}
-                  className={`rounded-[10px] border p-1.5 transition-all ${
+                  className={`rounded-[var(--radius-lg)] border p-1.5 transition-all ${
                     changesLoading
                       ? 'cursor-wait border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] shadow-sm'
                       : 'border-transparent text-[var(--text-muted)] hover:border-[var(--border)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] active:scale-[0.97]'
@@ -1876,7 +1876,7 @@ function GitPanel({
               onClick={() => setCommitOpen(true)}
               disabled={commitLoading || totalChanges === 0}
               title={totalChanges === 0 ? 'No local changes to commit' : 'Commit all current changes'}
-              className="inline-flex items-center gap-2 rounded-[12px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
             >
               <GitCommit className="h-4 w-4" />
               <span>Commit All</span>
@@ -1886,7 +1886,7 @@ function GitPanel({
               onClick={onPush}
               disabled={pushLoading}
               title={currentUpstream ? `Push to ${currentUpstream}` : 'Push current branch'}
-              className="inline-flex items-center gap-2 rounded-[12px] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
             >
               <Upload className="h-4 w-4" />
               <span>{pushLoading ? 'Pushing…' : 'Push'}</span>
@@ -2043,7 +2043,7 @@ function GitFileList({
         return (
           <div
             key={`${entry.filePath}:${entry.staged ? 'staged' : 'unstaged'}`}
-            className="flex items-center gap-3 rounded-[18px] border border-[var(--border)] bg-[var(--bg-secondary)]/92 px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+            className="flex items-center gap-3 rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]/92 px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
           >
             <div className="min-w-0 flex-1 text-left">
               <div className="truncate text-[15px] font-medium text-[var(--text-primary)]">
@@ -2073,7 +2073,7 @@ function GitFileList({
                 onClick={() => onSecondaryAction(entry)}
                 disabled={busy}
                 title={secondaryActionLabel === 'Discard' ? 'Discard local changes for this file' : secondaryActionLabel}
-                className="inline-flex items-center gap-1.5 rounded-[10px] border border-[#F2C6CD] bg-[#FFF7F8] px-2.5 py-1.5 text-[12px] font-medium text-[#B4233D] transition-colors hover:border-[#E7A8B3] hover:bg-[#FDEEEF] disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-[#F2C6CD] bg-[#FFF7F8] px-2.5 py-1.5 text-[12px] font-medium text-[#B4233D] transition-colors hover:border-[#E7A8B3] hover:bg-[#FDEEEF] disabled:opacity-50"
               >
                 <X className="h-3 w-3" />
                 <span>{busy ? secondaryBusyLabel : secondaryActionLabel}</span>
@@ -2083,7 +2083,7 @@ function GitFileList({
               type="button"
               onClick={() => onPrimaryAction(entry)}
               disabled={busy}
-              className="inline-flex items-center gap-1 rounded-[10px] border border-[var(--border)] px-2.5 py-1.5 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-[var(--radius-lg)] border border-[var(--border)] px-2.5 py-1.5 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
             >
               {primaryActionLabel === 'Stage' ? <GitBranch className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
               <span>{busy ? 'Working…' : primaryActionLabel}</span>
@@ -2271,13 +2271,13 @@ function CommitModal({
 }) {
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-[rgba(15,23,42,0.14)] p-4 backdrop-blur-[1px]">
-      <div className="w-full max-w-[420px] overflow-hidden rounded-[22px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)]">
+      <div className="w-full max-w-[420px] overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)]">
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
           <div className="text-[18px] font-semibold text-[var(--text-primary)]">Commit changes</div>
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-xl)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
           >
             <X className="h-4 w-4" />
           </button>
@@ -2301,7 +2301,7 @@ function CommitModal({
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-[16px] border border-[var(--border)] bg-[var(--bg-secondary)]/92">
+          <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]/92">
             <textarea
               value={commitMessage}
               onChange={(event) => onCommitMessageChange(event.target.value)}
@@ -2311,7 +2311,7 @@ function CommitModal({
             />
           </div>
 
-          <div className="space-y-2 rounded-[16px] border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-3">
+          <div className="space-y-2 rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-3">
             <label className="flex items-center gap-3 text-[15px] text-[var(--text-primary)]">
               <input
                 type="radio"
@@ -2335,7 +2335,7 @@ function CommitModal({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex items-center justify-center rounded-[12px] px-4 py-2 text-[15px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)]"
+            className="inline-flex items-center justify-center rounded-[var(--radius-xl)] px-4 py-2 text-[15px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)]"
           >
             Cancel
           </button>
@@ -2343,7 +2343,7 @@ function CommitModal({
             type="button"
             onClick={onSubmit}
             disabled={loading || !commitMessage.trim()}
-            className="inline-flex min-w-[132px] items-center justify-center rounded-[12px] bg-[var(--accent)] px-4 py-2 text-[15px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-w-[132px] items-center justify-center rounded-[var(--radius-xl)] bg-[var(--accent)] px-4 py-2 text-[15px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? 'Working…' : mode === 'commit_push' ? 'Commit & Push' : 'Commit'}
           </button>
