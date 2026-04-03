@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import {
   ArrowUpRight,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -303,6 +304,67 @@ function ActivityTurnItem({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function StatusDropdown({
+  value,
+  statusConfigs: configs,
+  onChange,
+}: {
+  value: string;
+  statusConfigs: StatusConfig[];
+  onChange: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const sorted = useMemo(
+    () => configs.slice().sort((a, b) => a.order - b.order),
+    [configs]
+  );
+  const current = sorted.find((s) => s.id === value) || sorted[0];
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-2 text-[11px] text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--bg-secondary)]"
+      >
+        {current && <StatusIcon status={current} className="text-[10px]" />}
+        <span>{current?.label}</span>
+        <ChevronDown className="h-3 w-3 text-[var(--text-muted)]" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-1 min-w-[140px] overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] py-1 shadow-lg">
+          {sorted.map((status) => (
+            <button
+              key={status.id}
+              type="button"
+              onClick={() => { onChange(status.id); setOpen(false); }}
+              className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] transition-colors hover:bg-[var(--bg-tertiary)] ${
+                status.id === value ? 'font-medium text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'
+              }`}
+            >
+              <StatusIcon status={status} className="text-[10px]" />
+              <span>{status.label}</span>
+              {status.id === value ? <Check className="ml-auto h-3 w-3 text-[var(--accent)]" /> : null}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1129,20 +1191,11 @@ export function BoardView() {
                       <ArrowUpRight className="h-3.5 w-3.5" />
                       Open Thread
                     </button>
-                    <select
+                    <StatusDropdown
                       value={getResolvedTodoStateId(selectedSession.todoState, statusMap, fallbackTodoStateId)}
-                      onChange={(event) => requestTodoStateChange(selectedSession.id, event.target.value)}
-                      className="h-8 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-2 text-[11px] text-[var(--text-primary)] outline-none"
-                    >
-                      {statusConfigs
-                        .slice()
-                        .sort((left, right) => left.order - right.order)
-                        .map((status) => (
-                          <option key={status.id} value={status.id}>
-                            {status.label}
-                          </option>
-                        ))}
-                    </select>
+                      statusConfigs={statusConfigs}
+                      onChange={(id) => requestTodoStateChange(selectedSession.id, id)}
+                    />
                   </div>
 
                   {/* Divider */}
