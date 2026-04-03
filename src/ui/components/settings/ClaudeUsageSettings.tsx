@@ -492,7 +492,7 @@ function MetricCard({
   return (
     <PanelCard className="px-5 py-4">
       <div className="text-sm text-[var(--text-secondary)]">{title}</div>
-      <div className="mt-3 text-[34px] font-semibold tracking-[-0.04em] text-[var(--text-primary)]">
+      <div className="mt-2 text-[24px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
         {value}
       </div>
       <div className="mt-2 text-sm text-[var(--text-secondary)]">{subtitle}</div>
@@ -587,7 +587,7 @@ function UsageChart({
     <div className="relative" onMouseLeave={() => setHoveredIndex(null)}>
       {hoveredPoint && hoveredCenterX !== null && (
         <div
-          className="pointer-events-none absolute top-0 z-10 w-[240px] rounded-2xl border border-[var(--border)] bg-[var(--bg-primary)]/96 px-4 py-3 shadow-[0_18px_45px_rgba(15,23,42,0.12)] backdrop-blur"
+          className="pointer-events-none absolute top-0 z-10 w-[240px] rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)]/96 px-4 py-3 shadow-[0_18px_45px_rgba(15,23,42,0.12)] backdrop-blur"
           style={{
             left: `${(hoveredCenterX / viewBoxWidth) * 100}%`,
             transform: tooltipTransform,

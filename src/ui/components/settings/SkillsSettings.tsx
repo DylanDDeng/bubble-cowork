@@ -112,7 +112,7 @@ export function SkillsSettingsContentInner({ embedded = false }: { embedded?: bo
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search skills..."
-              className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] pl-9 pr-9 text-sm text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--border)]"
+              className="h-10 w-full rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] pl-9 pr-9 text-sm text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--border)]"
             />
             {hasSearchQuery && (
               <button
@@ -130,7 +130,7 @@ export function SkillsSettingsContentInner({ embedded = false }: { embedded?: bo
           <button
             onClick={refreshSkills}
             disabled={refreshing}
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {refreshing ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
             <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
@@ -218,7 +218,7 @@ function SkillsSection({
       <div className="h-px bg-[var(--border)]" />
 
       {skills.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] p-4 text-sm text-[var(--text-muted)]">
+        <div className="rounded-[var(--radius-2xl)] border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] p-4 text-sm text-[var(--text-muted)]">
           {emptyMessage}
         </div>
       ) : (
@@ -255,7 +255,7 @@ function SkillCard({
   return (
     <article className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4 shadow-[0_6px_18px_rgba(0,0,0,0.03)]">
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
+        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
           <Boxes className="w-4.5 h-4.5" />
         </div>
 
@@ -283,7 +283,7 @@ function SkillCard({
         <button
           onClick={() => void onReveal(skill.path)}
           disabled={revealing}
-          className="flex-shrink-0 rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-60 disabled:cursor-not-allowed"
+          className="flex-shrink-0 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {revealing ? 'Revealing...' : 'Reveal'}
         </button>

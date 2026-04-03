@@ -468,7 +468,7 @@ export function CompatibleProviderSettingsContent() {
                     }))
                   }
                   placeholder="https://your-compatible-endpoint/v1"
-                  className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
+                  className="h-11 w-full rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
                   disabled={savingProvider !== null}
                 />
               </Field>
@@ -531,7 +531,7 @@ export function CompatibleProviderSettingsContent() {
                     }))
                   }
                   placeholder={selectedProviderId === 'mimo' ? '64000' : 'Optional override'}
-                  className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
+                  className="h-11 w-full rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
                   disabled={savingProvider !== null}
                 />
               </Field>
@@ -552,13 +552,13 @@ export function CompatibleProviderSettingsContent() {
                       }))
                     }
                     placeholder="token..."
-                    className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-3 pr-11 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
+                    className="h-11 w-full rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 pr-11 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
                     disabled={savingProvider !== null}
                   />
                   <button
                     type="button"
                     onClick={() => setShowSecret((current) => !current)}
-                    className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-xl text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+                    className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-[var(--radius-xl)] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
                     aria-label={showSecret ? 'Hide key' : 'Show key'}
                     disabled={savingProvider !== null}
                   >
@@ -1013,14 +1013,14 @@ function SuggestionInput({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-11 rounded-xl border-[var(--border)] bg-[var(--bg-secondary)] pr-11 text-sm text-[var(--text-primary)] focus-visible:ring-[var(--accent)]"
+        className="h-11 rounded-[var(--radius-xl)] border-[var(--border)] bg-[var(--bg-primary)] pr-11 text-sm text-[var(--text-primary)] focus-visible:ring-[var(--accent)]"
         disabled={disabled}
       />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-xl text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-[var(--radius-xl)] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
             disabled={disabled}
             aria-label="Open model suggestions"
           >

@@ -238,7 +238,7 @@ function ServerSection({
         <button
           onClick={onAddNew}
           disabled={isAddingNew || editingServer !== null}
-          className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed"
+          className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Add Server
         </button>
@@ -431,7 +431,7 @@ function McpServerForm({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. filesystem"
-            className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-xl focus:outline-none focus:border-[var(--accent)]"
+            className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-xl)] focus:outline-none focus:border-[var(--accent)]"
             disabled={!!initialName}
           />
         </div>
@@ -466,7 +466,7 @@ function McpServerForm({
                 value={command}
                 onChange={(e) => setCommand(e.target.value)}
                 placeholder="e.g. npx"
-                className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-xl focus:outline-none focus:border-[var(--accent)]"
+                className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-xl)] focus:outline-none focus:border-[var(--accent)]"
               />
             </div>
             <div>
@@ -476,7 +476,7 @@ function McpServerForm({
                 value={args}
                 onChange={(e) => setArgs(e.target.value)}
                 placeholder="e.g. @modelcontextprotocol/server-filesystem"
-                className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-xl focus:outline-none focus:border-[var(--accent)]"
+                className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-xl)] focus:outline-none focus:border-[var(--accent)]"
               />
             </div>
           </>
@@ -488,7 +488,7 @@ function McpServerForm({
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="e.g. http://localhost:3000/mcp"
-              className="w-full px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-xl focus:outline-none focus:border-[var(--accent)]"
+              className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-xl)] focus:outline-none focus:border-[var(--accent)]"
             />
           </div>
         )}
@@ -514,14 +514,14 @@ function McpServerForm({
                     value={env.key}
                     onChange={(e) => updateEnvVar(index, 'key', e.target.value)}
                     placeholder="KEY"
-                    className="flex-1 px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-xl focus:outline-none focus:border-[var(--accent)] text-sm"
+                    className="flex-1 px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-xl)] focus:outline-none focus:border-[var(--accent)] text-sm"
                   />
                   <input
                     type="text"
                     value={env.value}
                     onChange={(e) => updateEnvVar(index, 'value', e.target.value)}
                     placeholder="value"
-                    className="flex-1 px-3 py-2 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-xl focus:outline-none focus:border-[var(--accent)] text-sm"
+                    className="flex-1 px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-xl)] focus:outline-none focus:border-[var(--accent)] text-sm"
                   />
                   <button
                     type="button"
@@ -541,13 +541,13 @@ function McpServerForm({
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded-xl transition-colors"
+            className="px-4 py-2 text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded-[var(--radius-xl)] transition-colors"
           >
             Cancel
           </button>
           <button
             type="submit"
-            className="px-4 py-2 bg-[var(--accent)] text-[var(--accent-foreground)] rounded-xl hover:bg-[var(--accent-hover)] transition-colors"
+            className="px-4 py-2 bg-[var(--accent)] text-[var(--accent-foreground)] rounded-[var(--radius-xl)] hover:bg-[var(--accent-hover)] transition-colors"
           >
             Save
           </button>

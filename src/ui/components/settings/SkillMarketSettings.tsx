@@ -387,7 +387,7 @@ function MarketListPane({
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Search Skills.sh..."
-            className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] pl-9 pr-9 text-[14px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--border)]"
+            className="h-10 w-full rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] pl-9 pr-9 text-[14px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--border)]"
           />
           {trimmedQuery && (
             <button
@@ -405,16 +405,16 @@ function MarketListPane({
 
       <div className="flex-1 overflow-y-auto p-2">
         {error ? (
-          <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--bg-primary)] p-4 text-[14px] text-[var(--error)]">
+          <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] p-4 text-[14px] text-[var(--error)]">
             {error}
           </div>
         ) : loading ? (
-          <div className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-4 text-[14px] text-[var(--text-secondary)]">
+          <div className="flex items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-4 text-[14px] text-[var(--text-secondary)]">
             <LoaderCircle className="h-4 w-4 animate-spin" />
             <span>Loading skills…</span>
           </div>
         ) : items.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--bg-primary)] p-4 text-[14px] text-[var(--text-muted)]">
+          <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] p-4 text-[14px] text-[var(--text-muted)]">
             {trimmedQuery ? 'No skills matched this search.' : 'No skills available right now.'}
           </div>
         ) : (

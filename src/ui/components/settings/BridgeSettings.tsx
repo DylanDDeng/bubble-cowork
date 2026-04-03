@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Bot, FolderOpen, Play, Square } from 'lucide-react';
+import { FolderOpen, Play, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import type { AgentProvider, FeishuBridgeConfig, FeishuBridgeStatus } from '../../types';
 
@@ -49,9 +49,7 @@ export function BridgeSettingsContent() {
     const timer = window.setInterval(() => {
       void window.electron.getFeishuBridgeStatus().then((nextStatus) => {
         if (!cancelled) setStatus(nextStatus);
-      }).catch(() => {
-        // ignore polling errors
-      });
+      }).catch(() => {});
     }, 3000);
 
     return () => {
@@ -111,104 +109,114 @@ export function BridgeSettingsContent() {
   const isRunning = status?.running === true;
 
   return (
-    <div className="space-y-8 pb-12">
-      <section className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-xl)] bg-[var(--bg-tertiary)] text-[var(--text-primary)]">
-                <Bot className="h-5 w-5" />
-              </div>
-              <div>
-                <div className="text-[18px] font-semibold text-[var(--text-primary)]">Feishu Bridge</div>
-                <div className="mt-1 text-sm text-[var(--text-secondary)]">
-                  Bridge Feishu private chats into local Claude/Codex sessions on this machine.
-                </div>
-              </div>
-            </div>
+    <div className="space-y-6 pb-8">
+      <BridgeSection title="Status">
+        <BridgeRow label="State" description="Current bridge connection status.">
+          <div className="flex items-center gap-3">
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium ${
+              isRunning
+                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400'
+                : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'
+            }`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${isRunning ? 'bg-emerald-500' : 'bg-[var(--text-muted)]'}`} />
+              {isRunning ? 'Running' : 'Stopped'}
+            </span>
+            {status?.connected && (
+              <span className="text-[12px] text-emerald-600 dark:text-emerald-400">Connected</span>
+            )}
           </div>
+        </BridgeRow>
 
+        <BridgeRow label="Controls" description="Start or stop the bridge service.">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => void handleToggle('start')}
               disabled={toggling || isRunning}
-              className="inline-flex items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--accent-light)] px-3 py-1.5 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
             >
-              <Play className="h-4 w-4" />
-              <span>Start</span>
+              <Play className="h-3.5 w-3.5" />
+              Start
             </button>
             <button
               type="button"
               onClick={() => void handleToggle('stop')}
               disabled={toggling || !isRunning}
-              className="inline-flex items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-1.5 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
             >
-              <Square className="h-3.5 w-3.5" fill="currentColor" />
-              <span>Stop</span>
+              <Square className="h-3 w-3" fill="currentColor" />
+              Stop
             </button>
           </div>
-        </div>
+        </BridgeRow>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <StatusCard label="State" value={isRunning ? 'Running' : 'Stopped'} />
-          <StatusCard label="Connected" value={status?.connected ? 'Yes' : 'No'} />
-          <StatusCard label="Bindings" value={String(status?.activeBindings || 0)} />
-          <StatusCard label="Bot Open ID" value={status?.botOpenId || 'Unknown'} />
-        </div>
+        <BridgeRow label="Active bindings" description="Feishu chats mapped to local sessions.">
+          <span className="text-[14px] font-medium text-[var(--text-primary)]">
+            {String(status?.activeBindings || 0)}
+          </span>
+        </BridgeRow>
+
+        {status?.botOpenId && status.botOpenId !== 'Unknown' && (
+          <BridgeRow label="Bot Open ID" description="The bot identity used by the bridge.">
+            <span className="max-w-[240px] truncate text-[13px] font-mono text-[var(--text-secondary)]">
+              {status.botOpenId}
+            </span>
+          </BridgeRow>
+        )}
 
         {status?.lastError && (
-          <div className="mt-4 rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-            <span className="font-medium text-[var(--text-primary)]">Last error:</span> {status.lastError}
-          </div>
+          <BridgeRow label="Last error" description="">
+            <span className="max-w-[320px] truncate text-[13px] text-[var(--error)]">
+              {status.lastError}
+            </span>
+          </BridgeRow>
         )}
-      </section>
+      </BridgeSection>
 
-      <section className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]">
-        <BridgeField
-          label="Bridge enabled"
-          description="Required before the bridge can start."
-        >
+      <BridgeSection title="Credentials">
+        <BridgeRow label="Bridge enabled" description="Required before the bridge can start.">
           <ToggleButton checked={config.enabled} onChange={(checked) => updateConfig('enabled', checked)} />
-        </BridgeField>
+        </BridgeRow>
 
-        <BridgeField label="App ID" description="From your Feishu self-built app credentials.">
+        <BridgeRow label="App ID" description="From your Feishu self-built app credentials.">
           <input
             value={config.appId}
             onChange={(event) => updateConfig('appId', event.target.value)}
-            className="h-10 w-full rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+            className="h-9 w-full rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
           />
-        </BridgeField>
+        </BridgeRow>
 
-        <BridgeField label="App Secret" description="Stored locally on this machine.">
+        <BridgeRow label="App Secret" description="Stored locally on this machine.">
           <input
             type="password"
             value={config.appSecret}
             onChange={(event) => updateConfig('appSecret', event.target.value)}
-            className="h-10 w-full rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+            className="h-9 w-full rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
           />
-        </BridgeField>
+        </BridgeRow>
+      </BridgeSection>
 
-        <BridgeField label="Default workspace" description="Used when a Feishu chat starts a new session.">
+      <BridgeSection title="Runtime">
+        <BridgeRow label="Default workspace" description="Used when a Feishu chat starts a new session.">
           <div className="flex items-center gap-2">
             <input
               value={config.defaultCwd}
               onChange={(event) => updateConfig('defaultCwd', event.target.value)}
-              className="h-10 min-w-0 flex-1 rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+              className="h-9 min-w-0 flex-1 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
             />
             <button
               type="button"
               onClick={() => void handlePickDirectory()}
-              className="inline-flex h-10 items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+              className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
             >
-              <FolderOpen className="h-4 w-4" />
-              <span>Browse</span>
+              <FolderOpen className="h-3.5 w-3.5" />
+              Browse
             </button>
           </div>
-        </BridgeField>
+        </BridgeRow>
 
-        <BridgeField label="Runtime" description="Choose which agent runtime handles Feishu chats.">
-          <div className="inline-flex items-center gap-1 rounded-[var(--radius-xl)] bg-[var(--bg-tertiary)] p-1">
+        <BridgeRow label="Runtime" description="Choose which agent runtime handles Feishu chats.">
+          <div className="inline-flex items-center gap-0.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] p-0.5">
             <ProviderModeButton
               label="Claude"
               value="claude"
@@ -222,35 +230,35 @@ export function BridgeSettingsContent() {
               onClick={() => updateConfig('provider', 'codex')}
             />
           </div>
-        </BridgeField>
+        </BridgeRow>
 
-        <BridgeField label="Default model" description="Optional. Leave blank to use the current runtime default.">
+        <BridgeRow label="Default model" description="Optional. Leave blank for runtime default.">
           <input
             value={config.model}
             onChange={(event) => updateConfig('model', event.target.value)}
-            className="h-10 w-full rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+            className="h-9 w-full rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
           />
-        </BridgeField>
+        </BridgeRow>
 
-        <BridgeField label="Allowed user IDs" description="Comma-separated Feishu user open_ids. Leave blank to allow all private chats.">
+        <BridgeRow label="Allowed user IDs" description="Comma-separated. Leave blank to allow all.">
           <input
             value={config.allowedUserIds}
             onChange={(event) => updateConfig('allowedUserIds', event.target.value)}
-            className="h-10 w-full rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+            className="h-9 w-full rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
           />
-        </BridgeField>
+        </BridgeRow>
 
-        <BridgeField label="Start on launch" description="Automatically start the bridge when the app opens.">
+        <BridgeRow label="Start on launch" description="Auto-start bridge when the app opens.">
           <ToggleButton checked={config.autoStart} onChange={(checked) => updateConfig('autoStart', checked)} />
-        </BridgeField>
-      </section>
+        </BridgeRow>
+      </BridgeSection>
 
       <div className="flex justify-end">
         <button
           type="button"
           onClick={() => void handleSave()}
           disabled={saving}
-          className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+          className="h-9 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--accent-light)] px-4 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
         >
           {saving ? 'Saving...' : 'Save'}
         </button>
@@ -259,7 +267,24 @@ export function BridgeSettingsContent() {
   );
 }
 
-function BridgeField({
+function BridgeSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="border-b border-[var(--border)] pb-6 last:border-b-0 last:pb-0">
+      <h2 className="mb-3 text-[13px] font-semibold uppercase tracking-[0.06em] text-[var(--text-muted)]">
+        {title}
+      </h2>
+      <div>{children}</div>
+    </section>
+  );
+}
+
+function BridgeRow({
   label,
   description,
   children,
@@ -269,21 +294,14 @@ function BridgeField({
   children: React.ReactNode;
 }) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_minmax(340px,440px)] items-start gap-5 border-b border-[var(--border)] px-6 py-4 last:border-b-0">
-      <div className="space-y-1">
-        <div className="text-[15px] font-semibold text-[var(--text-primary)]">{label}</div>
-        <div className="text-[14px] leading-6 text-[var(--text-secondary)]">{description}</div>
+    <div className="grid grid-cols-[minmax(0,1fr)_minmax(240px,360px)] items-center gap-4 border-b border-[var(--border)] py-3.5 last:border-b-0">
+      <div>
+        <div className="text-[14px] font-medium text-[var(--text-primary)]">{label}</div>
+        {description ? (
+          <div className="mt-0.5 text-[13px] leading-5 text-[var(--text-muted)]">{description}</div>
+        ) : null}
       </div>
       <div className="flex justify-end">{children}</div>
-    </div>
-  );
-}
-
-function StatusCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">{label}</div>
-      <div className="mt-2 truncate text-sm font-medium text-[var(--text-primary)]">{value}</div>
     </div>
   );
 }
@@ -304,9 +322,9 @@ function ProviderModeButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-[var(--radius-xl)] px-4 py-2 text-sm transition-colors ${
+      className={`rounded-[var(--radius-lg)] px-3 py-1.5 text-[12px] transition-colors ${
         active
-          ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.08)]'
+          ? 'bg-[var(--accent-light)] font-medium text-[var(--text-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
           : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
       }`}
     >
@@ -327,13 +345,13 @@ function ToggleButton({
       type="button"
       aria-pressed={checked}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
         checked ? 'bg-[var(--accent)]' : 'bg-[var(--bg-tertiary)]'
       }`}
     >
       <span
-        className={`absolute h-5 w-5 rounded-full bg-white transition-transform ${
-          checked ? 'translate-x-6' : 'translate-x-1'
+        className={`absolute h-4.5 w-4.5 rounded-full bg-white transition-transform ${
+          checked ? 'translate-x-5.5' : 'translate-x-0.5'
         }`}
       />
     </button>
