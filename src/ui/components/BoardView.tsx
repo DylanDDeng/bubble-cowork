@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import {
   ArrowUpRight,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Clock3,
   FolderOpen,
   KanbanSquare,
@@ -160,95 +162,188 @@ function getProjectLabel(cwd?: string): string {
   return parts[parts.length - 1] || cwd;
 }
 
-type ActivityItem = {
-  kind: 'prompt' | 'assistant' | 'result' | 'system';
-  lines: string[];
+// A "turn" represents one user prompt and the agent work that followed it.
+type ActivityTurn = {
+  prompt: string;
+  agentSummaries: string[];
+  result: string | null;
 };
 
-function ActivityIcon({ kind, provider }: { kind: ActivityItem['kind']; provider: string }) {
-  const iconSize = 'h-[16px] w-[16px]';
-  if (kind === 'prompt') {
-    return (
-      <div className={`${iconSize} flex items-center justify-center rounded-full bg-blue-500/15 text-blue-500`}>
-        <User className="h-[10px] w-[10px]" />
-      </div>
-    );
+function collectActivityTurns(session: SessionView): ActivityTurn[] {
+  // Walk messages forward to group into turns.
+  // Each turn starts at a user_prompt and collects agent activity until the next user_prompt.
+  const turns: ActivityTurn[] = [];
+  let current: ActivityTurn | null = null;
+
+  for (const message of session.messages) {
+    if (message.type === 'user_prompt' && message.prompt.trim()) {
+      if (current) {
+        turns.push(current);
+      }
+      current = { prompt: truncate(message.prompt, 120), agentSummaries: [], result: null };
+    } else if (!current) {
+      continue;
+    } else if (message.type === 'assistant') {
+      const summary = extractAssistantSummary(message);
+      if (summary !== 'Assistant responded') {
+        current.agentSummaries.push(truncate(summary, 100));
+      }
+    } else if (message.type === 'result') {
+      current.result = message.subtype === 'success' ? 'Completed' : message.subtype;
+    }
   }
-  if (kind === 'result') {
-    return (
-      <div className={`${iconSize} flex items-center justify-center rounded-full bg-green-500/15 text-green-500`}>
-        <CheckCircle2 className="h-[10px] w-[10px]" />
-      </div>
-    );
+
+  if (current) {
+    turns.push(current);
   }
-  if (kind === 'assistant') {
-    return <RuntimeLogo provider={provider} className={`${iconSize} flex-shrink-0`} />;
+
+  if (session.status === 'running' && turns.length === 0) {
+    return [{ prompt: 'Run in progress', agentSummaries: [], result: null }];
   }
+
+  return turns;
+}
+
+function ActivityTurnItem({
+  turn,
+  index,
+  total,
+  provider,
+  defaultExpanded,
+}: {
+  turn: ActivityTurn;
+  index: number;
+  total: number;
+  provider: string;
+  defaultExpanded: boolean;
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const hasDetails = turn.agentSummaries.length > 0 || turn.result !== null;
+  const isLast = index === total - 1;
+
+  const toggle = useCallback(() => {
+    if (hasDetails) {
+      setExpanded((prev) => !prev);
+    }
+  }, [hasDetails]);
+
   return (
-    <div className={`${iconSize} flex items-center justify-center rounded-full bg-gray-400/15 text-[var(--text-muted)]`}>
-      <Sparkles className="h-[10px] w-[10px]" />
+    <div className="relative flex gap-2.5">
+      {/* Icon column + connector line */}
+      <div className="relative flex w-[16px] flex-shrink-0 flex-col items-center">
+        <div className="flex h-[20px] items-center justify-center">
+          <div className="h-[16px] w-[16px] flex items-center justify-center rounded-full bg-blue-500/15 text-blue-500">
+            <User className="h-[10px] w-[10px]" />
+          </div>
+        </div>
+        {(!isLast || (expanded && hasDetails)) ? (
+          <div className="w-px flex-1 bg-[var(--border)]" />
+        ) : null}
+      </div>
+
+      {/* Content */}
+      <div className="min-w-0 flex-1 pb-2">
+        {/* Prompt row */}
+        <button
+          type="button"
+          onClick={toggle}
+          className={`flex w-full items-start gap-1 text-left ${hasDetails ? 'cursor-pointer' : 'cursor-default'}`}
+        >
+          {hasDetails ? (
+            expanded
+              ? <ChevronDown className="mt-[3px] h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />
+              : <ChevronRight className="mt-[3px] h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />
+          ) : (
+            <span className="mt-[3px] inline-block h-3 w-3 flex-shrink-0" />
+          )}
+          <span className="text-[12px] leading-[20px] font-medium text-[var(--text-primary)]">
+            {turn.prompt}
+          </span>
+        </button>
+
+        {/* Expanded agent details */}
+        {expanded && hasDetails && (
+          <div className="mt-1 ml-4 space-y-1">
+            {turn.agentSummaries.map((line, lineIndex) => (
+              <div key={lineIndex} className="relative flex gap-2 items-start">
+                <div className="flex h-[18px] w-[16px] flex-shrink-0 items-center justify-center">
+                  <RuntimeLogo provider={provider} className="h-[14px] w-[14px] flex-shrink-0" />
+                </div>
+                <div className="text-[11px] leading-[18px] text-[var(--text-secondary)]">{line}</div>
+              </div>
+            ))}
+            {turn.result && (
+              <div className="relative flex gap-2 items-start">
+                <div className="flex h-[18px] w-[16px] flex-shrink-0 items-center justify-center">
+                  <div className="h-[14px] w-[14px] flex items-center justify-center rounded-full bg-green-500/15 text-green-500">
+                    <CheckCircle2 className="h-[9px] w-[9px]" />
+                  </div>
+                </div>
+                <div className="text-[11px] leading-[18px] text-[var(--text-secondary)]">{turn.result}</div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function getRecentActivityItems(session: SessionView): ActivityItem[] {
-  // Collect raw entries newest-first.
-  // user_prompt entries are exempt from the AI count limit so they are
-  // never crowded out by intermediate tool-call / assistant messages.
-  const raw: Array<{ role: 'user' | 'ai' | 'result'; text: string }> = [];
-  let aiCount = 0;
-  let hasUserPrompt = false;
+const MAX_VISIBLE_TURNS = 5;
 
-  for (let index = session.messages.length - 1; index >= 0; index -= 1) {
-    const message = session.messages[index];
-    if (message.type === 'user_prompt' && message.prompt.trim()) {
-      raw.push({ role: 'user', text: truncate(message.prompt, 90) });
-      hasUserPrompt = true;
-    } else if (message.type === 'assistant') {
-      const summary = extractAssistantSummary(message);
-      if (summary !== 'Assistant responded') {
-        raw.push({ role: 'ai', text: summary });
-        aiCount += 1;
-      }
-    } else if (message.type === 'user') {
-      const blocks = getMessageContentBlocks(message);
-      const toolResult = blocks.find((block) => block.type === 'tool_result');
-      if (toolResult?.content?.trim()) {
-        raw.push({ role: 'ai', text: truncate(toolResult.content, 90) });
-        aiCount += 1;
-      }
-    } else if (message.type === 'result') {
-      raw.push({ role: 'result', text: message.subtype === 'success' ? 'Completed' : `${message.subtype}` });
-      aiCount += 1;
-    }
+function ActivityTimeline({ session }: { session: BoardSession }) {
+  const turns = useMemo(() => collectActivityTurns(session), [session.messages, session.status]);
+  const [showAll, setShowAll] = useState(false);
 
-    if (aiCount >= 8 && hasUserPrompt) {
-      break;
-    }
-  }
+  const provider = session.provider || 'claude';
+  const hasManyTurns = turns.length > MAX_VISIBLE_TURNS;
+  const visibleTurns = showAll ? turns : turns.slice(-MAX_VISIBLE_TURNS);
+  const hiddenCount = turns.length - visibleTurns.length;
 
-  // Group consecutive same-role entries into single timeline nodes
-  const items: ActivityItem[] = [];
-  for (const entry of raw) {
-    const kind: ActivityItem['kind'] =
-      entry.role === 'user' ? 'prompt' : entry.role === 'result' ? 'result' : 'assistant';
-    const last = items[items.length - 1];
-    if (last && last.kind === kind) {
-      last.lines.push(entry.text);
-    } else {
-      items.push({ kind, lines: [entry.text] });
-    }
-
-    if (items.length >= 5) {
-      break;
-    }
-  }
-
-  if (items.length === 0) {
-    items.push({ kind: 'system', lines: [session.status === 'running' ? 'Run in progress' : 'No activity yet'] });
-  }
-
-  return items;
+  return (
+    <div>
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+        Activity
+        {turns.length > 1 ? (
+          <span className="ml-1.5 font-normal normal-case tracking-normal text-[var(--text-muted)]">
+            ({turns.length} turns)
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-2">
+        {hasManyTurns && !showAll ? (
+          <button
+            type="button"
+            onClick={() => setShowAll(true)}
+            className="mb-2 text-[11px] text-[var(--accent)] hover:underline"
+          >
+            Show {hiddenCount} older turn{hiddenCount > 1 ? 's' : ''}
+          </button>
+        ) : null}
+        <div className="space-y-0">
+          {visibleTurns.map((turn, index) => (
+            <ActivityTurnItem
+              key={`${session.id}-turn-${turns.length - visibleTurns.length + index}`}
+              turn={turn}
+              index={index}
+              total={visibleTurns.length}
+              provider={provider}
+              defaultExpanded={index === visibleTurns.length - 1}
+            />
+          ))}
+        </div>
+        {turns.length === 0 && session.hydrated ? (
+          <div className="text-[12px] text-[var(--text-muted)]">No activity yet</div>
+        ) : null}
+        {!session.hydrated ? (
+          <div className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+            <PlayCircle className="h-3 w-3" />
+            Loading history…
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function getRuntimeColumnId(session: SessionView): RuntimeColumnId {
@@ -1035,47 +1130,8 @@ export function BoardView() {
                   {/* Divider */}
                   <div className="my-3 border-t border-[var(--border)]" />
 
-                  {/* Activity timeline */}
-                  <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Activity</div>
-                    <div className="mt-2">
-                      <div className="space-y-0">
-                        {getRecentActivityItems(selectedSession).map((item, index, arr) => (
-                          <div
-                            key={`${selectedSession.id}-activity-${index}`}
-                            className="relative flex gap-2.5"
-                          >
-                            {/* Icon + line segment */}
-                            <div className="relative flex w-[16px] flex-shrink-0 flex-col items-center">
-                              <div className="flex h-[18px] items-center justify-center">
-                                <ActivityIcon kind={item.kind} provider={selectedSession.provider || 'claude'} />
-                              </div>
-                              {index < arr.length - 1 ? (
-                                <div className="w-px flex-1 bg-[var(--border)]" />
-                              ) : null}
-                            </div>
-                            {/* Content */}
-                            <div className="min-w-0 flex-1 pb-3">
-                              {item.lines.map((line, lineIndex) => (
-                                <div
-                                  key={lineIndex}
-                                  className="text-[12px] leading-[18px] text-[var(--text-secondary)]"
-                                >
-                                  {line}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    {!selectedSession.hydrated ? (
-                      <div className="mt-2 inline-flex items-center gap-1.5 pl-5 text-[11px] text-[var(--text-muted)]">
-                        <PlayCircle className="h-3 w-3" />
-                        Loading history…
-                      </div>
-                    ) : null}
-                  </div>
+                  {/* Activity timeline (turn-based) */}
+                  <ActivityTimeline session={selectedSession} />
                 </div>
 
                 {/* Reply - fixed bottom bar */}
