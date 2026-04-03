@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
+  Bookmark,
   Copy,
   Download,
   Pencil,
@@ -20,11 +21,32 @@ import {
 } from '../../utils/prompt-library-api';
 import { PromptLibraryEditorDialog } from './PromptLibraryEditorDialog';
 
-function formatUpdatedAt(timestamp: number): string {
-  return new Date(timestamp).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
+function formatRelativeTime(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(months / 12)}y ago`;
+}
+
+const TAG_PALETTE = [
+  '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e',
+  '#f97316', '#eab308', '#22c55e', '#14b8a6',
+  '#06b6d4', '#3b82f6',
+];
+
+function getTagColor(tag: string): string {
+  let hash = 0;
+  for (let i = 0; i < tag.length; i++) {
+    hash = tag.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return TAG_PALETTE[Math.abs(hash) % TAG_PALETTE.length];
 }
 
 function matchesPrompt(item: PromptLibraryItem, query: string, selectedTags: string[]): boolean {
@@ -90,13 +112,13 @@ export function PromptLibraryPanel() {
   );
 
   const handleDelete = async (item: PromptLibraryItem) => {
-    if (!window.confirm(`Delete “${item.title}” from Prompt Library?`)) {
+    if (!window.confirm(`Delete "${item.title}" from Prompt Library?`)) {
       return;
     }
 
     try {
       setItems(await deletePromptLibraryItem(item.id));
-      toast.success(`Deleted “${item.title}”.`);
+      toast.success(`Deleted "${item.title}".`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to delete prompt.');
     }
@@ -138,10 +160,7 @@ export function PromptLibraryPanel() {
   return (
     <div className="flex min-h-0 flex-1 flex-col px-3 pb-3">
       <div className="flex items-center justify-between gap-2 px-1 pb-3 pt-4">
-        <div>
-          <div className="text-base font-semibold text-[var(--text-primary)]">Prompt Library</div>
-          <div className="text-xs text-[var(--text-muted)]">Save, search, and reuse your best prompts.</div>
-        </div>
+        <div className="text-base font-semibold text-[var(--text-primary)]">Prompt Library</div>
 
         <div className="flex items-center gap-1">
           <IconActionButton title="Import prompts" onClick={() => void handleImport()}>
@@ -192,7 +211,7 @@ export function PromptLibraryPanel() {
                 onClick={() => toggleTag(tag)}
                 className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
                   active
-                    ? 'border-[var(--sidebar-item-border)] bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+                    ? 'border-[var(--accent)] bg-[var(--accent-light)] font-medium text-[var(--text-primary)]'
                     : 'border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
                 }`}
               >
@@ -209,83 +228,117 @@ export function PromptLibraryPanel() {
             Loading prompts...
           </div>
         ) : filteredItems.length === 0 ? (
-          <div className="rounded-[18px] border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-8 text-sm text-[var(--text-secondary)]">
-            {items.length === 0
-              ? 'No prompts saved yet. Use the Save button in the composer or create one here.'
-              : 'No prompts match your current search.'}
+          <div className="flex flex-col items-center rounded-[18px] border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-10 text-center">
+            <Bookmark className="mb-3 h-8 w-8 text-[var(--text-muted)]" strokeWidth={1.5} />
+            <div className="text-sm text-[var(--text-secondary)]">
+              {items.length === 0
+                ? 'No prompts saved yet.'
+                : 'No prompts match your current search.'}
+            </div>
+            {items.length === 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingItem(null);
+                  setEditorOpen(true);
+                }}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Create your first prompt
+              </button>
+            )}
           </div>
         ) : (
           <div className="space-y-3 pb-2">
             {filteredItems.map((item) => (
               <div
                 key={item.id}
-                className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-secondary)] p-4"
+                className="group/card relative overflow-hidden rounded-[18px] border border-[var(--border)] bg-[var(--bg-secondary)]"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-[var(--text-primary)]">{item.title}</div>
-                    <div className="mt-1 text-xs text-[var(--text-muted)]">Updated {formatUpdatedAt(item.updatedAt)}</div>
+                {item.tags.length > 0 && (
+                  <div
+                    className="absolute left-0 top-0 bottom-0 w-[3px]"
+                    style={{ backgroundColor: getTagColor(item.tags[0]) }}
+                  />
+                )}
+
+                <div className="p-4">
+                  <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--text-primary)]">
+                      {item.title}
+                    </div>
+                    <span className="flex-shrink-0 text-[11px] text-[var(--text-muted)]">
+                      {formatRelativeTime(item.updatedAt)}
+                    </span>
                   </div>
-                </div>
 
-                {item.description ? (
-                  <div className="mt-3 text-xs leading-5 text-[var(--text-secondary)]">{item.description}</div>
-                ) : null}
+                  {item.tags.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {item.tags.map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => toggleTag(tag)}
+                          className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+                        >
+                          #{tag}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
-                <div className="mt-3 line-clamp-4 whitespace-pre-wrap text-[13px] leading-5 text-[var(--text-secondary)]">
-                  {item.content}
-                </div>
+                  {item.description && (
+                    <div className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
+                      {item.description}
+                    </div>
+                  )}
 
-                {item.tags.length > 0 ? (
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {item.tags.map((tag) => (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => toggleTag(tag)}
-                        className="rounded-full bg-[var(--bg-tertiary)] px-2 py-1 text-[11px] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+                  <div className="relative mt-2">
+                    <div className="line-clamp-3 whitespace-pre-wrap text-[13px] leading-5 text-[var(--text-secondary)]">
+                      {item.content}
+                    </div>
+                    <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-[var(--bg-secondary)] to-transparent" />
+                  </div>
+
+                  <div className="mt-3 flex items-center gap-2">
+                    <InlineActionButton
+                      onClick={() => {
+                        requestPromptLibraryInsert(item.content, 'append');
+                        toast.success(`Inserted "${item.title}" into the composer.`);
+                      }}
+                      tone="primary"
+                    >
+                      Insert
+                    </InlineActionButton>
+                    <div className="flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/card:opacity-100">
+                      <InlineActionButton
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(item.content);
+                            toast.success(`Copied "${item.title}".`);
+                          } catch {
+                            toast.error('Failed to copy prompt.');
+                          }
+                        }}
                       >
-                        #{tag}
-                      </button>
-                    ))}
+                        <Copy className="h-3.5 w-3.5" />
+                        Copy
+                      </InlineActionButton>
+                      <InlineActionButton
+                        onClick={() => {
+                          setEditingItem(item);
+                          setEditorOpen(true);
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Edit
+                      </InlineActionButton>
+                      <InlineActionButton onClick={() => void handleDelete(item)} tone="danger">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </InlineActionButton>
+                    </div>
                   </div>
-                ) : null}
-
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <InlineActionButton
-                    onClick={() => {
-                      requestPromptLibraryInsert(item.content, 'append');
-                      toast.success(`Inserted “${item.title}” into the composer.`);
-                    }}
-                  >
-                    Insert
-                  </InlineActionButton>
-                  <InlineActionButton
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(item.content);
-                        toast.success(`Copied “${item.title}”.`);
-                      } catch {
-                        toast.error('Failed to copy prompt.');
-                      }
-                    }}
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                    Copy
-                  </InlineActionButton>
-                  <InlineActionButton
-                    onClick={() => {
-                      setEditingItem(item);
-                      setEditorOpen(true);
-                    }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                    Edit
-                  </InlineActionButton>
-                  <InlineActionButton onClick={() => void handleDelete(item)} tone="danger">
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Delete
-                  </InlineActionButton>
                 </div>
               </div>
             ))}
@@ -304,7 +357,7 @@ export function PromptLibraryPanel() {
         initialItem={editingItem}
         onSaved={(nextItems, savedTitle) => {
           setItems(nextItems);
-          toast.success(`${editingItem ? 'Updated' : 'Saved'} “${savedTitle}”.`);
+          toast.success(`${editingItem ? 'Updated' : 'Saved'} "${savedTitle}".`);
           setEditingItem(null);
         }}
       />
@@ -344,7 +397,7 @@ function InlineActionButton({
 }: {
   children: ReactNode;
   onClick: () => void;
-  tone?: 'default' | 'danger';
+  tone?: 'default' | 'primary' | 'danger';
 }) {
   return (
     <button
@@ -353,7 +406,9 @@ function InlineActionButton({
       className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-colors ${
         tone === 'danger'
           ? 'text-[#dc2626] hover:bg-[#dc2626]/10'
-          : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+          : tone === 'primary'
+            ? 'font-medium text-[var(--text-primary)] bg-[var(--accent-light)] hover:bg-[var(--accent)]/15'
+            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
       }`}
     >
       {children}

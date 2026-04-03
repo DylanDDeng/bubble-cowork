@@ -17,7 +17,6 @@ import { sendEvent } from '../hooks/useIPC';
 import { SidebarMessageSearchDialog } from './search/SidebarMessageSearchDialog';
 import { StatusFilter } from './StatusFilter';
 import { FolderTreeView } from './FolderTreeView';
-import { PromptLibraryPanel } from './prompts/PromptLibraryPanel';
 import type { SessionView } from '../types';
 
 const MIN_SIDEBAR_WIDTH = 220;
@@ -29,13 +28,11 @@ export function Sidebar() {
     sidebarWidth,
     projectCwd,
     activeWorkspace,
-    chatSidebarView,
     setSidebarCollapsed,
     setSidebarWidth,
     setProjectCwd,
     setActiveSession,
     setActiveWorkspace,
-    setChatSidebarView,
     setShowNewSession,
     setShowSettings,
   } = useAppStore();
@@ -123,15 +120,6 @@ export function Sidebar() {
     setSidebarCollapsed(!sidebarCollapsed);
   };
 
-  const openChatSidebarView = (view: 'threads' | 'prompts') => {
-    setActiveWorkspace('chat');
-    setChatSidebarView(view);
-    setShowSettings(false);
-    if (sidebarCollapsed) {
-      setSidebarCollapsed(false);
-    }
-  };
-
   return (
     <>
       {isSidebarResizing && (
@@ -154,8 +142,11 @@ export function Sidebar() {
               <RailIcon
                 icon={<MessageSquare className="h-[17px] w-[17px]" />}
                 title="Threads"
-                active={activeWorkspace === 'chat' && chatSidebarView === 'threads'}
-                onClick={() => openChatSidebarView('threads')}
+                active={activeWorkspace === 'chat'}
+                onClick={() => {
+                  setActiveWorkspace('chat');
+                  setShowSettings(false);
+                }}
               />
               <RailIcon
                 icon={<Search className="h-[17px] w-[17px]" />}
@@ -175,8 +166,11 @@ export function Sidebar() {
               <RailIcon
                 icon={<Bookmark className="h-[17px] w-[17px]" />}
                 title="Prompt Library"
-                active={activeWorkspace === 'chat' && chatSidebarView === 'prompts'}
-                onClick={() => openChatSidebarView('prompts')}
+                active={activeWorkspace === 'prompts'}
+                onClick={() => {
+                  setActiveWorkspace('prompts');
+                  setShowSettings(false);
+                }}
               />
               <RailIcon
                 icon={<Boxes className="h-[17px] w-[17px]" />}
@@ -227,59 +221,52 @@ export function Sidebar() {
               {/* 拖拽区域 */}
               <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]" />
 
-              {chatSidebarView === 'threads' ? (
-                <>
-                  <div className="mt-4 mb-4 flex items-center gap-2 px-2">
-                    <button
-                      onClick={() => {
-                        setShowSettings(false);
-                        setActiveSession(null);
-                        setShowNewSession(true);
-                      }}
-                      className="group flex flex-1 items-center gap-3 rounded-xl px-2 py-2 text-left no-drag transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
-                    >
-                      <SquarePen className="h-4 w-4 text-[var(--text-muted)]" strokeWidth={1.9} />
-                      <span className="text-base font-medium">New Thread</span>
-                    </button>
+              <div className="mt-4 mb-4 flex items-center gap-2 px-2">
+                <button
+                  onClick={() => {
+                    setShowSettings(false);
+                    setActiveSession(null);
+                    setShowNewSession(true);
+                  }}
+                  className="group flex flex-1 items-center gap-3 rounded-xl px-2 py-2 text-left no-drag transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
+                >
+                  <SquarePen className="h-4 w-4 text-[var(--text-muted)]" strokeWidth={1.9} />
+                  <span className="text-base font-medium">New Thread</span>
+                </button>
 
-                    <button
-                      onClick={() => {
-                        void handleProjectFolderSelect();
-                      }}
-                      className="flex h-10 w-10 items-center justify-center rounded-xl no-drag text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                      title={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
-                      aria-label="Select project folder"
-                    >
-                      <FolderOpen className="h-4.5 w-4.5" />
-                    </button>
-                  </div>
+                <button
+                  onClick={() => {
+                    void handleProjectFolderSelect();
+                  }}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl no-drag text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                  aria-label={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
+                >
+                  <FolderOpen className="h-4.5 w-4.5" />
+                </button>
+              </div>
 
-                  <div className="px-4 py-2 flex items-center justify-between gap-2">
-                    <span className="text-sm text-[var(--text-muted)]">Sessions</span>
-                    <StatusFilter />
-                  </div>
+              <div className="px-4 py-2 flex items-center justify-between gap-2">
+                <span className="text-sm text-[var(--text-muted)]">Sessions</span>
+                <StatusFilter />
+              </div>
 
-                  <div className="flex-1 overflow-y-auto px-2 pt-2">
-                    <FolderTreeView
-                      onSessionClick={(sessionId) => {
-                        setShowSettings(false);
-                        setActiveSession(sessionId);
-                        setShowNewSession(false);
-                      }}
-                      onSessionDelete={handleDelete}
-                      onCopyResume={handleResumeCommand}
-                      onNewSessionForProject={(nextCwd) => {
-                        setProjectCwd(nextCwd);
-                        setShowSettings(false);
-                        setActiveSession(null);
-                        setShowNewSession(true);
-                      }}
-                    />
-                  </div>
-                </>
-              ) : (
-                <PromptLibraryPanel />
-              )}
+              <div className="flex-1 overflow-y-auto px-2 pt-2">
+                <FolderTreeView
+                  onSessionClick={(sessionId) => {
+                    setShowSettings(false);
+                    setActiveSession(sessionId);
+                    setShowNewSession(false);
+                  }}
+                  onSessionDelete={handleDelete}
+                  onCopyResume={handleResumeCommand}
+                  onNewSessionForProject={(nextCwd) => {
+                    setProjectCwd(nextCwd);
+                    setShowSettings(false);
+                    setActiveSession(null);
+                    setShowNewSession(true);
+                  }}
+                />
+              </div>
 
               {!sidebarCollapsed && (
                 <div
@@ -357,7 +344,6 @@ function RailIcon({
             ? 'text-[var(--text-primary)] bg-[var(--sidebar-item-hover)]'
             : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]'
         }`}
-        title={title}
         aria-label={title}
       >
         {icon}

@@ -103,15 +103,12 @@ export function Settings() {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-12 py-12">
-          <header className="mb-10">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-              {activeMeta.label}
-            </div>
-            <h1 className="mt-3 text-[36px] font-semibold tracking-[-0.04em] text-[var(--text-primary)]">
+        <div className="mx-auto max-w-5xl px-12 py-8">
+          <header className="mb-6 flex items-baseline gap-3">
+            <h1 className="text-[22px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
               {activeMeta.title}
             </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--text-secondary)]">
+            <p className="text-[13px] text-[var(--text-muted)]">
               {activeMeta.description}
             </p>
           </header>
@@ -256,12 +253,10 @@ function GeneralSettingsContent({
   };
 
   return (
-    <div className="space-y-8 pb-12">
-      <SettingsSection title="Appearance">
-        <SettingsRow
-          label="Default Agent"
-          description="Used for new sessions by default."
-        >
+    <div className="space-y-8 pb-8">
+      {/* General group */}
+      <SettingsSection title="General">
+        <SettingsRow label="Default Agent" description="New sessions use this agent.">
           <ProviderPicker
             value={defaultProvider}
             onChange={(provider) => {
@@ -272,95 +267,57 @@ function GeneralSettingsContent({
           />
         </SettingsRow>
 
-        <SettingsRow
-          label="Updates"
-          description="Check for a new release and view the current version."
-        >
-          <div className="flex items-center gap-2">
-            <div className="rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-secondary)]">
-              Version {appVersion}
-            </div>
-            <button
-              type="button"
-              onClick={() => void handleCheckForUpdates()}
-              disabled={checkingUpdates}
-              className="h-10 rounded-[14px] border border-[var(--border)] bg-[var(--accent-light)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-            >
-              {checkingUpdates ? 'Checking...' : 'Check for Updates'}
-            </button>
+        <SettingsRow label="Updates" description={`Version ${appVersion}`}>
+          <button
+            type="button"
+            onClick={() => void handleCheckForUpdates()}
+            disabled={checkingUpdates}
+            className="h-9 rounded-[10px] border border-[var(--border)] bg-[var(--accent-light)] px-4 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+          >
+            {checkingUpdates ? 'Checking...' : 'Check for Updates'}
+          </button>
+        </SettingsRow>
+      </SettingsSection>
+
+      {/* Appearance group */}
+      <SettingsSection title="Appearance">
+        <SettingsRow label="Mode" description="Light, dark, or follow system.">
+          <div className="inline-flex items-center gap-0.5 rounded-[10px] border border-[var(--border)] bg-[var(--bg-primary)] p-0.5">
+            <ThemeOption label="Light" value="light" current={theme} onClick={() => setTheme('light')} icon={<Sun className="w-3.5 h-3.5" />} />
+            <ThemeOption label="Dark" value="dark" current={theme} onClick={() => setTheme('dark')} icon={<Moon className="w-3.5 h-3.5" />} />
+            <ThemeOption label="System" value="system" current={theme} onClick={() => setTheme('system')} icon={<Monitor className="w-3.5 h-3.5" />} />
           </div>
         </SettingsRow>
 
-        <SettingsRow
-          label="Appearance Mode"
-          description="Choose light, dark, or system."
-        >
-          <div className="inline-flex flex-wrap items-center gap-1 rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1">
-            <ThemeOption
-              label="Light"
-              value="light"
-              current={theme}
-              onClick={() => setTheme('light')}
-              icon={<Sun className="w-4 h-4" />}
-            />
-            <ThemeOption
-              label="Dark"
-              value="dark"
-              current={theme}
-              onClick={() => setTheme('dark')}
-              icon={<Moon className="w-4 h-4" />}
-            />
-            <ThemeOption
-              label="System"
-              value="system"
-              current={theme}
-              onClick={() => setTheme('system')}
-              icon={<Monitor className="w-4 h-4" />}
-            />
-          </div>
-        </SettingsRow>
-
-        <SettingsRow
-          label="Color Theme"
-          description={`Choose a color palette. Current mode: ${resolvedMode}.`}
-        >
-          <div className="relative w-full max-w-[260px]">
+        <SettingsRow label="Color Theme" description={`Current: ${resolvedMode}`}>
+          <div className="relative w-full max-w-[200px]">
             <button
               type="button"
               onClick={() => setThemePickerOpen((current) => !current)}
-              className="flex w-full items-center rounded-[14px] border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] px-4 py-2.5 text-left text-sm transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-light)]"
+              className="flex h-9 w-full items-center rounded-[10px] border border-[var(--border)] bg-[var(--accent-light)] px-3 text-left text-[13px] transition-colors hover:border-[var(--accent)]"
             >
-              <div className="min-w-0 flex-1 truncate font-semibold text-[var(--text-primary)]">
-                {activeTheme.label}
-              </div>
-              <ChevronDown className={`h-4 w-4 flex-shrink-0 text-[var(--text-muted)] transition-transform ${themePickerOpen ? 'rotate-180' : ''}`} />
+              <div className="min-w-0 flex-1 truncate font-medium text-[var(--text-primary)]">{activeTheme.label}</div>
+              <ChevronDown className={`h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)] transition-transform ${themePickerOpen ? 'rotate-180' : ''}`} />
             </button>
 
             {themePickerOpen && (
               <>
                 <div className="fixed inset-0 z-20" onClick={() => setThemePickerOpen(false)} />
-                <div className="absolute left-0 right-0 top-full z-30 mt-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-2 shadow-sm">
-                  <div className="space-y-1">
+                <div className="absolute left-0 right-0 top-full z-30 mt-1 rounded-[10px] border border-[var(--border)] bg-[var(--bg-primary)] p-1 shadow-sm">
+                  <div className="space-y-0.5">
                     {COLOR_THEME_FAMILIES.map((family) => {
                       const selected = family.id === colorThemeId;
                       return (
                         <button
                           key={family.id}
                           type="button"
-                          onClick={() => {
-                            setColorThemeId(family.id);
-                            setThemePickerOpen(false);
-                          }}
-                          className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors ${
-                            selected
-                              ? 'bg-[var(--accent-light)] text-[var(--text-primary)]'
-                              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/70 hover:text-[var(--text-primary)]'
+                          onClick={() => { setColorThemeId(family.id); setThemePickerOpen(false); }}
+                          className={`flex w-full items-center gap-2 rounded-[8px] px-2.5 py-1.5 text-left text-[13px] transition-colors ${
+                            selected ? 'bg-[var(--accent-light)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
                           }`}
                         >
-                          <div className="min-w-0 flex-1 truncate text-sm font-medium">{family.label}</div>
-                          <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center text-[var(--text-muted)]">
-                            {selected ? <Check className="h-4 w-4" /> : null}
-                          </span>
+                          <div className="min-w-0 flex-1 truncate font-medium">{family.label}</div>
+                          {selected ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" /> : null}
                         </button>
                       );
                     })}
@@ -370,70 +327,62 @@ function GeneralSettingsContent({
             )}
 
             {hasColorThemeOverrides && (
-              <div className="mt-2 rounded-[16px] border border-[var(--border)] bg-[var(--bg-tertiary)]/70 px-3 py-3 text-sm">
-                <div className="font-medium text-[var(--text-primary)]">Custom CSS is overriding theme colors</div>
-                <div className="mt-1 text-[var(--text-secondary)]">
-                  Clear the custom CSS overrides if you want preset color themes to take effect again.
-                </div>
+              <div className="mt-1.5 rounded-[8px] border border-[var(--border)] bg-[var(--bg-tertiary)]/70 px-2.5 py-2 text-[12px]">
+                <div className="font-medium text-[var(--text-primary)]">Custom CSS overriding theme</div>
                 <button
                   type="button"
                   onClick={() => setCustomThemeCss('')}
-                  className="mt-3 inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                  className="mt-1.5 inline-flex items-center gap-1.5 rounded-[8px] border border-[var(--border)] bg-[var(--bg-primary)] px-2 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
                 >
-                  <Eraser className="w-4 h-4" />
-                  <span>Clear overrides</span>
+                  <Eraser className="w-3 h-3" />
+                  Clear
                 </button>
               </div>
             )}
           </div>
         </SettingsRow>
 
-        <SettingsRow
-          label="Custom CSS"
-          description="Optional CSS overrides for theme tokens."
-        >
-          <div className="w-full max-w-[400px]">
+        <SettingsRow label="Custom CSS" description="Theme token overrides.">
+          <div className="w-full max-w-[200px]">
             <button
               type="button"
               onClick={() => setCustomCssOpen((current) => !current)}
-              className="flex w-full items-center gap-3 rounded-[14px] border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] px-3 py-2.5 text-left text-sm transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-light)]"
+              className="flex h-9 w-full items-center gap-2 rounded-[10px] border border-[var(--border)] bg-[var(--accent-light)] px-3 text-left text-[13px] transition-colors hover:border-[var(--accent)]"
             >
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-semibold text-[var(--text-primary)]">
-                  {customThemeCss.trim() ? 'Theme overrides enabled' : 'No custom CSS'}
-                </div>
-                <div className="truncate text-[var(--text-secondary)]">{customCssSummary}</div>
+              <div className="min-w-0 flex-1 truncate font-medium text-[var(--text-primary)]">
+                {customThemeCss.trim() ? customCssSummary : 'None'}
               </div>
-              <ChevronDown className={`h-4 w-4 flex-shrink-0 text-[var(--text-muted)] transition-transform ${customCssOpen ? 'rotate-180' : ''}`} />
+              <ChevronDown className={`h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)] transition-transform ${customCssOpen ? 'rotate-180' : ''}`} />
             </button>
 
             {customCssOpen && (
-              <div className="mt-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-3 shadow-sm">
-                <div className="mb-3 flex items-center justify-end">
+              <div className="mt-1.5 rounded-[10px] border border-[var(--border)] bg-[var(--bg-primary)] p-2.5 shadow-sm">
+                <div className="mb-2 flex justify-end">
                   <button
                     type="button"
                     onClick={() => setCustomThemeCss('')}
-                    className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                    className="inline-flex items-center gap-1.5 rounded-[8px] border border-[var(--border)] bg-[var(--bg-tertiary)] px-2 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
                   >
-                    <Eraser className="w-4 h-4" />
-                    <span>Clear</span>
+                    <Eraser className="w-3 h-3" />
+                    Clear
                   </button>
                 </div>
                 <textarea
                   value={customThemeCss}
                   onChange={(event) => setCustomThemeCss(event.target.value)}
-                  placeholder={`:root {\n  --bg-primary: #0f1117;\n  --accent: #7aa2f7;\n}\n\n[data-color-theme="rose"] {\n  --accent: #f472b6;\n}`}
-                  className="min-h-[180px] w-full rounded-[16px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3 font-mono text-sm leading-6 text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+                  placeholder={`:root {\n  --bg-primary: #0f1117;\n  --accent: #7aa2f7;\n}`}
+                  className="min-h-[140px] w-full rounded-[8px] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 font-mono text-[12px] leading-5 text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
                   spellCheck={false}
                 />
               </div>
             )}
           </div>
         </SettingsRow>
-        <SettingsRow
-          label="UI Font"
-          description="Used for the sidebar, settings, lists, and UI text."
-        >
+      </SettingsSection>
+
+      {/* Typography group */}
+      <SettingsSection title="Typography">
+        <SettingsRow label="UI Font" description="Sidebar, settings, and UI text.">
           <FontSlotControl
             slot="ui"
             selection={fontSelections.ui}
@@ -444,10 +393,7 @@ function GeneralSettingsContent({
           />
         </SettingsRow>
 
-        <SettingsRow
-          label="Code Font"
-          description="Used for code blocks, logs, paths, and monospace UI."
-        >
+        <SettingsRow label="Code Font" description="Code blocks, logs, and paths.">
           <FontSlotControl
             slot="mono"
             selection={fontSelections.mono}
@@ -471,12 +417,10 @@ function SettingsSection({
 }) {
   return (
     <section>
-      <h2 className="mb-3 text-[22px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+      <h2 className="mb-1 text-[18px] font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
         {title}
       </h2>
-      <div className="overflow-hidden rounded-[20px] border border-[var(--border)] bg-[var(--bg-secondary)]">
-        {children}
-      </div>
+      <div>{children}</div>
     </section>
   );
 }
@@ -491,11 +435,11 @@ function SettingsRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_minmax(340px,440px)] items-start gap-5 border-b border-[var(--border)] px-6 py-3.5 last:border-b-0">
-      <div className="space-y-1">
-        <div className="text-[15px] font-semibold text-[var(--text-primary)]">{label}</div>
+    <div className="grid grid-cols-[minmax(0,1fr)_minmax(200px,280px)] items-center gap-4 border-b border-[var(--border)] py-3.5 last:border-b-0">
+      <div>
+        <div className="text-[14px] font-medium text-[var(--text-primary)]">{label}</div>
         {description ? (
-          <div className="text-[14px] leading-5 text-[var(--text-secondary)]">{description}</div>
+          <div className="mt-0.5 text-[13px] leading-5 text-[var(--text-muted)]">{description}</div>
         ) : null}
       </div>
       <div className="flex justify-end">{children}</div>
@@ -520,14 +464,14 @@ function ThemeOption({
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center gap-2 rounded-[14px] px-4 py-2.5 text-[14px] transition-colors ${
+      className={`inline-flex items-center gap-1.5 rounded-[8px] px-3 py-1.5 text-[12px] transition-colors ${
         isActive
-          ? 'border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] text-[var(--accent)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
-          : 'bg-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+          ? 'bg-[var(--accent-light)] font-medium text-[var(--text-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
+          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
       }`}
     >
       {icon}
-      <span className="font-medium">{label}</span>
+      <span>{label}</span>
     </button>
   );
 }

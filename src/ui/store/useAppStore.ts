@@ -636,8 +636,10 @@ export const useAppStore = create<Store>()(
               ? 'skills'
               : persisted?.activeWorkspace === 'board'
                 ? 'board'
-                : 'chat',
-          chatSidebarView: persisted?.chatSidebarView || currentState.chatSidebarView,
+                : persisted?.activeWorkspace === 'prompts'
+                  ? 'prompts'
+                  : 'chat',
+          chatSidebarView: persisted?.chatSidebarView === 'threads' ? 'threads' : 'threads',
           sidebarCollapsed: persisted?.sidebarCollapsed ?? currentState.sidebarCollapsed,
           sidebarWidth: sanitizeSidebarWidth(persisted?.sidebarWidth, currentState.sidebarWidth),
           projectTreeCollapsed: persisted?.projectTreeCollapsed ?? currentState.projectTreeCollapsed,

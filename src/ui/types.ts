@@ -82,8 +82,8 @@ export interface SessionStreamingState {
   thinking: string;
 }
 
-export type ActiveWorkspace = 'chat' | 'board' | 'skills';
-export type ChatSidebarView = 'threads' | 'prompts';
+export type ActiveWorkspace = 'chat' | 'board' | 'skills' | 'prompts';
+export type ChatSidebarView = 'threads';
 export type ProjectPanelView = 'files' | 'changes' | 'git' | 'terminal';
 
 // UI 会话视图状态

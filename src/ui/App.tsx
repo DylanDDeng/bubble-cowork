@@ -15,6 +15,7 @@ import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { Sidebar } from './components/Sidebar';
 import { BoardView } from './components/BoardView';
+import { PromptLibraryView } from './components/prompts/PromptLibraryView';
 import { NewSessionView } from './components/NewSessionView';
 import { PromptInput } from './components/PromptInput';
 import { MessageCard } from './components/MessageCard';
@@ -440,6 +441,8 @@ export function App() {
         </div>
       ) : activeWorkspace === 'board' ? (
         <BoardView />
+      ) : activeWorkspace === 'prompts' ? (
+        <PromptLibraryView />
       ) : activeSession && !showNewSession ? (
         <div
           className="flex-1 min-w-0 flex flex-col transition-[padding] duration-200"
