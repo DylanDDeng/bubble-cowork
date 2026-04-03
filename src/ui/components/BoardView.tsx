@@ -165,13 +165,12 @@ function getProjectLabel(cwd?: string): string {
 // A "turn" represents one user prompt and the agent work that followed it.
 type ActivityTurn = {
   prompt: string;
-  agentSummaries: string[];
+  textSummaries: string[];
+  toolNames: string[];
   result: string | null;
 };
 
 function collectActivityTurns(session: SessionView): ActivityTurn[] {
-  // Walk messages forward to group into turns.
-  // Each turn starts at a user_prompt and collects agent activity until the next user_prompt.
   const turns: ActivityTurn[] = [];
   let current: ActivityTurn | null = null;
 
@@ -180,13 +179,19 @@ function collectActivityTurns(session: SessionView): ActivityTurn[] {
       if (current) {
         turns.push(current);
       }
-      current = { prompt: truncate(message.prompt, 120), agentSummaries: [], result: null };
+      current = { prompt: truncate(message.prompt, 120), textSummaries: [], toolNames: [], result: null };
     } else if (!current) {
       continue;
     } else if (message.type === 'assistant') {
-      const summary = extractAssistantSummary(message);
-      if (summary !== 'Assistant responded') {
-        current.agentSummaries.push(truncate(summary, 100));
+      const blocks = getMessageContentBlocks(message);
+      const textBlock = blocks.find((b) => b.type === 'text');
+      if (textBlock?.text?.trim()) {
+        current.textSummaries.push(truncate(textBlock.text, 100));
+      }
+      for (const block of blocks) {
+        if (block.type === 'tool_use' && block.name && !current.toolNames.includes(block.name)) {
+          current.toolNames.push(block.name);
+        }
       }
     } else if (message.type === 'result') {
       current.result = message.subtype === 'success' ? 'Completed' : message.subtype;
@@ -198,7 +203,7 @@ function collectActivityTurns(session: SessionView): ActivityTurn[] {
   }
 
   if (session.status === 'running' && turns.length === 0) {
-    return [{ prompt: 'Run in progress', agentSummaries: [], result: null }];
+    return [{ prompt: 'Run in progress', textSummaries: [], toolNames: [], result: null }];
   }
 
   return turns;
@@ -218,7 +223,7 @@ function ActivityTurnItem({
   defaultExpanded: boolean;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const hasDetails = turn.agentSummaries.length > 0 || turn.result !== null;
+  const hasDetails = turn.textSummaries.length > 0 || turn.toolNames.length > 0 || turn.result !== null;
   const isLast = index === total - 1;
 
   const toggle = useCallback(() => {
@@ -264,14 +269,27 @@ function ActivityTurnItem({
         {/* Expanded agent details */}
         {expanded && hasDetails && (
           <div className="mt-1 ml-4 space-y-1">
-            {turn.agentSummaries.map((line, lineIndex) => (
-              <div key={lineIndex} className="relative flex gap-2 items-start">
+            {/* Text summaries */}
+            {turn.textSummaries.length > 0 && (
+              <div className="relative flex gap-2 items-start">
                 <div className="flex h-[18px] w-[16px] flex-shrink-0 items-center justify-center">
                   <RuntimeLogo provider={provider} className="h-[14px] w-[14px] flex-shrink-0" />
                 </div>
-                <div className="text-[11px] leading-[18px] text-[var(--text-secondary)]">{line}</div>
+                <div className="min-w-0 flex-1">
+                  {turn.textSummaries.map((line, lineIndex) => (
+                    <div key={lineIndex} className="text-[11px] leading-[18px] text-[var(--text-secondary)]">{line}</div>
+                  ))}
+                </div>
               </div>
-            ))}
+            )}
+            {/* Tool usage badge */}
+            {turn.toolNames.length > 0 && (
+              <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
+                <Sparkles className="h-3 w-3 flex-shrink-0" />
+                <span>{turn.toolNames.length} tool{turn.toolNames.length > 1 ? 's' : ''}: {turn.toolNames.slice(0, 4).join(', ')}{turn.toolNames.length > 4 ? ` +${turn.toolNames.length - 4}` : ''}</span>
+              </div>
+            )}
+            {/* Result */}
             {turn.result && (
               <div className="relative flex gap-2 items-start">
                 <div className="flex h-[18px] w-[16px] flex-shrink-0 items-center justify-center">
