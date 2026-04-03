@@ -3820,6 +3820,21 @@ function startRunner(
 
         const status: SessionStatus = message.subtype === 'success' ? 'completed' : 'error';
         sessions.updateSessionStatus(session.id, status);
+
+        // Auto-transition: move open-category sessions to "done" on successful completion
+        if (status === 'completed') {
+          const currentTodo = sessions.getSession(session.id)?.todo_state || 'todo';
+          const allStatuses = statusConfig.listStatuses();
+          const currentCfg = allStatuses.find((s) => s.id === currentTodo);
+          if (currentCfg?.category === 'open') {
+            sessions.updateSessionTodoState(session.id, 'done');
+            broadcast(mainWindow, {
+              type: 'session.todoStateChanged',
+              payload: { sessionId: session.id, todoState: 'done' },
+            });
+          }
+        }
+
         broadcast(mainWindow, {
           type: 'session.status',
           payload: {
