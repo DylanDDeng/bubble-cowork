@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo, useState } from 'react';
+import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import { Toaster, toast } from 'sonner';
 import { AnimatePresence, motion } from 'motion/react';
 import {
@@ -130,6 +130,7 @@ export function App() {
 
   // Messages list ref (for scrolling)
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Tool status and results maps
   const { toolStatusMap, toolResultsMap } = useMemo(() => {
@@ -289,6 +290,46 @@ export function App() {
     showPartialMessage,
   ]);
 
+  // Reset scroll tracking on session change
+  const prevMessageCountRef = useRef<number>(0);
+  const scrollHeightBeforeLoadRef = useRef<number>(0);
+  useEffect(() => {
+    prevMessageCountRef.current = 0;
+    scrollHeightBeforeLoadRef.current = 0;
+  }, [activeSessionId]);
+
+  // Preserve scroll position after prepending older messages
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    const count = activeSession?.messages.length ?? 0;
+    const prevCount = prevMessageCountRef.current;
+    if (container && count > prevCount && prevCount > 0 && scrollHeightBeforeLoadRef.current > 0) {
+      const delta = container.scrollHeight - scrollHeightBeforeLoadRef.current;
+      if (delta > 0) {
+        container.scrollTop += delta;
+      }
+    }
+    prevMessageCountRef.current = count;
+    scrollHeightBeforeLoadRef.current = 0;
+  }, [activeSession?.messages.length]);
+
+  // Infinite scroll: load older messages when scrolled near top
+  const handleScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container || !activeSessionId || !activeSession?.hasMoreHistory || activeSession?.loadingMoreHistory) return;
+    if (container.scrollTop < 200) {
+      scrollHeightBeforeLoadRef.current = container.scrollHeight;
+      loadOlderSessionHistory(activeSessionId);
+    }
+  }, [activeSessionId, activeSession?.hasMoreHistory, activeSession?.loadingMoreHistory, loadOlderSessionHistory]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
+
   useEffect(() => {
     if (!historyNavigationTarget || !activeSessionId || historyNavigationTarget.sessionId !== activeSessionId) {
       return;
@@ -300,6 +341,9 @@ export function App() {
 
     if (!historyNavigationAnchor) {
       if (activeSession.hasMoreHistory && !activeSession.loadingMoreHistory) {
+        if (scrollContainerRef.current) {
+          scrollHeightBeforeLoadRef.current = scrollContainerRef.current.scrollHeight;
+        }
         loadOlderSessionHistory(activeSessionId);
         return;
       }
@@ -453,7 +497,7 @@ export function App() {
           <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]" />
 
           {/* Messages area */}
-          <div className="flex-1 overflow-auto p-4 relative">
+          <div ref={scrollContainerRef} className="flex-1 overflow-auto p-4 relative">
             {/* In-session search */}
             <InSessionSearch />
 
@@ -498,16 +542,11 @@ export function App() {
                 </div>
               )}
 
-              {activeSession.hasMoreHistory && (
+              {activeSession.hasMoreHistory && activeSession.loadingMoreHistory && (
                 <div className="mb-4 flex justify-center">
-                  <button
-                    type="button"
-                    onClick={() => loadOlderSessionHistory(activeSessionId!)}
-                    disabled={activeSession.loadingMoreHistory}
-                    className="rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {activeSession.loadingMoreHistory ? 'Loading older messages…' : 'Load older messages'}
-                  </button>
+                  <div className="rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-secondary)]">
+                    Loading older messages…
+                  </div>
                 </div>
               )}
 
