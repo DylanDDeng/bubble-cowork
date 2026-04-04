@@ -1005,7 +1005,7 @@ export function ProjectTreePanel({
             <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
           </div>
         )}
-        <div className="h-8 drag-region flex-shrink-0" />
+        <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]" />
         <div className="px-4 pt-2 pb-2 pr-14">
           <div className="flex items-center gap-1">
             <button
@@ -1748,7 +1748,7 @@ function ChangeSummaryHeader({
   summary: ReturnType<typeof summarizeChangeRecords>;
 }) {
   return (
-    <div className="mb-1 border-b border-[var(--border)]/35 px-1 py-2">
+    <div className="mb-1 border-b border-[var(--border)]/25 px-1 py-2">
       <div className="flex flex-wrap items-center gap-2 text-[11px]">
         <span className="font-medium text-[var(--text-primary)]">
           {summary.total} change{summary.total === 1 ? '' : 's'}
@@ -1997,7 +1997,7 @@ function GitFoldSection({
   const [open, setOpen] = useState(Boolean(defaultOpen));
 
   return (
-    <div className="border-b border-[var(--border)]/75">
+    <div className="border-b border-[var(--border)]/50">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
@@ -2126,7 +2126,7 @@ function GitBranchList({
   return (
     <div className="space-y-3">
       {detachedHead ? (
-        <div className="rounded-xl border border-[var(--border)]/70 bg-[var(--bg-secondary)]/55 px-3 py-2 text-[12px] text-[var(--text-muted)]">
+        <div className="rounded-xl border border-[var(--border)]/50 bg-[var(--bg-secondary)]/55 px-3 py-2 text-[12px] text-[var(--text-muted)]">
           Detached HEAD at <span className="font-mono text-[var(--text-secondary)]">{headShortHash || 'HEAD'}</span>
         </div>
       ) : null}
@@ -2212,11 +2212,11 @@ function GitHistoryList({
   }
 
   return (
-    <div className="relative ml-2 border-l border-[var(--border)]/65 pl-4">
+    <div className="relative ml-2 border-l border-[var(--border)]/50 pl-4">
       {entries.map((entry, index) => (
         <div
           key={entry.hash}
-          className={`group relative py-3 transition-[transform,color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:translate-x-[2px] ${index < entries.length - 1 ? 'border-b border-[var(--border)]/35' : ''}`}
+          className={`group relative py-3 transition-[transform,color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:translate-x-[2px] ${index < entries.length - 1 ? 'border-b border-[var(--border)]/25' : ''}`}
         >
           <div className="absolute -left-px top-0 h-full w-px bg-[var(--text-primary)]/0 transition-colors duration-300 group-hover:bg-[var(--text-primary)]/18" />
           <div className="absolute -left-[27px] top-[16px] flex h-5 w-5 items-center justify-center">
@@ -2368,7 +2368,7 @@ function ChangeRecordItem({
   const canExpand = !!entry.diffContent;
 
   return (
-    <div className="border-b border-[var(--border)]/28 last:border-b-0">
+    <div className="border-b border-[var(--border)]/25 last:border-b-0">
       <button
         onClick={() => {
           if (canExpand) onToggle();
@@ -2417,9 +2417,9 @@ function ChangeRecordItem({
       </button>
 
       {isExpanded && (
-        <div className="border-t border-[var(--border)]/24 bg-[var(--bg-secondary)]/12 px-1 pb-2 pt-2">
+        <div className="border-t border-[var(--border)]/25 bg-[var(--bg-secondary)]/12 px-1 pb-2 pt-2">
           {entry.diffContent ? (
-            <div className="overflow-auto border border-[var(--border)]/60 bg-[var(--preview-surface)]">
+            <div className="overflow-auto border border-[var(--border)]/50 bg-[var(--preview-surface)]">
               <ChangeDiffView diffContent={entry.diffContent} />
             </div>
           ) : (

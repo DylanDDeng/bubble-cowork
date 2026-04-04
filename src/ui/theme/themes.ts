@@ -12,7 +12,7 @@ export interface ColorThemeFamily {
 
 const PAPER_LIGHT: ThemeVariables = {
   '--bg-primary': '#FFFFFF',
-  '--bg-secondary': '#FFFFFF',
+  '--bg-secondary': '#F9F9FB',
   '--bg-tertiary': '#F8F7F8',
   '--text-primary': '#111111',
   '--text-secondary': '#62646A',
@@ -32,8 +32,8 @@ const PAPER_LIGHT: ThemeVariables = {
   '--code-inline-bg': '#F0F0F2',
   '--code-inline-border': '#E3E3E7',
   '--code-inline-text': '#4B5563',
-  '--code-block-bg': '#F3F3F5',
-  '--code-block-header-bg': '#F3F3F5',
+  '--code-block-bg': '#EDEDF0',
+  '--code-block-header-bg': '#EDEDF0',
   '--code-block-border': '#E6E6EA',
   '--code-block-text': '#1F2937',
   '--code-copy-bg': 'transparent',
@@ -307,7 +307,7 @@ const SEPIA_DARK: ThemeVariables = {
 const ROSE_LIGHT: ThemeVariables = {
   ...PAPER_LIGHT,
   '--bg-primary': '#FFF7FA',
-  '--bg-secondary': '#FFFFFF',
+  '--bg-secondary': '#FFF0F5',
   '--bg-tertiary': '#FCECF2',
   '--text-primary': '#2D1320',
   '--text-secondary': '#6C4255',

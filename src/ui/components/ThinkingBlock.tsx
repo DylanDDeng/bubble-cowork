@@ -20,7 +20,7 @@ export function ThinkingBlock({
   const preview = content.length > 160 ? `${content.slice(0, 160).trimEnd()}...` : content;
 
   return (
-    <div className="rounded-lg border border-[var(--border)]/70 bg-[var(--bg-primary)]/80">
+    <div className="rounded-lg border border-[var(--border)]/50 bg-[var(--bg-primary)]/80">
       <button
         onClick={() => setIsExpanded((value) => !value)}
         className="flex w-full items-start gap-2 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-[var(--bg-tertiary)]/20"

@@ -169,7 +169,7 @@ function HistorySearchResultCard({
               className={`block w-full rounded-[var(--radius-xl)] border px-3 py-2 text-left transition-colors ${
                 isSelectedMatch
                   ? 'border-[var(--accent)]/30 bg-[var(--bg-secondary)]'
-                  : 'border-[var(--border)]/60 bg-[var(--bg-secondary)]/60 hover:bg-[var(--bg-secondary)]'
+                  : 'border-[var(--border)]/50 bg-[var(--bg-secondary)]/60 hover:bg-[var(--bg-secondary)]'
               }`}
             >
               <div className="mb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">

@@ -345,7 +345,7 @@ function RailIcon({
         className={`flex h-8 w-8 items-center justify-center rounded-[var(--radius-lg)] no-drag transition-colors duration-150 ${
           active
             ? 'text-[var(--accent)] bg-[var(--sidebar-item-active)]'
-            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]'
+            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]'
         }`}
         aria-label={title}
       >

@@ -122,7 +122,7 @@ export function ToolGroup({
 
       {/* 展开内容 - Tree 风格 */}
       {expanded && (
-        <div className={`px-3 pb-2 ${todoProgress ? 'border-t border-[var(--border)]/60 pt-2' : ''}`}>
+        <div className={`px-3 pb-2 ${todoProgress ? 'border-t border-[var(--border)]/50 pt-2' : ''}`}>
           {visibleBlocks.map((block, idx) => (
             <ToolInvocation
               key={block.id}
@@ -161,7 +161,7 @@ function ToolInvocation({
   const summary = getToolSummary(block.name, block.input);
 
   return (
-    <div className="mb-1.5 rounded-lg border border-[var(--border)]/70 bg-[var(--bg-primary)]/80 px-3 py-2">
+    <div className="mb-1.5 rounded-lg border border-[var(--border)]/50 bg-[var(--bg-primary)]/80 px-3 py-2">
       {/* 工具头部 */}
       <div className="flex items-center gap-2">
         <div className={`status-dot-sm ${status}`} />

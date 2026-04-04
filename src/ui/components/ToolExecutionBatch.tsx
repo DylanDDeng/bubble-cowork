@@ -309,7 +309,7 @@ export function ToolExecutionBatch({
 
       {/* 展开内容 */}
       {expanded && (
-        <div className="border-t border-[var(--border)]/70 px-3 py-2">
+        <div className="border-t border-[var(--border)]/50 px-3 py-2">
           {todoProgress && (
             <TodoProgressCard state={todoProgress} className="mb-3" />
           )}
@@ -392,7 +392,7 @@ function ToolInvocationCompact({
   const hasStructuredDiff = diffHunks.length > 0;
 
   return (
-    <div className="rounded-lg border border-[var(--border)]/70 bg-[var(--bg-primary)]/80">
+    <div className="rounded-lg border border-[var(--border)]/50 bg-[var(--bg-primary)]/80">
       <div
         className="flex items-center gap-2 rounded-lg px-3 py-2.5 transition-colors hover:bg-[var(--bg-tertiary)]/20"
         onClick={() => setShowDetails(!showDetails)}
@@ -412,7 +412,7 @@ function ToolInvocationCompact({
 
       {/* 展开详情 */}
       {showDetails && (
-        <div className="border-t border-[var(--border)]/60 px-3 py-2 text-xs">
+        <div className="border-t border-[var(--border)]/50 px-3 py-2 text-xs">
           {/* 参数 */}
           <div className="mb-1">
             <span className="text-[var(--text-muted)]">Args:</span>
@@ -424,8 +424,8 @@ function ToolInvocationCompact({
           {hasStructuredDiff && (
             <div className="mb-1">
               <span className="text-[var(--text-muted)]">Content:</span>
-              <div className="mt-1 overflow-hidden rounded-xl border border-[var(--border)]/70 bg-[var(--bg-tertiary)]/60">
-                <div className="border-b border-[var(--border)]/70 px-3 py-2 text-sm font-medium text-[var(--text-primary)]">
+              <div className="mt-1 overflow-hidden rounded-xl border border-[var(--border)]/50 bg-[var(--bg-tertiary)]/60">
+                <div className="border-b border-[var(--border)]/50 px-3 py-2 text-sm font-medium text-[var(--text-primary)]">
                   {diffFilePath || summary || block.name}
                 </div>
                 <div className="max-h-72 overflow-auto">
@@ -466,7 +466,7 @@ function ThinkingTraceItem({ content }: { content: string }) {
       : content;
 
   return (
-    <div className="rounded-lg border border-[var(--border)]/70 bg-[var(--bg-primary)]/80">
+    <div className="rounded-lg border border-[var(--border)]/50 bg-[var(--bg-primary)]/80">
       <button
         onClick={() => setExpanded((value) => !value)}
         className="flex w-full items-start gap-2 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-[var(--bg-tertiary)]/20"
@@ -496,7 +496,7 @@ function TraceNoteItem({ content }: { content: string }) {
 
 function DiffHunkView({ hunk }: { hunk: UnifiedDiffHunk }) {
   return (
-    <div className="border-t border-[var(--border)]/60 first:border-t-0">
+    <div className="border-t border-[var(--border)]/50 first:border-t-0">
       <div className="px-3 py-1.5 font-mono text-[11px] text-[var(--text-muted)]">
         {`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`}
       </div>
