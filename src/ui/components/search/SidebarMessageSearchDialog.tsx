@@ -62,7 +62,7 @@ function HighlightedSnippet({ text, query }: { text: string; query: string }) {
         segment.match ? (
           <mark
             key={`${segment.text}-${index}`}
-            className="rounded-[4px] bg-[var(--tree-file-accent-fg)]/14 px-0.5 text-[var(--text-primary)]"
+            className="rounded-[4px] bg-amber-200/60 px-0.5 text-[var(--text-primary)] dark:bg-amber-400/25"
           >
             {segment.text}
           </mark>
@@ -127,35 +127,38 @@ function HistorySearchResultCard({
     <button
       type="button"
       onClick={onSelectSession}
-      className={`w-full rounded-[var(--radius-2xl)] border px-4 py-3 text-left transition-colors ${
+      className={`w-full rounded-[var(--radius-2xl)] border px-3 py-2.5 text-left transition-colors ${
         selected
-          ? 'border-[var(--accent)]/35 bg-[var(--accent-light)]/35'
+          ? 'border-[var(--accent)]/35 bg-[var(--accent-light)] border-l-[3px] border-l-[var(--accent)]'
           : 'border-[var(--border)] bg-[var(--bg-primary)] hover:border-[var(--accent)]/20 hover:bg-[var(--bg-tertiary)]/40'
       }`}
     >
-      <div className="flex items-start gap-2">
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-[var(--text-primary)]">
             {result.sessionTitle}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
-            <span className="rounded-full bg-[var(--accent-light)] px-2 py-0.5 font-medium uppercase tracking-[0.08em] text-[var(--text-secondary)]">
+          <div className="mt-1 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+            <span className="uppercase tracking-[0.06em]">
               {formatSessionSourceLabel(result.sessionSource)}
             </span>
-            <span className="inline-flex items-center gap-1">
-              <FolderOpen className="h-3 w-3" />
+            <span className="text-[var(--border)]">/</span>
+            <span className="inline-flex items-center gap-1 truncate">
+              <FolderOpen className="h-3 w-3 flex-shrink-0" />
               {getPathLeaf(result.sessionCwd)}
             </span>
-            <span className="inline-flex items-center gap-1">
-              <Clock3 className="h-3 w-3" />
+            <span className="text-[var(--border)]">/</span>
+            <span className="flex-shrink-0">
               {formatRelativeTimestamp(result.sessionUpdatedAt)}
             </span>
-            <span>{result.matchCount} match{result.matchCount === 1 ? '' : 'es'}</span>
           </div>
         </div>
+        <span className="flex-shrink-0 rounded-full bg-[var(--bg-tertiary)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-muted)]">
+          {result.matchCount}
+        </span>
       </div>
 
-      <div className="mt-3 space-y-2">
+      <div className="mt-2 space-y-1.5 border-l-2 border-[var(--border)]/50 pl-2.5">
         {result.matches.map((match) => {
           const isSelectedMatch = selectedMessageCreatedAt === match.createdAt;
           return (
@@ -166,16 +169,16 @@ function HistorySearchResultCard({
                 event.stopPropagation();
                 onSelectMatch(match.createdAt);
               }}
-              className={`block w-full rounded-[var(--radius-xl)] border px-3 py-2 text-left transition-colors ${
+              className={`block w-full rounded-[var(--radius-lg)] px-2.5 py-1.5 text-left transition-colors ${
                 isSelectedMatch
-                  ? 'border-[var(--accent)]/30 bg-[var(--bg-secondary)]'
-                  : 'border-[var(--border)]/50 bg-[var(--bg-secondary)]/60 hover:bg-[var(--bg-secondary)]'
+                  ? 'bg-[var(--bg-secondary)]'
+                  : 'hover:bg-[var(--bg-secondary)]/60'
               }`}
             >
-              <div className="mb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">
+              <div className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--text-muted)]">
                 {formatMessageTypeLabel(match.messageType)}
               </div>
-              <div className="text-sm leading-6 text-[var(--text-secondary)]">
+              <div className="mt-0.5 text-[13px] leading-5 text-[var(--text-secondary)]">
                 <HighlightedSnippet text={match.snippet} query={query} />
               </div>
             </button>
@@ -421,21 +424,24 @@ function SearchHistoryPreview({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-[var(--border)] px-5 py-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="truncate text-base font-semibold text-[var(--text-primary)]">
+      <div className="border-b border-[var(--border)] px-5 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[15px] font-semibold text-[var(--text-primary)]">
               {result.sessionTitle}
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
-              <span className="rounded-full bg-[var(--accent-light)] px-2 py-0.5 font-medium uppercase tracking-[0.08em] text-[var(--text-secondary)]">
+            <div className="mt-1 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+              <span className="uppercase tracking-[0.06em]">
                 {formatSessionSourceLabel(result.sessionSource)}
               </span>
               {result.sessionCwd ? (
-                <span className="inline-flex items-center gap-1">
-                  <FolderOpen className="h-3 w-3" />
-                  {result.sessionCwd}
-                </span>
+                <>
+                  <span className="text-[var(--border)]">/</span>
+                  <span className="inline-flex items-center gap-1 truncate">
+                    <FolderOpen className="h-3 w-3 flex-shrink-0" />
+                    {result.sessionCwd}
+                  </span>
+                </>
               ) : null}
             </div>
           </div>
@@ -446,9 +452,9 @@ function SearchHistoryPreview({
                 selectedMessageCreatedAt || result.matches[0]?.createdAt || Date.now();
               onOpenInMainThread(result.sessionId, targetCreatedAt);
             }}
-            className="inline-flex h-9 items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+            className="inline-flex h-8 flex-shrink-0 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
           >
-            <ArrowUpRight className="h-4 w-4" />
+            <ArrowUpRight className="h-3.5 w-3.5" />
             Open in Main Thread
           </button>
         </div>
@@ -728,7 +734,7 @@ export function SidebarMessageSearchDialog({
                     No matching conversations found.
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {results.map((result) => (
                       <HistorySearchResultCard
                         key={result.sessionId}
