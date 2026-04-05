@@ -452,7 +452,7 @@ function SearchHistoryPreview({
                 selectedMessageCreatedAt || result.matches[0]?.createdAt || Date.now();
               onOpenInMainThread(result.sessionId, targetCreatedAt);
             }}
-            className="inline-flex h-8 flex-shrink-0 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+            className="inline-flex h-8 flex-shrink-0 items-center gap-1.5 rounded-[var(--radius-lg)] bg-[var(--accent)] px-2.5 text-[12px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
           >
             <ArrowUpRight className="h-3.5 w-3.5" />
             Open in Main Thread
