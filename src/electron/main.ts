@@ -352,6 +352,30 @@ function createWindow(): void {
   // 设置 IPC 处理器
   setupIPCHandlers(mainWindow);
 
+  if (isDev()) {
+    const webContents = mainWindow.webContents;
+    webContents.on('preload-error', (_event, preloadPath, error) => {
+      console.error('[Dev] Preload error:', preloadPath, error);
+    });
+    webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (!isMainFrame || errorCode === -3) {
+        return;
+      }
+      console.error('[Dev] Renderer load failed:', {
+        errorCode,
+        errorDescription,
+        validatedURL,
+      });
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        return;
+      }
+      void loadDistFallbackUi(mainWindow);
+    });
+    webContents.on('render-process-gone', (_event, details) => {
+      console.error('[Dev] Renderer process gone:', details);
+    });
+  }
+
   // 加载页面
   if (isDev()) {
     void loadDevUi(mainWindow);
@@ -373,7 +397,7 @@ function createWindow(): void {
       saveUiResumeState(latestUiResumeState);
     }
 
-    if (process.platform === 'darwin' && !isQuitting) {
+    if (process.platform === 'darwin' && !isQuitting && !isDev()) {
       event.preventDefault();
       mainWindow.hide();
     }
@@ -616,7 +640,7 @@ app.whenReady().then(() => {
 
 // 窗口全部关闭时退出（macOS 除外）
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'darwin' || isDev()) {
     app.quit();
   }
 });

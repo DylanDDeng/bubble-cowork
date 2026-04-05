@@ -1,4 +1,3 @@
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { ClaudeCompatibleProviderId } from '../../shared/types';
 import { getClaudeEnv, getClaudeSettings } from './claude-settings';
 import { applyCompatibleProviderEnv } from './compatible-provider-config';
@@ -6,6 +5,15 @@ import { getClaudeCodeRuntime } from './claude-runtime';
 
 type ClaudeSettingSource = 'user' | 'project' | 'local';
 const CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local'];
+type ClaudeAgentSdkModule = typeof import('@anthropic-ai/claude-agent-sdk');
+
+async function loadClaudeAgentSdk(): Promise<ClaudeAgentSdkModule> {
+  const dynamicImport = new Function(
+    'specifier',
+    'return import(specifier);'
+  ) as (specifier: string) => Promise<ClaudeAgentSdkModule>;
+  return dynamicImport('@anthropic-ai/claude-agent-sdk');
+}
 
 // SDK 消息类型
 interface SDKMessage {
@@ -26,6 +34,7 @@ export async function runClaudeOneShot(params: {
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
 }): Promise<{ text: string; sessionId?: string; model?: string }> {
+  const sdk = await loadClaudeAgentSdk();
   let env = {
     ...process.env,
     ...getClaudeEnv(),
@@ -40,7 +49,7 @@ export async function runClaudeOneShot(params: {
   const { executable, executableArgs, env: runtimeEnv, pathToClaudeCodeExecutable } = getClaudeCodeRuntime();
   Object.assign(env, runtimeEnv);
 
-  const result = query({
+  const result = sdk.query({
     prompt: params.prompt,
     options: {
       systemPrompt: {

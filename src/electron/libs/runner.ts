@@ -1,4 +1,8 @@
-import { query, type McpServerConfig as SDKMcpServerConfig, type Query as ClaudeQuery, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type {
+  McpServerConfig as SDKMcpServerConfig,
+  Query as ClaudeQuery,
+  SDKUserMessage,
+} from '@anthropic-ai/claude-agent-sdk';
 import { readFile } from 'fs/promises';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -86,6 +90,15 @@ type StreamEventType =
   | 'content_block_stop';
 
 const DEFAULT_MAX_THINKING_TOKENS = 64000;
+type ClaudeAgentSdkModule = typeof import('@anthropic-ai/claude-agent-sdk');
+
+async function loadClaudeAgentSdk(): Promise<ClaudeAgentSdkModule> {
+  const dynamicImport = new Function(
+    'specifier',
+    'return import(specifier);'
+  ) as (specifier: string) => Promise<ClaudeAgentSdkModule>;
+  return dynamicImport('@anthropic-ai/claude-agent-sdk');
+}
 
 function resolveMaxThinkingTokens(): number {
   const raw = process.env.CLAUDE_CODE_MAX_THINKING_TOKENS;
@@ -327,6 +340,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
   // 异步执行
   (async () => {
     try {
+      const sdk = await loadClaudeAgentSdk();
       let env = {
         ...process.env,
         ...getClaudeEnv(),
@@ -362,7 +376,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       });
 
       const maxThinkingTokens = resolveMaxThinkingTokens();
-      const result = query({
+      const result = sdk.query({
         prompt: inputQueue,
         options: {
           systemPrompt: {

@@ -26,7 +26,7 @@ export function getDevServerUrl(): string {
     return explicit;
   }
   const port = process.env.PORT || '10087';
-  return `http://localhost:${port}`;
+  return `http://127.0.0.1:${port}`;
 }
 
 export const DEV_SERVER_URL = getDevServerUrl();
