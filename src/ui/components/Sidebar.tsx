@@ -225,6 +225,7 @@ export function Sidebar() {
                 <button
                   onClick={() => {
                     setShowSettings(false);
+                    setProjectCwd(null);
                     setActiveSession(null);
                     setShowNewSession(true);
                   }}
