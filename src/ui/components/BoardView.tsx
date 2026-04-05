@@ -1145,16 +1145,6 @@ export function BoardView() {
 
                     {/* Tags row */}
                     <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[10px]">
-                      {(() => {
-                        const resolvedId = getResolvedTodoStateId(selectedSession.todoState, statusMap, fallbackTodoStateId);
-                        const resolvedStatus = statusMap.get(resolvedId);
-                        return resolvedStatus ? (
-                          <span className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-1.5 py-[1px] text-[var(--text-secondary)]">
-                            <StatusIcon status={resolvedStatus} className="text-[10px]" />
-                            {resolvedStatus.label}
-                          </span>
-                        ) : null;
-                      })()}
                       <span className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-1.5 py-[1px] text-[var(--text-secondary)]">
                         <RuntimeLogo provider={selectedSession.provider || 'claude'} className="h-3 w-3 flex-shrink-0" />
                         <span className="truncate">{selectedSession.runtimeLabel}</span>
