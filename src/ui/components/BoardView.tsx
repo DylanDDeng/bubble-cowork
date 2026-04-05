@@ -1155,7 +1155,7 @@ export function BoardView() {
                   {/* Meta: project + time in compact two-column */}
                   <div className="mt-3 grid grid-cols-[14px_1fr] gap-x-1.5 gap-y-1 text-[11px] text-[var(--text-muted)]">
                     <FolderOpen className="mt-px h-3.5 w-3.5" />
-                    <span className="truncate">{selectedSession.cwd || 'No project'}</span>
+                    <span className="truncate" title={selectedSession.cwd || undefined}>.../{getProjectLabel(selectedSession.cwd)}</span>
                     <Clock3 className="mt-px h-3.5 w-3.5" />
                     <span>{formatRelativeTimestamp(selectedSession.updatedAt)}</span>
                     {selectedSession.waitingPermission ? (
