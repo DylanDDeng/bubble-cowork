@@ -127,7 +127,7 @@ function HistorySearchResultCard({
     <button
       type="button"
       onClick={onSelectSession}
-      className={`w-full rounded-[var(--radius-2xl)] border px-3 py-2.5 text-left transition-colors ${
+      className={`w-full border px-3 py-2.5 text-left transition-colors ${
         selected
           ? 'border-[var(--accent)]/35 bg-[var(--accent-light)] border-l-[3px] border-l-[var(--accent)]'
           : 'border-[var(--border)] bg-[var(--bg-primary)] hover:border-[var(--accent)]/20 hover:bg-[var(--bg-tertiary)]/40'
