@@ -1149,9 +1149,6 @@ export function BoardView() {
                         <RuntimeLogo provider={selectedSession.provider || 'claude'} className="h-3 w-3 flex-shrink-0" />
                         <span className="truncate">{selectedSession.runtimeLabel}</span>
                       </span>
-                      {selectedSession.modelLabel ? (
-                        <span className="text-[var(--text-muted)]">{selectedSession.modelLabel}</span>
-                      ) : null}
                     </div>
                   </div>
 
