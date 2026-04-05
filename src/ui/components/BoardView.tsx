@@ -1155,8 +1155,9 @@ export function BoardView() {
                           </span>
                         ) : null;
                       })()}
-                      <span className="rounded-full border border-[var(--border)] px-1.5 py-[1px] text-[var(--text-secondary)]">
-                        {selectedSession.providerLabel}
+                      <span className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-1.5 py-[1px] text-[var(--text-secondary)]">
+                        <RuntimeLogo provider={selectedSession.provider || 'claude'} className="h-3 w-3 flex-shrink-0" />
+                        <span className="truncate">{selectedSession.runtimeLabel}</span>
                       </span>
                       {selectedSession.modelLabel ? (
                         <span className="text-[var(--text-muted)]">{selectedSession.modelLabel}</span>
