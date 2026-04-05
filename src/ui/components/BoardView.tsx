@@ -1162,9 +1162,6 @@ export function BoardView() {
                       {selectedSession.modelLabel ? (
                         <span className="text-[var(--text-muted)]">{selectedSession.modelLabel}</span>
                       ) : null}
-                      <span className={`font-medium ${EXECUTION_LABEL_COLORS[selectedSession.executionLabel] || 'text-[var(--text-muted)]'}`}>
-                        {selectedSession.executionLabel}
-                      </span>
                     </div>
                   </div>
 
