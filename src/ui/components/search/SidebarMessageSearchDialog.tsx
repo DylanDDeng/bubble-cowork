@@ -486,11 +486,8 @@ function SearchHistoryPreview({
               ? String(item.originalIndices[0])
               : String(item.originalIndex);
             const highlighted = highlightedAnchor === anchor;
-            const wrapperStyle = highlighted
-              ? {
-                  backgroundColor: 'color-mix(in srgb, var(--accent-light) 70%, transparent)',
-                  boxShadow: '0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent)',
-                }
+            const wrapperCls = highlighted
+              ? 'rounded-sm border-l-[3px] border-l-[var(--accent)] bg-[var(--accent-light)]/40 transition-all duration-300'
               : undefined;
 
             if (item.type === 'tool_batch') {
@@ -498,8 +495,7 @@ function SearchHistoryPreview({
                 <div
                   key={`preview-batch-${index}`}
                   data-preview-message-index={anchor}
-                  className={highlighted ? 'rounded-2xl transition-colors duration-300' : undefined}
-                  style={wrapperStyle}
+                  className={wrapperCls}
                 >
                   <ToolExecutionBatch
                     messages={item.messages}
@@ -515,8 +511,7 @@ function SearchHistoryPreview({
               <div
                 key={`preview-message-${index}`}
                 data-preview-message-index={anchor}
-                className={highlighted ? 'rounded-2xl transition-colors duration-300' : undefined}
-                style={wrapperStyle}
+                className={wrapperCls}
               >
                 <MessageCard
                   message={item.message}
