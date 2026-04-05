@@ -62,7 +62,7 @@ function HighlightedSnippet({ text, query }: { text: string; query: string }) {
         segment.match ? (
           <mark
             key={`${segment.text}-${index}`}
-            className="rounded-[4px] bg-amber-200/60 px-0.5 text-[var(--text-primary)] dark:bg-amber-400/25"
+            className="rounded-[2px] bg-[var(--text-primary)] px-0.5 text-[var(--bg-primary)] font-medium"
           >
             {segment.text}
           </mark>
