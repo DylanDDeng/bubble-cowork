@@ -152,7 +152,7 @@ export function PromptLibraryEditorDialog({
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              className="rounded-xl px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+              className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
             >
               Cancel
             </button>

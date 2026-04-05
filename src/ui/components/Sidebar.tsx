@@ -302,7 +302,7 @@ export function Sidebar() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setResumeDialogOpen(false)}
-                className="px-4 py-2 rounded-[var(--radius-lg)] text-sm hover:bg-[var(--bg-tertiary)] transition-colors"
+                className="px-4 py-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] text-sm transition-colors hover:bg-[var(--bg-tertiary)]"
               >
                 Cancel
               </button>

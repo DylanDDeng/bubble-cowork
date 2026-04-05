@@ -142,7 +142,7 @@ export function BridgeSettingsContent() {
               type="button"
               onClick={() => void handleToggle('stop')}
               disabled={toggling || !isRunning}
-              className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-1.5 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
             >
               <Square className="h-3 w-3" fill="currentColor" />
               Stop
@@ -207,7 +207,7 @@ export function BridgeSettingsContent() {
             <button
               type="button"
               onClick={() => void handlePickDirectory()}
-              className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+              className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
             >
               <FolderOpen className="h-3.5 w-3.5" />
               Browse

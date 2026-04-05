@@ -582,7 +582,7 @@ export function CompatibleProviderSettingsContent() {
                 type="button"
                 onClick={closeProviderDialog}
                 disabled={savingProvider !== null}
-                className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+                className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
               >
                 Close
               </button>
@@ -590,7 +590,7 @@ export function CompatibleProviderSettingsContent() {
                 type="button"
                 onClick={handleResetDraft}
                 disabled={!isDirty || savingProvider !== null}
-                className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+                className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
               >
                 Reset
               </button>

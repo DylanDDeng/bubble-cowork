@@ -283,7 +283,7 @@ function SkillCard({
         <button
           onClick={() => void onReveal(skill.path)}
           disabled={revealing}
-          className="flex-shrink-0 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-60 disabled:cursor-not-allowed"
+          className="flex-shrink-0 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {revealing ? 'Revealing...' : 'Reveal'}
         </button>

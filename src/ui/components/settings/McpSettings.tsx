@@ -170,7 +170,7 @@ export function McpSettingsContent() {
               {currentProjectPath && (
                 <button
                   onClick={() => setIsAddingNew('project')}
-                  className="px-4 py-2 border border-[var(--border)] rounded-[var(--radius-lg)] hover:bg-[var(--bg-tertiary)] transition-colors text-[13px] font-medium"
+                  className="px-4 py-2 border border-[var(--border)] bg-[var(--bg-secondary)] rounded-[var(--radius-lg)] transition-colors hover:bg-[var(--bg-tertiary)] text-[13px] font-medium"
                 >
                   + Add Project Server
                 </button>
@@ -541,7 +541,7 @@ function McpServerForm({
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded-[var(--radius-xl)] transition-colors"
+            className="px-4 py-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)]"
           >
             Cancel
           </button>

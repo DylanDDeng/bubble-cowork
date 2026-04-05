@@ -446,7 +446,7 @@ function SearchHistoryPreview({
                 selectedMessageCreatedAt || result.matches[0]?.createdAt || Date.now();
               onOpenInMainThread(result.sessionId, targetCreatedAt);
             }}
-            className="inline-flex h-9 items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+            className="inline-flex h-9 items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
           >
             <ArrowUpRight className="h-4 w-4" />
             Open in Main Thread

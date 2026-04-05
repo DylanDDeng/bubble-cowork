@@ -2335,7 +2335,7 @@ function CommitModal({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex items-center justify-center rounded-[var(--radius-xl)] px-4 py-2 text-[15px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)]"
+            className="inline-flex items-center justify-center rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-[15px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
           >
             Cancel
           </button>

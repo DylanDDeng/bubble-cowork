@@ -54,7 +54,7 @@ export function NewFolderDialog({ open, sessionId, onOpenChange }: NewFolderDial
           <div className="flex justify-end gap-2">
             <button
               onClick={() => onOpenChange(false)}
-              className="px-4 py-2 rounded-lg text-sm hover:bg-[var(--bg-tertiary)] transition-colors"
+              className="px-4 py-2 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] text-sm transition-colors hover:bg-[var(--bg-tertiary)]"
             >
               Cancel
             </button>

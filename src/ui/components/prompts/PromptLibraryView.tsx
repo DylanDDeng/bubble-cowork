@@ -576,7 +576,7 @@ function PromptEditorPane({
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-xl px-5 py-2.5 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+          className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-5 py-2.5 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
         >
           Cancel
         </button>

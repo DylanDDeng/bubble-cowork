@@ -1272,7 +1272,7 @@ export function BoardView() {
               <button
                 type="button"
                 onClick={() => setNewRunOpen(false)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1325,7 +1325,7 @@ export function BoardView() {
               <button
                 type="button"
                 onClick={() => setNewRunOpen(false)}
-                className="inline-flex h-10 items-center rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                className="inline-flex h-10 items-center rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
               >
                 Cancel
               </button>
@@ -1333,7 +1333,7 @@ export function BoardView() {
                 type="button"
                 onClick={handleStartNewRun}
                 disabled={pendingStart || !newRunPrompt.trim() || !newRunCwd.trim()}
-                className="inline-flex h-10 items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-10 items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Sparkles className="h-4 w-4" />
                 {pendingStart ? 'Starting…' : 'Start Run'}
