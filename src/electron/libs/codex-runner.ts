@@ -1268,6 +1268,23 @@ function getToolCallRawInput(update: Record<string, unknown>): unknown {
   return undefined;
 }
 
+function getSingleChangeTargetPath(input: Record<string, unknown> | null): string | null {
+  const changes = asRecord(input?.changes);
+  if (!changes) {
+    return null;
+  }
+
+  const entries = Object.entries(changes).filter(([key, value]) => {
+    return !!key.trim() && asRecord(value) !== null;
+  });
+  if (entries.length !== 1) {
+    return null;
+  }
+
+  const [filePath] = entries[0];
+  return filePath.trim() || null;
+}
+
 function mapToolCallToToolUse(
   kind: string,
   title: string,
@@ -1302,6 +1319,7 @@ function mapToolCallToToolUse(
           inputRecord.uri
         )
       : null;
+  const maybeChangePath = getSingleChangeTargetPath(inputRecord);
 
   if (
     kindLower.includes('execute') ||
@@ -1333,7 +1351,7 @@ function mapToolCallToToolUse(
   }
 
   if (kindLower.includes('edit')) {
-    const filePath = maybePath || '';
+    const filePath = maybePath || maybeChangePath || '';
     const merged: Record<string, unknown> = inputRecord ? { ...inputRecord } : {};
     if (filePath) merged.file_path = filePath;
     return { name: 'Edit', input: merged };
