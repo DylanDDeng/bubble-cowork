@@ -14,11 +14,15 @@ function decodeCursor(cursor: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function getRenderableMessages(sessionId: string) {
+  return sessions.getSessionHistory(sessionId).filter((message) => message.type !== 'stream_event');
+}
+
 export class AegisDbHistorySource implements SessionHistorySource {
   readonly kind = 'aegis' as const;
 
   async loadLatest(session: UnifiedSessionRecord, limit: number): Promise<UnifiedHistoryPage> {
-    const messages = sessions.getSessionHistory(session.id);
+    const messages = getRenderableMessages(session.id);
     const safeLimit = Math.max(1, limit);
     const start = Math.max(0, messages.length - safeLimit);
     return {
@@ -29,7 +33,7 @@ export class AegisDbHistorySource implements SessionHistorySource {
   }
 
   async loadBefore(session: UnifiedSessionRecord, cursor: string, limit: number): Promise<UnifiedHistoryPage> {
-    const messages = sessions.getSessionHistory(session.id);
+    const messages = getRenderableMessages(session.id);
     const offset = Math.max(0, decodeCursor(cursor));
     const safeLimit = Math.max(1, limit);
     const start = Math.max(0, offset - safeLimit);
@@ -46,7 +50,7 @@ export class AegisDbHistorySource implements SessionHistorySource {
     before: number,
     after: number
   ): Promise<UnifiedHistoryPage> {
-    const messages = sessions.getSessionHistory(session.id);
+    const messages = getRenderableMessages(session.id);
     const anchorIndex = messages.findIndex((message) => message.createdAt === anchorCreatedAt);
     if (anchorIndex === -1) {
       throw new Error('Target message not found in session history.');
@@ -65,6 +69,6 @@ export class AegisDbHistorySource implements SessionHistorySource {
   }
 
   async loadAll(session: UnifiedSessionRecord) {
-    return sessions.getSessionHistory(session.id);
+    return getRenderableMessages(session.id);
   }
 }
