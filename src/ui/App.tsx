@@ -31,7 +31,8 @@ import { ExternalFilePermissionDialog } from './components/ExternalFilePermissio
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { applyFontPreferences } from './theme/fonts';
 import { applyThemePreferences } from './theme/themes';
-import { MDContent } from './render/markdown';
+import { extractLatestSuccessfulHtmlArtifact } from './utils/artifacts';
+import { StructuredResponse } from './components/StructuredResponse';
 import { getMessageContentBlocks } from './utils/message-content';
 import { aggregateMessages } from './utils/aggregated-messages';
 import {
@@ -44,6 +45,7 @@ import type {
   ExternalFilePermissionInput,
   ToolStatus,
   PermissionResult,
+  SessionStatus,
   StreamMessage,
   ContentBlock,
 } from './types';
@@ -107,6 +109,9 @@ export function App() {
 
   // Track history requests (prevent duplicates)
   const historyRequested = useRef(new Set<string>());
+  const sessionStatusSnapshotRef = useRef(new Map<string, SessionStatus>());
+  const pendingAutoPreviewSessionsRef = useRef(new Set<string>());
+  const autoPreviewedArtifactsRef = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const [projectChangeCount, setProjectChangeCount] = useState(0);
   const [highlightedHistoryAnchor, setHighlightedHistoryAnchor] = useState<string | null>(null);
@@ -216,6 +221,54 @@ export function App() {
       projectPanelView,
     });
   }, [activeSessionId, projectCwd, projectPanelView, projectTreeCollapsed, showNewSession]);
+
+  useEffect(() => {
+    const nextStatuses = new Map<string, SessionStatus>();
+
+    for (const session of Object.values(sessions)) {
+      nextStatuses.set(session.id, session.status);
+
+      const previousStatus = sessionStatusSnapshotRef.current.get(session.id);
+      if (previousStatus === 'running' && session.status === 'completed' && session.cwd) {
+        pendingAutoPreviewSessionsRef.current.add(session.id);
+      }
+
+      if (session.status !== 'completed' || !session.cwd) {
+        pendingAutoPreviewSessionsRef.current.delete(session.id);
+        continue;
+      }
+
+      if (!pendingAutoPreviewSessionsRef.current.has(session.id)) {
+        continue;
+      }
+
+      const artifact = extractLatestSuccessfulHtmlArtifact(session.messages);
+      if (!artifact) {
+        continue;
+      }
+
+      const previewKey = `${session.id}:${artifact.toolUseId}`;
+      if (autoPreviewedArtifactsRef.current.has(previewKey)) {
+        pendingAutoPreviewSessionsRef.current.delete(session.id);
+        continue;
+      }
+      autoPreviewedArtifactsRef.current.add(previewKey);
+
+      void window.electron.previewArtifactPath(session.cwd, artifact.filePath, { openInBrowser: true }).then((result) => {
+        if (!result.ok) {
+          autoPreviewedArtifactsRef.current.delete(previewKey);
+          toast.error(result.message || 'Failed to open preview');
+          return;
+        }
+        pendingAutoPreviewSessionsRef.current.delete(session.id);
+      }).catch((error) => {
+        autoPreviewedArtifactsRef.current.delete(previewKey);
+        toast.error(String(error));
+      });
+    }
+
+    sessionStatusSnapshotRef.current = nextStatuses;
+  }, [sessions]);
 
   useEffect(() => {
     applyThemePreferences({
@@ -574,6 +627,7 @@ export function App() {
                         toolStatusMap={toolStatusMap}
                         toolResultsMap={toolResultsMap}
                         isSessionRunning={activeSession.status === 'running'}
+                        cwd={activeSession.cwd || null}
                       />
                     </div>
                   );
@@ -676,7 +730,7 @@ export function App() {
                         </div>
                       }
                     >
-                      <MDContent content={partialMessage} />
+                      <StructuredResponse content={partialMessage} streaming />
                     </ErrorBoundary>
                   )}
                 </div>

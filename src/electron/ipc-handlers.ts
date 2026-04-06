@@ -1,6 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'http';
 import { chmodSync, existsSync, readFileSync, statSync, watch, type FSWatcher, promises as fsPromises } from 'fs';
 import { execFile } from 'child_process';
+import type { AddressInfo } from 'net';
 import { spawn as spawnPty, type IPty } from 'node-pty';
 import { promisify } from 'util';
 import { basename, extname, resolve, relative, isAbsolute, join } from 'path';
@@ -96,6 +98,27 @@ const ATTACHMENT_MIME_TYPES: Record<string, string> = {
   '.m4a': 'audio/mp4',
 };
 
+const HTML_PREVIEW_MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.htm': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.txt': 'text/plain; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+};
+
 const projectWatchers = new Map<
   string,
   { watcher: FSWatcher; timer?: NodeJS.Timeout }
@@ -104,6 +127,11 @@ const terminalSessions = new Map<string, {
   process: IPty;
   cwd: string;
   history: string;
+}>();
+const htmlPreviewServers = new Map<string, {
+  server: HttpServer;
+  port: number;
+  token: string;
 }>();
 const TERMINAL_HISTORY_MAX_CHARS = 200_000;
 const TERMINAL_STARTUP_BUFFER_MS = 180;
@@ -420,6 +448,191 @@ async function validateProjectFilePath(
   }
 }
 
+function getHtmlPreviewMimeType(filePath: string): string {
+  return HTML_PREVIEW_MIME_TYPES[extname(filePath).toLowerCase()] || 'application/octet-stream';
+}
+
+function toPreviewUrlPath(filePath: string): string {
+  const normalized = filePath.replaceAll('\\', '/');
+  const segments = normalized.split('/').filter(Boolean).map((segment) => encodeURIComponent(segment));
+  return `/${segments.join('/')}`;
+}
+
+function sendPreviewResponse(
+  res: ServerResponse,
+  statusCode: number,
+  body: string,
+  contentType = 'text/plain; charset=utf-8'
+): void {
+  res.writeHead(statusCode, {
+    'Content-Type': contentType,
+    'Cache-Control': 'no-store',
+  });
+  res.end(body);
+}
+
+async function resolvePreviewRequestFile(rootReal: string, requestPathname: string): Promise<string | null> {
+  const relativePath = requestPathname.replace(/^\/+/, '');
+  let targetPath = resolve(rootReal, relativePath || '.');
+  if (!isPathWithinRoot(rootReal, targetPath)) {
+    return null;
+  }
+
+  try {
+    targetPath = await fsPromises.realpath(targetPath);
+  } catch {
+    // keep resolved path for regular files that may not need realpath normalization
+  }
+
+  if (!isPathWithinRoot(rootReal, targetPath)) {
+    return null;
+  }
+
+  let stat;
+  try {
+    stat = await fsPromises.stat(targetPath);
+  } catch {
+    return null;
+  }
+
+  if (stat.isDirectory()) {
+    const indexPath = resolve(targetPath, 'index.html');
+    if (!isPathWithinRoot(rootReal, indexPath)) {
+      return null;
+    }
+    try {
+      const indexReal = await fsPromises.realpath(indexPath).catch(() => indexPath);
+      if (!isPathWithinRoot(rootReal, indexReal)) {
+        return null;
+      }
+      const indexStat = await fsPromises.stat(indexReal);
+      return indexStat.isFile() ? indexReal : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return stat.isFile() ? targetPath : null;
+}
+
+async function handleHtmlPreviewRequest(
+  rootReal: string,
+  token: string,
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    sendPreviewResponse(res, 405, 'Method not allowed');
+    return;
+  }
+
+  let pathname = '/';
+  try {
+    pathname = decodeURIComponent(new URL(req.url || '/', 'http://127.0.0.1').pathname);
+  } catch {
+    sendPreviewResponse(res, 400, 'Invalid request path');
+    return;
+  }
+
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments[0] !== token) {
+    sendPreviewResponse(res, 404, 'Not found');
+    return;
+  }
+
+  const filePath = await resolvePreviewRequestFile(rootReal, `/${segments.slice(1).join('/')}`);
+  if (!filePath) {
+    sendPreviewResponse(res, 404, 'Not found');
+    return;
+  }
+
+  try {
+    const data = await fsPromises.readFile(filePath);
+    res.writeHead(200, {
+      'Content-Type': getHtmlPreviewMimeType(filePath),
+      'Cache-Control': 'no-store',
+    });
+    if (req.method === 'HEAD') {
+      res.end();
+      return;
+    }
+    res.end(data);
+  } catch (error) {
+    sendPreviewResponse(res, 500, `Failed to read preview file: ${String(error)}`);
+  }
+}
+
+async function ensureHtmlPreviewServer(rootReal: string): Promise<{ port: number; token: string }> {
+  const existing = htmlPreviewServers.get(rootReal);
+  if (existing) {
+    return { port: existing.port, token: existing.token };
+  }
+
+  const token = uuidv4();
+  const server = createServer((req, res) => {
+    void handleHtmlPreviewRequest(rootReal, token, req, res);
+  });
+
+  const port = await new Promise<number>((resolvePort, reject) => {
+    const handleError = (error: Error) => {
+      server.removeListener('listening', handleListening);
+      reject(error);
+    };
+    const handleListening = () => {
+      server.removeListener('error', handleError);
+      const address = server.address() as AddressInfo | null;
+      if (!address || typeof address.port !== 'number') {
+        reject(new Error('Failed to determine preview server port'));
+        return;
+      }
+      resolvePort(address.port);
+    };
+
+    server.once('error', handleError);
+    server.once('listening', handleListening);
+    server.listen(0, '127.0.0.1');
+  });
+
+  server.unref();
+  server.once('close', () => {
+    htmlPreviewServers.delete(rootReal);
+  });
+  htmlPreviewServers.set(rootReal, { server, port, token });
+  return { port, token };
+}
+
+async function getHtmlPreviewUrl(
+  cwd: string,
+  filePath: string
+): Promise<{ ok: true; url: string } | { ok: false; message: string }> {
+  const resolvedPath = resolve(cwd || '.', filePath || '');
+  const validation = await validateProjectFilePath(cwd, resolvedPath);
+  if (!validation.ok) {
+    return validation;
+  }
+
+  const ext = extname(validation.targetReal).toLowerCase();
+  if (ext !== '.html' && ext !== '.htm') {
+    return { ok: false, message: 'Only HTML files can be previewed in the browser' };
+  }
+
+  try {
+    const stat = await fsPromises.stat(validation.targetReal);
+    if (!stat.isFile()) {
+      return { ok: false, message: 'Preview target is not a file' };
+    }
+  } catch {
+    return { ok: false, message: 'Preview file was not found' };
+  }
+
+  const { port, token } = await ensureHtmlPreviewServer(validation.rootReal);
+  const relativePath = relative(validation.rootReal, validation.targetReal);
+  return {
+    ok: true,
+    url: `http://127.0.0.1:${port}/${token}${toPreviewUrlPath(relativePath)}`,
+  };
+}
+
 function getAttachmentSpec(filePath: string): { kind: Attachment['kind']; mimeType: string } | null {
   const ext = extname(filePath).toLowerCase();
   const mimeType = ATTACHMENT_MIME_TYPES[ext];
@@ -469,6 +682,69 @@ function parseSlashCommand(prompt: string): { name: string; args: string } | nul
     name: match[1].toLowerCase(),
     args: match[2]?.trim() || '',
   };
+}
+
+const LIVE_WIDGET_VISUAL_PATTERN =
+  /(?:\bwidget\b|\bdashboard\b|\bchart\b|\bdiagram\b|\bprototype\b|\banimation\b|\binteractive\b|\blanding page\b|\bweb page\b|\bhero section\b|网页|页面|前端|组件|动画|交互|可视化|图表|仪表盘|原型|落地页)/i;
+const LIVE_WIDGET_PREVIEW_INTENT_PATTERN =
+  /(?:live preview|inline preview|render (?:it|this|that)? ?(?:in|inside)? ?chat|show (?:it|this|that)? ?(?:in|inside)? ?chat|preview (?:it|this|that)? ?(?:in|inside)? ?chat|display (?:it|this|that)? ?(?:in|inside)? ?chat|direct preview|render it here|show it here|preview it here|直接预览|实时预览|聊天里预览|在聊天里预览|直接展示|聊天里展示|在聊天里展示|直接渲染|实时渲染|聊天内渲染|在聊天中渲染|直接在回复里展示|直接在回复里预览|直接在对话里预览|直接在对话里展示)/i;
+const LIVE_WIDGET_FOLLOWUP_PATTERN =
+  /(?:continue|iterate|refine|tweak|adjust|improve|polish|update|modify|继续|接着|再改|优化|调整|微调|完善).*(?:widget|preview|component|demo|card|这个预览|这个组件|这个卡片)|(?:widget|preview|component|demo|card|这个预览|这个组件|这个卡片).*(?:continue|iterate|refine|tweak|adjust|improve|polish|update|modify|继续|接着|再改|优化|调整|微调|完善)/i;
+
+function streamMessageContainsLiveWidget(message: StreamMessage): boolean {
+  if (message.type === 'user_prompt') {
+    return message.prompt.includes('<aegis-widget');
+  }
+
+  if (message.type === 'assistant' || message.type === 'user') {
+    return message.message.content.some((block) => {
+      if (block.type === 'text') {
+        return block.text.includes('<aegis-widget');
+      }
+      if (block.type === 'tool_result') {
+        return block.content.includes('<aegis-widget');
+      }
+      return false;
+    });
+  }
+
+  return false;
+}
+
+function augmentPromptForLiveWidgetProtocol(
+  prompt: string,
+  history?: StreamMessage[]
+): string {
+  if (!prompt.trim()) {
+    return prompt;
+  }
+
+  if (prompt.includes('<aegis-widget')) {
+    return prompt;
+  }
+
+  const hasWidgetHistory = history ? history.some((message) => streamMessageContainsLiveWidget(message)) : false;
+  const hasExplicitPreviewIntent = LIVE_WIDGET_PREVIEW_INTENT_PATTERN.test(prompt);
+  const isVisualRequest = LIVE_WIDGET_VISUAL_PATTERN.test(prompt);
+  const isWidgetFollowup = hasWidgetHistory && LIVE_WIDGET_FOLLOWUP_PATTERN.test(prompt);
+  const shouldInject =
+    (hasExplicitPreviewIntent && isVisualRequest) ||
+    (hasExplicitPreviewIntent && hasWidgetHistory) ||
+    isWidgetFollowup;
+
+  if (!shouldInject) {
+    return prompt;
+  }
+
+  return [
+    prompt.trim(),
+    '',
+    'If a live visual preview would help, you may embed exactly one self-contained widget block using this format:',
+    '<aegis-widget title="short title">',
+    '<!doctype html><html><body>...</body></html>',
+    '</aegis-widget>',
+    'Rules: keep it self-contained, responsive, inline CSS/JS only, no external network fetches, and keep all explanation outside the widget block.',
+  ].join('\n');
 }
 
 function formatInteger(value: number): string {
@@ -2643,6 +2919,31 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
+  ipcMainHandle(
+    'preview-artifact-path',
+    async (
+      _event,
+      cwd: string,
+      filePath: string,
+      options?: { openInBrowser?: boolean }
+    ): Promise<{ ok: boolean; url?: string; message?: string }> => {
+      try {
+        const preview = await getHtmlPreviewUrl(cwd, filePath);
+        if (!preview.ok) {
+          return preview;
+        }
+
+        if (options?.openInBrowser !== false) {
+          await shell.openExternal(preview.url);
+        }
+
+        return { ok: true, url: preview.url };
+      } catch (error) {
+        return { ok: false, message: String(error) };
+      }
+    }
+  );
+
   // RPC: 在文件管理器中展示文件
   ipcMainHandle('reveal-path', async (_event, filePath: string) => {
     try {
@@ -3196,7 +3497,7 @@ async function handleSessionStart(
     opencodePermissionMode,
     hiddenFromThreads,
   } = payload;
-  const runnerPrompt = (effectivePrompt || prompt).trim();
+  const runnerPrompt = augmentPromptForLiveWidgetProtocol((effectivePrompt || prompt).trim());
   if (!cwd?.trim()) {
     broadcast(mainWindow, {
       type: 'runner.error',
@@ -3370,7 +3671,6 @@ async function handleSessionContinue(
     codexFastMode,
     opencodePermissionMode,
   } = payload;
-  const runnerPrompt = (effectivePrompt || prompt).trim();
 
   const session = sessions.getSession(sessionId);
   if (!session) {
@@ -3390,6 +3690,10 @@ async function handleSessionContinue(
       ? sanitizeStoredClaudeHistory(sessionId, sessions.getSessionHistory(sessionId))
       : { messages: sessions.getSessionHistory(sessionId), hadInvalidThinking: false };
   const historyBeforeContinue = sanitizedHistoryResult.messages;
+  const runnerPrompt = augmentPromptForLiveWidgetProtocol(
+    (effectivePrompt || prompt).trim(),
+    historyBeforeContinue
+  );
 
   const existingEntry = runnerHandles.get(sessionId);
   const previousProvider = session.provider || 'claude';
@@ -4340,6 +4644,10 @@ export function cleanup(): void {
   for (const sessionId of terminalSessions.keys()) {
     disposeTerminalSession(sessionId);
   }
+  for (const [, entry] of htmlPreviewServers) {
+    entry.server.close();
+  }
+  htmlPreviewServers.clear();
 
   // 关闭数据库
   sessions.close();

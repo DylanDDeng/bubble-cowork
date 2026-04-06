@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Copy, Check, Pencil, RotateCcw } from 'lucide-react';
-import { MDContent } from '../render/markdown';
 import { useAppStore } from '../store/useAppStore';
 import { DecisionPanel, getAskUserQuestionSignature } from './DecisionPanel';
 import { ToolGroup } from './ToolGroup';
 import { AttachmentChips } from './AttachmentChips';
 import { AttachmentPreviewGrid } from './AttachmentPreviewGrid';
 import { ThinkingBlock } from './ThinkingBlock';
+import { StructuredResponse } from './StructuredResponse';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { getContentBlocks } from '../utils/message-content';
@@ -592,7 +592,7 @@ function ContentBlockCard({
     case 'text':
       return (
         <div className="min-w-0 overflow-x-auto">
-          <MDContent content={block.text} />
+          <StructuredResponse content={block.text} />
         </div>
       );
 

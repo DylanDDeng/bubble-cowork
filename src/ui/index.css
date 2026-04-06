@@ -867,6 +867,95 @@ body {
   animation: fadeSlideIn 0.15s ease-out;
 }
 
+.structured-response {
+  display: grid;
+  gap: 12px;
+}
+
+.live-widget-shell {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 92%, transparent), color-mix(in srgb, var(--bg-primary) 96%, transparent));
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.live-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  background: color-mix(in srgb, var(--bg-tertiary) 72%, transparent);
+}
+
+.live-widget-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.live-widget-title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-widget-state {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.live-widget-frame {
+  display: block;
+  width: 100%;
+  min-height: 180px;
+  border: 0;
+  background: var(--preview-surface);
+}
+
+.live-widget-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.live-widget-footer-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.live-widget-placeholder {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background:
+    radial-gradient(circle at top, color-mix(in srgb, var(--accent-light) 40%, transparent), transparent 55%),
+    var(--preview-surface);
+}
+
 /* Enhanced status dot pulse animation */
 .status-dot.running {
   animation: statusPulse 1.5s infinite ease-in-out;
