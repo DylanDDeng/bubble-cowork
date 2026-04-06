@@ -397,7 +397,7 @@ function createWindow(): void {
       saveUiResumeState(latestUiResumeState);
     }
 
-    if (process.platform === 'darwin' && !isQuitting && !isDev()) {
+    if (process.platform === 'darwin' && !isQuitting) {
       event.preventDefault();
       mainWindow.hide();
     }
@@ -606,7 +606,7 @@ app.whenReady().then(() => {
     });
   }
 
-  clearUiResumeState();
+  latestUiResumeState = loadUiResumeState();
   setupMenu();
   setupAutoUpdater();
   ipcMainHandle('check-for-updates', async () => {
@@ -640,7 +640,7 @@ app.whenReady().then(() => {
 
 // 窗口全部关闭时退出（macOS 除外）
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin' || isDev()) {
+  if (process.platform !== 'darwin') {
     app.quit();
   }
 });
@@ -648,7 +648,12 @@ app.on('window-all-closed', () => {
 // 应用退出前清理
 app.on('before-quit', () => {
   isQuitting = true;
-  clearUiResumeState();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    saveWindowState(mainWindow);
+  }
+  if (latestUiResumeState) {
+    saveUiResumeState(latestUiResumeState);
+  }
   devFileWatcher?.close();
   devFileWatcher = null;
   cleanup();
