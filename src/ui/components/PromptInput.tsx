@@ -90,7 +90,9 @@ export function PromptInput() {
   const {
     activeSessionId,
     sessions,
+    pendingStart,
     setShowNewSession,
+    setPendingStart,
     promptLibraryInsertRequest,
     consumePromptLibraryInsert,
     fontSelections,
@@ -127,6 +129,7 @@ export function PromptInput() {
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const isRunning = activeSession?.status === 'running';
+  const isBusy = isRunning || pendingStart;
   const claudeModelConfig = useClaudeModelConfig();
   const { compatibleOptions } = useCompatibleProviderConfig();
   const availableClaudeModels = useMemo(
@@ -163,7 +166,7 @@ export function PromptInput() {
     return activeSession.model.trim();
   }, [activeClaudeModel, activeSession?.model, compatibleOptions]);
   const handleAutoSubmitClaudeCommand = (nextPrompt: string) => {
-    if (!activeSessionId || !activeSession) {
+    if (!activeSessionId || !activeSession || activeSession.isDraft) {
       setPrompt(nextPrompt);
       return;
     }
@@ -561,7 +564,53 @@ export function PromptInput() {
       return;
     }
 
-    if (activeSessionId && activeSession) {
+    if (activeSessionId && activeSession?.isDraft) {
+      if (!activeSession.cwd?.trim()) {
+        toast.error('Select a project folder before starting a task.');
+        return;
+      }
+
+      setPendingStart(true);
+      useAppStore.setState({ pendingDraftSessionId: activeSessionId });
+      sendEvent({
+        type: 'session.start',
+        payload: {
+          title: activeSession.title || 'New Chat',
+          prompt: displayPrompt,
+          effectivePrompt: normalizedPrompt,
+          cwd: activeSession.cwd,
+          todoState: activeSession.todoState || 'todo',
+          attachments: attachments.length > 0 ? attachments : undefined,
+          provider,
+          model:
+            provider === 'claude'
+              ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
+              : provider === 'codex'
+                ? selectedCodexModel || codexModelOptions[0] || undefined
+                : provider === 'opencode'
+                  ? selectedOpencodeModel || opencodeModelOptions[0] || undefined
+                  : undefined,
+          compatibleProviderId:
+            provider === 'claude' ? selectedClaudeCompatibleProviderId || undefined : undefined,
+          betas:
+            provider === 'claude' &&
+            supportsClaude1mContext(selectedClaudeModel || claudeModelConfig.defaultModel || null) &&
+            selectedClaudeContext1m
+              ? ['context-1m-2025-08-07']
+              : undefined,
+          claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
+          codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
+          codexReasoningEffort:
+            provider === 'codex' ? selectedCodexReasoningEffort : undefined,
+          codexFastMode:
+            provider === 'codex' ? selectedCodexFastMode : undefined,
+          opencodePermissionMode:
+            provider === 'opencode' ? selectedOpencodePermissionMode : undefined,
+        },
+      });
+      setPrompt('');
+      setAttachments([]);
+    } else if (activeSessionId && activeSession) {
       // 继续现有会话
       sendEvent({
         type: 'session.continue',
@@ -616,7 +665,7 @@ export function PromptInput() {
   };
 
   const handleAddAttachments = async () => {
-    if (isRunning) return;
+    if (isBusy) return;
     const selected = await window.electron.selectAttachments();
     if (!selected || selected.length === 0) return;
 
@@ -738,7 +787,7 @@ export function PromptInput() {
       e.preventDefault();
       if (isRunning) {
         handleStop();
-      } else {
+      } else if (!isBusy) {
         handleSend();
       }
     }
@@ -795,6 +844,8 @@ export function PromptInput() {
             placeholder={
               isRunning
                 ? 'Press Enter to stop...'
+                : pendingStart
+                ? 'Starting session...'
                 : skillAutocomplete.selectedSkill
                 ? `Add instructions for ${skillAutocomplete.selectedSkill.name}...`
                 : skillAutocomplete.selectedCommand
@@ -804,7 +855,7 @@ export function PromptInput() {
                 : 'Start a new session...'
             }
             rows={1}
-            disabled={isRunning}
+            disabled={isBusy}
             className={`w-full bg-transparent px-5 pb-3 text-[14px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50 ${
               skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-1.5' : 'pt-4'
             }`}
@@ -837,7 +888,7 @@ export function PromptInput() {
                 setProvider(next);
                 savePreferredProvider(next);
               }}
-              disabled={isRunning}
+              disabled={isBusy}
               claudeModel={{
                 value: selectedClaudeModel,
                 compatibleProviderId: selectedClaudeCompatibleProviderId,
@@ -891,7 +942,7 @@ export function PromptInput() {
                     setSelectedCodexReasoningEffort(effort);
                     savePreferredCodexReasoningEffort(selectedCodexModel, effort);
                   }}
-                  disabled={isRunning}
+                  disabled={isBusy}
                 />
                 {codexFastModeSupported && (
                   <CodexFastModeToggle
@@ -900,18 +951,18 @@ export function PromptInput() {
                         setSelectedCodexFastMode(enabled);
                         savePreferredCodexFastMode(codexModelConfig, selectedCodexModel, enabled);
                       }}
-                    disabled={isRunning}
+                    disabled={isBusy}
                   />
                 )}
               </div>
             )}
 
-            <SavePromptButton content={promptLibraryContent} disabled={isRunning} />
+            <SavePromptButton content={promptLibraryContent} disabled={isBusy} />
 
             <div className="relative">
               <button
                 onClick={() => setMenuOpen((v) => !v)}
-                disabled={isRunning}
+                disabled={isBusy}
                 className="p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Add"
                 aria-label="Add"
@@ -919,7 +970,7 @@ export function PromptInput() {
                 <Plus className="w-5 h-5" />
               </button>
 
-              {menuOpen && !isRunning && (
+              {menuOpen && !isBusy && (
                 <>
                   <div
                     className="fixed inset-0 z-20"
@@ -955,11 +1006,11 @@ export function PromptInput() {
             ) : (
               <button
                 onClick={handleSend}
-                disabled={!prompt.trim()}
+                disabled={!prompt.trim() || isBusy}
                 className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-xl)] transition-colors disabled:cursor-not-allowed"
                 style={{
-                  backgroundColor: !prompt.trim() ? 'var(--text-muted)' : 'var(--accent)',
-                  color: !prompt.trim() ? 'var(--bg-primary)' : 'var(--accent-foreground)'
+                  backgroundColor: !prompt.trim() || isBusy ? 'var(--text-muted)' : 'var(--accent)',
+                  color: !prompt.trim() || isBusy ? 'var(--bg-primary)' : 'var(--accent-foreground)'
                 }}
                 title="Send"
                 aria-label="Send"
@@ -975,7 +1026,7 @@ export function PromptInput() {
               <ClaudeAccessModePicker
                 value={selectedClaudeAccessMode}
                 onChange={setSelectedClaudeAccessMode}
-                disabled={isRunning}
+                disabled={isBusy}
               />
             ) : provider === 'codex' ? (
               <CodexPermissionModePicker
@@ -984,7 +1035,7 @@ export function PromptInput() {
                   setSelectedCodexPermissionMode(mode);
                   savePreferredCodexPermissionMode(mode);
                 }}
-                disabled={isRunning}
+                disabled={isBusy}
               />
             ) : (
               <CodexPermissionModePicker
@@ -993,7 +1044,7 @@ export function PromptInput() {
                   setSelectedOpencodePermissionMode(mode);
                   savePreferredOpencodePermissionMode(mode);
                 }}
-                disabled={isRunning}
+                disabled={isBusy}
               />
             )}
           </div>

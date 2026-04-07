@@ -108,6 +108,7 @@ export interface SessionView {
   hiddenFromThreads?: boolean;
   source?: import('../shared/types').SessionSource;
   readOnly?: boolean;
+  isDraft?: boolean;
   latestClaudeModelUsage?: import('../shared/types').LatestClaudeModelUsage;
   messages: import('../shared/types').StreamMessage[];
   hydrated: boolean;
@@ -133,6 +134,7 @@ export interface AppState {
   sidebarWidth: number;
   globalError: string | null;
   pendingStart: boolean;
+  pendingDraftSessionId: string | null;
   projectCwd: string | null;
   projectTreeCwd: string | null;
   projectTree: ProjectTreeNode | null;
@@ -196,6 +198,8 @@ export interface AppActions {
   applyUiResumeState: (state: import('../shared/types').UiResumeState | null) => void;
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;
+  createDraftSession: (cwd?: string | null) => string;
+  removeDraftSession: (sessionId: string) => void;
   loadOlderSessionHistory: (sessionId: string) => void;
   removePermissionRequest: (sessionId: string, toolUseId: string) => void;
   // 搜索 Actions

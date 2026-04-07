@@ -631,7 +631,7 @@ export function BoardView() {
 
   const boardSessions = useMemo(() => {
     const list = Object.values(sessions)
-      .filter((session) => !session.hiddenFromThreads && session.source !== 'claude_code')
+      .filter((session) => !session.hiddenFromThreads && session.source !== 'claude_code' && !session.isDraft)
       .map((session) => {
         const pendingTodoState = pendingTodoOverrides[session.id];
         const knownTodoState = knownTodoStates[session.id];
@@ -673,7 +673,7 @@ export function BoardView() {
       const next = { ...current };
 
       for (const session of Object.values(sessions)) {
-        if (session.hiddenFromThreads || session.source === 'claude_code') {
+        if (session.hiddenFromThreads || session.source === 'claude_code' || session.isDraft) {
           continue;
         }
 

@@ -24,6 +24,7 @@ import type {
 } from '../types';
 import { DEFAULT_COLOR_THEME_ID, applyThemePreferences } from '../theme/themes';
 import { applyFontPreferences, getDefaultFontSelections } from '../theme/fonts';
+import { loadPreferredProvider } from '../utils/provider';
 
 function applyAppearance({
   theme,
@@ -125,6 +126,33 @@ function createEmptyStreamingState() {
   };
 }
 
+function createDraftSessionView(cwd?: string | null): SessionView {
+  const now = Date.now();
+  const id = `draft-${now}-${Math.random().toString(36).slice(2, 8)}`;
+
+  return {
+    id,
+    title: 'New Chat',
+    status: 'idle',
+    source: 'aegis',
+    readOnly: false,
+    isDraft: true,
+    cwd: cwd || undefined,
+    provider: loadPreferredProvider(),
+    todoState: 'todo',
+    hiddenFromThreads: false,
+    messages: [],
+    hydrated: true,
+    historyCursor: null,
+    hasMoreHistory: false,
+    loadingMoreHistory: false,
+    permissionRequests: [],
+    streaming: createEmptyStreamingState(),
+    runtimeNotice: undefined,
+    updatedAt: now,
+  };
+}
+
 function normalizeClaudeAccessMode(value: unknown): import('../types').ClaudeAccessMode {
   return value === 'fullAccess' ? 'fullAccess' : 'default';
 }
@@ -187,6 +215,7 @@ export const useAppStore = create<Store>()(
       sidebarWidth: 256,
       globalError: null,
       pendingStart: false,
+      pendingDraftSessionId: null,
       loadOlderSessionHistory: (sessionId) => {
         const session = get().sessions[sessionId];
         if (!session?.historyCursor || session.loadingMoreHistory) {
@@ -322,7 +351,7 @@ export const useAppStore = create<Store>()(
         break;
 
       case 'runner.error':
-        set({ globalError: event.payload.message, pendingStart: false });
+        set({ globalError: event.payload.message, pendingStart: false, pendingDraftSessionId: null });
         break;
 
       case 'project.tree':
@@ -471,6 +500,48 @@ export const useAppStore = create<Store>()(
 
   setPendingStart: (pending) => set({ pendingStart: pending }),
 
+  createDraftSession: (cwd) => {
+    const draft = createDraftSessionView(cwd ?? get().projectCwd);
+    set((state) => ({
+      sessions: {
+        ...state.sessions,
+        [draft.id]: draft,
+      },
+      activeSessionId: draft.id,
+      activeWorkspace: 'chat',
+      showNewSession: false,
+    }));
+    persistUiResumeStateSnapshot(get());
+    return draft.id;
+  },
+
+  removeDraftSession: (sessionId) => {
+    set((state) => {
+      const session = state.sessions[sessionId];
+      if (!session?.isDraft) {
+        return state;
+      }
+
+      const { [sessionId]: removed, ...rest } = state.sessions;
+      const visibleSessionIds = Object.values(rest)
+        .filter((item) => !item.hiddenFromThreads)
+        .sort((left, right) => right.updatedAt - left.updatedAt)
+        .map((item) => item.id);
+      const nextActiveSessionId =
+        state.activeSessionId === sessionId ? visibleSessionIds[0] || null : state.activeSessionId;
+
+      return {
+        ...state,
+        sessions: rest,
+        activeSessionId: nextActiveSessionId,
+        showNewSession: nextActiveSessionId === null,
+        pendingDraftSessionId:
+          state.pendingDraftSessionId === sessionId ? null : state.pendingDraftSessionId,
+      };
+    });
+    persistUiResumeStateSnapshot(get());
+  },
+
   removePermissionRequest: (sessionId, toolUseId) => {
     set((state) => {
       const session = state.sessions[sessionId];
@@ -611,6 +682,9 @@ export const useAppStore = create<Store>()(
         theme: state.theme,
         colorThemeId: state.colorThemeId,
         customThemeCss: state.customThemeCss,
+        draftSessions: Object.fromEntries(
+          Object.entries(state.sessions).filter(([, session]) => session.isDraft)
+        ),
       }),
       merge: (persistedState: unknown, currentState: Store) => {
         const persisted = persistedState as {
@@ -623,10 +697,14 @@ export const useAppStore = create<Store>()(
           theme?: Theme;
           colorThemeId?: ColorThemeId;
           customThemeCss?: string;
+          draftSessions?: Record<string, SessionView>;
         } | undefined;
         const theme = persisted?.theme || currentState.theme;
         const colorThemeId = persisted?.colorThemeId || currentState.colorThemeId;
         const customThemeCss = persisted?.customThemeCss || currentState.customThemeCss;
+        const draftSessions = Object.fromEntries(
+          Object.entries(persisted?.draftSessions || {}).filter(([, session]) => session?.isDraft)
+        ) as Record<string, SessionView>;
         applyAppearance({
           theme,
           colorThemeId,
@@ -636,6 +714,10 @@ export const useAppStore = create<Store>()(
         });
         return {
           ...currentState,
+          sessions: {
+            ...currentState.sessions,
+            ...draftSessions,
+          },
           activeWorkspace:
             persisted?.activeWorkspace === 'skills'
               ? 'skills'
@@ -719,13 +801,19 @@ function handleSessionList(
   }
 
   for (const existing of Object.values(get().sessions)) {
-    if (existing.hiddenFromThreads && !sessionsMap[existing.id]) {
+    if ((existing.hiddenFromThreads || existing.isDraft) && !sessionsMap[existing.id]) {
       sessionsMap[existing.id] = existing;
     }
   }
 
+  const visibleSessionIds = Object.values(sessionsMap)
+    .filter((session) => !session.hiddenFromThreads)
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .map((session) => session.id);
+  const hasVisibleSessions = visibleSessionIds.length > 0;
+
   // 如果当前 UI 明确恢复到新建页，则不要在会话列表返回时把它覆盖回旧会话
-  const showNewSession = get().showNewSession || sessions.length === 0;
+  const showNewSession = get().showNewSession && !hasVisibleSessions;
 
   const keepNewSessionOpen = get().showNewSession;
 
@@ -733,10 +821,10 @@ function handleSessionList(
   let activeSessionId = keepNewSessionOpen ? null : get().activeSessionId;
   if (
     !keepNewSessionOpen &&
-    sessions.length > 0 &&
+    hasVisibleSessions &&
     (!activeSessionId || !sessionsMap[activeSessionId] || sessionsMap[activeSessionId].hiddenFromThreads)
   ) {
-    activeSessionId = sessions[0].id; // 已按 updated_at 降序排列
+    activeSessionId = visibleSessionIds[0] || null;
   }
 
   set({
@@ -845,6 +933,12 @@ function handleSessionStatus(
       },
     });
   } else {
+    const pendingDraftSessionId = state.pendingDraftSessionId;
+    const nextSessions = { ...state.sessions };
+    if (pendingDraftSessionId && nextSessions[pendingDraftSessionId]?.isDraft) {
+      delete nextSessions[pendingDraftSessionId];
+    }
+
     // 新建会话（来自 session.start）
     const newSession: SessionView = {
       id: sessionId,
@@ -880,12 +974,13 @@ function handleSessionStatus(
 
     set({
       sessions: {
-        ...state.sessions,
+        ...nextSessions,
         [sessionId]: newSession,
       },
       activeSessionId: shouldFocusNewSession ? sessionId : state.activeSessionId,
       showNewSession: false,
       pendingStart: false,
+      pendingDraftSessionId: null,
     });
   }
 }

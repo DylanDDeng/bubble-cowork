@@ -27,6 +27,7 @@ export function Sidebar() {
     sidebarCollapsed,
     sidebarWidth,
     projectCwd,
+    sessions,
     activeWorkspace,
     setSidebarCollapsed,
     setSidebarWidth,
@@ -35,6 +36,8 @@ export function Sidebar() {
     setActiveWorkspace,
     setShowNewSession,
     setShowSettings,
+    createDraftSession,
+    removeDraftSession,
   } = useAppStore();
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
   const [messageSearchOpen, setMessageSearchOpen] = useState(false);
@@ -91,6 +94,10 @@ export function Sidebar() {
   }, []);
 
   const handleDelete = (sessionId: string) => {
+    if (sessions[sessionId]?.isDraft) {
+      removeDraftSession(sessionId);
+      return;
+    }
     sendEvent({ type: 'session.delete', payload: { sessionId } });
   };
 
@@ -111,8 +118,7 @@ export function Sidebar() {
     if (!selected) return;
     setProjectCwd(selected);
     setShowSettings(false);
-    setActiveSession(null);
-    setShowNewSession(true);
+    createDraftSession(selected);
   };
 
   const toggleSidebarCollapsed = () => {
@@ -225,9 +231,7 @@ export function Sidebar() {
                 <button
                   onClick={() => {
                     setShowSettings(false);
-                    setProjectCwd(null);
-                    setActiveSession(null);
-                    setShowNewSession(true);
+                    createDraftSession(projectCwd);
                   }}
                   className="group flex flex-1 items-center gap-3 rounded-[var(--radius-xl)] px-2 py-2 text-left no-drag transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
                 >
@@ -263,8 +267,7 @@ export function Sidebar() {
                   onNewSessionForProject={(nextCwd) => {
                     setProjectCwd(nextCwd);
                     setShowSettings(false);
-                    setActiveSession(null);
-                    setShowNewSession(true);
+                    createDraftSession(nextCwd);
                   }}
                 />
               </div>
