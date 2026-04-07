@@ -3590,36 +3590,34 @@ async function handleSessionStart(
     },
   });
 
-  if (chosenProvider === 'claude') {
-    // 异步生成更好的标题（不阻塞）
-    generateSessionTitle(
-      prompt,
-      cwd,
-      selectedModel,
-      compatibleProviderId,
-      selectedBetas
-    ).then((newTitle) => {
-      const trimmedTitle = newTitle.trim();
-      if (!trimmedTitle) {
-        return;
-      }
+  // 异步生成更好的标题（不阻塞）
+  generateSessionTitle(
+    prompt,
+    cwd,
+    chosenProvider === 'claude' ? selectedModel : undefined,
+    chosenProvider === 'claude' ? compatibleProviderId : undefined,
+    chosenProvider === 'claude' ? selectedBetas : undefined
+  ).then((newTitle) => {
+    const trimmedTitle = newTitle.trim();
+    if (!trimmedTitle) {
+      return;
+    }
 
-      sessions.updateSessionTitle(session.id, trimmedTitle);
-      const latest = sessions.getSession(session.id);
-      const currentStatus = latest?.status || session.status || 'running';
-      broadcast(mainWindow, {
-        type: 'session.status',
-        payload: {
-          sessionId: session.id,
-          status: currentStatus as SessionStatus,
-          title: trimmedTitle,
-          hiddenFromThreads: latest?.hidden_from_threads === 1,
-        },
-      });
-    }).catch((err) => {
-      console.error('Failed to generate title:', err);
+    sessions.updateSessionTitle(session.id, trimmedTitle);
+    const latest = sessions.getSession(session.id);
+    const currentStatus = latest?.status || session.status || 'running';
+    broadcast(mainWindow, {
+      type: 'session.status',
+      payload: {
+        sessionId: session.id,
+        status: currentStatus as SessionStatus,
+        title: trimmedTitle,
+        hiddenFromThreads: latest?.hidden_from_threads === 1,
+      },
     });
-  }
+  }).catch((err) => {
+    console.error('Failed to generate title:', err);
+  });
 
   // 广播用户 prompt
   const createdAt = Date.now();
