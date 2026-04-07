@@ -24,6 +24,7 @@ const MAX_SIDEBAR_WIDTH = 420;
 
 export function Sidebar() {
   const {
+    activeSessionId,
     sidebarCollapsed,
     sidebarWidth,
     projectCwd,
@@ -46,6 +47,8 @@ export function Sidebar() {
   const sidebarResizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(sidebarWidth);
+  const activeSession = activeSessionId ? sessions[activeSessionId] : null;
+  const newThreadCwd = activeSession?.cwd || projectCwd;
 
   const finishSidebarResize = () => {
     if (!sidebarResizingRef.current) return;
@@ -231,7 +234,7 @@ export function Sidebar() {
                 <button
                   onClick={() => {
                     setShowSettings(false);
-                    createDraftSession(projectCwd);
+                    createDraftSession(newThreadCwd);
                   }}
                   className="group flex flex-1 items-center gap-3 rounded-[var(--radius-xl)] px-2 py-2 text-left no-drag transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
                 >
