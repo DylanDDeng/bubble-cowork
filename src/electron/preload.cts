@@ -4,6 +4,8 @@ import type {
   ClaudeUsageRangeDays,
   FeishuBridgeConfig,
   FontSettingsPayload,
+  MemoryDocument,
+  MemoryWorkspace,
   PromptLibraryExportResult,
   PromptLibraryImportResult,
   PromptLibraryItem,
@@ -225,6 +227,12 @@ contextBridge.exposeInMainWorld('electron', {
   getFeishuBridgeStatus: () => {
     return ipcRenderer.invoke('get-feishu-bridge-status');
   },
+  getMemoryWorkspace: (projectCwd?: string | null): Promise<MemoryWorkspace> => {
+    return ipcRenderer.invoke('get-memory-workspace', projectCwd);
+  },
+  saveMemoryDocument: (filePath: string, content: string): Promise<MemoryDocument> => {
+    return ipcRenderer.invoke('save-memory-document', filePath, content);
+  },
   startFeishuBridge: () => {
     return ipcRenderer.invoke('start-feishu-bridge');
   },
@@ -276,6 +284,11 @@ contextBridge.exposeInMainWorld('electron', {
   // 保存项目文本文件（仅 .txt）
   writeProjectTextFile: (cwd: string, filePath: string, content: string) => {
     return ipcRenderer.invoke('write-project-text-file', cwd, filePath, content);
+  },
+
+  // 预览 artifact 文件
+  previewArtifactPath: (cwd: string, filePath: string, options?: { openInBrowser?: boolean }) => {
+    return ipcRenderer.invoke('preview-artifact-path', cwd, filePath, options);
   },
 
   // 用系统默认应用打开文件

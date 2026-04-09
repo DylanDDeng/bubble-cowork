@@ -10,6 +10,8 @@ import type {
   Attachment,
   ChatSessionSearchResult,
   FontSettingsPayload,
+  MemoryDocument,
+  MemoryWorkspace,
   ProjectTreeNode,
   PromptLibraryExportResult,
   PromptLibraryImportResult,
@@ -88,6 +90,8 @@ declare global {
     getFeishuBridgeConfig: () => Promise<FeishuBridgeConfig>;
     saveFeishuBridgeConfig: (config: FeishuBridgeConfig) => Promise<FeishuBridgeConfig>;
     getFeishuBridgeStatus: () => Promise<FeishuBridgeStatus>;
+    getMemoryWorkspace: (projectCwd?: string | null) => Promise<MemoryWorkspace>;
+    saveMemoryDocument: (filePath: string, content: string) => Promise<MemoryDocument>;
     startFeishuBridge: () => Promise<FeishuBridgeStatus>;
     stopFeishuBridge: () => Promise<FeishuBridgeStatus>;
     selectDirectory: () => Promise<string | null>;
@@ -96,6 +100,7 @@ declare global {
     readProjectFilePreview: (cwd: string, filePath: string) => Promise<unknown>;
     createProjectAttachment: (cwd: string, filePath: string) => Promise<Attachment | null>;
     writeProjectTextFile: (cwd: string, filePath: string, content: string) => Promise<{ ok: boolean; message?: string }>;
+    previewArtifactPath: (cwd: string, filePath: string, options?: { openInBrowser?: boolean }) => Promise<{ ok: boolean; url?: string; message?: string }>;
     openPath: (filePath: string) => Promise<{ ok: boolean; message?: string }>;
     revealPath: (filePath: string) => Promise<{ ok: boolean; message?: string }>;
     getProjectTree: (cwd: string) => Promise<ProjectTreeNode | null>;

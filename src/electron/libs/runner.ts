@@ -12,9 +12,14 @@ import type { ClaudeModelUsage } from '../../shared/types';
 import { getClaudeEnv, getClaudeSettings, getMcpServers } from './claude-settings';
 import { applyCompatibleProviderEnv } from './compatible-provider-config';
 import { getClaudeCodeRuntime } from './claude-runtime';
+import { createAegisMemoryMcpServer, buildMemoryContext, MEMORY_SYSTEM_PROMPT } from './memory-mcp';
+import { shouldExtractMemory, hasMemoryWritesInTurn, extractMemories } from './memory-extractor';
 
 type ClaudeSettingSource = 'user' | 'project' | 'local';
 const CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local'];
+
+// Persistent store for memory extraction messages (survives across runClaude calls)
+const _memoryMessageStore = new Map<string, Array<{ role: string; content: string }>>();
 
 // MCP 服务器状态
 interface McpServerStatus {
@@ -376,14 +381,20 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       });
 
       const maxThinkingTokens = resolveMaxThinkingTokens();
+
+      // Build memory system prompt (content + instructions) and in-process MCP server
+      const sessionCwd = session.cwd || process.cwd();
+      const memoryContext = await buildMemoryContext(session.cwd ?? undefined);
+      const memoryAppend = [memoryContext, MEMORY_SYSTEM_PROMPT].filter(Boolean).join('\n\n');
+      const aegisMemoryMcp = await createAegisMemoryMcpServer(session.cwd ?? undefined);
+
       const result = sdk.query({
         prompt: inputQueue,
         options: {
-          systemPrompt: {
-            type: 'preset',
-            preset: 'claude_code',
-          },
-          cwd: session.cwd || process.cwd(),
+          systemPrompt: memoryAppend
+            ? { type: 'preset', preset: 'claude_code', append: memoryAppend }
+            : { type: 'preset', preset: 'claude_code' },
+          cwd: sessionCwd,
           resume: resumeSessionId,
           abortController,
           includePartialMessages: true,
@@ -397,16 +408,20 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           executable: executable as unknown as 'node',
           executableArgs,
           pathToClaudeCodeExecutable,
-          // Keep user/project/local settings enabled so Claude can still load slash
-          // commands, skills, and CLAUDE.md context. The flag settings layer already
-          // pins the selected model with higher precedence.
           settingSources: CLAUDE_SETTING_SOURCES,
-          // 加载 MCP 服务器配置（合并全局和项目级）
-          mcpServers: getMcpServers(session.cwd ?? undefined) as Record<string, SDKMcpServerConfig>,
+          mcpServers: {
+            ...getMcpServers(session.cwd ?? undefined),
+            'aegis-memory': aegisMemoryMcp,
+          } as Record<string, SDKMcpServerConfig>,
           // 自定义工具权限处理
           canUseTool: async (toolName: string, input: Record<string, unknown>) => {
+            // Auto-approve Aegis memory MCP tools (in-process, user opted-in)
+            const memoryTools = ['remember_search', 'remember_get', 'remember_write', 'remember_recent'];
+            if (memoryTools.some(t => toolName === t || toolName.endsWith(`__${t}`))) {
+              return { behavior: 'allow' as const, updatedInput: input };
+            }
+
             const isFullAccess = sdkPermissionMode === 'bypassPermissions';
-            // 修正文件路径：如果路径不在 session.cwd 下，尝试修正
             if (session.cwd) {
               // 文件操作工具的路径修正
               const fileTools = ['Write', 'Edit', 'Read'];
@@ -515,6 +530,16 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         console.warn('Failed to set maxThinkingTokens:', error);
       }
 
+      // Track recent messages and assistant text for memory extraction
+      // Use a persistent map so messages accumulate across runClaude calls for the same session
+      const sessionKey = session.id || currentSessionId || 'default';
+      if (!_memoryMessageStore.has(sessionKey)) {
+        _memoryMessageStore.set(sessionKey, []);
+      }
+      const recentMessages = _memoryMessageStore.get(sessionKey)!;
+      let currentAssistantText = '';
+      let currentTurnHasMemoryWrite = false;
+
       // 流式处理消息
       for await (const message of result) {
         if (abortController.signal.aborted) {
@@ -534,6 +559,48 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
               }
             }
           }
+
+          // Collect messages for memory extraction
+          if (streamMessage.type === 'user') {
+            recentMessages.push({ role: 'user', content: prompt });
+          }
+          if (streamMessage.type === 'assistant' && streamMessage.message?.content) {
+            const textParts = (streamMessage.message.content as ContentBlock[])
+              .filter(b => b.type === 'text' && b.text)
+              .map(b => b.text!);
+            if (textParts.length > 0) {
+              currentAssistantText = textParts.join('');
+            }
+          }
+
+          // Track if remember_write was called in this turn
+          if (streamMessage.type === 'assistant' && streamMessage.message?.content) {
+            const raw = JSON.stringify(streamMessage.message.content);
+            if (hasMemoryWritesInTurn(raw)) {
+              currentTurnHasMemoryWrite = true;
+            }
+          }
+
+          // On result (turn complete), trigger memory extraction
+          if (streamMessage.type === 'result') {
+            if (currentAssistantText) {
+              recentMessages.push({ role: 'assistant', content: currentAssistantText });
+              // Cap at last 10 messages to avoid unbounded growth
+              while (recentMessages.length > 10) recentMessages.shift();
+            }
+            if (
+              shouldExtractMemory(sessionKey) &&
+              recentMessages.length >= 2
+            ) {
+              // Fire-and-forget: don't block the stream
+              extractMemories(recentMessages.slice(), sessionCwd).catch(err =>
+                console.warn('[runner] Memory extraction failed:', err)
+              );
+            }
+            currentAssistantText = '';
+            currentTurnHasMemoryWrite = false;
+          }
+
           onMessage(streamMessage);
         }
       }

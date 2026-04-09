@@ -71,6 +71,17 @@ export function getArtifactKindFromPath(filePath: string): ArtifactKind | null {
   }
 }
 
+export function getArtifactPathFromToolInput(input: Record<string, unknown>): string | null {
+  return getFirstString(input, [
+    'file_path',
+    'path',
+    'file',
+    'filename',
+    'absolute_file_path',
+    'absoluteFilePath',
+  ]);
+}
+
 function isToolUseBlock(block: ContentBlock): block is ContentBlock & { type: 'tool_use' } {
   return block.type === 'tool_use';
 }
@@ -95,14 +106,7 @@ export function extractArtifactsFromMessages(messages: StreamMessage[]): Artifac
       if (!sourceTool) continue;
 
       const input = block.input || {};
-      const filePath = getFirstString(input, [
-        'file_path',
-        'path',
-        'file',
-        'filename',
-        'absolute_file_path',
-        'absoluteFilePath',
-      ]);
+      const filePath = getArtifactPathFromToolInput(input);
       if (!filePath) continue;
 
       const kind = getArtifactKindFromPath(filePath);
@@ -126,4 +130,47 @@ export function extractArtifactsFromMessages(messages: StreamMessage[]): Artifac
   }
 
   return Array.from(byPath.values()).sort((a, b) => b.lastSeenIndex - a.lastSeenIndex);
+}
+
+export function extractLatestSuccessfulHtmlArtifact(messages: StreamMessage[]): ArtifactItem | null {
+  const successfulToolUseIds = new Set<string>();
+
+  for (const msg of messages) {
+    if (msg.type !== 'user') continue;
+
+    for (const block of getMessageContentBlocks(msg)) {
+      if (block.type === 'tool_result' && !block.is_error) {
+        successfulToolUseIds.add(block.tool_use_id);
+      }
+    }
+  }
+
+  let latest: ArtifactItem | null = null;
+  let index = 0;
+
+  for (const msg of messages) {
+    if (msg.type !== 'assistant') continue;
+
+    for (const block of getMessageContentBlocks(msg)) {
+      if (!isToolUseBlock(block)) continue;
+
+      const sourceTool = normalizeToolName(block.name);
+      if (!sourceTool || !successfulToolUseIds.has(block.id)) continue;
+
+      const input = block.input || {};
+      const filePath = getArtifactPathFromToolInput(input);
+      if (!filePath || getArtifactKindFromPath(filePath) !== 'html') continue;
+
+      latest = {
+        filePath,
+        fileName: fileNameFromPath(filePath),
+        kind: 'html',
+        sourceTool,
+        toolUseId: block.id,
+        lastSeenIndex: index++,
+      };
+    }
+  }
+
+  return latest;
 }

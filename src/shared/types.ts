@@ -289,6 +289,31 @@ export interface Attachment {
   kind: AttachmentKind;
 }
 
+export type MemoryDocumentKind = 'assistant' | 'user' | 'project';
+export type MemoryScope = 'personal' | 'project';
+
+export interface MemoryDocument {
+  kind: MemoryDocumentKind;
+  scope: MemoryScope;
+  title: string;
+  description: string;
+  path: string;
+  content: string;
+  exists: boolean;
+  updatedAt: number;
+  projectCwd?: string | null;
+}
+
+export interface MemoryWorkspace {
+  rootPath: string;
+  assistantRoot: string;
+  projectRoot: string | null;
+  projectCwd: string | null;
+  assistantDocument: MemoryDocument;
+  userDocument: MemoryDocument;
+  projectDocument: MemoryDocument | null;
+}
+
 // Agent 提供商
 export type AgentProvider = 'claude' | 'codex' | 'opencode';
 export type SessionSource =

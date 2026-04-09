@@ -39,6 +39,7 @@ import {
 import { expandClaudeSkillPrompt, listClaudeSkills } from './libs/claude-skills';
 import { loadFeishuBridgeConfig, saveFeishuBridgeConfig } from './libs/feishu-bridge-config';
 import { feishuBridge } from './libs/feishu-bridge';
+import { getMemoryWorkspace, saveMemoryDocument } from './libs/memory-store';
 import { formatClaudeRuntimeBlockingMessage, getClaudeRuntimeStatus } from './libs/claude-runtime-status';
 import {
   getSkillMarketDetail,
@@ -682,6 +683,16 @@ function parseSlashCommand(prompt: string): { name: string; args: string } | nul
     name: match[1].toLowerCase(),
     args: match[2]?.trim() || '',
   };
+}
+
+async function buildRunnerPromptWithMemory(
+  _provider: SessionInfo['provider'],
+  prompt: string,
+  _cwd?: string
+): Promise<string> {
+  // Memory context and tool guidance are now injected via systemPrompt.append
+  // in runner.ts (in-process MCP approach). No longer pollute the user prompt.
+  return prompt.trim();
 }
 
 const LIVE_WIDGET_VISUAL_PATTERN =
@@ -2595,6 +2606,14 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return feishuBridge.getStatus();
   });
 
+  ipcMainHandle('get-memory-workspace', async (_event, projectCwd?: string | null) => {
+    return getMemoryWorkspace(projectCwd);
+  });
+
+  ipcMainHandle('save-memory-document', async (_event, filePath: string, content: string) => {
+    return saveMemoryDocument(filePath, content);
+  });
+
   ipcMainHandle('start-feishu-bridge', async () => {
     return feishuBridge.start();
   });
@@ -3497,7 +3516,6 @@ async function handleSessionStart(
     opencodePermissionMode,
     hiddenFromThreads,
   } = payload;
-  const runnerPrompt = augmentPromptForLiveWidgetProtocol((effectivePrompt || prompt).trim());
   if (!cwd?.trim()) {
     broadcast(mainWindow, {
       type: 'runner.error',
@@ -3506,6 +3524,9 @@ async function handleSessionStart(
     return null;
   }
   const chosenProvider = provider || 'claude';
+  const runnerPrompt = augmentPromptForLiveWidgetProtocol(
+    await buildRunnerPromptWithMemory(chosenProvider, (effectivePrompt || prompt).trim(), cwd),
+  );
   const selectedModel = normalizeModel(model);
   const selectedBetas = chosenProvider === 'claude' ? normalizeBetas(betas) : undefined;
 
@@ -3688,14 +3709,14 @@ async function handleSessionContinue(
       ? sanitizeStoredClaudeHistory(sessionId, sessions.getSessionHistory(sessionId))
       : { messages: sessions.getSessionHistory(sessionId), hadInvalidThinking: false };
   const historyBeforeContinue = sanitizedHistoryResult.messages;
-  const runnerPrompt = augmentPromptForLiveWidgetProtocol(
-    (effectivePrompt || prompt).trim(),
-    historyBeforeContinue
-  );
 
   const existingEntry = runnerHandles.get(sessionId);
   const previousProvider = session.provider || 'claude';
   const nextProvider = provider || previousProvider;
+  const runnerPrompt = augmentPromptForLiveWidgetProtocol(
+    await buildRunnerPromptWithMemory(nextProvider, (effectivePrompt || prompt).trim(), session.cwd || undefined),
+    historyBeforeContinue
+  );
   const nextModel = normalizeModel(model ?? session.model ?? undefined);
   const previousCompatibleProviderId = session.compatible_provider_id || undefined;
   const nextCompatibleProviderId =

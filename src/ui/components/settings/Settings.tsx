@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Eraser, ChevronDown, Check, Bot } from 'lucide-react';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Eraser, ChevronDown, Check, Bot, Brain } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
@@ -8,6 +8,7 @@ import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings'
 import { McpSettingsContent } from './McpSettings';
 import { ProviderPicker } from '../ProviderPicker';
 import { BridgeSettingsContent } from './BridgeSettings';
+import { MemorySettingsContent } from './MemorySettings';
 import type { ColorThemeId, FontSelection, FontSettingsPayload, FontSlot, ImportedFontFace, SystemFontOption, Theme } from '../../types';
 import { BUILTIN_FONT_OPTIONS, getDefaultFontSelections, getFontPreviewLabel } from '../../theme/fonts';
 import { COLOR_THEME_FAMILIES, resolveThemeMode } from '../../theme/themes';
@@ -43,6 +44,12 @@ const SETTINGS_TABS = {
     title: 'Bridge',
     description: 'Connect remote chat channels to this desktop workspace.',
     icon: <Bot className="w-4 h-4" />,
+  },
+  memory: {
+    label: 'Memory',
+    title: 'Memory Workspace',
+    description: 'Edit the long-term assistant, user, and project memory files used across providers.',
+    icon: <Brain className="w-4 h-4" />,
   },
 } as const;
 
@@ -138,6 +145,7 @@ export function Settings() {
           {activeSettingsTab === 'providers' && <CompatibleProviderSettingsContent />}
           {activeSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}
           {activeSettingsTab === 'bridge' && <BridgeSettingsContent />}
+          {activeSettingsTab === 'memory' && <MemorySettingsContent />}
         </div>
       </main>
       </div>
