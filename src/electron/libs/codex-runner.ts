@@ -1,9 +1,12 @@
 import { spawn } from 'child_process';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'fs';
 import { readFile } from 'fs/promises';
+import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { RunnerOptions, RunnerHandle, StreamMessage, Attachment } from '../types';
 import { isDev } from '../util';
 import { getMcpServers } from './claude-settings';
+import { buildRuntimeManagedPrompt, createRuntimeTurnMemoryTracker } from './agent-runtime';
 import type {
   CodexPermissionMode,
   CodexReasoningEffort,
@@ -38,6 +41,9 @@ type PromptCapabilities = {
   image?: boolean;
 };
 
+const ACP_INITIALIZE_TIMEOUT_MS = 8_000;
+const ACP_SESSION_BOOTSTRAP_IDLE_TIMEOUT_MS = 60_000;
+const ACP_PROMPT_IDLE_TIMEOUT_MS = 300_000;
 type SessionUpdate =
   | { sessionUpdate: 'agent_message_chunk'; content?: unknown }
   | { sessionUpdate: string; [key: string]: unknown };
@@ -77,10 +83,20 @@ const OPENCODE_ADAPTER: AcpAdapter = {
 function getCodexPermissionOverrides(mode: CodexPermissionMode | undefined): string[] {
   switch (mode || 'defaultPermissions') {
     case 'fullAccess':
-      return ['-c', 'approval_policy="never"', '-c', 'sandbox_mode="workspace-write"'];
+      return [
+        '-c',
+        'approval_policy="never"',
+        '-c',
+        'sandbox_mode="workspace-write"',
+      ];
     case 'defaultPermissions':
     default:
-      return ['-c', 'approval_policy="on-request"', '-c', 'sandbox_mode="workspace-write"'];
+      return [
+        '-c',
+        'approval_policy="on-request"',
+        '-c',
+        'sandbox_mode="workspace-write"',
+      ];
   }
 }
 
@@ -113,6 +129,11 @@ function buildAcpProcessEnv(
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
 
+  if (adapter.id === 'codex') {
+    prepareCodexAcpHome(env);
+    return env;
+  }
+
   if (adapter.id !== 'opencode') {
     return env;
   }
@@ -137,6 +158,143 @@ function buildAcpProcessEnv(
   });
 
   return env;
+}
+
+function prepareCodexAcpHome(env: NodeJS.ProcessEnv): void {
+  const home = env.HOME;
+  if (!home) {
+    return;
+  }
+
+  const sourceCodexHome = path.join(home, '.codex');
+  const sourceAuthPath = path.join(sourceCodexHome, 'auth.json');
+  const sourceConfigPath = path.join(sourceCodexHome, 'config.toml');
+  const aegisCodexHome = path.join(sourceCodexHome, 'aegis-acp');
+  const aegisConfigPath = path.join(aegisCodexHome, 'config.toml');
+  const aegisAuthPath = path.join(aegisCodexHome, 'auth.json');
+
+  try {
+    mkdirSync(aegisCodexHome, { recursive: true });
+
+    const sourceAuthExists = existsSync(sourceAuthPath);
+    const aegisAuthExists = existsSync(aegisAuthPath);
+    if (sourceAuthExists) {
+      let shouldSyncAuth = !aegisAuthExists;
+      if (!shouldSyncAuth && aegisAuthExists) {
+        try {
+          const sourceMtime = statSync(sourceAuthPath).mtimeMs;
+          const aegisMtime = statSync(aegisAuthPath).mtimeMs;
+          shouldSyncAuth = sourceMtime > aegisMtime;
+        } catch {
+          shouldSyncAuth = false;
+        }
+      }
+
+      if (shouldSyncAuth) {
+        copyFileSync(sourceAuthPath, aegisAuthPath);
+      }
+    }
+
+    const sourceConfigExists = existsSync(sourceConfigPath);
+    const aegisConfigExists = existsSync(aegisConfigPath);
+    if (sourceConfigExists) {
+      let shouldSyncConfig = !aegisConfigExists;
+      if (!shouldSyncConfig && aegisConfigExists) {
+        try {
+          const sourceMtime = statSync(sourceConfigPath).mtimeMs;
+          const aegisMtime = statSync(aegisConfigPath).mtimeMs;
+          shouldSyncConfig = sourceMtime > aegisMtime;
+        } catch {
+          shouldSyncConfig = false;
+        }
+      }
+      if (shouldSyncConfig) {
+        copyFileSync(sourceConfigPath, aegisConfigPath);
+      }
+    } else if (!aegisConfigExists) {
+      writeFileSync(aegisConfigPath, '', 'utf8');
+    }
+
+    env.CODEX_HOME = aegisCodexHome;
+  } catch (error) {
+    if (isDev()) {
+      console.warn('[Codex ACP] Failed to prepare Aegis CODEX_HOME, falling back to default ~/.codex.', error);
+    }
+  }
+}
+
+function resolveExecutableOnPath(command: string, envPath: string | undefined): string | null {
+  if (command.includes(path.sep)) {
+    return existsSync(command) ? command : null;
+  }
+
+  const pathEntries = (envPath || '').split(path.delimiter).filter(Boolean);
+  for (const entry of pathEntries) {
+    const candidate = path.join(entry, command);
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function prependPathEntry(env: NodeJS.ProcessEnv, entry: string): void {
+  const currentPath = env.PATH || '';
+  const parts = currentPath.split(path.delimiter).filter(Boolean);
+  env.PATH = [entry, ...parts.filter((part) => part !== entry)].join(path.delimiter);
+}
+
+function extractSessionId(result: Record<string, unknown> | undefined): string {
+  return String(result?.sessionId || result?.id || '').trim();
+}
+
+function resolveNodeWrappedCommand(
+  command: string,
+  args: string[],
+  env: NodeJS.ProcessEnv
+): { command: string; args: string[] } {
+  const commandPath = resolveExecutableOnPath(command, env.PATH);
+  if (!commandPath) {
+    return { command, args };
+  }
+
+  prependPathEntry(env, path.dirname(commandPath));
+
+  let header = '';
+  try {
+    header = readFileSync(commandPath, 'utf8').slice(0, 128);
+  } catch {
+    return { command, args };
+  }
+
+  if (!header.startsWith('#!/usr/bin/env node')) {
+    return { command, args };
+  }
+
+  const siblingNode = path.join(path.dirname(commandPath), 'node');
+  if (!existsSync(siblingNode)) {
+    return { command, args };
+  }
+
+  prependPathEntry(env, path.dirname(siblingNode));
+
+  try {
+    const scriptPath = realpathSync(commandPath);
+    if (isDev()) {
+      console.log('[ACP Launch Rewrite]', {
+        wrapper: commandPath,
+        node: siblingNode,
+        script: scriptPath,
+      });
+    }
+    return {
+      command: siblingNode,
+      args: [scriptPath, ...args],
+    };
+  } catch {
+    return { command, args };
+  }
 }
 
 class JsonRpcClient {
@@ -322,6 +480,77 @@ export async function runOpenCodeOneShot(params: {
   return runAcpOneShot(OPENCODE_ADAPTER, params);
 }
 
+async function requestWithTimeout<T>(
+  client: JsonRpcClient,
+  method: string,
+  params: Record<string, unknown> | undefined,
+  timeoutMs: number,
+  adapterLabel: string
+): Promise<T> {
+  return await Promise.race([
+    client.request(method, params) as Promise<T>,
+    new Promise<T>((_, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`${adapterLabel} ACP did not respond to ${method} within ${timeoutMs}ms.`));
+      }, timeoutMs);
+      timer.unref?.();
+    }),
+  ]);
+}
+
+function createActivityWatchdog(method: string, timeoutMs: number, adapterLabel: string): {
+  promise: Promise<never>;
+  touch: () => void;
+  clear: () => void;
+} {
+  let timer: NodeJS.Timeout | null = null;
+  let settled = false;
+  let rejectFn: ((error: Error) => void) | null = null;
+
+  const schedule = () => {
+    if (settled) {
+      return;
+    }
+    if (timer) {
+      clearTimeout(timer);
+    }
+    timer = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      rejectFn?.(new Error(`${adapterLabel} ACP had no activity for ${method} within ${timeoutMs}ms.`));
+    }, timeoutMs);
+    timer.unref?.();
+  };
+
+  const promise = new Promise<never>((_, reject) => {
+    rejectFn = reject;
+    schedule();
+  });
+
+  return {
+    promise,
+    touch: schedule,
+    clear: () => {
+      settled = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    },
+  };
+}
+
+function clearActivityWatchdog(
+  watchdog: ReturnType<typeof createActivityWatchdog> | null
+): null {
+  if (watchdog) {
+    watchdog.clear();
+  }
+  return null;
+}
+
 async function runAcpOneShot(
   adapter: AcpAdapter,
   params: {
@@ -344,7 +573,8 @@ async function runAcpOneShot(
     ...(adapter.id === 'codex' ? getCodexFastModeOverrides(params.codexFastMode) : []),
   ];
   const env = buildAcpProcessEnv(adapter, selectedModel, params.opencodePermissionMode);
-  const proc = spawn(adapter.command, spawnArgs, {
+  const invocation = resolveNodeWrappedCommand(adapter.command, spawnArgs, env);
+  const proc = spawn(invocation.command, invocation.args, {
     cwd: params.cwd || process.cwd(),
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -356,6 +586,7 @@ async function runAcpOneShot(
   let assistantText = '';
   let settled = false;
   let resolveCompletion: (() => void) | null = null;
+  let activeRequestWatchdog: ReturnType<typeof createActivityWatchdog> | null = null;
   const completionPromise = new Promise<void>((resolve) => {
     resolveCompletion = () => {
       if (settled) return;
@@ -363,9 +594,27 @@ async function runAcpOneShot(
       resolve();
     };
   });
+  const requestWithActivityTimeout = async <T>(
+    method: string,
+    params: Record<string, unknown> | undefined,
+    timeoutMs: number
+  ): Promise<T> => {
+    activeRequestWatchdog = clearActivityWatchdog(activeRequestWatchdog);
+    activeRequestWatchdog = createActivityWatchdog(method, timeoutMs, adapter.label);
+    try {
+      return (await Promise.race([
+        client.request(method, params) as Promise<T>,
+        activeRequestWatchdog.promise,
+      ])) as T;
+    } finally {
+      activeRequestWatchdog = clearActivityWatchdog(activeRequestWatchdog);
+    }
+  };
+
   const client = new JsonRpcClient(
     proc,
     (method, params) => {
+      activeRequestWatchdog?.touch();
       if (method !== 'session/update') {
         return;
       }
@@ -405,6 +654,7 @@ async function runAcpOneShot(
       }
     },
     (id, method) => {
+      activeRequestWatchdog?.touch();
       client.respond(id, undefined, { code: -32601, message: `Method not supported: ${method}` });
     },
     () => undefined
@@ -413,19 +663,24 @@ async function runAcpOneShot(
   proc.stderr?.on('data', (chunk) => {
     const line = String(chunk).trim();
     if (line) {
+      activeRequestWatchdog?.touch();
       console.warn('[Codex ACP one-shot]', line);
     }
   });
 
   try {
-    const initResult = (await client.request('initialize', {
+    const initResult = (await requestWithActivityTimeout<Record<string, unknown> | undefined>(
+      'initialize',
+      {
       protocolVersion: adapter.protocolVersion,
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
         terminal: false,
       },
       clientInfo: ACP_CLIENT_INFO,
-    })) as Record<string, unknown> | undefined;
+      },
+      ACP_INITIALIZE_TIMEOUT_MS
+    )) as Record<string, unknown> | undefined;
 
     const caps =
       (initResult?.agentCapabilities as Record<string, unknown>) ||
@@ -442,34 +697,55 @@ async function runAcpOneShot(
 
     if (params.resumeSessionId) {
       try {
-        sessionResult = (await client.request('session/load', {
+        sessionResult = (await requestWithActivityTimeout<Record<string, unknown>>(
+          'session/load',
+          {
           sessionId: params.resumeSessionId,
           id: params.resumeSessionId,
           cwd,
           mcpServers: [],
-        })) as Record<string, unknown>;
+          },
+          ACP_SESSION_BOOTSTRAP_IDLE_TIMEOUT_MS
+        )) as Record<string, unknown>;
+        if (isDev()) {
+          console.log(`[${adapter.label} ACP] session/load result`, sessionResult);
+        }
+        if (!extractSessionId(sessionResult)) {
+          sessionResult = undefined;
+        }
       } catch {
         sessionResult = undefined;
       }
     }
 
     if (!sessionResult) {
-      sessionResult = (await client.request('session/new', {
+      sessionResult = (await requestWithActivityTimeout<Record<string, unknown>>(
+        'session/new',
+        {
         cwd,
         mcpServers: [],
-      })) as Record<string, unknown>;
+        },
+        ACP_SESSION_BOOTSTRAP_IDLE_TIMEOUT_MS
+      )) as Record<string, unknown>;
+      if (isDev()) {
+        console.log(`[${adapter.label} ACP] session/new result`, sessionResult);
+      }
     }
 
-    currentSessionId = String(sessionResult?.sessionId || sessionResult?.id || '');
+    currentSessionId = extractSessionId(sessionResult);
     if (!currentSessionId) {
       throw new Error(`${adapter.label} ACP did not return a bootstrap session id.`);
     }
 
     const content = await buildPromptContent(params.prompt, undefined, promptCapabilities);
-    const result = (await client.request('session/prompt', {
-      sessionId: currentSessionId,
-      prompt: content,
-    })) as Record<string, unknown>;
+    const result = (await requestWithActivityTimeout<Record<string, unknown>>(
+      'session/prompt',
+      {
+        sessionId: currentSessionId,
+        prompt: content,
+      },
+      ACP_PROMPT_IDLE_TIMEOUT_MS
+    )) as Record<string, unknown>;
 
     resolvedModel =
       String(result?.model || sessionResult?.model || selectedModel || '').trim() || selectedModel;
@@ -490,6 +766,7 @@ async function runAcpOneShot(
       model: resolvedModel,
     };
   } finally {
+    activeRequestWatchdog = clearActivityWatchdog(activeRequestWatchdog);
     try {
       proc.kill();
     } catch {
@@ -528,6 +805,11 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
   let pendingFinalizeOnSessionInfo = false;
   let acceptTurnUpdates = false;
   let terminalErrorHandled = false;
+  let activeRequestWatchdog: ReturnType<typeof createActivityWatchdog> | null = null;
+  const runtimeTurnMemoryTracker = createRuntimeTurnMemoryTracker({
+    sessionId: session.id || `${adapter.id}-session`,
+    projectCwd: session.cwd,
+  });
 
   const spawnArgs = [
     ...adapter.getArgs(selectedModel),
@@ -536,19 +818,37 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
     ...(adapter.id === 'codex' ? getCodexFastModeOverrides(codexFastMode) : []),
   ];
   const env = buildAcpProcessEnv(adapter, selectedModel, opencodePermissionMode);
-  const proc = spawn(adapter.command, spawnArgs, {
+  const invocation = resolveNodeWrappedCommand(adapter.command, spawnArgs, env);
+  const proc = spawn(invocation.command, invocation.args, {
     cwd: session.cwd || process.cwd(),
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   if (isDev()) {
     console.log(`[${adapter.label} Runner] spawned`, {
-      command: adapter.command,
+      command: invocation.command,
       cwd: session.cwd || process.cwd(),
       model: selectedModel,
-      spawnArgs,
+      spawnArgs: invocation.args,
     });
   }
+
+  const requestWithActivityTimeout = async <T>(
+    method: string,
+    params: Record<string, unknown> | undefined,
+    timeoutMs: number
+  ): Promise<T> => {
+    activeRequestWatchdog = clearActivityWatchdog(activeRequestWatchdog);
+    activeRequestWatchdog = createActivityWatchdog(method, timeoutMs, adapter.label);
+    try {
+      return (await Promise.race([
+        client.request(method, params) as Promise<T>,
+        activeRequestWatchdog.promise,
+      ])) as T;
+    } finally {
+      activeRequestWatchdog = clearActivityWatchdog(activeRequestWatchdog);
+    }
+  };
 
   proc.on('exit', (code, signal) => {
     if (!abortController.signal.aborted) {
@@ -566,6 +866,7 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
   proc.stderr?.on('data', (chunk) => {
     const line = String(chunk).trim();
     if (line) {
+      activeRequestWatchdog?.touch();
       console.warn(`[${adapter.label} ACP]`, line);
 
       if (
@@ -591,11 +892,13 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
   const client = new JsonRpcClient(
     proc,
     (method, params) => {
+      activeRequestWatchdog?.touch();
       if (method === 'session/update') {
         handleSessionUpdate(params);
       }
     },
     (id, method, params) => {
+      activeRequestWatchdog?.touch();
       const normalizedMethod = method.toLowerCase();
       const hasChoiceOptions =
         Array.isArray(params?.options) ||
@@ -782,6 +1085,9 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
       });
     }
 
+    runtimeTurnMemoryTracker.setAssistantText(assistantBuffer);
+    runtimeTurnMemoryTracker.finalizeTurn();
+
     if (status === 'cancelled') {
       return;
     }
@@ -796,14 +1102,18 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
   };
 
   async function initializeAndCreateSession(): Promise<void> {
-    const initResult = (await client.request('initialize', {
+    const initResult = (await requestWithActivityTimeout<Record<string, unknown> | undefined>(
+      'initialize',
+      {
       protocolVersion: adapter.protocolVersion,
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
         terminal: false,
       },
       clientInfo: ACP_CLIENT_INFO,
-    })) as Record<string, unknown> | undefined;
+      },
+      ACP_INITIALIZE_TIMEOUT_MS
+    )) as Record<string, unknown> | undefined;
 
     const caps =
       (initResult?.agentCapabilities as Record<string, unknown>) ||
@@ -824,12 +1134,25 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
 
     if (resumeSessionId) {
       try {
-        sessionResult = (await client.request('session/load', {
+        sessionResult = (await requestWithActivityTimeout<Record<string, unknown>>(
+          'session/load',
+          {
           sessionId: resumeSessionId,
           id: resumeSessionId,
           cwd,
           mcpServers,
-        })) as Record<string, unknown>;
+          },
+          ACP_SESSION_BOOTSTRAP_IDLE_TIMEOUT_MS
+        )) as Record<string, unknown>;
+        if (isDev()) {
+          console.log(`[${adapter.label} ACP] session/load result`, sessionResult);
+        }
+        if (!extractSessionId(sessionResult)) {
+          if (isDev()) {
+            console.warn(`[${adapter.label} ACP] session/load returned no session id, starting a new session.`);
+          }
+          sessionResult = undefined;
+        }
       } catch (error) {
         if (isDev()) {
           console.warn(`[${adapter.label} ACP] Failed to load existing session, starting a new one.`, error);
@@ -838,13 +1161,20 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
     }
 
     if (!sessionResult) {
-      sessionResult = (await client.request('session/new', {
+      sessionResult = (await requestWithActivityTimeout<Record<string, unknown>>(
+        'session/new',
+        {
         cwd,
         mcpServers,
-      })) as Record<string, unknown>;
+        },
+        ACP_SESSION_BOOTSTRAP_IDLE_TIMEOUT_MS
+      )) as Record<string, unknown>;
+      if (isDev()) {
+        console.log(`[${adapter.label} ACP] session/new result`, sessionResult);
+      }
     }
 
-    currentSessionId = String(sessionResult?.sessionId || sessionResult?.id || '');
+    currentSessionId = extractSessionId(sessionResult);
     if (!currentSessionId) {
       throw new Error(`${adapter.label} ACP did not return a session id.`);
     }
@@ -862,7 +1192,13 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
   }
 
   async function sendPrompt(text: string, promptAttachments?: Attachment[]): Promise<void> {
-    const content = await buildPromptContent(text, promptAttachments, promptCapabilities);
+    runtimeTurnMemoryTracker.beginTurn(text);
+    const managedPrompt = await buildRuntimeManagedPrompt({
+      provider: adapter.id,
+      prompt: text,
+      projectCwd: session.cwd,
+    });
+    const content = await buildPromptContent(managedPrompt, promptAttachments, promptCapabilities);
     assistantBuffer = '';
     preTraceBuffer = '';
     traceCandidateBuffer = '';
@@ -876,10 +1212,14 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
 
     let result: Record<string, unknown> | undefined;
     try {
-      result = (await client.request('session/prompt', {
-        sessionId: currentSessionId,
-        prompt: content,
-      })) as Record<string, unknown>;
+      result = (await requestWithActivityTimeout<Record<string, unknown>>(
+        'session/prompt',
+        {
+          sessionId: currentSessionId,
+          prompt: content,
+        },
+        ACP_PROMPT_IDLE_TIMEOUT_MS
+      )) as Record<string, unknown>;
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       onError?.(err);
@@ -1017,6 +1357,7 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
     }
 
     const { name, input } = mapToolCallToToolUse(rawKind, rawTitle, rawInput);
+    runtimeTurnMemoryTracker.markMemoryWrite(name);
     toolNameById.set(toolCallId, name);
     toolKindById.set(toolCallId, rawKind);
 
@@ -1056,6 +1397,7 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
       (isError ? update.error : undefined);
 
     const content = formatToolOutput(output) || (isError ? 'Tool failed' : 'Done');
+    runtimeTurnMemoryTracker.markMemoryWrite(content);
 
     onMessage({
       type: 'user',
@@ -1127,6 +1469,7 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
 
   return {
     abort: () => {
+      activeRequestWatchdog = clearActivityWatchdog(activeRequestWatchdog);
       abortController.abort();
       if (currentSessionId) {
         client.notify('session/cancel', { sessionId: currentSessionId });
