@@ -91,6 +91,19 @@ let latestUiResumeState: import('../shared/types').UiResumeState | null = null;
 let isQuitting = false;
 const RELEASES_URL = 'https://github.com/DylanDDeng/bubble-cowork/releases';
 
+function logDevLifecycle(event: string, details?: unknown): void {
+  if (!isDev()) {
+    return;
+  }
+
+  if (details === undefined) {
+    console.log(`[Dev Lifecycle] ${event}`);
+    return;
+  }
+
+  console.log(`[Dev Lifecycle] ${event}`, details);
+}
+
 function shouldAutoOpenDevTools(): boolean {
   return process.env.AEGIS_OPEN_DEVTOOLS === '1';
 }
@@ -374,6 +387,12 @@ function createWindow(): void {
     webContents.on('render-process-gone', (_event, details) => {
       console.error('[Dev] Renderer process gone:', details);
     });
+    webContents.on('unresponsive', () => {
+      logDevLifecycle('webContents.unresponsive');
+    });
+    webContents.on('responsive', () => {
+      logDevLifecycle('webContents.responsive');
+    });
   }
 
   // 加载页面
@@ -388,6 +407,11 @@ function createWindow(): void {
 
   // 保存窗口状态
   mainWindow.on('close', (event) => {
+    logDevLifecycle('mainWindow.close', {
+      isQuitting,
+      visible: mainWindow?.isVisible() ?? false,
+      destroyed: mainWindow?.isDestroyed() ?? false,
+    });
     if (!mainWindow) {
       return;
     }
@@ -404,6 +428,7 @@ function createWindow(): void {
   });
 
   mainWindow.on('closed', () => {
+    logDevLifecycle('mainWindow.closed');
     mainWindow = null;
   });
 }
@@ -634,12 +659,14 @@ app.whenReady().then(() => {
   scheduleAutomaticUpdateCheck();
 
   app.on('activate', () => {
+    logDevLifecycle('app.activate');
     showMainWindow();
   });
 });
 
 // 窗口全部关闭时退出（macOS 除外）
 app.on('window-all-closed', () => {
+  logDevLifecycle('app.window-all-closed', { platform: process.platform });
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -647,6 +674,7 @@ app.on('window-all-closed', () => {
 
 // 应用退出前清理
 app.on('before-quit', () => {
+  logDevLifecycle('app.before-quit');
   isQuitting = true;
   if (mainWindow && !mainWindow.isDestroyed()) {
     saveWindowState(mainWindow);
@@ -657,4 +685,24 @@ app.on('before-quit', () => {
   devFileWatcher?.close();
   devFileWatcher = null;
   cleanup();
+});
+
+app.on('will-quit', () => {
+  logDevLifecycle('app.will-quit');
+});
+
+app.on('child-process-gone', (_event, details) => {
+  console.error('[Dev] Child process gone:', details);
+});
+
+app.on('quit', (_event, exitCode) => {
+  logDevLifecycle('app.quit', { exitCode });
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[Dev Lifecycle] uncaughtException', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Dev Lifecycle] unhandledRejection', reason);
 });

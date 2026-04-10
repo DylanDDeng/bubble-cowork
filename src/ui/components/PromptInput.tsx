@@ -42,7 +42,13 @@ import {
   savePreferredClaudeModel,
   supportsClaude1mContext,
 } from '../utils/claude-model';
-import { buildCodexModelOptions, formatCodexModelLabel, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
+import {
+  buildCodexModelOptions,
+  formatCodexModelLabel,
+  loadPreferredCodexModel,
+  resolveCodexModel,
+  savePreferredCodexModel,
+} from '../utils/codex-model';
 import { loadPreferredCodexPermissionMode, savePreferredCodexPermissionMode } from '../utils/codex-permission';
 import {
   getCodexReasoningOptions,
@@ -141,13 +147,17 @@ export function PromptInput() {
     () => buildCodexModelOptions(codexModelConfig),
     [codexModelConfig]
   );
-  const codexReasoningOptions = useMemo(
-    () => getCodexReasoningOptions(codexModelConfig, selectedCodexModel),
+  const resolvedSelectedCodexModel = useMemo(
+    () => resolveCodexModel(selectedCodexModel, codexModelConfig),
     [codexModelConfig, selectedCodexModel]
   );
+  const codexReasoningOptions = useMemo(
+    () => getCodexReasoningOptions(codexModelConfig, resolvedSelectedCodexModel),
+    [codexModelConfig, resolvedSelectedCodexModel]
+  );
   const codexFastModeSupported = useMemo(
-    () => supportsCodexFastMode(codexModelConfig, selectedCodexModel),
-    [codexModelConfig, selectedCodexModel]
+    () => supportsCodexFastMode(codexModelConfig, resolvedSelectedCodexModel),
+    [codexModelConfig, resolvedSelectedCodexModel]
   );
   const opencodeModelConfig = useOpencodeModelConfig();
   const opencodeModelOptions = useMemo(
@@ -182,7 +192,7 @@ export function PromptInput() {
           provider === 'claude'
             ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
             : provider === 'codex'
-              ? selectedCodexModel || codexModelOptions[0] || undefined
+              ? resolvedSelectedCodexModel || undefined
               : provider === 'opencode'
                 ? selectedOpencodeModel || opencodeModelOptions[0] || undefined
                 : undefined,
@@ -272,7 +282,10 @@ export function PromptInput() {
       setSelectedCodexPermissionMode(activeSession.codexPermissionMode || 'defaultPermissions');
       setSelectedCodexReasoningEffort(
         activeSession.codexReasoningEffort ||
-          getDefaultCodexReasoningEffort(codexModelConfig, activeSession.model || selectedCodexModel)
+          getDefaultCodexReasoningEffort(
+            codexModelConfig,
+            resolveCodexModel(activeSession.model || selectedCodexModel, codexModelConfig)
+          )
       );
       setSelectedCodexFastMode(activeSession.codexFastMode === true);
       return;
@@ -400,10 +413,12 @@ export function PromptInput() {
       return;
     }
 
-    const nextModel =
+    const nextModel = resolveCodexModel(
       activeSession.model ||
-      loadPreferredCodexModel() ||
-      codexModelOptions[0];
+        loadPreferredCodexModel() ||
+        codexModelOptions[0],
+      codexModelConfig
+    );
     if ((nextModel || null) !== selectedCodexModel) {
       setSelectedCodexModel(nextModel || null);
     }
@@ -411,30 +426,35 @@ export function PromptInput() {
     activeSessionId,
     activeSession?.provider,
     activeSession?.model,
+    codexModelConfig,
     codexModelOptions,
   ]);
 
   useEffect(() => {
-    if (!selectedCodexModel) {
+    if (!resolvedSelectedCodexModel) {
       return;
     }
 
-    if (activeSession?.provider === 'codex' && activeSession.model && selectedCodexModel === activeSession.model) {
+    if (
+      activeSession?.provider === 'codex' &&
+      activeSession.model &&
+      resolvedSelectedCodexModel === activeSession.model
+    ) {
       return;
     }
 
-    const nextEffort = getDefaultCodexReasoningEffort(codexModelConfig, selectedCodexModel);
+    const nextEffort = getDefaultCodexReasoningEffort(codexModelConfig, resolvedSelectedCodexModel);
     if (nextEffort !== selectedCodexReasoningEffort) {
       setSelectedCodexReasoningEffort(nextEffort);
     }
-      const nextFastMode = loadPreferredCodexFastMode(codexModelConfig, selectedCodexModel);
+    const nextFastMode = loadPreferredCodexFastMode(codexModelConfig, resolvedSelectedCodexModel);
     if (nextFastMode !== selectedCodexFastMode) {
       setSelectedCodexFastMode(nextFastMode);
     }
   }, [
     activeSession?.provider,
     codexModelConfig,
-    selectedCodexModel,
+    resolvedSelectedCodexModel,
     selectedCodexReasoningEffort,
     selectedCodexFastMode,
   ]);
@@ -586,7 +606,7 @@ export function PromptInput() {
             provider === 'claude'
               ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
               : provider === 'codex'
-                ? selectedCodexModel || codexModelOptions[0] || undefined
+                ? resolvedSelectedCodexModel || undefined
                 : provider === 'opencode'
                   ? selectedOpencodeModel || opencodeModelOptions[0] || undefined
                   : undefined,
@@ -916,7 +936,10 @@ export function PromptInput() {
               codexModel={{
                 value: selectedCodexModel,
                 options: codexModelOptions,
-                runtimeModel: activeSession?.provider === 'codex' ? activeSession.model || selectedCodexModel : null,
+                runtimeModel:
+                  activeSession?.provider === 'codex'
+                    ? resolveCodexModel(activeSession.model || selectedCodexModel, codexModelConfig)
+                    : null,
                 onChange: (model) => {
                   setSelectedCodexModel(model);
                   savePreferredCodexModel(model);

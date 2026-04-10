@@ -39,7 +39,12 @@ import {
   savePreferredClaudeContext1m,
   savePreferredClaudeModel,
 } from '../utils/claude-model';
-import { buildCodexModelOptions, loadPreferredCodexModel, savePreferredCodexModel } from '../utils/codex-model';
+import {
+  buildCodexModelOptions,
+  loadPreferredCodexModel,
+  resolveCodexModel,
+  savePreferredCodexModel,
+} from '../utils/codex-model';
 import { loadPreferredCodexPermissionMode, savePreferredCodexPermissionMode } from '../utils/codex-permission';
 import {
   getCodexReasoningOptions,
@@ -126,13 +131,17 @@ export function NewSessionView() {
     () => buildCodexModelOptions(codexModelConfig),
     [codexModelConfig]
   );
-  const codexReasoningOptions = useMemo(
-    () => getCodexReasoningOptions(codexModelConfig, selectedCodexModel),
+  const resolvedSelectedCodexModel = useMemo(
+    () => resolveCodexModel(selectedCodexModel, codexModelConfig),
     [codexModelConfig, selectedCodexModel]
   );
+  const codexReasoningOptions = useMemo(
+    () => getCodexReasoningOptions(codexModelConfig, resolvedSelectedCodexModel),
+    [codexModelConfig, resolvedSelectedCodexModel]
+  );
   const codexFastModeSupported = useMemo(
-    () => supportsCodexFastMode(codexModelConfig, selectedCodexModel),
-    [codexModelConfig, selectedCodexModel]
+    () => supportsCodexFastMode(codexModelConfig, resolvedSelectedCodexModel),
+    [codexModelConfig, resolvedSelectedCodexModel]
   );
   const opencodeModelConfig = useOpencodeModelConfig();
   const opencodeModelOptions = useMemo(
@@ -371,19 +380,19 @@ export function NewSessionView() {
   }, [codexModelOptions, selectedCodexModel]);
 
   useEffect(() => {
-    if (!selectedCodexModel) {
+    if (!resolvedSelectedCodexModel) {
       return;
     }
 
-    const nextEffort = getDefaultCodexReasoningEffort(codexModelConfig, selectedCodexModel);
+    const nextEffort = getDefaultCodexReasoningEffort(codexModelConfig, resolvedSelectedCodexModel);
     if (nextEffort !== selectedCodexReasoningEffort) {
       setSelectedCodexReasoningEffort(nextEffort);
     }
-    const nextFastMode = loadPreferredCodexFastMode(codexModelConfig, selectedCodexModel);
+    const nextFastMode = loadPreferredCodexFastMode(codexModelConfig, resolvedSelectedCodexModel);
     if (nextFastMode !== selectedCodexFastMode) {
       setSelectedCodexFastMode(nextFastMode);
     }
-  }, [codexModelConfig, selectedCodexFastMode, selectedCodexModel, selectedCodexReasoningEffort]);
+  }, [codexModelConfig, resolvedSelectedCodexModel, selectedCodexFastMode, selectedCodexReasoningEffort]);
 
   useEffect(() => {
     if (!opencodeModelOptions.length) {
@@ -443,7 +452,7 @@ export function NewSessionView() {
           provider === 'claude'
             ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
             : provider === 'codex'
-              ? selectedCodexModel || codexModelOptions[0] || undefined
+              ? resolvedSelectedCodexModel || undefined
               : provider === 'opencode'
                 ? selectedOpencodeModel || opencodeModelOptions[0] || undefined
                 : undefined,

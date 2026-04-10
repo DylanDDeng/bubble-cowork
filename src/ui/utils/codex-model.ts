@@ -40,3 +40,22 @@ export function formatCodexModelLabel(model: string): string {
 export function buildCodexModelOptions(config: CodexModelConfig): string[] {
   return Array.from(new Set(config.options.filter((value): value is string => Boolean(value))));
 }
+
+export function resolveCodexModel(
+  model: string | null | undefined,
+  config: CodexModelConfig
+): string | null {
+  const normalized = model?.trim() || null;
+  const options = buildCodexModelOptions(config);
+  const defaultModel = config.defaultModel?.trim() || null;
+
+  if (normalized && (options.length === 0 || options.includes(normalized))) {
+    return normalized;
+  }
+
+  if (defaultModel && (options.length === 0 || options.includes(defaultModel))) {
+    return defaultModel;
+  }
+
+  return options[0] || null;
+}

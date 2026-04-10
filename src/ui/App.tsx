@@ -29,12 +29,14 @@ import { ThinkingBlock } from './components/ThinkingBlock';
 import { DecisionPanel } from './components/DecisionPanel';
 import { ExternalFilePermissionDialog } from './components/ExternalFilePermissionDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { useCodexModelConfig } from './hooks/useCodexModelConfig';
 import { applyFontPreferences } from './theme/fonts';
 import { applyThemePreferences } from './theme/themes';
 import { extractLatestSuccessfulHtmlArtifact } from './utils/artifacts';
 import { StructuredResponse } from './components/StructuredResponse';
 import { getMessageContentBlocks } from './utils/message-content';
 import { aggregateMessages } from './utils/aggregated-messages';
+import { resolveCodexModel } from './utils/codex-model';
 import {
   deriveTurnPhase,
   shouldShowThinkingIndicator,
@@ -77,6 +79,7 @@ export function App() {
 
   // Initialize global keyboard shortcuts
   useKeyboardShortcuts();
+  const codexModelConfig = useCodexModelConfig();
 
   const {
     connected,
@@ -677,7 +680,10 @@ export function App() {
                                     prompt: prompt.trim(),
                                     attachments: attachments && attachments.length > 0 ? attachments : undefined,
                                     provider: activeSession.provider,
-                                    model: activeSession.model,
+                                    model:
+                                      activeSession.provider === 'codex'
+                                        ? resolveCodexModel(activeSession.model, codexModelConfig) || undefined
+                                        : activeSession.model,
                                     compatibleProviderId: activeSession.compatibleProviderId,
                                     betas: activeSession.betas,
                                     claudeAccessMode:
