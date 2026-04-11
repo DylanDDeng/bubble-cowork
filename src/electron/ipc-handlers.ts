@@ -83,6 +83,7 @@ import type {
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
 const MAX_FILE_PREVIEW_BYTES = 5 * 1024 * 1024; // 5MB
 const DIRECT_EDIT_BOOTSTRAP_MAX_TRANSCRIPT_CHARS = 20_000;
+const LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD = 500;
 
 const ATTACHMENT_MIME_TYPES: Record<string, string> = {
   '.txt': 'text/plain',
@@ -1419,11 +1420,19 @@ async function handleEditLatestPrompt(
     return;
   }
 
+  const longPromptAttachment = await maybeConvertLongPromptToAttachment({
+    cwd: session.cwd,
+    prompt,
+    attachments,
+  });
+  const nextPromptText = longPromptAttachment.prompt;
+  const nextAttachments = longPromptAttachment.attachments;
+
   if (session.provider === 'codex') {
     await handleEditLatestCodexPrompt(mainWindow, {
       sessionId,
-      prompt,
-      attachments,
+      prompt: nextPromptText,
+      attachments: nextAttachments,
       model,
       codexPermissionMode,
       codexReasoningEffort,
@@ -1435,8 +1444,8 @@ async function handleEditLatestPrompt(
   if (session.provider === 'opencode') {
     await handleEditLatestOpenCodePrompt(mainWindow, {
       sessionId,
-      prompt,
-      attachments,
+      prompt: nextPromptText,
+      attachments: nextAttachments,
       model,
       opencodePermissionMode: payload.opencodePermissionMode,
     }, session);
@@ -1493,13 +1502,13 @@ async function handleEditLatestPrompt(
   const requestedCompatibleProviderId =
     compatibleProviderId ?? session.compatible_provider_id ?? undefined;
   const requestedBetas = normalizeBetas(betas ?? parseStoredBetas(session.betas));
-  const nextPrompt = prompt.trim();
+  const nextPrompt = nextPromptText.trim();
   const nextClaudeAccessMode = normalizeClaudeAccessMode(claudeAccessMode);
   const createdAt = Date.now();
   const editedUserPrompt: StreamMessage = {
     type: 'user_prompt',
     prompt: nextPrompt,
-    attachments,
+    attachments: nextAttachments,
     createdAt,
   };
   const rewrittenHistory = [...preservedHistory, editedUserPrompt];
@@ -1626,7 +1635,7 @@ async function handleEditLatestPrompt(
     refreshedSession,
     nextPrompt,
     nextClaudeSessionId,
-    attachments,
+    nextAttachments,
     'claude',
     resolvedModel || undefined,
     requestedCompatibleProviderId,
@@ -2138,6 +2147,85 @@ async function toProjectAttachment(cwd: string, filePath: string): Promise<Attac
   } catch {
     return null;
   }
+}
+
+async function createInlineTextAttachment(cwd: string, text: string): Promise<Attachment | null> {
+  const normalizedCwd = cwd?.trim();
+  const normalizedText = text ?? '';
+  if (!normalizedCwd || !normalizedText.trim()) {
+    return null;
+  }
+  if (Buffer.byteLength(normalizedText, 'utf8') > MAX_ATTACHMENT_BYTES) {
+    return null;
+  }
+
+  const attachmentsDir = resolve(normalizedCwd, '.aegis', 'attachments');
+  if (!isPathWithinRoot(normalizedCwd, attachmentsDir)) {
+    return null;
+  }
+
+  const fileName = `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`;
+  const targetPath = resolve(attachmentsDir, fileName);
+  if (!isPathWithinRoot(normalizedCwd, targetPath)) {
+    return null;
+  }
+
+  try {
+    await fsPromises.mkdir(attachmentsDir, { recursive: true });
+    await fsPromises.writeFile(targetPath, normalizedText, 'utf8');
+    return await toProjectAttachment(normalizedCwd, targetPath);
+  } catch {
+    return null;
+  }
+}
+
+async function maybeConvertLongPromptToAttachment(params: {
+  cwd?: string | null;
+  prompt: string;
+  attachments?: Attachment[];
+}): Promise<{
+  prompt: string;
+  attachments: Attachment[];
+  converted: boolean;
+}> {
+  const prompt = params.prompt.trim();
+  const attachments = params.attachments?.filter((attachment) => !!attachment?.path) || [];
+  if (!prompt || prompt.length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
+    return {
+      prompt,
+      attachments,
+      converted: false,
+    };
+  }
+
+  const cwd = params.cwd?.trim();
+  if (!cwd) {
+    console.warn('[Long Prompt Attachment] Missing cwd; sending inline prompt instead.');
+    return {
+      prompt,
+      attachments,
+      converted: false,
+    };
+  }
+
+  const attachment = await createInlineTextAttachment(cwd, prompt);
+  if (!attachment) {
+    console.warn('[Long Prompt Attachment] Failed to create attachment; sending inline prompt instead.', {
+      cwd,
+      promptLength: prompt.length,
+    });
+    return {
+      prompt,
+      attachments,
+      converted: false,
+    };
+  }
+
+  return {
+    prompt: '',
+    attachments: [...attachments, attachment],
+    converted: true,
+  };
 }
 
 // Runner 句柄映射（带 Provider）
@@ -2742,6 +2830,14 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
 
     return toProjectAttachment(cwd, filePath);
+  });
+
+  ipcMainHandle('create-inline-text-attachment', async (_event, cwd: string, text: string) => {
+    if (!cwd || typeof text !== 'string') {
+      return null;
+    }
+
+    return createInlineTextAttachment(cwd, text);
   });
 
   // RPC: 读取项目文件预览（安全：仅允许 cwd 内的文件，<=5MB）
@@ -3524,8 +3620,19 @@ async function handleSessionStart(
     return null;
   }
   const chosenProvider = provider || 'claude';
+  const sourcePrompt = prompt.trim();
+  const longPromptAttachment = await maybeConvertLongPromptToAttachment({
+    cwd,
+    prompt: sourcePrompt,
+    attachments,
+  });
+  const outgoingPrompt = longPromptAttachment.prompt;
+  const outgoingAttachments = longPromptAttachment.attachments;
+  const effectiveRunnerPrompt = longPromptAttachment.converted
+    ? outgoingPrompt
+    : (effectivePrompt || sourcePrompt).trim();
   const runnerPrompt = augmentPromptForLiveWidgetProtocol(
-    await buildRunnerPromptWithMemory(chosenProvider, (effectivePrompt || prompt).trim(), cwd),
+    await buildRunnerPromptWithMemory(chosenProvider, effectiveRunnerPrompt, cwd),
   );
   const selectedModel = normalizeModel(model);
   const selectedBetas = chosenProvider === 'claude' ? normalizeBetas(betas) : undefined;
@@ -3569,7 +3676,7 @@ async function handleSessionStart(
     cwd,
     todoState,
     allowedTools,
-    prompt,
+    prompt: outgoingPrompt,
     provider: chosenProvider,
     model: selectedModel,
     compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
@@ -3613,7 +3720,7 @@ async function handleSessionStart(
 
   // 异步生成更好的标题（不阻塞）
   generateSessionTitle(
-    prompt,
+    sourcePrompt,
     cwd,
     chosenProvider === 'claude' ? selectedModel : undefined,
     chosenProvider === 'claude' ? compatibleProviderId : undefined,
@@ -3644,11 +3751,21 @@ async function handleSessionStart(
   const createdAt = Date.now();
   broadcast(mainWindow, {
     type: 'stream.user_prompt',
-    payload: { sessionId: session.id, prompt, attachments, createdAt },
+    payload: {
+      sessionId: session.id,
+      prompt: outgoingPrompt,
+      attachments: outgoingAttachments,
+      createdAt,
+    },
   });
 
   // 保存 user_prompt 到消息历史
-  sessions.addMessage(session.id, { type: 'user_prompt', prompt, attachments, createdAt });
+  sessions.addMessage(session.id, {
+    type: 'user_prompt',
+    prompt: outgoingPrompt,
+    attachments: outgoingAttachments,
+    createdAt,
+  });
 
   // 启动 Runner
   startRunner(
@@ -3656,7 +3773,7 @@ async function handleSessionStart(
     session,
     runnerPrompt,
     undefined,
-    attachments,
+    outgoingAttachments,
     chosenProvider,
     selectedModel,
     chosenProvider === 'claude' ? compatibleProviderId : undefined,
@@ -3700,7 +3817,18 @@ async function handleSessionContinue(
     return false;
   }
 
-  if (await maybeHandleLocalSlashCommand(mainWindow, session, prompt, attachments)) {
+  const longPromptAttachment = await maybeConvertLongPromptToAttachment({
+    cwd: session.cwd,
+    prompt,
+    attachments,
+  });
+  const outgoingPrompt = longPromptAttachment.prompt;
+  const outgoingAttachments = longPromptAttachment.attachments;
+  const effectiveRunnerPrompt = longPromptAttachment.converted
+    ? outgoingPrompt
+    : (effectivePrompt || outgoingPrompt).trim();
+
+  if (await maybeHandleLocalSlashCommand(mainWindow, session, outgoingPrompt, outgoingAttachments)) {
     return true;
   }
 
@@ -3714,7 +3842,7 @@ async function handleSessionContinue(
   const previousProvider = session.provider || 'claude';
   const nextProvider = provider || previousProvider;
   const runnerPrompt = augmentPromptForLiveWidgetProtocol(
-    await buildRunnerPromptWithMemory(nextProvider, (effectivePrompt || prompt).trim(), session.cwd || undefined),
+    await buildRunnerPromptWithMemory(nextProvider, effectiveRunnerPrompt, session.cwd || undefined),
     historyBeforeContinue
   );
   const nextModel = normalizeModel(model ?? session.model ?? undefined);
@@ -3844,7 +3972,7 @@ async function handleSessionContinue(
 
   // 更新状态
   sessions.updateSessionStatus(sessionId, 'running');
-  sessions.updateLastPrompt(sessionId, prompt);
+  sessions.updateLastPrompt(sessionId, outgoingPrompt);
 
   // 广播状态
   broadcast(mainWindow, {
@@ -3870,11 +3998,16 @@ async function handleSessionContinue(
   const createdAt = Date.now();
   broadcast(mainWindow, {
     type: 'stream.user_prompt',
-    payload: { sessionId, prompt, attachments, createdAt },
+    payload: { sessionId, prompt: outgoingPrompt, attachments: outgoingAttachments, createdAt },
   });
 
   // 保存 user_prompt
-  sessions.addMessage(sessionId, { type: 'user_prompt', prompt, attachments, createdAt });
+  sessions.addMessage(sessionId, {
+    type: 'user_prompt',
+    prompt: outgoingPrompt,
+    attachments: outgoingAttachments,
+    createdAt,
+  });
 
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
     if (
@@ -3889,7 +4022,7 @@ async function handleSessionContinue(
       existingEntry.handle.abort();
       runnerHandles.delete(sessionId);
     } else {
-      existingEntry.handle.send(runnerPrompt, attachments, nextModel);
+      existingEntry.handle.send(runnerPrompt, outgoingAttachments, nextModel);
       return true;
     }
   }
@@ -3956,7 +4089,7 @@ async function handleSessionContinue(
     sessions.getSession(sessionId),
     runnerPrompt,
     nextResumeSessionId,
-    attachments,
+    outgoingAttachments,
     nextProvider,
     startModel,
     nextProvider === 'claude' ? nextCompatibleProviderId : undefined,

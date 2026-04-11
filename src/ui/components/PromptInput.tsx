@@ -68,6 +68,10 @@ import {
 import { buildPromptWithSkill } from '../utils/claude-skills';
 import { buildPromptWithSlashCommand } from '../utils/claude-slash';
 import { removeProjectFileMention } from '../utils/project-file-mentions';
+import {
+  LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD,
+  maybeConvertLongPromptToAttachment,
+} from '../utils/long-prompt-attachment';
 
 function isImeComposingEvent(
   event: React.KeyboardEvent,
@@ -568,8 +572,46 @@ export function PromptInput() {
     return prompt.trim();
   };
 
+  const autoConvertComposerTextToAttachment = useCallback(async (
+    value: string,
+    nextCursorIndex: number
+  ): Promise<boolean> => {
+    if (isComposingRef.current) {
+      skillAutocomplete.setDisplayPrompt(value);
+      setCursorIndex(nextCursorIndex);
+      return false;
+    }
+
+    if (value.trim().length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
+      skillAutocomplete.setDisplayPrompt(value);
+      setCursorIndex(nextCursorIndex);
+      return false;
+    }
+
+    const promptWithAttachment = await maybeConvertLongPromptToAttachment({
+      cwd: activeSession?.cwd || null,
+      prompt: value,
+      attachments,
+    });
+
+    if (!promptWithAttachment.converted) {
+      skillAutocomplete.setDisplayPrompt(value);
+      setCursorIndex(nextCursorIndex);
+      if (promptWithAttachment.reason === 'attachment_create_failed') {
+        toast.error('Failed to convert the long message into an attachment.');
+      }
+      return false;
+    }
+
+    setAttachments(promptWithAttachment.attachments);
+    skillAutocomplete.setDisplayPrompt('');
+    setCursorIndex(0);
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
+    return true;
+  }, [activeSession?.cwd, attachments, skillAutocomplete]);
+
   const handleSend = async () => {
-    if (!prompt.trim()) return;
+    if (!prompt.trim() && attachments.length === 0) return;
     setMenuOpen(false);
 
     const displayPrompt = (
@@ -580,8 +622,21 @@ export function PromptInput() {
           : prompt
     ).trim();
     const normalizedPrompt = await buildDispatchPrompt();
-    if (!normalizedPrompt) {
+    if (normalizedPrompt === null) {
       return;
+    }
+    const promptWithAttachment = await maybeConvertLongPromptToAttachment({
+      cwd: activeSession?.cwd || null,
+      prompt: displayPrompt,
+      attachments,
+    });
+    const outgoingPrompt = promptWithAttachment.converted ? promptWithAttachment.prompt : displayPrompt;
+    const outgoingEffectivePrompt = promptWithAttachment.converted
+      ? promptWithAttachment.prompt
+      : normalizedPrompt;
+    const outgoingAttachments = promptWithAttachment.attachments;
+    if (promptWithAttachment.reason === 'attachment_create_failed') {
+      toast.error('Failed to convert the long message into an attachment. Sending inline instead.');
     }
 
     if (activeSessionId && activeSession?.isDraft) {
@@ -596,11 +651,11 @@ export function PromptInput() {
         type: 'session.start',
         payload: {
           title: activeSession.title || 'New Chat',
-          prompt: displayPrompt,
-          effectivePrompt: normalizedPrompt,
+          prompt: outgoingPrompt,
+          effectivePrompt: outgoingEffectivePrompt,
           cwd: activeSession.cwd,
           todoState: activeSession.todoState || 'todo',
-          attachments: attachments.length > 0 ? attachments : undefined,
+          attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
           provider,
           model:
             provider === 'claude'
@@ -636,9 +691,9 @@ export function PromptInput() {
         type: 'session.continue',
         payload: {
           sessionId: activeSessionId,
-          prompt: displayPrompt,
-          effectivePrompt: normalizedPrompt,
-          attachments: attachments.length > 0 ? attachments : undefined,
+          prompt: outgoingPrompt,
+          effectivePrompt: outgoingEffectivePrompt,
+          attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
           provider,
           model:
             provider === 'claude'
@@ -733,9 +788,8 @@ export function PromptInput() {
     [activeSession?.cwd, projectFileMentions.mention, skillAutocomplete]
   );
 
-  const handlePromptChange = (value: string, nextCursorIndex: number) => {
-    skillAutocomplete.setDisplayPrompt(value);
-    setCursorIndex(nextCursorIndex);
+  const handlePromptChange = async (value: string, nextCursorIndex: number) => {
+    await autoConvertComposerTextToAttachment(value, nextCursorIndex);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -851,14 +905,19 @@ export function PromptInput() {
           <textarea
             ref={textareaRef}
             value={skillAutocomplete.displayPrompt}
-            onChange={(e) => handlePromptChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+            onChange={(e) => {
+              void handlePromptChange(e.target.value, e.target.selectionStart ?? e.target.value.length);
+            }}
             onSelect={(e) => setCursorIndex(e.currentTarget.selectionStart ?? 0)}
             onCompositionStart={() => {
               isComposingRef.current = true;
             }}
             onCompositionEnd={(e) => {
               isComposingRef.current = false;
-              setCursorIndex(e.currentTarget.selectionStart ?? e.currentTarget.value.length);
+              void handlePromptChange(
+                e.currentTarget.value,
+                e.currentTarget.selectionStart ?? e.currentTarget.value.length
+              );
             }}
             onKeyDown={handleKeyDown}
             placeholder={
@@ -1029,11 +1088,17 @@ export function PromptInput() {
             ) : (
               <button
                 onClick={handleSend}
-                disabled={!prompt.trim() || isBusy}
+                disabled={(!prompt.trim() && attachments.length === 0) || isBusy}
                 className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-xl)] transition-colors disabled:cursor-not-allowed"
                 style={{
-                  backgroundColor: !prompt.trim() || isBusy ? 'var(--text-muted)' : 'var(--accent)',
-                  color: !prompt.trim() || isBusy ? 'var(--bg-primary)' : 'var(--accent-foreground)'
+                  backgroundColor:
+                    (!prompt.trim() && attachments.length === 0) || isBusy
+                      ? 'var(--text-muted)'
+                      : 'var(--accent)',
+                  color:
+                    (!prompt.trim() && attachments.length === 0) || isBusy
+                      ? 'var(--bg-primary)'
+                      : 'var(--accent-foreground)'
                 }}
                 title="Send"
                 aria-label="Send"

@@ -99,6 +99,7 @@ declare global {
     readAttachmentPreview: (filePath: string) => Promise<string | null>;
     readProjectFilePreview: (cwd: string, filePath: string) => Promise<unknown>;
     createProjectAttachment: (cwd: string, filePath: string) => Promise<Attachment | null>;
+    createInlineTextAttachment: (cwd: string, text: string) => Promise<Attachment | null>;
     writeProjectTextFile: (cwd: string, filePath: string, content: string) => Promise<{ ok: boolean; message?: string }>;
     previewArtifactPath: (cwd: string, filePath: string, options?: { openInBrowser?: boolean }) => Promise<{ ok: boolean; url?: string; message?: string }>;
     openPath: (filePath: string) => Promise<{ ok: boolean; message?: string }>;

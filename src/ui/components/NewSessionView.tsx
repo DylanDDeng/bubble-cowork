@@ -64,6 +64,10 @@ import {
 import { buildPromptWithSkill } from '../utils/claude-skills';
 import { buildPromptWithSlashCommand } from '../utils/claude-slash';
 import { removeProjectFileMention } from '../utils/project-file-mentions';
+import {
+  LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD,
+  maybeConvertLongPromptToAttachment,
+} from '../utils/long-prompt-attachment';
 
 function isImeComposingEvent(
   event: React.KeyboardEvent,
@@ -410,8 +414,46 @@ export function NewSessionView() {
     savePreferredOpencodeModel(opencodeModelOptions[0] || null);
   }, [opencodeModelOptions, selectedOpencodeModel]);
 
+  const autoConvertComposerTextToAttachment = useCallback(async (
+    value: string,
+    nextCursorIndex: number
+  ): Promise<boolean> => {
+    if (isComposingRef.current) {
+      skillAutocomplete.setDisplayPrompt(value);
+      setCursorIndex(nextCursorIndex);
+      return false;
+    }
+
+    if (value.trim().length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
+      skillAutocomplete.setDisplayPrompt(value);
+      setCursorIndex(nextCursorIndex);
+      return false;
+    }
+
+    const promptWithAttachment = await maybeConvertLongPromptToAttachment({
+      cwd,
+      prompt: value,
+      attachments,
+    });
+
+    if (!promptWithAttachment.converted) {
+      skillAutocomplete.setDisplayPrompt(value);
+      setCursorIndex(nextCursorIndex);
+      if (promptWithAttachment.reason === 'attachment_create_failed') {
+        toast.error('Failed to convert the long message into an attachment.');
+      }
+      return false;
+    }
+
+    setAttachments(promptWithAttachment.attachments);
+    skillAutocomplete.setDisplayPrompt('');
+    setCursorIndex(0);
+    window.requestAnimationFrame(() => promptTextareaRef.current?.focus());
+    return true;
+  }, [attachments, cwd, skillAutocomplete]);
+
   const handleStart = async () => {
-    if (!prompt.trim()) return;
+    if (!prompt.trim() && attachments.length === 0) return;
     if (!hasSelectedCwd) {
       toast.error('Select a project folder before starting a task.');
       setShowCwdHint(true);
@@ -429,24 +471,38 @@ export function NewSessionView() {
           : prompt
     ).trim();
     const normalizedPrompt = await buildDispatchPrompt();
-    if (!normalizedPrompt) {
+    if (normalizedPrompt === null) {
       setPendingStart(false);
       return;
     }
+    const promptWithAttachment = await maybeConvertLongPromptToAttachment({
+      cwd,
+      prompt: displayPrompt,
+      attachments,
+    });
+    const outgoingPrompt = promptWithAttachment.converted ? promptWithAttachment.prompt : displayPrompt;
+    const outgoingEffectivePrompt = promptWithAttachment.converted
+      ? promptWithAttachment.prompt
+      : normalizedPrompt;
+    const outgoingAttachments = promptWithAttachment.attachments;
+    if (promptWithAttachment.reason === 'attachment_create_failed') {
+      toast.error('Failed to convert the long message into an attachment. Sending inline instead.');
+    }
 
     // 用 prompt 前 30 字符作为临时标题（后台会异步生成更好的标题）
-    const tempTitle = displayPrompt.slice(0, 30) + (displayPrompt.length > 30 ? '...' : '');
+    const tempTitleSource = displayPrompt || outgoingPrompt;
+    const tempTitle = tempTitleSource.slice(0, 30) + (tempTitleSource.length > 30 ? '...' : '');
 
     // 立即发送开始会话事件
     sendEvent({
       type: 'session.start',
       payload: {
         title: tempTitle,
-        prompt: displayPrompt,
-        effectivePrompt: normalizedPrompt,
+        prompt: outgoingPrompt,
+        effectivePrompt: outgoingEffectivePrompt,
         cwd: cwd || undefined,
         todoState: 'todo',
-        attachments: attachments.length > 0 ? attachments : undefined,
+        attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
         provider,
         model:
           provider === 'claude'
@@ -532,9 +588,8 @@ export function NewSessionView() {
     [cwd, projectFileMentions.mention, skillAutocomplete]
   );
 
-  const handlePromptChange = (value: string, nextCursorIndex: number) => {
-    skillAutocomplete.setDisplayPrompt(value);
-    setCursorIndex(nextCursorIndex);
+  const handlePromptChange = async (value: string, nextCursorIndex: number) => {
+    await autoConvertComposerTextToAttachment(value, nextCursorIndex);
   };
 
   const handleProviderChange = (next: typeof provider) => {
@@ -543,7 +598,7 @@ export function NewSessionView() {
   };
 
   const canStartTask =
-    prompt.trim().length > 0 &&
+    (prompt.trim().length > 0 || attachments.length > 0) &&
     !pendingStart &&
     hasSelectedCwd;
 
@@ -612,7 +667,7 @@ export function NewSessionView() {
       return;
     }
 
-    if (e.key === 'Enter' && !e.shiftKey && prompt.trim() && !pendingStart) {
+    if (e.key === 'Enter' && !e.shiftKey && (prompt.trim() || attachments.length > 0) && !pendingStart) {
       e.preventDefault();
       handleStart();
     }
@@ -716,14 +771,19 @@ export function NewSessionView() {
               <textarea
                 ref={promptTextareaRef}
                 value={skillAutocomplete.displayPrompt}
-                onChange={(e) => handlePromptChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+                onChange={(e) => {
+                  void handlePromptChange(e.target.value, e.target.selectionStart ?? e.target.value.length);
+                }}
                 onSelect={(e) => setCursorIndex(e.currentTarget.selectionStart ?? 0)}
                 onCompositionStart={() => {
                   isComposingRef.current = true;
                 }}
                 onCompositionEnd={(e) => {
                   isComposingRef.current = false;
-                  setCursorIndex(e.currentTarget.selectionStart ?? e.currentTarget.value.length);
+                  void handlePromptChange(
+                    e.currentTarget.value,
+                    e.currentTarget.selectionStart ?? e.currentTarget.value.length
+                  );
                 }}
                 onKeyDown={handleKeyDown}
                 placeholder={

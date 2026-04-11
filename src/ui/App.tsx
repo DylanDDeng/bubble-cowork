@@ -670,7 +670,7 @@ export function App() {
                               isSessionRunning: activeSession.status === 'running',
                               onResend: (prompt: string, attachments) => {
                                 if (!activeSessionId) return;
-                                if (!prompt.trim()) return;
+                                if (!prompt.trim() && (!attachments || attachments.length === 0)) return;
                                 if (activeSession.status === 'running') return;
 
                                 sendEvent({

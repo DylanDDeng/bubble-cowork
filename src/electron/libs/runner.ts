@@ -235,20 +235,18 @@ async function buildUserMessage(
   attachments?: Attachment[]
 ): Promise<SDKUserMessage> {
   const allAttachments = attachments?.filter((a) => a && a.path) || [];
-  const attachmentLines =
-    allAttachments.length > 0
-      ? [
-          '',
-          'Attachments:',
-          ...allAttachments.map((a) => `- ${a.name}: ${a.path}`),
-          '',
-        ].join('\n')
-      : '';
+  const textLines = prompt ? [prompt] : [];
+  if (allAttachments.length > 0) {
+    if (textLines.length > 0) {
+      textLines.push('');
+    }
+    textLines.push('Attachments:', ...allAttachments.map((a) => `- ${a.name}: ${a.path}`));
+  }
 
   const content: ContentBlockParam[] = [
     {
       type: 'text',
-      text: `${prompt}${attachmentLines ? `\n\n${attachmentLines}` : ''}`,
+      text: textLines.join('\n'),
     },
   ];
 

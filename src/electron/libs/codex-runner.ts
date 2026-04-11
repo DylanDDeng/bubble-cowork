@@ -412,9 +412,12 @@ async function buildPromptContent(
   const allAttachments = attachments?.filter((a) => a && a.path) || [];
   const imageAttachments = allAttachments.filter((a) => a.kind === 'image');
 
-  const lines: string[] = [prompt];
+  const lines: string[] = prompt ? [prompt] : [];
   if (allAttachments.length > 0) {
-    lines.push('', 'Attachments:');
+    if (lines.length > 0) {
+      lines.push('');
+    }
+    lines.push('Attachments:');
     for (const attachment of allAttachments) {
       lines.push(`- ${attachment.name}: ${attachment.path}`);
     }

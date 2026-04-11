@@ -286,6 +286,7 @@ function UserPromptCard({
   }, [isEditing]);
 
   const canEditAndRetry = !!actions?.canEditAndRetry && !actions?.isSessionRunning;
+  const hasVisiblePrompt = !!prompt.trim();
 
   const copyTitle = copied ? 'Copied' : 'Copy';
   const editTitle = actions?.isSessionRunning
@@ -353,55 +354,57 @@ function UserPromptCard({
             )}
           </div>
         )}
-        <div
-          className={`${isEditing ? 'w-full px-4 py-3 rounded-[var(--radius-2xl)]' : 'max-w-full px-5 py-2.5 rounded-[var(--radius-xl)]'}`}
-          style={{
-            background: 'var(--user-bubble-bg)',
-            border: '1px solid var(--user-bubble-border)',
-            boxShadow: 'var(--user-bubble-shadow)',
-          }}
-        >
-          {isEditing ? (
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              rows={Math.min(8, Math.max(2, draft.split('\n').length))}
-              className="w-full min-w-[320px] bg-transparent text-[14px] text-[var(--text-primary)] leading-7 outline-none resize-none whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  e.preventDefault();
-                  handleCancelEdit();
-                  return;
-                }
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSaveAndRetry();
-                }
-              }}
-            />
-          ) : (
-            <div className="text-[14px] leading-[1.5] text-[var(--text-primary)]">
-              {promptPrefixDisplay && (
-                <div className="mr-2 inline-flex align-middle">
-                  {promptPrefixDisplay.kind === 'skill' ? (
-                    <SelectedClaudeSkillChip skill={promptPrefixDisplay.skill} compact />
-                  ) : promptPrefixDisplay.kind === 'command' ? (
-                    <SelectedClaudeCommandChip command={promptPrefixDisplay.command} compact />
-                  ) : (
-                    <GenericSlashChip name={promptPrefixDisplay.name} compact />
-                  )}
-                </div>
-              )}
+        {(isEditing || hasVisiblePrompt || promptPrefixDisplay) && (
+          <div
+            className={`${isEditing ? 'w-full px-4 py-3 rounded-[var(--radius-2xl)]' : 'max-w-full px-5 py-2.5 rounded-[var(--radius-xl)]'}`}
+            style={{
+              background: 'var(--user-bubble-bg)',
+              border: '1px solid var(--user-bubble-border)',
+              boxShadow: 'var(--user-bubble-shadow)',
+            }}
+          >
+            {isEditing ? (
+              <textarea
+                ref={textareaRef}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={Math.min(8, Math.max(2, draft.split('\n').length))}
+                className="w-full min-w-[320px] bg-transparent text-[14px] text-[var(--text-primary)] leading-7 outline-none resize-none whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    handleCancelEdit();
+                    return;
+                  }
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSaveAndRetry();
+                  }
+                }}
+              />
+            ) : (
+              <div className="text-[14px] leading-[1.5] text-[var(--text-primary)]">
+                {promptPrefixDisplay && (
+                  <div className="mr-2 inline-flex align-middle">
+                    {promptPrefixDisplay.kind === 'skill' ? (
+                      <SelectedClaudeSkillChip skill={promptPrefixDisplay.skill} compact />
+                    ) : promptPrefixDisplay.kind === 'command' ? (
+                      <SelectedClaudeCommandChip command={promptPrefixDisplay.command} compact />
+                    ) : (
+                      <GenericSlashChip name={promptPrefixDisplay.name} compact />
+                    )}
+                  </div>
+                )}
 
-              {(!promptPrefixDisplay || promptPrefixDisplay.remainder) && (
-                <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] align-middle">
-                  {promptPrefixDisplay ? promptPrefixDisplay.remainder : prompt}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
+                {(!promptPrefixDisplay || promptPrefixDisplay.remainder) && (
+                  <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] align-middle">
+                    {promptPrefixDisplay ? promptPrefixDisplay.remainder : prompt}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Action bar (appears below bubble) */}
         <div
