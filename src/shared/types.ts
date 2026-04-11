@@ -287,6 +287,8 @@ export interface Attachment {
   size: number;
   mimeType: string;
   kind: AttachmentKind;
+  uiType?: 'pasted_text';
+  previewText?: string;
 }
 
 export type MemoryDocumentKind = 'assistant' | 'user' | 'project';

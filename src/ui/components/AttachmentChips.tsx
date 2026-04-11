@@ -15,6 +15,63 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(precision)} ${units[unitIndex]}`;
 }
 
+function normalizePreviewText(text: string): string {
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+function PastedTextAttachmentCard({
+  attachment,
+  onRemove,
+}: {
+  attachment: Attachment;
+  onRemove?: (attachmentId: string) => void;
+}) {
+  const previewText = normalizePreviewText(attachment.previewText || '');
+
+  return (
+    <div
+      className="relative w-[128px] rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] p-3 shadow-sm"
+      title={attachment.path}
+    >
+      <div
+        className="overflow-hidden text-[10px] leading-[1.45] text-[var(--text-secondary)]"
+        style={{
+          display: '-webkit-box',
+          WebkitBoxOrient: 'vertical',
+          WebkitLineClamp: 5,
+          minHeight: '72px',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+        }}
+      >
+        {previewText}
+      </div>
+
+      <div className="mt-2 inline-flex rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--text-secondary)]">
+        PASTED
+      </div>
+
+      {onRemove && (
+        <button
+          onClick={() => onRemove(attachment.id)}
+          className="absolute right-2 top-2 rounded p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)]"
+          title="Remove"
+          aria-label="Remove attachment"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function AttachmentChips({
   attachments,
   onRemove,
@@ -73,6 +130,10 @@ export function AttachmentChips({
   return (
     <div className="flex flex-wrap gap-2">
       {attachments.map((a) => {
+        if (a.uiType === 'pasted_text' && a.previewText) {
+          return <PastedTextAttachmentCard key={a.id} attachment={a} onRemove={onRemove} />;
+        }
+
         const preview = a.kind === 'image' ? previews[a.id] || undefined : undefined;
         return (
           <div

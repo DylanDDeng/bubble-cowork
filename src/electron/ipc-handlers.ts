@@ -2173,7 +2173,16 @@ async function createInlineTextAttachment(cwd: string, text: string): Promise<At
   try {
     await fsPromises.mkdir(attachmentsDir, { recursive: true });
     await fsPromises.writeFile(targetPath, normalizedText, 'utf8');
-    return await toProjectAttachment(normalizedCwd, targetPath);
+    const attachment = await toProjectAttachment(normalizedCwd, targetPath);
+    if (!attachment) {
+      return null;
+    }
+
+    return {
+      ...attachment,
+      uiType: 'pasted_text',
+      previewText: normalizedText,
+    };
   } catch {
     return null;
   }
