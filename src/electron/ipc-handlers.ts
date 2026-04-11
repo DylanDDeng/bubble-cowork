@@ -8,9 +8,9 @@ import { promisify } from 'util';
 import { basename, extname, resolve, relative, isAbsolute, join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
-import { runClaude } from './libs/runner';
-import { runCodex, runCodexOneShot, runOpenCode, runOpenCodeOneShot } from './libs/codex-runner';
+import { runCodexOneShot, runOpenCodeOneShot } from './libs/codex-runner';
 import { generateSessionTitle, runClaudeOneShot } from './libs/util';
+import { runAgentLoop } from './libs/agent-loop';
 import { readProjectTree } from './libs/project-tree';
 import { normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
 import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfig, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
@@ -3996,7 +3996,6 @@ function startRunner(
       ? compatibleProviderOverride || session.compatible_provider_id || undefined
       : undefined;
 
-  const runner = provider === 'claude' ? runClaude : provider === 'codex' ? runCodex : runOpenCode;
   if (isDev()) {
     console.log('[Runner Select]', {
       sessionId: session.id,
@@ -4012,7 +4011,7 @@ function startRunner(
   let initMessage: Extract<StreamMessage, { type: 'system'; subtype: 'init' }> | null = null;
   let sawTurnOutput = false;
 
-  const handle = runner({
+  const handle = runAgentLoop({
     prompt,
     attachments,
     session,

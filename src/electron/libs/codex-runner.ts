@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { RunnerOptions, RunnerHandle, StreamMessage, Attachment } from '../types';
 import { isDev } from '../util';
 import { getMcpServers } from './claude-settings';
-import { buildRuntimeManagedPrompt, createRuntimeTurnMemoryTracker } from './agent-runtime';
+import { buildRuntimeManagedPrompt } from './agent-runtime';
 import type {
   CodexPermissionMode,
   CodexReasoningEffort,
@@ -806,10 +806,6 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
   let acceptTurnUpdates = false;
   let terminalErrorHandled = false;
   let activeRequestWatchdog: ReturnType<typeof createActivityWatchdog> | null = null;
-  const runtimeTurnMemoryTracker = createRuntimeTurnMemoryTracker({
-    sessionId: session.id || `${adapter.id}-session`,
-    projectCwd: session.cwd,
-  });
 
   const spawnArgs = [
     ...adapter.getArgs(selectedModel),
@@ -1085,9 +1081,6 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
       });
     }
 
-    runtimeTurnMemoryTracker.setAssistantText(assistantBuffer);
-    runtimeTurnMemoryTracker.finalizeTurn();
-
     if (status === 'cancelled') {
       return;
     }
@@ -1192,11 +1185,11 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
   }
 
   async function sendPrompt(text: string, promptAttachments?: Attachment[]): Promise<void> {
-    runtimeTurnMemoryTracker.beginTurn(text);
     const managedPrompt = await buildRuntimeManagedPrompt({
       provider: adapter.id,
       prompt: text,
       projectCwd: session.cwd,
+      sessionId: session.id || currentSessionId || undefined,
     });
     const content = await buildPromptContent(managedPrompt, promptAttachments, promptCapabilities);
     assistantBuffer = '';
@@ -1357,7 +1350,6 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
     }
 
     const { name, input } = mapToolCallToToolUse(rawKind, rawTitle, rawInput);
-    runtimeTurnMemoryTracker.markMemoryWrite(name);
     toolNameById.set(toolCallId, name);
     toolKindById.set(toolCallId, rawKind);
 
@@ -1397,8 +1389,6 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
       (isError ? update.error : undefined);
 
     const content = formatToolOutput(output) || (isError ? 'Tool failed' : 'Done');
-    runtimeTurnMemoryTracker.markMemoryWrite(content);
-
     onMessage({
       type: 'user',
       uuid: uuidv4(),
