@@ -10,6 +10,7 @@ import type { ArtifactRow, DerivedSummaryRow } from '../types';
 import type {
   ChatSessionSearchResult,
   ClaudeAccessMode,
+  ClaudeExecutionMode,
   ClaudeCompatibleProviderId,
   CodexPermissionMode,
   CodexReasoningEffort,
@@ -76,6 +77,12 @@ function normalizeClaudeAccessMode(
   return value === 'fullAccess' ? 'fullAccess' : 'default';
 }
 
+function normalizeClaudeExecutionMode(
+  value?: string | null
+): ClaudeExecutionMode {
+  return value === 'plan' ? 'plan' : 'execute';
+}
+
 function normalizeCodexPermissionMode(
   value?: string | null
 ): CodexPermissionMode {
@@ -127,6 +134,7 @@ export function initialize(): void {
       compatible_provider_id TEXT,
       betas TEXT,
       claude_access_mode TEXT DEFAULT 'default',
+      claude_execution_mode TEXT DEFAULT 'execute',
       codex_permission_mode TEXT DEFAULT 'defaultPermissions',
       codex_reasoning_effort TEXT,
       codex_fast_mode INTEGER DEFAULT 0,
@@ -201,6 +209,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'compatible_provider_id', 'TEXT');
   ensureColumn('sessions', 'betas', 'TEXT');
   ensureColumn('sessions', 'claude_access_mode', "TEXT DEFAULT 'default'");
+  ensureColumn('sessions', 'claude_execution_mode', "TEXT DEFAULT 'execute'");
   ensureColumn('sessions', 'codex_permission_mode', "TEXT DEFAULT 'defaultPermissions'");
   ensureColumn('sessions', 'codex_reasoning_effort', 'TEXT');
   ensureColumn('sessions', 'codex_fast_mode', 'INTEGER DEFAULT 0');
@@ -720,6 +729,7 @@ export function createSession(params: {
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
+  claudeExecutionMode?: ClaudeExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort | null;
   codexFastMode?: boolean;
@@ -730,8 +740,8 @@ export function createSession(params: {
   const id = uuidv4();
 
   const stmt = getDb().prepare(`
-    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, codex_permission_mode, codex_reasoning_effort, codex_fast_mode, opencode_permission_mode, cwd, allowed_tools, last_prompt, todo_state, session_origin, external_file_path, external_file_mtime, hidden_from_threads, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aegis', NULL, NULL, ?, 'idle', ?, ?)
+    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, claude_execution_mode, codex_permission_mode, codex_reasoning_effort, codex_fast_mode, opencode_permission_mode, cwd, allowed_tools, last_prompt, todo_state, session_origin, external_file_path, external_file_mtime, hidden_from_threads, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aegis', NULL, NULL, ?, 'idle', ?, ?)
   `);
 
   stmt.run(
@@ -742,6 +752,7 @@ export function createSession(params: {
     params.provider === 'claude' ? params.compatibleProviderId || null : null,
     params.betas && params.betas.length > 0 ? JSON.stringify(params.betas) : null,
     params.provider === 'claude' ? normalizeClaudeAccessMode(params.claudeAccessMode) : null,
+    params.provider === 'claude' ? normalizeClaudeExecutionMode(params.claudeExecutionMode) : null,
     params.provider === 'codex' ? normalizeCodexPermissionMode(params.codexPermissionMode) : null,
     params.provider === 'codex' ? normalizeCodexReasoningEffort(params.codexReasoningEffort) : null,
     params.provider === 'codex' && params.codexFastMode ? 1 : 0,
@@ -811,6 +822,7 @@ export function upsertExternalClaudeSession(params: {
       compatible_provider_id,
       betas,
       claude_access_mode,
+      claude_execution_mode,
       codex_permission_mode,
       codex_reasoning_effort,
       codex_fast_mode,
@@ -826,7 +838,7 @@ export function upsertExternalClaudeSession(params: {
       created_at,
       updated_at
     )
-    VALUES (?, ?, NULL, NULL, NULL, 'claude', ?, NULL, NULL, 'default', NULL, NULL, 0, NULL, 'idle', ?, NULL, NULL, 'claude_code', ?, ?, 0, ?, ?)
+    VALUES (?, ?, NULL, NULL, NULL, 'claude', ?, NULL, NULL, 'default', 'execute', NULL, NULL, 0, NULL, 'idle', ?, NULL, NULL, 'claude_code', ?, ?, 0, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       title = excluded.title,
       provider = 'claude',
@@ -1006,6 +1018,17 @@ export function updateSessionClaudeAccessMode(
     UPDATE sessions SET claude_access_mode = ?, updated_at = ? WHERE id = ?
   `);
   stmt.run(mode ? normalizeClaudeAccessMode(mode) : null, now, sessionId);
+}
+
+export function updateSessionClaudeExecutionMode(
+  sessionId: string,
+  mode: ClaudeExecutionMode | null
+): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET claude_execution_mode = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(mode ? normalizeClaudeExecutionMode(mode) : null, now, sessionId);
 }
 
 export function updateSessionCodexPermissionMode(

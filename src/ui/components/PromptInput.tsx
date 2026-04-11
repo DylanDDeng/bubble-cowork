@@ -6,6 +6,7 @@ import { sendEvent } from '../hooks/useIPC';
 import type {
   Attachment,
   ClaudeAccessMode,
+  ClaudeExecutionMode,
   ClaudeCompatibleProviderId,
   CodexPermissionMode,
   CodexReasoningEffort,
@@ -14,6 +15,7 @@ import type {
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
+import { ClaudeExecutionModePicker } from './ClaudeExecutionModePicker';
 import { CodexFastModeToggle } from './CodexFastModeToggle';
 import { CodexReasoningEffortPicker } from './CodexReasoningEffortPicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
@@ -125,6 +127,7 @@ export function PromptInput() {
     loadPreferredOpencodeModel()
   );
   const [selectedClaudeAccessMode, setSelectedClaudeAccessMode] = useState<ClaudeAccessMode>('default');
+  const [selectedClaudeExecutionMode, setSelectedClaudeExecutionMode] = useState<ClaudeExecutionMode>('execute');
   const [selectedCodexPermissionMode, setSelectedCodexPermissionMode] = useState<CodexPermissionMode>(
     loadPreferredCodexPermissionMode()
   );
@@ -209,6 +212,7 @@ export function PromptInput() {
             ? ['context-1m-2025-08-07']
             : undefined,
         claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
+        claudeExecutionMode: provider === 'claude' ? selectedClaudeExecutionMode : undefined,
         codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
         codexReasoningEffort:
           provider === 'codex' ? selectedCodexReasoningEffort : undefined,
@@ -273,13 +277,15 @@ export function PromptInput() {
   useEffect(() => {
     if (activeSession?.provider === 'claude') {
       setSelectedClaudeAccessMode(activeSession.claudeAccessMode || 'default');
+      setSelectedClaudeExecutionMode(activeSession.claudeExecutionMode || 'execute');
       return;
     }
 
     if (!activeSessionId) {
       setSelectedClaudeAccessMode('default');
+      setSelectedClaudeExecutionMode('execute');
     }
-  }, [activeSession?.claudeAccessMode, activeSession?.provider, activeSessionId]);
+  }, [activeSession?.claudeAccessMode, activeSession?.claudeExecutionMode, activeSession?.provider, activeSessionId]);
 
   useEffect(() => {
     if (activeSession?.provider === 'codex') {
@@ -674,6 +680,7 @@ export function PromptInput() {
               ? ['context-1m-2025-08-07']
               : undefined,
           claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
+          claudeExecutionMode: provider === 'claude' ? selectedClaudeExecutionMode : undefined,
           codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
           codexReasoningEffort:
             provider === 'codex' ? selectedCodexReasoningEffort : undefined,
@@ -712,6 +719,7 @@ export function PromptInput() {
               ? ['context-1m-2025-08-07']
               : undefined,
           claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
+          claudeExecutionMode: provider === 'claude' ? selectedClaudeExecutionMode : undefined,
           codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
           codexReasoningEffort:
             provider === 'codex' ? selectedCodexReasoningEffort : undefined,
@@ -1111,11 +1119,18 @@ export function PromptInput() {
         {(provider === 'claude' || provider === 'codex' || provider === 'opencode') && (
           <div className="flex items-center justify-start px-4 pt-2 text-[12px]">
             {provider === 'claude' ? (
-              <ClaudeAccessModePicker
-                value={selectedClaudeAccessMode}
-                onChange={setSelectedClaudeAccessMode}
-                disabled={isBusy}
-              />
+              <div className="flex items-center gap-4">
+                <ClaudeExecutionModePicker
+                  value={selectedClaudeExecutionMode}
+                  onChange={setSelectedClaudeExecutionMode}
+                  disabled={isBusy}
+                />
+                <ClaudeAccessModePicker
+                  value={selectedClaudeAccessMode}
+                  onChange={setSelectedClaudeAccessMode}
+                  disabled={isBusy}
+                />
+              </div>
             ) : provider === 'codex' ? (
               <CodexPermissionModePicker
                 value={selectedCodexPermissionMode}

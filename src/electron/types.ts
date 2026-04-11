@@ -31,6 +31,7 @@ export interface SessionRow {
   compatible_provider_id: import('../shared/types').ClaudeCompatibleProviderId | null;
   betas: string | null;
   claude_access_mode: import('../shared/types').ClaudeAccessMode | null;
+  claude_execution_mode: import('../shared/types').ClaudeExecutionMode | null;
   codex_permission_mode: import('../shared/types').CodexPermissionMode | null;
   codex_reasoning_effort: import('../shared/types').CodexReasoningEffort | null;
   codex_fast_mode: number | null;
@@ -95,6 +96,7 @@ export interface RunnerOptions {
   compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
+  claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode;
   codexPermissionMode?: import('../shared/types').CodexPermissionMode;
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
   codexFastMode?: boolean;
@@ -106,6 +108,10 @@ export interface RunnerOptions {
     toolName: string,
     input: unknown
   ) => Promise<import('../shared/types').PermissionResult>;
+  onClaudeExecutionModeChange?: (
+    mode: import('../shared/types').ClaudeExecutionMode,
+    permissionMode: 'default' | 'bypassPermissions' | 'plan'
+  ) => void;
 }
 
 export interface RunnerHandle {

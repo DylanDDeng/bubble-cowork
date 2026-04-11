@@ -482,11 +482,8 @@ export function App() {
     [activeSession?.permissionRequests]
   );
   const activeGenericPermissionRequest = useMemo(
-    () =>
-      activeSession?.provider !== 'claude'
-        ? activeSession?.permissionRequests.find((request) => isAskUserQuestionInput(request.input)) || null
-        : null,
-    [activeSession?.permissionRequests, activeSession?.provider]
+    () => activeSession?.permissionRequests.find((request) => isAskUserQuestionInput(request.input)) || null,
+    [activeSession?.permissionRequests]
   );
   const lastUserPromptIndex = useMemo(() => {
     if (!activeSession) return -1;
@@ -689,6 +686,10 @@ export function App() {
                                     claudeAccessMode:
                                       activeSession.provider === 'claude'
                                         ? activeSession.claudeAccessMode || 'default'
+                                        : undefined,
+                                    claudeExecutionMode:
+                                      activeSession.provider === 'claude'
+                                        ? activeSession.claudeExecutionMode || 'execute'
                                         : undefined,
                                     codexPermissionMode:
                                       activeSession.provider === 'codex'

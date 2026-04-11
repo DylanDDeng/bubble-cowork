@@ -5,6 +5,7 @@ import { sendEvent } from '../hooks/useIPC';
 import type {
   Attachment,
   ClaudeAccessMode,
+  ClaudeExecutionMode,
   ClaudeCompatibleProviderId,
   CodexPermissionMode,
   CodexReasoningEffort,
@@ -14,6 +15,7 @@ import coworkLogo from '../assets/cowork-logo.svg';
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
+import { ClaudeExecutionModePicker } from './ClaudeExecutionModePicker';
 import { CodexFastModeToggle } from './CodexFastModeToggle';
 import { CodexReasoningEffortPicker } from './CodexReasoningEffortPicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
@@ -111,6 +113,7 @@ export function NewSessionView() {
   );
   const [showCwdHint, setShowCwdHint] = useState(false);
   const [claudeAccessMode, setClaudeAccessMode] = useState<ClaudeAccessMode>('default');
+  const [claudeExecutionMode, setClaudeExecutionMode] = useState<ClaudeExecutionMode>('execute');
   const [selectedCodexPermissionMode, setSelectedCodexPermissionMode] = useState<CodexPermissionMode>(
     loadPreferredCodexPermissionMode()
   );
@@ -521,6 +524,7 @@ export function NewSessionView() {
             ? ['context-1m-2025-08-07']
             : undefined,
         claudeAccessMode: provider === 'claude' ? claudeAccessMode : undefined,
+        claudeExecutionMode: provider === 'claude' ? claudeExecutionMode : undefined,
         codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
         codexReasoningEffort:
           provider === 'codex' ? selectedCodexReasoningEffort : undefined,
@@ -947,11 +951,18 @@ export function NewSessionView() {
               {(provider === 'claude' || provider === 'codex' || provider === 'opencode') && (
                 <div className="flex items-center justify-start px-4 pt-2 text-[12px]">
                   {provider === 'claude' ? (
-                    <ClaudeAccessModePicker
-                      value={claudeAccessMode}
-                      onChange={setClaudeAccessMode}
-                      disabled={pendingStart}
-                    />
+                    <div className="flex items-center gap-4">
+                      <ClaudeExecutionModePicker
+                        value={claudeExecutionMode}
+                        onChange={setClaudeExecutionMode}
+                        disabled={pendingStart}
+                      />
+                      <ClaudeAccessModePicker
+                        value={claudeAccessMode}
+                        onChange={setClaudeAccessMode}
+                        disabled={pendingStart}
+                      />
+                    </div>
                   ) : provider === 'codex' ? (
                     <CodexPermissionModePicker
                       value={selectedCodexPermissionMode}

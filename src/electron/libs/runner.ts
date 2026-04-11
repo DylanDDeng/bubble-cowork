@@ -290,8 +290,10 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
     compatibleProviderId,
     betas,
     claudeAccessMode,
+    claudeExecutionMode,
     onMessage,
     onPermissionRequest,
+    onClaudeExecutionModeChange,
     onError,
   } = options;
 
@@ -302,7 +304,25 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
   let currentModel = typeof model === 'string' && model.trim().length > 0 ? model.trim() : undefined;
   let activeQuery: ClaudeQuery | null = null;
   const sessionApprovedExternalAccess = new Set<string>();
-  const sdkPermissionMode = claudeAccessMode === 'fullAccess' ? 'bypassPermissions' : 'default';
+  let currentPermissionMode: 'default' | 'bypassPermissions' | 'plan' =
+    claudeExecutionMode === 'plan'
+      ? 'plan'
+      : claudeAccessMode === 'fullAccess'
+        ? 'bypassPermissions'
+        : 'default';
+
+  const updatePermissionMode = async (
+    nextMode: 'default' | 'bypassPermissions' | 'plan'
+  ): Promise<void> => {
+    if (currentPermissionMode === nextMode) {
+      return;
+    }
+    if (activeQuery) {
+      await activeQuery.setPermissionMode(nextMode);
+    }
+    currentPermissionMode = nextMode;
+    onClaudeExecutionModeChange?.(nextMode === 'plan' ? 'plan' : 'execute', nextMode);
+  };
 
   const enqueuePrompt = (text: string, promptAttachments?: Attachment[], requestedModel?: string) => {
     const trimmed = text.trim();
@@ -398,8 +418,8 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           includePartialMessages: true,
           maxThinkingTokens,
           betas: betas as Array<'context-1m-2025-08-07'> | undefined,
-          permissionMode: sdkPermissionMode,
-          allowDangerouslySkipPermissions: sdkPermissionMode === 'bypassPermissions',
+          permissionMode: currentPermissionMode,
+          allowDangerouslySkipPermissions: currentPermissionMode === 'bypassPermissions',
           env,
           model: currentModel,
           settings: currentModel ? { model: currentModel } : undefined,
@@ -413,13 +433,81 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           } as Record<string, SDKMcpServerConfig>,
           // 自定义工具权限处理
           canUseTool: async (toolName: string, input: Record<string, unknown>) => {
-            // Auto-approve Aegis memory MCP tools (in-process, user opted-in)
             const memoryTools = ['remember_search', 'remember_get', 'remember_write', 'remember_recent'];
-            if (memoryTools.some(t => toolName === t || toolName.endsWith(`__${t}`))) {
+            const isMemoryTool = memoryTools.some(t => toolName === t || toolName.endsWith(`__${t}`));
+            const planBlockedTools = new Set([
+              'Bash',
+              'Write',
+              'Edit',
+              'MultiEdit',
+              'NotebookEdit',
+              'Delete',
+            ]);
+
+            if (toolName === 'ExitPlanMode') {
+              const approvalToolUseId = uuidv4();
+              const result = await onPermissionRequest(approvalToolUseId, 'ExitPlanMode', {
+                questions: [
+                  {
+                    header: 'Plan approval',
+                    question: 'Approve this plan and let Claude start implementing it?',
+                    options: [
+                      {
+                        label: 'Approve and execute',
+                        description: 'Exit plan mode and continue with implementation.',
+                      },
+                      {
+                        label: 'Stay in plan mode',
+                        description: 'Keep planning without executing tools yet.',
+                      },
+                    ],
+                  },
+                ],
+              });
+
+              if (result.behavior !== 'allow') {
+                return {
+                  behavior: 'deny' as const,
+                  message: result.message || 'Plan approval was denied.',
+                };
+              }
+
+              const selectedAnswer =
+                typeof result.updatedInput?.answers === 'object' && result.updatedInput?.answers
+                  ? Object.values(result.updatedInput.answers as Record<string, unknown>).find(
+                      (value): value is string => typeof value === 'string' && value.trim().length > 0
+                    ) || ''
+                  : '';
+
+              if (selectedAnswer !== 'Approve and execute') {
+                return {
+                  behavior: 'deny' as const,
+                  message: 'User chose to stay in plan mode.',
+                };
+              }
+
+              const nextMode =
+                claudeAccessMode === 'fullAccess' ? 'bypassPermissions' : 'default';
+              await updatePermissionMode(nextMode);
+              return {
+                behavior: 'allow' as const,
+                updatedInput: input,
+              };
+            }
+
+            if (currentPermissionMode === 'plan' && (planBlockedTools.has(toolName) || toolName === 'remember_write' || toolName.endsWith('__remember_write'))) {
+              return {
+                behavior: 'deny' as const,
+                message: 'This session is in plan mode, so Claude cannot execute edits or commands.',
+              };
+            }
+
+            // Auto-approve Aegis memory MCP tools (in-process, user opted-in)
+            if (isMemoryTool) {
               return { behavior: 'allow' as const, updatedInput: input };
             }
 
-            const isFullAccess = sdkPermissionMode === 'bypassPermissions';
+            const isFullAccess = currentPermissionMode === 'bypassPermissions';
             if (session.cwd) {
               // 文件操作工具的路径修正
               const fileTools = ['Write', 'Edit', 'Read'];

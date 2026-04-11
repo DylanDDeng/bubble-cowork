@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Copy, Check, Pencil, RotateCcw } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import { DecisionPanel, getAskUserQuestionSignature } from './DecisionPanel';
 import { ToolGroup } from './ToolGroup';
 import { AttachmentChips } from './AttachmentChips';
 import { AttachmentPreviewGrid } from './AttachmentPreviewGrid';
@@ -20,7 +19,6 @@ import type {
   ContentBlock,
   ToolStatus,
   PermissionRequestPayload,
-  AskUserQuestionInput,
   PermissionResult,
 } from '../types';
 
@@ -85,15 +83,6 @@ function extractGenericSlashPrompt(prompt: string): { name: string; remainder: s
     firstWhitespaceIndex === -1 ? '' : trimmed.slice(firstWhitespaceIndex).replace(/^\s+/, '');
 
   return { name, remainder };
-}
-
-function isAskUserQuestionInput(input: unknown): input is AskUserQuestionInput {
-  return (
-    typeof input === 'object' &&
-    input !== null &&
-    'questions' in input &&
-    Array.isArray((input as { questions?: unknown }).questions)
-  );
 }
 
 interface MessageCardProps {
@@ -534,38 +523,13 @@ function AssistantCard({
     <div className="my-3 min-w-0">
       {groups.map((group, idx) => {
         if (group.type === 'tool_group') {
-          // 检查是否有 AskUserQuestion 需要特殊处理
-          const askUserBlock = group.blocks.find(
-            (b) => b.name === 'AskUserQuestion'
-          );
-          const matchingRequest = askUserBlock
-            ? permissionRequests.find((req) => {
-                if (!isAskUserQuestionInput(req.input)) {
-                  return false;
-                }
-                const input = askUserBlock.input as unknown as AskUserQuestionInput;
-                const reqSignature = getAskUserQuestionSignature(req.input);
-                const blockSignature = getAskUserQuestionSignature(input);
-                return reqSignature === blockSignature;
-              })
-            : null;
-
           return (
-            <div key={idx}>
-              <ToolGroup
-                toolUseBlocks={group.blocks}
-                toolResults={toolResultsMap}
-                toolStatusMap={toolStatusMap}
-              />
-              {matchingRequest && (
-                <DecisionPanel
-                  input={matchingRequest.input}
-                  onSubmit={(result) =>
-                    onPermissionResult(matchingRequest.toolUseId, result)
-                  }
-                />
-              )}
-            </div>
+            <ToolGroup
+              key={idx}
+              toolUseBlocks={group.blocks}
+              toolResults={toolResultsMap}
+              toolStatusMap={toolStatusMap}
+            />
           );
         }
         // text, thinking 块单独渲染

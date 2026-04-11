@@ -130,6 +130,7 @@ export interface ClaudeModelConfig {
 }
 
 export type ClaudeAccessMode = 'default' | 'fullAccess';
+export type ClaudeExecutionMode = 'execute' | 'plan';
 export type CodexPermissionMode = 'defaultPermissions' | 'fullAccess';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'fullAccess';
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
@@ -420,6 +421,7 @@ export interface SessionStartPayload {
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
+  claudeExecutionMode?: ClaudeExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
@@ -437,6 +439,7 @@ export interface SessionContinuePayload {
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
+  claudeExecutionMode?: ClaudeExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
@@ -456,6 +459,7 @@ export interface SessionInfo {
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
+  claudeExecutionMode?: ClaudeExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
@@ -485,6 +489,7 @@ export interface SessionStatusPayload {
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
+  claudeExecutionMode?: ClaudeExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
