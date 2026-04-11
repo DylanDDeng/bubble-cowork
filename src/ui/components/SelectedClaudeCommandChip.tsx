@@ -14,21 +14,25 @@ export function SelectedClaudeCommandChip({
 
   return (
     <div
-      className={`inline-flex max-w-full items-center border border-[var(--border)] bg-[var(--bg-tertiary)] shadow-sm ${
-        compact ? 'gap-1.5 rounded-[var(--radius-lg)] px-2 py-0.5' : 'gap-2 rounded-[var(--radius-xl)] px-2.5 py-2'
+      className={`inline-flex max-w-full items-center shadow-sm ${
+        compact
+          ? 'gap-1.5 rounded-[var(--radius-lg)] px-2 py-0.5 border border-current/20 bg-current/10'
+          : 'gap-2 rounded-[var(--radius-xl)] px-2.5 py-2 border border-[var(--border)] bg-[var(--bg-tertiary)]'
       }`}
     >
       <div
-        className={`flex flex-shrink-0 items-center justify-center border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] ${
-          compact ? 'h-4.5 w-4.5 rounded-sm' : 'h-6 w-6 rounded-lg'
+        className={`flex flex-shrink-0 items-center justify-center ${
+          compact
+            ? 'h-4.5 w-4.5 rounded-sm border border-current/20 bg-current/10 text-inherit'
+            : 'h-6 w-6 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]'
         }`}
       >
         <Terminal className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
       </div>
 
       <div
-        className={`truncate font-medium text-[var(--text-primary)] ${
-          compact ? 'max-w-[180px] text-[11px] font-semibold text-[var(--text-primary)]' : 'max-w-[220px] text-sm'
+        className={`truncate font-medium ${
+          compact ? 'max-w-[180px] text-[11px] font-semibold text-inherit' : 'max-w-[220px] text-sm text-[var(--text-primary)]'
         }`}
         title={command.title}
       >

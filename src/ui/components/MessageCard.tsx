@@ -359,7 +359,7 @@ function UserPromptCard({
             className={`${isEditing ? 'w-full px-4 py-3 rounded-[var(--radius-2xl)]' : 'max-w-full px-5 py-2.5 rounded-[var(--radius-xl)]'}`}
             style={{
               background: 'var(--user-bubble-bg)',
-              border: '1px solid var(--user-bubble-border)',
+              color: 'var(--user-bubble-text)',
               boxShadow: 'var(--user-bubble-shadow)',
             }}
           >
@@ -369,7 +369,7 @@ function UserPromptCard({
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 rows={Math.min(8, Math.max(2, draft.split('\n').length))}
-                className="w-full min-w-[320px] bg-transparent text-[14px] text-[var(--text-primary)] leading-7 outline-none resize-none whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+                className="w-full min-w-[320px] bg-transparent text-[14px] text-inherit leading-7 outline-none resize-none whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
                     e.preventDefault();
@@ -383,7 +383,7 @@ function UserPromptCard({
                 }}
               />
             ) : (
-              <div className="text-[14px] leading-[1.5] text-[var(--text-primary)]">
+              <div className="text-[14px] leading-[1.5] text-inherit">
                 {promptPrefixDisplay && (
                   <div className="mr-2 inline-flex align-middle">
                     {promptPrefixDisplay.kind === 'skill' ? (
@@ -495,13 +495,15 @@ function GenericSlashChip({ name, compact = false }: { name: string; compact?: b
 
   return (
     <div
-      className={`inline-flex max-w-full items-center border border-[var(--border)] bg-[var(--bg-tertiary)] shadow-sm ${
-        compact ? 'rounded-[var(--radius-lg)] px-2 py-0.5' : 'rounded-[var(--radius-xl)] px-2.5 py-2'
+      className={`inline-flex max-w-full items-center shadow-sm ${
+        compact
+          ? 'rounded-[var(--radius-lg)] px-2 py-0.5 border border-current/20 bg-current/10'
+          : 'rounded-[var(--radius-xl)] px-2.5 py-2 border border-[var(--border)] bg-[var(--bg-tertiary)]'
       }`}
     >
       <div
-        className={`truncate font-medium text-[var(--text-primary)] ${
-          compact ? 'max-w-[180px] text-[11px]' : 'max-w-[260px] text-sm'
+        className={`truncate font-medium ${
+          compact ? 'max-w-[180px] text-[11px] text-inherit' : 'max-w-[260px] text-sm text-[var(--text-primary)]'
         }`}
       >
         {label}
