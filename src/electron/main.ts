@@ -87,6 +87,7 @@ let mainWindow: BrowserWindow | null = null;
 let updaterInitialized = false;
 let devFileWatcher: fs.FSWatcher | null = null;
 let updateCheckStarted = false;
+let pendingManualUpdateCheck = false;
 let latestUiResumeState: import('../shared/types').UiResumeState | null = null;
 let isQuitting = false;
 const RELEASES_URL = 'https://github.com/DylanDDeng/bubble-cowork/releases';
@@ -458,6 +459,12 @@ function setupAutoUpdater(): void {
   autoUpdater.autoDownload = false;
 
   autoUpdater.on('error', (error) => {
+    const shouldNotify = pendingManualUpdateCheck;
+    pendingManualUpdateCheck = false;
+    if (!shouldNotify) {
+      console.warn('[Updater] Background update check failed:', error);
+      return;
+    }
     dialog.showMessageBox({
       type: 'error',
       title: 'Update error',
@@ -467,6 +474,7 @@ function setupAutoUpdater(): void {
   });
 
   autoUpdater.on('update-available', async (info) => {
+    pendingManualUpdateCheck = false;
     const result = await dialog.showMessageBox({
       type: 'info',
       title: 'Update available',
@@ -482,6 +490,11 @@ function setupAutoUpdater(): void {
   });
 
   autoUpdater.on('update-not-available', () => {
+    const shouldNotify = pendingManualUpdateCheck;
+    pendingManualUpdateCheck = false;
+    if (!shouldNotify) {
+      return;
+    }
     dialog.showMessageBox({
       type: 'info',
       title: 'Up to date',
@@ -494,8 +507,9 @@ function setupAutoUpdater(): void {
   });
 }
 
-function checkForUpdates(): void {
+function checkForUpdates(options?: { manual?: boolean }): void {
   if (!app.isPackaged) {
+    pendingManualUpdateCheck = false;
     dialog.showMessageBox({
       type: 'info',
       title: 'Updates',
@@ -503,6 +517,8 @@ function checkForUpdates(): void {
     });
     return;
   }
+
+  pendingManualUpdateCheck = options?.manual === true;
   autoUpdater.checkForUpdates();
 }
 
@@ -513,7 +529,7 @@ function scheduleAutomaticUpdateCheck(): void {
 
   updateCheckStarted = true;
   setTimeout(() => {
-    checkForUpdates();
+    checkForUpdates({ manual: false });
   }, 8000);
 }
 
@@ -530,7 +546,7 @@ function setupMenu(): void {
       role('about'),
       {
         label: 'Check for Updates...',
-        click: () => checkForUpdates(),
+        click: () => checkForUpdates({ manual: true }),
       },
       separator(),
       role('services'),
@@ -602,7 +618,7 @@ function setupMenu(): void {
     const helpSubmenu: Electron.MenuItemConstructorOptions[] = [
       {
         label: 'Check for Updates...',
-        click: () => checkForUpdates(),
+        click: () => checkForUpdates({ manual: true }),
       },
     ];
     template.push({
@@ -635,7 +651,7 @@ app.whenReady().then(() => {
   setupMenu();
   setupAutoUpdater();
   ipcMainHandle('check-for-updates', async () => {
-    checkForUpdates();
+    checkForUpdates({ manual: true });
     return { ok: true };
   });
   ipcMainHandle('get-ui-resume-state', async () => {
