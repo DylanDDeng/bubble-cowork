@@ -9,6 +9,7 @@ import { McpSettingsContent } from './McpSettings';
 import { ProviderPicker } from '../ProviderPicker';
 import { BridgeSettingsContent } from './BridgeSettings';
 import { MemorySettingsContent } from './MemorySettings';
+import { SettingsRow, SettingsSection } from './SettingsPrimitives';
 import type { ColorThemeId, FontSelection, FontSettingsPayload, FontSlot, ImportedFontFace, SystemFontOption, Theme } from '../../types';
 import { BUILTIN_FONT_OPTIONS, getDefaultFontSelections, getFontPreviewLabel } from '../../theme/fonts';
 import { COLOR_THEME_FAMILIES, resolveThemeMode } from '../../theme/themes';
@@ -418,45 +419,6 @@ function GeneralSettingsContent({
           />
         </SettingsRow>
       </SettingsSection>
-    </div>
-  );
-}
-
-function SettingsSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="border-b border-[var(--border)] pb-6 last:border-b-0 last:pb-0">
-      <h2 className="mb-3 text-[13px] font-semibold uppercase tracking-[0.06em] text-[var(--text-muted)]">
-        {title}
-      </h2>
-      <div>{children}</div>
-    </section>
-  );
-}
-
-function SettingsRow({
-  label,
-  description,
-  children,
-}: {
-  label: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="grid grid-cols-[minmax(0,1fr)_minmax(200px,280px)] items-center gap-4 border-b border-[var(--border)] py-3.5 last:border-b-0">
-      <div>
-        <div className="text-[14px] font-medium text-[var(--text-primary)]">{label}</div>
-        {description ? (
-          <div className="mt-0.5 text-[13px] leading-5 text-[var(--text-muted)]">{description}</div>
-        ) : null}
-      </div>
-      <div className="flex justify-end">{children}</div>
     </div>
   );
 }

@@ -1,11 +1,40 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Check, ChevronDown, PencilLine, Plus, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import { sendEvent } from '../../hooks/useIPC';
 import type { McpServerConfig, McpServerStatus } from '../../types';
+import { SettingsSection } from './SettingsPrimitives';
 
 type ServerScope = 'global' | 'project';
 
-// MCP 设置内容组件（用于嵌入 Settings 面板）
+interface ActiveEditorState {
+  scope: ServerScope;
+  name: string | null;
+}
+
+const TYPE_OPTIONS: Array<{
+  value: NonNullable<McpServerConfig['type']>;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'stdio',
+    label: 'Local command',
+    description: 'Run a local process such as npx or uvx.',
+  },
+  {
+    value: 'http',
+    label: 'HTTP endpoint',
+    description: 'Connect to a persistent MCP server over HTTP.',
+  },
+  {
+    value: 'sse',
+    label: 'SSE endpoint',
+    description: 'Connect to a streaming MCP server over Server-Sent Events.',
+  },
+];
+
 export function McpSettingsContent() {
   const {
     mcpGlobalServers,
@@ -16,17 +45,10 @@ export function McpSettingsContent() {
     sessions,
   } = useAppStore();
 
-  const [editingServer, setEditingServer] = useState<{
-    name: string;
-    config: McpServerConfig;
-    scope: ServerScope;
-  } | null>(null);
-  const [isAddingNew, setIsAddingNew] = useState<ServerScope | null>(null);
-
-  // 获取当前项目路径
+  const [activeEditor, setActiveEditor] = useState<ActiveEditorState | null>(null);
   const currentProjectPath = activeSessionId ? sessions[activeSessionId]?.cwd : undefined;
+  const currentProjectName = currentProjectPath?.split('/').pop() || 'this workspace';
 
-  // 请求 MCP 配置
   useEffect(() => {
     if (showSettings) {
       sendEvent({
@@ -36,13 +58,10 @@ export function McpSettingsContent() {
     }
   }, [showSettings, currentProjectPath]);
 
-  // 获取服务器状态
-  const getServerStatus = (name: string): McpServerStatus | undefined => {
-    return mcpServerStatus.find((s) => s.name === name);
-  };
-
-  // 删除服务器
   const handleDelete = (name: string, scope: ServerScope) => {
+    const confirmed = window.confirm(`Delete the ${scope} server "${name}"?`);
+    if (!confirmed) return;
+
     if (scope === 'global') {
       const { [name]: deleted, ...rest } = mcpGlobalServers;
       sendEvent({
@@ -59,519 +78,786 @@ export function McpSettingsContent() {
         },
       });
     }
+
+    if (activeEditor?.scope === scope && activeEditor.name === name) {
+      setActiveEditor(null);
+    }
+    toast.success(`Deleted "${name}".`);
   };
 
-  // 保存服务器
   const handleSave = (name: string, config: McpServerConfig, scope: ServerScope) => {
+    const trimmedName = name.trim();
+
     if (scope === 'global') {
+      const nextServers =
+        activeEditor?.name && activeEditor.name !== trimmedName
+          ? renameServer(mcpGlobalServers, activeEditor.name, trimmedName, config)
+          : {
+              ...mcpGlobalServers,
+              [trimmedName]: config,
+            };
+
       sendEvent({
         type: 'mcp.save-config',
         payload: {
-          globalServers: {
-            ...mcpGlobalServers,
-            [name]: config,
-          },
+          globalServers: nextServers,
         },
       });
     } else {
+      const nextServers =
+        activeEditor?.name && activeEditor.name !== trimmedName
+          ? renameServer(mcpProjectServers, activeEditor.name, trimmedName, config)
+          : {
+              ...mcpProjectServers,
+              [trimmedName]: config,
+            };
+
       sendEvent({
         type: 'mcp.save-config',
         payload: {
-          projectServers: {
-            ...mcpProjectServers,
-            [name]: config,
-          },
+          projectServers: nextServers,
           projectPath: currentProjectPath,
         },
       });
     }
-    setEditingServer(null);
-    setIsAddingNew(null);
+
+    setActiveEditor(null);
+    toast.success(`${activeEditor?.name ? 'Updated' : 'Saved'} "${trimmedName}".`);
   };
 
-  const hasGlobalServers = Object.keys(mcpGlobalServers).length > 0;
-  const hasProjectServers = Object.keys(mcpProjectServers).length > 0;
-  const hasNoServers = !hasGlobalServers && !hasProjectServers && isAddingNew === null;
+  const hasProjectScope = Boolean(currentProjectPath);
 
   return (
-    <div>
-      {hasNoServers ? (
-        <section className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-8 text-center">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-            MCP Setup
-          </div>
-          <div className="mt-3 text-xl font-semibold text-[var(--text-primary)]">
-            No MCP servers configured
-          </div>
-          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-[var(--text-secondary)]">
-            Add global servers for every project, or project servers for the active workspace only.
-          </p>
-          <div className="mt-6 flex justify-center gap-3">
-            <button
-              onClick={() => setIsAddingNew('global')}
-              className="px-4 py-2 bg-[var(--accent)] text-[var(--accent-foreground)] rounded-[var(--radius-lg)] hover:bg-[var(--accent-hover)] transition-colors text-[13px] font-medium"
-            >
-              Add Global Server
-            </button>
-            {currentProjectPath && (
-              <button
-                onClick={() => setIsAddingNew('project')}
-                className="px-4 py-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors text-[13px] font-medium"
-              >
-                Add Project Server
-              </button>
-            )}
-          </div>
-        </section>
-      ) : (
-        <div className="space-y-5">
-          <ServerSection
-            title="Global Servers"
-            description="Available in all projects"
-            servers={mcpGlobalServers}
-            scope="global"
-            editingServer={editingServer}
-            isAddingNew={isAddingNew === 'global'}
-            getServerStatus={getServerStatus}
-            onEdit={(name, config) => setEditingServer({ name, config, scope: 'global' })}
-            onDelete={(name) => handleDelete(name, 'global')}
-            onSave={(name, config) => handleSave(name, config, 'global')}
-            onCancelEdit={() => setEditingServer(null)}
-            onAddNew={() => setIsAddingNew('global')}
-            onCancelAdd={() => setIsAddingNew(null)}
-          />
+    <div className="space-y-6 pb-8">
+      <ServerScopeSection
+        title="Global Servers"
+        description="Reusable MCP connections available in every workspace."
+        scope="global"
+        servers={mcpGlobalServers}
+        statusEntries={mcpServerStatus}
+        activeEditor={activeEditor}
+        onAddNew={() => setActiveEditor({ scope: 'global', name: null })}
+        onEdit={(name) => setActiveEditor({ scope: 'global', name })}
+        onCancelEdit={() => setActiveEditor(null)}
+        onSave={handleSave}
+        onDelete={handleDelete}
+      />
 
-          {currentProjectPath && (
-            <ServerSection
-              title="Project Servers"
-              description={`Only available in ${currentProjectPath.split('/').pop()}`}
-              servers={mcpProjectServers}
-              scope="project"
-              editingServer={editingServer}
-              isAddingNew={isAddingNew === 'project'}
-              getServerStatus={getServerStatus}
-              onEdit={(name, config) => setEditingServer({ name, config, scope: 'project' })}
-              onDelete={(name) => handleDelete(name, 'project')}
-              onSave={(name, config) => handleSave(name, config, 'project')}
-              onCancelEdit={() => setEditingServer(null)}
-              onAddNew={() => setIsAddingNew('project')}
-              onCancelAdd={() => setIsAddingNew(null)}
-            />
-          )}
-
-          {hasNoServers && (
-            <div className="flex gap-2">
-              <button
-                onClick={() => setIsAddingNew('global')}
-                className="px-4 py-2 bg-[var(--accent)] text-[var(--accent-foreground)] rounded-[var(--radius-lg)] hover:bg-[var(--accent-hover)] transition-colors text-[13px] font-medium"
-              >
-                + Add Global Server
-              </button>
-              {currentProjectPath && (
-                <button
-                  onClick={() => setIsAddingNew('project')}
-                  className="px-4 py-2 border border-[var(--border)] bg-[var(--bg-secondary)] rounded-[var(--radius-lg)] transition-colors hover:bg-[var(--bg-tertiary)] text-[13px] font-medium"
-                >
-                  + Add Project Server
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      {hasProjectScope ? (
+        <ServerScopeSection
+          title="Project Servers"
+          description={`Connections only available in ${currentProjectName}.`}
+          scope="project"
+          servers={mcpProjectServers}
+          statusEntries={mcpServerStatus}
+          activeEditor={activeEditor}
+          onAddNew={() => setActiveEditor({ scope: 'project', name: null })}
+          onEdit={(name) => setActiveEditor({ scope: 'project', name })}
+          onCancelEdit={() => setActiveEditor(null)}
+          onSave={handleSave}
+          onDelete={handleDelete}
+        />
+      ) : null}
     </div>
   );
 }
 
-function SectionCard({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-5">
-      {children}
-    </section>
-  );
-}
-
-// 服务器分区组件
-function ServerSection({
+function ServerScopeSection({
   title,
   description,
-  servers,
   scope,
-  editingServer,
-  isAddingNew,
-  getServerStatus,
-  onEdit,
-  onDelete,
-  onSave,
-  onCancelEdit,
+  servers,
+  statusEntries,
+  activeEditor,
   onAddNew,
-  onCancelAdd,
+  onEdit,
+  onCancelEdit,
+  onSave,
+  onDelete,
 }: {
   title: string;
   description: string;
-  servers: Record<string, McpServerConfig>;
   scope: ServerScope;
-  editingServer: { name: string; config: McpServerConfig; scope: ServerScope } | null;
-  isAddingNew: boolean;
-  getServerStatus: (name: string) => McpServerStatus | undefined;
-  onEdit: (name: string, config: McpServerConfig) => void;
-  onDelete: (name: string) => void;
-  onSave: (name: string, config: McpServerConfig) => void;
-  onCancelEdit: () => void;
+  servers: Record<string, McpServerConfig>;
+  statusEntries: McpServerStatus[];
+  activeEditor: ActiveEditorState | null;
   onAddNew: () => void;
-  onCancelAdd: () => void;
+  onEdit: (name: string) => void;
+  onCancelEdit: () => void;
+  onSave: (name: string, config: McpServerConfig, scope: ServerScope) => void;
+  onDelete: (name: string, scope: ServerScope) => void;
 }) {
+  const existingNames = useMemo(() => Object.keys(servers), [servers]);
+  const isAddingNew = activeEditor?.scope === scope && activeEditor.name === null;
+  const serverEntries = Object.entries(servers);
+
   return (
-    <SectionCard>
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-            {scope === 'global' ? 'Global Scope' : 'Project Scope'}
-          </div>
-          <h3 className="mt-2 text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">{description}</p>
-        </div>
-        <button
-          onClick={onAddNew}
-          disabled={isAddingNew || editingServer !== null}
-          className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50 disabled:cursor-not-allowed"
+    <SettingsSection title={title} description={description}>
+      <ServerActionRow
+        label="Add Server"
+        description={`Create a ${scope === 'global' ? 'reusable' : 'workspace-only'} MCP connection in this scope.`}
+        actionLabel={isAddingNew ? 'Adding…' : 'New Server'}
+        onClick={onAddNew}
+        disabled={isAddingNew}
+      />
+
+      {isAddingNew ? (
+        <ExpandableRowShell
+          title="New server"
+          description="Choose a transport and provide only the required connection details first."
+          expanded
         >
-          Add Server
-        </button>
-      </div>
-
-      <div className="space-y-3">
-        {Object.entries(servers).map(([name, config]) => {
-          const status = getServerStatus(name);
-          const isEditing = editingServer?.name === name && editingServer?.scope === scope;
-
-          if (isEditing) {
-            return (
-              <McpServerForm
-                key={name}
-                initialName={name}
-                initialConfig={config}
-                onSave={(n, c) => onSave(n, c)}
-                onCancel={onCancelEdit}
-              />
-            );
-          }
-
-          return (
-            <ServerCard
-              key={name}
-              name={name}
-              config={config}
-              status={status}
-              onEdit={() => onEdit(name, config)}
-              onDelete={() => onDelete(name)}
-            />
-          );
-        })}
-
-        {Object.keys(servers).length === 0 && !isAddingNew && (
-          <div className="rounded-[var(--radius-2xl)] border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-5 text-sm text-[var(--text-muted)]">
-            No servers configured
-          </div>
-        )}
-
-        {isAddingNew && (
           <McpServerForm
-            onSave={(n, c) => onSave(n, c)}
-            onCancel={onCancelAdd}
+            scope={scope}
+            existingNames={existingNames}
+            onSave={(name, config) => onSave(name, config, scope)}
+            onCancel={onCancelEdit}
           />
-        )}
-      </div>
-    </SectionCard>
+        </ExpandableRowShell>
+      ) : null}
+
+      {serverEntries.length === 0 ? (
+        <InlineNoticeRow
+          title="No servers configured"
+          description={`Add a ${scope === 'global' ? 'global' : 'project'} server to make tools available in this scope.`}
+        />
+      ) : null}
+
+      {serverEntries.map(([name, config]) => {
+        const isExpanded = activeEditor?.scope === scope && activeEditor.name === name;
+        const status = statusEntries.find((entry) => entry.name === name);
+
+        return (
+          <ExpandableServerRow
+            key={`${scope}-${name}`}
+            name={name}
+            config={config}
+            scope={scope}
+            status={status}
+            expanded={isExpanded}
+            existingNames={existingNames}
+            onToggle={() => {
+              if (isExpanded) {
+                onCancelEdit();
+              } else {
+                onEdit(name);
+              }
+            }}
+            onEdit={() => onEdit(name)}
+            onDelete={() => onDelete(name, scope)}
+            onSave={(nextName, nextConfig) => onSave(nextName, nextConfig, scope)}
+            onCancel={onCancelEdit}
+          />
+        );
+      })}
+    </SettingsSection>
   );
 }
 
-// 服务器卡片
-function ServerCard({
+function ServerActionRow({
+  label,
+  description,
+  actionLabel,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  description: string;
+  actionLabel: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_minmax(200px,280px)] items-center gap-4 border-b border-[var(--border)] py-3.5">
+      <div>
+        <div className="text-[14px] font-medium text-[var(--text-primary)]">{label}</div>
+        <div className="mt-0.5 text-[13px] leading-5 text-[var(--text-muted)]">{description}</div>
+      </div>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={disabled}
+          className="inline-flex h-9 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--accent-light)] px-3.5 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          <span>{actionLabel}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function InlineNoticeRow({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_minmax(200px,280px)] gap-4 border-b border-[var(--border)] py-3.5 last:border-b-0">
+      <div>
+        <div className="text-[14px] font-medium text-[var(--text-primary)]">{title}</div>
+        <div className="mt-0.5 text-[13px] leading-5 text-[var(--text-muted)]">{description}</div>
+      </div>
+      <div className="flex items-center justify-end">
+        <span className="rounded-[var(--radius-lg)] border border-dashed border-[var(--border)] px-3 py-2 text-[12px] text-[var(--text-muted)]">
+          Empty
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function ExpandableServerRow({
   name,
   config,
+  scope,
   status,
+  expanded,
+  existingNames,
+  onToggle,
   onEdit,
   onDelete,
+  onSave,
+  onCancel,
 }: {
   name: string;
   config: McpServerConfig;
+  scope: ServerScope;
   status?: McpServerStatus;
+  expanded: boolean;
+  existingNames: string[];
+  onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onSave: (name: string, config: McpServerConfig) => void;
+  onCancel: () => void;
 }) {
-  const type = config.type || 'stdio';
-  const statusColor = status
-    ? status.status === 'connected'
-      ? 'bg-green-500'
-      : status.status === 'failed'
-      ? 'bg-red-500'
-      : 'bg-yellow-500'
-    : 'bg-gray-500';
+  const summary = getServerSummary(config);
+  const statusMeta = getStatusMeta(status);
 
   return (
-    <div className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-4 shadow-sm">
-      <div className="flex items-start gap-3">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
-          <div className={`w-2 h-2 rounded-full ${statusColor}`} />
-          <div className="min-w-0 flex-1">
-            <div className="truncate font-medium" title={name}>{name}</div>
-            <div
-              className="truncate text-sm text-[var(--text-muted)]"
-              title={type === 'stdio' ? config.command : config.url}
-            >
-              {type === 'stdio' ? config.command : config.url}
-            </div>
-            {status?.error && (
-              <div className="mt-1 break-words text-sm text-red-400">{status.error}</div>
-            )}
-          </div>
-        </div>
-
-        <div className="ml-auto flex flex-shrink-0 items-center gap-2">
-          <span className="text-xs text-[var(--text-muted)] px-2 py-1 bg-[var(--bg-tertiary)] rounded">
-            {type}
-          </span>
+    <ExpandableRowShell
+      title={name}
+      description={summary}
+      expanded={expanded}
+      summarySuffix={
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <StatusBadge label={statusMeta.label} tone={statusMeta.tone} />
+          <MetaBadge label={(config.type || 'stdio').toUpperCase()} />
           <button
+            type="button"
             onClick={onEdit}
-            className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)]"
+            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] px-2.5 text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
           >
-            <EditIcon />
+            <PencilLine className="h-3.5 w-3.5" />
+            <span>Edit</span>
           </button>
           <button
+            type="button"
             onClick={onDelete}
-            className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-red-400"
+            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] px-2.5 text-[12px] font-medium text-[var(--error)] transition-colors hover:bg-[var(--bg-tertiary)]"
           >
-            <DeleteIcon />
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Delete</span>
           </button>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-lg)] border border-[var(--border)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+            aria-label={expanded ? `Collapse ${name}` : `Expand ${name}`}
+            aria-expanded={expanded}
+          >
+            <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
+      }
+      detail={
+        status?.error ? (
+          <div className="mt-2 text-[12px] leading-5 text-[var(--error)]">
+            {status.error}
+          </div>
+        ) : statusMeta.description ? (
+          <div className="mt-2 text-[12px] leading-5 text-[var(--text-muted)]">
+            {statusMeta.description}
+          </div>
+        ) : null
+      }
+    >
+      <McpServerForm
+        scope={scope}
+        initialName={name}
+        initialConfig={config}
+        existingNames={existingNames}
+        onSave={onSave}
+        onCancel={onCancel}
+      />
+    </ExpandableRowShell>
+  );
+}
+
+function ExpandableRowShell({
+  title,
+  description,
+  detail,
+  summarySuffix,
+  expanded,
+  children,
+}: {
+  title: string;
+  description: string;
+  detail?: React.ReactNode;
+  summarySuffix?: React.ReactNode;
+  expanded: boolean;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="border-b border-[var(--border)] py-3.5 last:border-b-0">
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(200px,280px)] gap-4">
+        <div className="min-w-0">
+          <div className="text-[14px] font-medium text-[var(--text-primary)]">{title}</div>
+          <div className="mt-0.5 truncate text-[13px] leading-5 text-[var(--text-muted)]">{description}</div>
+          {detail}
+        </div>
+        <div className="flex items-start justify-end">{summarySuffix}</div>
+      </div>
+
+      <div
+        className={`grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-200 ${
+          expanded ? 'mt-4 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0'
+        }`}
+      >
+        <div className="min-h-0 overflow-hidden">
+          {expanded ? (
+            <div className="border-t border-[var(--border)] pt-4">{children}</div>
+          ) : null}
         </div>
       </div>
     </div>
   );
 }
 
-// 服务器配置表单
 function McpServerForm({
+  scope,
   initialName = '',
   initialConfig,
+  existingNames,
   onSave,
   onCancel,
 }: {
+  scope: ServerScope;
   initialName?: string;
   initialConfig?: McpServerConfig;
+  existingNames: string[];
   onSave: (name: string, config: McpServerConfig) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState(initialName);
-  const [type, setType] = useState<'stdio' | 'http' | 'sse'>(
-    initialConfig?.type || 'stdio'
-  );
+  const [type, setType] = useState<NonNullable<McpServerConfig['type']>>(initialConfig?.type || 'stdio');
   const [command, setCommand] = useState(initialConfig?.command || '');
   const [args, setArgs] = useState(initialConfig?.args?.join(' ') || '');
   const [url, setUrl] = useState(initialConfig?.url || '');
-  const [envVars, setEnvVars] = useState<{ key: string; value: string }[]>(
+  const [envVars, setEnvVars] = useState<Array<{ key: string; value: string }>>(
     initialConfig?.env
       ? Object.entries(initialConfig.env).map(([key, value]) => ({ key, value }))
       : []
   );
+  const [advancedOpen, setAdvancedOpen] = useState(Boolean(initialConfig?.env && Object.keys(initialConfig.env).length > 0));
+  const [errors, setErrors] = useState<Partial<Record<'name' | 'command' | 'url', string>>>({});
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
+  const existingNamesLower = useMemo(
+    () => existingNames.map((item) => item.toLowerCase()),
+    [existingNames]
+  );
 
+  const validate = () => {
+    const nextErrors: Partial<Record<'name' | 'command' | 'url', string>> = {};
+    const trimmedName = name.trim();
+    const normalizedName = trimmedName.toLowerCase();
+    const editingExisting = initialName.trim().toLowerCase();
+
+    if (!trimmedName) {
+      nextErrors.name = 'Enter a server name.';
+    } else if (normalizedName !== editingExisting && existingNamesLower.includes(normalizedName)) {
+      nextErrors.name = 'That name already exists in this scope.';
+    }
+
+    if (type === 'stdio') {
+      if (!command.trim()) {
+        nextErrors.command = 'Enter the command used to start this server.';
+      }
+    } else if (!url.trim()) {
+      nextErrors.url = 'Enter the MCP server URL.';
+    }
+
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  };
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!validate()) return;
+
+    const trimmedName = name.trim();
     const config: McpServerConfig = { type };
 
     if (type === 'stdio') {
-      config.command = command;
+      config.command = command.trim();
       if (args.trim()) {
-        config.args = args.split(' ').filter(Boolean);
+        config.args = args
+          .split(' ')
+          .map((part) => part.trim())
+          .filter(Boolean);
       }
     } else {
-      config.url = url;
+      config.url = url.trim();
     }
 
-    if (envVars.length > 0) {
-      config.env = {};
-      for (const { key, value } of envVars) {
-        if (key.trim()) {
-          config.env[key] = value;
-        }
+    const env = envVars.reduce<Record<string, string>>((result, entry) => {
+      const key = entry.key.trim();
+      if (key) {
+        result[key] = entry.value;
       }
+      return result;
+    }, {});
+
+    if (Object.keys(env).length > 0) {
+      config.env = env;
     }
 
-    onSave(name, config);
-  };
-
-  const addEnvVar = () => {
-    setEnvVars([...envVars, { key: '', value: '' }]);
-  };
-
-  const removeEnvVar = (index: number) => {
-    setEnvVars(envVars.filter((_, i) => i !== index));
-  };
-
-  const updateEnvVar = (index: number, field: 'key' | 'value', value: string) => {
-    const updated = [...envVars];
-    updated[index][field] = value;
-    setEnvVars(updated);
+    onSave(trimmedName, config);
   };
 
   return (
-    <form onSubmit={handleSubmit} className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-5 shadow-sm">
-      <div className="space-y-4">
-        {/* Name */}
-        <div>
-          <label className="block text-sm font-medium mb-1">Name</label>
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <FieldBlock
+          label="Server Name"
+          description={`${scope === 'global' ? 'Available in every workspace.' : 'Only available in this workspace.'}`}
+          error={errors.name}
+        >
           <input
             type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. filesystem"
-            className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-xl)] focus:outline-none focus:border-[var(--accent)]"
-            disabled={!!initialName}
+            onChange={(event) => {
+              setName(event.target.value);
+              if (errors.name) {
+                setErrors((current) => ({ ...current, name: undefined }));
+              }
+            }}
+            placeholder="filesystem"
+            className={getInputClassName(Boolean(errors.name))}
           />
-        </div>
+        </FieldBlock>
 
-        {/* Type */}
-        <div>
-          <label className="block text-sm font-medium mb-2">Type</label>
-          <div className="flex gap-4">
-            {(['stdio', 'http', 'sse'] as const).map((t) => (
-              <label key={t} className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="type"
-                  value={t}
-                  checked={type === t}
-                  onChange={() => setType(t)}
-                  className="accent-[var(--accent)]"
-                />
-                <span>{t}</span>
-              </label>
-            ))}
+        <FieldBlock
+          label="Transport"
+          description="Pick the connection method that matches how the MCP server is hosted."
+        >
+          <div className="grid gap-2">
+            {TYPE_OPTIONS.map((option) => {
+              const selected = type === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setType(option.value)}
+                  className={`flex items-start justify-between gap-3 rounded-[var(--radius-lg)] border px-3 py-2.5 text-left transition-colors ${
+                    selected
+                      ? 'border-[var(--text-muted)] bg-[var(--accent-light)]'
+                      : 'border-[var(--border)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]'
+                  }`}
+                  aria-pressed={selected}
+                >
+                  <div>
+                    <div className="text-[13px] font-medium text-[var(--text-primary)]">{option.label}</div>
+                    <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">
+                      {option.description}
+                    </div>
+                  </div>
+                  {selected ? <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--text-primary)]" /> : null}
+                </button>
+              );
+            })}
           </div>
-        </div>
+        </FieldBlock>
+      </div>
 
-        {/* Type-specific fields */}
-        {type === 'stdio' ? (
-          <>
-            <div>
-              <label className="block text-sm font-medium mb-1">Command</label>
-              <input
-                type="text"
-                value={command}
-                onChange={(e) => setCommand(e.target.value)}
-                placeholder="e.g. npx"
-                className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-xl)] focus:outline-none focus:border-[var(--accent)]"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Arguments</label>
-              <input
-                type="text"
-                value={args}
-                onChange={(e) => setArgs(e.target.value)}
-                placeholder="e.g. @modelcontextprotocol/server-filesystem"
-                className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-xl)] focus:outline-none focus:border-[var(--accent)]"
-              />
-            </div>
-          </>
-        ) : (
-          <div>
-            <label className="block text-sm font-medium mb-1">URL</label>
+      {type === 'stdio' ? (
+        <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <FieldBlock
+            label="Command"
+            description="The executable that starts the MCP server."
+            error={errors.command}
+          >
             <input
               type="text"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="e.g. http://localhost:3000/mcp"
-              className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-xl)] focus:outline-none focus:border-[var(--accent)]"
+              value={command}
+              onChange={(event) => {
+                setCommand(event.target.value);
+                if (errors.command) {
+                  setErrors((current) => ({ ...current, command: undefined }));
+                }
+              }}
+              placeholder="npx"
+              className={getInputClassName(Boolean(errors.command))}
             />
-          </div>
-        )}
+          </FieldBlock>
 
-        {/* Environment Variables */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium">Environment Variables</label>
-            <button
-              type="button"
-              onClick={addEnvVar}
-              className="text-sm text-[var(--accent)] hover:underline"
-            >
-              + Add
-            </button>
-          </div>
-          {envVars.length > 0 && (
-            <div className="space-y-2">
-              {envVars.map((env, index) => (
-                <div key={index} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={env.key}
-                    onChange={(e) => updateEnvVar(index, 'key', e.target.value)}
-                    placeholder="KEY"
-                    className="flex-1 px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-xl)] focus:outline-none focus:border-[var(--accent)] text-sm"
-                  />
-                  <input
-                    type="text"
-                    value={env.value}
-                    onChange={(e) => updateEnvVar(index, 'value', e.target.value)}
-                    placeholder="value"
-                    className="flex-1 px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border)] rounded-[var(--radius-xl)] focus:outline-none focus:border-[var(--accent)] text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeEnvVar(index)}
-                    className="p-2 text-red-400 hover:bg-[var(--bg-tertiary)] rounded"
-                  >
-                    <DeleteIcon />
-                  </button>
-                </div>
-              ))}
+          <FieldBlock
+            label="Arguments"
+            description="Optional. Separate arguments with spaces."
+          >
+            <input
+              type="text"
+              value={args}
+              onChange={(event) => setArgs(event.target.value)}
+              placeholder="@modelcontextprotocol/server-filesystem"
+              className={getInputClassName(false)}
+            />
+          </FieldBlock>
+        </div>
+      ) : (
+        <FieldBlock
+          label="Server URL"
+          description="The HTTP or SSE endpoint for this MCP server."
+          error={errors.url}
+        >
+          <input
+            type="text"
+            value={url}
+            onChange={(event) => {
+              setUrl(event.target.value);
+              if (errors.url) {
+                setErrors((current) => ({ ...current, url: undefined }));
+              }
+            }}
+            placeholder={type === 'http' ? 'http://localhost:3000/mcp' : 'http://localhost:3000/sse'}
+            className={getInputClassName(Boolean(errors.url))}
+          />
+        </FieldBlock>
+      )}
+
+      <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)]">
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen((current) => !current)}
+          className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left"
+          aria-expanded={advancedOpen}
+        >
+          <div>
+            <div className="text-[13px] font-medium text-[var(--text-primary)]">Advanced</div>
+            <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">
+              Environment variables for local commands or authenticated endpoints.
             </div>
-          )}
-        </div>
+          </div>
+          <ChevronDown className={`h-4 w-4 flex-shrink-0 text-[var(--text-muted)] transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+        </button>
 
-        {/* Actions */}
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-4 py-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)]"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="px-4 py-2 bg-[var(--accent)] text-[var(--accent-foreground)] rounded-[var(--radius-xl)] hover:bg-[var(--accent-hover)] transition-colors"
-          >
-            Save
-          </button>
+        <div
+          className={`grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ${
+            advancedOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+          }`}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className="border-t border-[var(--border)] px-3 py-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="text-[12px] text-[var(--text-muted)]">
+                  Add only the variables this server needs to start successfully.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEnvVars((current) => [...current, { key: '', value: '' }])}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] px-2.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Add Variable</span>
+                </button>
+              </div>
+
+              {envVars.length === 0 ? (
+                <div className="rounded-[var(--radius-lg)] border border-dashed border-[var(--border)] px-3 py-3 text-[12px] text-[var(--text-muted)]">
+                  No environment variables configured.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {envVars.map((entry, index) => (
+                    <div key={`${entry.key}-${index}`} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                      <input
+                        type="text"
+                        value={entry.key}
+                        onChange={(event) =>
+                          setEnvVars((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, key: event.target.value } : item
+                            )
+                          )
+                        }
+                        placeholder="KEY"
+                        className={getInputClassName(false)}
+                      />
+                      <input
+                        type="text"
+                        value={entry.value}
+                        onChange={(event) =>
+                          setEnvVars((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, value: event.target.value } : item
+                            )
+                          )
+                        }
+                        placeholder="value"
+                        className={getInputClassName(false)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEnvVars((current) => current.filter((_, itemIndex) => itemIndex !== index))
+                        }
+                        className="inline-flex h-10 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] px-3 text-[12px] font-medium text-[var(--error)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        <span>Remove</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] pt-4">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="inline-flex h-9 items-center rounded-[var(--radius-lg)] border border-[var(--border)] px-4 text-[13px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          className="inline-flex h-9 items-center rounded-[var(--radius-lg)] bg-[var(--accent)] px-4 text-[13px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
+        >
+          Save Server
+        </button>
       </div>
     </form>
   );
 }
 
-// Icons
-function EditIcon() {
+function FieldBlock({
+  label,
+  description,
+  error,
+  children,
+}: {
+  label: string;
+  description: string;
+  error?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-    </svg>
+    <div>
+      <div className="mb-1.5 text-[13px] font-medium text-[var(--text-primary)]">{label}</div>
+      <div className="mb-2 text-[12px] leading-5 text-[var(--text-muted)]">{description}</div>
+      {children}
+      {error ? <div className="mt-1.5 text-[12px] text-[var(--error)]">{error}</div> : null}
+    </div>
   );
 }
 
-function DeleteIcon() {
+function StatusBadge({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: 'success' | 'warning' | 'error' | 'muted';
+}) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    </svg>
+    <span className="inline-flex h-8 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] px-2.5 text-[12px] font-medium text-[var(--text-secondary)]">
+      <span className={`h-2 w-2 rounded-full ${getStatusDotClassName(tone)}`} />
+      <span>{label}</span>
+    </span>
   );
+}
+
+function MetaBadge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex h-8 items-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 text-[12px] font-medium text-[var(--text-muted)]">
+      {label}
+    </span>
+  );
+}
+
+function getStatusMeta(status?: McpServerStatus) {
+  if (!status) {
+    return {
+      label: 'Unknown',
+      tone: 'muted' as const,
+      description: 'Status has not been reported yet.',
+    };
+  }
+
+  if (status.status === 'connected') {
+    return {
+      label: 'Connected',
+      tone: 'success' as const,
+      description: 'This server is available to the assistant.',
+    };
+  }
+
+  if (status.status === 'failed') {
+    return {
+      label: 'Failed',
+      tone: 'error' as const,
+      description: 'Check the connection details below.',
+    };
+  }
+
+  return {
+    label: 'Starting',
+    tone: 'warning' as const,
+    description: 'The app is still trying to connect to this server.',
+  };
+}
+
+function getServerSummary(config: McpServerConfig) {
+  const type = config.type || 'stdio';
+  if (type === 'stdio') {
+    const parts = [config.command, ...(config.args || [])].filter(Boolean);
+    return parts.length > 0 ? `Runs: ${parts.join(' ')}` : 'Starts a local MCP process.';
+  }
+
+  return config.url ? `Endpoint: ${config.url}` : 'Connects to a remote MCP endpoint.';
+}
+
+function renameServer(
+  servers: Record<string, McpServerConfig>,
+  previousName: string,
+  nextName: string,
+  config: McpServerConfig
+) {
+  const nextServers = { ...servers };
+  delete nextServers[previousName];
+  nextServers[nextName] = config;
+  return nextServers;
+}
+
+function getInputClassName(hasError: boolean) {
+  return `h-10 w-full rounded-[var(--radius-lg)] border bg-[var(--bg-primary)] px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] ${
+    hasError
+      ? 'border-[var(--error)] focus:border-[var(--error)]'
+      : 'border-[var(--border)] focus:border-[var(--text-muted)]'
+  }`;
+}
+
+function getStatusDotClassName(tone: 'success' | 'warning' | 'error' | 'muted') {
+  if (tone === 'success') return 'bg-green-500';
+  if (tone === 'warning') return 'bg-amber-500';
+  if (tone === 'error') return 'bg-red-500';
+  return 'bg-slate-400';
 }
