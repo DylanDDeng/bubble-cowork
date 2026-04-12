@@ -1,27 +1,19 @@
 import {
-  AlertTriangle,
-  CheckCircle2,
   ChevronDown,
-  ChevronRight,
   Eye,
   EyeOff,
   LoaderCircle,
-  Search,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import claudeLogo from '../../assets/claude-color.svg';
-import openaiLogo from '../../assets/openai.svg';
 import minimaxLogo from '../../assets/minimax-color.svg';
 import deepseekLogo from '../../assets/deepseek-color.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
 import mimoLogo from '../../assets/xiaomimimo.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
 import { useClaudeRuntimeStatus } from '../../hooks/useClaudeRuntimeStatus';
-import { useCodexModelConfig } from '../../hooks/useCodexModelConfig';
-import { useOpencodeModelConfig } from '../../hooks/useOpencodeModelConfig';
 import { useCodexRuntimeStatus } from '../../hooks/useCodexRuntimeStatus';
 import { useOpencodeRuntimeStatus } from '../../hooks/useOpencodeRuntimeStatus';
-import { formatCodexModelLabel } from '../../utils/codex-model';
 import { Badge } from '../ui/badge';
 import { OpenCodeLogo } from '../OpenCodeLogo';
 import { Input } from '../ui/input';
@@ -31,30 +23,19 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog';
 import type {
   ClaudeCompatibleProviderConfig,
   ClaudeCompatibleProviderId,
   ClaudeCompatibleProvidersConfig,
   ClaudeRuntimeStatus,
-  CodexModelConfig,
   CodexRuntimeStatus,
-  OpenCodeModelConfig,
   OpenCodeRuntimeStatus,
 } from '../../types';
 import { normalizeCompatibleProvidersConfig } from '../../hooks/useCompatibleProviderConfig';
+import { SettingsSection } from './SettingsPrimitives';
 
 const DEFAULT_CONFIG = normalizeCompatibleProvidersConfig(undefined);
 const PROVIDER_IDS = ['minimaxCn', 'minimax', 'mimo', 'zhipu', 'moonshot', 'deepseek'] as ClaudeCompatibleProviderId[];
-
-type RuntimeTargetId = 'claude-runtime' | 'codex-runtime' | 'opencode-runtime';
 
 const PROVIDER_META: Record<
   ClaudeCompatibleProviderId,
@@ -63,32 +44,32 @@ const PROVIDER_META: Record<
   minimaxCn: {
     label: 'MiniMax (CN)',
     logo: minimaxLogo,
-    description: 'Anthropic-compatible endpoint for Claude Code access through MiniMax China routing.',
+    description: 'Route Claude-compatible requests through MiniMax China.',
   },
   minimax: {
-    label: 'MiniMax (GLOBAL)',
+    label: 'MiniMax (Global)',
     logo: minimaxLogo,
-    description: 'Anthropic-compatible endpoint for Claude Code access through MiniMax global routing.',
+    description: 'Route Claude-compatible requests through MiniMax global endpoints.',
   },
   mimo: {
     label: 'MiMo',
     logo: mimoLogo,
-    description: 'Xiaomi MiMo compatible endpoint for Claude Code requests and reasoning workloads.',
+    description: 'Use Xiaomi MiMo as a Claude-compatible provider.',
   },
   zhipu: {
     label: 'Zhipu AI',
     logo: zhipuLogo,
-    description: 'GLM-backed compatible routing for Claude Code sessions and tool use.',
+    description: 'Use GLM-backed routing for Claude-compatible requests.',
   },
   moonshot: {
     label: 'Moonshot AI',
     logo: moonshotLogo,
-    description: 'Kimi-compatible endpoint for Claude Code requests and fast fallbacks.',
+    description: 'Use Kimi-compatible endpoints for Claude-compatible requests.',
   },
   deepseek: {
     label: 'DeepSeek',
     logo: deepseekLogo,
-    description: 'DeepSeek chat and reasoning models exposed through a compatible API surface.',
+    description: 'Use DeepSeek through a Claude-compatible API surface.',
   },
 };
 
@@ -96,12 +77,8 @@ const PROVIDER_MODEL_SUGGESTIONS: Record<
   ClaudeCompatibleProviderId,
   { model: string; smallFastModel?: string }[]
 > = {
-  minimaxCn: [
-    { model: 'MiniMax-M2.5', smallFastModel: 'MiniMax-M2.5' },
-  ],
-  minimax: [
-    { model: 'MiniMax-M2.5', smallFastModel: 'MiniMax-M2.5' },
-  ],
+  minimaxCn: [{ model: 'MiniMax-M2.5', smallFastModel: 'MiniMax-M2.5' }],
+  minimax: [{ model: 'MiniMax-M2.5', smallFastModel: 'MiniMax-M2.5' }],
   mimo: [
     { model: 'mimo-v2-pro', smallFastModel: 'mimo-v2-flash' },
     { model: 'mimo-v2-flash', smallFastModel: 'mimo-v2-flash' },
@@ -133,11 +110,7 @@ function loadProviderModelHistory(): ProviderModelHistory {
 
   try {
     const raw = window.localStorage.getItem(MODEL_HISTORY_STORAGE_KEY);
-    if (!raw) {
-      return {};
-    }
-
-    return JSON.parse(raw) as ProviderModelHistory;
+    return raw ? (JSON.parse(raw) as ProviderModelHistory) : {};
   } catch {
     return {};
   }
@@ -195,31 +168,17 @@ function getProviderModelSuggestions(
 export function CompatibleProviderSettingsContent() {
   const [config, setConfig] = useState<ClaudeCompatibleProvidersConfig>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
-  const [selectedRuntimeId, setSelectedRuntimeId] = useState<RuntimeTargetId>('claude-runtime');
-  const [selectedProviderId, setSelectedProviderId] = useState<ClaudeCompatibleProviderId>('minimaxCn');
-  const [providerDialogOpen, setProviderDialogOpen] = useState(false);
-  const [draftProvider, setDraftProvider] = useState<ClaudeCompatibleProviderConfig>(
-    DEFAULT_CONFIG.providers.minimaxCn
-  );
+  const [expandedProviderId, setExpandedProviderId] = useState<ClaudeCompatibleProviderId | null>(null);
+  const [draftProvider, setDraftProvider] = useState<ClaudeCompatibleProviderConfig | null>(null);
   const [showSecret, setShowSecret] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [savingProvider, setSavingProvider] = useState<ClaudeCompatibleProviderId | null>(null);
-  const [message, setMessage] = useState<{ providerId: ClaudeCompatibleProviderId; text: string } | null>(null);
+  const [message, setMessage] = useState<{ providerId: ClaudeCompatibleProviderId; text: string; tone: 'default' | 'error' } | null>(null);
+  const [errors, setErrors] = useState<Partial<Record<'baseUrl' | 'model' | 'secret', string>>>({});
 
-  const {
-    status: claudeRuntimeStatus,
-    loading: claudeRuntimeLoading,
-    refresh: refreshClaudeRuntimeStatus,
-  } = useClaudeRuntimeStatus();
-  const {
-    status: codexRuntimeStatus,
-    loading: codexRuntimeLoading,
-  } = useCodexRuntimeStatus();
-  const {
-    status: opencodeRuntimeStatus,
-    loading: opencodeRuntimeLoading,
-  } = useOpencodeRuntimeStatus();
-  const codexModelConfig = useCodexModelConfig();
-  const opencodeModelConfig = useOpencodeModelConfig();
+  const { status: claudeRuntimeStatus, loading: claudeRuntimeLoading } = useClaudeRuntimeStatus();
+  const { status: codexRuntimeStatus, loading: codexRuntimeLoading } = useCodexRuntimeStatus();
+  const { status: opencodeRuntimeStatus, loading: opencodeRuntimeLoading } = useOpencodeRuntimeStatus();
 
   useEffect(() => {
     let cancelled = false;
@@ -242,754 +201,504 @@ export function CompatibleProviderSettingsContent() {
     };
   }, []);
 
-  useEffect(() => {
-    setDraftProvider({ ...config.providers[selectedProviderId] });
+  const modelSuggestions = useMemo(() => {
+    if (!expandedProviderId || !draftProvider) {
+      return [];
+    }
+    return getProviderModelSuggestions(expandedProviderId, 'model', draftProvider);
+  }, [draftProvider, expandedProviderId]);
+
+  const smallFastModelSuggestions = useMemo(() => {
+    if (!expandedProviderId || !draftProvider) {
+      return [];
+    }
+    return getProviderModelSuggestions(expandedProviderId, 'smallFastModel', draftProvider);
+  }, [draftProvider, expandedProviderId]);
+
+  const openProviderEditor = (providerId: ClaudeCompatibleProviderId) => {
+    if (savingProvider) {
+      return;
+    }
+
+    if (expandedProviderId === providerId) {
+      setExpandedProviderId(null);
+      setDraftProvider(null);
+      setShowSecret(false);
+      setAdvancedOpen(false);
+      setErrors({});
+      return;
+    }
+
+    setExpandedProviderId(providerId);
+    setDraftProvider({ ...config.providers[providerId] });
     setShowSecret(false);
-  }, [config, selectedProviderId]);
-
-  const selectedProviderMeta = PROVIDER_META[selectedProviderId];
-  const selectedProvider = config.providers[selectedProviderId];
-  const providerMessage = message?.providerId === selectedProviderId ? message.text : null;
-  const modelSuggestions = useMemo(
-    () => getProviderModelSuggestions(selectedProviderId, 'model', draftProvider),
-    [draftProvider, selectedProviderId]
-  );
-  const smallFastModelSuggestions = useMemo(
-    () => getProviderModelSuggestions(selectedProviderId, 'smallFastModel', draftProvider),
-    [draftProvider, selectedProviderId]
-  );
-
-  const isDirty = useMemo(
-    () => JSON.stringify(draftProvider) !== JSON.stringify(selectedProvider),
-    [draftProvider, selectedProvider]
-  );
+    setAdvancedOpen(Boolean(config.providers[providerId].smallFastModel || config.providers[providerId].maxOutputTokens));
+    setErrors({});
+  };
 
   const updateDraftProvider = (
     updater: (current: ClaudeCompatibleProviderConfig) => ClaudeCompatibleProviderConfig
   ) => {
-    setDraftProvider((current) => updater(current));
+    setDraftProvider((current) => (current ? updater(current) : current));
   };
 
-  const handleSave = async () => {
-    setSavingProvider(selectedProviderId);
+  const validateDraftProvider = () => {
+    if (!expandedProviderId || !draftProvider) {
+      return false;
+    }
+
+    const nextErrors: Partial<Record<'baseUrl' | 'model' | 'secret', string>> = {};
+    if (draftProvider.enabled) {
+      if (!draftProvider.baseUrl.trim()) {
+        nextErrors.baseUrl = 'Enter the provider endpoint URL.';
+      }
+      if (!draftProvider.model.trim()) {
+        nextErrors.model = 'Enter the default model name.';
+      }
+      if (!draftProvider.secret.trim()) {
+        nextErrors.secret = 'Enter the token used for this endpoint.';
+      }
+    }
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  };
+
+  const handleSaveProvider = async () => {
+    if (!expandedProviderId || !draftProvider) {
+      return;
+    }
+    if (!validateDraftProvider()) {
+      return;
+    }
+
+    setSavingProvider(expandedProviderId);
     setMessage(null);
 
     try {
       const nextConfig = normalizeCompatibleProvidersConfig({
         providers: {
           ...config.providers,
-          [selectedProviderId]: draftProvider,
+          [expandedProviderId]: draftProvider,
         },
       });
       const saved = await window.electron.saveClaudeCompatibleProviderConfig(nextConfig);
       setConfig(normalizeCompatibleProvidersConfig(saved));
-      rememberProviderModelValue(selectedProviderId, 'model', draftProvider.model);
-      rememberProviderModelValue(selectedProviderId, 'smallFastModel', draftProvider.smallFastModel);
+      rememberProviderModelValue(expandedProviderId, 'model', draftProvider.model);
+      rememberProviderModelValue(expandedProviderId, 'smallFastModel', draftProvider.smallFastModel);
       window.dispatchEvent(new CustomEvent('claude-compatible-provider-updated'));
       setMessage({
-        providerId: selectedProviderId,
-        text: 'Saved. Restart Claude sessions to apply the new provider.',
+        providerId: expandedProviderId,
+        text: 'Saved. Restart Claude sessions to apply the updated provider connection.',
+        tone: 'default',
       });
-      setProviderDialogOpen(false);
     } catch (error) {
       setMessage({
-        providerId: selectedProviderId,
+        providerId: expandedProviderId,
         text: error instanceof Error ? error.message : 'Failed to save provider config.',
+        tone: 'error',
       });
     } finally {
       setSavingProvider(null);
     }
   };
 
-  const handleResetDraft = () => {
-    if (savingProvider) {
+  const handleResetProvider = () => {
+    if (!expandedProviderId || savingProvider) {
       return;
     }
-
-    setDraftProvider({ ...config.providers[selectedProviderId] });
+    setDraftProvider({ ...config.providers[expandedProviderId] });
     setShowSecret(false);
+    setAdvancedOpen(Boolean(config.providers[expandedProviderId].smallFastModel || config.providers[expandedProviderId].maxOutputTokens));
+    setErrors({});
   };
 
-  const openProviderDialog = (providerId: ClaudeCompatibleProviderId) => {
-    if (savingProvider) {
-      return;
-    }
-    setSelectedProviderId(providerId);
-    setProviderDialogOpen(true);
-  };
-
-  const closeProviderDialog = () => {
-    if (savingProvider) {
-      return;
-    }
-    setMessage(null);
-    setProviderDialogOpen(false);
-    setShowSecret(false);
-  };
+  const activeProviderMessage = message && expandedProviderId && message.providerId === expandedProviderId ? message : null;
 
   return (
-    <section className="space-y-6">
-      <SectionCard>
-        <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
-          <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]">
-            <div className="p-2.5">
-              <RailSection
-                label="Agent Checks"
-              >
-                <RuntimeRailItem
-                  title="Claude Code Runtime"
-                  logo={claudeLogo}
-                  summary={claudeRuntimeLoading ? 'Checking Claude runtime…' : claudeRuntimeStatus.summary}
-                  status={buildClaudeRailStatus(claudeRuntimeStatus, claudeRuntimeLoading)}
-                  selected={selectedRuntimeId === 'claude-runtime'}
-                  onSelect={() => setSelectedRuntimeId('claude-runtime')}
-                />
-                <RuntimeRailItem
-                  title="Codex CLI ACP"
-                  logo={openaiLogo}
-                  summary={buildCodexSummary(codexRuntimeStatus, codexRuntimeLoading)}
-                  status={buildCodexRailStatus(codexRuntimeStatus, codexRuntimeLoading)}
-                  selected={selectedRuntimeId === 'codex-runtime'}
-                  onSelect={() => setSelectedRuntimeId('codex-runtime')}
-                />
-                <RuntimeRailItem
-                  title="OpenCode ACP"
-                  logo={<OpenCodeLogo className="h-5 w-5 flex-shrink-0" />}
-                  summary={buildOpencodeSummary(opencodeRuntimeStatus, opencodeRuntimeLoading)}
-                  status={buildOpencodeRailStatus(opencodeRuntimeStatus, opencodeRuntimeLoading)}
-                  selected={selectedRuntimeId === 'opencode-runtime'}
-                  onSelect={() => setSelectedRuntimeId('opencode-runtime')}
-                />
-              </RailSection>
-            </div>
-          </div>
-
-          {selectedRuntimeId === 'claude-runtime' ? (
-            <ClaudeProviderWorkspace
-              claudeStatus={claudeRuntimeStatus}
-              claudeLoading={claudeRuntimeLoading}
-              providerIds={PROVIDER_IDS}
-              config={config}
-              loading={loading}
-              selectedProviderId={selectedProviderId}
-              savingProvider={savingProvider}
-              onOpenProvider={openProviderDialog}
-            />
-          ) : selectedRuntimeId === 'codex-runtime' ? (
-            <CodexRuntimeDetailPanel
-              modelConfig={codexModelConfig}
-              loading={codexRuntimeLoading}
-              saveVisibility={window.electron.saveCodexModelVisibility}
-              updatedEventName="codex-model-config-updated"
-              formatModelLabel={formatCodexModelLabel}
-              loadingMessage="Checking local Codex models..."
-              emptyMessage="No local Codex models were detected yet. Models will appear automatically when the local Codex cache is ready."
-              saveErrorMessage="Failed to update Codex model visibility."
-            />
-          ) : (
-            <CodexRuntimeDetailPanel
-              modelConfig={opencodeModelConfig}
-              loading={opencodeRuntimeLoading}
-              saveVisibility={window.electron.saveOpencodeModelVisibility}
-              updatedEventName="opencode-model-config-updated"
-              formatModelLabel={(name) => name}
-              showRawModelName={false}
-              loadingMessage="Checking local OpenCode models..."
-              emptyMessage="No local OpenCode models were detected yet. Models will appear automatically when the local OpenCode cache is ready."
-              saveErrorMessage="Failed to update OpenCode model visibility."
-            />
-          )}
-        </div>
-      </SectionCard>
-
-      <Dialog open={providerDialogOpen} onOpenChange={(open) => !open && closeProviderDialog()}>
-        <DialogContent className="max-w-2xl rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-0 shadow-[0_18px_48px_rgba(0,0,0,0.12)]">
-          <div className="overflow-hidden rounded-[var(--radius-2xl)]">
-            <div className="border-b border-[var(--border)] bg-[var(--bg-secondary)] px-6 py-5">
-              <DialogHeader className="space-y-2 text-left">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2.5 text-base font-medium text-[var(--text-primary)]">
-                      <img
-                        src={selectedProviderMeta.logo}
-                        alt=""
-                        className="h-5 w-5 flex-shrink-0"
-                        aria-hidden="true"
-                      />
-                      <DialogTitle className="text-base font-medium">{selectedProviderMeta.label}</DialogTitle>
-                      <Badge
-                        variant={draftProvider.enabled ? 'accent' : 'muted'}
-                        className="border-transparent px-2.5 py-0.5 text-[11px] font-medium"
-                      >
-                        {draftProvider.enabled ? 'Active' : 'Disabled'}
-                      </Badge>
-                    </div>
-                    <DialogDescription className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
-                      {selectedProviderMeta.description}
-                    </DialogDescription>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateDraftProvider((current) => ({
-                        ...current,
-                        enabled: !current.enabled,
-                      }))
-                    }
-                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors ${
-                      draftProvider.enabled
-                        ? 'border-transparent bg-[var(--accent)]'
-                        : 'border-[var(--border)] bg-[var(--bg-tertiary)]'
-                    }`}
-                    disabled={savingProvider !== null}
-                  >
-                    <span
-                      className={`pointer-events-none block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-                        draftProvider.enabled ? 'translate-x-5' : 'translate-x-0.5'
-                      }`}
-                    />
-                  </button>
-                </div>
-              </DialogHeader>
-            </div>
-
-            <div className="space-y-5 px-6 py-6">
-              <Field
-                label="Base URL"
-                description="Compatible endpoint Claude Code should use for requests."
-              >
-                <input
-                  value={draftProvider.baseUrl}
-                  onChange={(event) =>
-                    updateDraftProvider((current) => ({
-                      ...current,
-                      baseUrl: event.target.value,
-                    }))
-                  }
-                  placeholder="https://your-compatible-endpoint/v1"
-                  className="h-11 w-full rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
-                  disabled={savingProvider !== null}
-                />
-              </Field>
-
-              <Field
-                label="Model"
-                description="Default model name passed to the compatible provider."
-              >
-                <SuggestionInput
-                  value={draftProvider.model}
-                  onChange={(value) =>
-                    updateDraftProvider((current) => ({
-                      ...current,
-                      model: value,
-                    }))
-                  }
-                  suggestions={modelSuggestions}
-                  placeholder={getProviderModelPlaceholder(selectedProviderId)}
-                  disabled={savingProvider !== null}
-                />
-              </Field>
-
-              <Field
-                label="Small Fast Model"
-                description="Optional lower-latency override for lightweight Claude Code requests."
-              >
-                <SuggestionInput
-                  value={draftProvider.smallFastModel || ''}
-                  onChange={(value) =>
-                    updateDraftProvider((current) => ({
-                      ...current,
-                      smallFastModel: value,
-                    }))
-                  }
-                  suggestions={smallFastModelSuggestions}
-                  placeholder={
-                    selectedProviderId === 'deepseek'
-                      ? 'deepseek-chat or deepseek-reasoner'
-                      : 'Optional override'
-                  }
-                  disabled={savingProvider !== null}
-                />
-              </Field>
-
-              <Field
-                label="Max Output Tokens"
-                description="Optional Claude Code max output token override passed through provider env."
-              >
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={draftProvider.maxOutputTokens ?? ''}
-                  onChange={(event) =>
-                    updateDraftProvider((current) => ({
-                      ...current,
-                      maxOutputTokens: event.target.value
-                        ? Math.max(1, Math.trunc(Number(event.target.value)))
-                        : undefined,
-                    }))
-                  }
-                  placeholder={selectedProviderId === 'mimo' ? '64000' : 'Optional override'}
-                  className="h-11 w-full rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
-                  disabled={savingProvider !== null}
-                />
-              </Field>
-
-              <Field
-                label="Auth Token"
-                description="Stored locally and sent as the bearer token for this endpoint."
-              >
-                <div className="relative">
-                  <input
-                    type={showSecret ? 'text' : 'password'}
-                    value={draftProvider.secret}
-                    onChange={(event) =>
-                      updateDraftProvider((current) => ({
-                        ...current,
-                        authType: 'auth_token',
-                        secret: event.target.value,
-                      }))
-                    }
-                    placeholder="token..."
-                    className="h-11 w-full rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 pr-11 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
-                    disabled={savingProvider !== null}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSecret((current) => !current)}
-                    className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-[var(--radius-xl)] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
-                    aria-label={showSecret ? 'Hide key' : 'Show key'}
-                    disabled={savingProvider !== null}
-                  >
-                    {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </Field>
-
-              {providerMessage && (
-                <div className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-                  {providerMessage}
-                </div>
-              )}
-            </div>
-
-            <DialogFooter className="border-t border-[var(--border)] bg-[var(--bg-secondary)] px-6 py-4">
-              <div className="mr-auto text-sm text-[var(--text-muted)]">
-                {isDirty ? 'Unsaved changes' : 'Saved and in sync'}
-              </div>
-              <button
-                type="button"
-                onClick={closeProviderDialog}
-                disabled={savingProvider !== null}
-                className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                onClick={handleResetDraft}
-                disabled={!isDirty || savingProvider !== null}
-                className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-              >
-                Reset
-              </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={!isDirty || savingProvider !== null}
-                className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--accent-light)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-              >
-                {savingProvider === selectedProviderId ? 'Saving...' : 'Save'}
-              </button>
-            </DialogFooter>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </section>
-  );
-}
-
-function ClaudeProviderWorkspace({
-  claudeStatus,
-  claudeLoading,
-  providerIds,
-  config,
-  loading,
-  selectedProviderId,
-  savingProvider,
-  onOpenProvider,
-  }: {
-  claudeStatus: ClaudeRuntimeStatus;
-  claudeLoading: boolean;
-  providerIds: readonly ClaudeCompatibleProviderId[];
-  config: ClaudeCompatibleProvidersConfig;
-  loading: boolean;
-  selectedProviderId: ClaudeCompatibleProviderId;
-  savingProvider: ClaudeCompatibleProviderId | null;
-  onOpenProvider: (providerId: ClaudeCompatibleProviderId) => void;
-}) {
-  return (
-    <div className="space-y-4">
-      {!claudeLoading && !claudeStatus.ready ? (
-        <StatusBanner
-          loading={false}
-          ready={false}
-          summary={claudeStatus.summary}
-          detail={claudeStatus.detail}
+    <div className="space-y-6 pb-8">
+      <SettingsSection
+        title="Runtime Health"
+        description="Check whether each local runtime is ready before you start configuring provider connections."
+      >
+        <RuntimeStatusRow
+          title="Claude Code Runtime"
+          logo={<img src={claudeLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
+          summary={claudeRuntimeLoading ? 'Checking Claude runtime…' : claudeRuntimeStatus.summary}
+          detail={!claudeRuntimeLoading && !claudeRuntimeStatus.ready ? claudeRuntimeStatus.detail : undefined}
+          status={buildClaudeRailStatus(claudeRuntimeStatus, claudeRuntimeLoading)}
         />
-      ) : null}
+        <RuntimeStatusRow
+          title="Codex CLI ACP"
+          logo={<span className="text-[12px] font-semibold text-[var(--text-primary)]">C</span>}
+          summary={buildCodexSummary(codexRuntimeStatus, codexRuntimeLoading)}
+          status={buildCodexRailStatus(codexRuntimeStatus, codexRuntimeLoading)}
+        />
+        <RuntimeStatusRow
+          title="OpenCode ACP"
+          logo={<OpenCodeLogo className="h-5 w-5 flex-shrink-0" />}
+          summary={buildOpencodeSummary(opencodeRuntimeStatus, opencodeRuntimeLoading)}
+          status={buildOpencodeRailStatus(opencodeRuntimeStatus, opencodeRuntimeLoading)}
+        />
+      </SettingsSection>
 
-      <div className="grid gap-4">
-        <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)]">
-          <div className="border-b border-[var(--border)] px-4 py-3">
-            <SectionEyebrow>Compatible Providers</SectionEyebrow>
-          </div>
+      <SettingsSection
+        title="Claude-Compatible Providers"
+        description="Manage the remote endpoints Claude Code can use. Edit connections inline and keep runtime context visible."
+      >
+        {PROVIDER_IDS.map((providerId) => {
+          const provider = config.providers[providerId];
+          const meta = PROVIDER_META[providerId];
+          const expanded = expandedProviderId === providerId;
+          const providerDraft = expanded ? draftProvider : null;
+          const providerBusy = savingProvider === providerId;
+          const isDirty =
+            expanded && providerDraft
+              ? JSON.stringify(providerDraft) !== JSON.stringify(provider)
+              : false;
 
-          <div className="max-h-[420px] overflow-y-auto p-2.5">
-            <div className="space-y-2 pr-1">
-            {providerIds.map((providerId) => {
-              const provider = config.providers[providerId];
-              const meta = PROVIDER_META[providerId];
-
-              return (
-                <ProviderRailItem
-                  key={providerId}
-                  label={meta.label}
-                  logo={meta.logo}
-                  provider={provider}
-                  selected={selectedProviderId === providerId}
-                  disabled={loading || savingProvider !== null}
-                  onSelect={() => onOpenProvider(providerId)}
-                />
-              );
-            })}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CodexRuntimeDetailPanel({
-  modelConfig,
-  loading,
-  saveVisibility,
-  updatedEventName,
-  formatModelLabel,
-  showRawModelName = true,
-  loadingMessage,
-  emptyMessage,
-  saveErrorMessage,
-}: {
-  modelConfig: CodexModelConfig | OpenCodeModelConfig;
-  loading: boolean;
-  saveVisibility: (enabledModels: string[]) => Promise<{ availableModels: Array<{ name: string; enabled: boolean; isDefault: boolean }> }>;
-  updatedEventName: string;
-  formatModelLabel: (name: string) => string;
-  showRawModelName?: boolean;
-  loadingMessage: string;
-  emptyMessage: string;
-  saveErrorMessage: string;
-}) {
-  const normalizedAvailableModels = modelConfig.availableModels || [];
-  const [availableModels, setAvailableModels] = useState(normalizedAvailableModels);
-  const [modelSearchQuery, setModelSearchQuery] = useState('');
-  const [savingModelName, setSavingModelName] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setAvailableModels(normalizedAvailableModels);
-  }, [normalizedAvailableModels]);
-
-  const filteredModels = useMemo(() => {
-    const query = modelSearchQuery.trim().toLowerCase();
-    if (!query) {
-      return availableModels;
-    }
-
-    return availableModels.filter((model) => {
-      const formattedLabel = formatModelLabel(model.name).toLowerCase();
-      return model.name.toLowerCase().includes(query) || formattedLabel.includes(query);
-    });
-  }, [availableModels, formatModelLabel, modelSearchQuery]);
-
-  const handleToggleModel = async (modelName: string, enabled: boolean) => {
-    const nextModels = availableModels.map((model) =>
-      model.name === modelName ? { ...model, enabled } : model
-    );
-    setAvailableModels(nextModels);
-    setSavingModelName(modelName);
-    setSaveError(null);
-
-    try {
-      const saved = await saveVisibility(
-        nextModels.filter((model) => model.enabled).map((model) => model.name)
-      );
-      setAvailableModels(saved.availableModels || []);
-      window.dispatchEvent(new CustomEvent(updatedEventName));
-    } catch (error) {
-      setAvailableModels(normalizedAvailableModels);
-      setSaveError(error instanceof Error ? error.message : saveErrorMessage);
-    } finally {
-      setSavingModelName(null);
-    }
-  };
-
-  return (
-    <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]">
-      <div className="space-y-5 px-5 py-5">
-      {saveError ? (
-        <div className="rounded-[var(--radius-xl)] border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#b91c1c]">
-          {saveError}
-        </div>
-      ) : null}
-
-      {availableModels.length > 0 ? (
-        <>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
-            <Input
-              value={modelSearchQuery}
-              onChange={(event) => setModelSearchQuery(event.target.value)}
-              placeholder="Search models"
-              className="h-11 rounded-[var(--radius-xl)] border-[var(--border)] bg-[var(--bg-primary)] pl-9 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:ring-[var(--accent)]"
-            />
-          </div>
-
-        <div className="max-h-[560px] overflow-y-auto pr-1">
-          <div className="space-y-2">
-          {filteredModels.map((model) => {
-            const toggling = savingModelName === model.name;
-
-            return (
-              <div
-                key={model.name}
-                className="flex items-center gap-4 rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <div className="truncate text-sm font-medium text-[var(--text-primary)]">
-                      {formatModelLabel(model.name)}
-                    </div>
-                    {model.isDefault ? (
-                      <Badge
-                        variant="outline"
-                        className="border-[var(--border)] bg-[var(--bg-secondary)] text-[10px] font-medium text-[var(--text-secondary)]"
-                      >
-                        Default
-                      </Badge>
-                    ) : null}
-                  </div>
-                  {showRawModelName ? (
-                    <div className="mt-1 truncate text-[13px] text-[var(--text-secondary)]">
-                      {model.name}
-                    </div>
-                  ) : null}
+          return (
+            <SettingsSurfaceRow
+              key={providerId}
+              title={<RowTitleWithLogo logo={<img src={meta.logo} alt="" className="h-5 w-5" aria-hidden="true" />} title={meta.label} />}
+              description={
+                <div className="space-y-1">
+                  <div>{meta.description}</div>
+                  <div className="text-[12px] text-[var(--text-muted)]">{buildProviderSummary(provider)}</div>
                 </div>
-
-                <div className="flex items-center gap-3">
-                  <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">
-                    {model.enabled ? 'Shown' : 'Hidden'}
-                  </div>
+              }
+              right={
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <StateBadge
+                    label={provider.enabled ? 'Enabled' : 'Disabled'}
+                    variant={provider.enabled ? 'accent' : 'muted'}
+                  />
+                  <MetaBadge label={provider.baseUrl.trim() ? 'Configured' : 'Needs setup'} />
                   <button
                     type="button"
-                    onClick={() => handleToggleModel(model.name, !model.enabled)}
-                    disabled={loading || toggling}
-                    aria-label={`${model.enabled ? 'Hide' : 'Show'} ${model.name} in model picker`}
-                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors disabled:opacity-60 ${
-                      model.enabled
-                        ? 'border-transparent bg-[var(--accent)]'
-                        : 'border-[var(--border)] bg-[var(--bg-secondary)]'
-                    }`}
+                    onClick={() => openProviderEditor(providerId)}
+                    disabled={loading || savingProvider !== null}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] px-2.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-60"
+                    aria-expanded={expanded}
                   >
-                    <span
-                      className={`pointer-events-none block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-                        model.enabled ? 'translate-x-5' : 'translate-x-0.5'
-                      }`}
-                    />
+                    <span>{expanded ? 'Collapse' : 'Edit'}</span>
+                    <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
                   </button>
-                  {toggling ? <LoaderCircle className="h-4 w-4 animate-spin text-[var(--text-muted)]" /> : null}
                 </div>
-              </div>
-            );
-          })}
+              }
+              expanded={expanded}
+            >
+              {providerDraft ? (
+                <div className="space-y-5">
+                  <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                    <FieldBlock
+                      label="Provider Status"
+                      description="Enable this connection when you want Claude Code to route requests through it."
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateDraftProvider((current) => ({
+                            ...current,
+                            enabled: !current.enabled,
+                          }))
+                        }
+                        disabled={providerBusy}
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors disabled:opacity-60 ${
+                          providerDraft.enabled
+                            ? 'border-transparent bg-[var(--accent)]'
+                            : 'border-[var(--border)] bg-[var(--bg-tertiary)]'
+                        }`}
+                        aria-pressed={providerDraft.enabled}
+                        aria-label={providerDraft.enabled ? 'Disable provider' : 'Enable provider'}
+                      >
+                        <span
+                          className={`pointer-events-none block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                            providerDraft.enabled ? 'translate-x-5' : 'translate-x-0.5'
+                          }`}
+                        />
+                      </button>
+                    </FieldBlock>
 
-          {filteredModels.length === 0 ? (
-            <div className="rounded-[var(--radius-2xl)] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-4 py-6 text-sm leading-6 text-[var(--text-secondary)]">
-              No models match "{modelSearchQuery.trim()}".
-            </div>
-          ) : null}
-          </div>
-        </div>
-        </>
-      ) : (
-        <div className="rounded-[var(--radius-2xl)] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] px-4 py-6 text-sm leading-6 text-[var(--text-secondary)]">
-          {loading ? loadingMessage : emptyMessage}
-        </div>
-      )}
-      </div>
+                    <FieldBlock
+                      label="Base URL"
+                      description="The endpoint Claude Code will call for this provider."
+                      error={errors.baseUrl}
+                    >
+                      <input
+                        value={providerDraft.baseUrl}
+                        onChange={(event) => {
+                          setErrors((current) => ({ ...current, baseUrl: undefined }));
+                          updateDraftProvider((current) => ({
+                            ...current,
+                            baseUrl: event.target.value,
+                          }));
+                        }}
+                        placeholder="https://your-compatible-endpoint/v1"
+                        className={getInputClassName(Boolean(errors.baseUrl))}
+                        disabled={providerBusy}
+                      />
+                    </FieldBlock>
+                  </div>
+
+                  <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                    <FieldBlock
+                      label="Default Model"
+                      description="The main model name sent to this provider."
+                      error={errors.model}
+                    >
+                      <SuggestionInput
+                        value={providerDraft.model}
+                        onChange={(value) => {
+                          setErrors((current) => ({ ...current, model: undefined }));
+                          updateDraftProvider((current) => ({
+                            ...current,
+                            model: value,
+                          }));
+                        }}
+                        suggestions={modelSuggestions}
+                        placeholder={getProviderModelPlaceholder(providerId)}
+                        disabled={providerBusy}
+                      />
+                    </FieldBlock>
+
+                    <FieldBlock
+                      label="Endpoint Token"
+                      description="Stored locally and sent as the bearer token for this endpoint."
+                      error={errors.secret}
+                    >
+                      <div className="relative">
+                        <input
+                          type={showSecret ? 'text' : 'password'}
+                          value={providerDraft.secret}
+                          onChange={(event) => {
+                            setErrors((current) => ({ ...current, secret: undefined }));
+                            updateDraftProvider((current) => ({
+                              ...current,
+                              authType: 'auth_token',
+                              secret: event.target.value,
+                            }));
+                          }}
+                          placeholder="token..."
+                          className={getInputClassName(Boolean(errors.secret), true)}
+                          disabled={providerBusy}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowSecret((current) => !current)}
+                          className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-[var(--radius-lg)] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+                          aria-label={showSecret ? 'Hide token' : 'Show token'}
+                          disabled={providerBusy}
+                        >
+                          {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </FieldBlock>
+                  </div>
+
+                  <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)]">
+                    <button
+                      type="button"
+                      onClick={() => setAdvancedOpen((current) => !current)}
+                      className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left"
+                      aria-expanded={advancedOpen}
+                    >
+                      <div>
+                        <div className="text-[13px] font-medium text-[var(--text-primary)]">Advanced</div>
+                        <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">
+                          Optional overrides for fast fallback requests and output limits.
+                        </div>
+                      </div>
+                      <ChevronDown className={`h-4 w-4 flex-shrink-0 text-[var(--text-muted)] transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    <div
+                      className={`grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ${
+                        advancedOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                      }`}
+                    >
+                      <div className="min-h-0 overflow-hidden">
+                        <div className="grid gap-5 border-t border-[var(--border)] px-3 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                          <FieldBlock
+                            label="Small Fast Model"
+                            description="Optional lower-latency model for lightweight Claude requests."
+                          >
+                            <SuggestionInput
+                              value={providerDraft.smallFastModel || ''}
+                              onChange={(value) =>
+                                updateDraftProvider((current) => ({
+                                  ...current,
+                                  smallFastModel: value,
+                                }))
+                              }
+                              suggestions={smallFastModelSuggestions}
+                              placeholder="Optional override"
+                              disabled={providerBusy}
+                            />
+                          </FieldBlock>
+
+                          <FieldBlock
+                            label="Max Output Tokens"
+                            description="Optional output token limit passed through to the provider."
+                          >
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={providerDraft.maxOutputTokens ?? ''}
+                              onChange={(event) =>
+                                updateDraftProvider((current) => ({
+                                  ...current,
+                                  maxOutputTokens: event.target.value
+                                    ? Math.max(1, Math.trunc(Number(event.target.value)))
+                                    : undefined,
+                                }))
+                              }
+                              placeholder="Optional override"
+                              className={getInputClassName(false)}
+                              disabled={providerBusy}
+                            />
+                          </FieldBlock>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {activeProviderMessage ? (
+                    <InlineMessage tone={activeProviderMessage.tone}>
+                      {activeProviderMessage.text}
+                    </InlineMessage>
+                  ) : null}
+
+                  <div className="flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
+                    <div className="text-[12px] text-[var(--text-muted)]">
+                      {isDirty ? 'Unsaved changes' : 'Saved and in sync'}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleResetProvider}
+                        disabled={!isDirty || providerBusy}
+                        className="inline-flex h-9 items-center rounded-[var(--radius-lg)] border border-[var(--border)] px-4 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+                      >
+                        Reset
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveProvider}
+                        disabled={!isDirty || providerBusy}
+                        className="inline-flex h-9 items-center rounded-[var(--radius-lg)] bg-[var(--accent)] px-4 text-[13px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-50"
+                      >
+                        {providerBusy ? 'Saving...' : 'Save Provider'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </SettingsSurfaceRow>
+          );
+        })}
+      </SettingsSection>
     </div>
   );
 }
 
-function RailSection({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="space-y-2.5">
-      <div className="px-1">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-          {label}
-        </div>
-      </div>
-      <div className="space-y-2">{children}</div>
-    </div>
-  );
-}
-
-function RuntimeRailItem({
+function RuntimeStatusRow({
   title,
   logo,
   summary,
+  detail,
   status,
-  selected,
-  onSelect,
 }: {
   title: string;
-  logo: ReactNode | string;
+  logo: ReactNode;
   summary: string;
+  detail?: string;
   status: { label: string; tone: string; dot: string };
-  selected: boolean;
-  onSelect: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`group flex w-full items-start gap-3 rounded-[var(--radius-2xl)] border px-3.5 py-3 text-left transition-colors ${
-        selected
-          ? 'border-[var(--sidebar-item-border)] bg-[var(--sidebar-item-active)] shadow-sm'
-          : 'border-transparent bg-[var(--bg-secondary)]/92 hover:bg-[var(--bg-tertiary)]/55'
-      }`}
-    >
-      <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center">
-        {typeof logo === 'string' ? (
-          <img src={logo} alt="" className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
-        ) : (
-          logo
-        )}
+    <SettingsSurfaceRow
+      title={<RowTitleWithLogo logo={logo} title={title} />}
+      description={
+        <div className="space-y-1">
+          <div>{summary}</div>
+          {detail ? <div className="text-[12px] text-[var(--text-muted)]">{detail}</div> : null}
+        </div>
+      }
+      right={<StatusBadge label={status.label} toneClassName={status.tone} dotClassName={status.dot} />}
+    />
+  );
+}
+
+function SettingsSurfaceRow({
+  title,
+  description,
+  right,
+  expanded = false,
+  children,
+}: {
+  title: ReactNode;
+  description: ReactNode;
+  right?: ReactNode;
+  expanded?: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="border-b border-[var(--border)] py-3.5 last:border-b-0">
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(200px,280px)] gap-4">
+        <div className="min-w-0">
+          <div className="text-[14px] font-medium text-[var(--text-primary)]">{title}</div>
+          <div className="mt-0.5 text-[13px] leading-5 text-[var(--text-muted)]">{description}</div>
+        </div>
+        {right ? <div className="flex items-start justify-end">{right}</div> : <div />}
       </div>
 
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-3">
-          <div className="truncate text-sm font-medium text-[var(--text-primary)]">{title}</div>
-          <div className="flex items-center gap-1.5">
-            <span className={`h-2.5 w-2.5 rounded-full ${status.dot}`} />
-            <span className={`text-[11px] font-medium ${status.tone}`}>{status.label}</span>
+      {children ? (
+        <div
+          className={`grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-200 ${
+            expanded ? 'mt-4 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0'
+          }`}
+        >
+          <div className="min-h-0 overflow-hidden">
+            {expanded ? <div className="border-t border-[var(--border)] pt-4">{children}</div> : null}
           </div>
         </div>
-        <div className="mt-1 line-clamp-2 text-[12px] leading-5 text-[var(--text-secondary)]">
-          {summary}
-        </div>
-      </div>
-
-      <div className="flex flex-shrink-0 items-center gap-2 text-[var(--text-muted)]">
-        <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-      </div>
-    </button>
-  );
-}
-
-function ProviderRailItem({
-  label,
-  logo,
-  provider,
-  selected,
-  disabled,
-  onSelect,
-}: {
-  label: string;
-  logo: string;
-  provider: ClaudeCompatibleProviderConfig;
-  selected: boolean;
-  disabled: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      disabled={disabled}
-      className={`group flex w-full items-start gap-3 rounded-[var(--radius-2xl)] border px-3.5 py-3 text-left transition-colors disabled:opacity-60 ${
-        selected
-          ? 'border-[var(--sidebar-item-border)] bg-[var(--sidebar-item-active)] shadow-sm'
-          : 'border-transparent bg-[var(--bg-secondary)]/92 hover:bg-[var(--bg-tertiary)]/55'
-      }`}
-    >
-      <img
-        src={logo}
-        alt=""
-        className="mt-0.5 h-5 w-5 flex-shrink-0"
-        aria-hidden="true"
-      />
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-3">
-          <div className="truncate text-sm font-medium text-[var(--text-primary)]">{label}</div>
-          <Badge
-            variant={provider.enabled ? 'accent' : 'muted'}
-            className="border-transparent text-[10px] font-medium"
-          >
-            {provider.enabled ? 'On' : 'Off'}
-          </Badge>
-        </div>
-      </div>
-
-      <div className="flex flex-shrink-0 items-center gap-2 text-[var(--text-muted)]">
-        {disabled ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />}
-      </div>
-    </button>
-  );
-}
-
-function SectionCard({ children }: { children: ReactNode }) {
-  return (
-    <section className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)]/82 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.04)]">
-      {children}
-    </section>
-  );
-}
-
-function SectionEyebrow({ children }: { children: ReactNode }) {
-  return (
-    <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--text-muted)]">
-      {children}
+      ) : null}
     </div>
   );
 }
 
-function Field({
+function RowTitleWithLogo({
+  logo,
+  title,
+}: {
+  logo: ReactNode;
+  title: string;
+}) {
+  return (
+    <span className="flex items-center gap-2.5">
+      <span className="flex h-5 w-5 items-center justify-center">{logo}</span>
+      <span>{title}</span>
+    </span>
+  );
+}
+
+function FieldBlock({
   label,
   description,
+  error,
   children,
 }: {
   label: string;
-  description?: string;
+  description: string;
+  error?: string;
   children: ReactNode;
 }) {
   return (
-    <div className="space-y-2">
-      <div className="text-sm font-medium text-[var(--text-primary)]">{label}</div>
-      {description ? (
-        <div className="text-[13px] leading-5 text-[var(--text-secondary)]">{description}</div>
-      ) : null}
+    <div>
+      <div className="mb-1.5 text-[13px] font-medium text-[var(--text-primary)]">{label}</div>
+      <div className="mb-2 text-[12px] leading-5 text-[var(--text-muted)]">{description}</div>
       {children}
+      {error ? <div className="mt-1.5 text-[12px] text-[var(--error)]">{error}</div> : null}
     </div>
   );
 }
@@ -1013,14 +722,14 @@ function SuggestionInput({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-11 rounded-[var(--radius-xl)] border-[var(--border)] bg-[var(--bg-primary)] pr-11 text-sm text-[var(--text-primary)] focus-visible:ring-[var(--accent)]"
+        className="h-10 rounded-[var(--radius-lg)] border-[var(--border)] bg-[var(--bg-primary)] pr-11 text-sm text-[var(--text-primary)] focus-visible:ring-[var(--accent)]"
         disabled={disabled}
       />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-[var(--radius-xl)] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-[var(--radius-lg)] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
             disabled={disabled}
             aria-label="Open model suggestions"
           >
@@ -1030,10 +739,7 @@ function SuggestionInput({
         <DropdownMenuContent align="end" className="w-[320px]">
           {suggestions.length > 0 ? (
             suggestions.map((suggestion) => (
-              <DropdownMenuItem
-                key={suggestion}
-                onSelect={() => onChange(suggestion)}
-              >
+              <DropdownMenuItem key={suggestion} onSelect={() => onChange(suggestion)}>
                 {suggestion}
               </DropdownMenuItem>
             ))
@@ -1044,6 +750,86 @@ function SuggestionInput({
       </DropdownMenu>
     </div>
   );
+}
+
+function InlineMessage({
+  tone,
+  children,
+}: {
+  tone: 'default' | 'error';
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`rounded-[var(--radius-lg)] border px-4 py-3 text-sm ${
+        tone === 'error'
+          ? 'border-[var(--error)]/25 bg-[var(--bg-secondary)] text-[var(--error)]'
+          : 'border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]'
+      }`}
+    >
+      {children}
+    </div>
+  );
+}
+
+function StatusBadge({
+  label,
+  toneClassName,
+  dotClassName,
+}: {
+  label: string;
+  toneClassName: string;
+  dotClassName: string;
+}) {
+  return (
+    <span className="inline-flex h-8 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] px-2.5 text-[12px] font-medium">
+      <span className={`h-2 w-2 rounded-full ${dotClassName}`} />
+      <span className={toneClassName}>{label}</span>
+    </span>
+  );
+}
+
+function StateBadge({
+  label,
+  variant,
+}: {
+  label: string;
+  variant: 'accent' | 'muted';
+}) {
+  return (
+    <Badge
+      variant={variant}
+      className="border-transparent px-2.5 py-1 text-[11px] font-medium"
+    >
+      {label}
+    </Badge>
+  );
+}
+
+function MetaBadge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex h-8 items-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 text-[12px] font-medium text-[var(--text-muted)]">
+      {label}
+    </span>
+  );
+}
+
+function buildProviderSummary(provider: ClaudeCompatibleProviderConfig): string {
+  if (!provider.enabled) {
+    return 'Disabled. This provider will not be offered to Claude sessions.';
+  }
+
+  const parts: string[] = [];
+  if (provider.model.trim()) {
+    parts.push(`Model: ${provider.model.trim()}`);
+  }
+  if (provider.baseUrl.trim()) {
+    parts.push(`Endpoint: ${provider.baseUrl.trim()}`);
+  }
+  if (!provider.secret.trim()) {
+    parts.push('Token missing');
+  }
+  return parts.length > 0 ? parts.join(' • ') : 'Enabled, but setup is incomplete.';
 }
 
 function getProviderModelPlaceholder(providerId: ClaudeCompatibleProviderId): string {
@@ -1064,20 +850,28 @@ function getProviderModelPlaceholder(providerId: ClaudeCompatibleProviderId): st
   }
 }
 
+function getInputClassName(hasError: boolean, withTrailingControl = false) {
+  return `h-10 w-full rounded-[var(--radius-lg)] border bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] ${
+    withTrailingControl ? 'pr-11' : ''
+  } ${
+    hasError
+      ? 'border-[var(--error)] focus:border-[var(--error)]'
+      : 'border-[var(--border)] focus:border-[var(--text-muted)]'
+  }`;
+}
+
 function buildCodexSummary(status: CodexRuntimeStatus, loading: boolean): string {
-  if (loading) {
-    return 'Checking Codex runtime…';
-  }
-
-  if (status.ready) {
-    return 'Codex CLI ACP is ready.';
-  }
-
-  if (!status.cliAvailable) {
-    return 'Codex CLI ACP was not found.';
-  }
-
+  if (loading) return 'Checking Codex runtime…';
+  if (status.ready) return 'Codex CLI ACP is ready.';
+  if (!status.cliAvailable) return 'Codex CLI ACP was not found.';
   return 'Codex needs local setup.';
+}
+
+function buildOpencodeSummary(status: OpenCodeRuntimeStatus, loading: boolean): string {
+  if (loading) return 'Checking OpenCode runtime...';
+  if (status.ready) return 'OpenCode ACP is ready.';
+  if (!status.cliAvailable) return 'OpenCode ACP was not found.';
+  return 'OpenCode needs local setup.';
 }
 
 function buildClaudeRailStatus(status: ClaudeRuntimeStatus, loading: boolean) {
@@ -1115,28 +909,12 @@ function buildClaudeRailStatus(status: ClaudeRuntimeStatus, loading: boolean) {
 
   return {
     label: 'Attention',
-    tone: 'text-[#dc2626]',
-    dot: 'bg-[#dc2626]',
+    tone: 'text-[var(--error)]',
+    dot: 'bg-[var(--error)]',
   };
 }
 
-function buildOpencodeSummary(status: OpenCodeRuntimeStatus, loading: boolean): string {
-  if (loading) {
-    return 'Checking OpenCode runtime...';
-  }
-
-  if (status.ready) {
-    return 'OpenCode ACP is ready.';
-  }
-
-  if (!status.cliAvailable) {
-    return 'OpenCode ACP was not found.';
-  }
-
-  return 'OpenCode needs local setup.';
-}
-
-function buildOpencodeRailStatus(status: OpenCodeRuntimeStatus, loading: boolean) {
+function buildCodexRailStatus(status: CodexRuntimeStatus, loading: boolean) {
   if (loading) {
     return {
       label: 'Checking',
@@ -1160,7 +938,7 @@ function buildOpencodeRailStatus(status: OpenCodeRuntimeStatus, loading: boolean
   };
 }
 
-function buildCodexRailStatus(status: CodexRuntimeStatus, loading: boolean) {
+function buildOpencodeRailStatus(status: OpenCodeRuntimeStatus, loading: boolean) {
   if (loading) {
     return {
       label: 'Checking',
