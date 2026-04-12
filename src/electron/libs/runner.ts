@@ -349,6 +349,17 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           return;
         }
         inputQueue.push(message);
+
+        // Record the actual user prompt text here. Claude "user" stream events can
+        // also represent tool results, so the stream alone is not a reliable source
+        // for turn-level memory extraction history.
+        const sessionKey = session.id || currentSessionId || 'default';
+        if (!_memoryMessageStore.has(sessionKey)) {
+          _memoryMessageStore.set(sessionKey, []);
+        }
+        const recentMessages = _memoryMessageStore.get(sessionKey)!;
+        recentMessages.push({ role: 'user', content: trimmed });
+        while (recentMessages.length > 10) recentMessages.shift();
       })
       .catch((error) => {
         const err = error instanceof Error ? error : new Error(String(error));
@@ -646,10 +657,6 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
             }
           }
 
-          // Collect messages for memory extraction
-          if (streamMessage.type === 'user') {
-            recentMessages.push({ role: 'user', content: prompt });
-          }
           if (streamMessage.type === 'assistant' && streamMessage.message?.content) {
             const textParts = (streamMessage.message.content as ContentBlock[])
               .filter(b => b.type === 'text' && b.text)
@@ -675,6 +682,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
               while (recentMessages.length > 10) recentMessages.shift();
             }
             if (
+              !currentTurnHasMemoryWrite &&
               shouldExtractMemory(sessionKey) &&
               recentMessages.length >= 2
             ) {
