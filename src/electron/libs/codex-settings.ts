@@ -138,11 +138,6 @@ export function getCodexModelConfig(): CodexModelConfig {
   const defaultReasoningEffort = normalizeCodexReasoningEffort(defaultReasoningEffortMatch?.[1] || null);
   const cache = readCodexModelsCache();
   const detectedModels = getDetectedCodexModels(defaultModel);
-  const hiddenModels = new Set(
-    (readCodexModelVisibility().hiddenModels || [])
-      .map((model) => model.trim())
-      .filter((model) => model.length > 0)
-  );
   const cachedModelsBySlug = new Map(
     (cache.models || [])
       .map((model) => [model.slug?.trim(), model] as const)
@@ -152,7 +147,7 @@ export function getCodexModelConfig(): CodexModelConfig {
     const cached = cachedModelsBySlug.get(name);
     return {
       name,
-      enabled: !hiddenModels.has(name),
+      enabled: true,
       isDefault: defaultModel === name,
       defaultReasoningEffort:
         normalizeCodexReasoningEffort(cached?.default_reasoning_level) || defaultReasoningEffort,
@@ -164,7 +159,7 @@ export function getCodexModelConfig(): CodexModelConfig {
         !cached?.upgrade,
     };
   });
-  const options = availableModels.filter((model) => model.enabled).map((model) => model.name);
+  const options = availableModels.map((model) => model.name);
 
   return { defaultModel, defaultReasoningEffort, options, availableModels };
 }

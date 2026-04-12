@@ -140,17 +140,12 @@ export async function getOpencodeModelConfig(): Promise<OpenCodeModelConfig> {
           )
         )
       : getDetectedOpencodeModels(defaultModel);
-  const hiddenModels = new Set(
-    (readOpencodeModelVisibility().hiddenModels || [])
-      .map((model) => model.trim())
-      .filter((model) => model.length > 0)
-  );
   const availableModels = detectedModels.map((name) => ({
     name,
-    enabled: !hiddenModels.has(name),
+    enabled: true,
     isDefault: defaultModel === name,
   }));
-  const options = availableModels.filter((model) => model.enabled).map((model) => model.name);
+  const options = availableModels.map((model) => model.name);
 
   return { defaultModel, options, availableModels };
 }
