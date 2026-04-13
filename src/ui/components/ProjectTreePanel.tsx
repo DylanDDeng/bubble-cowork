@@ -275,6 +275,9 @@ export function ProjectTreePanel({
 
   const activeCwd = activeSessionId ? sessions[activeSessionId]?.cwd : null;
   const cwd = activeCwd || projectCwd || null;
+  const shouldWatchProjectTree = !collapsed && activeTab === 'files';
+  const shouldRefreshChangeRecords =
+    !collapsed && (activeTab === 'changes' || activeTab === 'git');
 
   const loadChangeRecords = async () => {
     if (!cwd) return;
@@ -412,23 +415,25 @@ export function ProjectTreePanel({
   };
 
   useEffect(() => {
-    if (cwd) {
+    if (cwd && shouldRefreshChangeRecords) {
       void loadChangeRecords();
       return;
     }
 
-    setChangeRecords([]);
-    setChangesError(null);
-    setGitEntries([]);
-    setGitBranch(null);
-    setGitBranchEntries([]);
-    setGitBranchesError(null);
-    setGitDetachedHead(false);
-    setGitHeadShortHash(null);
-    setGitHistoryEntries([]);
-    setGitHistoryError(null);
-    setGitError(null);
-  }, [cwd, messageCount, sessionStatus, projectTreeCwd, projectTree]);
+    if (!cwd) {
+      setChangeRecords([]);
+      setChangesError(null);
+      setGitEntries([]);
+      setGitBranch(null);
+      setGitBranchEntries([]);
+      setGitBranchesError(null);
+      setGitDetachedHead(false);
+      setGitHeadShortHash(null);
+      setGitHistoryEntries([]);
+      setGitHistoryError(null);
+      setGitError(null);
+    }
+  }, [cwd, messageCount, sessionStatus, shouldRefreshChangeRecords]);
 
   useEffect(() => {
     onChangeCountChange?.(changeRecords.length);
@@ -554,7 +559,7 @@ export function ProjectTreePanel({
     let cancelled = false;
     const current = cwd?.trim() || '';
 
-    if (!current) {
+    if (!current || !shouldWatchProjectTree) {
       setProjectTree(null, null);
       if (prevCwdRef.current) {
         window.electron.unwatchProjectTree(prevCwdRef.current);
@@ -591,7 +596,7 @@ export function ProjectTreePanel({
       cancelled = true;
       window.electron.unwatchProjectTree(current);
     };
-  }, [cwd, setProjectTree]);
+  }, [cwd, setProjectTree, shouldWatchProjectTree]);
 
   const visibleTree = useMemo(() => {
     if (!cwd || !projectTree || projectTreeCwd !== cwd) {

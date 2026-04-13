@@ -3,6 +3,22 @@ import type { Dirent } from 'fs';
 import { basename, join } from 'path';
 import type { ProjectTreeNode } from '../types';
 
+const IGNORED_DIRECTORY_NAMES = new Set([
+  '.git',
+  'node_modules',
+  'dist',
+  'dist-electron',
+  'build',
+  '.next',
+  '.nuxt',
+  '.svelte-kit',
+  'coverage',
+  '.turbo',
+  '.cache',
+  '.vite',
+  '.idea',
+]);
+
 async function buildNode(fullPath: string, name: string): Promise<ProjectTreeNode> {
   let stat;
   try {
@@ -24,6 +40,10 @@ async function buildNode(fullPath: string, name: string): Promise<ProjectTreeNod
 
   const children: ProjectTreeNode[] = [];
   for (const entry of entries) {
+    if (entry.isDirectory() && IGNORED_DIRECTORY_NAMES.has(entry.name)) {
+      continue;
+    }
+
     const childPath = join(fullPath, entry.name);
     if (entry.isDirectory()) {
       children.push(await buildNode(childPath, entry.name));
