@@ -3,7 +3,8 @@
  *
  * Runs every 3 assistant turns. Uses a lightweight direct API call (not the
  * full Claude Agent SDK) to extract durable memories from recent messages.
- * Writes to ~/.aegis/projects/<hash>/daily/{date}.md for project-scoped daily logs.
+ * Writes to the current Aegis memory root under projects/<hash>/daily/{date}.md
+ * for project-scoped daily logs. Dev and packaged builds use separate roots.
  *
  * Skips extraction if the AI already called remember_write in the current turn.
  */
@@ -11,13 +12,13 @@
 import { createHash } from 'crypto';
 import { existsSync, mkdirSync, appendFileSync, readdirSync } from 'fs';
 import { join, resolve } from 'path';
-import { homedir } from 'os';
 import { getClaudeSettings } from './claude-settings';
 import { getEnabledCompatibleProviderConfigs } from './compatible-provider-config';
+import { getAegisMemoryHome, getAegisProjectsRoot } from './memory-paths';
 
 const EXTRACTION_INTERVAL = 3;
-const AEGIS_HOME = join(homedir(), '.aegis');
-const PROJECTS_ROOT = join(AEGIS_HOME, 'projects');
+const AEGIS_HOME = getAegisMemoryHome();
+const PROJECTS_ROOT = getAegisProjectsRoot();
 
 const GLOBAL_KEY = '__aegis_memory_extraction_counters__';
 

@@ -1,12 +1,12 @@
 import { createHash } from 'crypto';
 import { promises as fsPromises } from 'fs';
-import { homedir } from 'os';
 import { basename, dirname, join, resolve } from 'path';
 import type { MemoryDocument, MemoryDocumentKind, MemoryWorkspace } from '../../shared/types';
+import { getAegisAssistantRoot, getAegisMemoryHome, getAegisProjectsRoot } from './memory-paths';
 
-const AEGIS_HOME = join(homedir(), '.aegis');
-const ASSISTANT_ROOT = join(AEGIS_HOME, 'assistant');
-const PROJECTS_ROOT = join(AEGIS_HOME, 'projects');
+const AEGIS_HOME = getAegisMemoryHome();
+const ASSISTANT_ROOT = getAegisAssistantRoot();
+const PROJECTS_ROOT = getAegisProjectsRoot();
 
 const ASSISTANT_DOC = {
   kind: 'assistant' as const,
