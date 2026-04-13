@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Brain,
+  Check,
   ChevronDown,
   CircleAlert,
+  CircleX,
   Database,
   LoaderCircle,
-  MessageSquareText,
   ShieldAlert,
   Wrench,
 } from 'lucide-react';
@@ -127,15 +128,27 @@ function buildWorkstreamMeta(model: WorkstreamModel): string[] {
 
 function StatusGlyph({ state }: { state: WorkstreamModel['state'] }) {
   if (state === 'waiting') {
-    return <ShieldAlert className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />;
+    return (
+      <span className="mt-0.5 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-amber-500/14 text-amber-600">
+        <ShieldAlert className="h-3 w-3" />
+      </span>
+    );
   }
   if (state === 'error') {
-    return <CircleAlert className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--error)]" />;
+    return (
+      <span className="mt-0.5 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-[var(--error)]/14 text-[var(--error)]">
+        <CircleX className="h-3.5 w-3.5" />
+      </span>
+    );
   }
   if (state === 'running') {
     return <LoaderCircle className="mt-0.5 h-4 w-4 flex-shrink-0 animate-spin text-[var(--accent)]" />;
   }
-  return <MessageSquareText className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--text-muted)]" />;
+  return (
+    <span className="mt-0.5 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-emerald-500/14 text-emerald-600">
+      <Check className="h-3 w-3" />
+    </span>
+  );
 }
 
 function WorkstreamEntryRow({
@@ -210,7 +223,7 @@ function getEntryPresentation(entry: WorkstreamEntry) {
 
   if (entry.type === 'note') {
     return {
-      icon: <MessageSquareText className="h-3.5 w-3.5" />,
+      icon: <span className="h-1.5 w-1.5 rounded-full bg-current" />,
       tone: {
         icon: 'text-[var(--text-muted)]',
         summary: 'text-[12px] leading-5 text-[var(--text-secondary)]',
@@ -223,9 +236,16 @@ function getEntryPresentation(entry: WorkstreamEntry) {
 
   if (entry.type === 'approval') {
     return {
-      icon: <ShieldAlert className="h-3.5 w-3.5" />,
+      icon:
+        entry.state === 'approved' ? (
+          <StatusCircleIcon kind="success" />
+        ) : entry.state === 'denied' ? (
+          <StatusCircleIcon kind="error" />
+        ) : (
+          <StatusCircleIcon kind="waiting" />
+        ),
       tone: {
-        icon: entry.state === 'approved' ? 'text-emerald-500' : entry.state === 'denied' ? 'text-[var(--error)]' : 'text-amber-500',
+        icon: '',
         summary: 'text-[12px] font-medium leading-5 text-[var(--text-primary)]',
         meta: 'text-[var(--text-muted)]',
       },
@@ -247,7 +267,13 @@ function getEntryPresentation(entry: WorkstreamEntry) {
 
   return {
     icon:
-      entry.type === 'memory' ? (
+      entry.status === 'success' ? (
+        <StatusCircleIcon kind="success" />
+      ) : entry.status === 'error' ? (
+        <StatusCircleIcon kind="error" />
+      ) : entry.status === 'pending' ? (
+        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+      ) : entry.type === 'memory' ? (
         <Database className="h-3.5 w-3.5" />
       ) : (
         <Wrench className="h-3.5 w-3.5" />
@@ -260,6 +286,34 @@ function getEntryPresentation(entry: WorkstreamEntry) {
     summary: entry.summary,
     meta: entry.status,
   };
+}
+
+function StatusCircleIcon({
+  kind,
+}: {
+  kind: 'success' | 'error' | 'waiting';
+}) {
+  if (kind === 'success') {
+    return (
+      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500/14 text-emerald-600">
+        <Check className="h-3 w-3" />
+      </span>
+    );
+  }
+
+  if (kind === 'error') {
+    return (
+      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-[var(--error)]/14 text-[var(--error)]">
+        <CircleX className="h-3.5 w-3.5" />
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-500/14 text-amber-600">
+      <ShieldAlert className="h-3 w-3" />
+    </span>
+  );
 }
 
 function getEntrySecondaryText(entry: WorkstreamEntry): string | null {
