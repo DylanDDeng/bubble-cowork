@@ -12,6 +12,17 @@ export interface ProjectFileMentionState {
   end: number;
 }
 
+export interface ProjectFileMentionToken {
+  raw: string;
+  path: string;
+  start: number;
+  end: number;
+}
+
+export type ProjectFilePromptSegment =
+  | { type: 'text'; text: string }
+  | { type: 'mention'; path: string; text: string; start: number; end: number };
+
 function normalizePath(value: string): string {
   return value.replace(/\\/g, '/');
 }
@@ -141,4 +152,82 @@ export function removeProjectFileMention(
   mention: ProjectFileMentionState
 ): string {
   return `${prompt.slice(0, mention.start)}${prompt.slice(mention.end)}`;
+}
+
+export function insertProjectFileMention(
+  prompt: string,
+  mention: ProjectFileMentionState,
+  relativePath: string
+): { prompt: string; cursorIndex: number } {
+  const replacement = `@${normalizePath(relativePath)} `;
+  const nextPrompt = `${prompt.slice(0, mention.start)}${replacement}${prompt.slice(mention.end)}`;
+  return {
+    prompt: nextPrompt,
+    cursorIndex: mention.start + replacement.length,
+  };
+}
+
+export function extractProjectFileMentions(prompt: string): ProjectFileMentionToken[] {
+  const tokens: ProjectFileMentionToken[] = [];
+
+  for (const match of prompt.matchAll(/(^|\s)@([^\s@]+)(?=\s|$)/g)) {
+    const raw = match[0] || '';
+    const prefix = match[1] || '';
+    const value = (match[2] || '').trim();
+    const matchIndex = match.index ?? 0;
+    const start = matchIndex + prefix.length;
+    const end = start + 1 + value.length;
+
+    if (!value) continue;
+
+    tokens.push({
+      raw: `@${value}`,
+      path: normalizePath(value),
+      start,
+      end,
+    });
+  }
+
+  return tokens;
+}
+
+export function hasProjectFileMentions(prompt: string): boolean {
+  return extractProjectFileMentions(prompt).length > 0;
+}
+
+export function splitPromptIntoProjectFileSegments(prompt: string): ProjectFilePromptSegment[] {
+  const mentions = extractProjectFileMentions(prompt);
+  if (mentions.length === 0) {
+    return prompt ? [{ type: 'text', text: prompt }] : [];
+  }
+
+  const segments: ProjectFilePromptSegment[] = [];
+  let cursor = 0;
+
+  for (const mention of mentions) {
+    if (mention.start > cursor) {
+      segments.push({
+        type: 'text',
+        text: prompt.slice(cursor, mention.start),
+      });
+    }
+
+    segments.push({
+      type: 'mention',
+      path: mention.path,
+      text: mention.raw,
+      start: mention.start,
+      end: mention.end,
+    });
+    cursor = mention.end;
+  }
+
+  if (cursor < prompt.length) {
+    segments.push({
+      type: 'text',
+      text: prompt.slice(cursor),
+    });
+  }
+
+  return segments;
 }

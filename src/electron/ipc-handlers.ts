@@ -2930,7 +2930,34 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       }
 
       // Markdown + text-like preview
-      if (ext === '.md' || ext === '.txt' || ext === '.json' || ext === '.log' || ext === '.html' || ext === '.htm') {
+      if (
+        ext === '.md' ||
+        ext === '.txt' ||
+        ext === '.json' ||
+        ext === '.log' ||
+        ext === '.html' ||
+        ext === '.htm' ||
+        ext === '.css' ||
+        ext === '.scss' ||
+        ext === '.js' ||
+        ext === '.jsx' ||
+        ext === '.ts' ||
+        ext === '.tsx' ||
+        ext === '.yml' ||
+        ext === '.yaml' ||
+        ext === '.xml' ||
+        ext === '.py' ||
+        ext === '.rb' ||
+        ext === '.go' ||
+        ext === '.rs' ||
+        ext === '.java' ||
+        ext === '.kt' ||
+        ext === '.swift' ||
+        ext === '.sh' ||
+        ext === '.sql' ||
+        ext === '.toml' ||
+        ext === '.ini'
+      ) {
         try {
           const text = await fsPromises.readFile(validation.targetReal, 'utf8');
           return {

@@ -21,6 +21,7 @@ import { CodexReasoningEffortPicker } from './CodexReasoningEffortPicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
+import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { SavePromptButton } from './prompts/SavePromptButton';
@@ -69,7 +70,8 @@ import {
 } from '../utils/opencode-permission';
 import { buildPromptWithSkill } from '../utils/claude-skills';
 import { buildPromptWithSlashCommand } from '../utils/claude-slash';
-import { removeProjectFileMention } from '../utils/project-file-mentions';
+import { insertProjectFileMention } from '../utils/project-file-mentions';
+import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
 import {
   LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD,
   maybeConvertLongPromptToAttachment,
@@ -137,7 +139,7 @@ export function PromptInput() {
   const [selectedOpencodePermissionMode, setSelectedOpencodePermissionMode] =
     useState<OpenCodePermissionMode>(loadPreferredOpencodePermissionMode());
   const [cursorIndex, setCursorIndex] = useState(0);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<ComposerPromptEditorHandle | null>(null);
   const isComposingRef = useRef(false);
 
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
@@ -263,7 +265,7 @@ export function PromptInput() {
 
       return `${current.trimEnd()}\n\n${promptLibraryInsertRequest.content}`;
     });
-    window.requestAnimationFrame(() => textareaRef.current?.focus());
+    window.requestAnimationFrame(() => editorRef.current?.focus());
     consumePromptLibraryInsert(promptLibraryInsertRequest.nonce);
   }, [consumePromptLibraryInsert, promptLibraryInsertRequest]);
 
@@ -502,47 +504,6 @@ export function PromptInput() {
     opencodeModelOptions,
   ]);
 
-  const resizeTextarea = useCallback(() => {
-    if (!textareaRef.current) {
-      return;
-    }
-
-    textareaRef.current.style.height = 'auto';
-    textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const frameId = window.requestAnimationFrame(() => {
-      if (!cancelled) {
-        resizeTextarea();
-      }
-    });
-
-    resizeTextarea();
-
-    if (document.fonts?.ready) {
-      document.fonts.ready.then(() => {
-        if (!cancelled) {
-          resizeTextarea();
-        }
-      }).catch(() => undefined);
-    }
-
-    return () => {
-      cancelled = true;
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [
-    activeSessionId,
-    fontSelections,
-    importedFonts,
-    resizeTextarea,
-    skillAutocomplete.displayPrompt,
-    skillAutocomplete.selectedCommand,
-    skillAutocomplete.selectedSkill,
-  ]);
-
   const buildDispatchPrompt = async (): Promise<string | null> => {
     if (skillAutocomplete.selectedSkill) {
       const displayPrompt = buildPromptWithSkill(
@@ -550,32 +511,48 @@ export function PromptInput() {
         skillAutocomplete.displayPrompt
       ).trim();
 
-      if (provider === 'claude') {
-        return displayPrompt;
-      }
+      const expandedPrompt =
+        provider === 'claude'
+          ? displayPrompt
+          : await (async () => {
+              const result = await window.electron.expandClaudeSkillPrompt(
+                skillAutocomplete.selectedSkill.path,
+                skillAutocomplete.selectedSkill.name,
+                skillAutocomplete.displayPrompt
+              );
 
-      const result = await window.electron.expandClaudeSkillPrompt(
-        skillAutocomplete.selectedSkill.path,
-        skillAutocomplete.selectedSkill.name,
-        skillAutocomplete.displayPrompt
-      );
+              if (!result.ok || !result.prompt) {
+                toast.error(result.message || `Failed to expand /${skillAutocomplete.selectedSkill.name}.`);
+                return null;
+              }
 
-      if (!result.ok || !result.prompt) {
-        toast.error(result.message || `Failed to expand /${skillAutocomplete.selectedSkill.name}.`);
+              return result.prompt.trim();
+            })();
+
+      if (expandedPrompt === null) {
         return null;
       }
 
-      return result.prompt.trim();
+      return buildPromptWithProjectFileMentions({
+        cwd: activeSession?.cwd || null,
+        prompt: expandedPrompt,
+      });
     }
 
     if (skillAutocomplete.selectedCommand) {
-      return buildPromptWithSlashCommand(
-        skillAutocomplete.selectedCommand.name,
-        skillAutocomplete.displayPrompt
-      ).trim();
+      return buildPromptWithProjectFileMentions({
+        cwd: activeSession?.cwd || null,
+        prompt: buildPromptWithSlashCommand(
+          skillAutocomplete.selectedCommand.name,
+          skillAutocomplete.displayPrompt
+        ).trim(),
+      });
     }
 
-    return prompt.trim();
+    return buildPromptWithProjectFileMentions({
+      cwd: activeSession?.cwd || null,
+      prompt: prompt.trim(),
+    });
   };
 
   const autoConvertComposerTextToAttachment = useCallback(async (
@@ -612,7 +589,7 @@ export function PromptInput() {
     setAttachments(promptWithAttachment.attachments);
     skillAutocomplete.setDisplayPrompt('');
     setCursorIndex(0);
-    window.requestAnimationFrame(() => textareaRef.current?.focus());
+    window.requestAnimationFrame(() => editorRef.current?.focus());
     return true;
   }, [activeSession?.cwd, attachments, skillAutocomplete]);
 
@@ -765,32 +742,23 @@ export function PromptInput() {
   };
 
   const handleSelectProjectFile = useCallback(
-    async (file: { path: string }) => {
+    async (file: { path: string; relativePath?: string }) => {
       const cwd = activeSession?.cwd;
       const mention = projectFileMentions.mention;
       if (!cwd || !mention) {
         return;
       }
 
-      const attachment = await window.electron.createProjectAttachment(cwd, file.path);
-      if (!attachment) {
-        toast.error('Unable to attach that project file.');
-        return;
-      }
-
-      setAttachments((prev) => {
-        if (prev.some((item) => item.path === attachment.path)) {
-          return prev;
-        }
-        return [...prev, attachment];
-      });
-
-      const nextPrompt = removeProjectFileMention(skillAutocomplete.displayPrompt, mention);
-      skillAutocomplete.setDisplayPrompt(nextPrompt);
-      setCursorIndex(mention.start);
+      const next = insertProjectFileMention(
+        skillAutocomplete.displayPrompt,
+        mention,
+        file.relativePath || file.path
+      );
+      skillAutocomplete.setDisplayPrompt(next.prompt);
+      setCursorIndex(next.cursorIndex);
       window.requestAnimationFrame(() => {
-        textareaRef.current?.focus();
-        textareaRef.current?.setSelectionRange(mention.start, mention.start);
+        editorRef.current?.focus();
+        editorRef.current?.setCursorIndex(next.cursorIndex);
       });
     },
     [activeSession?.cwd, projectFileMentions.mention, skillAutocomplete]
@@ -910,22 +878,18 @@ export function PromptInput() {
             </div>
           )}
 
-          <textarea
-            ref={textareaRef}
+          <ComposerPromptEditor
+            ref={editorRef}
             value={skillAutocomplete.displayPrompt}
-            onChange={(e) => {
-              void handlePromptChange(e.target.value, e.target.selectionStart ?? e.target.value.length);
+            cursorIndex={cursorIndex}
+            onChange={(value, nextCursorIndex) => {
+              void handlePromptChange(value, nextCursorIndex);
             }}
-            onSelect={(e) => setCursorIndex(e.currentTarget.selectionStart ?? 0)}
             onCompositionStart={() => {
               isComposingRef.current = true;
             }}
-            onCompositionEnd={(e) => {
+            onCompositionEnd={() => {
               isComposingRef.current = false;
-              void handlePromptChange(
-                e.currentTarget.value,
-                e.currentTarget.selectionStart ?? e.currentTarget.value.length
-              );
             }}
             onKeyDown={handleKeyDown}
             placeholder={
@@ -941,11 +905,11 @@ export function PromptInput() {
                 ? 'Continue the conversation...'
                 : 'Start a new session...'
             }
-            rows={1}
             disabled={isBusy}
             className={`w-full bg-transparent px-5 pb-3 text-[14px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50 ${
               skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-1.5' : 'pt-4'
             }`}
+            autoFocus={false}
           />
 
           {projectFileMentions.hasMentionQuery ? (

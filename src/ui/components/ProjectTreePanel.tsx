@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FolderClosed, FolderOpen, FileArchive, FileText, Image, Presentation, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Files as FilesIcon, FileDiff, SquareTerminal, GitBranch, GitCommit, Minus, Upload, FolderGit2 } from 'lucide-react';
+import { FolderClosed, FolderOpen, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Files as FilesIcon, FileDiff, SquareTerminal, GitBranch, GitCommit, Minus, Upload, FolderGit2 } from 'lucide-react';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { MDContent } from '../render/markdown';
 import { HighlightedCode } from './HighlightedCode';
 import { SessionTerminal } from './SessionTerminal';
+import { FileTypeIcon } from './FileTypeIcon';
 import {
   applyDiffToChangeRecord,
   applyTextMetaToChangeRecord,
@@ -115,7 +116,6 @@ function TreeNode({
   const isDir = node.kind === 'dir';
   const isExpanded = forceExpand || expandedPaths.has(node.path);
   const chevron = isDir ? (isExpanded ? 'v' : '>') : '';
-  const isImageFile = !isDir && isImageName(node.name);
   const isSelected = !isDir && !!selectedFilePath && node.path === selectedFilePath;
 
   return (
@@ -148,7 +148,7 @@ function TreeNode({
         <span className="flex h-4 w-3 shrink-0 items-center justify-center text-[10px] leading-none text-[var(--text-muted)]">
           {chevron}
         </span>
-        <ProjectTreeNodeIcon node={node} isExpanded={isExpanded} isImageFile={isImageFile} />
+        <ProjectTreeNodeIcon node={node} isExpanded={isExpanded} />
         <span
           className={`min-w-0 truncate leading-5 ${isDir ? 'font-medium' : 'text-[var(--text-secondary)]'}`}
           title={node.name}
@@ -177,11 +177,9 @@ function TreeNode({
 function ProjectTreeNodeIcon({
   node,
   isExpanded,
-  isImageFile,
 }: {
   node: ProjectTreeNode;
   isExpanded: boolean;
-  isImageFile: boolean;
 }) {
   if (node.kind === 'dir') {
     return (
@@ -191,98 +189,14 @@ function ProjectTreeNodeIcon({
     );
   }
 
-  const visual = getProjectFileVisual(node.name, isImageFile);
-  const Icon = visual.icon;
-
   return (
-    <span
-      className={`flex h-4.5 w-4.5 flex-shrink-0 items-center justify-center rounded-[5px] border ${visual.containerClass}`}
-      aria-hidden="true"
-    >
-      <Icon className={`h-3 w-3 ${visual.iconClass}`} strokeWidth={1.9} />
+    <span className="flex h-4.5 w-4.5 flex-shrink-0 items-center justify-center" aria-hidden="true">
+      <FileTypeIcon
+        name={node.name}
+        className="h-4 w-4"
+        fallbackClassName="h-3.5 w-3.5 text-[var(--text-secondary)]"
+      />
     </span>
-  );
-}
-
-function getProjectFileVisual(
-  name: string,
-  isImageFile: boolean
-): {
-  icon: typeof FileText;
-  containerClass: string;
-  iconClass: string;
-} {
-  const lower = name.toLowerCase();
-
-  if (isImageFile) {
-    return {
-      icon: Image,
-      containerClass: 'border-[var(--tree-file-media-border)] bg-[var(--tree-file-media-bg)]',
-      iconClass: 'text-[var(--tree-file-media-fg)]',
-    };
-  }
-
-  if (lower.endsWith('.ppt') || lower.endsWith('.pptx') || lower.endsWith('.key')) {
-    return {
-      icon: Presentation,
-      containerClass: 'border-[var(--tree-file-warm-border)] bg-[var(--tree-file-warm-bg)]',
-      iconClass: 'text-[var(--tree-file-warm-fg)]',
-    };
-  }
-
-  if (
-    lower.endsWith('.html') ||
-    lower.endsWith('.htm') ||
-    lower.endsWith('.css') ||
-    lower.endsWith('.scss') ||
-    lower.endsWith('.js') ||
-    lower.endsWith('.jsx') ||
-    lower.endsWith('.ts') ||
-    lower.endsWith('.tsx') ||
-    lower.endsWith('.json') ||
-    lower.endsWith('.yml') ||
-    lower.endsWith('.yaml') ||
-    lower.endsWith('.xml')
-  ) {
-    return {
-      icon: FileText,
-      containerClass: 'border-[var(--tree-file-accent-border)] bg-[var(--tree-file-accent-bg)]',
-      iconClass: 'text-[var(--tree-file-accent-fg)]',
-    };
-  }
-
-  if (
-    lower.endsWith('.zip') ||
-    lower.endsWith('.tar') ||
-    lower.endsWith('.gz') ||
-    lower.endsWith('.rar') ||
-    lower.endsWith('.7z')
-  ) {
-    return {
-      icon: FileArchive,
-      containerClass: 'border-[var(--tree-file-accent-border)] bg-[var(--tree-file-accent-bg)]',
-      iconClass: 'text-[var(--tree-file-accent-fg)]',
-    };
-  }
-
-  return {
-    icon: FileText,
-    containerClass: 'border-[var(--tree-file-neutral-border)] bg-[var(--tree-file-neutral-bg)]',
-    iconClass: 'text-[var(--tree-file-neutral-fg)]',
-  };
-}
-
-function isImageName(name: string): boolean {
-  const lower = name.toLowerCase();
-  return (
-    lower.endsWith('.png') ||
-    lower.endsWith('.jpg') ||
-    lower.endsWith('.jpeg') ||
-    lower.endsWith('.gif') ||
-    lower.endsWith('.webp') ||
-    lower.endsWith('.svg') ||
-    lower.endsWith('.bmp') ||
-    lower.endsWith('.ico')
   );
 }
 export function ProjectTreePanel({
@@ -2362,9 +2276,6 @@ function ChangeRecordItem({
   isExpanded: boolean;
   onToggle: () => void;
 }) {
-  const isImageFile = isImageName(entry.fileName);
-  const visual = getProjectFileVisual(entry.fileName, isImageFile);
-  const Icon = visual.icon;
   const canExpand = !!entry.diffContent;
 
   return (
@@ -2380,11 +2291,12 @@ function ChangeRecordItem({
             isExpanded ? 'rotate-90' : ''
           } ${canExpand ? 'opacity-100' : 'opacity-30'}`}
         />
-        <span
-          className={`mt-0.5 flex h-4.5 w-4.5 flex-shrink-0 items-center justify-center rounded-[5px] border ${visual.containerClass}`}
-          aria-hidden="true"
-        >
-          <Icon className={`h-3 w-3 ${visual.iconClass}`} strokeWidth={1.9} />
+        <span className="mt-0.5 flex h-4.5 w-4.5 flex-shrink-0 items-center justify-center" aria-hidden="true">
+          <FileTypeIcon
+            name={entry.fileName}
+            className="h-4 w-4"
+            fallbackClassName="h-3.5 w-3.5 text-[var(--text-secondary)]"
+          />
         </span>
         <div className="min-w-0 flex-1">
           <div

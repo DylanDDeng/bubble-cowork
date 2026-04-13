@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { File, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import type { Attachment } from '../types';
+import { FileTypeIcon } from './FileTypeIcon';
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return '';
@@ -157,8 +158,12 @@ export function AttachmentChips({
                 )}
               </div>
             ) : (
-              <div className="w-8 h-8 p-1.5 rounded-md border border-[var(--border)] bg-white text-[var(--text-muted)] flex-shrink-0 flex items-center justify-center">
-                <File className="w-full h-full" />
+              <div className="w-8 h-8 rounded-md border border-[var(--border)] bg-white flex-shrink-0 flex items-center justify-center">
+                <FileTypeIcon
+                  name={a.name}
+                  className="h-5 w-5"
+                  fallbackClassName="h-4.5 w-4.5 text-[var(--text-muted)]"
+                />
               </div>
             )}
 
