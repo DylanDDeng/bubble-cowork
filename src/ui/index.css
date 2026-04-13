@@ -267,41 +267,42 @@ body {
 
 .markdown-content .md-inline-code {
   font-family: var(--font-mono), 'SF Mono', 'Fira Code', 'Consolas', monospace;
-  font-size: 0.88em;
-  color: var(--code-inline-text);
-  background: var(--code-inline-bg);
-  border: 1px solid var(--code-inline-border);
-  padding: 0.08rem 0.34rem;
-  border-radius: var(--radius-md);
+  font-size: 0.82em;
+  color: color-mix(in srgb, var(--code-inline-text) 92%, var(--text-primary));
+  background: color-mix(in srgb, var(--code-inline-bg) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--code-inline-border) 72%, transparent);
+  padding: 0.06rem 0.28rem;
+  border-radius: 0.32rem;
 }
 
 .markdown-content .md-inline-code-path {
   display: inline;
   border-color: transparent;
   background: transparent;
-  padding: 0;
-  border-radius: 0;
+  padding: 0.02rem 0.06rem;
+  border-radius: 0.24rem;
   cursor: pointer;
-  color: var(--code-inline-text);
+  color: color-mix(in srgb, var(--code-inline-text) 90%, var(--text-primary));
   text-decoration-line: underline;
   text-decoration-style: dotted;
-  text-decoration-color: color-mix(in srgb, var(--code-inline-border) 92%, transparent);
-  text-underline-offset: 0.16em;
-  transition: color 150ms ease, text-decoration-color 150ms ease, background-color 150ms ease;
+  text-decoration-color: color-mix(in srgb, var(--code-inline-border) 78%, transparent);
+  text-underline-offset: 0.14em;
+  transition: color 150ms ease, text-decoration-color 150ms ease, background-color 150ms ease, border-color 150ms ease;
 }
 
 .markdown-content .md-inline-code-path:hover:not(:disabled) {
-  color: color-mix(in srgb, var(--accent) 84%, var(--text-primary));
-  text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent-light) 18%, transparent);
+  color: color-mix(in srgb, var(--accent) 82%, var(--text-primary));
+  text-decoration-color: color-mix(in srgb, var(--accent) 52%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .markdown-content .md-inline-code-path:focus-visible {
   outline: none;
-  background: color-mix(in srgb, var(--accent-light) 35%, transparent);
-  color: color-mix(in srgb, var(--accent) 84%, var(--text-primary));
+  background: color-mix(in srgb, var(--accent-light) 24%, transparent);
+  color: color-mix(in srgb, var(--accent) 82%, var(--text-primary));
   text-decoration-color: color-mix(in srgb, var(--accent) 60%, transparent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent);
-  border-radius: 4px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .markdown-content .md-inline-code-path:disabled {
