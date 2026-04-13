@@ -24,8 +24,6 @@ import { InSessionSearch } from './components/search/InSessionSearch';
 import { Settings } from './components/settings/Settings';
 import { SkillMarketSettingsContent } from './components/settings/SkillMarketSettings';
 import { ProjectTreePanel } from './components/ProjectTreePanel';
-import { ThinkingIndicator } from './components/ThinkingIndicator';
-import { ThinkingBlock } from './components/ThinkingBlock';
 import { DecisionPanel } from './components/DecisionPanel';
 import { ExternalFilePermissionDialog } from './components/ExternalFilePermissionDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -39,9 +37,10 @@ import { aggregateMessages } from './utils/aggregated-messages';
 import { resolveCodexModel } from './utils/codex-model';
 import {
   deriveTurnPhase,
-  shouldShowThinkingIndicator,
   hasRunningToolInMessages,
 } from './utils/turn-utils';
+import { AssistantWorkstream } from './components/AssistantWorkstream';
+import { createStreamingWorkstreamModel } from './utils/workstream';
 import type {
   AskUserQuestionInput,
   ExternalFilePermissionInput,
@@ -207,6 +206,15 @@ export function App() {
     !!historyNavigationTarget &&
     historyNavigationTarget.sessionId === activeSessionId &&
     !historyNavigationAnchor;
+  const streamingWorkstreamModel = useMemo(
+    () =>
+      createStreamingWorkstreamModel({
+        partialThinking,
+        phase: turnPhase,
+        permissionRequests: activeSession?.permissionRequests || [],
+      }),
+    [activeSession?.permissionRequests, partialThinking, turnPhase]
+  );
 
   useEffect(() => {
     if (connected) {
@@ -719,13 +727,9 @@ export function App() {
               })}
 
               {/* Partial streaming 显示 */}
-              {showPartialMessage && (partialMessage || partialThinking) && (
+              {(streamingWorkstreamModel || (showPartialMessage && partialMessage)) && (
                 <div className="my-3 min-w-0 overflow-x-auto streaming-content">
-                  {partialThinking && (
-                    <div className="mb-3">
-                      <ThinkingBlock content={partialThinking} title="Thinking..." defaultExpanded />
-                    </div>
-                  )}
+                  {streamingWorkstreamModel && <AssistantWorkstream model={streamingWorkstreamModel} />}
                   {partialMessage && (
                     <ErrorBoundary
                       resetKey={partialMessage}
@@ -744,11 +748,6 @@ export function App() {
               )}
 
               {/* Thinking/Preparing 指示器 */}
-              {!hasPendingPermissionRequests &&
-                shouldShowThinkingIndicator(turnPhase, false) && (
-                <ThinkingIndicator phase={turnPhase} isBuffering={false} />
-              )}
-
               <div ref={messagesEndRef} />
             </div>
           </div>
