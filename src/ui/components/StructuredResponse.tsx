@@ -250,17 +250,18 @@ export function StructuredResponse({
           if (!segment.content.trim()) {
             return null;
           }
-          return <MDContent key={segment.key} content={segment.content} />;
+          return <MDContent key={segment.key} content={segment.content} className="structured-response-prose" />;
         }
 
         return (
-          <WidgetCard
-            key={segment.key}
-            title={segment.title}
-            html={segment.html}
-            complete={segment.complete}
-            streaming={streaming}
-          />
+          <div key={segment.key} className="structured-response-widget">
+            <WidgetCard
+              title={segment.title}
+              html={segment.html}
+              complete={segment.complete}
+              streaming={streaming}
+            />
+          </div>
         );
       })}
     </div>
