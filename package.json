@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",
     "dev:react": "node scripts/dev-react.mjs",
-    "dev:electron": "npm run transpile:electron && electron .",
+    "dev:electron": "npm run transpile:electron && node scripts/prepare-electron-native-deps.mjs && electron .",
     "transpile:electron": "tsc -p src/electron/tsconfig.json",
     "build": "npm run transpile:electron && vite build",
     "build:electron": "electron-builder",
