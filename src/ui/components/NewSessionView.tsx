@@ -709,8 +709,8 @@ export function NewSessionView() {
 
             {/* Composer */}
             <div className="mx-auto max-w-4xl">
-              <div className="group rounded-[28px] bg-[var(--border)]/70 p-px shadow-sm transition-colors duration-200 focus-within:bg-[var(--text-muted)]/30">
-              <div className="rounded-[26px] border border-[var(--border)]/80 bg-[var(--bg-secondary)] transition-colors duration-200">
+              <div className="group rounded-[28px] bg-[var(--border)]/45 p-px transition-colors duration-200 focus-within:bg-[var(--border)]/70">
+              <div className="rounded-[26px] border border-[var(--border)]/65 bg-[var(--bg-primary)] transition-colors duration-200">
               {attachments.length > 0 && (
                 <div className="px-5 pt-4">
                   <AttachmentChips
