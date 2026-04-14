@@ -266,7 +266,7 @@ export function AgentModelPicker({
                 claudeModel.onChange(model, null);
                 setOpen(false);
               }}
-              className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+              className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
               title={model}
             >
               <div className="min-w-0 truncate">{formatClaudeModelLabel(model)}</div>
@@ -285,7 +285,7 @@ export function AgentModelPicker({
                   claudeModel.onChange(option.model, option.id);
                   setOpen(false);
                 }}
-                className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
                 title={option.model}
               >
                 <div className="flex min-w-0 items-center gap-2">
@@ -299,7 +299,7 @@ export function AgentModelPicker({
             </div>
           ))}
           {!hasResults && (
-            <div className="px-2 py-3 text-sm text-[var(--text-muted)]">
+            <div className="px-2 py-3 text-[12px] text-[var(--text-muted)]">
               No models match "{modelSearchQuery.trim()}".
             </div>
           )}
@@ -319,7 +319,7 @@ export function AgentModelPicker({
 
       if (filteredCodexOptions.length === 0) {
         return (
-          <div className="px-2 py-3 text-sm text-[var(--text-muted)]">
+          <div className="px-2 py-3 text-[12px] text-[var(--text-muted)]">
             No models match "{modelSearchQuery.trim()}".
           </div>
         );
@@ -332,7 +332,7 @@ export function AgentModelPicker({
             codexModel.onChange(model);
             setOpen(false);
           }}
-          className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+          className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
           title={model}
         >
           <div className="min-w-0 truncate">{formatCodexModelLabel(model)}</div>
@@ -387,14 +387,14 @@ export function AgentModelPicker({
       <button
         onClick={handleTriggerClick}
         disabled={disabled}
-        className="flex items-center gap-1.5 rounded-lg border border-transparent bg-transparent px-3 py-1.5 text-sm transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex items-center gap-1.5 rounded-lg border border-transparent bg-transparent px-3 py-1.5 text-[12px] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {currentCompatibleOption ? (
           <CompatibleProviderIcon providerId={currentCompatibleOption.id} />
         ) : (
           <ProviderIcon provider={currentProvider.id} />
         )}
-        <span className="max-w-[220px] truncate text-[var(--text-secondary)]">
+        <span className="max-w-[220px] truncate text-[12px] text-[var(--text-secondary)]">
           {currentTriggerLabel}
         </span>
         <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" />
@@ -410,7 +410,7 @@ export function AgentModelPicker({
                   <button
                     key={item.id}
                     onClick={() => handleProviderSelect(item.id)}
-                    className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                    className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] transition-colors ${
                       item.id === provider
                         ? 'bg-[var(--accent-light)] text-[var(--accent)]'
                         : 'text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
@@ -425,7 +425,7 @@ export function AgentModelPicker({
               <>
                 <button
                   onClick={() => setMode('provider')}
-                  className="mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                  className="mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)]"
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
                   <span>Change Agent</span>
@@ -437,7 +437,7 @@ export function AgentModelPicker({
                       value={modelSearchQuery}
                       onChange={(event) => setModelSearchQuery(event.target.value)}
                       placeholder="Search models"
-                      className="h-9 rounded-lg border-[var(--border)] bg-[var(--bg-primary)] pl-9 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:ring-[var(--accent)]"
+                      className="h-9 rounded-lg border-[var(--border)] bg-[var(--bg-primary)] pl-9 text-[12px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:ring-[var(--accent)]"
                     />
                   </div>
                 </div>
@@ -449,7 +449,7 @@ export function AgentModelPicker({
                     <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--bg-tertiary)]/70 px-3 py-2.5">
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="text-sm font-medium text-[var(--text-primary)]">
+                          <div className="text-[12px] font-medium text-[var(--text-primary)]">
                             1M context
                           </div>
                         </div>
