@@ -1214,14 +1214,6 @@ function GitHeaderActions({
               <span>Commit & Push</span>
             </DropdownMenu.Item>
             <DropdownMenu.Item
-              onSelect={() => void handlePush()}
-              disabled={pushLoading || commitLoading || prLoading || syncLoading || !canPush}
-              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              <span>{pushLoading ? 'Pushing…' : 'Push'}</span>
-            </DropdownMenu.Item>
-            <DropdownMenu.Item
               onSelect={() => void handleCreatePr()}
               disabled={!canCreatePr || prLoading || commitLoading || pushLoading || syncLoading}
               className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
