@@ -1178,15 +1178,29 @@ function GitHeaderActions({
   return (
     <div className="no-drag flex flex-shrink-0 items-center gap-2">
       <DropdownMenu.Root>
-        <DropdownMenu.Trigger asChild>
+        <div className="inline-flex items-center overflow-hidden rounded-md border border-[var(--border)] bg-[var(--bg-secondary)]">
           <button
             type="button"
-            className="inline-flex h-6 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-            aria-label="Git actions"
+            onClick={() => {
+              setCommitMode('commit');
+              setCommitDialogOpen(true);
+            }}
+            disabled={state.totalChanges === 0 || commitLoading || pushLoading || prLoading || syncLoading}
+            className="inline-flex h-6 items-center gap-1.5 px-2 text-[11px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
           >
-            <ChevronDown className="h-3 w-3" />
+            <GitCommit className="h-3.5 w-3.5" />
+            <span>Commit</span>
           </button>
-        </DropdownMenu.Trigger>
+          <DropdownMenu.Trigger asChild>
+            <button
+              type="button"
+              className="inline-flex h-6 items-center justify-center border-l border-[var(--border)] px-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+              aria-label="Git actions"
+            >
+              <ChevronDown className="h-3 w-3" />
+            </button>
+          </DropdownMenu.Trigger>
+        </div>
         <DropdownMenu.Portal>
           <DropdownMenu.Content
             align="end"
