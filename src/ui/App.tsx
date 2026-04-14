@@ -1238,13 +1238,6 @@ function GitHeaderActions({
               <RefreshCw className="h-3.5 w-3.5" />
               <span>{syncLoading ? 'Syncing…' : 'Sync'}</span>
             </DropdownMenu.Item>
-            <DropdownMenu.Item
-              onSelect={() => void onRefreshGitState()}
-              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--bg-tertiary)]"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              <span>Refresh</span>
-            </DropdownMenu.Item>
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
