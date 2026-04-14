@@ -2379,6 +2379,8 @@ function parseGitStatusEntries(stdout: string): Array<{ filePath: string; status
   return entries;
 }
 
+const execFileAsync = promisify(execFile);
+
 function parseGitNumstat(stdout: string): { insertions: number; deletions: number } {
   let insertions = 0;
   let deletions = 0;
@@ -2400,6 +2402,143 @@ function parseGitNumstat(stdout: string): { insertions: number; deletions: numbe
   }
 
   return { insertions, deletions };
+}
+
+function parseGitHubRepoFromRemote(remoteUrl: string): { owner: string; repo: string } | null {
+  const normalized = remoteUrl.trim();
+  const sshMatch = normalized.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/i);
+  if (sshMatch) {
+    return { owner: sshMatch[1], repo: sshMatch[2] };
+  }
+
+  const httpsMatch = normalized.match(/^https?:\/\/github\.com\/([^/]+)\/(.+?)(?:\.git)?$/i);
+  if (httpsMatch) {
+    return { owner: httpsMatch[1], repo: httpsMatch[2] };
+  }
+
+  return null;
+}
+
+async function getGitOriginRemote(cwd: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync('git', ['remote', 'get-url', 'origin'], {
+      cwd,
+      timeout: 5000,
+    });
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getGitUpstreamRef(cwd: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
+      {
+        cwd,
+        timeout: 5000,
+      }
+    );
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getGitAheadBehindCounts(
+  cwd: string,
+  upstreamRef: string | null
+): Promise<{ aheadCount: number; behindCount: number }> {
+  if (!upstreamRef) {
+    return { aheadCount: 0, behindCount: 0 };
+  }
+
+  try {
+    const { stdout } = await execFileAsync('git', ['rev-list', '--left-right', '--count', `HEAD...${upstreamRef}`], {
+      cwd,
+      timeout: 5000,
+    });
+    const [aheadRaw, behindRaw] = stdout.trim().split('\t');
+    return {
+      aheadCount: Number(aheadRaw) || 0,
+      behindCount: Number(behindRaw) || 0,
+    };
+  } catch {
+    return { aheadCount: 0, behindCount: 0 };
+  }
+}
+
+async function getGitDefaultBranch(cwd: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD', '--short'], {
+      cwd,
+      timeout: 5000,
+    });
+    const fullRef = stdout.trim();
+    const slashIndex = fullRef.indexOf('/');
+    return slashIndex >= 0 ? fullRef.slice(slashIndex + 1) : fullRef || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getGitPullRequestInfo(input: {
+  cwd: string;
+  branch: string | null;
+  originRepo: { owner: string; repo: string } | null;
+}): Promise<{ number: number; title: string; state: 'open' | 'closed' | 'merged'; url: string } | null> {
+  if (!input.branch || !input.originRepo) {
+    return null;
+  }
+
+  try {
+    const { stdout } = await execFileAsync(
+      'gh',
+      [
+        'pr',
+        'view',
+        '--head',
+        input.branch,
+        '--repo',
+        `${input.originRepo.owner}/${input.originRepo.repo}`,
+        '--json',
+        'number,title,state,url',
+      ],
+      {
+        cwd: input.cwd,
+        timeout: 10000,
+        maxBuffer: 1024 * 1024,
+      }
+    );
+
+    const parsed = JSON.parse(stdout) as {
+      number?: number;
+      title?: string;
+      state?: string;
+      url?: string;
+    };
+
+    if (
+      typeof parsed.number === 'number' &&
+      typeof parsed.title === 'string' &&
+      typeof parsed.url === 'string' &&
+      (parsed.state === 'OPEN' || parsed.state === 'CLOSED' || parsed.state === 'MERGED')
+    ) {
+      return {
+        number: parsed.number,
+        title: parsed.title,
+        state:
+          parsed.state === 'OPEN' ? 'open' : parsed.state === 'MERGED' ? 'merged' : 'closed',
+        url: parsed.url,
+      };
+    }
+  } catch {
+    // Ignore missing auth / missing PR / missing gh and treat as no PR.
+  }
+
+  return null;
 }
 
 // 初始化 IPC 处理器
@@ -3192,8 +3331,6 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   // ── Git Changes ──
 
-  const execFileAsync = promisify(execFile);
-
   ipcMainHandle('get-git-changes', async (_event, cwd: string) => {
     if (!cwd) return { ok: false, error: 'no-cwd', entries: [] };
 
@@ -3266,6 +3403,147 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       return { ok: true, error: null, insertions, deletions };
     } catch {
       return { ok: false, error: 'git-error', insertions: 0, deletions: 0 };
+    }
+  });
+
+  ipcMainHandle('get-git-overview', async (_event, cwd: string) => {
+    if (!cwd) {
+      return {
+        ok: false,
+        error: 'no-cwd',
+        hasRepo: false,
+        branch: null,
+        upstream: null,
+        hasUpstream: false,
+        aheadCount: 0,
+        behindCount: 0,
+        hasOriginRemote: false,
+        isGitHubRemote: false,
+        isDefaultBranch: false,
+        totalChanges: 0,
+        insertions: 0,
+        deletions: 0,
+        pr: null,
+      };
+    }
+
+    try {
+      await execFileAsync('git', ['rev-parse', '--git-dir'], { cwd, timeout: 5000 });
+    } catch {
+      return {
+        ok: false,
+        error: 'not-a-repo',
+        hasRepo: false,
+        branch: null,
+        upstream: null,
+        hasUpstream: false,
+        aheadCount: 0,
+        behindCount: 0,
+        hasOriginRemote: false,
+        isGitHubRemote: false,
+        isDefaultBranch: false,
+        totalChanges: 0,
+        insertions: 0,
+        deletions: 0,
+        pr: null,
+      };
+    }
+
+    try {
+      const [summary, branchResult, changesResult, originRemote, upstreamRef, defaultBranch] =
+        await Promise.all([
+          (async () => {
+            const [trackedDiff, untrackedFiles] = await Promise.all([
+              execFileAsync('git', ['diff', '--numstat', 'HEAD', '--'], {
+                cwd,
+                timeout: 10000,
+                maxBuffer: 2 * 1024 * 1024,
+              }),
+              execFileAsync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+                cwd,
+                timeout: 10000,
+                maxBuffer: 2 * 1024 * 1024,
+              }),
+            ]);
+
+            let totals = parseGitNumstat(trackedDiff.stdout);
+            const untrackedPaths = untrackedFiles.stdout.split('\0').map((item) => item.trim()).filter(Boolean);
+            for (const filePath of untrackedPaths) {
+              try {
+                await execFileAsync('git', ['diff', '--no-index', '--numstat', '/dev/null', filePath], {
+                  cwd,
+                  timeout: 10000,
+                  maxBuffer: 2 * 1024 * 1024,
+                });
+              } catch (error: unknown) {
+                const stdout =
+                  error && typeof error === 'object' && 'stdout' in error
+                    ? String((error as { stdout?: unknown }).stdout ?? '')
+                    : '';
+                const stats = parseGitNumstat(stdout);
+                totals = {
+                  insertions: totals.insertions + stats.insertions,
+                  deletions: totals.deletions + stats.deletions,
+                };
+              }
+            }
+
+            return totals;
+          })(),
+          execFileAsync('git', ['branch', '--show-current'], { cwd, timeout: 5000 }),
+          execFileAsync('git', ['-c', 'core.quotepath=false', 'status', '--porcelain', '-uall', '-z'], {
+            cwd,
+            maxBuffer: 1024 * 1024,
+            timeout: 10000,
+          }),
+          getGitOriginRemote(cwd),
+          getGitUpstreamRef(cwd),
+          getGitDefaultBranch(cwd),
+        ]);
+
+      const branch = branchResult.stdout.trim() || 'HEAD';
+      const hasOriginRemote = !!originRemote;
+      const originRepo = originRemote ? parseGitHubRepoFromRemote(originRemote) : null;
+      const isGitHubRemote = !!originRepo;
+      const hasUpstream = !!upstreamRef;
+      const { aheadCount, behindCount } = await getGitAheadBehindCounts(cwd, upstreamRef);
+      const pr = await getGitPullRequestInfo({ cwd, branch, originRepo });
+
+      return {
+        ok: true,
+        error: null,
+        hasRepo: true,
+        branch,
+        upstream: upstreamRef,
+        hasUpstream,
+        aheadCount,
+        behindCount,
+        hasOriginRemote,
+        isGitHubRemote,
+        isDefaultBranch: !!defaultBranch && branch === defaultBranch,
+        totalChanges: parseGitStatusEntries(changesResult.stdout).length,
+        insertions: summary.insertions,
+        deletions: summary.deletions,
+        pr,
+      };
+    } catch {
+      return {
+        ok: false,
+        error: 'git-error',
+        hasRepo: false,
+        branch: null,
+        upstream: null,
+        hasUpstream: false,
+        aheadCount: 0,
+        behindCount: 0,
+        hasOriginRemote: false,
+        isGitHubRemote: false,
+        isDefaultBranch: false,
+        totalChanges: 0,
+        insertions: 0,
+        deletions: 0,
+        pr: null,
+      };
     }
   });
 
@@ -3561,6 +3839,55 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       const err = error as { stdout?: string; stderr?: string; message?: string };
       const combined = [err.stderr, err.stdout, err.message].filter(Boolean).join('\n').trim();
       return { ok: false, message: combined || 'git push failed.' };
+    }
+  });
+
+  ipcMainHandle('git-sync', async (_event, cwd: string) => {
+    if (!cwd) return { ok: false, message: 'Missing cwd.' };
+    try {
+      const { stdout, stderr } = await execFileAsync('git', ['pull', '--ff-only'], {
+        cwd,
+        timeout: 120000,
+        maxBuffer: 4 * 1024 * 1024,
+      });
+      return { ok: true, output: `${stdout}${stderr}`.trim() };
+    } catch (error) {
+      const err = error as { stdout?: string; stderr?: string; message?: string };
+      const combined = [err.stderr, err.stdout, err.message].filter(Boolean).join('\n').trim();
+      return { ok: false, message: combined || 'git sync failed.' };
+    }
+  });
+
+  ipcMainHandle('git-create-pr', async (_event, cwd: string) => {
+    if (!cwd) return { ok: false, message: 'Missing cwd.' };
+    try {
+      const { stdout, stderr } = await execFileAsync('gh', ['pr', 'create', '--fill'], {
+        cwd,
+        timeout: 120000,
+        maxBuffer: 4 * 1024 * 1024,
+      });
+      const combined = `${stdout}\n${stderr}`.trim();
+      const url = combined
+        .split('\n')
+        .map((line) => line.trim())
+        .find((line) => /^https:\/\/github\.com\/.+\/pull\/\d+$/i.test(line));
+      if (!url) {
+        return { ok: false, message: combined || 'gh pr create did not return a pull request URL.' };
+      }
+      return { ok: true, url };
+    } catch (error) {
+      const err = error as { stdout?: string; stderr?: string; message?: string };
+      const combined = [err.stderr, err.stdout, err.message].filter(Boolean).join('\n').trim();
+      return { ok: false, message: combined || 'gh pr create failed.' };
+    }
+  });
+
+  ipcMainHandle('open-external-url', async (_event, url: string) => {
+    try {
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: String(error) };
     }
   });
 }

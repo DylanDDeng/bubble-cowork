@@ -95,7 +95,7 @@ export interface UiResumeState {
   showNewSession: boolean;
   projectCwd: string | null;
   projectTreeCollapsed: boolean;
-  projectPanelView: 'files' | 'changes' | 'git' | 'terminal';
+  projectPanelView: 'files' | 'changes' | 'terminal';
 }
 
 // MCP 服务器配置类型

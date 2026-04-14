@@ -154,6 +154,15 @@ function createDraftSessionView(cwd?: string | null): SessionView {
   };
 }
 
+function normalizeProjectPanelView(
+  value: import('../shared/types').UiResumeState['projectPanelView'] | 'git' | null | undefined
+): import('../types').ProjectPanelView {
+  if (value === 'changes' || value === 'terminal') {
+    return value;
+  }
+  return 'files';
+}
+
 function normalizeClaudeAccessMode(value: unknown): import('../types').ClaudeAccessMode {
   return value === 'fullAccess' ? 'fullAccess' : 'default';
 }
@@ -285,7 +294,7 @@ export const useAppStore = create<Store>()(
       projectTreeCwd: null,
       projectTree: null,
       projectTreeCollapsed: initialUiResumeState?.projectTreeCollapsed ?? false,
-      projectPanelView: initialUiResumeState?.projectPanelView ?? 'files',
+      projectPanelView: normalizeProjectPanelView(initialUiResumeState?.projectPanelView),
       sessionsLoaded: false,
       // 搜索状态
       sidebarSearchQuery: '',
@@ -494,7 +503,7 @@ export const useAppStore = create<Store>()(
         showNewSession: resumeState.showNewSession,
         projectCwd: resumeState.projectCwd ?? null,
         projectTreeCollapsed: resumeState.projectTreeCollapsed,
-        projectPanelView: resumeState.projectPanelView,
+        projectPanelView: normalizeProjectPanelView(resumeState.projectPanelView),
         activeWorkspace: 'chat',
         sessionsLoaded: false,
       };
@@ -735,7 +744,10 @@ export const useAppStore = create<Store>()(
           sidebarCollapsed: persisted?.sidebarCollapsed ?? currentState.sidebarCollapsed,
           sidebarWidth: sanitizeSidebarWidth(persisted?.sidebarWidth, currentState.sidebarWidth),
           projectTreeCollapsed: persisted?.projectTreeCollapsed ?? currentState.projectTreeCollapsed,
-          projectPanelView: persisted?.projectPanelView || currentState.projectPanelView,
+          projectPanelView: normalizeProjectPanelView(
+            (persisted?.projectPanelView as import('../types').ProjectPanelView | 'git' | undefined) ||
+              currentState.projectPanelView
+          ),
           theme,
           colorThemeId,
           customThemeCss,

@@ -205,17 +205,16 @@ export function ProjectTreePanel({
   onClose,
 }: {
   collapsed?: boolean;
-  activeTab: 'files' | 'changes' | 'git' | 'terminal';
+  activeTab: 'files' | 'changes' | 'terminal';
   onClose: () => void;
 }) {
   const MIN_CHANGES_SPINNER_MS = 450;
   const PANEL_DIMENSIONS: Record<
-    'files' | 'changes' | 'git' | 'terminal',
+    'files' | 'changes' | 'terminal',
     { defaultWidth: number; minWidth: number; maxWidth: number; title: string }
   > = {
     files: { defaultWidth: 300, minWidth: 280, maxWidth: 440, title: 'Files' },
     changes: { defaultWidth: 360, minWidth: 320, maxWidth: 560, title: 'Changes' },
-    git: { defaultWidth: 420, minWidth: 360, maxWidth: 620, title: 'Commit' },
     terminal: { defaultWidth: 360, minWidth: 320, maxWidth: 560, title: 'Terminal' },
   };
   const panelMeta = PANEL_DIMENSIONS[activeTab];
@@ -282,8 +281,7 @@ export function ProjectTreePanel({
   const activeCwd = activeSessionId ? sessions[activeSessionId]?.cwd : null;
   const cwd = activeCwd || projectCwd || null;
   const shouldWatchProjectTree = !collapsed && activeTab === 'files';
-  const shouldRefreshChangeRecords =
-    !collapsed && (activeTab === 'changes' || activeTab === 'git');
+  const shouldRefreshChangeRecords = !collapsed && activeTab === 'changes';
 
   const loadChangeRecords = async () => {
     if (!cwd) return;
@@ -925,7 +923,7 @@ export function ProjectTreePanel({
             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
               {panelMeta.title}
             </div>
-            {(activeTab === 'changes' || activeTab === 'git') && (
+            {activeTab === 'changes' && (
               <button
                 onClick={() => void loadChangeRecords()}
                 disabled={changesLoading}
@@ -934,8 +932,8 @@ export function ProjectTreePanel({
                     ? 'cursor-wait border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] shadow-sm'
                     : 'border-transparent text-[var(--text-muted)] hover:border-[var(--border)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] active:scale-[0.97]'
                 } disabled:opacity-70`}
-                title={activeTab === 'changes' ? 'Refresh changes' : 'Refresh git state'}
-                aria-label={activeTab === 'changes' ? 'Refresh changes' : 'Refresh git state'}
+                title="Refresh changes"
+                aria-label="Refresh changes"
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${changesLoading ? 'animate-spin' : ''}`} />
               </button>
@@ -948,7 +946,7 @@ export function ProjectTreePanel({
 
         <div className="flex-1 min-h-0 flex">
           <div className="flex-1 overflow-auto px-3 pb-3">
-            {activeTab === 'files' ? (
+            {activeTab === 'files' && (
               <>
                 {!cwd && (
                   <div className="text-sm text-[var(--text-muted)] px-1 py-2">
@@ -982,7 +980,8 @@ export function ProjectTreePanel({
                   </div>
                 )}
               </>
-            ) : activeTab === 'changes' ? (
+            )}
+            {activeTab === 'changes' && (
               <>
                 {!cwd && (
                   <div className="text-sm text-[var(--text-muted)] px-1 py-2">
@@ -1017,34 +1016,11 @@ export function ProjectTreePanel({
                   />
                 ))}
               </>
-            ) : activeTab === 'terminal' ? (
+            )}
+            {activeTab === 'terminal' && (
               <SessionTerminal
                 sessionId={activeSessionId}
                 cwd={cwd}
-              />
-            ) : (
-              <GitPanel
-                cwd={cwd}
-                branch={gitBranch}
-                error={gitError}
-                stagedEntries={stagedGitEntries}
-                unstagedEntries={unstagedGitEntries}
-                branches={gitBranchEntries}
-                branchesError={gitBranchesError}
-                detachedHead={gitDetachedHead}
-                headShortHash={gitHeadShortHash}
-                recentCommits={gitHistoryEntries}
-                historyError={gitHistoryError}
-                actionPath={gitActionPath}
-                onStage={(filePath) => void runGitAction(filePath, () => window.electron.gitStagePath(cwd || '', filePath))}
-                onUnstage={(filePath) => void runGitAction(filePath, () => window.electron.gitUnstagePath(cwd || '', filePath))}
-                onDiscard={(filePath, status) => void runGitAction(filePath, () => window.electron.gitDiscardPath(cwd || '', filePath, status))}
-                commitMessage={gitCommitMessage}
-                onCommitMessageChange={setGitCommitMessage}
-                onCommit={(mode) => void handleGitCommit(mode)}
-                commitLoading={gitCommitLoading}
-                onPush={() => void handleGitPush()}
-                pushLoading={gitPushLoading}
               />
             )}
           </div>

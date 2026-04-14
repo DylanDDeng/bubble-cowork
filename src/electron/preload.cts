@@ -329,6 +329,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-git-working-tree-summary', cwd);
   },
 
+  getGitOverview: (cwd: string) => {
+    return ipcRenderer.invoke('get-git-overview', cwd);
+  },
+
   getGitBranch: (cwd: string) => {
     return ipcRenderer.invoke('get-git-branch', cwd);
   },
@@ -363,6 +367,18 @@ contextBridge.exposeInMainWorld('electron', {
 
   gitPush: (cwd: string) => {
     return ipcRenderer.invoke('git-push', cwd);
+  },
+
+  gitSync: (cwd: string) => {
+    return ipcRenderer.invoke('git-sync', cwd);
+  },
+
+  gitCreatePr: (cwd: string) => {
+    return ipcRenderer.invoke('git-create-pr', cwd);
+  },
+
+  openExternalUrl: (url: string) => {
+    return ipcRenderer.invoke('open-external-url', url);
   },
 
   // 订阅系统统计（预留）

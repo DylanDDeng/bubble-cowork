@@ -1,13 +1,21 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Toaster, toast } from 'sonner';
 import {
   Check,
   Copy,
+  ExternalLink,
   FileDiff,
   Files,
   FolderOpen,
+  GitBranch,
   GitCommit,
   SquareTerminal,
+  ChevronDown,
+  RefreshCw,
+  Upload,
+  X,
 } from 'lucide-react';
 import { useAppStore } from './store/useAppStore';
 import { useIPC, sendEvent } from './hooks/useIPC';
@@ -114,7 +122,23 @@ export function App() {
   const pendingAutoPreviewSessionsRef = useRef(new Set<string>());
   const autoPreviewedArtifactsRef = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
-  const [projectChangeStats, setProjectChangeStats] = useState({ insertions: 0, deletions: 0 });
+  const [gitHeaderState, setGitHeaderState] = useState({
+    hasRepo: false,
+    branch: null as string | null,
+    upstream: null as string | null,
+    hasUpstream: false,
+    aheadCount: 0,
+    behindCount: 0,
+    hasOriginRemote: false,
+    isGitHubRemote: false,
+    isDefaultBranch: false,
+    totalChanges: 0,
+    insertions: 0,
+    deletions: 0,
+    pr: null as
+      | { number: number; title: string; state: 'open' | 'closed' | 'merged'; url: string }
+      | null,
+  });
   const [highlightedHistoryAnchor, setHighlightedHistoryAnchor] = useState<string | null>(null);
   const historyHighlightTimerRef = useRef<number | null>(null);
 
@@ -222,45 +246,96 @@ export function App() {
     }
   }, [connected]);
 
-  useEffect(() => {
+  const loadGitOverview = useCallback(async () => {
     const cwd = (activeSession?.cwd || projectCwd || '').trim();
     if (!cwd) {
-      setProjectChangeStats({ insertions: 0, deletions: 0 });
+      setGitHeaderState({
+        hasRepo: false,
+        branch: null,
+        upstream: null,
+        hasUpstream: false,
+        aheadCount: 0,
+        behindCount: 0,
+        hasOriginRemote: false,
+        isGitHubRemote: false,
+        isDefaultBranch: false,
+        totalChanges: 0,
+        insertions: 0,
+        deletions: 0,
+        pr: null,
+      });
       return;
     }
 
-    let cancelled = false;
-
-    const load = async () => {
-      try {
-        const summary = await window.electron.getGitWorkingTreeSummary(cwd);
-        if (cancelled) {
-          return;
-        }
-
-        if (!summary.ok) {
-          setProjectChangeStats({ insertions: 0, deletions: 0 });
-          return;
-        }
-
-        setProjectChangeStats({
-          insertions: summary.insertions || 0,
-          deletions: summary.deletions || 0,
+    try {
+      const overview = await window.electron.getGitOverview(cwd);
+      if (!overview.ok) {
+        setGitHeaderState({
+          hasRepo: false,
+          branch: null,
+          upstream: null,
+          hasUpstream: false,
+          aheadCount: 0,
+          behindCount: 0,
+          hasOriginRemote: false,
+          isGitHubRemote: false,
+          isDefaultBranch: false,
+          totalChanges: 0,
+          insertions: 0,
+          deletions: 0,
+          pr: null,
         });
-      } catch {
-        if (!cancelled) {
-          setProjectChangeStats({ insertions: 0, deletions: 0 });
-        }
+        return;
       }
+
+      setGitHeaderState({
+        hasRepo: overview.hasRepo,
+        branch: overview.branch,
+        upstream: overview.upstream,
+        hasUpstream: overview.hasUpstream,
+        aheadCount: overview.aheadCount,
+        behindCount: overview.behindCount,
+        hasOriginRemote: overview.hasOriginRemote,
+        isGitHubRemote: overview.isGitHubRemote,
+        isDefaultBranch: overview.isDefaultBranch,
+        totalChanges: overview.totalChanges,
+        insertions: overview.insertions,
+        deletions: overview.deletions,
+        pr: overview.pr,
+      });
+    } catch {
+      setGitHeaderState({
+        hasRepo: false,
+        branch: null,
+        upstream: null,
+        hasUpstream: false,
+        aheadCount: 0,
+        behindCount: 0,
+        hasOriginRemote: false,
+        isGitHubRemote: false,
+        isDefaultBranch: false,
+        totalChanges: 0,
+        insertions: 0,
+        deletions: 0,
+        pr: null,
+      });
+    }
+  }, [activeSession?.cwd, projectCwd]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (cancelled) return;
+      await loadGitOverview();
     };
 
-    void load();
+    void run();
     const interval = window.setInterval(() => {
-      void load();
+      void run();
     }, 60_000);
 
     const handleFocus = () => {
-      void load();
+      void run();
     };
     window.addEventListener('focus', handleFocus);
 
@@ -269,7 +344,7 @@ export function App() {
       window.clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [activeSession?.cwd, activeSession?.messages.length, activeSession?.status, projectCwd]);
+  }, [loadGitOverview, activeSession?.messages.length, activeSession?.status]);
 
   useEffect(() => {
     void window.electron.saveUiResumeState({
@@ -589,7 +664,10 @@ export function App() {
               <InlineProjectPanelHeaderActions
                 collapsed={projectTreeCollapsed}
                 activeTab={projectPanelView}
-                changeStats={projectChangeStats}
+                changeStats={{
+                  insertions: gitHeaderState.insertions,
+                  deletions: gitHeaderState.deletions,
+                }}
                 onToggle={(view) => {
                   if (!projectTreeCollapsed && projectPanelView === view) {
                     setProjectTreeCollapsed(true);
@@ -598,6 +676,11 @@ export function App() {
                   setProjectPanelView(view);
                   setProjectTreeCollapsed(false);
                 }}
+              />
+              <GitHeaderActions
+                cwd={activeSession?.cwd || projectCwd || null}
+                state={gitHeaderState}
+                onRefreshGitState={loadGitOverview}
               />
             </div>
           </div>
@@ -870,9 +953,9 @@ function InlineProjectPanelHeaderActions({
   activeTab,
   changeStats,
 }: {
-  onToggle: (view: 'files' | 'changes' | 'git' | 'terminal') => void;
+  onToggle: (view: 'files' | 'changes' | 'terminal') => void;
   collapsed: boolean;
-  activeTab: 'files' | 'changes' | 'git' | 'terminal';
+  activeTab: 'files' | 'changes' | 'terminal';
   changeStats: { insertions: number; deletions: number };
 }) {
   const items = [
@@ -885,11 +968,6 @@ function InlineProjectPanelHeaderActions({
       id: 'changes' as const,
       label: 'Changes',
       icon: FileDiff,
-    },
-    {
-      id: 'git' as const,
-      label: 'Commit',
-      icon: GitCommit,
     },
     {
       id: 'terminal' as const,
@@ -943,6 +1021,373 @@ function InlineProjectPanelHeaderActions({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function GitHeaderActions({
+  cwd,
+  state,
+  onRefreshGitState,
+}: {
+  cwd: string | null;
+      state: {
+        hasRepo: boolean;
+        branch: string | null;
+        upstream: string | null;
+        hasUpstream: boolean;
+        aheadCount: number;
+        behindCount: number;
+        hasOriginRemote: boolean;
+        isGitHubRemote: boolean;
+        isDefaultBranch: boolean;
+        totalChanges: number;
+        insertions: number;
+        deletions: number;
+        pr: { number: number; title: string; state: 'open' | 'closed' | 'merged'; url: string } | null;
+      };
+  onRefreshGitState: () => Promise<void>;
+}) {
+  const [commitDialogOpen, setCommitDialogOpen] = useState(false);
+  const [commitMessage, setCommitMessage] = useState('');
+  const [commitMode, setCommitMode] = useState<'commit' | 'commit_push'>('commit');
+  const [commitLoading, setCommitLoading] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+  const [prLoading, setPrLoading] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
+
+  if (!state.hasRepo || !cwd) {
+    return null;
+  }
+
+  const hasPendingChanges = state.totalChanges > 0;
+  const canPush = !!state.branch && state.hasOriginRemote;
+  const canCreatePr = !!state.branch && state.hasOriginRemote && state.isGitHubRemote && !hasPendingChanges;
+
+  const quickAction = state.pr?.state === 'open'
+    ? { kind: 'open-pr' as const, label: 'View PR', icon: ExternalLink }
+    : hasPendingChanges
+      ? { kind: 'commit' as const, label: 'Commit', icon: GitCommit }
+      : state.behindCount > 0
+        ? { kind: 'sync' as const, label: 'Sync', icon: RefreshCw }
+        : state.aheadCount > 0 && canCreatePr
+          ? { kind: 'create-pr' as const, label: 'Create PR', icon: ExternalLink }
+          : { kind: 'push' as const, label: 'Push', icon: Upload };
+
+  const handlePush = async () => {
+    setPushLoading(true);
+    try {
+      const result = await window.electron.gitPush(cwd);
+      if (!result.ok) {
+        toast.error(result.message || 'Push failed.');
+        return;
+      }
+      toast.success('Push completed.');
+      await onRefreshGitState();
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+  const handleSync = async () => {
+    setSyncLoading(true);
+    try {
+      const result = await window.electron.gitSync(cwd);
+      if (!result.ok) {
+        toast.error(result.message || 'Sync failed.');
+        return;
+      }
+      toast.success('Remote synced.');
+      await onRefreshGitState();
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const handleOpenPr = async () => {
+    if (!state.pr?.url) return;
+    const result = await window.electron.openExternalUrl(state.pr.url);
+    if (!result.ok) {
+      toast.error(result.message || 'Failed to open pull request.');
+    }
+  };
+
+  const handleCreatePr = async () => {
+    setPrLoading(true);
+    try {
+      const result = await window.electron.gitCreatePr(cwd);
+      if (!result.ok || !result.url) {
+        toast.error(result.message || 'Failed to create pull request.');
+        return;
+      }
+      toast.success('Pull request created.');
+      await window.electron.openExternalUrl(result.url);
+      await onRefreshGitState();
+    } finally {
+      setPrLoading(false);
+    }
+  };
+
+  const handleCommit = async () => {
+    const message = commitMessage.trim();
+    if (!message) {
+      return;
+    }
+
+    setCommitLoading(true);
+    try {
+      const changes = await window.electron.getGitChanges(cwd);
+      if (!changes.ok) {
+        toast.error('Failed to read git status.');
+        return;
+      }
+
+      for (const entry of changes.entries.filter((item) => !item.staged)) {
+        const stageResult = await window.electron.gitStagePath(cwd, entry.filePath);
+        if (!stageResult.ok) {
+          toast.error(stageResult.message || `Failed to stage ${entry.filePath}.`);
+          return;
+        }
+      }
+
+      const result = await window.electron.gitCommit(cwd, message);
+      if (!result.ok) {
+        toast.error(result.message || 'Commit failed.');
+        return;
+      }
+
+      if (commitMode === 'commit_push') {
+        const pushResult = await window.electron.gitPush(cwd);
+        if (!pushResult.ok) {
+          toast.error(pushResult.message || 'Push failed.');
+          return;
+        }
+      }
+
+      toast.success(commitMode === 'commit_push' ? 'Commit and push completed.' : 'Commit created.');
+      setCommitDialogOpen(false);
+      setCommitMessage('');
+      setCommitMode('commit');
+      await onRefreshGitState();
+    } finally {
+      setCommitLoading(false);
+    }
+  };
+
+  return (
+    <div className="no-drag flex flex-shrink-0 items-center gap-2">
+      <button
+        type="button"
+        onClick={() => {
+          if (quickAction.kind === 'commit') {
+            setCommitMode('commit');
+            setCommitDialogOpen(true);
+            return;
+          }
+          if (quickAction.kind === 'open-pr') {
+            void handleOpenPr();
+            return;
+          }
+          if (quickAction.kind === 'create-pr') {
+            void handleCreatePr();
+            return;
+          }
+          if (quickAction.kind === 'sync') {
+            void handleSync();
+            return;
+          }
+          void handlePush();
+        }}
+        disabled={
+          commitLoading ||
+          pushLoading ||
+          prLoading ||
+          syncLoading ||
+          (quickAction.kind === 'commit' && !hasPendingChanges) ||
+          (quickAction.kind === 'push' && !canPush) ||
+          (quickAction.kind === 'create-pr' && !canCreatePr) ||
+          (quickAction.kind === 'open-pr' && !state.pr?.url)
+        }
+        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+      >
+        <quickAction.icon className="h-3.5 w-3.5" />
+        <span>
+          {quickAction.kind === 'sync' && syncLoading
+            ? 'Syncing…'
+            : quickAction.kind === 'create-pr' && prLoading
+              ? 'Creating…'
+              : quickAction.kind === 'push' && pushLoading
+                ? 'Pushing…'
+                : quickAction.label}
+        </span>
+      </button>
+
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button
+            type="button"
+            className="inline-flex h-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-2 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+            aria-label="Git actions"
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            align="end"
+            className="z-50 min-w-[180px] rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-lg"
+          >
+            <DropdownMenu.Item
+              onSelect={() => {
+                setCommitMode('commit');
+                setCommitDialogOpen(true);
+              }}
+              disabled={state.totalChanges === 0 || commitLoading || pushLoading || prLoading || syncLoading}
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+            >
+              <GitCommit className="h-3.5 w-3.5" />
+              <span>Commit</span>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              onSelect={() => {
+                setCommitMode('commit_push');
+                setCommitDialogOpen(true);
+              }}
+              disabled={state.totalChanges === 0 || commitLoading || pushLoading || prLoading || syncLoading}
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              <span>Commit & Push</span>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              onSelect={() => void handlePush()}
+              disabled={pushLoading || commitLoading || prLoading || syncLoading || !canPush}
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              <span>{pushLoading ? 'Pushing…' : 'Push'}</span>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              onSelect={() => void handleCreatePr()}
+              disabled={!canCreatePr || prLoading || commitLoading || pushLoading || syncLoading}
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              <span>{prLoading ? 'Creating…' : 'Create PR'}</span>
+            </DropdownMenu.Item>
+            {state.pr?.url ? (
+              <DropdownMenu.Item
+                onSelect={() => void handleOpenPr()}
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--bg-tertiary)]"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                <span>View PR</span>
+              </DropdownMenu.Item>
+            ) : null}
+            <DropdownMenu.Item
+              onSelect={() => void handleSync()}
+              disabled={syncLoading || commitLoading || pushLoading || prLoading}
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              <span>{syncLoading ? 'Syncing…' : 'Sync'}</span>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              onSelect={() => void onRefreshGitState()}
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--bg-tertiary)]"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              <span>Refresh</span>
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+
+      <Dialog.Root open={commitDialogOpen} onOpenChange={setCommitDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[90] bg-black/18 backdrop-blur-[1px]" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[100] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
+            <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+              <Dialog.Title className="text-[18px] font-semibold text-[var(--text-primary)]">
+                Commit changes
+              </Dialog.Title>
+              <button
+                type="button"
+                onClick={() => setCommitDialogOpen(false)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-xl)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 px-4 py-4">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <div className="text-[var(--text-secondary)]">Branch</div>
+                <div className="flex items-center gap-2 font-medium text-[var(--text-primary)]">
+                  <GitBranch className="h-4 w-4 text-[var(--text-secondary)]" />
+                  <span>{state.branch || 'HEAD'}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <div className="text-[var(--text-secondary)]">Changes</div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[var(--text-muted)]">{state.totalChanges} files</span>
+                  <span className="font-medium text-emerald-600">+{state.insertions}</span>
+                  <span className="font-medium text-[var(--error)]">-{state.deletions}</span>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]/92">
+                <textarea
+                  value={commitMessage}
+                  onChange={(event) => setCommitMessage(event.target.value)}
+                  placeholder="Commit message..."
+                  rows={4}
+                  className="w-full resize-none border-0 bg-transparent px-4 py-4 text-[16px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+                />
+              </div>
+
+              <div className="space-y-2 rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-3">
+                <label className="flex items-center gap-3 text-[15px] text-[var(--text-primary)]">
+                  <input
+                    type="radio"
+                    checked={commitMode === 'commit'}
+                    onChange={() => setCommitMode('commit')}
+                  />
+                  <span>Commit</span>
+                </label>
+                <label className="flex items-center gap-3 text-[15px] text-[var(--text-primary)]">
+                  <input
+                    type="radio"
+                    checked={commitMode === 'commit_push'}
+                    onChange={() => setCommitMode('commit_push')}
+                  />
+                  <span>Commit & Push</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-[var(--border)] px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setCommitDialogOpen(false)}
+                className="inline-flex items-center justify-center rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-[15px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCommit()}
+                disabled={commitLoading || !commitMessage.trim()}
+                className="inline-flex min-w-[132px] items-center justify-center rounded-[var(--radius-xl)] bg-[var(--accent)] px-4 py-2 text-[15px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {commitLoading ? 'Working…' : commitMode === 'commit_push' ? 'Commit & Push' : 'Commit'}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

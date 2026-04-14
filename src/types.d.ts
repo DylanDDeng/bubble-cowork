@@ -109,6 +109,23 @@ declare global {
     unwatchProjectTree: (cwd: string) => Promise<boolean>;
     getGitChanges: (cwd: string) => Promise<{ ok: boolean; error: string | null; entries: Array<{ filePath: string; status: string; staged: boolean }> }>;
     getGitWorkingTreeSummary: (cwd: string) => Promise<{ ok: boolean; error: string | null; insertions: number; deletions: number }>;
+    getGitOverview: (cwd: string) => Promise<{
+      ok: boolean;
+      error: string | null;
+      hasRepo: boolean;
+      branch: string | null;
+      upstream: string | null;
+      hasUpstream: boolean;
+      aheadCount: number;
+      behindCount: number;
+      hasOriginRemote: boolean;
+      isGitHubRemote: boolean;
+      isDefaultBranch: boolean;
+      totalChanges: number;
+      insertions: number;
+      deletions: number;
+      pr: { number: number; title: string; state: 'open' | 'closed' | 'merged'; url: string } | null;
+    }>;
     getGitBranch: (cwd: string) => Promise<{ ok: boolean; branch: string | null; message?: string }>;
     getGitBranches: (cwd: string) => Promise<{
       ok: boolean;
@@ -142,6 +159,9 @@ declare global {
     gitDiscardPath: (cwd: string, filePath: string, status?: string) => Promise<{ ok: boolean; message?: string }>;
     gitCommit: (cwd: string, message: string) => Promise<{ ok: boolean; message?: string; output?: string }>;
     gitPush: (cwd: string) => Promise<{ ok: boolean; message?: string; output?: string }>;
+    gitSync: (cwd: string) => Promise<{ ok: boolean; message?: string; output?: string }>;
+    gitCreatePr: (cwd: string) => Promise<{ ok: boolean; message?: string; url?: string }>;
+    openExternalUrl: (url: string) => Promise<{ ok: boolean; message?: string }>;
     subscribeStatistics: (callback: (data: StatisticsData) => void) => () => void;
     getStaticData: () => Promise<StaticData>;
   }
