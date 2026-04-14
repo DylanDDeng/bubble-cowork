@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FolderClosed, FolderOpen, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Files as FilesIcon, FileDiff, SquareTerminal, GitBranch, GitCommit, Minus, Upload, FolderGit2 } from 'lucide-react';
+import { FolderClosed, FolderOpen, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, GitBranch, GitCommit, Minus, Upload, FolderGit2 } from 'lucide-react';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
@@ -202,18 +202,26 @@ function ProjectTreeNodeIcon({
 export function ProjectTreePanel({
   collapsed = false,
   activeTab,
-  onChangeTab,
   onClose,
 }: {
   collapsed?: boolean;
   activeTab: 'files' | 'changes' | 'git' | 'terminal';
-  onChangeTab: (tab: 'files' | 'changes' | 'git' | 'terminal') => void;
   onClose: () => void;
 }) {
   const MIN_CHANGES_SPINNER_MS = 450;
-  const defaultRailWidth = 320;
-  const minRailWidth = 320;
-  const maxRailWidth = 560;
+  const PANEL_DIMENSIONS: Record<
+    'files' | 'changes' | 'git' | 'terminal',
+    { defaultWidth: number; minWidth: number; maxWidth: number; title: string }
+  > = {
+    files: { defaultWidth: 300, minWidth: 280, maxWidth: 440, title: 'Files' },
+    changes: { defaultWidth: 360, minWidth: 320, maxWidth: 560, title: 'Changes' },
+    git: { defaultWidth: 420, minWidth: 360, maxWidth: 620, title: 'Commit' },
+    terminal: { defaultWidth: 360, minWidth: 320, maxWidth: 560, title: 'Terminal' },
+  };
+  const panelMeta = PANEL_DIMENSIONS[activeTab];
+  const defaultRailWidth = panelMeta.defaultWidth;
+  const minRailWidth = panelMeta.minWidth;
+  const maxRailWidth = panelMeta.maxWidth;
   const defaultPreviewWidth = 520;
   const minPreviewWidth = 340;
   const maxPreviewWidth = 960;
@@ -614,11 +622,16 @@ export function ProjectTreePanel({
     setSaveState('idle');
     setSaveError(null);
     setPptxSlideIndex(0);
-    onChangeTab('files');
     setChangeRecords([]);
     setChangesError(null);
     setExpandedChangeId(null);
-  }, [cwd, onChangeTab]);
+  }, [cwd]);
+
+  useEffect(() => {
+    setPanelWidth((current) =>
+      Math.min(maxRailWidth, Math.max(minRailWidth, current || defaultRailWidth))
+    );
+  }, [defaultRailWidth, minRailWidth, maxRailWidth]);
 
   useEffect(() => {
     if (!visibleTree?.path) return;
@@ -920,89 +933,25 @@ export function ProjectTreePanel({
         )}
         <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]" />
         <div className="px-4 pt-2 pb-2 pr-14">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => { onChangeTab('files'); setExpandedChangeId(null); }}
-              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${
-                activeTab === 'files'
-                  ? 'text-[var(--tree-file-accent-fg)] bg-[var(--tree-file-accent-fg)]/10'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-              }`}
-            >
-              <FilesIcon className="h-3.5 w-3.5" strokeWidth={2} />
-              <span>Files</span>
-            </button>
-            <button
-              onClick={() => { onChangeTab('changes'); setSelectedFilePath(null); setSelectedPreview(null); }}
-              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${
-                activeTab === 'changes'
-                  ? 'text-[var(--tree-file-accent-fg)] bg-[var(--tree-file-accent-fg)]/10'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-              }`}
-            >
-              <FileDiff className="h-3.5 w-3.5" strokeWidth={2} />
-              <span>Changes</span>
-              {changeRecords.length > 0 && (
-                <span className="ml-0.5 text-[9px] opacity-70">{changeRecords.length}</span>
-              )}
-            </button>
-            <button
-              onClick={() => { onChangeTab('git'); setSelectedFilePath(null); setSelectedPreview(null); }}
-              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${
-                activeTab === 'git'
-                  ? 'text-[var(--tree-file-accent-fg)] bg-[var(--tree-file-accent-fg)]/10'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-              }`}
-            >
-              <GitCommit className="h-3.5 w-3.5" strokeWidth={2} />
-              <span>Commit</span>
-              {gitEntries.length > 0 && (
-                <span className="ml-0.5 text-[9px] opacity-70">{gitEntries.length}</span>
-              )}
-            </button>
-            <button
-              onClick={() => { onChangeTab('terminal'); setSelectedFilePath(null); setSelectedPreview(null); }}
-              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${
-                activeTab === 'terminal'
-                  ? 'text-[var(--tree-file-accent-fg)] bg-[var(--tree-file-accent-fg)]/10'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-              }`}
-            >
-              <SquareTerminal className="h-3.5 w-3.5" strokeWidth={2} />
-              <span>Terminal</span>
-            </button>
-            <div className="ml-auto flex items-center gap-1">
-              {activeTab === 'changes' && (
-                <button
-                  onClick={() => void loadChangeRecords()}
-                  disabled={changesLoading}
-                  className={`rounded-[var(--radius-lg)] border p-1.5 transition-all ${
-                    changesLoading
-                      ? 'cursor-wait border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] shadow-sm'
-                      : 'border-transparent text-[var(--text-muted)] hover:border-[var(--border)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] active:scale-[0.97]'
-                  } disabled:opacity-70`}
-                  title="Refresh changes"
-                  aria-label="Refresh changes"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${changesLoading ? 'animate-spin' : ''}`} />
-                </button>
-              )}
-              {activeTab === 'git' && (
-                <button
-                  onClick={() => void loadChangeRecords()}
-                  disabled={changesLoading}
-                  className={`rounded-[var(--radius-lg)] border p-1.5 transition-all ${
-                    changesLoading
-                      ? 'cursor-wait border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] shadow-sm'
-                      : 'border-transparent text-[var(--text-muted)] hover:border-[var(--border)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] active:scale-[0.97]'
-                  } disabled:opacity-70`}
-                  title="Refresh git state"
-                  aria-label="Refresh git state"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${changesLoading ? 'animate-spin' : ''}`} />
-                </button>
-              )}
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+              {panelMeta.title}
             </div>
+            {(activeTab === 'changes' || activeTab === 'git') && (
+              <button
+                onClick={() => void loadChangeRecords()}
+                disabled={changesLoading}
+                className={`rounded-[var(--radius-lg)] border p-1.5 transition-all ${
+                  changesLoading
+                    ? 'cursor-wait border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] shadow-sm'
+                    : 'border-transparent text-[var(--text-muted)] hover:border-[var(--border)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] active:scale-[0.97]'
+                } disabled:opacity-70`}
+                title={activeTab === 'changes' ? 'Refresh changes' : 'Refresh git state'}
+                aria-label={activeTab === 'changes' ? 'Refresh changes' : 'Refresh git state'}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${changesLoading ? 'animate-spin' : ''}`} />
+              </button>
+            )}
           </div>
           {!cwd && (
             <div className="text-xs text-[var(--text-muted)] mt-1">No folder selected</div>

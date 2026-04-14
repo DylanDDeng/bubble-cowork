@@ -813,7 +813,6 @@ export function App() {
         <ProjectTreePanel
           collapsed={projectTreeCollapsed}
           activeTab={projectPanelView}
-          onChangeTab={setProjectPanelView}
           onClose={() => setProjectTreeCollapsed(true)}
         />
       )}
