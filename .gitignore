@@ -17,6 +17,9 @@ release/
 .DS_Store
 Thumbs.db
 
+# Local app artifacts
+.aegis/
+
 # Logs
 *.log
 npm-debug.log*
