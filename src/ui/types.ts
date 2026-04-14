@@ -169,6 +169,10 @@ export interface AppState {
   // Settings 状态
   showSettings: boolean;
   activeSettingsTab: SettingsTab;
+  updateStatus: {
+    available: boolean;
+    version: string | null;
+  };
   promptLibraryInsertRequest: PromptLibraryInsertRequest | null;
   // 状态配置
   statusConfigs: StatusConfig[];

@@ -386,6 +386,7 @@ export type ServerEvent =
   | { type: 'permission.request'; payload: PermissionRequestPayload }
   | { type: 'runner.error'; payload: { message: string; sessionId?: string } }
   | { type: 'project.tree'; payload: { cwd: string; tree: ProjectTreeNode } }
+  | { type: 'app.update'; payload: { available: boolean; version: string | null } }
   // MCP 事件
   | { type: 'mcp.config'; payload: {
       servers: Record<string, McpServerConfig>;

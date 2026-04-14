@@ -316,6 +316,10 @@ export const useAppStore = create<Store>()(
       // Settings 状态
       showSettings: false,
       activeSettingsTab: 'general' as SettingsTab,
+      updateStatus: {
+        available: false,
+        version: null,
+      },
       promptLibraryInsertRequest: null,
       // 状态配置
       statusConfigs: [],
@@ -372,6 +376,15 @@ export const useAppStore = create<Store>()(
         set({
           projectTreeCwd: event.payload.cwd,
           projectTree: event.payload.tree,
+        });
+        break;
+
+      case 'app.update':
+        set({
+          updateStatus: {
+            available: event.payload.available,
+            version: event.payload.version || null,
+          },
         });
         break;
 

@@ -72,6 +72,7 @@ export function Settings() {
     systemFonts,
     systemFontsLoaded,
     setFontSettings,
+    updateStatus,
   } = useAppStore();
 
   if (!showSettings) return null;
@@ -140,6 +141,7 @@ export function Settings() {
               systemFonts={systemFonts}
               systemFontsLoaded={systemFontsLoaded}
               setFontSettings={setFontSettings}
+              updateStatus={updateStatus}
             />
           )}
           {activeSettingsTab === 'mcp' && <McpSettingsContent />}
@@ -196,6 +198,7 @@ function GeneralSettingsContent({
   systemFonts,
   systemFontsLoaded,
   setFontSettings,
+  updateStatus,
 }: {
   theme: Theme;
   setTheme: (theme: Theme) => void;
@@ -208,6 +211,10 @@ function GeneralSettingsContent({
   systemFonts: SystemFontOption[];
   systemFontsLoaded: boolean;
   setFontSettings: (settings: FontSettingsPayload) => void;
+  updateStatus: {
+    available: boolean;
+    version: string | null;
+  };
 }) {
   const resolvedMode = resolveThemeMode(theme);
   const [themePickerOpen, setThemePickerOpen] = useState(false);
@@ -238,11 +245,18 @@ function GeneralSettingsContent({
   useEffect(() => {
     let cancelled = false;
 
-    window.electron
-      .getAppVersion()
-      .then((version) => {
+    Promise.all([window.electron.getAppVersion(), window.electron.getUpdateStatus()])
+      .then(([version, update]) => {
         if (!cancelled) {
           setAppVersion(version);
+          if (update.available !== updateStatus.available || update.version !== updateStatus.version) {
+            useAppStore.setState({
+              updateStatus: {
+                available: update.available,
+                version: update.version,
+              },
+            });
+          }
         }
       })
       .catch(() => {
@@ -287,9 +301,16 @@ function GeneralSettingsContent({
             type="button"
             onClick={() => void handleCheckForUpdates()}
             disabled={checkingUpdates}
-            className="h-9 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--accent-light)] px-4 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+            className="inline-flex h-9 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--accent-light)] px-4 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
           >
             {checkingUpdates ? 'Checking...' : 'Check for Updates'}
+            {updateStatus.available ? (
+              <span
+                className="inline-flex h-2 w-2 rounded-full bg-[var(--error)]"
+                title={updateStatus.version ? `Update ${updateStatus.version} available` : 'Update available'}
+                aria-label={updateStatus.version ? `Update ${updateStatus.version} available` : 'Update available'}
+              />
+            ) : null}
           </button>
         </SettingsRow>
       </SettingsSection>

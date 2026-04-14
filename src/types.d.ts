@@ -58,6 +58,7 @@ declare global {
       after?: number
     ) => Promise<import('./shared/types').SessionHistoryPayload>;
     checkForUpdates: () => Promise<{ ok: boolean }>;
+    getUpdateStatus: () => Promise<{ available: boolean; version: string | null }>;
     getClaudeModelConfig: () => Promise<ClaudeModelConfig>;
     getClaudeCompatibleProviderConfig: () => Promise<ClaudeCompatibleProvidersConfig>;
     saveClaudeCompatibleProviderConfig: (config: ClaudeCompatibleProvidersConfig) => Promise<ClaudeCompatibleProvidersConfig>;

@@ -88,6 +88,10 @@ let updaterInitialized = false;
 let devFileWatcher: fs.FSWatcher | null = null;
 let updateCheckStarted = false;
 let pendingManualUpdateCheck = false;
+let latestUpdateStatus: { available: boolean; version: string | null } = {
+  available: false,
+  version: null,
+};
 let latestUiResumeState: import('../shared/types').UiResumeState | null = null;
 let isQuitting = false;
 const RELEASES_URL = 'https://github.com/DylanDDeng/bubble-cowork/releases';
@@ -451,6 +455,20 @@ function showMainWindow(): void {
   mainWindow.focus();
 }
 
+function broadcastUpdateStatus(): void {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+    return;
+  }
+
+  mainWindow.webContents.send(
+    'server-event',
+    JSON.stringify({
+      type: 'app.update',
+      payload: latestUpdateStatus,
+    } satisfies import('../shared/types').ServerEvent)
+  );
+}
+
 function setupAutoUpdater(): void {
   if (!app.isPackaged || updaterInitialized) {
     return;
@@ -474,6 +492,11 @@ function setupAutoUpdater(): void {
   });
 
   autoUpdater.on('update-available', async (info) => {
+    latestUpdateStatus = {
+      available: true,
+      version: info?.version || null,
+    };
+    broadcastUpdateStatus();
     pendingManualUpdateCheck = false;
     const result = await dialog.showMessageBox({
       type: 'info',
@@ -490,6 +513,11 @@ function setupAutoUpdater(): void {
   });
 
   autoUpdater.on('update-not-available', () => {
+    latestUpdateStatus = {
+      available: false,
+      version: null,
+    };
+    broadcastUpdateStatus();
     const shouldNotify = pendingManualUpdateCheck;
     pendingManualUpdateCheck = false;
     if (!shouldNotify) {
@@ -653,6 +681,9 @@ app.whenReady().then(() => {
   ipcMainHandle('check-for-updates', async () => {
     checkForUpdates({ manual: true });
     return { ok: true };
+  });
+  ipcMainHandle('get-update-status', async () => {
+    return latestUpdateStatus;
   });
   ipcMainHandle('get-ui-resume-state', async () => {
     return latestUiResumeState;
