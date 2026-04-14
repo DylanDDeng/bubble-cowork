@@ -1176,60 +1176,14 @@ function GitHeaderActions({
 
   return (
     <div className="no-drag flex flex-shrink-0 items-center gap-2">
-      <button
-        type="button"
-        onClick={() => {
-          if (quickAction.kind === 'commit') {
-            setCommitMode('commit');
-            setCommitDialogOpen(true);
-            return;
-          }
-          if (quickAction.kind === 'open-pr') {
-            void handleOpenPr();
-            return;
-          }
-          if (quickAction.kind === 'create-pr') {
-            void handleCreatePr();
-            return;
-          }
-          if (quickAction.kind === 'sync') {
-            void handleSync();
-            return;
-          }
-          void handlePush();
-        }}
-        disabled={
-          commitLoading ||
-          pushLoading ||
-          prLoading ||
-          syncLoading ||
-          (quickAction.kind === 'commit' && !hasPendingChanges) ||
-          (quickAction.kind === 'push' && !canPush) ||
-          (quickAction.kind === 'create-pr' && !canCreatePr) ||
-          (quickAction.kind === 'open-pr' && !state.pr?.url)
-        }
-        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-      >
-        <quickAction.icon className="h-3.5 w-3.5" />
-        <span>
-          {quickAction.kind === 'sync' && syncLoading
-            ? 'Syncing…'
-            : quickAction.kind === 'create-pr' && prLoading
-              ? 'Creating…'
-              : quickAction.kind === 'push' && pushLoading
-                ? 'Pushing…'
-                : quickAction.label}
-        </span>
-      </button>
-
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button
             type="button"
-            className="inline-flex h-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-2 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+            className="inline-flex h-6 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
             aria-label="Git actions"
           >
-            <ChevronDown className="h-3.5 w-3.5" />
+            <ChevronDown className="h-3 w-3" />
           </button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
