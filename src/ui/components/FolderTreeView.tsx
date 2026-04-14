@@ -242,18 +242,17 @@ function SessionItem({
 
   return (
     <div
-      className={`group relative cursor-pointer rounded-xl border px-3 py-1.5 transition-colors duration-150 ${
+      className={`group relative cursor-pointer rounded-md px-3 py-1.5 transition-colors duration-150 ${
         isActive
-          ? 'shadow-[0_1px_2px_rgba(0,0,0,0.03)]'
+          ? 'text-[var(--text-primary)]'
           : menuOpen
-            ? ''
-            : 'border-transparent bg-transparent hover:bg-[var(--sidebar-item-hover)]'
+            ? 'text-[var(--text-primary)]'
+            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
       }`}
       style={{
         marginLeft: `${depth * 16}px`,
         marginBottom: '4px',
-        backgroundColor: isHighlighted ? 'var(--sidebar-item-active)' : undefined,
-        borderColor: isHighlighted ? 'var(--sidebar-item-border)' : undefined,
+        backgroundColor: isHighlighted ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : undefined,
       }}
       onClick={onClick}
     >
