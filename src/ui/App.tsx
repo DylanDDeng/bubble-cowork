@@ -1,6 +1,5 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import { Toaster, toast } from 'sonner';
-import { AnimatePresence, motion } from 'motion/react';
 import {
   Check,
   Copy,
@@ -503,27 +502,8 @@ export function App() {
     return -1;
   }, [activeSession?.messages]);
 
-  const isMacOS = useMemo(() => {
-    try {
-      return typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
-    } catch {
-      return false;
-    }
-  }, []);
-
   return (
     <div className="flex h-full bg-[var(--bg-primary)]">
-      {!showSettings && activeWorkspace === 'chat' && projectTreeCollapsed && (
-        <FloatingProjectPanelDock
-          className={isMacOS ? 'right-[14px] top-[56px]' : 'right-4 top-1/2 -translate-y-1/2'}
-          changeCount={projectChangeCount}
-          onOpen={(view) => {
-            setProjectPanelView(view);
-            setProjectTreeCollapsed(false);
-          }}
-        />
-      )}
-
       {/* Sidebar */}
       {!showSettings && <Sidebar />}
 
@@ -555,7 +535,23 @@ export function App() {
           style={{ paddingRight: 'var(--project-preview-space, 0px)' }}
         >
           {/* Top drag region */}
-          <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]" />
+          <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]">
+            <div className="flex h-full items-center justify-end px-3">
+              <InlineProjectPanelHeaderActions
+                collapsed={projectTreeCollapsed}
+                activeTab={projectPanelView}
+                changeCount={projectChangeCount}
+                onToggle={(view) => {
+                  if (!projectTreeCollapsed && projectPanelView === view) {
+                    setProjectTreeCollapsed(true);
+                    return;
+                  }
+                  setProjectPanelView(view);
+                  setProjectTreeCollapsed(false);
+                }}
+              />
+            </div>
+          </div>
 
           {/* Messages area */}
           <div ref={scrollContainerRef} className="flex-1 overflow-auto p-4 relative">
@@ -821,13 +817,15 @@ export function App() {
   );
 }
 
-function FloatingProjectPanelDock({
-  onOpen,
-  className,
+function InlineProjectPanelHeaderActions({
+  onToggle,
+  collapsed,
+  activeTab,
   changeCount,
 }: {
-  onOpen: (view: 'files' | 'changes' | 'git' | 'terminal') => void;
-  className: string;
+  onToggle: (view: 'files' | 'changes' | 'git' | 'terminal') => void;
+  collapsed: boolean;
+  activeTab: 'files' | 'changes' | 'git' | 'terminal';
   changeCount: number;
 }) {
   const items = [
@@ -854,39 +852,34 @@ function FloatingProjectPanelDock({
   ];
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0, x: 12, scale: 0.92 }}
-        animate={{ opacity: 1, x: 0, scale: 1 }}
-        exit={{ opacity: 0, x: 12, scale: 0.92 }}
-        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-        className={`fixed z-50 no-drag ${className}`}
-      >
-        <div className="flex flex-col gap-1 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-1 shadow-[0_10px_22px_rgba(15,23,42,0.10)] backdrop-blur-md">
-          {items.map((item) => {
-            const Icon = item.icon;
+    <div className="no-drag flex flex-shrink-0 items-center gap-1">
+      {items.map((item) => {
+        const Icon = item.icon;
+        const active = !collapsed && activeTab === item.id;
 
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onOpen(item.id)}
-                title={item.label}
-                aria-label={`Open ${item.label} panel`}
-                className="relative flex h-8 w-8 items-center justify-center rounded-[var(--radius-lg)] border border-transparent bg-transparent text-[var(--text-secondary)] transition-[background-color,border-color,color,transform,box-shadow] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:scale-[1.01] hover:border-[var(--border)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]"
-              >
-                <Icon className="h-[14px] w-[14px]" aria-hidden="true" />
-                {item.id === 'changes' && changeCount > 0 ? (
-                  <span className="absolute -right-1 -top-1 min-w-[16px] rounded-full bg-[var(--accent)] px-1 text-center text-[10px] font-semibold leading-4 text-[var(--accent-foreground)] shadow-[0_4px_10px_rgba(15,23,42,0.16)]">
-                    {changeCount > 99 ? '99+' : changeCount}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-      </motion.div>
-    </AnimatePresence>
+        return (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onToggle(item.id)}
+            title={item.label}
+            aria-label={`Open ${item.label} panel`}
+            className={`inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] font-medium transition-colors ${
+              active
+                ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+                : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <Icon className="h-[13px] w-[13px] shrink-0" aria-hidden="true" />
+            {item.id === 'changes' && changeCount > 0 ? (
+              <span className="inline-flex min-w-[16px] items-center justify-center rounded-full bg-[var(--accent)] px-1 text-center text-[10px] font-semibold leading-4 text-[var(--accent-foreground)]">
+                {changeCount > 99 ? '99+' : changeCount}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
