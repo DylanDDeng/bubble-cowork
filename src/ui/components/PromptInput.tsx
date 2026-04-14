@@ -846,7 +846,8 @@ export function PromptInput() {
   return (
     <div className="bg-transparent">
       <div className="mx-auto max-w-4xl">
-        <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-[var(--radius-2xl)] shadow-sm transition-colors">
+        <div className="group rounded-[28px] bg-[var(--border)]/70 p-px shadow-sm transition-colors duration-200 focus-within:bg-[var(--text-muted)]/30">
+          <div className="rounded-[26px] border border-[var(--border)]/80 bg-[var(--bg-secondary)] transition-colors duration-200">
           {attachments.length > 0 && (
             <div className="px-5 pt-4">
               <AttachmentChips
@@ -906,8 +907,8 @@ export function PromptInput() {
                 : 'Start a new session...'
             }
             disabled={isBusy}
-            className={`w-full bg-transparent px-5 pb-3 text-[14px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50 ${
-              skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-1.5' : 'pt-4'
+            className={`w-full bg-transparent px-4 pb-1 text-[14px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50 ${
+              skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-2' : 'pt-3'
             }`}
             autoFocus={false}
           />
@@ -932,8 +933,9 @@ export function PromptInput() {
             />
           )}
 
-          <div className="flex items-center gap-2 px-4 pb-4">
-            <AgentModelPicker
+          <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
+            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
+              <AgentModelPicker
               provider={provider}
               onProviderChange={(next) => {
                 setProvider(next);
@@ -987,8 +989,8 @@ export function PromptInput() {
               }}
             />
 
-            {provider === 'codex' && (
-              <div className="flex items-center gap-4">
+              {provider === 'codex' && (
+                <div className="flex items-center gap-3">
                 <CodexReasoningEffortPicker
                   value={selectedCodexReasoningEffort}
                   options={codexReasoningOptions}
@@ -1008,76 +1010,70 @@ export function PromptInput() {
                     disabled={isBusy}
                   />
                 )}
-              </div>
-            )}
+                </div>
+              )}
 
-            <SavePromptButton content={promptLibraryContent} disabled={isBusy} />
+              <SavePromptButton content={promptLibraryContent} disabled={isBusy} />
 
-            <div className="relative">
-              <button
+              <div className="relative">
+                <button
                 onClick={() => setMenuOpen((v) => !v)}
                 disabled={isBusy}
-                className="p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-all duration-150 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
                 title="Add"
                 aria-label="Add"
               >
-                <Plus className="w-5 h-5" />
-              </button>
+                  <Plus className="h-4 w-4" />
+                </button>
 
-              {menuOpen && !isBusy && (
-                <>
-                  <div
-                    className="fixed inset-0 z-20"
-                    onClick={() => setMenuOpen(false)}
-                  />
-                  <div className="absolute bottom-full mb-2 left-0 z-30 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-lg p-1 min-w-[220px]">
-
-                    <button
-                      onClick={async () => {
-                        setMenuOpen(false);
-                        await handleAddAttachments();
-                      }}
-                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors text-sm text-[var(--text-primary)]"
-                    >
-                      <Paperclip className="w-4 h-4" />
-                      <span>Add files or photos</span>
-                    </button>
-                  </div>
-                </>
+                {menuOpen && !isBusy && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-20"
+                      onClick={() => setMenuOpen(false)}
+                    />
+                    <div className="absolute bottom-full mb-2 left-0 z-30 min-w-[220px] rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-lg">
+                      <button
+                        onClick={async () => {
+                          setMenuOpen(false);
+                          await handleAddAttachments();
+                        }}
+                        className="w-full rounded-lg px-3 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                      >
+                        <span className="flex items-center gap-3">
+                          <Paperclip className="h-4 w-4" />
+                          <span>Add files or photos</span>
+                        </span>
+                      </button>
+                    </div>
+                  </>
                 )}
               </div>
-            <div className="flex-1" />
+            </div>
 
-            {isRunning ? (
-              <button
+            <div className="flex shrink-0 items-center gap-2">
+              {isRunning ? (
+                <button
                 onClick={handleStop}
-                className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-xl)] border border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105"
                 title="Stop"
                 aria-label="Stop"
               >
-                <Square className="h-3 w-3" fill="currentColor" />
-              </button>
-            ) : (
+                  <Square className="h-2.5 w-2.5" fill="currentColor" />
+                </button>
+              ) : (
               <button
                 onClick={handleSend}
                 disabled={(!prompt.trim() && attachments.length === 0) || isBusy}
-                className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-xl)] transition-colors disabled:cursor-not-allowed"
-                style={{
-                  backgroundColor:
-                    (!prompt.trim() && attachments.length === 0) || isBusy
-                      ? 'var(--text-muted)'
-                      : 'var(--accent)',
-                  color:
-                    (!prompt.trim() && attachments.length === 0) || isBusy
-                      ? 'var(--bg-primary)'
-                      : 'var(--accent-foreground)'
-                }}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-20 disabled:hover:scale-100"
                 title="Send"
                 aria-label="Send"
               >
-                <ArrowUpIcon />
-              </button>
-            )}
+                  <ArrowUpIcon />
+                </button>
+              )}
+            </div>
+          </div>
           </div>
         </div>
         {(provider === 'claude' || provider === 'codex' || provider === 'opencode') && (

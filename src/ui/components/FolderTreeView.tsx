@@ -238,21 +238,19 @@ function SessionItem({
   const [menuOpen, setMenuOpen] = useState(false);
   const currentTodoState = session.todoState || 'todo';
   const currentStatusConfig = statusConfigs.find(s => s.id === currentTodoState);
-  const isHighlighted = isActive || menuOpen;
 
   return (
     <div
       className={`group relative cursor-pointer rounded-md px-3 py-1.5 transition-colors duration-150 ${
         isActive
-          ? 'text-[var(--text-primary)]'
+          ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]'
           : menuOpen
-            ? 'text-[var(--text-primary)]'
-            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]'
+            : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
       }`}
       style={{
         marginLeft: `${depth * 16}px`,
         marginBottom: '4px',
-        backgroundColor: isHighlighted ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : undefined,
       }}
       onClick={onClick}
     >

@@ -709,7 +709,8 @@ export function NewSessionView() {
 
             {/* Composer */}
             <div className="mx-auto max-w-4xl">
-              <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-[var(--radius-2xl)] shadow-sm transition-colors">
+              <div className="group rounded-[28px] bg-[var(--border)]/70 p-px shadow-sm transition-colors duration-200 focus-within:bg-[var(--text-muted)]/30">
+              <div className="rounded-[26px] border border-[var(--border)]/80 bg-[var(--bg-secondary)] transition-colors duration-200">
               {attachments.length > 0 && (
                 <div className="px-5 pt-4">
                   <AttachmentChips
@@ -762,8 +763,8 @@ export function NewSessionView() {
                       ? `Add instructions for ${skillAutocomplete.selectedCommand.title.replace(/^\//, '')}...`
                     : 'Describe your task...'
                 }
-                className={`w-full bg-transparent px-5 pb-3 text-[14px] outline-none resize-none no-drag max-h-[200px] ${
-                  skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-1.5 min-h-[56px]' : 'pt-4 min-h-[56px]'
+                className={`w-full bg-transparent px-4 pb-1 text-[14px] outline-none resize-none no-drag max-h-[200px] ${
+                  skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-2 min-h-[56px]' : 'pt-3 min-h-[56px]'
                 }`}
                 autoFocus
               />
@@ -789,7 +790,8 @@ export function NewSessionView() {
               )}
 
               {/* 底部工具栏 */}
-              <div className="flex items-center gap-2 px-4 pb-4">
+              <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
+              <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
               <AgentModelPicker
                 provider={provider}
                 onProviderChange={handleProviderChange}
@@ -837,7 +839,7 @@ export function NewSessionView() {
             />
 
               {provider === 'codex' && (
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                   <CodexReasoningEffortPicker
                     value={selectedCodexReasoningEffort}
                     options={codexReasoningOptions}
@@ -866,7 +868,7 @@ export function NewSessionView() {
                 <button
                   onClick={() => setMenuOpen((v) => !v)}
                   disabled={pendingStart}
-                  className="p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-all duration-150 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
                   title="Add"
                   aria-label="Add"
                 >
@@ -894,15 +896,12 @@ export function NewSessionView() {
                   </>
                 )}
               </div>
-              <div className="flex-1" />
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
               <button
                 onClick={handleStart}
                 disabled={!canStartTask}
-                className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-xl)] transition-colors no-drag disabled:cursor-not-allowed"
-                style={{
-                  backgroundColor: !canStartTask ? 'var(--text-muted)' : 'var(--accent)',
-                  color: !canStartTask ? 'var(--bg-primary)' : 'var(--accent-foreground)'
-                }}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105 no-drag disabled:cursor-not-allowed disabled:opacity-20 disabled:hover:scale-100"
               >
                 {pendingStart ? (
                   <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -910,6 +909,8 @@ export function NewSessionView() {
                   <ArrowUpIcon />
                 )}
               </button>
+              </div>
+              </div>
               </div>
               </div>
               {(provider === 'claude' || provider === 'codex' || provider === 'opencode') && (
