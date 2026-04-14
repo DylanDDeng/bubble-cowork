@@ -18,6 +18,12 @@ export interface ComposerPromptEditorHandle {
   setCursorIndex: (index: number) => void;
 }
 
+export interface ComposerPasteContext {
+  text: string;
+  start: number;
+  end: number;
+}
+
 function basenameOfPath(path: string): string {
   const normalized = path.replace(/\\/g, '/');
   const parts = normalized.split('/');
@@ -281,6 +287,7 @@ export const ComposerPromptEditor = forwardRef<
     value: string;
     cursorIndex: number;
     onChange: (value: string, cursorIndex: number) => void;
+    onPasteText?: (context: ComposerPasteContext) => boolean | void;
     onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
     onCompositionStart?: () => void;
     onCompositionEnd?: () => void;
@@ -367,7 +374,17 @@ export const ComposerPromptEditor = forwardRef<
     const text = event.clipboardData.getData('text/plain');
     if (!text) return;
     event.preventDefault();
-    insertTextAtCursor(text.replace(/\r\n/g, '\n').replace(/\r/g, '\n'));
+    const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const context = {
+      text: normalized,
+      start: props.cursorIndex,
+      end: props.cursorIndex,
+    };
+    const handled = props.onPasteText?.(context);
+    if (handled === true) {
+      return;
+    }
+    insertTextAtCursor(normalized);
   };
 
   return (

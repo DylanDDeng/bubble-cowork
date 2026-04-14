@@ -768,6 +768,38 @@ export function PromptInput() {
     await autoConvertComposerTextToAttachment(value, nextCursorIndex);
   };
 
+  const handleLongPaste = useCallback(async (
+    context: { text: string; start: number; end: number }
+  ): Promise<boolean> => {
+    const pastedText = context.text.trim();
+    if (pastedText.length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
+      return false;
+    }
+
+    const promptWithAttachment = await maybeConvertLongPromptToAttachment({
+      cwd: activeSession?.cwd || null,
+      prompt: pastedText,
+      attachments,
+    });
+
+    if (!promptWithAttachment.converted) {
+      if (promptWithAttachment.reason === 'attachment_create_failed') {
+        toast.error('Failed to convert the long message into an attachment.');
+      }
+      return false;
+    }
+
+    const nextPrompt = `${prompt.slice(0, context.start)}${prompt.slice(context.end)}`;
+    setAttachments(promptWithAttachment.attachments);
+    skillAutocomplete.setDisplayPrompt(nextPrompt);
+    setCursorIndex(context.start);
+    window.requestAnimationFrame(() => {
+      editorRef.current?.focus();
+      editorRef.current?.setCursorIndex(context.start);
+    });
+    return true;
+  }, [activeSession?.cwd, attachments, prompt, skillAutocomplete]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (isImeComposingEvent(e, isComposingRef)) {
       return;
@@ -885,6 +917,9 @@ export function PromptInput() {
             cursorIndex={cursorIndex}
             onChange={(value, nextCursorIndex) => {
               void handlePromptChange(value, nextCursorIndex);
+            }}
+            onPasteText={(context) => {
+              void handleLongPaste(context);
             }}
             onCompositionStart={() => {
               isComposingRef.current = true;
