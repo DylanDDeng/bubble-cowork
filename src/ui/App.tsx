@@ -114,7 +114,7 @@ export function App() {
   const pendingAutoPreviewSessionsRef = useRef(new Set<string>());
   const autoPreviewedArtifactsRef = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
-  const [projectChangeCount, setProjectChangeCount] = useState(0);
+  const [projectChangeStats, setProjectChangeStats] = useState({ insertions: 0, deletions: 0 });
   const [highlightedHistoryAnchor, setHighlightedHistoryAnchor] = useState<string | null>(null);
   const historyHighlightTimerRef = useRef<number | null>(null);
 
@@ -221,6 +221,55 @@ export function App() {
       sendEvent({ type: 'mcp.get-config' });
     }
   }, [connected]);
+
+  useEffect(() => {
+    const cwd = (activeSession?.cwd || projectCwd || '').trim();
+    if (!cwd) {
+      setProjectChangeStats({ insertions: 0, deletions: 0 });
+      return;
+    }
+
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const summary = await window.electron.getGitWorkingTreeSummary(cwd);
+        if (cancelled) {
+          return;
+        }
+
+        if (!summary.ok) {
+          setProjectChangeStats({ insertions: 0, deletions: 0 });
+          return;
+        }
+
+        setProjectChangeStats({
+          insertions: summary.insertions || 0,
+          deletions: summary.deletions || 0,
+        });
+      } catch {
+        if (!cancelled) {
+          setProjectChangeStats({ insertions: 0, deletions: 0 });
+        }
+      }
+    };
+
+    void load();
+    const interval = window.setInterval(() => {
+      void load();
+    }, 60_000);
+
+    const handleFocus = () => {
+      void load();
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [activeSession?.cwd, activeSession?.messages.length, activeSession?.status, projectCwd]);
 
   useEffect(() => {
     void window.electron.saveUiResumeState({
@@ -540,7 +589,7 @@ export function App() {
               <InlineProjectPanelHeaderActions
                 collapsed={projectTreeCollapsed}
                 activeTab={projectPanelView}
-                changeCount={projectChangeCount}
+                changeStats={projectChangeStats}
                 onToggle={(view) => {
                   if (!projectTreeCollapsed && projectPanelView === view) {
                     setProjectTreeCollapsed(true);
@@ -766,7 +815,6 @@ export function App() {
           activeTab={projectPanelView}
           onChangeTab={setProjectPanelView}
           onClose={() => setProjectTreeCollapsed(true)}
-          onChangeCountChange={setProjectChangeCount}
         />
       )}
 
@@ -821,12 +869,12 @@ function InlineProjectPanelHeaderActions({
   onToggle,
   collapsed,
   activeTab,
-  changeCount,
+  changeStats,
 }: {
   onToggle: (view: 'files' | 'changes' | 'git' | 'terminal') => void;
   collapsed: boolean;
   activeTab: 'files' | 'changes' | 'git' | 'terminal';
-  changeCount: number;
+  changeStats: { insertions: number; deletions: number };
 }) {
   const items = [
     {
@@ -853,7 +901,14 @@ function InlineProjectPanelHeaderActions({
 
   return (
     <div className="no-drag flex flex-shrink-0 items-center gap-1">
-      {items.map((item) => {
+      {items
+        .filter(
+          (item) =>
+            item.id !== 'changes' ||
+            changeStats.insertions > 0 ||
+            changeStats.deletions > 0
+        )
+        .map((item) => {
         const Icon = item.icon;
         const active = !collapsed && activeTab === item.id;
 
@@ -870,12 +925,22 @@ function InlineProjectPanelHeaderActions({
                 : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
             }`}
           >
-            <Icon className="h-[13px] w-[13px] shrink-0" aria-hidden="true" />
-            {item.id === 'changes' && changeCount > 0 ? (
-              <span className="inline-flex min-w-[16px] items-center justify-center rounded-full bg-[var(--accent)] px-1 text-center text-[10px] font-semibold leading-4 text-[var(--accent-foreground)]">
-                {changeCount > 99 ? '99+' : changeCount}
+            {item.id === 'changes' ? (
+              <span className="inline-flex items-center gap-1">
+                {changeStats.insertions > 0 ? (
+                  <span className="font-mono text-[10px] font-medium tabular-nums text-emerald-600">
+                    +{changeStats.insertions}
+                  </span>
+                ) : null}
+                {changeStats.deletions > 0 ? (
+                  <span className="font-mono text-[10px] font-medium tabular-nums text-[var(--error)]">
+                    -{changeStats.deletions}
+                  </span>
+                ) : null}
               </span>
-            ) : null}
+            ) : (
+              <Icon className="h-[13px] w-[13px] shrink-0" aria-hidden="true" />
+            )}
           </button>
         );
       })}

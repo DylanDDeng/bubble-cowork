@@ -2379,6 +2379,29 @@ function parseGitStatusEntries(stdout: string): Array<{ filePath: string; status
   return entries;
 }
 
+function parseGitNumstat(stdout: string): { insertions: number; deletions: number } {
+  let insertions = 0;
+  let deletions = 0;
+
+  for (const line of stdout.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    const [addedRaw, removedRaw] = trimmed.split('\t');
+    const added = Number(addedRaw);
+    const removed = Number(removedRaw);
+
+    if (Number.isFinite(added)) {
+      insertions += added;
+    }
+    if (Number.isFinite(removed)) {
+      deletions += removed;
+    }
+  }
+
+  return { insertions, deletions };
+}
+
 // 初始化 IPC 处理器
 export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // 初始化数据库
@@ -3191,6 +3214,58 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       return { ok: true, error: null, entries };
     } catch {
       return { ok: false, error: 'git-error', entries: [] };
+    }
+  });
+
+  ipcMainHandle('get-git-working-tree-summary', async (_event, cwd: string) => {
+    if (!cwd) {
+      return { ok: false, error: 'no-cwd', insertions: 0, deletions: 0 };
+    }
+
+    try {
+      await execFileAsync('git', ['rev-parse', '--git-dir'], { cwd, timeout: 5000 });
+    } catch {
+      return { ok: false, error: 'not-a-repo', insertions: 0, deletions: 0 };
+    }
+
+    try {
+      const [trackedDiff, untrackedFiles] = await Promise.all([
+        execFileAsync('git', ['diff', '--numstat', 'HEAD', '--'], {
+          cwd,
+          timeout: 10000,
+          maxBuffer: 2 * 1024 * 1024,
+        }),
+        execFileAsync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+          cwd,
+          timeout: 10000,
+          maxBuffer: 2 * 1024 * 1024,
+        }),
+      ]);
+
+      let { insertions, deletions } = parseGitNumstat(trackedDiff.stdout);
+      const untrackedPaths = untrackedFiles.stdout.split('\0').map((item) => item.trim()).filter(Boolean);
+
+      for (const filePath of untrackedPaths) {
+        try {
+          await execFileAsync('git', ['diff', '--no-index', '--numstat', '/dev/null', filePath], {
+            cwd,
+            timeout: 10000,
+            maxBuffer: 2 * 1024 * 1024,
+          });
+        } catch (error: unknown) {
+          const stdout =
+            error && typeof error === 'object' && 'stdout' in error
+              ? String((error as { stdout?: unknown }).stdout ?? '')
+              : '';
+          const stats = parseGitNumstat(stdout);
+          insertions += stats.insertions;
+          deletions += stats.deletions;
+        }
+      }
+
+      return { ok: true, error: null, insertions, deletions };
+    } catch {
+      return { ok: false, error: 'git-error', insertions: 0, deletions: 0 };
     }
   });
 

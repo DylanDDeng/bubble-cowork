@@ -204,13 +204,11 @@ export function ProjectTreePanel({
   activeTab,
   onChangeTab,
   onClose,
-  onChangeCountChange,
 }: {
   collapsed?: boolean;
   activeTab: 'files' | 'changes' | 'git' | 'terminal';
   onChangeTab: (tab: 'files' | 'changes' | 'git' | 'terminal') => void;
   onClose: () => void;
-  onChangeCountChange?: (count: number) => void;
 }) {
   const MIN_CHANGES_SPINNER_MS = 450;
   const defaultRailWidth = 320;
@@ -434,10 +432,6 @@ export function ProjectTreePanel({
       setGitError(null);
     }
   }, [cwd, messageCount, sessionStatus, shouldRefreshChangeRecords]);
-
-  useEffect(() => {
-    onChangeCountChange?.(changeRecords.length);
-  }, [changeRecords.length, onChangeCountChange]);
 
   const stagedGitEntries = useMemo(
     () => gitEntries.filter((entry) => entry.staged),
