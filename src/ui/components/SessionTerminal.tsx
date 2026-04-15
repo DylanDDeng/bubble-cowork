@@ -300,30 +300,30 @@ export function SessionTerminal({
 
   return (
     <section className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-3">
-        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
+      <div className="flex min-w-0 items-stretch border-b border-[var(--border)]/70 bg-[var(--bg-primary)]">
+        <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {tabs.map((tab) => {
             const active = tab.id === activeTabId;
             return (
               <div
                 key={tab.id}
-                className={`group flex items-center gap-1 rounded-[var(--radius-lg)] border px-2.5 py-1.5 text-[12px] transition-colors ${
+                className={`group relative flex h-8 shrink-0 items-stretch border-r border-[var(--border)]/70 px-0 text-[12px] transition-colors ${
                   active
-                    ? 'border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
-                    : 'border-transparent bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+                    ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-[inset_0_1px_0_color-mix(in_srgb,var(--accent)_65%,transparent)]'
+                    : 'border-b border-[var(--border)]/70 bg-[var(--bg-secondary)]/35 text-[var(--text-secondary)] hover:bg-[var(--bg-primary)]/70 hover:text-[var(--text-primary)]'
                 }`}
               >
                 <button
                   type="button"
                   onClick={() => setActiveTabId(tab.id)}
-                  className="whitespace-nowrap"
+                  className="flex min-w-0 items-center px-2 text-left"
                 >
-                  {tab.label}
+                  <span className="max-w-[160px] truncate text-[11px] leading-4">{tab.label}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleCloseTab(tab.id)}
-                  className="rounded p-0.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]"
+                  className="inline-flex w-6 items-center justify-center text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-primary)]/55 hover:text-[var(--text-primary)]"
                   aria-label={`Close ${tab.label}`}
                 >
                   <X className="h-3 w-3" />
@@ -331,16 +331,17 @@ export function SessionTerminal({
               </div>
             );
           })}
+          <button
+            type="button"
+            onClick={handleAddTab}
+            disabled={!canStart}
+            className="inline-flex h-8 shrink-0 items-center justify-center border-b border-r border-[var(--border)]/70 px-2 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-primary)]/70 hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="New terminal"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+          <div className="min-w-0 flex-1 border-b border-[var(--border)]/70" />
         </div>
-        <button
-          type="button"
-          onClick={handleAddTab}
-          disabled={!canStart}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-lg)] border border-[var(--border)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label="New terminal"
-        >
-          <Plus className="h-4 w-4" />
-        </button>
       </div>
 
       {!canStart ? (
@@ -348,7 +349,7 @@ export function SessionTerminal({
           Select a project folder in the current session to use the terminal.
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-hidden bg-[var(--bg-secondary)] px-3 py-3">
+        <div className="min-h-0 flex-1 overflow-hidden bg-[var(--bg-primary)]">
           <div
             ref={containerRef}
             onMouseDown={() => {
@@ -358,7 +359,7 @@ export function SessionTerminal({
             onClick={() => {
               terminalRef.current?.focus();
             }}
-            className="h-full w-full overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-2"
+            className="h-full w-full overflow-hidden bg-[var(--bg-primary)] px-2 py-2"
           />
         </div>
       )}
