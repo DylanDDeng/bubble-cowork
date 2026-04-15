@@ -9,6 +9,7 @@ import {
   FileDiff,
   Files,
   FolderOpen,
+  ExternalLink,
   GitBranch,
   GitCommit,
   GitPullRequest,
