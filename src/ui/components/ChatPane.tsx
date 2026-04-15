@@ -347,7 +347,11 @@ export function ChatPane({
           ? 'ring-1 ring-[color-mix(in_srgb,var(--accent)_20%,transparent)] shadow-[inset_0_1px_0_color-mix(in_srgb,var(--accent)_10%,transparent)]'
           : 'bg-[color-mix(in_srgb,var(--bg-primary)_96%,var(--bg-secondary))]'
       }`}
-      onMouseDown={onActivate}
+      onMouseDown={() => {
+        if (!isActive) {
+          onActivate();
+        }
+      }}
       onDragOver={(event) => {
         if (onDropSession) {
           event.preventDefault();
