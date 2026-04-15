@@ -10,6 +10,7 @@ export function WorkspaceHost({
 }) {
   const {
     chatLayoutMode,
+    activeSessionId,
     activePaneId,
     chatPanes,
     chatSplitRatio,
@@ -28,11 +29,15 @@ export function WorkspaceHost({
   const secondaryBasis = useMemo(() => `${(1 - chatSplitRatio) * 100}%`, [chatSplitRatio]);
 
   const applyDroppedSession = (paneId: 'primary' | 'secondary', sessionId: string) => {
-    const currentPrimary = chatPanes.primary.sessionId;
+    const currentPrimary =
+      chatLayoutMode === 'single'
+        ? activeSessionId
+        : chatPanes.primary.sessionId;
 
     if (chatLayoutMode === 'single') {
       useAppStore.setState({
         chatLayoutMode: 'split',
+        savedSplitVisible: true,
         activePaneId: paneId,
         activeSessionId: sessionId,
         showNewSession: false,
@@ -181,7 +186,7 @@ export function WorkspaceHost({
       >
         <ChatPane
           paneId="primary"
-          sessionId={chatPanes.primary.sessionId}
+          sessionId={activeSessionId}
           isActive={activePaneId === 'primary'}
           onActivate={() => setActivePane('primary')}
           codexModelConfig={codexModelConfig}

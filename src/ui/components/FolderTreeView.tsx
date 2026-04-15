@@ -17,8 +17,13 @@ type ProjectGroup = {
   sessions: SessionView[];
 };
 
+type SplitPairState = {
+  primary: SessionView;
+  secondary: SessionView;
+};
+
 interface ProjectTreeViewProps {
-  onSessionClick: (sessionId: string) => void;
+  onSessionClick: (sessionId: string, options?: { preserveSplit?: boolean }) => void;
   onSessionDelete: (sessionId: string) => void;
   onCopyResume: (session: SessionView) => void;
   onNewSessionForProject: (cwd: string) => void;
@@ -60,20 +65,46 @@ export function FolderTreeView({
     sessions,
     activeSessionId,
     activePaneId,
-    chatLayoutMode,
+    savedSplitVisible,
+    setChatLayoutMode,
     chatPanes,
+    setActivePane,
     sidebarSearchQuery,
     statusFilter,
     statusConfigs,
   } = useAppStore();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
 
+  const splitPair = useMemo<SplitPairState | null>(() => {
+    if (!savedSplitVisible) {
+      return null;
+    }
+
+    const primarySessionId = chatPanes.primary.sessionId;
+    const secondarySessionId = chatPanes.secondary.sessionId;
+    if (!primarySessionId || !secondarySessionId || primarySessionId === secondarySessionId) {
+      return null;
+    }
+
+    const primary = sessions[primarySessionId];
+    const secondary = sessions[secondarySessionId];
+    if (!primary || !secondary || primary.hiddenFromThreads || secondary.hiddenFromThreads) {
+      return null;
+    }
+
+    return { primary, secondary };
+  }, [savedSplitVisible, chatPanes.primary.sessionId, chatPanes.secondary.sessionId, sessions]);
+
   const projectGroups = useMemo(() => {
     let sessionList = Object.values(sessions).filter(
       (session) => !session.hiddenFromThreads && session.source !== 'claude_code'
     );
 
-    // 搜索过滤
+    if (splitPair) {
+      const hiddenIds = new Set([splitPair.secondary.id]);
+      sessionList = sessionList.filter((session) => !hiddenIds.has(session.id));
+    }
+
     if (sidebarSearchQuery.trim()) {
       const query = sidebarSearchQuery.toLowerCase();
       sessionList = sessionList.filter(
@@ -83,16 +114,15 @@ export function FolderTreeView({
       );
     }
 
-    // 状态过滤
     if (statusFilter !== 'all') {
       if (statusFilter === 'open') {
-        const openIds = new Set(statusConfigs.filter(s => s.category === 'open').map(s => s.id));
-        sessionList = sessionList.filter(s => openIds.has(s.todoState || 'todo'));
+        const openIds = new Set(statusConfigs.filter((s) => s.category === 'open').map((s) => s.id));
+        sessionList = sessionList.filter((s) => openIds.has(s.todoState || 'todo'));
       } else if (statusFilter === 'closed') {
-        const closedIds = new Set(statusConfigs.filter(s => s.category === 'closed').map(s => s.id));
-        sessionList = sessionList.filter(s => closedIds.has(s.todoState || 'todo'));
+        const closedIds = new Set(statusConfigs.filter((s) => s.category === 'closed').map((s) => s.id));
+        sessionList = sessionList.filter((s) => closedIds.has(s.todoState || 'todo'));
       } else {
-        sessionList = sessionList.filter(s => (s.todoState || 'todo') === statusFilter);
+        sessionList = sessionList.filter((s) => (s.todoState || 'todo') === statusFilter);
       }
     }
 
@@ -128,7 +158,7 @@ export function FolderTreeView({
         const rightLatest = right.sessions[0]?.updatedAt || 0;
         return rightLatest - leftLatest;
       });
-  }, [sessions, sidebarSearchQuery, statusFilter, statusConfigs]);
+  }, [sessions, sidebarSearchQuery, splitPair, statusFilter, statusConfigs]);
 
   const isExpanded = (key: string) => !collapsedGroups.has(key);
 
@@ -179,36 +209,52 @@ export function FolderTreeView({
               )}
             </div>
 
-            {expanded && group.sessions.map((session) => {
-              const isSessionActive = activeSessionId === session.id;
-              const isInPrimaryPane = chatPanes.primary.sessionId === session.id;
-              const isInSecondaryPane = chatPanes.secondary.sessionId === session.id;
+            {expanded &&
+              group.sessions.map((session) => {
+                if (splitPair && session.id === splitPair.primary.id) {
+                  return (
+                    <SplitSessionRow
+                      key={`split:${splitPair.primary.id}:${splitPair.secondary.id}`}
+                      primary={splitPair.primary}
+                      secondary={splitPair.secondary}
+                      activePaneId={activePaneId}
+                      statusConfigs={statusConfigs}
+                      depth={1}
+                      onOpenPrimary={() => {
+                        setChatLayoutMode('split');
+                        setActivePane('primary');
+                      }}
+                      onOpenSecondary={() => {
+                        setChatLayoutMode('split');
+                        setActivePane('secondary');
+                      }}
+                    />
+                  );
+                }
 
-              return (
-                <SessionItem
-                  key={session.id}
-                  session={session}
-                  isActive={isSessionActive}
-                  isInPrimaryPane={isInPrimaryPane}
-                  isInSecondaryPane={isInSecondaryPane}
-                  activePaneId={activePaneId}
-                  splitActive={chatLayoutMode === 'split'}
-                  runtimeBadge={
-                    session.runtimeNotice
-                      ? session.runtimeNotice
-                      : !isSessionActive && session.status === 'running'
-                      ? 'running'
-                      : null
-                  }
-                  statusConfigs={statusConfigs}
-                  depth={1}
-                  onClick={() => onSessionClick(session.id)}
-                  onDelete={() => onSessionDelete(session.id)}
-                  onCopyResume={() => onCopyResume(session)}
-                  onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
-                />
-              );
-            })}
+                const isSessionActive = activeSessionId === session.id;
+
+                return (
+                  <SessionItem
+                    key={session.id}
+                    session={session}
+                    isActive={isSessionActive}
+                    runtimeBadge={
+                      session.runtimeNotice
+                        ? session.runtimeNotice
+                        : !isSessionActive && session.status === 'running'
+                          ? 'running'
+                          : null
+                    }
+                    statusConfigs={statusConfigs}
+                    depth={1}
+                    onClick={() => onSessionClick(session.id)}
+                    onDelete={() => onSessionDelete(session.id)}
+                    onCopyResume={() => onCopyResume(session)}
+                    onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
+                  />
+                );
+              })}
           </div>
         );
       })}
@@ -222,14 +268,9 @@ export function FolderTreeView({
   );
 }
 
-// SessionItem 组件
 function SessionItem({
   session,
   isActive,
-  isInPrimaryPane,
-  isInSecondaryPane,
-  activePaneId,
-  splitActive,
   runtimeBadge,
   statusConfigs,
   depth,
@@ -240,10 +281,6 @@ function SessionItem({
 }: {
   session: SessionView;
   isActive: boolean;
-  isInPrimaryPane: boolean;
-  isInSecondaryPane: boolean;
-  activePaneId: 'primary' | 'secondary';
-  splitActive: boolean;
   runtimeBadge: 'running' | 'completed' | 'error' | null;
   statusConfigs: StatusConfig[];
   depth: number;
@@ -254,15 +291,7 @@ function SessionItem({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const currentTodoState = session.todoState || 'todo';
-  const currentStatusConfig = statusConfigs.find(s => s.id === currentTodoState);
-  const paneBadge =
-    splitActive && isInPrimaryPane && isInSecondaryPane
-      ? 'both'
-      : splitActive && isInPrimaryPane
-        ? 'left'
-        : splitActive && isInSecondaryPane
-          ? 'right'
-          : null;
+  const currentStatusConfig = statusConfigs.find((s) => s.id === currentTodoState);
 
   return (
     <div
@@ -276,10 +305,6 @@ function SessionItem({
       style={{
         marginLeft: `${depth * 16}px`,
         marginBottom: '4px',
-        boxShadow:
-          splitActive && isActive
-            ? 'inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent)'
-            : undefined,
       }}
       draggable
       onDragStart={(event) => {
@@ -293,28 +318,13 @@ function SessionItem({
         <span className="flex-shrink-0 text-[var(--text-muted)]">
           <ProviderGlyph provider={session.provider} />
         </span>
-        {currentStatusConfig && (
-          <StatusIcon status={currentStatusConfig} className="flex-shrink-0" />
-        )}
+        {currentStatusConfig && <StatusIcon status={currentStatusConfig} className="flex-shrink-0" />}
         {session.pinned && (
           <span className="flex-shrink-0 text-[var(--text-muted)]">
             <Pin className="w-3.5 h-3.5" />
           </span>
         )}
         <span className="flex-1 truncate text-[14px] font-medium leading-[1.3]">{session.title}</span>
-        {paneBadge ? (
-          <span
-            className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] ${
-              paneBadge === 'both'
-                ? 'bg-[var(--accent-light)] text-[var(--text-primary)]'
-                : paneBadge === activePaneId
-                  ? 'bg-[var(--accent-light)] text-[var(--text-primary)]'
-                  : 'bg-[var(--bg-secondary)] text-[var(--text-muted)]'
-            }`}
-          >
-            {paneBadge}
-          </span>
-        ) : null}
         {session.source === 'claude_code' && (
           <span className="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--text-secondary)]">
             Claude Code
@@ -388,6 +398,73 @@ function SessionItem({
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
+    </div>
+  );
+}
+
+function SplitSessionRow({
+  primary,
+  secondary,
+  activePaneId,
+  statusConfigs,
+  depth,
+  onOpenPrimary,
+  onOpenSecondary,
+}: {
+  primary: SessionView;
+  secondary: SessionView;
+  activePaneId: 'primary' | 'secondary';
+  statusConfigs: StatusConfig[];
+  depth: number;
+  onOpenPrimary: () => void;
+  onOpenSecondary: () => void;
+}) {
+  const primaryStatus = statusConfigs.find((status) => status.id === (primary.todoState || 'todo'));
+  const secondaryStatus = statusConfigs.find((status) => status.id === (secondary.todoState || 'todo'));
+
+  const rowBase =
+    'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition-colors';
+
+  return (
+    <div
+      className="group relative overflow-hidden rounded-md"
+      style={{
+        marginLeft: `${depth * 16}px`,
+        marginBottom: '4px',
+      }}
+    >
+      <button
+        type="button"
+        onClick={onOpenPrimary}
+        className={`${rowBase} ${
+          activePaneId === 'primary'
+            ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+            : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+        }`}
+      >
+        <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">
+          left
+        </span>
+        <ProviderGlyph provider={primary.provider} />
+        {primaryStatus ? <StatusIcon status={primaryStatus} className="flex-shrink-0" /> : null}
+        <span className="min-w-0 flex-1 truncate font-medium">{primary.title}</span>
+      </button>
+      <button
+        type="button"
+        onClick={onOpenSecondary}
+        className={`${rowBase} border-t border-[var(--border)] ${
+          activePaneId === 'secondary'
+            ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+            : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+        }`}
+      >
+        <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">
+          right
+        </span>
+        <ProviderGlyph provider={secondary.provider} />
+        {secondaryStatus ? <StatusIcon status={secondaryStatus} className="flex-shrink-0" /> : null}
+        <span className="min-w-0 flex-1 truncate font-medium">{secondary.title}</span>
+      </button>
     </div>
   );
 }

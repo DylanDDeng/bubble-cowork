@@ -144,6 +144,7 @@ function persistUiResumeStateSnapshot(state: Pick<
   | 'terminalDrawerOpen'
   | 'terminalDrawerHeight'
   | 'chatLayoutMode'
+  | 'savedSplitVisible'
   | 'activePaneId'
   | 'chatPanes'
   | 'chatSplitRatio'
@@ -161,6 +162,7 @@ function persistUiResumeStateSnapshot(state: Pick<
     terminalDrawerOpen: state.terminalDrawerOpen,
     terminalDrawerHeight: state.terminalDrawerHeight,
     chatLayoutMode: state.chatLayoutMode,
+    savedSplitVisible: state.savedSplitVisible,
     activePaneId: state.activePaneId,
     chatPanes: state.chatPanes,
     chatSplitRatio: state.chatSplitRatio,
@@ -305,6 +307,7 @@ export const useAppStore = create<Store>()(
       activeWorkspace: 'chat' as ActiveWorkspace,
       chatSidebarView: 'threads' as ChatSidebarView,
       chatLayoutMode: normalizeChatLayoutMode(initialUiResumeState?.chatLayoutMode),
+      savedSplitVisible: initialUiResumeState?.savedSplitVisible ?? false,
       activePaneId: normalizeActivePaneId(initialUiResumeState?.activePaneId),
       chatPanes: initialChatPanes,
       chatSplitRatio: sanitizeChatSplitRatio(initialUiResumeState?.chatSplitRatio),
@@ -522,6 +525,29 @@ export const useAppStore = create<Store>()(
 
   setActiveSession: (sessionId) => {
     set((state) => {
+      if (state.chatLayoutMode === 'single') {
+        if (!sessionId) {
+          return {
+            activeSessionId: null,
+            activeWorkspace: 'chat',
+          };
+        }
+
+        const session = state.sessions[sessionId];
+        if (!session) {
+          return {
+            activeSessionId: sessionId,
+            activeWorkspace: 'chat',
+          };
+        }
+
+        return {
+          activeSessionId: sessionId,
+          activeWorkspace: 'chat',
+          showNewSession: false,
+        };
+      }
+
       const nextPaneId = state.activePaneId;
       const nextPanes = {
         ...state.chatPanes,
@@ -605,6 +631,11 @@ export const useAppStore = create<Store>()(
     persistUiResumeStateSnapshot(get());
   },
 
+  setSavedSplitVisible: (savedSplitVisible) => {
+    set({ savedSplitVisible });
+    persistUiResumeStateSnapshot(get());
+  },
+
   setChatPaneSession: (paneId, sessionId) => {
     set((state) => ({
       chatPanes: {
@@ -651,6 +682,7 @@ export const useAppStore = create<Store>()(
   openSplitChat: (paneId, sessionId) => {
     set((state) => ({
       chatLayoutMode: 'split',
+      savedSplitVisible: true,
       activePaneId: paneId,
       activeSessionId: sessionId,
       activeWorkspace: 'chat',
@@ -669,17 +701,17 @@ export const useAppStore = create<Store>()(
 
   closeSplitChat: () => {
     set((state) => {
-      const primarySessionId =
-        state.chatPanes.primary.sessionId ?? state.chatPanes.secondary.sessionId ?? state.activeSessionId;
+      const focusedSessionId =
+        state.chatPanes[state.activePaneId].sessionId ??
+        state.chatPanes.primary.sessionId ??
+        state.chatPanes.secondary.sessionId ??
+        state.activeSessionId;
       return {
         chatLayoutMode: 'single',
+        savedSplitVisible: false,
         activePaneId: 'primary',
-        activeSessionId: primarySessionId,
-        showNewSession: primarySessionId === null,
-        chatPanes: {
-          primary: { id: 'primary', sessionId: primarySessionId, surface: 'chat' },
-          secondary: { id: 'secondary', sessionId: null, surface: 'chat' },
-        },
+        activeSessionId: focusedSessionId,
+        showNewSession: focusedSessionId === null,
       };
     });
     persistUiResumeStateSnapshot(get());
@@ -769,6 +801,7 @@ export const useAppStore = create<Store>()(
       }
 
       const chatLayoutMode = normalizeChatLayoutMode(resumeState.chatLayoutMode);
+      const savedSplitVisible = resumeState.savedSplitVisible ?? state.savedSplitVisible;
       const activePaneId = normalizeActivePaneId(resumeState.activePaneId);
       const chatPanes = normalizeChatPanes(resumeState.chatPanes, resumeState.activeSessionId);
       const activeSessionId = chatPanes[activePaneId].sessionId ?? resumeState.activeSessionId;
@@ -782,6 +815,7 @@ export const useAppStore = create<Store>()(
         terminalDrawerOpen: resolveInitialTerminalDrawerOpen(resumeState),
         terminalDrawerHeight: sanitizeTerminalDrawerHeight(resumeState.terminalDrawerHeight),
         chatLayoutMode,
+        savedSplitVisible,
         activePaneId,
         chatPanes,
         chatSplitRatio: sanitizeChatSplitRatio(resumeState.chatSplitRatio, state.chatSplitRatio),
@@ -996,6 +1030,7 @@ export const useAppStore = create<Store>()(
         activeWorkspace: state.activeWorkspace,
         chatSidebarView: state.chatSidebarView,
         chatLayoutMode: state.chatLayoutMode,
+        savedSplitVisible: state.savedSplitVisible,
         activePaneId: state.activePaneId,
         chatPanes: state.chatPanes,
         chatSplitRatio: state.chatSplitRatio,
@@ -1017,6 +1052,7 @@ export const useAppStore = create<Store>()(
           activeWorkspace?: ActiveWorkspace;
           chatSidebarView?: ChatSidebarView;
           chatLayoutMode?: ChatLayoutMode;
+          savedSplitVisible?: boolean;
           activePaneId?: ChatPaneId;
           chatPanes?: Record<ChatPaneId, ChatPaneState>;
           chatSplitRatio?: number;
@@ -1035,6 +1071,7 @@ export const useAppStore = create<Store>()(
         const colorThemeId = persisted?.colorThemeId || currentState.colorThemeId;
         const customThemeCss = persisted?.customThemeCss || currentState.customThemeCss;
         const chatLayoutMode = normalizeChatLayoutMode(persisted?.chatLayoutMode);
+        const savedSplitVisible = persisted?.savedSplitVisible ?? currentState.savedSplitVisible;
         const activePaneId = normalizeActivePaneId(persisted?.activePaneId);
         const chatPanes = normalizeChatPanes(
           persisted?.chatPanes as import('../shared/types').UiResumeState['chatPanes'],
@@ -1066,6 +1103,7 @@ export const useAppStore = create<Store>()(
                   : 'chat',
           chatSidebarView: persisted?.chatSidebarView === 'threads' ? 'threads' : 'threads',
           chatLayoutMode,
+          savedSplitVisible,
           activePaneId,
           chatPanes,
           chatSplitRatio: sanitizeChatSplitRatio(persisted?.chatSplitRatio, currentState.chatSplitRatio),

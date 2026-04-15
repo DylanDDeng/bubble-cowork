@@ -99,6 +99,7 @@ export interface UiResumeState {
   terminalDrawerOpen?: boolean;
   terminalDrawerHeight?: number;
   chatLayoutMode?: 'single' | 'split';
+  savedSplitVisible?: boolean;
   activePaneId?: 'primary' | 'secondary';
   chatPanes?: {
     primary: { id: 'primary'; sessionId: string | null; surface?: 'chat' | 'terminal' };

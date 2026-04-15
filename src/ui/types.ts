@@ -142,6 +142,7 @@ export interface AppState {
   activeWorkspace: ActiveWorkspace;
   chatSidebarView: ChatSidebarView;
   chatLayoutMode: ChatLayoutMode;
+  savedSplitVisible: boolean;
   activePaneId: ChatPaneId;
   chatPanes: Record<ChatPaneId, ChatPaneState>;
   chatSplitRatio: number;
@@ -213,6 +214,7 @@ export interface AppActions {
   setChatSidebarView: (view: ChatSidebarView) => void;
   setActivePane: (paneId: ChatPaneId) => void;
   setChatLayoutMode: (mode: ChatLayoutMode) => void;
+  setSavedSplitVisible: (visible: boolean) => void;
   setChatPaneSession: (paneId: ChatPaneId, sessionId: string | null) => void;
   setChatPaneSurface: (paneId: ChatPaneId, surface: WorkspaceSurface) => void;
   setChatSplitRatio: (ratio: number) => void;

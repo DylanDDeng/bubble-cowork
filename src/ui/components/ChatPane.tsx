@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FolderOpen, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { toast } from 'sonner';
 import { sendEvent } from '../hooks/useIPC';
 import { useAppStore } from '../store/useAppStore';
@@ -43,30 +43,6 @@ function isAskUserQuestionInput(input: unknown): input is AskUserQuestionInput {
     input !== null &&
     'questions' in input &&
     Array.isArray((input as { questions?: unknown }).questions)
-  );
-}
-
-function getPathLeaf(path: string): string {
-  const segments = path.split('/').filter(Boolean);
-  return segments[segments.length - 1] || path;
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-
-  return (
-    <button
-      type="button"
-      onClick={() => {
-        navigator.clipboard.writeText(text);
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1200);
-      }}
-      className="inline-flex h-5 items-center rounded-md px-1.5 text-[10px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-      title="Copy path"
-    >
-      {copied ? 'Copied' : 'Copy'}
-    </button>
   );
 }
 
@@ -396,7 +372,7 @@ export function ChatPane({
         </div>
       ) : (
         <>
-          <div className="flex h-9 items-center justify-between border-b border-[var(--border)] bg-[var(--bg-primary)] px-3">
+          <div className="flex h-9 items-center justify-between bg-[var(--bg-primary)] px-3">
             <div className="flex min-w-0 items-center gap-2 text-[12px] text-[var(--text-secondary)]">
               <span className="truncate font-medium text-[var(--text-primary)]">
                 {session.title || 'Chat'}
@@ -421,26 +397,6 @@ export function ChatPane({
           </div>
           <div ref={scrollContainerRef} className="flex-1 overflow-auto p-4 relative">
             {isActive ? <InSessionSearch /> : null}
-
-            {session.cwd && (
-              <div className="mb-4 flex justify-center">
-                <div
-                  className="inline-flex max-w-[760px] flex-wrap items-center justify-center gap-1.5 text-xs text-[var(--text-muted)]"
-                  title={session.cwd}
-                >
-                  {session.source === 'claude_code' && (
-                    <span className="rounded-full border border-[var(--border)] bg-[var(--accent-light)] px-2 py-0.5 uppercase tracking-[0.08em] text-[var(--text-secondary)]">
-                      Claude Code
-                    </span>
-                  )}
-                  <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center text-[var(--tree-file-accent-fg)]">
-                    <FolderOpen className="h-3.5 w-3.5" />
-                  </span>
-                  <span className="truncate font-mono">.../{getPathLeaf(session.cwd)}</span>
-                  <CopyButton text={session.cwd} />
-                </div>
-              </div>
-            )}
 
             {session.readOnly && (
               <div className="mb-4 flex justify-center">

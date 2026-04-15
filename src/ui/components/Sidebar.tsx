@@ -30,6 +30,7 @@ export function Sidebar() {
     projectCwd,
     sessions,
     activeWorkspace,
+    setChatLayoutMode,
     setSidebarCollapsed,
     setSidebarWidth,
     setProjectCwd,
@@ -260,8 +261,9 @@ export function Sidebar() {
 
               <div className="flex-1 overflow-y-auto px-2 pt-2">
                 <FolderTreeView
-                  onSessionClick={(sessionId) => {
+                  onSessionClick={(sessionId, options) => {
                     setShowSettings(false);
+                    setChatLayoutMode(options?.preserveSplit ? 'split' : 'single');
                     setActiveSession(sessionId);
                     setShowNewSession(false);
                   }}
