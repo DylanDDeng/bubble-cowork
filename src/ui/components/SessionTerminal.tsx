@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, X } from 'lucide-react';
-import { Terminal } from 'xterm';
+import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import type { ITheme } from 'xterm';
-import 'xterm/css/xterm.css';
+import { LigaturesAddon } from '@xterm/addon-ligatures';
+import { WebglAddon } from '@xterm/addon-webgl';
+import type { ITheme } from '@xterm/xterm';
+import '@xterm/xterm/css/xterm.css';
 
 type TerminalTab = {
   id: string;
@@ -22,6 +24,8 @@ export function SessionTerminal({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const ligaturesAddonRef = useRef<LigaturesAddon | null>(null);
+  const webglAddonRef = useRef<WebglAddon | null>(null);
   const tabsRef = useRef<TerminalTab[]>([]);
   const nextTabNumberRef = useRef(1);
   const [tabs, setTabs] = useState<TerminalTab[]>([]);
@@ -37,6 +41,15 @@ export function SessionTerminal({
     () => tabs.find((tab) => tab.id === activeTabId) || null,
     [activeTabId, tabs]
   );
+
+  const resolveTerminalFontFamily = (): string => {
+    const styles = getComputedStyle(document.documentElement);
+    const configured = styles.getPropertyValue('--terminal-font-family').trim();
+    return (
+      configured ||
+      "\"JetBrainsMono NFM\", \"JetBrainsMono NF\", \"JetBrains Mono\", monospace"
+    );
+  };
 
   const resolveTerminalTheme = (): ITheme => {
     const styles = getComputedStyle(document.documentElement);
@@ -115,9 +128,10 @@ export function SessionTerminal({
 
     const terminal = new Terminal({
       cursorBlink: true,
-      fontFamily: "var(--font-mono), 'SF Mono', Menlo, Consolas, monospace",
+      fontFamily: resolveTerminalFontFamily(),
       fontSize: 12,
       lineHeight: 1.45,
+      customGlyphs: true,
       theme: resolveTerminalTheme(),
       scrollback: 3000,
       convertEol: true,
@@ -127,6 +141,35 @@ export function SessionTerminal({
     terminal.open(containerRef.current);
     fitAddon.fit();
     terminal.focus();
+
+    // Match dpcode's runtime stack, but only after the viewport is mounted and measured.
+    const enhancementFrame = window.requestAnimationFrame(() => {
+      if (!terminal.element?.isConnected) {
+        return;
+      }
+
+      try {
+        const ligaturesAddon = new LigaturesAddon();
+        terminal.loadAddon(ligaturesAddon);
+        ligaturesAddonRef.current = ligaturesAddon;
+      } catch {
+        ligaturesAddonRef.current = null;
+      }
+
+      try {
+        const webglAddon = new WebglAddon();
+        webglAddon.onContextLoss(() => {
+          webglAddon.dispose();
+          if (webglAddonRef.current === webglAddon) {
+            webglAddonRef.current = null;
+          }
+        });
+        terminal.loadAddon(webglAddon);
+        webglAddonRef.current = webglAddon;
+      } catch {
+        webglAddonRef.current = null;
+      }
+    });
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
@@ -138,7 +181,12 @@ export function SessionTerminal({
 
     return () => {
       window.removeEventListener('resize', resize);
+      window.cancelAnimationFrame(enhancementFrame);
       stopTerminalTabs(tabsRef.current);
+      webglAddonRef.current?.dispose();
+      webglAddonRef.current = null;
+      ligaturesAddonRef.current?.dispose();
+      ligaturesAddonRef.current = null;
       terminal.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
@@ -151,6 +199,7 @@ export function SessionTerminal({
     }
 
     terminalRef.current.options.theme = resolveTerminalTheme();
+    terminalRef.current.options.fontFamily = resolveTerminalFontFamily();
   });
 
   useEffect(() => {

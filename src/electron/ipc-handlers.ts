@@ -210,21 +210,31 @@ function getTerminalLaunchSpecs(): Array<{ command: string; args: string[] }> {
     ];
   }
 
-  const candidates = Array.from(
-    new Set([
-      process.env.SHELL,
-      '/bin/zsh',
-      '/bin/bash',
-      '/bin/sh',
-    ].filter((value): value is string => Boolean(value && existsSync(value))))
-  );
+  const candidates = Array.from(new Set([
+    process.env.SHELL,
+    '/bin/zsh',
+    '/bin/bash',
+    '/bin/sh',
+    'zsh',
+    'bash',
+    'sh',
+  ].filter((value): value is string => {
+    if (!value) {
+      return false;
+    }
+
+    return value.includes('/') ? existsSync(value) : true;
+  })));
 
   const specs: Array<{ command: string; args: string[] }> = [];
   for (const command of candidates) {
-    specs.push({ command, args: ['-i'] });
-    if (command.endsWith('zsh') || command.endsWith('bash')) {
-      specs.push({ command, args: ['-il'] });
+    const shellName = basename(command).toLowerCase();
+    if (shellName === 'zsh') {
+      specs.push({ command, args: ['-o', 'nopromptsp'] });
+      continue;
     }
+
+    specs.push({ command, args: [] });
   }
 
   return specs;
