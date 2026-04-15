@@ -59,6 +59,9 @@ export function FolderTreeView({
   const {
     sessions,
     activeSessionId,
+    activePaneId,
+    chatLayoutMode,
+    chatPanes,
     sidebarSearchQuery,
     statusFilter,
     statusConfigs,
@@ -178,12 +181,18 @@ export function FolderTreeView({
 
             {expanded && group.sessions.map((session) => {
               const isSessionActive = activeSessionId === session.id;
+              const isInPrimaryPane = chatPanes.primary.sessionId === session.id;
+              const isInSecondaryPane = chatPanes.secondary.sessionId === session.id;
 
               return (
                 <SessionItem
                   key={session.id}
                   session={session}
                   isActive={isSessionActive}
+                  isInPrimaryPane={isInPrimaryPane}
+                  isInSecondaryPane={isInSecondaryPane}
+                  activePaneId={activePaneId}
+                  splitActive={chatLayoutMode === 'split'}
                   runtimeBadge={
                     session.runtimeNotice
                       ? session.runtimeNotice
@@ -217,6 +226,10 @@ export function FolderTreeView({
 function SessionItem({
   session,
   isActive,
+  isInPrimaryPane,
+  isInSecondaryPane,
+  activePaneId,
+  splitActive,
   runtimeBadge,
   statusConfigs,
   depth,
@@ -227,6 +240,10 @@ function SessionItem({
 }: {
   session: SessionView;
   isActive: boolean;
+  isInPrimaryPane: boolean;
+  isInSecondaryPane: boolean;
+  activePaneId: 'primary' | 'secondary';
+  splitActive: boolean;
   runtimeBadge: 'running' | 'completed' | 'error' | null;
   statusConfigs: StatusConfig[];
   depth: number;
@@ -238,6 +255,14 @@ function SessionItem({
   const [menuOpen, setMenuOpen] = useState(false);
   const currentTodoState = session.todoState || 'todo';
   const currentStatusConfig = statusConfigs.find(s => s.id === currentTodoState);
+  const paneBadge =
+    splitActive && isInPrimaryPane && isInSecondaryPane
+      ? 'both'
+      : splitActive && isInPrimaryPane
+        ? 'left'
+        : splitActive && isInSecondaryPane
+          ? 'right'
+          : null;
 
   return (
     <div
@@ -251,6 +276,16 @@ function SessionItem({
       style={{
         marginLeft: `${depth * 16}px`,
         marginBottom: '4px',
+        boxShadow:
+          splitActive && isActive
+            ? 'inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent)'
+            : undefined,
+      }}
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('application/x-aegis-session-id', session.id);
+        event.dataTransfer.setData('text/plain', session.title);
       }}
       onClick={onClick}
     >
@@ -267,6 +302,19 @@ function SessionItem({
           </span>
         )}
         <span className="flex-1 truncate text-[14px] font-medium leading-[1.3]">{session.title}</span>
+        {paneBadge ? (
+          <span
+            className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] ${
+              paneBadge === 'both'
+                ? 'bg-[var(--accent-light)] text-[var(--text-primary)]'
+                : paneBadge === activePaneId
+                  ? 'bg-[var(--accent-light)] text-[var(--text-primary)]'
+                  : 'bg-[var(--bg-secondary)] text-[var(--text-muted)]'
+            }`}
+          >
+            {paneBadge}
+          </span>
+        ) : null}
         {session.source === 'claude_code' && (
           <span className="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--text-secondary)]">
             Claude Code

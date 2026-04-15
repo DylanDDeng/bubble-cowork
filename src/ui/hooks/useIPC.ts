@@ -7,6 +7,12 @@ export function useIPC() {
   const { setConnected, handleServerEvent } = useAppStore();
 
   useEffect(() => {
+    if (typeof window === 'undefined' || !window.electron?.onServerEvent) {
+      console.error('[IPC] window.electron is unavailable in renderer');
+      setConnected(false);
+      return;
+    }
+
     // 订阅服务器事件
     const unsubscribe = window.electron.onServerEvent((event: ServerEvent) => {
       try {
@@ -30,5 +36,9 @@ export function useIPC() {
 
 // 发送事件的便捷函数
 export function sendEvent(event: ClientEvent): void {
+  if (!window.electron?.sendClientEvent) {
+    console.error('[IPC] sendClientEvent unavailable', event);
+    return;
+  }
   window.electron.sendClientEvent(event);
 }

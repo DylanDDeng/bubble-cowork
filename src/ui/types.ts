@@ -78,6 +78,15 @@ export type {
 // 主题类型
 export type Theme = 'light' | 'dark' | 'system';
 export type ColorThemeId = 'paper' | 'graphite' | 'sepia' | 'rose' | 'forest' | 'amber' | 'studio';
+export type ChatLayoutMode = 'single' | 'split';
+export type ChatPaneId = 'primary' | 'secondary';
+export type WorkspaceSurface = 'chat' | 'terminal';
+
+export interface ChatPaneState {
+  id: ChatPaneId;
+  sessionId: string | null;
+  surface: WorkspaceSurface;
+}
 
 export interface SessionStreamingState {
   isStreaming: boolean;
@@ -132,6 +141,10 @@ export interface AppState {
   activeSessionId: string | null;
   activeWorkspace: ActiveWorkspace;
   chatSidebarView: ChatSidebarView;
+  chatLayoutMode: ChatLayoutMode;
+  activePaneId: ChatPaneId;
+  chatPanes: Record<ChatPaneId, ChatPaneState>;
+  chatSplitRatio: number;
   showNewSession: boolean;
   newSessionKey: number;
   sidebarCollapsed: boolean;
@@ -198,6 +211,14 @@ export interface AppActions {
   setActiveSession: (sessionId: string | null) => void;
   setActiveWorkspace: (workspace: ActiveWorkspace) => void;
   setChatSidebarView: (view: ChatSidebarView) => void;
+  setActivePane: (paneId: ChatPaneId) => void;
+  setChatLayoutMode: (mode: ChatLayoutMode) => void;
+  setChatPaneSession: (paneId: ChatPaneId, sessionId: string | null) => void;
+  setChatPaneSurface: (paneId: ChatPaneId, surface: WorkspaceSurface) => void;
+  setChatSplitRatio: (ratio: number) => void;
+  openSplitChat: (paneId: ChatPaneId, sessionId: string) => void;
+  closeSplitChat: () => void;
+  swapChatPanes: () => void;
   setShowNewSession: (show: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSidebarWidth: (width: number) => void;

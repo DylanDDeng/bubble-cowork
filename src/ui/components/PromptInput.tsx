@@ -100,7 +100,7 @@ function isVisibleClaudePickerModel(
   return isOfficialClaudeModel(normalized) || compatibleOptions.some((option) => option.model === normalized);
 }
 
-export function PromptInput() {
+export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   const {
     activeSessionId,
     sessions,
@@ -141,8 +141,9 @@ export function PromptInput() {
   const [cursorIndex, setCursorIndex] = useState(0);
   const editorRef = useRef<ComposerPromptEditorHandle | null>(null);
   const isComposingRef = useRef(false);
+  const targetSessionId = sessionId ?? activeSessionId;
 
-  const activeSession = activeSessionId ? sessions[activeSessionId] : null;
+  const activeSession = targetSessionId ? sessions[targetSessionId] : null;
   const isRunning = activeSession?.status === 'running';
   const isBusy = isRunning || pendingStart;
   const claudeModelConfig = useClaudeModelConfig();
@@ -185,7 +186,7 @@ export function PromptInput() {
     return activeSession.model.trim();
   }, [activeClaudeModel, activeSession?.model, compatibleOptions]);
   const handleAutoSubmitClaudeCommand = (nextPrompt: string) => {
-    if (!activeSessionId || !activeSession || activeSession.isDraft) {
+    if (!targetSessionId || !activeSession || activeSession.isDraft) {
       setPrompt(nextPrompt);
       return;
     }
@@ -194,7 +195,7 @@ export function PromptInput() {
     sendEvent({
       type: 'session.continue',
       payload: {
-        sessionId: activeSessionId,
+        sessionId: targetSessionId,
         prompt: nextPrompt,
         provider,
         model:
@@ -274,7 +275,7 @@ export function PromptInput() {
       setProvider(activeSession.provider);
       savePreferredProvider(activeSession.provider);
     }
-  }, [activeSessionId, activeSession?.provider]);
+  }, [targetSessionId, activeSession?.provider]);
 
   useEffect(() => {
     if (activeSession?.provider === 'claude') {
@@ -283,11 +284,11 @@ export function PromptInput() {
       return;
     }
 
-    if (!activeSessionId) {
+    if (!targetSessionId) {
       setSelectedClaudeAccessMode('default');
       setSelectedClaudeExecutionMode('execute');
     }
-  }, [activeSession?.claudeAccessMode, activeSession?.claudeExecutionMode, activeSession?.provider, activeSessionId]);
+  }, [activeSession?.claudeAccessMode, activeSession?.claudeExecutionMode, activeSession?.provider, targetSessionId]);
 
   useEffect(() => {
     if (activeSession?.provider === 'codex') {
@@ -303,7 +304,7 @@ export function PromptInput() {
       return;
     }
 
-    if (!activeSessionId) {
+    if (!targetSessionId) {
       setSelectedCodexPermissionMode(loadPreferredCodexPermissionMode());
     }
   }, [
@@ -312,7 +313,7 @@ export function PromptInput() {
     activeSession?.codexFastMode,
     activeSession?.model,
     activeSession?.provider,
-    activeSessionId,
+    targetSessionId,
     codexModelConfig,
     selectedCodexModel,
   ]);
@@ -323,10 +324,10 @@ export function PromptInput() {
       return;
     }
 
-    if (!activeSessionId) {
+    if (!targetSessionId) {
       setSelectedOpencodePermissionMode(loadPreferredOpencodePermissionMode());
     }
-  }, [activeSession?.opencodePermissionMode, activeSession?.provider, activeSessionId]);
+  }, [activeSession?.opencodePermissionMode, activeSession?.provider, targetSessionId]);
 
   useEffect(() => {
     if (activeSession?.provider !== 'claude') {
@@ -345,7 +346,7 @@ export function PromptInput() {
       !!activeSession?.betas?.includes('context-1m-2025-08-07') || loadPreferredClaudeContext1m()
     );
   }, [
-    activeSessionId,
+    targetSessionId,
     activeSession?.provider,
     activeSession?.model,
     activeSession?.compatibleProviderId,
@@ -435,7 +436,7 @@ export function PromptInput() {
       setSelectedCodexModel(nextModel || null);
     }
   }, [
-    activeSessionId,
+    targetSessionId,
     activeSession?.provider,
     activeSession?.model,
     codexModelConfig,
@@ -498,7 +499,7 @@ export function PromptInput() {
       setSelectedOpencodeModel(nextModel || null);
     }
   }, [
-    activeSessionId,
+    targetSessionId,
     activeSession?.provider,
     activeSession?.model,
     opencodeModelOptions,
@@ -622,14 +623,14 @@ export function PromptInput() {
       toast.error('Failed to convert the long message into an attachment. Sending inline instead.');
     }
 
-    if (activeSessionId && activeSession?.isDraft) {
+    if (targetSessionId && activeSession?.isDraft) {
       if (!activeSession.cwd?.trim()) {
         toast.error('Select a project folder before starting a task.');
         return;
       }
 
       setPendingStart(true);
-      useAppStore.setState({ pendingDraftSessionId: activeSessionId });
+      useAppStore.setState({ pendingDraftSessionId: targetSessionId });
       sendEvent({
         type: 'session.start',
         payload: {
@@ -669,12 +670,12 @@ export function PromptInput() {
       });
       setPrompt('');
       setAttachments([]);
-    } else if (activeSessionId && activeSession) {
+    } else if (targetSessionId && activeSession) {
       // 继续现有会话
       sendEvent({
         type: 'session.continue',
         payload: {
-          sessionId: activeSessionId,
+            sessionId: targetSessionId,
           prompt: outgoingPrompt,
           effectivePrompt: outgoingEffectivePrompt,
           attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
@@ -716,10 +717,10 @@ export function PromptInput() {
 
   const handleStop = () => {
     setMenuOpen(false);
-    if (activeSessionId) {
+    if (targetSessionId) {
       sendEvent({
         type: 'session.stop',
-        payload: { sessionId: activeSessionId },
+        payload: { sessionId: targetSessionId },
       });
     }
   };
@@ -937,7 +938,7 @@ export function PromptInput() {
                 ? `Add instructions for ${skillAutocomplete.selectedSkill.name}...`
                 : skillAutocomplete.selectedCommand
                 ? `Add instructions for ${skillAutocomplete.selectedCommand.title.replace(/^\//, '')}...`
-                : activeSessionId
+                : targetSessionId
                 ? 'Continue the conversation...'
                 : 'Start a new session...'
             }

@@ -87,6 +87,7 @@ function extractGenericSlashPrompt(prompt: string): { name: string; remainder: s
 
 interface MessageCardProps {
   message: StreamMessage;
+  sessionId?: string | null;
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
   permissionRequests: PermissionRequestPayload[];
@@ -100,6 +101,7 @@ interface MessageCardProps {
 
 export function MessageCard({
   message,
+  sessionId,
   toolStatusMap,
   toolResultsMap,
   permissionRequests,
@@ -114,6 +116,7 @@ export function MessageCard({
           attachments={message.attachments}
           createdAt={message.createdAt}
           actions={userPromptActions}
+          sessionId={sessionId}
         />
       );
 
@@ -190,6 +193,7 @@ function UserPromptCard({
   attachments,
   createdAt,
   actions,
+  sessionId,
 }: {
   prompt: string;
   attachments?: Attachment[];
@@ -199,6 +203,7 @@ function UserPromptCard({
     isSessionRunning: boolean;
     onResend: (prompt: string, attachments?: Attachment[]) => void;
   };
+  sessionId?: string | null;
 }) {
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -211,7 +216,8 @@ function UserPromptCard({
     claudeProjectSkills,
   } = useAppStore();
 
-  const activeSession = activeSessionId ? sessions[activeSessionId] : null;
+  const currentSessionId = sessionId ?? activeSessionId;
+  const activeSession = currentSessionId ? sessions[currentSessionId] : null;
   const activeSessionMessages = activeSession?.messages || [];
   const availableSkills = useMemo(
     () => mergeClaudeSkills(

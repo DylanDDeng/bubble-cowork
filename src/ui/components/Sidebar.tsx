@@ -139,7 +139,7 @@ export function Sidebar() {
         />
       )}
 
-      <div className="relative flex h-full flex-shrink-0 select-none">
+      <div className="relative flex h-full min-h-0 flex-shrink-0 self-stretch select-none">
         {/* ===== 图标栏 ===== */}
         <div className="flex h-full w-11 flex-shrink-0 flex-col items-center bg-[var(--bg-tertiary)] pt-0 pb-3">
           {/* macOS 红绿灯区域 */}
@@ -218,12 +218,12 @@ export function Sidebar() {
         {/* ===== 内容面板 ===== */}
         {activeWorkspace === 'chat' && (
           <div
-            className="relative flex h-full flex-shrink-0 transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]"
+            className="relative flex h-full min-h-0 flex-shrink-0 self-stretch transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]"
             style={{ width: sidebarCollapsed ? 0 : sidebarWidth }}
           >
             <div
               aria-hidden={sidebarCollapsed}
-              className={`relative flex h-full w-full flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--bg-tertiary)] transition-opacity duration-150 ${
+              className={`relative flex h-full min-h-0 w-full flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--bg-tertiary)] transition-opacity duration-150 ${
                 sidebarCollapsed ? 'pointer-events-none opacity-0' : 'opacity-100'
               }`}
             >

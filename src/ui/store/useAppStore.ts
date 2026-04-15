@@ -5,7 +5,11 @@ import type {
   ActiveWorkspace,
   AppState,
   AppActions,
+  ChatLayoutMode,
+  ChatPaneId,
+  ChatPaneState,
   ChatSidebarView,
+  WorkspaceSurface,
   SessionView,
   ServerEvent,
   SessionInfo,
@@ -92,9 +96,57 @@ function sanitizeTerminalDrawerHeight(height: number | undefined, fallback = 280
   return Math.min(640, Math.max(180, Math.round(height)));
 }
 
+function sanitizeChatSplitRatio(ratio: number | undefined, fallback = 0.5): number {
+  if (typeof ratio !== 'number' || Number.isNaN(ratio)) return fallback;
+  return Math.min(0.65, Math.max(0.35, ratio));
+}
+
+function createDefaultChatPanes(activeSessionId: string | null): Record<ChatPaneId, ChatPaneState> {
+  return {
+    primary: { id: 'primary', sessionId: activeSessionId, surface: 'chat' },
+    secondary: { id: 'secondary', sessionId: null, surface: 'chat' },
+  };
+}
+
+function normalizeActivePaneId(value: unknown): ChatPaneId {
+  return value === 'secondary' ? 'secondary' : 'primary';
+}
+
+function normalizeChatLayoutMode(value: unknown): ChatLayoutMode {
+  return value === 'split' ? 'split' : 'single';
+}
+
+function normalizeChatPanes(
+  panes: import('../shared/types').UiResumeState['chatPanes'] | undefined,
+  fallbackSessionId: string | null
+): Record<ChatPaneId, ChatPaneState> {
+  return {
+    primary: {
+      id: 'primary',
+      sessionId: panes?.primary?.sessionId ?? fallbackSessionId,
+      surface: 'chat',
+    },
+    secondary: {
+      id: 'secondary',
+      sessionId: panes?.secondary?.sessionId ?? null,
+      surface: 'chat',
+    },
+  };
+}
+
 function persistUiResumeStateSnapshot(state: Pick<
   AppState,
-  'activeSessionId' | 'showNewSession' | 'projectCwd' | 'projectTreeCollapsed' | 'projectPanelView' | 'terminalDrawerOpen' | 'terminalDrawerHeight'
+  | 'activeSessionId'
+  | 'showNewSession'
+  | 'projectCwd'
+  | 'projectTreeCollapsed'
+  | 'projectPanelView'
+  | 'terminalDrawerOpen'
+  | 'terminalDrawerHeight'
+  | 'chatLayoutMode'
+  | 'activePaneId'
+  | 'chatPanes'
+  | 'chatSplitRatio'
 >): void {
   if (typeof window === 'undefined' || !window.electron?.saveUiResumeState) {
     return;
@@ -108,6 +160,10 @@ function persistUiResumeStateSnapshot(state: Pick<
     projectPanelView: state.projectPanelView,
     terminalDrawerOpen: state.terminalDrawerOpen,
     terminalDrawerHeight: state.terminalDrawerHeight,
+    chatLayoutMode: state.chatLayoutMode,
+    activePaneId: state.activePaneId,
+    chatPanes: state.chatPanes,
+    chatSplitRatio: state.chatSplitRatio,
   });
 }
 
@@ -124,6 +180,10 @@ function getInitialUiResumeState(): import('../shared/types').UiResumeState | nu
 }
 
 const initialUiResumeState = getInitialUiResumeState();
+const initialChatPanes = normalizeChatPanes(
+  initialUiResumeState?.chatPanes,
+  initialUiResumeState?.activeSessionId ?? null
+);
 
 function createEmptyStreamingState() {
   return {
@@ -244,6 +304,10 @@ export const useAppStore = create<Store>()(
       activeSessionId: initialUiResumeState?.activeSessionId ?? null,
       activeWorkspace: 'chat' as ActiveWorkspace,
       chatSidebarView: 'threads' as ChatSidebarView,
+      chatLayoutMode: normalizeChatLayoutMode(initialUiResumeState?.chatLayoutMode),
+      activePaneId: normalizeActivePaneId(initialUiResumeState?.activePaneId),
+      chatPanes: initialChatPanes,
+      chatSplitRatio: sanitizeChatSplitRatio(initialUiResumeState?.chatSplitRatio),
       showNewSession: initialUiResumeState?.showNewSession ?? true,
       newSessionKey: 0,
       sidebarCollapsed: false,
@@ -458,16 +522,37 @@ export const useAppStore = create<Store>()(
 
   setActiveSession: (sessionId) => {
     set((state) => {
+      const nextPaneId = state.activePaneId;
+      const nextPanes = {
+        ...state.chatPanes,
+        [nextPaneId]: {
+          ...state.chatPanes[nextPaneId],
+          sessionId,
+          surface: 'chat',
+        },
+      };
+
       if (!sessionId) {
-        return { activeSessionId: null };
+        return {
+          activeSessionId: null,
+          chatPanes: nextPanes,
+        };
       }
 
       const session = state.sessions[sessionId];
       if (!session) {
-        return { activeSessionId: sessionId };
+        return {
+          activeSessionId: sessionId,
+          chatPanes: nextPanes,
+        };
       }
 
-      return { activeSessionId: sessionId, activeWorkspace: 'chat' };
+      return {
+        activeSessionId: sessionId,
+        chatPanes: nextPanes,
+        activeWorkspace: 'chat',
+        showNewSession: false,
+      };
     });
 
     persistUiResumeStateSnapshot(get());
@@ -491,16 +576,155 @@ export const useAppStore = create<Store>()(
       return {
         activeWorkspace,
         activeSessionId: nextActiveSessionId,
+        chatPanes: {
+          ...state.chatPanes,
+        [state.activePaneId]: {
+          ...state.chatPanes[state.activePaneId],
+          sessionId: nextActiveSessionId,
+          surface: 'chat',
+        },
+      },
       };
     }),
 
   setChatSidebarView: (chatSidebarView) => set({ chatSidebarView }),
+
+  setActivePane: (activePaneId) =>
+    {
+      set((state) => ({
+        activePaneId,
+        activeSessionId: state.chatPanes[activePaneId].sessionId,
+        activeWorkspace: 'chat',
+        showNewSession: state.chatPanes[activePaneId].sessionId === null,
+      }));
+      persistUiResumeStateSnapshot(get());
+    },
+
+  setChatLayoutMode: (chatLayoutMode) => {
+    set({ chatLayoutMode });
+    persistUiResumeStateSnapshot(get());
+  },
+
+  setChatPaneSession: (paneId, sessionId) => {
+    set((state) => ({
+      chatPanes: {
+        ...state.chatPanes,
+        [paneId]: {
+          ...state.chatPanes[paneId],
+          sessionId,
+          surface: 'chat',
+        },
+      },
+      activePaneId: paneId,
+      activeSessionId: sessionId,
+      activeWorkspace: 'chat',
+      showNewSession: sessionId === null,
+    }));
+    persistUiResumeStateSnapshot(get());
+  },
+
+  setChatPaneSurface: (paneId, surface) => {
+    set((state) => {
+      const pane = state.chatPanes[paneId];
+      return {
+        chatPanes: {
+          ...state.chatPanes,
+          [paneId]: {
+            ...pane,
+            surface,
+          },
+        },
+        activePaneId: paneId,
+        activeSessionId: pane.sessionId,
+        activeWorkspace: 'chat',
+        showNewSession: surface === 'chat' && pane.sessionId === null,
+      };
+    });
+    persistUiResumeStateSnapshot(get());
+  },
+
+  setChatSplitRatio: (chatSplitRatio) => {
+    set({ chatSplitRatio: sanitizeChatSplitRatio(chatSplitRatio) });
+    persistUiResumeStateSnapshot(get());
+  },
+
+  openSplitChat: (paneId, sessionId) => {
+    set((state) => ({
+      chatLayoutMode: 'split',
+      activePaneId: paneId,
+      activeSessionId: sessionId,
+      activeWorkspace: 'chat',
+      showNewSession: false,
+      chatPanes: {
+        ...state.chatPanes,
+        [paneId]: {
+          ...state.chatPanes[paneId],
+          sessionId,
+          surface: 'chat',
+        },
+      },
+    }));
+    persistUiResumeStateSnapshot(get());
+  },
+
+  closeSplitChat: () => {
+    set((state) => {
+      const primarySessionId =
+        state.chatPanes.primary.sessionId ?? state.chatPanes.secondary.sessionId ?? state.activeSessionId;
+      return {
+        chatLayoutMode: 'single',
+        activePaneId: 'primary',
+        activeSessionId: primarySessionId,
+        showNewSession: primarySessionId === null,
+        chatPanes: {
+          primary: { id: 'primary', sessionId: primarySessionId, surface: 'chat' },
+          secondary: { id: 'secondary', sessionId: null, surface: 'chat' },
+        },
+      };
+    });
+    persistUiResumeStateSnapshot(get());
+  },
+
+  swapChatPanes: () => {
+    set((state) => {
+      if (state.chatLayoutMode !== 'split') {
+        return state;
+      }
+
+      const nextActivePaneId = state.activePaneId === 'primary' ? 'secondary' : 'primary';
+      return {
+        chatPanes: {
+          primary: {
+            ...state.chatPanes.secondary,
+            id: 'primary',
+          },
+          secondary: {
+            ...state.chatPanes.primary,
+            id: 'secondary',
+          },
+        },
+        activePaneId: nextActivePaneId,
+        activeSessionId: state.chatPanes[nextActivePaneId].sessionId,
+      };
+    });
+    persistUiResumeStateSnapshot(get());
+  },
 
   setShowNewSession: (show) => {
     set((state) => ({
       showNewSession: show,
       activeWorkspace: 'chat',
       newSessionKey: show ? state.newSessionKey + 1 : state.newSessionKey,
+      chatPanes: show
+        ? {
+            ...state.chatPanes,
+            [state.activePaneId]: {
+              ...state.chatPanes[state.activePaneId],
+              sessionId: null,
+            },
+          }
+        : state.chatPanes,
+      activeSessionId: show ? null : state.activeSessionId,
     }));
     persistUiResumeStateSnapshot(get());
   },
@@ -544,14 +768,23 @@ export const useAppStore = create<Store>()(
         return { sessionsLoaded: false };
       }
 
+      const chatLayoutMode = normalizeChatLayoutMode(resumeState.chatLayoutMode);
+      const activePaneId = normalizeActivePaneId(resumeState.activePaneId);
+      const chatPanes = normalizeChatPanes(resumeState.chatPanes, resumeState.activeSessionId);
+      const activeSessionId = chatPanes[activePaneId].sessionId ?? resumeState.activeSessionId;
+
       return {
-        activeSessionId: resumeState.activeSessionId,
+        activeSessionId,
         showNewSession: resumeState.showNewSession,
         projectCwd: resumeState.projectCwd ?? null,
         projectTreeCollapsed: resumeState.projectTreeCollapsed,
         projectPanelView: normalizeProjectPanelView(resumeState.projectPanelView),
         terminalDrawerOpen: resolveInitialTerminalDrawerOpen(resumeState),
         terminalDrawerHeight: sanitizeTerminalDrawerHeight(resumeState.terminalDrawerHeight),
+        chatLayoutMode,
+        activePaneId,
+        chatPanes,
+        chatSplitRatio: sanitizeChatSplitRatio(resumeState.chatSplitRatio, state.chatSplitRatio),
         activeWorkspace: 'chat',
         sessionsLoaded: false,
       };
@@ -570,6 +803,14 @@ export const useAppStore = create<Store>()(
         [draft.id]: draft,
       },
       activeSessionId: draft.id,
+      chatPanes: {
+        ...state.chatPanes,
+        [state.activePaneId]: {
+          ...state.chatPanes[state.activePaneId],
+          sessionId: draft.id,
+          surface: 'chat',
+        },
+      },
       activeWorkspace: 'chat',
       showNewSession: false,
     }));
@@ -591,11 +832,28 @@ export const useAppStore = create<Store>()(
         .map((item) => item.id);
       const nextActiveSessionId =
         state.activeSessionId === sessionId ? visibleSessionIds[0] || null : state.activeSessionId;
+      const nextPanes = {
+        primary: {
+          id: 'primary' as const,
+          sessionId: state.chatPanes.primary.sessionId === sessionId ? (nextActiveSessionId ?? null) : state.chatPanes.primary.sessionId,
+          surface: 'chat',
+        },
+        secondary: {
+          id: 'secondary' as const,
+          sessionId: state.chatPanes.secondary.sessionId === sessionId ? null : state.chatPanes.secondary.sessionId,
+          surface: 'chat',
+        },
+      };
 
       return {
         ...state,
         sessions: rest,
         activeSessionId: nextActiveSessionId,
+        chatPanes: nextPanes,
+        chatLayoutMode:
+          state.chatLayoutMode === 'split' && !nextPanes.secondary.sessionId ? 'single' : state.chatLayoutMode,
+        activePaneId:
+          state.chatLayoutMode === 'split' && !nextPanes.secondary.sessionId ? 'primary' : state.activePaneId,
         showNewSession: nextActiveSessionId === null,
         pendingDraftSessionId:
           state.pendingDraftSessionId === sessionId ? null : state.pendingDraftSessionId,
@@ -737,6 +995,10 @@ export const useAppStore = create<Store>()(
       partialize: (state) => ({
         activeWorkspace: state.activeWorkspace,
         chatSidebarView: state.chatSidebarView,
+        chatLayoutMode: state.chatLayoutMode,
+        activePaneId: state.activePaneId,
+        chatPanes: state.chatPanes,
+        chatSplitRatio: state.chatSplitRatio,
         sidebarCollapsed: state.sidebarCollapsed,
         sidebarWidth: state.sidebarWidth,
         projectTreeCollapsed: state.projectTreeCollapsed,
@@ -754,6 +1016,10 @@ export const useAppStore = create<Store>()(
         const persisted = persistedState as {
           activeWorkspace?: ActiveWorkspace;
           chatSidebarView?: ChatSidebarView;
+          chatLayoutMode?: ChatLayoutMode;
+          activePaneId?: ChatPaneId;
+          chatPanes?: Record<ChatPaneId, ChatPaneState>;
+          chatSplitRatio?: number;
           sidebarCollapsed?: boolean;
           sidebarWidth?: number;
           projectTreeCollapsed?: boolean;
@@ -768,6 +1034,12 @@ export const useAppStore = create<Store>()(
         const theme = persisted?.theme || currentState.theme;
         const colorThemeId = persisted?.colorThemeId || currentState.colorThemeId;
         const customThemeCss = persisted?.customThemeCss || currentState.customThemeCss;
+        const chatLayoutMode = normalizeChatLayoutMode(persisted?.chatLayoutMode);
+        const activePaneId = normalizeActivePaneId(persisted?.activePaneId);
+        const chatPanes = normalizeChatPanes(
+          persisted?.chatPanes as import('../shared/types').UiResumeState['chatPanes'],
+          currentState.activeSessionId
+        );
         const draftSessions = Object.fromEntries(
           Object.entries(persisted?.draftSessions || {}).filter(([, session]) => session?.isDraft)
         ) as Record<string, SessionView>;
@@ -793,6 +1065,10 @@ export const useAppStore = create<Store>()(
                   ? 'prompts'
                   : 'chat',
           chatSidebarView: persisted?.chatSidebarView === 'threads' ? 'threads' : 'threads',
+          chatLayoutMode,
+          activePaneId,
+          chatPanes,
+          chatSplitRatio: sanitizeChatSplitRatio(persisted?.chatSplitRatio, currentState.chatSplitRatio),
           sidebarCollapsed: persisted?.sidebarCollapsed ?? currentState.sidebarCollapsed,
           sidebarWidth: sanitizeSidebarWidth(persisted?.sidebarWidth, currentState.sidebarWidth),
           projectTreeCollapsed: persisted?.projectTreeCollapsed ?? currentState.projectTreeCollapsed,
@@ -891,6 +1167,7 @@ function handleSessionList(
   const showNewSession = get().showNewSession && !hasVisibleSessions;
 
   const keepNewSessionOpen = get().showNewSession;
+  const currentPanes = get().chatPanes;
 
   // 默认选中最新更新的会话，但如果当前明确停留在 New Thread，就不要偷偷回填旧会话
   let activeSessionId = keepNewSessionOpen ? null : get().activeSessionId;
@@ -902,10 +1179,40 @@ function handleSessionList(
     activeSessionId = visibleSessionIds[0] || null;
   }
 
+  const normalizePaneSessionId = (sessionId: string | null): string | null => {
+    if (!sessionId) {
+      return null;
+    }
+
+    return sessionsMap[sessionId] && !sessionsMap[sessionId].hiddenFromThreads ? sessionId : null;
+  };
+
+  const nextPanes: Record<ChatPaneId, ChatPaneState> = {
+    primary: {
+      id: 'primary',
+      sessionId:
+        normalizePaneSessionId(currentPanes.primary.sessionId) ??
+        activeSessionId,
+      surface: 'chat',
+    },
+    secondary: {
+      id: 'secondary',
+      sessionId: normalizePaneSessionId(currentPanes.secondary.sessionId),
+      surface: 'chat',
+    },
+  };
+
   set({
     sessions: sessionsMap,
     showNewSession,
     activeSessionId,
+    chatPanes: nextPanes,
+    chatLayoutMode:
+      get().chatLayoutMode === 'split' && nextPanes.secondary.sessionId ? 'split' : 'single',
+    activePaneId:
+      get().chatLayoutMode === 'split' && nextPanes.secondary.sessionId
+        ? get().activePaneId
+        : 'primary',
     sessionsLoaded: true,
   });
 }
@@ -1060,6 +1367,15 @@ function handleSessionStatus(
         [sessionId]: newSession,
       },
       activeSessionId: shouldFocusNewSession ? sessionId : state.activeSessionId,
+      chatPanes: shouldFocusNewSession
+        ? {
+            ...state.chatPanes,
+            [state.activePaneId]: {
+              ...state.chatPanes[state.activePaneId],
+              sessionId,
+            },
+          }
+        : state.chatPanes,
       showNewSession: false,
       pendingStart: false,
       pendingDraftSessionId: null,
@@ -1121,9 +1437,25 @@ function handleSessionDeleted(
     newActiveId = remaining.length > 0 ? remaining[0] : null;
   }
 
+  const nextPanes: Record<ChatPaneId, ChatPaneState> = {
+    primary: {
+      id: 'primary',
+      sessionId: state.chatPanes.primary.sessionId === sessionId ? (newActiveId ?? null) : state.chatPanes.primary.sessionId,
+      surface: 'chat',
+    },
+    secondary: {
+      id: 'secondary',
+      sessionId: state.chatPanes.secondary.sessionId === sessionId ? null : state.chatPanes.secondary.sessionId,
+      surface: 'chat',
+    },
+  };
+
   set({
     sessions: rest,
     activeSessionId: newActiveId,
+    chatPanes: nextPanes,
+    chatLayoutMode: state.chatLayoutMode === 'split' && nextPanes.secondary.sessionId ? 'split' : 'single',
+    activePaneId: state.chatLayoutMode === 'split' && nextPanes.secondary.sessionId ? state.activePaneId : 'primary',
     showNewSession: Object.keys(rest).length === 0,
   });
 }

@@ -98,6 +98,13 @@ export interface UiResumeState {
   projectPanelView: 'files' | 'changes';
   terminalDrawerOpen?: boolean;
   terminalDrawerHeight?: number;
+  chatLayoutMode?: 'single' | 'split';
+  activePaneId?: 'primary' | 'secondary';
+  chatPanes?: {
+    primary: { id: 'primary'; sessionId: string | null; surface?: 'chat' | 'terminal' };
+    secondary: { id: 'secondary'; sessionId: string | null; surface?: 'chat' | 'terminal' };
+  };
+  chatSplitRatio?: number;
 }
 
 // MCP 服务器配置类型

@@ -33,6 +33,7 @@ import { Settings } from './components/settings/Settings';
 import { SkillMarketSettingsContent } from './components/settings/SkillMarketSettings';
 import { ProjectTreePanel } from './components/ProjectTreePanel';
 import { TerminalDrawer } from './components/TerminalDrawer';
+import { WorkspaceHost } from './components/WorkspaceHost';
 import { DecisionPanel } from './components/DecisionPanel';
 import { ExternalFilePermissionDialog } from './components/ExternalFilePermissionDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -82,6 +83,11 @@ function isAskUserQuestionInput(input: unknown): input is AskUserQuestionInput {
 }
 
 export function App() {
+  const electronAvailable =
+    typeof window !== 'undefined' &&
+    typeof window.electron !== 'undefined' &&
+    typeof window.electron.onServerEvent === 'function';
+
   // Initialize IPC communication
   useIPC();
 
@@ -96,6 +102,10 @@ export function App() {
     historyNavigationTarget,
     loadOlderSessionHistory,
     activeWorkspace,
+    chatLayoutMode,
+    activePaneId,
+    chatPanes,
+    chatSplitRatio,
     showNewSession,
     newSessionKey,
     projectCwd,
@@ -109,6 +119,7 @@ export function App() {
     setProjectPanelView,
     setTerminalDrawerOpen,
     setTerminalDrawerHeight,
+    closeSplitChat,
     globalError,
     clearGlobalError,
     removePermissionRequest,
@@ -128,6 +139,19 @@ export function App() {
   const pendingAutoPreviewSessionsRef = useRef(new Set<string>());
   const autoPreviewedArtifactsRef = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
+
+  if (!electronAvailable) {
+    return (
+      <div className="flex h-full items-center justify-center bg-[var(--bg-primary)] p-8">
+        <div className="max-w-md text-center">
+          <div className="text-lg font-semibold text-[var(--text-primary)]">Electron bridge unavailable</div>
+          <div className="mt-2 text-sm text-[var(--text-secondary)]">
+            The renderer started without the preload bridge. Restart the app from Electron instead of opening the Vite URL directly.
+          </div>
+        </div>
+      </div>
+    );
+  }
   const [gitHeaderState, setGitHeaderState] = useState({
     hasRepo: false,
     branch: null as string | null,
@@ -359,8 +383,22 @@ export function App() {
       projectCwd,
       projectTreeCollapsed,
       projectPanelView,
+      chatLayoutMode,
+      activePaneId,
+      chatPanes,
+      chatSplitRatio,
     });
-  }, [activeSessionId, projectCwd, projectPanelView, projectTreeCollapsed, showNewSession]);
+  }, [
+    activePaneId,
+    activeSessionId,
+    chatLayoutMode,
+    chatPanes,
+    chatSplitRatio,
+    projectCwd,
+    projectPanelView,
+    projectTreeCollapsed,
+    showNewSession,
+  ]);
 
   useEffect(() => {
     const nextStatuses = new Map<string, SessionStatus>();
@@ -633,7 +671,7 @@ export function App() {
   }, [activeSession?.messages]);
 
   return (
-    <div className="flex h-full bg-[var(--bg-primary)]">
+    <div className="flex h-full min-h-0 bg-[var(--bg-primary)]">
       {/* Sidebar */}
       {!showSettings && <Sidebar />}
 
@@ -659,9 +697,9 @@ export function App() {
         <BoardView />
       ) : activeWorkspace === 'prompts' ? (
         <PromptLibraryView />
-      ) : activeSession && !showNewSession ? (
+      ) : chatLayoutMode === 'split' || (activeSession && !showNewSession) ? (
         <div
-          className="flex-1 min-w-0 flex flex-col transition-[padding] duration-200"
+          className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden transition-[padding] duration-200"
           style={{ paddingRight: 'var(--project-preview-space, 0px)' }}
         >
           {/* Top drag region */}
@@ -704,207 +742,7 @@ export function App() {
             </div>
           </div>
 
-          {/* Messages area */}
-          <div ref={scrollContainerRef} className="flex-1 overflow-auto p-4 relative">
-            {/* In-session search */}
-            <InSessionSearch />
-
-            {/* Working directory indicator */}
-            {activeSession.cwd && (
-              <div className="mb-4 flex justify-center">
-                <div
-                  className="inline-flex max-w-[760px] flex-wrap items-center justify-center gap-1.5 text-xs text-[var(--text-muted)]"
-                  title={activeSession.cwd}
-                >
-                  {activeSession.source === 'claude_code' && (
-                    <span className="rounded-full border border-[var(--border)] bg-[var(--accent-light)] px-2 py-0.5 uppercase tracking-[0.08em] text-[var(--text-secondary)]">
-                      Claude Code
-                    </span>
-                  )}
-                  <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center text-[var(--tree-file-accent-fg)]">
-                    <FolderOpen className="h-3.5 w-3.5" />
-                  </span>
-                  <span className="truncate font-mono">.../{getPathLeaf(activeSession.cwd)}</span>
-                  <CopyButton text={activeSession.cwd} />
-                </div>
-              </div>
-            )}
-
-            {activeSession.readOnly && (
-              <div className="mb-4 flex justify-center">
-                <div className="max-w-[760px] rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-                  This Claude Code session is indexed from your local terminal history. It is read-only in Aegis for now.
-                </div>
-              </div>
-            )}
-
-            {/* Centered container */}
-            <div className="message-container">
-              {historyNavigationPending && (
-                <div className="mb-4 flex justify-center">
-                  <div className="rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-secondary)]">
-                    {activeSession.loadingMoreHistory
-                      ? 'Loading matched message from older history…'
-                      : 'Locating matched message…'}
-                  </div>
-                </div>
-              )}
-
-              {activeSession.hasMoreHistory && activeSession.loadingMoreHistory && (
-                <div className="mb-4 flex justify-center">
-                  <div className="rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-sm text-[var(--text-secondary)]">
-                    Loading older messages…
-                  </div>
-                </div>
-              )}
-
-              {/* Render messages (with aggregated tool execution batches) */}
-              {aggregatedMessages.map((item, idx) => {
-                if (item.type === 'tool_batch') {
-                  const anchor = String(item.originalIndices[0]);
-                  const highlighted = highlightedHistoryAnchor === anchor;
-                  return (
-                    <div
-                      key={`batch-${idx}`}
-                      data-message-index={item.originalIndices[0]}
-                      className={highlighted ? 'rounded-2xl transition-colors duration-300' : undefined}
-                      style={
-                        highlighted
-                          ? {
-                              backgroundColor: 'color-mix(in srgb, var(--accent-light) 70%, transparent)',
-                              boxShadow: '0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent)',
-                            }
-                          : undefined
-                      }
-                    >
-                      <ToolExecutionBatch
-                        messages={item.messages}
-                        toolStatusMap={toolStatusMap}
-                        toolResultsMap={toolResultsMap}
-                        isSessionRunning={activeSession.status === 'running'}
-                        cwd={activeSession.cwd || null}
-                      />
-                    </div>
-                  );
-                }
-                const anchor = String(item.originalIndex);
-                const highlighted = highlightedHistoryAnchor === anchor;
-                return (
-                  <div
-                    key={idx}
-                    data-message-index={item.originalIndex}
-                    className={highlighted ? 'rounded-2xl transition-colors duration-300' : undefined}
-                    style={
-                      highlighted
-                        ? {
-                            backgroundColor: 'color-mix(in srgb, var(--accent-light) 70%, transparent)',
-                            boxShadow: '0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent)',
-                          }
-                        : undefined
-                    }
-                  >
-                    <MessageCard
-                      message={item.message}
-                      toolStatusMap={toolStatusMap}
-                      toolResultsMap={toolResultsMap}
-                      permissionRequests={activeSession.permissionRequests}
-                      onPermissionResult={handlePermissionResult}
-                      userPromptActions={
-                        item.message.type === 'user_prompt' &&
-                        activeSession.readOnly !== true &&
-                        (
-                          activeSession.provider === 'claude' ||
-                          activeSession.provider === 'codex' ||
-                          activeSession.provider === 'opencode'
-                        )
-                          ? {
-                              canEditAndRetry: item.originalIndex === lastUserPromptIndex,
-                              isSessionRunning: activeSession.status === 'running',
-                              onResend: (prompt: string, attachments) => {
-                                if (!activeSessionId) return;
-                                if (!prompt.trim() && (!attachments || attachments.length === 0)) return;
-                                if (activeSession.status === 'running') return;
-
-                                sendEvent({
-                                  type: 'session.editLatestPrompt',
-                                  payload: {
-                                    sessionId: activeSessionId,
-                                    prompt: prompt.trim(),
-                                    attachments: attachments && attachments.length > 0 ? attachments : undefined,
-                                    provider: activeSession.provider,
-                                    model:
-                                      activeSession.provider === 'codex'
-                                        ? resolveCodexModel(activeSession.model, codexModelConfig) || undefined
-                                        : activeSession.model,
-                                    compatibleProviderId: activeSession.compatibleProviderId,
-                                    betas: activeSession.betas,
-                                    claudeAccessMode:
-                                      activeSession.provider === 'claude'
-                                        ? activeSession.claudeAccessMode || 'default'
-                                        : undefined,
-                                    claudeExecutionMode:
-                                      activeSession.provider === 'claude'
-                                        ? activeSession.claudeExecutionMode || 'execute'
-                                        : undefined,
-                                    codexPermissionMode:
-                                      activeSession.provider === 'codex'
-                                        ? activeSession.codexPermissionMode || 'defaultPermissions'
-                                        : undefined,
-                                    codexReasoningEffort:
-                                      activeSession.provider === 'codex'
-                                        ? activeSession.codexReasoningEffort
-                                        : undefined,
-                                    codexFastMode:
-                                      activeSession.provider === 'codex'
-                                        ? activeSession.codexFastMode === true
-                                        : undefined,
-                                    opencodePermissionMode:
-                                      activeSession.provider === 'opencode'
-                                        ? activeSession.opencodePermissionMode || 'defaultPermissions'
-                                        : undefined,
-                                  },
-                                });
-                              },
-                            }
-                          : undefined
-                      }
-                    />
-                  </div>
-                );
-              })}
-
-              {/* Partial streaming 显示 */}
-              {(streamingWorkstreamModel || (showPartialMessage && partialMessage)) && (
-                <div className="my-3 min-w-0 overflow-x-auto streaming-content">
-                  {streamingWorkstreamModel && <AssistantWorkstream model={streamingWorkstreamModel} />}
-                  {partialMessage && (
-                    <ErrorBoundary
-                      resetKey={partialMessage}
-                      fallback={
-                        <div className="p-3 bg-gray-800 rounded-lg">
-                          <pre className="text-sm text-gray-300 whitespace-pre-wrap break-words">
-                            {partialMessage}
-                          </pre>
-                        </div>
-                      }
-                    >
-                      <StructuredResponse content={partialMessage} streaming />
-                    </ErrorBoundary>
-                  )}
-                </div>
-              )}
-
-              {/* Thinking/Preparing 指示器 */}
-              <div ref={messagesEndRef} />
-            </div>
-          </div>
-
-          {/* Input area */}
-          {activeSession.readOnly ? null : (
-            <div className="px-8 pb-4">
-              <PromptInput />
-            </div>
-          )}
+          <WorkspaceHost codexModelConfig={codexModelConfig} />
 
           <TerminalDrawer
             open={terminalDrawerOpen}
@@ -939,37 +777,6 @@ export function App() {
           },
         }}
       />
-
-      {activeExternalPermissionRequest && isExternalFilePermissionInput(activeExternalPermissionRequest.input) && (
-        <ExternalFilePermissionDialog
-          input={activeExternalPermissionRequest.input}
-          onSubmit={(result) =>
-            handlePermissionResult(activeExternalPermissionRequest.toolUseId, result)
-          }
-        />
-      )}
-
-      {activeGenericPermissionRequest && isAskUserQuestionInput(activeGenericPermissionRequest.input) && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/18 px-4 backdrop-blur-[1px]">
-          <div className="w-full max-w-2xl rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] p-5 shadow-2xl">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-              Permission Request
-            </div>
-            <div className="mt-2 text-lg font-semibold text-[var(--text-primary)]">
-              {activeGenericPermissionRequest.toolName}
-            </div>
-            <div className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-              The agent needs your approval before continuing.
-            </div>
-            <DecisionPanel
-              input={activeGenericPermissionRequest.input}
-              onSubmit={(result) =>
-                handlePermissionResult(activeGenericPermissionRequest.toolUseId, result)
-              }
-            />
-          </div>
-        </div>
-      )}
 
     </div>
   );
