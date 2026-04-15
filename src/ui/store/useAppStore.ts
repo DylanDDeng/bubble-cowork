@@ -87,9 +87,14 @@ function sanitizeSidebarWidth(width: number | undefined, fallback: number): numb
   return Math.min(420, Math.max(220, Math.round(width)));
 }
 
+function sanitizeTerminalDrawerHeight(height: number | undefined, fallback = 280): number {
+  if (typeof height !== 'number' || Number.isNaN(height)) return fallback;
+  return Math.min(640, Math.max(180, Math.round(height)));
+}
+
 function persistUiResumeStateSnapshot(state: Pick<
   AppState,
-  'activeSessionId' | 'showNewSession' | 'projectCwd' | 'projectTreeCollapsed' | 'projectPanelView'
+  'activeSessionId' | 'showNewSession' | 'projectCwd' | 'projectTreeCollapsed' | 'projectPanelView' | 'terminalDrawerOpen' | 'terminalDrawerHeight'
 >): void {
   if (typeof window === 'undefined' || !window.electron?.saveUiResumeState) {
     return;
@@ -101,6 +106,8 @@ function persistUiResumeStateSnapshot(state: Pick<
     projectCwd: state.projectCwd,
     projectTreeCollapsed: state.projectTreeCollapsed,
     projectPanelView: state.projectPanelView,
+    terminalDrawerOpen: state.terminalDrawerOpen,
+    terminalDrawerHeight: state.terminalDrawerHeight,
   });
 }
 
@@ -157,10 +164,24 @@ function createDraftSessionView(cwd?: string | null): SessionView {
 function normalizeProjectPanelView(
   value: import('../shared/types').UiResumeState['projectPanelView'] | 'git' | null | undefined
 ): import('../types').ProjectPanelView {
-  if (value === 'changes' || value === 'terminal') {
+  if (value === 'changes') {
     return value;
   }
   return 'files';
+}
+
+function resolveInitialTerminalDrawerOpen(
+  resumeState: import('../shared/types').UiResumeState | null
+): boolean {
+  if (!resumeState) {
+    return false;
+  }
+
+  if (resumeState.projectPanelView === 'terminal') {
+    return true;
+  }
+
+  return resumeState.terminalDrawerOpen === true;
 }
 
 function normalizeClaudeAccessMode(value: unknown): import('../types').ClaudeAccessMode {
@@ -295,6 +316,8 @@ export const useAppStore = create<Store>()(
       projectTree: null,
       projectTreeCollapsed: initialUiResumeState?.projectTreeCollapsed ?? false,
       projectPanelView: normalizeProjectPanelView(initialUiResumeState?.projectPanelView),
+      terminalDrawerOpen: resolveInitialTerminalDrawerOpen(initialUiResumeState),
+      terminalDrawerHeight: sanitizeTerminalDrawerHeight(initialUiResumeState?.terminalDrawerHeight),
       sessionsLoaded: false,
       // 搜索状态
       sidebarSearchQuery: '',
@@ -505,6 +528,16 @@ export const useAppStore = create<Store>()(
     persistUiResumeStateSnapshot(get());
   },
 
+  setTerminalDrawerOpen: (terminalDrawerOpen) => {
+    set({ terminalDrawerOpen });
+    persistUiResumeStateSnapshot(get());
+  },
+
+  setTerminalDrawerHeight: (terminalDrawerHeight) => {
+    set({ terminalDrawerHeight: sanitizeTerminalDrawerHeight(terminalDrawerHeight) });
+    persistUiResumeStateSnapshot(get());
+  },
+
   applyUiResumeState: (resumeState) =>
     set((state) => {
       if (!resumeState) {
@@ -517,6 +550,8 @@ export const useAppStore = create<Store>()(
         projectCwd: resumeState.projectCwd ?? null,
         projectTreeCollapsed: resumeState.projectTreeCollapsed,
         projectPanelView: normalizeProjectPanelView(resumeState.projectPanelView),
+        terminalDrawerOpen: resolveInitialTerminalDrawerOpen(resumeState),
+        terminalDrawerHeight: sanitizeTerminalDrawerHeight(resumeState.terminalDrawerHeight),
         activeWorkspace: 'chat',
         sessionsLoaded: false,
       };
@@ -706,6 +741,8 @@ export const useAppStore = create<Store>()(
         sidebarWidth: state.sidebarWidth,
         projectTreeCollapsed: state.projectTreeCollapsed,
         projectPanelView: state.projectPanelView,
+        terminalDrawerOpen: state.terminalDrawerOpen,
+        terminalDrawerHeight: state.terminalDrawerHeight,
         theme: state.theme,
         colorThemeId: state.colorThemeId,
         customThemeCss: state.customThemeCss,
@@ -721,6 +758,8 @@ export const useAppStore = create<Store>()(
           sidebarWidth?: number;
           projectTreeCollapsed?: boolean;
           projectPanelView?: import('../types').ProjectPanelView;
+          terminalDrawerOpen?: boolean;
+          terminalDrawerHeight?: number;
           theme?: Theme;
           colorThemeId?: ColorThemeId;
           customThemeCss?: string;
@@ -760,6 +799,11 @@ export const useAppStore = create<Store>()(
           projectPanelView: normalizeProjectPanelView(
             (persisted?.projectPanelView as import('../types').ProjectPanelView | 'git' | undefined) ||
               currentState.projectPanelView
+          ),
+          terminalDrawerOpen: persisted?.terminalDrawerOpen ?? currentState.terminalDrawerOpen,
+          terminalDrawerHeight: sanitizeTerminalDrawerHeight(
+            persisted?.terminalDrawerHeight,
+            currentState.terminalDrawerHeight
           ),
           theme,
           colorThemeId,

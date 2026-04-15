@@ -5,7 +5,6 @@ import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { MDContent } from '../render/markdown';
 import { HighlightedCode } from './HighlightedCode';
-import { SessionTerminal } from './SessionTerminal';
 import { FileTypeIcon } from './FileTypeIcon';
 import {
   applyDiffToChangeRecord,
@@ -205,17 +204,16 @@ export function ProjectTreePanel({
   onClose,
 }: {
   collapsed?: boolean;
-  activeTab: 'files' | 'changes' | 'terminal';
+  activeTab: 'files' | 'changes';
   onClose: () => void;
 }) {
   const MIN_CHANGES_SPINNER_MS = 450;
   const PANEL_DIMENSIONS: Record<
-    'files' | 'changes' | 'terminal',
+    'files' | 'changes',
     { defaultWidth: number; minWidth: number; maxWidth: number; title: string }
   > = {
     files: { defaultWidth: 300, minWidth: 280, maxWidth: 440, title: 'Files' },
     changes: { defaultWidth: 360, minWidth: 320, maxWidth: 560, title: 'Changes' },
-    terminal: { defaultWidth: 360, minWidth: 320, maxWidth: 560, title: 'Terminal' },
   };
   const panelMeta = PANEL_DIMENSIONS[activeTab];
   const defaultRailWidth = panelMeta.defaultWidth;
@@ -1016,12 +1014,6 @@ export function ProjectTreePanel({
                   />
                 ))}
               </>
-            )}
-            {activeTab === 'terminal' && (
-              <SessionTerminal
-                sessionId={activeSessionId}
-                cwd={cwd}
-              />
             )}
           </div>
         </div>

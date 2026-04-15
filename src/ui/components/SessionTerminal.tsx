@@ -13,9 +13,11 @@ type TerminalTab = {
 export function SessionTerminal({
   sessionId,
   cwd,
+  onRequestClose,
 }: {
   sessionId: string | null;
   cwd: string | null;
+  onRequestClose?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -136,6 +138,7 @@ export function SessionTerminal({
 
     return () => {
       window.removeEventListener('resize', resize);
+      stopTerminalTabs(tabsRef.current);
       terminal.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
@@ -274,16 +277,19 @@ export function SessionTerminal({
   };
 
   const handleCloseTab = (tabId: string) => {
+    if (tabsRef.current.length <= 1) {
+      tabsRef.current = [];
+      setTabs([]);
+      setActiveTabId(null);
+      setStatus(null);
+      terminalRef.current?.clear();
+      void window.electron.stopTerminalSession(tabId);
+      onRequestClose?.();
+      return;
+    }
+
     setTabs((current) => {
       const filtered = current.filter((tab) => tab.id !== tabId);
-      if (filtered.length === 0 && canStart) {
-        const replacement = createTab(nextTabNumberRef.current);
-        nextTabNumberRef.current += 1;
-        setActiveTabId(replacement.id);
-        void window.electron.stopTerminalSession(tabId);
-        return [replacement];
-      }
-
       if (activeTabId === tabId) {
         setActiveTabId(filtered[0]?.id || null);
       }

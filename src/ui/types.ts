@@ -87,7 +87,7 @@ export interface SessionStreamingState {
 
 export type ActiveWorkspace = 'chat' | 'board' | 'skills' | 'prompts';
 export type ChatSidebarView = 'threads';
-export type ProjectPanelView = 'files' | 'changes' | 'terminal';
+export type ProjectPanelView = 'files' | 'changes';
 
 // UI 会话视图状态
 export interface SessionView {
@@ -144,6 +144,8 @@ export interface AppState {
   projectTree: ProjectTreeNode | null;
   projectTreeCollapsed: boolean;
   projectPanelView: ProjectPanelView;
+  terminalDrawerOpen: boolean;
+  terminalDrawerHeight: number;
   sessionsLoaded: boolean;
   // 搜索状态
   sidebarSearchQuery: string;
@@ -203,6 +205,8 @@ export interface AppActions {
   setProjectTree: (cwd: string | null, tree: ProjectTreeNode | null) => void;
   setProjectTreeCollapsed: (collapsed: boolean) => void;
   setProjectPanelView: (view: ProjectPanelView) => void;
+  setTerminalDrawerOpen: (open: boolean) => void;
+  setTerminalDrawerHeight: (height: number) => void;
   applyUiResumeState: (state: import('../shared/types').UiResumeState | null) => void;
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;

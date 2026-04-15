@@ -32,6 +32,7 @@ import { InSessionSearch } from './components/search/InSessionSearch';
 import { Settings } from './components/settings/Settings';
 import { SkillMarketSettingsContent } from './components/settings/SkillMarketSettings';
 import { ProjectTreePanel } from './components/ProjectTreePanel';
+import { TerminalDrawer } from './components/TerminalDrawer';
 import { DecisionPanel } from './components/DecisionPanel';
 import { ExternalFilePermissionDialog } from './components/ExternalFilePermissionDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -101,9 +102,13 @@ export function App() {
     showSettings,
     projectTreeCollapsed,
     projectPanelView,
+    terminalDrawerOpen,
+    terminalDrawerHeight,
     sessionsLoaded,
     setProjectTreeCollapsed,
     setProjectPanelView,
+    setTerminalDrawerOpen,
+    setTerminalDrawerHeight,
     globalError,
     clearGlobalError,
     removePermissionRequest,
@@ -678,6 +683,19 @@ export function App() {
                   setProjectTreeCollapsed(false);
                 }}
               />
+              <button
+                type="button"
+                onClick={() => setTerminalDrawerOpen(!terminalDrawerOpen)}
+                className={`no-drag inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] font-medium transition-colors ${
+                  terminalDrawerOpen
+                    ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+                }`}
+                title="Terminal"
+                aria-label="Toggle terminal drawer"
+              >
+                <SquareTerminal className="h-[13px] w-[13px] shrink-0" />
+              </button>
               <GitHeaderActions
                 cwd={activeSession?.cwd || projectCwd || null}
                 state={gitHeaderState}
@@ -887,6 +905,15 @@ export function App() {
               <PromptInput />
             </div>
           )}
+
+          <TerminalDrawer
+            open={terminalDrawerOpen}
+            height={terminalDrawerHeight}
+            onHeightChange={setTerminalDrawerHeight}
+            onClose={() => setTerminalDrawerOpen(false)}
+            sessionId={activeSessionId}
+            cwd={activeSession?.cwd || projectCwd || null}
+          />
         </div>
       ) : (
         <NewSessionView key={newSessionKey} />
@@ -954,9 +981,9 @@ function InlineProjectPanelHeaderActions({
   activeTab,
   changeStats,
 }: {
-  onToggle: (view: 'files' | 'changes' | 'terminal') => void;
+  onToggle: (view: 'files' | 'changes') => void;
   collapsed: boolean;
-  activeTab: 'files' | 'changes' | 'terminal';
+  activeTab: 'files' | 'changes';
   changeStats: { insertions: number; deletions: number };
 }) {
   const items = [
@@ -969,11 +996,6 @@ function InlineProjectPanelHeaderActions({
       id: 'changes' as const,
       label: 'Changes',
       icon: FileDiff,
-    },
-    {
-      id: 'terminal' as const,
-      label: 'Terminal',
-      icon: SquareTerminal,
     },
   ];
 
