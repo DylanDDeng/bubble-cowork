@@ -1,6 +1,6 @@
 {
   "name": "aegis",
-  "version": "0.0.16",
+  "version": "0.0.17",
   "description": "Aegis Desktop Application",
   "author": "Your Name",
   "main": "dist-electron/electron/main.js",
