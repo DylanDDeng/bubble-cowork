@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Base64ImageSource, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages';
 import type { RunnerOptions, RunnerHandle, StreamMessage, PermissionResult, Attachment } from '../types';
 import type { ClaudeModelUsage } from '../../shared/types';
-import { getClaudeEnv, getClaudeSettings, getMcpServers } from './claude-settings';
+import { getClaudeEnv, getMcpServers } from './claude-settings';
 import { applyCompatibleProviderEnv } from './compatible-provider-config';
 import { getClaudeCodeRuntime } from './claude-runtime';
 import { createAegisMemoryMcpServer, buildMemoryContext, MEMORY_SYSTEM_PROMPT } from './memory-mcp';
@@ -386,10 +386,6 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       );
       env = providerOverride.env;
       currentModel = providerOverride.forcedModel || currentModel;
-      const settings = getClaudeSettings();
-      if (!providerOverride.matchedProviderId && settings?.apiKey && !env.ANTHROPIC_API_KEY) {
-        env.ANTHROPIC_API_KEY = settings.apiKey;
-      }
       const { executable, executableArgs, env: runtimeEnv, pathToClaudeCodeExecutable } = getClaudeCodeRuntime();
       Object.assign(env, runtimeEnv);
 

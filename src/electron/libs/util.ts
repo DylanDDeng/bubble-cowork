@@ -1,5 +1,5 @@
-import type { ClaudeCompatibleProviderId } from '../../shared/types';
-import { getClaudeEnv, getClaudeSettings } from './claude-settings';
+import type { AgentProvider, ClaudeCompatibleProviderId } from '../../shared/types';
+import { getClaudeEnv } from './claude-settings';
 import { applyCompatibleProviderEnv } from './compatible-provider-config';
 import { getClaudeCodeRuntime } from './claude-runtime';
 
@@ -42,10 +42,6 @@ export async function runClaudeOneShot(params: {
   const providerOverride = applyCompatibleProviderEnv(env, params.model, params.compatibleProviderId);
   env = providerOverride.env;
   const forcedModel = providerOverride.forcedModel || params.model;
-  const settings = getClaudeSettings();
-  if (!providerOverride.matchedProviderId && settings?.apiKey && !env.ANTHROPIC_API_KEY) {
-    env.ANTHROPIC_API_KEY = settings.apiKey;
-  }
   const { executable, executableArgs, env: runtimeEnv, pathToClaudeCodeExecutable } = getClaudeCodeRuntime();
   Object.assign(env, runtimeEnv);
 
@@ -99,14 +95,38 @@ export async function runClaudeOneShot(params: {
   };
 }
 
-// 使用 Claude SDK 生成会话标题
+function generateSessionTitleLocally(prompt: string): string {
+  const cleaned = prompt
+    .replace(/\s+/g, ' ')
+    .replace(/[`*_#>\-\[\]\(\)]/g, ' ')
+    .trim();
+  if (!cleaned) {
+    return '';
+  }
+
+  const firstSentence = cleaned.split(/[.!?。！？\n]/, 1)[0]?.trim() || cleaned;
+  const words = firstSentence
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+
+  const title = words.join(' ').trim();
+  return title.slice(0, 50);
+}
+
 export async function generateSessionTitle(
   prompt: string,
   cwd?: string,
   model?: string,
   compatibleProviderId?: ClaudeCompatibleProviderId,
-  betas?: string[]
+  betas?: string[],
+  provider: AgentProvider = 'claude'
 ): Promise<string> {
+  if (provider !== 'claude') {
+    return generateSessionTitleLocally(prompt);
+  }
+
   try {
     const titlePrompt = `Based on this user request, generate a very short title (3-6 words, no quotes):
 "${prompt.slice(0, 500)}"
@@ -123,6 +143,6 @@ Just output the title, nothing else.`;
     return result.text.slice(0, 50);
   } catch (error) {
     console.error('Failed to generate title:', error);
-    return '';
+    return generateSessionTitleLocally(prompt);
   }
 }

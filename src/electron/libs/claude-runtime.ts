@@ -55,12 +55,7 @@ function getGlobalClaudeCodeCliPath(): string | undefined {
     return undefined;
   }
 
-  try {
-    const resolved = fs.realpathSync(globalBinary);
-    return fs.existsSync(resolved) ? resolved : globalBinary;
-  } catch {
-    return globalBinary;
-  }
+  return globalBinary;
 }
 
 function resolveUnpackedPath(maybeAsarPath: string): string {
@@ -108,10 +103,29 @@ function resolveClaudeCodeCliPath(): string | undefined {
   }
 }
 
+function isNodeScriptPath(filePath: string | undefined): boolean {
+  if (!filePath) {
+    return false;
+  }
+  const lower = filePath.toLowerCase();
+  return lower.endsWith('.js') || lower.endsWith('.cjs') || lower.endsWith('.mjs');
+}
+
 export function getClaudeCodeRuntime(): ClaudeCodeRuntime {
+  const cliPath = resolveClaudeCodeCliPath();
   const env: Record<string, string | undefined> = {};
   let executable = process.execPath;
   let executableArgs: string[] = [];
+  let pathToClaudeCodeExecutable = cliPath;
+
+  if (cliPath && !isNodeScriptPath(cliPath)) {
+    return {
+      executable: cliPath,
+      executableArgs: [],
+      env: {},
+      pathToClaudeCodeExecutable: undefined,
+    };
+  }
 
   if (process.versions?.electron) {
     const helperExecPath = (process as unknown as { helperExecPath?: string }).helperExecPath;
@@ -124,6 +138,6 @@ export function getClaudeCodeRuntime(): ClaudeCodeRuntime {
     executable,
     executableArgs,
     env,
-    pathToClaudeCodeExecutable: resolveClaudeCodeCliPath(),
+    pathToClaudeCodeExecutable,
   };
 }

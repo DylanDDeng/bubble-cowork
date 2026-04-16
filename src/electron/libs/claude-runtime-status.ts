@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import { sep } from 'path';
 import type { ClaudeRuntimeSource, ClaudeRuntimeStatus } from '../../shared/types';
-import { getClaudeEnv, getClaudeSettings } from './claude-settings';
+import { getClaudeEnv } from './claude-settings';
 import { normalizeClaudeRequestedModel } from './claude-model-selection';
 import { getClaudeCodeRuntime, type ClaudeCodeRuntime } from './claude-runtime';
 
@@ -66,11 +66,6 @@ function buildClaudeRuntimeEnv(runtimeEnv: Record<string, string | undefined>): 
     ...runtimeEnv,
   };
 
-  const settings = getClaudeSettings();
-  if (settings?.apiKey && !env.ANTHROPIC_API_KEY) {
-    env.ANTHROPIC_API_KEY = settings.apiKey;
-  }
-
   return env;
 }
 
@@ -117,7 +112,7 @@ function execClaudeRuntimeCommand(
   args: string[],
   timeoutMs = 5000
 ): Promise<CommandResult> {
-  if (!runtime.pathToClaudeCodeExecutable) {
+  if (!runtime.executable) {
     return Promise.resolve({
       code: 127,
       stdout: '',
@@ -127,7 +122,9 @@ function execClaudeRuntimeCommand(
     });
   }
 
-  const commandArgs = [...runtime.executableArgs, runtime.pathToClaudeCodeExecutable, ...args];
+  const commandArgs = runtime.pathToClaudeCodeExecutable
+    ? [...runtime.executableArgs, runtime.pathToClaudeCodeExecutable, ...args]
+    : [...runtime.executableArgs, ...args];
   const env = buildClaudeRuntimeEnv(runtime.env);
 
   return new Promise((resolve) => {
@@ -166,18 +163,19 @@ function buildInstallRequiredStatus(
   requestedModel: string | null,
   requiresAnthropicAuth: boolean
 ): ClaudeRuntimeStatus {
+  const runtimePath = runtime.pathToClaudeCodeExecutable || runtime.executable || null;
   return {
     kind: 'install_required',
     ready: false,
     runtimeInstalled: false,
-    runtimeSource: resolveRuntimeSource(runtime.pathToClaudeCodeExecutable),
+    runtimeSource: resolveRuntimeSource(runtimePath || undefined),
     requiresAnthropicAuth,
     authSatisfied: false,
-    hasApiKey: Boolean(process.env.ANTHROPIC_API_KEY || getClaudeSettings()?.apiKey),
+    hasApiKey: Boolean(process.env.ANTHROPIC_API_KEY),
     loggedIn: false,
     authMethod: null,
     apiProvider: null,
-    cliPath: runtime.pathToClaudeCodeExecutable || null,
+    cliPath: runtimePath,
     cliVersion: null,
     requestedModel,
     summary: 'Claude Code runtime not found.',
@@ -194,13 +192,14 @@ export async function getClaudeRuntimeStatus(model?: string | null): Promise<Cla
   const runtime = getClaudeCodeRuntime();
   const requestedModel = normalizeClaudeRequestedModel(model) || model?.trim() || null;
   const requiresAnthropicAuth = requiresAnthropicAuthForModel(requestedModel);
-  const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY || getClaudeSettings()?.apiKey);
+  const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
+  const runtimePath = runtime.pathToClaudeCodeExecutable || runtime.executable || null;
 
-  if (!runtime.pathToClaudeCodeExecutable) {
+  if (!runtimePath) {
     return buildInstallRequiredStatus(runtime, requestedModel, requiresAnthropicAuth);
   }
 
-  const runtimeSource = resolveRuntimeSource(runtime.pathToClaudeCodeExecutable);
+  const runtimeSource = resolveRuntimeSource(runtimePath);
   const runtimeLabel = describeRuntimeLocation(runtimeSource);
   const [versionResult, authResult] = await Promise.all([
     execClaudeRuntimeCommand(runtime, ['--version'], 4000),
@@ -240,7 +239,7 @@ export async function getClaudeRuntimeStatus(model?: string | null): Promise<Cla
       loggedIn,
       authMethod,
       apiProvider,
-      cliPath: runtime.pathToClaudeCodeExecutable,
+      cliPath: runtimePath,
       cliVersion,
       requestedModel,
       summary: 'Claude Code is ready.',
@@ -264,7 +263,7 @@ export async function getClaudeRuntimeStatus(model?: string | null): Promise<Cla
       loggedIn,
       authMethod,
       apiProvider,
-      cliPath: runtime.pathToClaudeCodeExecutable,
+      cliPath: runtimePath,
       cliVersion,
       requestedModel,
       summary: 'Claude Code needs authentication.',
@@ -288,7 +287,7 @@ export async function getClaudeRuntimeStatus(model?: string | null): Promise<Cla
     loggedIn,
     authMethod,
     apiProvider,
-    cliPath: runtime.pathToClaudeCodeExecutable,
+    cliPath: runtimePath,
     cliVersion,
     requestedModel,
     summary: 'Claude runtime check failed.',

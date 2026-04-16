@@ -4199,7 +4199,8 @@ async function handleSessionStart(
     cwd,
     chosenProvider === 'claude' ? selectedModel : undefined,
     chosenProvider === 'claude' ? compatibleProviderId : undefined,
-    chosenProvider === 'claude' ? selectedBetas : undefined
+    chosenProvider === 'claude' ? selectedBetas : undefined,
+    chosenProvider
   ).then((newTitle) => {
     const trimmedTitle = newTitle.trim();
     if (!trimmedTitle) {

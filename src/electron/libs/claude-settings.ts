@@ -108,9 +108,6 @@ export function loadClaudeSettings(): ClaudeSettings {
         }
       }
 
-      if (settings?.apiKey && !process.env.ANTHROPIC_API_KEY) {
-        process.env.ANTHROPIC_API_KEY = settings.apiKey;
-      }
     } else {
       settings = {};
     }
