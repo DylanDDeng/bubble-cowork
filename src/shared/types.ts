@@ -632,7 +632,7 @@ export interface UserMessage {
 
 export type ContentBlock =
   | { type: 'text'; text: string }
-  | { type: 'thinking'; thinking: string; signature?: string }
+  | { type: 'thinking'; thinking: string; signature?: string; durationMs?: number }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
 

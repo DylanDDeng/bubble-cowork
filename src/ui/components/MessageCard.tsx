@@ -572,7 +572,7 @@ function ContentBlockCard({
       );
 
     case 'thinking':
-      return <ThinkingBlock content={block.thinking} />;
+      return <ThinkingBlock content={block.thinking} durationMs={block.durationMs} />;
 
     default:
       return null;

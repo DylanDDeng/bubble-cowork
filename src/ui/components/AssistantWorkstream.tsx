@@ -30,6 +30,7 @@ import {
   type UnifiedDiffHunk,
   type UnifiedDiffLine,
 } from '../utils/unified-diff';
+import { formatDurationLabel } from '../utils/format-duration';
 import { TodoProgressCard } from './TodoProgressCard';
 
 interface AssistantWorkstreamProps {
@@ -48,8 +49,16 @@ export function AssistantWorkstream({ model, className = '' }: AssistantWorkstre
     }
   }, [model.state]);
 
-  const visibleEntries = expanded ? model.entries : model.previewEntries;
-  const showToggle = model.entries.length > model.previewEntries.length || model.entries.length > 3;
+  const isCompletedCollapsed = model.state === 'completed' && !expanded;
+  const visibleEntries = expanded
+    ? model.entries
+    : isCompletedCollapsed
+      ? []
+      : model.previewEntries;
+  const showToggle =
+    (model.state === 'completed' && model.entries.length > 0) ||
+    model.entries.length > model.previewEntries.length ||
+    model.entries.length > 3;
   const meta = useMemo(() => buildWorkstreamMeta(model), [model]);
 
   if (model.entries.length === 0 && !model.todoProgress && model.summary.trim().length === 0) {
@@ -60,6 +69,13 @@ export function AssistantWorkstream({ model, className = '' }: AssistantWorkstre
     return <TodoProgressCard state={model.todoProgress} className={className || 'my-2'} />;
   }
 
+  const showSummaryLine = !isCompletedCollapsed && model.summary.trim().length > 0;
+  const toggleLabel = expanded
+    ? 'Hide details'
+    : model.state === 'completed'
+      ? 'Show details'
+      : `Show ${model.hiddenEntryCount} more`;
+
   return (
     <div className={`my-2 border-l border-[var(--border)]/60 pl-3 ${className}`}>
       <div className="flex items-start gap-3 py-1.5">
@@ -68,7 +84,9 @@ export function AssistantWorkstream({ model, className = '' }: AssistantWorkstre
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
               <div className="text-[12px] font-medium text-[var(--text-primary)]">{model.title}</div>
-              <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-secondary)]">{model.summary}</div>
+              {showSummaryLine ? (
+                <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-secondary)]">{model.summary}</div>
+              ) : null}
             </div>
             {showToggle ? (
               <button
@@ -77,22 +95,24 @@ export function AssistantWorkstream({ model, className = '' }: AssistantWorkstre
                 className="inline-flex h-6 items-center gap-1 px-1 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
                 aria-expanded={expanded}
               >
-                <span>{expanded ? 'Hide details' : `Show ${model.hiddenEntryCount} more`}</span>
+                <span>{toggleLabel}</span>
                 <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} />
               </button>
             ) : null}
           </div>
 
-          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
-            {meta.map((item) => (
-              <span
-                key={item}
-                className="rounded-full bg-[var(--bg-tertiary)]/55 px-2 py-0.5"
-              >
-                {item}
-              </span>
-            ))}
-          </div>
+          {meta.length > 0 ? (
+            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
+              {meta.map((item) => (
+                <span
+                  key={item}
+                  className="rounded-full bg-[var(--bg-tertiary)]/55 px-2 py-0.5"
+                >
+                  {item}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -122,6 +142,10 @@ function buildWorkstreamMeta(model: WorkstreamModel): string[] {
   }
   if (model.noteCount > 0) {
     items.push(`${model.noteCount} note${model.noteCount > 1 ? 's' : ''}`);
+  }
+  const durationLabel = formatDurationLabel(model.durationMs);
+  if (durationLabel) {
+    items.push(durationLabel);
   }
   return items;
 }

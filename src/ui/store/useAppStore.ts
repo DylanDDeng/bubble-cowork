@@ -1625,16 +1625,27 @@ function handleStreamMessage(
       return state;
     }
 
+    const incomingCreatedAt = (message as { createdAt?: unknown }).createdAt;
+    const stampedMessage: StreamMessage =
+      typeof incomingCreatedAt === 'number' && Number.isFinite(incomingCreatedAt)
+        ? message
+        : ({ ...(message as object), createdAt: Date.now() } as StreamMessage);
+
     // Claude Agent SDK may emit partial updates for the same message UUID.
     // Replace existing messages instead of appending duplicates.
-    const maybeUuid = (message as { uuid?: unknown }).uuid;
+    const maybeUuid = (stampedMessage as { uuid?: unknown }).uuid;
     if (typeof maybeUuid === 'string' && maybeUuid.length > 0) {
       const existingIndex = currentSession.messages.findIndex(
         (m) => (m as { uuid?: unknown }).uuid === maybeUuid
       );
       if (existingIndex >= 0) {
+        const existing = currentSession.messages[existingIndex] as { createdAt?: number };
+        const mergedMessage: StreamMessage =
+          typeof existing.createdAt === 'number' && Number.isFinite(existing.createdAt)
+            ? ({ ...(stampedMessage as object), createdAt: existing.createdAt } as StreamMessage)
+            : stampedMessage;
         const nextMessages = currentSession.messages.slice();
-        nextMessages[existingIndex] = message;
+        nextMessages[existingIndex] = mergedMessage;
         return {
           ...state,
           sessions: {
@@ -1642,8 +1653,8 @@ function handleStreamMessage(
             [sessionId]: {
               ...currentSession,
               latestClaudeModelUsage:
-                message.type === 'result' && currentSession.provider === 'claude' && message.modelUsage
-                  ? extractLatestClaudeModelUsage([message], currentSession.model) || currentSession.latestClaudeModelUsage
+                mergedMessage.type === 'result' && currentSession.provider === 'claude' && mergedMessage.modelUsage
+                  ? extractLatestClaudeModelUsage([mergedMessage], currentSession.model) || currentSession.latestClaudeModelUsage
                   : currentSession.latestClaudeModelUsage,
               messages: nextMessages,
               streaming: createEmptyStreamingState(),
@@ -1660,10 +1671,10 @@ function handleStreamMessage(
         [sessionId]: {
           ...currentSession,
           latestClaudeModelUsage:
-            message.type === 'result' && currentSession.provider === 'claude' && message.modelUsage
-              ? extractLatestClaudeModelUsage([message], currentSession.model) || currentSession.latestClaudeModelUsage
+            stampedMessage.type === 'result' && currentSession.provider === 'claude' && stampedMessage.modelUsage
+              ? extractLatestClaudeModelUsage([stampedMessage], currentSession.model) || currentSession.latestClaudeModelUsage
               : currentSession.latestClaudeModelUsage,
-          messages: [...currentSession.messages, message],
+          messages: [...currentSession.messages, stampedMessage],
           streaming: createEmptyStreamingState(),
         },
       },

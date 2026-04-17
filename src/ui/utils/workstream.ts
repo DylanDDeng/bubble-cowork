@@ -62,6 +62,7 @@ export interface WorkstreamModel {
   toolCount: number;
   noteCount: number;
   hiddenEntryCount: number;
+  durationMs?: number;
   todoProgress: ReturnType<typeof extractLatestTodoProgress> | null;
 }
 
@@ -401,6 +402,7 @@ export function createBatchWorkstreamModel(params: {
   const noteCount = entries.filter(
     (entry) => entry.type === 'note' || entry.type === 'thinking'
   ).length;
+  const durationMs = computeBatchDurationMs(params.messages, state);
 
   return {
     state,
@@ -411,8 +413,34 @@ export function createBatchWorkstreamModel(params: {
     toolCount,
     noteCount,
     hiddenEntryCount: Math.max(entries.length - previewEntries.length, 0),
+    durationMs,
     todoProgress: extractLatestTodoProgress(allBlocks),
   };
+}
+
+function computeBatchDurationMs(
+  messages: (StreamMessage & { type: 'assistant' })[],
+  state: WorkstreamState
+): number | undefined {
+  if (state !== 'completed' || messages.length === 0) {
+    return undefined;
+  }
+
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  for (const message of messages) {
+    const ts = (message as { createdAt?: number }).createdAt;
+    if (typeof ts !== 'number' || !Number.isFinite(ts)) continue;
+    if (ts < min) min = ts;
+    if (ts > max) max = ts;
+  }
+
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return undefined;
+  }
+
+  const duration = max - min;
+  return duration >= 0 ? duration : undefined;
 }
 
 export function createStreamingWorkstreamModel(params: {

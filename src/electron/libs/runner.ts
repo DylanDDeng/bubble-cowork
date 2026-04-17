@@ -87,6 +87,7 @@ interface ContentBlock {
   input?: unknown;
   thinking?: string;
   signature?: string;
+  durationMs?: number;
 }
 
 type StreamEventType =
@@ -633,6 +634,13 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       let currentAssistantText = '';
       let currentTurnHasMemoryWrite = false;
 
+      // Track per-content-block thinking duration so the UI can show
+      // "Thinking · Ns" on the collapsed trace after the turn completes.
+      // Keyed by the stream-event `index`, which matches the array position
+      // of the block inside the `assistant` message's content[].
+      const thinkingStartByIndex = new Map<number, number>();
+      const thinkingDurationByIndex = new Map<number, number>();
+
       // 流式处理消息
       for await (const message of result) {
         if (abortController.signal.aborted) {
@@ -642,6 +650,54 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         // 转换 SDK 消息为内部格式并发送
         const streamMessage = convertSDKMessage(message as SDKMessage);
         if (streamMessage) {
+          if (streamMessage.type === 'stream_event') {
+            const event = streamMessage.event;
+            if (
+              event.type === 'content_block_delta' &&
+              event.delta?.type === 'thinking_delta' &&
+              typeof event.index === 'number'
+            ) {
+              const i = event.index;
+              // A brand-new block arriving at a previously-completed index
+              // means we've rolled into a new turn (same stream, new Claude
+              // message). Drop the old timing so we measure fresh.
+              if (thinkingDurationByIndex.has(i)) {
+                thinkingStartByIndex.delete(i);
+                thinkingDurationByIndex.delete(i);
+              }
+              if (!thinkingStartByIndex.has(i)) {
+                thinkingStartByIndex.set(i, Date.now());
+              }
+            } else if (
+              event.type === 'content_block_stop' &&
+              typeof event.index === 'number' &&
+              thinkingStartByIndex.has(event.index) &&
+              !thinkingDurationByIndex.has(event.index)
+            ) {
+              thinkingDurationByIndex.set(
+                event.index,
+                Date.now() - thinkingStartByIndex.get(event.index)!
+              );
+            }
+          }
+
+          if (streamMessage.type === 'assistant' && streamMessage.message?.content) {
+            // Annotate thinking blocks in-place with the measured duration.
+            // Partial assistant messages may arrive before the block's stop
+            // event; in that case durationMs stays undefined and a later
+            // re-emission of the same UUID will fill it in.
+            const blocks = streamMessage.message.content as ContentBlock[];
+            for (let i = 0; i < blocks.length; i++) {
+              const block = blocks[i];
+              if (block.type === 'thinking' && block.durationMs === undefined) {
+                const duration = thinkingDurationByIndex.get(i);
+                if (typeof duration === 'number' && duration >= 0) {
+                  block.durationMs = duration;
+                }
+              }
+            }
+          }
+
           if (streamMessage.type === 'system' && streamMessage.subtype === 'init') {
             currentSessionId = streamMessage.session_id || currentSessionId;
             if (currentModel && streamMessage.model && streamMessage.model !== currentModel) {
