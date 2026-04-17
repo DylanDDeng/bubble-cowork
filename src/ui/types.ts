@@ -168,6 +168,7 @@ export interface AppState {
   inSessionSearchQuery: string;
   inSessionSearchResults: SearchMatch[];
   inSessionSearchCurrentIndex: number;
+  searchPaletteOpen: boolean;
   historyNavigationTarget: {
     sessionId: string;
     messageCreatedAt: number;
@@ -246,6 +247,8 @@ export interface AppActions {
   setInSessionSearchQuery: (query: string) => void;
   setInSessionSearchResults: (results: SearchMatch[]) => void;
   navigateSearchResult: (direction: 'next' | 'prev') => void;
+  setSearchPaletteOpen: (open: boolean) => void;
+  toggleSearchPalette: () => void;
   setHistoryNavigationTarget: (target: AppState['historyNavigationTarget']) => void;
   // MCP Actions
   setMcpServers: (servers: Record<string, import('../shared/types').McpServerConfig>) => void;
@@ -300,6 +303,7 @@ export interface SearchState {
   inSessionSearchQuery: string;
   inSessionSearchResults: SearchMatch[];
   inSessionSearchCurrentIndex: number;
+  searchPaletteOpen: boolean;
   historyNavigationTarget: AppState['historyNavigationTarget'];
 }
 
@@ -313,6 +317,8 @@ export interface SearchActions {
   setInSessionSearchQuery: (query: string) => void;
   setInSessionSearchResults: (results: SearchMatch[]) => void;
   navigateSearchResult: (direction: 'next' | 'prev') => void;
+  setSearchPaletteOpen: (open: boolean) => void;
+  toggleSearchPalette: () => void;
   setHistoryNavigationTarget: (target: AppState['historyNavigationTarget']) => void;
 }
 

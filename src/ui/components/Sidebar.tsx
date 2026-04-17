@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
   Bookmark,
@@ -14,10 +14,16 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import { SidebarMessageSearchDialog } from './search/SidebarMessageSearchDialog';
+import { SidebarSearchPalette } from './search/SidebarSearchPalette';
+import type {
+  SidebarSearchAction,
+  SidebarSearchProject,
+  SidebarSearchThread,
+} from './search/SidebarSearchPalette.logic';
 import { StatusFilter } from './StatusFilter';
 import { FolderTreeView } from './FolderTreeView';
 import type { SessionView } from '../types';
+import { getMessageContentBlocks } from '../utils/message-content';
 
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 420;
@@ -40,9 +46,10 @@ export function Sidebar() {
     setShowSettings,
     createDraftSession,
     removeDraftSession,
+    searchPaletteOpen,
+    setSearchPaletteOpen,
   } = useAppStore();
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
-  const [messageSearchOpen, setMessageSearchOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionView | null>(null);
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
   const sidebarResizingRef = useRef(false);
@@ -130,6 +137,174 @@ export function Sidebar() {
     setSidebarCollapsed(!sidebarCollapsed);
   };
 
+  const paletteActions = useMemo<SidebarSearchAction[]>(
+    () => [
+      {
+        id: 'new-thread',
+        label: 'New Thread',
+        description: 'Start a new conversation',
+        keywords: ['create', 'conversation', 'chat', 'session'],
+        shortcutLabel: '⌘N',
+      },
+      {
+        id: 'open-project',
+        label: 'Open Project Folder',
+        description: 'Pick a working directory for a new thread',
+        keywords: ['folder', 'cwd', 'directory'],
+      },
+      {
+        id: 'switch-chat',
+        label: 'Go to Threads',
+        description: 'Show the threads workspace',
+        keywords: ['chat', 'sessions'],
+      },
+      {
+        id: 'switch-board',
+        label: 'Go to Board',
+        description: 'Open the board workspace',
+        keywords: ['kanban', 'tasks'],
+      },
+      {
+        id: 'switch-prompts',
+        label: 'Go to Prompt Library',
+        description: 'Browse saved prompts',
+        keywords: ['prompts', 'snippets'],
+      },
+      {
+        id: 'switch-skills',
+        label: 'Go to Skills',
+        description: 'Browse skills',
+        keywords: ['skills', 'agents'],
+      },
+      {
+        id: 'settings',
+        label: 'Settings',
+        description: 'Open application settings',
+        keywords: ['preferences', 'config'],
+      },
+    ],
+    []
+  );
+
+  const visibleSessions = useMemo(
+    () =>
+      Object.values(sessions).filter(
+        (session) => !session.hiddenFromThreads && session.source !== 'claude_code'
+      ),
+    [sessions]
+  );
+
+  const paletteProjects = useMemo<SidebarSearchProject[]>(() => {
+    const map = new Map<string, SidebarSearchProject>();
+    for (const session of visibleSessions) {
+      const cwd = session.cwd?.trim();
+      if (!cwd) continue;
+      const existing = map.get(cwd);
+      if (existing) {
+        existing.sessionCount += 1;
+        if (session.updatedAt > existing.lastUpdatedAt) {
+          existing.lastUpdatedAt = session.updatedAt;
+        }
+      } else {
+        const parts = cwd.split('/').filter(Boolean);
+        map.set(cwd, {
+          id: cwd,
+          name: parts[parts.length - 1] || cwd,
+          cwd,
+          sessionCount: 1,
+          lastUpdatedAt: session.updatedAt,
+        });
+      }
+    }
+    return Array.from(map.values());
+  }, [visibleSessions]);
+
+  const paletteThreads = useMemo<SidebarSearchThread[]>(() => {
+    return visibleSessions.map((session) => {
+      const cwd = session.cwd?.trim() || null;
+      const projectName = cwd
+        ? cwd.split('/').filter(Boolean).pop() || cwd
+        : 'No Project';
+
+      // Only hydrated sessions have message content available in memory.
+      // For others we still match title / project — consistent with the
+      // lightweight, in-memory-only philosophy of the palette.
+      const messages: { text: string }[] = [];
+      if (session.hydrated) {
+        for (const message of session.messages) {
+          if (message.type === 'user_prompt') {
+            messages.push({ text: message.prompt });
+          } else if (message.type === 'assistant' || message.type === 'user') {
+            const text = getMessageContentBlocks(message)
+              .map((block) => {
+                if (block.type === 'text') return block.text;
+                if (block.type === 'thinking') return block.thinking;
+                return '';
+              })
+              .filter(Boolean)
+              .join(' ');
+            if (text) messages.push({ text });
+          }
+        }
+      }
+
+      return {
+        id: session.id,
+        title: session.title,
+        projectName,
+        projectCwd: cwd,
+        provider: session.provider,
+        updatedAt: session.updatedAt,
+        messages,
+      };
+    });
+  }, [visibleSessions]);
+
+  const runPaletteAction = (actionId: string) => {
+    switch (actionId) {
+      case 'new-thread':
+        setShowSettings(false);
+        createDraftSession(newThreadCwd);
+        break;
+      case 'open-project':
+        void handleProjectFolderSelect();
+        break;
+      case 'switch-chat':
+        setActiveWorkspace('chat');
+        setShowSettings(false);
+        break;
+      case 'switch-board':
+        setActiveWorkspace('board');
+        setShowSettings(false);
+        break;
+      case 'switch-prompts':
+        setActiveWorkspace('prompts');
+        setShowSettings(false);
+        break;
+      case 'switch-skills':
+        setActiveWorkspace('skills');
+        setShowSettings(false);
+        break;
+      case 'settings':
+        setShowSettings(true);
+        break;
+    }
+  };
+
+  const openThreadFromPalette = (sessionId: string) => {
+    setShowSettings(false);
+    setChatLayoutMode('single');
+    setActiveSession(sessionId);
+    setShowNewSession(false);
+    setActiveWorkspace('chat');
+  };
+
+  const openProjectFromPalette = (projectId: string) => {
+    setActiveWorkspace('chat');
+    setProjectCwd(projectId);
+    setShowSettings(false);
+  };
+
   return (
     <>
       {isSidebarResizing && (
@@ -160,9 +335,9 @@ export function Sidebar() {
               />
               <RailIcon
                 icon={<Search className="h-[17px] w-[17px]" />}
-                title="Search history  (⌘K)"
-                active={messageSearchOpen}
-                onClick={() => setMessageSearchOpen(true)}
+                title="Search  (⌘K)"
+                active={searchPaletteOpen}
+                onClick={() => setSearchPaletteOpen(true)}
               />
               <RailIcon
                 icon={<KanbanSquare className="h-[17px] w-[17px]" />}
@@ -325,9 +500,15 @@ export function Sidebar() {
         </Dialog.Portal>
       </Dialog.Root>
 
-      <SidebarMessageSearchDialog
-        open={messageSearchOpen}
-        onOpenChange={setMessageSearchOpen}
+      <SidebarSearchPalette
+        open={searchPaletteOpen}
+        onOpenChange={setSearchPaletteOpen}
+        actions={paletteActions}
+        projects={paletteProjects}
+        threads={paletteThreads}
+        onRunAction={runPaletteAction}
+        onOpenProject={openProjectFromPalette}
+        onOpenThread={openThreadFromPalette}
       />
     </>
   );

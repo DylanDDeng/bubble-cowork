@@ -393,6 +393,7 @@ export const useAppStore = create<Store>()(
       inSessionSearchQuery: '',
       inSessionSearchResults: [],
       inSessionSearchCurrentIndex: 0,
+      searchPaletteOpen: false,
       historyNavigationTarget: null,
       // MCP 状态
       mcpServers: {},
@@ -954,6 +955,11 @@ export const useAppStore = create<Store>()(
       }
       return { inSessionSearchCurrentIndex: newIndex };
     }),
+
+  setSearchPaletteOpen: (open) => set({ searchPaletteOpen: open }),
+
+  toggleSearchPalette: () =>
+    set((state) => ({ searchPaletteOpen: !state.searchPaletteOpen })),
 
   setHistoryNavigationTarget: (historyNavigationTarget) => set({ historyNavigationTarget }),
 

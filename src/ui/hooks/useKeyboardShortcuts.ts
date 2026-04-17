@@ -3,23 +3,31 @@ import { useAppStore } from '../store/useAppStore';
 
 /**
  * Global keyboard shortcuts
- * - Cmd/Ctrl + K: Focus sidebar search
+ * - Cmd/Ctrl + K: Toggle the search palette (threads, projects, actions)
  * - Cmd/Ctrl + F: Open in-session search
  * - Escape: Close search panel
  */
 export function useKeyboardShortcuts() {
   const sidebarSearchRef = useRef<HTMLInputElement>(null);
-  const { openInSessionSearch, closeInSessionSearch, inSessionSearchOpen, activeSessionId } =
-    useAppStore();
+  const {
+    openInSessionSearch,
+    closeInSessionSearch,
+    inSessionSearchOpen,
+    activeSessionId,
+    toggleSearchPalette,
+    searchPaletteOpen,
+    setSearchPaletteOpen,
+  } = useAppStore();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isMod = e.metaKey || e.ctrlKey;
 
-      // Cmd/Ctrl + K: 聚焦侧边栏搜索
+      // Cmd/Ctrl + K: 切换搜索命令面板
       if (isMod && e.key === 'k') {
         e.preventDefault();
-        sidebarSearchRef.current?.focus();
+        toggleSearchPalette();
+        return;
       }
 
       // Cmd/Ctrl + F: 打开会话内搜索
@@ -32,20 +40,27 @@ export function useKeyboardShortcuts() {
 
       // Escape: 关闭搜索面板
       if (e.key === 'Escape') {
-        if (inSessionSearchOpen) {
+        if (searchPaletteOpen) {
+          setSearchPaletteOpen(false);
+        } else if (inSessionSearchOpen) {
           closeInSessionSearch();
-        } else {
-          // 如果侧边栏搜索有焦点，清除焦点
-          if (document.activeElement === sidebarSearchRef.current) {
-            sidebarSearchRef.current?.blur();
-          }
+        } else if (document.activeElement === sidebarSearchRef.current) {
+          sidebarSearchRef.current?.blur();
         }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [openInSessionSearch, closeInSessionSearch, inSessionSearchOpen, activeSessionId]);
+  }, [
+    openInSessionSearch,
+    closeInSessionSearch,
+    inSessionSearchOpen,
+    activeSessionId,
+    toggleSearchPalette,
+    searchPaletteOpen,
+    setSearchPaletteOpen,
+  ]);
 
   return { sidebarSearchRef };
 }
