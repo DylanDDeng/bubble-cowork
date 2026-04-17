@@ -200,6 +200,16 @@ export function AgentModelPicker({
       if (currentCompatibleOption) {
         return `${currentCompatibleOption.label} · ${currentCompatibleOption.model}`;
       }
+      const normalizedDefaultModel = canonicalizeClaudeModel(claudeModel.config.defaultModel);
+      if (
+        normalizedDefaultModel &&
+        resolvedClaudeValue === normalizedDefaultModel &&
+        !currentCompatibleOption
+      ) {
+        const suffix =
+          claudeModel.context1m && supportsClaude1mContext(resolvedClaudeValue) ? ' (1M context)' : '';
+        return `Default${suffix}`;
+      }
       return resolvedClaudeValue
         ? formatClaudeModelLabel(resolvedClaudeValue, claudeModel.context1m)
         : currentProvider.label;
@@ -264,44 +274,32 @@ export function AgentModelPicker({
           option.model.toLowerCase().includes(normalizedModelSearchQuery)
         );
       });
-      const hasResults =
-        defaultMatchesSearch ||
-        filteredClaudePrimaryOptions.length > 0 ||
-        filteredCompatibleOptions.length > 0;
+      const hasClaudeCodeItems =
+        (normalizedDefaultModel && defaultMatchesSearch) || filteredClaudePrimaryOptions.length > 0;
+      const hasResults = hasClaudeCodeItems || filteredCompatibleOptions.length > 0;
 
       return (
         <>
-          {normalizedDefaultModel && defaultMatchesSearch && (
-            <>
-              <div className="px-2 py-1 text-[10px] font-medium text-[var(--text-muted)]">
-                Default · ~/.claude/settings.json
-              </div>
-              <button
-                key={`default-${normalizedDefaultModel}`}
-                onClick={() => {
-                  claudeModel.onChange(normalizedDefaultModel, null);
-                  setOpen(false);
-                }}
-                className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
-                title={normalizedDefaultModel}
-              >
-                <div className="min-w-0 truncate">
-                  {formatClaudeModelLabel(normalizedDefaultModel, claudeModel.context1m)}
-                </div>
-                {resolvedValue === normalizedDefaultModel && (
-                  <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" />
-                )}
-              </button>
-            </>
-          )}
-          {filteredClaudePrimaryOptions.length > 0 && (
-            <div
-              className={`px-2 py-1 text-[10px] font-medium text-[var(--text-muted)] ${
-                normalizedDefaultModel && defaultMatchesSearch ? 'mt-2 border-t border-[var(--border)] pt-2' : ''
-              }`}
-            >
+          {hasClaudeCodeItems && (
+            <div className="px-2 py-1 text-[10px] font-medium text-[var(--text-muted)]">
               Claude Code
             </div>
+          )}
+          {normalizedDefaultModel && defaultMatchesSearch && (
+            <button
+              key={`default-${normalizedDefaultModel}`}
+              onClick={() => {
+                claudeModel.onChange(normalizedDefaultModel, null);
+                setOpen(false);
+              }}
+              className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+              title={normalizedDefaultModel}
+            >
+              <div className="min-w-0 truncate">Default</div>
+              {resolvedValue === normalizedDefaultModel && (
+                <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" />
+              )}
+            </button>
           )}
           {filteredClaudePrimaryOptions.map((model) => (
             <button

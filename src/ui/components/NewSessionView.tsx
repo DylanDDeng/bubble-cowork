@@ -570,6 +570,49 @@ export function NewSessionView() {
     await autoConvertComposerTextToAttachment(value, nextCursorIndex);
   };
 
+  const handlePasteImages = useCallback(async (
+    images: { mimeType: string; data: Uint8Array; name?: string }[]
+  ): Promise<boolean> => {
+    if (pendingStart || images.length === 0) return false;
+
+    const created: Attachment[] = [];
+    let failed = 0;
+    for (const image of images) {
+      try {
+        const attachment = await window.electron.createInlineImageAttachment(
+          image.mimeType,
+          image.data
+        );
+        if (attachment) {
+          created.push(attachment);
+        } else {
+          failed += 1;
+        }
+      } catch {
+        failed += 1;
+      }
+    }
+
+    if (created.length > 0) {
+      setAttachments((prev) => {
+        const existingPaths = new Set(prev.map((a) => a.path));
+        const next = [...prev];
+        for (const a of created) {
+          if (!existingPaths.has(a.path)) {
+            next.push(a);
+          }
+        }
+        return next;
+      });
+    }
+
+    if (failed > 0) {
+      toast.error(`Failed to paste ${failed} image(s). Only PNG/JPEG up to 10MB are supported.`);
+    }
+
+    return created.length > 0;
+  }, [pendingStart]);
+
   const handleLongPaste = useCallback(async (
     context: { text: string; start: number; end: number }
   ): Promise<boolean> => {
@@ -788,6 +831,9 @@ export function NewSessionView() {
                 }}
                 onPasteText={(context) => {
                   void handleLongPaste(context);
+                }}
+                onPasteImages={(images) => {
+                  void handlePasteImages(images);
                 }}
                 onCompositionStart={() => {
                   isComposingRef.current = true;
