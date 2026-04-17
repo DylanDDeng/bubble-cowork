@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import type { ClaudeModelConfig } from '../../shared/types';
@@ -9,26 +9,7 @@ function canonicalizeClaudeModel(model?: string | null): string | null {
   if (!normalized) {
     return null;
   }
-
-  const lower = normalized.toLowerCase();
-  const normalizedWithout1m = lower.replace(/\[1m\]$/i, '');
-
-  switch (normalizedWithout1m) {
-    case 'sonnet':
-      return 'claude-sonnet-4-6';
-    case 'claude-sonnet-4-6':
-      return 'claude-sonnet-4-6';
-    case 'opus':
-      return 'claude-opus-4-6';
-    case 'claude-opus-4-6':
-      return 'claude-opus-4-6';
-    case 'haiku':
-      return 'claude-haiku-4-5';
-    case 'claude-haiku-4-5':
-      return 'claude-haiku-4-5';
-    default:
-      return normalized;
-  }
+  return normalized.replace(/\[1m\]$/i, '');
 }
 
 // Claude Code 主配置文件路径
@@ -64,59 +45,47 @@ interface ClaudeSettings {
   [key: string]: unknown;
 }
 
-let settings: ClaudeSettings | null = null;
-let claudeJsonConfig: ClaudeJsonConfig | null = null;
+const injectedEnvKeys = new Set<string>();
 
 // 加载 ~/.claude.json 配置
 function loadClaudeJson(): ClaudeJsonConfig {
-  if (claudeJsonConfig !== null) {
-    return claudeJsonConfig;
-  }
-
   try {
     if (existsSync(CLAUDE_JSON_PATH)) {
       const content = readFileSync(CLAUDE_JSON_PATH, 'utf-8');
-      claudeJsonConfig = JSON.parse(content);
-    } else {
-      claudeJsonConfig = {};
+      return JSON.parse(content);
     }
+    return {};
   } catch (error) {
     console.warn('Failed to load ~/.claude.json:', error);
-    claudeJsonConfig = {};
+    return {};
   }
-
-  return claudeJsonConfig!;
 }
 
 // 加载 Claude Code 配置（旧路径，向后兼容）
 export function loadClaudeSettings(): ClaudeSettings {
-  if (settings !== null) {
-    return settings;
-  }
+  let parsed: ClaudeSettings = {};
 
   try {
     if (existsSync(SETTINGS_PATH)) {
       const content = readFileSync(SETTINGS_PATH, 'utf-8');
-      settings = JSON.parse(content);
-
-      // 注入环境变量（仅当未设置时）
-      if (settings?.env) {
-        for (const [key, value] of Object.entries(settings.env)) {
-          if (!process.env[key]) {
-            process.env[key] = value;
-          }
-        }
-      }
-
-    } else {
-      settings = {};
+      parsed = JSON.parse(content);
     }
   } catch (error) {
     console.warn('Failed to load Claude settings:', error);
-    settings = {};
+    return {};
   }
 
-  return settings!;
+  // 注入环境变量（仅当未设置时），且只注入一次避免覆盖运行时更新
+  if (parsed?.env) {
+    for (const [key, value] of Object.entries(parsed.env)) {
+      if (!process.env[key] && !injectedEnvKeys.has(key)) {
+        process.env[key] = value;
+        injectedEnvKeys.add(key);
+      }
+    }
+  }
+
+  return parsed;
 }
 
 // 获取 Claude Code 环境变量
@@ -145,13 +114,7 @@ export function getClaudeModelConfig(): ClaudeModelConfig {
   const compatibleModels = getEnabledCompatibleProviderConfigs().map((provider) => provider.model);
   const options = Array.from(
     new Set(
-      [
-        defaultModel,
-        'claude-haiku-4-5',
-        'claude-sonnet-4-6',
-        'claude-opus-4-6',
-        ...compatibleModels,
-      ].filter(
+      [defaultModel, ...compatibleModels].filter(
         (value): value is string => Boolean(value)
       )
     )
@@ -194,11 +157,7 @@ export function saveMcpServers(servers: Record<string, McpServerConfig>): void {
   const config = loadClaudeJson();
   config.mcpServers = servers;
 
-  // 保存配置
   writeFileSync(CLAUDE_JSON_PATH, JSON.stringify(config, null, 2), 'utf-8');
-
-  // 更新缓存
-  claudeJsonConfig = config;
 }
 
 // 保存项目级 MCP 服务器配置
@@ -213,16 +172,5 @@ export function saveProjectMcpServers(projectPath: string, servers: Record<strin
   }
   config.projects[projectPath].mcpServers = servers;
 
-  // 保存配置
   writeFileSync(CLAUDE_JSON_PATH, JSON.stringify(config, null, 2), 'utf-8');
-
-  // 更新缓存
-  claudeJsonConfig = config;
-}
-
-// 重新加载配置（用于外部修改后刷新）
-export function reloadClaudeSettings(): ClaudeSettings {
-  settings = null;
-  claudeJsonConfig = null;
-  return loadClaudeSettings();
 }

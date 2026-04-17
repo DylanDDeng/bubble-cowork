@@ -35,6 +35,7 @@ import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import { getSessionModel } from '../utils/session-model';
 import {
+  buildClaudeModelOptions,
   formatClaudeModelLabel,
   isOfficialClaudeModel,
   loadPreferredClaudeCompatibleProviderId,
@@ -149,8 +150,12 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   const claudeModelConfig = useClaudeModelConfig();
   const { compatibleOptions } = useCompatibleProviderConfig();
   const availableClaudeModels = useMemo(
-    () => Array.from(new Set([...claudeModelConfig.options, ...compatibleOptions.map((option) => option.model)])),
-    [claudeModelConfig.options, compatibleOptions]
+    () =>
+      buildClaudeModelOptions(
+        claudeModelConfig,
+        compatibleOptions.map((option) => option.model)
+      ),
+    [claudeModelConfig, compatibleOptions]
   );
   const codexModelConfig = useCodexModelConfig();
   const codexModelOptions = useMemo(
@@ -334,11 +339,10 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       return;
     }
 
-    const nextModel =
-      visibleActiveClaudeModel ||
-      loadPreferredClaudeModel() ||
-      claudeModelConfig.defaultModel;
-    setSelectedClaudeModel(nextModel || null);
+    // Intentionally skip syncing selectedClaudeModel from session here: the
+    // picker reflects the user's explicit choice and should not be overwritten
+    // by the CLI-resolved version that the backend writes into session.model
+    // after a request completes.
     setSelectedClaudeCompatibleProviderId(
       activeSession.compatibleProviderId || loadPreferredClaudeCompatibleProviderId()
     );
@@ -348,11 +352,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   }, [
     targetSessionId,
     activeSession?.provider,
-    activeSession?.model,
     activeSession?.compatibleProviderId,
     activeSession?.betas,
-    visibleActiveClaudeModel,
-    claudeModelConfig.defaultModel,
   ]);
 
   useEffect(() => {

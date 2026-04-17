@@ -2,7 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { Check, ChevronDown, ChevronLeft, Search } from 'lucide-react';
 import type { AgentProvider, ClaudeCompatibleProviderId, ClaudeModelConfig } from '../types';
 import { PROVIDERS } from '../utils/provider';
-import { buildClaudeModelOptions, formatClaudeModelLabel, isOfficialClaudeModel, supportsClaude1mContext } from '../utils/claude-model';
+import {
+  buildClaudeModelOptions,
+  canonicalizeClaudeModel,
+  formatClaudeModelLabel,
+  isOfficialClaudeModel,
+  supportsClaude1mContext,
+} from '../utils/claude-model';
 import { buildCodexModelOptions, formatCodexModelLabel } from '../utils/codex-model';
 import { buildOpencodeModelOptions, formatOpencodeModelLabel } from '../utils/opencode-model';
 import claudeLogo from '../assets/claude-color.svg';
@@ -235,13 +241,22 @@ export function AgentModelPicker({
   const renderModelItems = () => {
     if (provider === 'claude' && claudeModel) {
       const resolvedValue = resolvedClaudeValue;
-      const filteredClaudePrimaryOptions = claudePrimaryOptions.filter((model) => {
+      const normalizedDefaultModel = canonicalizeClaudeModel(claudeModel.config.defaultModel);
+      const matchesSearch = (model: string) => {
         if (!normalizedModelSearchQuery) return true;
         return (
           model.toLowerCase().includes(normalizedModelSearchQuery) ||
           formatClaudeModelLabel(model, claudeModel.context1m).toLowerCase().includes(normalizedModelSearchQuery)
         );
-      });
+      };
+      const defaultMatchesSearch = Boolean(
+        normalizedDefaultModel &&
+          (matchesSearch(normalizedDefaultModel) ||
+            'default'.includes(normalizedModelSearchQuery))
+      );
+      const filteredClaudePrimaryOptions = claudePrimaryOptions
+        .filter((model) => model !== normalizedDefaultModel)
+        .filter(matchesSearch);
       const filteredCompatibleOptions = compatibleOptions.filter((option) => {
         if (!normalizedModelSearchQuery) return true;
         return (
@@ -250,12 +265,41 @@ export function AgentModelPicker({
         );
       });
       const hasResults =
-        filteredClaudePrimaryOptions.length > 0 || filteredCompatibleOptions.length > 0;
+        defaultMatchesSearch ||
+        filteredClaudePrimaryOptions.length > 0 ||
+        filteredCompatibleOptions.length > 0;
 
       return (
         <>
+          {normalizedDefaultModel && defaultMatchesSearch && (
+            <>
+              <div className="px-2 py-1 text-[10px] font-medium text-[var(--text-muted)]">
+                Default · ~/.claude/settings.json
+              </div>
+              <button
+                key={`default-${normalizedDefaultModel}`}
+                onClick={() => {
+                  claudeModel.onChange(normalizedDefaultModel, null);
+                  setOpen(false);
+                }}
+                className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                title={normalizedDefaultModel}
+              >
+                <div className="min-w-0 truncate">
+                  {formatClaudeModelLabel(normalizedDefaultModel, claudeModel.context1m)}
+                </div>
+                {resolvedValue === normalizedDefaultModel && (
+                  <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" />
+                )}
+              </button>
+            </>
+          )}
           {filteredClaudePrimaryOptions.length > 0 && (
-            <div className="px-2 py-1 text-[10px] font-medium text-[var(--text-muted)]">
+            <div
+              className={`px-2 py-1 text-[10px] font-medium text-[var(--text-muted)] ${
+                normalizedDefaultModel && defaultMatchesSearch ? 'mt-2 border-t border-[var(--border)] pt-2' : ''
+              }`}
+            >
               Claude Code
             </div>
           )}

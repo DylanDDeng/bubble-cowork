@@ -34,6 +34,7 @@ import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import { getLatestProviderModel } from '../utils/session-model';
 import {
+  buildClaudeModelOptions,
   supportsClaude1mContext,
   loadPreferredClaudeCompatibleProviderId,
   loadPreferredClaudeContext1m,
@@ -132,8 +133,12 @@ export function NewSessionView() {
   const claudeModelConfig = useClaudeModelConfig();
   const { compatibleOptions } = useCompatibleProviderConfig();
   const availableClaudeModels = useMemo(
-    () => Array.from(new Set([...claudeModelConfig.options, ...compatibleOptions.map((option) => option.model)])),
-    [claudeModelConfig.options, compatibleOptions]
+    () =>
+      buildClaudeModelOptions(
+        claudeModelConfig,
+        compatibleOptions.map((option) => option.model)
+      ),
+    [claudeModelConfig, compatibleOptions]
   );
   const codexModelConfig = useCodexModelConfig();
   const codexModelOptions = useMemo(

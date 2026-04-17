@@ -4,33 +4,41 @@ const STORAGE_KEY = 'cowork.preferredClaudeModel';
 const COMPATIBLE_PROVIDER_STORAGE_KEY = 'cowork.preferredClaudeCompatibleProvider';
 const CONTEXT_1M_STORAGE_KEY = 'cowork.preferredClaudeContext1m';
 
-export const CLAUDE_MODEL_PRESETS = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5'];
+export const CLAUDE_MODEL_PRESETS = [
+  'claude-sonnet-4-6',
+  'claude-opus-4-7',
+  'claude-opus-4-6',
+  'claude-haiku-4-5',
+];
+
+const CLAUDE_SHORT_ALIASES = new Set(['sonnet', 'opus', 'haiku']);
+
+function parseClaudeShortAlias(model: string | null | undefined): 'sonnet' | 'opus' | 'haiku' | null {
+  const normalized = canonicalizeClaudeModel(model);
+  if (!normalized) return null;
+  const lower = normalized.toLowerCase();
+  return CLAUDE_SHORT_ALIASES.has(lower) ? (lower as 'sonnet' | 'opus' | 'haiku') : null;
+}
 
 export function canonicalizeClaudeModel(model: string | null | undefined): string | null {
   const normalized = model?.trim();
   if (!normalized) {
     return null;
   }
+  return normalized.replace(/\[1m\]$/i, '');
+}
 
-  const lower = normalized.toLowerCase();
-  const normalizedWithout1m = lower.replace(/\[1m\]$/i, '');
-
-  switch (normalizedWithout1m) {
-    case 'sonnet':
-      return 'claude-sonnet-4-6';
-    case 'claude-sonnet-4-6':
-      return 'claude-sonnet-4-6';
-    case 'opus':
-      return 'claude-opus-4-6';
-    case 'claude-opus-4-6':
-      return 'claude-opus-4-6';
-    case 'haiku':
-      return 'claude-haiku-4-5';
-    case 'claude-haiku-4-5':
-      return 'claude-haiku-4-5';
-    default:
-      return normalized;
-  }
+function parseClaudeModelFamily(
+  model: string | null | undefined
+): { family: 'sonnet' | 'opus' | 'haiku'; major: number; minor: number } | null {
+  const normalized = canonicalizeClaudeModel(model);
+  if (!normalized) return null;
+  const match = normalized.match(/^claude-(sonnet|opus|haiku)-(\d+)(?:-(\d+))?/i);
+  if (!match) return null;
+  const family = match[1].toLowerCase() as 'sonnet' | 'opus' | 'haiku';
+  const major = Number(match[2]);
+  const minor = match[3] ? Number(match[3]) : 0;
+  return { family, major, minor };
 }
 
 export function loadPreferredClaudeModel(): string | null {
@@ -87,41 +95,42 @@ export function savePreferredClaudeContext1m(enabled: boolean): void {
 }
 
 export function supportsClaude1mContext(model?: string | null): boolean {
-  const normalized = canonicalizeClaudeModel(model);
-  return normalized === 'claude-sonnet-4-6' || normalized === 'claude-opus-4-6';
+  const alias = parseClaudeShortAlias(model);
+  if (alias === 'sonnet' || alias === 'opus') {
+    return true;
+  }
+  const parsed = parseClaudeModelFamily(model);
+  if (!parsed) return false;
+  return parsed.family === 'sonnet' || parsed.family === 'opus';
 }
 
 export function isOfficialClaudeModel(model?: string | null): boolean {
   const normalized = canonicalizeClaudeModel(model) || model?.trim() || '';
-  return normalized.length > 0 && (CLAUDE_MODEL_PRESETS.includes(normalized) || normalized.startsWith('claude-'));
+  if (!normalized) return false;
+  return (
+    CLAUDE_MODEL_PRESETS.includes(normalized) ||
+    normalized.startsWith('claude-') ||
+    CLAUDE_SHORT_ALIASES.has(normalized.toLowerCase())
+  );
 }
 
 export function formatClaudeModelLabel(model: string, context1m = false): string {
   const normalized = canonicalizeClaudeModel(model) || model.trim();
-  const suffix = context1m && supportsClaude1mContext(normalized) ? ' (1M context)' : '';
+  const parsed = parseClaudeModelFamily(normalized);
 
-  switch (normalized) {
-    case 'haiku':
-    case 'claude-haiku-4-5':
-      return 'Haiku 4.5';
-    case 'sonnet':
-    case 'claude-sonnet-4-6':
-      return `Sonnet 4.6${suffix}`;
-    case 'opus':
-    case 'claude-opus-4-6':
-      return `Opus 4.6${suffix}`;
+  if (parsed) {
+    const familyLabel =
+      parsed.family === 'sonnet' ? 'Sonnet' : parsed.family === 'opus' ? 'Opus' : 'Haiku';
+    const versionLabel = `${parsed.major}.${parsed.minor}`;
+    const suffix = context1m && supportsClaude1mContext(normalized) ? ' (1M context)' : '';
+    return `${familyLabel} ${versionLabel}${suffix}`;
   }
 
-  if (normalized.startsWith('claude-haiku-4-5')) {
-    return 'Haiku 4.5';
-  }
-
-  if (normalized.startsWith('claude-sonnet-4-6')) {
-    return `Sonnet 4.6${suffix}`;
-  }
-
-  if (normalized.startsWith('claude-opus-4-6')) {
-    return `Opus 4.6${suffix}`;
+  const alias = parseClaudeShortAlias(normalized);
+  if (alias) {
+    const aliasLabel = alias === 'sonnet' ? 'Sonnet' : alias === 'opus' ? 'Opus' : 'Haiku';
+    const suffix = context1m && supportsClaude1mContext(normalized) ? ' (1M context)' : '';
+    return `${aliasLabel} (latest)${suffix}`;
   }
 
   return model;
