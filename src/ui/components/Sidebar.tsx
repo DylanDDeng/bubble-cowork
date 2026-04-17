@@ -412,10 +412,10 @@ export function Sidebar() {
                     setShowSettings(false);
                     createDraftSession(newThreadCwd);
                   }}
-                  className="group flex flex-1 items-center gap-3 rounded-[var(--radius-xl)] px-2 py-2 text-left no-drag transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
+                  className="group flex flex-1 items-center gap-2 rounded-[var(--radius-xl)] px-2 py-2 text-left no-drag transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
                 >
-                  <SquarePen className="h-4 w-4 text-[var(--text-muted)]" strokeWidth={1.9} />
-                  <span className="text-base font-medium">New Thread</span>
+                  <SquarePen className="h-3.5 w-3.5 text-[var(--text-muted)]" strokeWidth={1.9} />
+                  <span className="text-sm font-medium">New Thread</span>
                 </button>
 
                 <button
