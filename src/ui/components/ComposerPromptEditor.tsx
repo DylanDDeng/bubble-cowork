@@ -24,6 +24,12 @@ export interface ComposerPasteContext {
   end: number;
 }
 
+export interface ComposerPasteImage {
+  mimeType: string;
+  data: Uint8Array;
+  name?: string;
+}
+
 function basenameOfPath(path: string): string {
   const normalized = path.replace(/\\/g, '/');
   const parts = normalized.split('/');
@@ -288,6 +294,7 @@ export const ComposerPromptEditor = forwardRef<
     cursorIndex: number;
     onChange: (value: string, cursorIndex: number) => void;
     onPasteText?: (context: ComposerPasteContext) => boolean | void;
+    onPasteImages?: (images: ComposerPasteImage[]) => boolean | void;
     onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
     onCompositionStart?: () => void;
     onCompositionEnd?: () => void;
@@ -371,6 +378,44 @@ export const ComposerPromptEditor = forwardRef<
 
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
     if (props.disabled) return;
+
+    const imageFiles: File[] = [];
+    const dt = event.clipboardData;
+    if (dt) {
+      if (dt.files && dt.files.length > 0) {
+        for (let i = 0; i < dt.files.length; i += 1) {
+          const f = dt.files.item(i);
+          if (f && /^image\/(png|jpe?g)$/i.test(f.type)) {
+            imageFiles.push(f);
+          }
+        }
+      }
+      if (imageFiles.length === 0 && dt.items && dt.items.length > 0) {
+        for (let i = 0; i < dt.items.length; i += 1) {
+          const item = dt.items[i];
+          if (item.kind === 'file' && /^image\/(png|jpe?g)$/i.test(item.type)) {
+            const f = item.getAsFile();
+            if (f) imageFiles.push(f);
+          }
+        }
+      }
+    }
+
+    if (imageFiles.length > 0 && props.onPasteImages) {
+      event.preventDefault();
+      void Promise.all(
+        imageFiles.map(async (file) => ({
+          mimeType: file.type.toLowerCase(),
+          data: new Uint8Array(await file.arrayBuffer()),
+          name: file.name || undefined,
+        }))
+      ).then((images) => {
+        const handled = props.onPasteImages?.(images);
+        void handled;
+      });
+      return;
+    }
+
     const text = event.clipboardData.getData('text/plain');
     if (!text) return;
     event.preventDefault();

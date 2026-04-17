@@ -2179,6 +2179,49 @@ async function toProjectAttachment(cwd: string, filePath: string): Promise<Attac
   }
 }
 
+async function createInlineImageAttachment(
+  mimeType: string,
+  data: Uint8Array | ArrayBuffer | Buffer
+): Promise<Attachment | null> {
+  const normalizedMime = (mimeType || '').toLowerCase();
+  let ext: string;
+  if (normalizedMime === 'image/png') {
+    ext = '.png';
+  } else if (normalizedMime === 'image/jpeg' || normalizedMime === 'image/jpg') {
+    ext = '.jpg';
+  } else {
+    return null;
+  }
+
+  let buffer: Buffer;
+  if (Buffer.isBuffer(data)) {
+    buffer = data;
+  } else if (data instanceof Uint8Array) {
+    buffer = Buffer.from(data);
+  } else if (data instanceof ArrayBuffer) {
+    buffer = Buffer.from(new Uint8Array(data));
+  } else {
+    return null;
+  }
+
+  if (buffer.length === 0 || buffer.length > MAX_ATTACHMENT_BYTES) {
+    return null;
+  }
+
+  const baseDir = resolve(app.getPath('temp'), 'aegis-pasted-images');
+  const fileName = `pasted-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+  const targetPath = resolve(baseDir, fileName);
+
+  try {
+    await fsPromises.mkdir(baseDir, { recursive: true });
+    await fsPromises.writeFile(targetPath, buffer);
+  } catch {
+    return null;
+  }
+
+  return toAttachment(targetPath);
+}
+
 async function createInlineTextAttachment(cwd: string, text: string): Promise<Attachment | null> {
   const normalizedCwd = cwd?.trim();
   const normalizedText = text ?? '';
@@ -3041,6 +3084,17 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
     return createInlineTextAttachment(cwd, text);
   });
+
+  // RPC: 把剪贴板中的图片（PNG/JPEG 二进制）写入临时文件并返回 Attachment
+  ipcMainHandle(
+    'create-inline-image-attachment',
+    async (_event, mimeType: string, data: Uint8Array | ArrayBuffer) => {
+      if (!mimeType || !data) {
+        return null;
+      }
+      return createInlineImageAttachment(mimeType, data);
+    }
+  );
 
   // RPC: 读取项目文件预览（安全：仅允许 cwd 内的文件，<=5MB）
   ipcMainHandle(
