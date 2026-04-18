@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import claudeLogo from '../../assets/claude-color.svg';
+import openaiLogo from '../../assets/openai.svg';
 import minimaxLogo from '../../assets/minimax-color.svg';
 import deepseekLogo from '../../assets/deepseek-color.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
@@ -329,7 +330,7 @@ export function CompatibleProviderSettingsContent() {
         />
         <RuntimeStatusRow
           title="Codex CLI ACP"
-          logo={<span className="text-[12px] font-semibold text-[var(--text-primary)]">C</span>}
+          logo={<img src={openaiLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
           summary={buildCodexSummary(codexRuntimeStatus, codexRuntimeLoading)}
           status={buildCodexRailStatus(codexRuntimeStatus, codexRuntimeLoading)}
         />
