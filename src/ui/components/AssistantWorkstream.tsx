@@ -32,6 +32,9 @@ import {
 } from '../utils/unified-diff';
 import { formatDurationLabel } from '../utils/format-duration';
 import { TodoProgressCard } from './TodoProgressCard';
+import { DiffStatLabel } from './DiffStatLabel';
+import { useTurnDiffContext } from './TurnDiffContext';
+import type { ChangeRecord } from '../utils/change-records';
 
 interface AssistantWorkstreamProps {
   model: WorkstreamModel;
@@ -184,6 +187,9 @@ function WorkstreamEntryRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const canExpand = expandedMode && hasEntryDetail(entry);
+  const { changeRecordByToolUseId, onOpenDiff } = useTurnDiffContext();
+  const changeRecord =
+    entry.type === 'tool' ? changeRecordByToolUseId.get(entry.block.id) || null : null;
 
   useEffect(() => {
     if (!expandedMode) {
@@ -214,6 +220,10 @@ function WorkstreamEntryRow({
             ) : null}
           </div>
 
+          {changeRecord ? (
+            <EditedFileHint record={changeRecord} onOpen={onOpenDiff} />
+          ) : null}
+
           {expandedMode ? (
             <div className="mt-0.5 text-[11px] leading-5 text-[var(--text-muted)]">
               {getEntrySecondaryText(entry)}
@@ -227,6 +237,63 @@ function WorkstreamEntryRow({
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+function EditedFileHint({
+  record,
+  onOpen,
+}: {
+  record: ChangeRecord;
+  onOpen?: (record: ChangeRecord) => void;
+}) {
+  const verb = record.operation === 'write'
+    ? 'Created'
+    : record.operation === 'delete'
+      ? 'Deleted'
+      : 'Edited';
+  const clickable = Boolean(onOpen);
+  const fileName = record.fileName || record.filePath;
+
+  const content = (
+    <>
+      <span className="text-[var(--text-muted)]">{verb}</span>
+      <span
+        className={`max-w-[22rem] truncate font-mono ${
+          clickable ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'
+        }`}
+      >
+        {fileName}
+      </span>
+      {record.addedLines + record.removedLines > 0 ? (
+        <DiffStatLabel
+          additions={record.addedLines}
+          deletions={record.removedLines}
+        />
+      ) : null}
+    </>
+  );
+
+  if (clickable) {
+    return (
+      <button
+        type="button"
+        onClick={() => onOpen?.(record)}
+        title={record.filePath}
+        className="mt-1 inline-flex items-baseline gap-1.5 text-left text-[11px] leading-5 transition-opacity hover:opacity-80"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div
+      title={record.filePath}
+      className="mt-1 inline-flex items-baseline gap-1.5 text-[11px] leading-5"
+    >
+      {content}
     </div>
   );
 }

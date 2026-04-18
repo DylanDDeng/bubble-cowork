@@ -17,6 +17,14 @@ import { InSessionSearch } from './search/InSessionSearch';
 import { DecisionPanel } from './DecisionPanel';
 import { ExternalFilePermissionDialog } from './ExternalFilePermissionDialog';
 import { ErrorBoundary } from './ErrorBoundary';
+import { TurnChangesCard } from './TurnChangesCard';
+import { TurnDiffContext, type TurnDiffContextValue } from './TurnDiffContext';
+import { TurnDiffDrawer } from './TurnDiffDrawer';
+import {
+  buildTurnChangeContext,
+  type TurnChangeSummary,
+} from '../utils/turn-change-records';
+import type { ChangeRecord } from '../utils/change-records';
 import type {
   AskUserQuestionInput,
   ContentBlock,
@@ -82,6 +90,7 @@ export function ChatPane({
   const scrollHeightBeforeLoadRef = useRef<number>(0);
   const historyHighlightTimerRef = useRef<number | null>(null);
   const [highlightedHistoryAnchor, setHighlightedHistoryAnchor] = useState<string | null>(null);
+  const [selectedDiffRecord, setSelectedDiffRecord] = useState<ChangeRecord | null>(null);
 
   const { partialMessage, partialThinking, isStreaming: showPartialMessage } = useMemo(() => {
     if (!session) {
@@ -133,6 +142,57 @@ export function ChatPane({
   const aggregatedMessages = useMemo(
     () => (session ? aggregateMessages(session.messages) : []),
     [session?.messages]
+  );
+
+  const { turns, changeRecordByToolUseId } = useMemo(
+    () =>
+      session
+        ? buildTurnChangeContext(session.messages)
+        : { turns: [] as TurnChangeSummary[], changeRecordByToolUseId: new Map<string, ChangeRecord>() },
+    [session?.messages]
+  );
+
+  const turnCardByAggregatedIndex = useMemo(() => {
+    const map = new Map<number, TurnChangeSummary>();
+    if (turns.length === 0 || aggregatedMessages.length === 0) {
+      return map;
+    }
+    for (const turn of turns) {
+      if (turn.totalFiles === 0) continue;
+      let lastIdx = -1;
+      for (let i = 0; i < aggregatedMessages.length; i += 1) {
+        const item = aggregatedMessages[i];
+        const lastOrig =
+          item.type === 'tool_batch'
+            ? item.originalIndices[item.originalIndices.length - 1]
+            : item.originalIndex;
+        if (lastOrig <= turn.lastMessageIndex) {
+          lastIdx = i;
+        } else {
+          break;
+        }
+      }
+      if (lastIdx >= 0) {
+        map.set(lastIdx, turn);
+      }
+    }
+    return map;
+  }, [turns, aggregatedMessages]);
+
+  const handleOpenDiff = useCallback((record: ChangeRecord) => {
+    setSelectedDiffRecord(record);
+  }, []);
+
+  const handleCloseDiff = useCallback(() => {
+    setSelectedDiffRecord(null);
+  }, []);
+
+  const turnDiffContextValue = useMemo<TurnDiffContextValue>(
+    () => ({
+      changeRecordByToolUseId,
+      onOpenDiff: handleOpenDiff,
+    }),
+    [changeRecordByToolUseId, handleOpenDiff]
   );
 
   const historyNavigationAnchor = useMemo(() => {
@@ -201,6 +261,7 @@ export function ChatPane({
     prevMessageCountRef.current = 0;
     scrollHeightBeforeLoadRef.current = 0;
     setHighlightedHistoryAnchor(null);
+    setSelectedDiffRecord(null);
   }, [sessionId]);
 
   useEffect(() => {
@@ -427,31 +488,35 @@ export function ChatPane({
                 </div>
               )}
 
+              <TurnDiffContext.Provider value={turnDiffContextValue}>
               {aggregatedMessages.map((item, idx) => {
+                const turnCard = turnCardByAggregatedIndex.get(idx);
                 if (item.type === 'tool_batch') {
                   const anchor = String(item.originalIndices[0]);
                   const highlighted = highlightedHistoryAnchor === anchor;
                   return (
-                    <div
-                      key={`batch-${idx}`}
-                      data-message-index={item.originalIndices[0]}
-                      className={highlighted ? 'rounded-2xl transition-colors duration-300' : undefined}
-                      style={
-                        highlighted
-                          ? {
-                              backgroundColor: 'color-mix(in srgb, var(--accent-light) 70%, transparent)',
-                              boxShadow: '0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent)',
-                            }
-                          : undefined
-                      }
-                    >
-                      <ToolExecutionBatch
-                        messages={item.messages}
-                        toolStatusMap={toolStatusMap}
-                        toolResultsMap={toolResultsMap}
-                        isSessionRunning={session.status === 'running'}
-                        cwd={session.cwd || null}
-                      />
+                    <div key={`batch-${idx}`}>
+                      <div
+                        data-message-index={item.originalIndices[0]}
+                        className={highlighted ? 'rounded-2xl transition-colors duration-300' : undefined}
+                        style={
+                          highlighted
+                            ? {
+                                backgroundColor: 'color-mix(in srgb, var(--accent-light) 70%, transparent)',
+                                boxShadow: '0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent)',
+                              }
+                            : undefined
+                        }
+                      >
+                        <ToolExecutionBatch
+                          messages={item.messages}
+                          toolStatusMap={toolStatusMap}
+                          toolResultsMap={toolResultsMap}
+                          isSessionRunning={session.status === 'running'}
+                          cwd={session.cwd || null}
+                        />
+                      </div>
+                      {turnCard ? <TurnChangesCard summary={turnCard} /> : null}
                     </div>
                   );
                 }
@@ -459,8 +524,8 @@ export function ChatPane({
                 const anchor = String(item.originalIndex);
                 const highlighted = highlightedHistoryAnchor === anchor;
                 return (
+                  <div key={idx}>
                   <div
-                    key={idx}
                     data-message-index={item.originalIndex}
                     className={highlighted ? 'rounded-2xl transition-colors duration-300' : undefined}
                     style={
@@ -532,8 +597,11 @@ export function ChatPane({
                       }
                     />
                   </div>
+                  {turnCard ? <TurnChangesCard summary={turnCard} /> : null}
+                  </div>
                 );
               })}
+              </TurnDiffContext.Provider>
 
               {(streamingWorkstreamModel || (showPartialMessage && partialMessage)) && (
                 <div className="my-3 min-w-0 overflow-x-auto streaming-content">
@@ -569,6 +637,8 @@ export function ChatPane({
               onSubmit={(result) => handlePermissionResult(activeExternalPermissionRequest.toolUseId, result)}
             />
           )}
+
+          <TurnDiffDrawer record={selectedDiffRecord} onClose={handleCloseDiff} />
 
           {isActive && activeGenericPermissionRequest && isAskUserQuestionInput(activeGenericPermissionRequest.input) && (
             <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/18 px-4 backdrop-blur-[1px]">

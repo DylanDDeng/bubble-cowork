@@ -4,6 +4,9 @@ import type { ContentBlock, ToolStatus } from '../types';
 import { getToolSummary, safeJsonStringify } from '../utils/tool-summary';
 import { extractLatestTodoProgress } from '../utils/todo-progress';
 import { TodoProgressCard } from './TodoProgressCard';
+import { DiffStatLabel } from './DiffStatLabel';
+import { useTurnDiffContext } from './TurnDiffContext';
+import type { ChangeRecord } from '../utils/change-records';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -149,6 +152,8 @@ function ToolInvocation({
 }) {
   const [showArgs, setShowArgs] = useState(false);
   const [showOutput, setShowOutput] = useState(false);
+  const { changeRecordByToolUseId, onOpenDiff } = useTurnDiffContext();
+  const changeRecord = changeRecordByToolUseId.get(block.id) || null;
 
   const inputObj = isRecord(block.input) ? block.input : {};
   const hasArgs = Object.keys(inputObj).length > 0;
@@ -173,6 +178,10 @@ function ToolInvocation({
           {status === 'success' ? '✓' : status === 'error' ? '✗' : '⋯'}
         </span>
       </div>
+
+      {changeRecord ? (
+        <ToolChangeHint record={changeRecord} onOpen={onOpenDiff} />
+      ) : null}
 
       {/* Arguments 折叠区 */}
       {hasArgs && (
@@ -204,6 +213,60 @@ function ToolInvocation({
           </pre>
         </CollapsibleSection>
       )}
+    </div>
+  );
+}
+
+function ToolChangeHint({
+  record,
+  onOpen,
+}: {
+  record: ChangeRecord;
+  onOpen?: (record: ChangeRecord) => void;
+}) {
+  const verb = record.operation === 'write'
+    ? 'Created'
+    : record.operation === 'delete'
+      ? 'Deleted'
+      : 'Edited';
+  const clickable = Boolean(onOpen);
+  const fileName = record.fileName || record.filePath;
+
+  const body = (
+    <>
+      <span className="text-[var(--text-muted)]">{verb}</span>
+      <span
+        className={`max-w-[22rem] truncate font-mono ${
+          clickable ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'
+        }`}
+      >
+        {fileName}
+      </span>
+      {record.addedLines + record.removedLines > 0 ? (
+        <DiffStatLabel additions={record.addedLines} deletions={record.removedLines} />
+      ) : null}
+    </>
+  );
+
+  if (clickable) {
+    return (
+      <button
+        type="button"
+        onClick={() => onOpen?.(record)}
+        title={record.filePath}
+        className="mt-1 inline-flex items-baseline gap-1.5 text-left text-[11px] leading-5 transition-opacity hover:opacity-80"
+      >
+        {body}
+      </button>
+    );
+  }
+
+  return (
+    <div
+      title={record.filePath}
+      className="mt-1 inline-flex items-baseline gap-1.5 text-[11px] leading-5"
+    >
+      {body}
     </div>
   );
 }
