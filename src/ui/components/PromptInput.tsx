@@ -110,6 +110,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     setPendingStart,
     promptLibraryInsertRequest,
     consumePromptLibraryInsert,
+    pendingChatInjection,
+    consumeChatInjection,
     fontSelections,
     importedFonts,
   } = useAppStore();
@@ -274,6 +276,33 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     window.requestAnimationFrame(() => editorRef.current?.focus());
     consumePromptLibraryInsert(promptLibraryInsertRequest.nonce);
   }, [consumePromptLibraryInsert, promptLibraryInsertRequest]);
+
+  useEffect(() => {
+    if (!pendingChatInjection) {
+      return;
+    }
+    if (pendingChatInjection.sessionId && pendingChatInjection.sessionId !== targetSessionId) {
+      return;
+    }
+    const injection = pendingChatInjection;
+    if (injection.text) {
+      setPrompt((current) => {
+        if (injection.mode === 'replace' || !current.trim()) {
+          return injection.text ?? '';
+        }
+        return `${current.trimEnd()}\n\n${injection.text}`;
+      });
+    }
+    if (injection.attachments && injection.attachments.length > 0) {
+      setAttachments((prev) => {
+        const existing = new Set(prev.map((item) => item.id));
+        const additions = (injection.attachments ?? []).filter((a) => !existing.has(a.id));
+        return [...prev, ...additions];
+      });
+    }
+    window.requestAnimationFrame(() => editorRef.current?.focus());
+    consumeChatInjection(injection.nonce);
+  }, [consumeChatInjection, pendingChatInjection, targetSessionId]);
 
   useEffect(() => {
     if (activeSession?.provider) {

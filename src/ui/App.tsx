@@ -13,6 +13,7 @@ import {
   GitBranch,
   GitCommit,
   GitPullRequest,
+  Globe,
   SquareTerminal,
   ChevronDown,
   RefreshCw,
@@ -33,6 +34,7 @@ import { InSessionSearch } from './components/search/InSessionSearch';
 import { Settings } from './components/settings/Settings';
 import { SkillMarketSettingsContent } from './components/settings/SkillMarketSettings';
 import { ProjectTreePanel } from './components/ProjectTreePanel';
+import { BrowserPanel } from './components/browser/BrowserPanel';
 import { TerminalDrawer } from './components/TerminalDrawer';
 import { WorkspaceHost } from './components/WorkspaceHost';
 import { DecisionPanel } from './components/DecisionPanel';
@@ -116,11 +118,15 @@ export function App() {
     projectPanelView,
     terminalDrawerOpen,
     terminalDrawerHeight,
+    browserPanelOpen,
+    browserPanelWidth,
     sessionsLoaded,
     setProjectTreeCollapsed,
     setProjectPanelView,
     setTerminalDrawerOpen,
     setTerminalDrawerHeight,
+    setBrowserPanelOpen,
+    setBrowserPanelWidth,
     closeSplitChat,
     globalError,
     clearGlobalError,
@@ -717,12 +723,13 @@ export function App() {
                   deletions: gitHeaderState.deletions,
                 }}
                 onToggle={(view) => {
-                  if (!projectTreeCollapsed && projectPanelView === view) {
+                  if (!projectTreeCollapsed && !browserPanelOpen && projectPanelView === view) {
                     setProjectTreeCollapsed(true);
                     return;
                   }
                   setProjectPanelView(view);
                   setProjectTreeCollapsed(false);
+                  if (browserPanelOpen) setBrowserPanelOpen(false);
                 }}
               />
               <button
@@ -737,6 +744,23 @@ export function App() {
                 aria-label="Toggle terminal drawer"
               >
                 <SquareTerminal className="h-[13px] w-[13px] shrink-0" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !browserPanelOpen;
+                  setBrowserPanelOpen(next);
+                  if (next) setProjectTreeCollapsed(true);
+                }}
+                className={`no-drag inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] font-medium transition-colors ${
+                  browserPanelOpen
+                    ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+                }`}
+                title="Browser"
+                aria-label="Toggle browser panel"
+              >
+                <Globe className="h-[13px] w-[13px] shrink-0" />
               </button>
               <GitHeaderActions
                 cwd={activeSession?.cwd || projectCwd || null}
@@ -764,9 +788,20 @@ export function App() {
       {/* Right project tree panel */}
       {!showSettings && activeWorkspace === 'chat' && (
         <ProjectTreePanel
-          collapsed={projectTreeCollapsed}
+          collapsed={projectTreeCollapsed || browserPanelOpen}
           activeTab={projectPanelView}
           onClose={() => setProjectTreeCollapsed(true)}
+        />
+      )}
+
+      {/* Right browser panel (per-session) */}
+      {!showSettings && activeWorkspace === 'chat' && activeSessionId && (
+        <BrowserPanel
+          sessionId={activeSessionId}
+          collapsed={!browserPanelOpen}
+          width={browserPanelWidth}
+          onClose={() => setBrowserPanelOpen(false)}
+          onWidthChange={setBrowserPanelWidth}
         />
       )}
 

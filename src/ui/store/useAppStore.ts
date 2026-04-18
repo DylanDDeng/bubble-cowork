@@ -385,6 +385,8 @@ export const useAppStore = create<Store>()(
       projectPanelView: normalizeProjectPanelView(initialUiResumeState?.projectPanelView),
       terminalDrawerOpen: resolveInitialTerminalDrawerOpen(initialUiResumeState),
       terminalDrawerHeight: sanitizeTerminalDrawerHeight(initialUiResumeState?.terminalDrawerHeight),
+      browserPanelOpen: false,
+      browserPanelWidth: 480,
       sessionsLoaded: false,
       // 搜索状态
       sidebarSearchQuery: '',
@@ -412,6 +414,7 @@ export const useAppStore = create<Store>()(
         version: null,
       },
       promptLibraryInsertRequest: null,
+      pendingChatInjection: null,
       // 状态配置
       statusConfigs: [],
       statusFilter: 'all',
@@ -795,6 +798,15 @@ export const useAppStore = create<Store>()(
     persistUiResumeStateSnapshot(get());
   },
 
+  setBrowserPanelOpen: (browserPanelOpen) => {
+    set({ browserPanelOpen });
+  },
+
+  setBrowserPanelWidth: (width) => {
+    const clamped = Math.min(960, Math.max(360, Math.round(width)));
+    set({ browserPanelWidth: clamped });
+  },
+
   applyUiResumeState: (resumeState) =>
     set((state) => {
       if (!resumeState) {
@@ -984,6 +996,26 @@ export const useAppStore = create<Store>()(
       }
 
       return { promptLibraryInsertRequest: null };
+    }),
+
+  requestChatInjection: (request) =>
+    set({
+      pendingChatInjection: {
+        sessionId: request.sessionId ?? null,
+        text: request.text,
+        attachments: request.attachments,
+        mode: request.mode ?? 'append',
+        source: request.source,
+        nonce: Date.now(),
+      },
+    }),
+
+  consumeChatInjection: (nonce) =>
+    set((state) => {
+      if (!state.pendingChatInjection || state.pendingChatInjection.nonce !== nonce) {
+        return state;
+      }
+      return { pendingChatInjection: null };
     }),
 
   // 状态配置 Actions

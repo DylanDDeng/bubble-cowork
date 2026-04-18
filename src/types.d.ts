@@ -33,6 +33,18 @@ import type {
   FeishuBridgeConfig,
   FeishuBridgeStatus,
 } from './shared/types';
+import type {
+  BrowserCapturePageResult,
+  BrowserNavigateInput,
+  BrowserNewTabInput,
+  BrowserOpenInput,
+  BrowserReadoutResult,
+  BrowserSendSelectionEvent,
+  BrowserSessionInput,
+  BrowserSetPanelBoundsInput,
+  BrowserTabInput,
+  SessionBrowserState,
+} from './shared/browser-types';
 
 declare global {
   interface ElectronAPI {
@@ -166,6 +178,25 @@ declare global {
     openExternalUrl: (url: string) => Promise<{ ok: boolean; message?: string }>;
     subscribeStatistics: (callback: (data: StatisticsData) => void) => () => void;
     getStaticData: () => Promise<StaticData>;
+    browser: {
+      open: (input: BrowserOpenInput) => Promise<SessionBrowserState>;
+      close: (input: BrowserSessionInput) => Promise<SessionBrowserState>;
+      hide: (input: BrowserSessionInput) => Promise<SessionBrowserState>;
+      getState: (input: BrowserSessionInput) => Promise<SessionBrowserState>;
+      setPanelBounds: (input: BrowserSetPanelBoundsInput) => Promise<SessionBrowserState>;
+      navigate: (input: BrowserNavigateInput) => Promise<SessionBrowserState>;
+      reload: (input: BrowserTabInput) => Promise<SessionBrowserState>;
+      goBack: (input: BrowserTabInput) => Promise<SessionBrowserState>;
+      goForward: (input: BrowserTabInput) => Promise<SessionBrowserState>;
+      newTab: (input: BrowserNewTabInput) => Promise<SessionBrowserState>;
+      closeTab: (input: BrowserTabInput) => Promise<SessionBrowserState>;
+      selectTab: (input: BrowserTabInput) => Promise<SessionBrowserState>;
+      openDevTools: (input: BrowserTabInput) => Promise<SessionBrowserState>;
+      capture: (input: BrowserTabInput) => Promise<BrowserCapturePageResult>;
+      readPage: (input: BrowserTabInput) => Promise<BrowserReadoutResult>;
+      onState: (callback: (state: SessionBrowserState) => void) => () => void;
+      onSendSelection: (callback: (event: BrowserSendSelectionEvent) => void) => () => void;
+    };
   }
 
   interface Window {

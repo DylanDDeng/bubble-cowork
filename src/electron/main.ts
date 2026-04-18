@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { setupIPCHandlers, cleanup } from './ipc-handlers';
+import { registerBrowserIpc, disposeBrowserIpc } from './browser-ipc';
 import { isDev, getPreloadPath, getUIPath, DEV_SERVER_URL, ipcMainHandle } from './util';
 
 // 修复打包后的环境变量问题（macOS/Linux GUI 应用无法继承 shell 的环境变量）
@@ -369,6 +370,7 @@ function createWindow(): void {
 
   // 设置 IPC 处理器
   setupIPCHandlers(mainWindow);
+  registerBrowserIpc(mainWindow);
 
   if (isDev()) {
     const webContents = mainWindow.webContents;
@@ -731,6 +733,7 @@ app.on('before-quit', () => {
   }
   devFileWatcher?.close();
   devFileWatcher = null;
+  disposeBrowserIpc();
   cleanup();
 });
 

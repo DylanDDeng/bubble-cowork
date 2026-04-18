@@ -160,6 +160,8 @@ export interface AppState {
   projectPanelView: ProjectPanelView;
   terminalDrawerOpen: boolean;
   terminalDrawerHeight: number;
+  browserPanelOpen: boolean;
+  browserPanelWidth: number;
   sessionsLoaded: boolean;
   // 搜索状态
   sidebarSearchQuery: string;
@@ -191,6 +193,7 @@ export interface AppState {
     version: string | null;
   };
   promptLibraryInsertRequest: PromptLibraryInsertRequest | null;
+  pendingChatInjection: ChatInjectionRequest | null;
   // 状态配置
   statusConfigs: StatusConfig[];
   statusFilter: TodoState | 'all' | 'open' | 'closed';
@@ -231,6 +234,8 @@ export interface AppActions {
   setProjectPanelView: (view: ProjectPanelView) => void;
   setTerminalDrawerOpen: (open: boolean) => void;
   setTerminalDrawerHeight: (height: number) => void;
+  setBrowserPanelOpen: (open: boolean) => void;
+  setBrowserPanelWidth: (width: number) => void;
   applyUiResumeState: (state: import('../shared/types').UiResumeState | null) => void;
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;
@@ -258,6 +263,8 @@ export interface AppActions {
   setActiveSettingsTab: (tab: SettingsTab) => void;
   requestPromptLibraryInsert: (content: string, mode?: PromptLibraryInsertMode) => void;
   consumePromptLibraryInsert: (nonce: number) => void;
+  requestChatInjection: (request: Omit<ChatInjectionRequest, 'nonce'>) => void;
+  consumeChatInjection: (nonce: number) => void;
   // 状态配置 Actions
   setStatusConfigs: (configs: StatusConfig[]) => void;
   setStatusFilter: (filter: TodoState | 'all' | 'open' | 'closed') => void;
@@ -277,6 +284,17 @@ export interface PromptLibraryInsertRequest {
   content: string;
   mode: PromptLibraryInsertMode;
   nonce: number;
+}
+
+// Request to inject text/attachments into the active chat composer from
+// elsewhere in the app (e.g. browser panel screenshot or readout).
+export interface ChatInjectionRequest {
+  sessionId: string | null; // null => any active chat
+  text?: string;
+  attachments?: import('../shared/types').Attachment[];
+  mode: 'append' | 'replace';
+  nonce: number;
+  source?: string;
 }
 
 // 工具状态映射（用于显示 pending/success/error）

@@ -16,6 +16,39 @@ import type {
   UiResumeState,
   UpsertPromptLibraryItemInput,
 } from '../shared/types';
+import type {
+  BrowserCapturePageResult,
+  BrowserNavigateInput,
+  BrowserNewTabInput,
+  BrowserOpenInput,
+  BrowserReadoutResult,
+  BrowserSendSelectionEvent,
+  BrowserSessionInput,
+  BrowserSetPanelBoundsInput,
+  BrowserTabInput,
+  SessionBrowserState,
+} from '../shared/browser-types';
+
+// IPC 通道常量（与 browser-ipc.ts 中 BROWSER_CHANNELS 保持一致，避免在 preload 里引入主进程模块）
+const BROWSER_CHANNELS = {
+  open: 'desktop:browser-open',
+  close: 'desktop:browser-close',
+  hide: 'desktop:browser-hide',
+  getState: 'desktop:browser-get-state',
+  setPanelBounds: 'desktop:browser-set-panel-bounds',
+  navigate: 'desktop:browser-navigate',
+  reload: 'desktop:browser-reload',
+  goBack: 'desktop:browser-go-back',
+  goForward: 'desktop:browser-go-forward',
+  newTab: 'desktop:browser-new-tab',
+  closeTab: 'desktop:browser-close-tab',
+  selectTab: 'desktop:browser-select-tab',
+  openDevTools: 'desktop:browser-open-devtools',
+  capture: 'desktop:browser-capture',
+  readPage: 'desktop:browser-read-page',
+  state: 'desktop:browser-state',
+  sendSelection: 'desktop:browser-send-selection',
+} as const;
 
 // 暴露 API 到渲染进程
 contextBridge.exposeInMainWorld('electron', {
@@ -405,5 +438,65 @@ contextBridge.exposeInMainWorld('electron', {
   // 获取静态数据（预留）
   getStaticData: () => {
     return ipcRenderer.invoke('getStaticData');
+  },
+
+  // ===== 浏览器面板 (Session 级) =====
+  browser: {
+    open: (input: BrowserOpenInput): Promise<SessionBrowserState> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.open, input),
+    close: (input: BrowserSessionInput): Promise<SessionBrowserState> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.close, input),
+    hide: (input: BrowserSessionInput): Promise<SessionBrowserState> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.hide, input),
+    getState: (input: BrowserSessionInput): Promise<SessionBrowserState> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.getState, input),
+    setPanelBounds: (input: BrowserSetPanelBoundsInput): Promise<SessionBrowserState> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.setPanelBounds, input),
+    navigate: (input: BrowserNavigateInput): Promise<SessionBrowserState> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.navigate, input),
+    reload: (input: BrowserTabInput): Promise<SessionBrowserState> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.reload, input),
+    goBack: (input: BrowserTabInput): Promise<SessionBrowserState> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.goBack, input),
+    goForward: (input: BrowserTabInput): Promise<SessionBrowserState> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.goForward, input),
+    newTab: (input: BrowserNewTabInput): Promise<SessionBrowserState> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.newTab, input),
+    closeTab: (input: BrowserTabInput): Promise<SessionBrowserState> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.closeTab, input),
+    selectTab: (input: BrowserTabInput): Promise<SessionBrowserState> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.selectTab, input),
+    openDevTools: (input: BrowserTabInput): Promise<SessionBrowserState> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.openDevTools, input),
+    capture: (input: BrowserTabInput): Promise<BrowserCapturePageResult> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.capture, input),
+    readPage: (input: BrowserTabInput): Promise<BrowserReadoutResult> =>
+      ipcRenderer.invoke(BROWSER_CHANNELS.readPage, input),
+    onState: (callback: (state: SessionBrowserState) => void) => {
+      const handler = (_: unknown, state: SessionBrowserState) => {
+        try {
+          callback(state);
+        } catch (error) {
+          console.error('Browser state handler error:', error);
+        }
+      };
+      ipcRenderer.on(BROWSER_CHANNELS.state, handler);
+      return () => {
+        ipcRenderer.removeListener(BROWSER_CHANNELS.state, handler);
+      };
+    },
+    onSendSelection: (callback: (event: BrowserSendSelectionEvent) => void) => {
+      const handler = (_: unknown, event: BrowserSendSelectionEvent) => {
+        try {
+          callback(event);
+        } catch (error) {
+          console.error('Browser send-selection handler error:', error);
+        }
+      };
+      ipcRenderer.on(BROWSER_CHANNELS.sendSelection, handler);
+      return () => {
+        ipcRenderer.removeListener(BROWSER_CHANNELS.sendSelection, handler);
+      };
+    },
   },
 });
