@@ -364,7 +364,7 @@ function UserPromptCard({
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 rows={Math.min(8, Math.max(2, draft.split('\n').length))}
-                className="w-full min-w-[320px] bg-transparent text-[14px] text-inherit leading-7 outline-none resize-none whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+                className="w-full min-w-[320px] bg-transparent text-[13px] text-inherit leading-7 outline-none resize-none whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
                     e.preventDefault();
@@ -378,7 +378,7 @@ function UserPromptCard({
                 }}
               />
             ) : (
-              <div className="text-[14px] leading-[1.5] text-inherit">
+              <div className="text-[13px] leading-[1.5] text-inherit">
                 {promptPrefixDisplay && (
                   <div className="mr-2 inline-flex align-middle">
                     {promptPrefixDisplay.kind === 'skill' ? (
