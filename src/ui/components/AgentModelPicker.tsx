@@ -198,7 +198,7 @@ export function AgentModelPicker({
   const currentModelLabel = useMemo(() => {
     if (provider === 'claude' && claudeModel) {
       if (currentCompatibleOption) {
-        return `${currentCompatibleOption.label} · ${currentCompatibleOption.model}`;
+        return currentCompatibleOption.model;
       }
       const normalizedDefaultModel = canonicalizeClaudeModel(claudeModel.config.defaultModel);
       if (
@@ -231,7 +231,7 @@ export function AgentModelPicker({
     if (!hasModelOptions || currentModelLabel === currentProvider.label) {
       return currentProvider.label;
     }
-    return `${currentProvider.label} · ${currentModelLabel}`;
+    return currentModelLabel;
   }, [currentModelLabel, currentProvider.label, hasModelOptions]);
 
   const handleTriggerClick = () => {
