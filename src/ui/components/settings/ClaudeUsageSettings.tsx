@@ -6,7 +6,6 @@ import moonshotLogo from '../../assets/moonshot.svg';
 import openaiLogo from '../../assets/openai.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
 import { OpenCodeLogo } from '../OpenCodeLogo';
-import { Badge } from '../ui/badge';
 import type {
   AgentProvider,
   ClaudeUsageDailyPoint,
@@ -14,7 +13,7 @@ import type {
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
 } from '../../types';
-import { SettingsSection } from './SettingsPrimitives';
+import { SegmentedControl, SegmentedControlItem, SettingsGroup } from './SettingsPrimitives';
 
 const RANGE_OPTIONS: ClaudeUsageRangeDays[] = [7, 30, 90];
 const MODEL_COLORS = ['#315EFB', '#0F9D90', '#D97757', '#7C3AED', '#F59E0B', '#E11D48'];
@@ -22,7 +21,6 @@ const MODEL_COLORS = ['#315EFB', '#0F9D90', '#D97757', '#7C3AED', '#F59E0B', '#E
 type UsageProviderCard = {
   id: AgentProvider;
   title: string;
-  description: string;
   logo: ReactNode;
   report: ClaudeUsageReport | null;
   loading: boolean;
@@ -107,8 +105,7 @@ export function ClaudeUsageSettingsContent() {
       {
         id: 'claude',
         title: 'Claude Code',
-        description: 'Actual token, cache, and spend data from Claude sessions started in Aegis.',
-        logo: <img src={claudeLogo} alt="" className="h-5 w-5 flex-shrink-0" aria-hidden="true" />,
+        logo: <img src={claudeLogo} alt="" className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />,
         report: claudeReport,
         loading: claudeLoading,
         error: claudeError,
@@ -116,10 +113,8 @@ export function ClaudeUsageSettingsContent() {
       },
       {
         id: 'codex',
-        title: 'Codex CLI ACP',
-        description:
-          'Token usage comes from local Codex session data. Cost is estimated from a model price table and may not match ChatGPT-plan billing.',
-        logo: <img src={openaiLogo} alt="" className="h-5 w-5 flex-shrink-0" aria-hidden="true" />,
+        title: 'Codex CLI',
+        logo: <img src={openaiLogo} alt="" className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />,
         report: codexReport,
         loading: codexLoading,
         error: codexError,
@@ -127,9 +122,8 @@ export function ClaudeUsageSettingsContent() {
       },
       {
         id: 'opencode',
-        title: 'OpenCode ACP',
-        description: 'Actual token and cost data from local OpenCode sessions launched in Aegis.',
-        logo: <OpenCodeLogo className="h-5 w-5 flex-shrink-0" />,
+        title: 'OpenCode',
+        logo: <OpenCodeLogo className="h-3.5 w-3.5 flex-shrink-0" />,
         report: opencodeReport,
         loading: opencodeLoading,
         error: opencodeError,
@@ -159,148 +153,90 @@ export function ClaudeUsageSettingsContent() {
     ) as Record<string, string>;
   }, [activeReport]);
 
+  const estimatedCost = activeProviderCard.report?.costMode === 'estimated';
+
   return (
     <div className="space-y-6 pb-8">
-      <SettingsSection
-        title="Usage Overview"
-        description="Review provider activity over time without leaving Settings. Select a provider, adjust the time window, then inspect metrics, chart trends, and model-level breakdown."
-      >
-        <div className="grid gap-5 xl:grid-cols-[220px_minmax(0,1fr)]">
-          <div className="space-y-1.5">
-            {providers.map((provider) => (
-              <UsageProviderSegmentTab
-                key={provider.id}
-                provider={provider}
-                selected={provider.id === activeProviderCard.id}
-                onSelect={() => setActiveProvider(provider.id)}
-              />
-            ))}
+      <SettingsGroup>
+        <div className="px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <ProviderSegmentedControl
+              providers={providers}
+              activeId={activeProviderCard.id}
+              onSelect={setActiveProvider}
+            />
+            <RangeSegmentedControl
+              value={rangeDays}
+              onChange={setRangeDays}
+            />
           </div>
 
-          <SurfaceCard className="p-5">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="min-w-0">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)]">
-                    {activeProviderCard.logo}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-lg font-semibold text-[var(--text-primary)]">
-                      {activeProviderCard.title}
-                    </div>
-                    <div className="mt-0.5 text-sm text-[var(--text-secondary)]">
-                      {activeProviderCard.description}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <UsageStatusBadge provider={activeProviderCard} />
-                  <MetaBadge
-                    label={
-                      activeProviderCard.report?.costMode === 'estimated' ? 'Estimated cost' : 'Actual cost'
-                    }
-                  />
-                </div>
-
-                {activeProviderCard.report?.note ? (
-                  <div className="mt-3 text-sm leading-6 text-[var(--text-muted)]">
-                    {activeProviderCard.report.note}
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="flex items-center gap-2">
-                {RANGE_OPTIONS.map((days) => {
-                  const isActive = days === rangeDays;
-                  return (
-                    <button
-                      key={days}
-                      type="button"
-                      onClick={() => setRangeDays(days)}
-                      className={`rounded-[var(--radius-lg)] border px-3 py-1.5 text-sm font-medium transition-colors ${
-                        isActive
-                          ? 'border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
-                          : 'border-transparent bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      {days}D
-                    </button>
-                  );
-                })}
-              </div>
+          {activeProviderCard.report?.note ? (
+            <div className="mt-3 text-[11.5px] leading-5 text-[var(--text-muted)]">
+              {activeProviderCard.report.note}
             </div>
-
-            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <MetricTile
-                title="Total Tokens"
-                value={
-                  activeReport ? formatCompactNumber(activeReport.totals.totalTokens) : activeProviderCard.loading ? '...' : '0'
-                }
-                subtitle={
-                  activeReport
-                    ? `In ${formatCompactNumber(activeReport.totals.inputTokens)}  Out ${formatCompactNumber(activeReport.totals.outputTokens)}`
-                    : activeProviderCard.loading
-                      ? 'Refreshing usage data…'
-                      : 'No usage in this range'
-                }
-              />
-              <MetricTile
-                title="Total Cost"
-                value={
-                  activeReport
-                    ? formatCurrency(activeReport.totals.totalCostUsd, activeReport.costMode === 'estimated')
-                    : activeProviderCard.loading
-                      ? '...'
-                      : '$0.00'
-                }
-                subtitle={
-                  activeReport
-                    ? activeReport.costMode === 'estimated'
-                      ? 'Estimated from local model pricing'
-                      : 'Captured from provider usage data'
-                    : activeProviderCard.loading
-                      ? 'Refreshing usage data…'
-                      : 'No cost in this range'
-                }
-              />
-              <MetricTile
-                title="Sessions"
-                value={activeReport ? activeReport.totals.sessionCount.toLocaleString('en-US') : activeProviderCard.loading ? '...' : '0'}
-                subtitle={activeReport ? `${activeReport.rangeDays}-day window` : 'Recent session activity'}
-              />
-              <MetricTile
-                title="Cache Hit Rate"
-                value={activeReport ? formatPercent(activeReport.totals.cacheHitRate) : activeProviderCard.loading ? '...' : '0.0%'}
-                subtitle={
-                  activeReport
-                    ? `${formatCompactNumber(activeReport.totals.cacheReadTokens)} cached`
-                    : 'Cache usage in this range'
-                }
-              />
-            </div>
-          </SurfaceCard>
+          ) : null}
         </div>
-      </SettingsSection>
 
-      <SettingsSection
-        title="Daily Usage"
-        description="See how token volume changes over time for the selected provider, including model-level contribution on each day."
-      >
-        {renderUsageState(activeProviderCard, {
-          loadingTitle: 'Loading usage',
-          loadingDescription: 'Refreshing token, cost, and cache data for this provider.',
-          emptyTitle: 'No usage recorded',
-          emptyDescription: 'There is no usage to chart in this time range.',
-        }) || (
-          <SurfaceCard className="p-5">
-            <div className="mb-5">
-              <div className="text-lg font-semibold text-[var(--text-primary)]">Daily Token Usage</div>
-              <div className="mt-1 text-sm text-[var(--text-secondary)]">
-                Stacked daily tokens by model over the last {activeReport?.rangeDays} days.
-              </div>
-            </div>
+        <div className="grid grid-cols-2 gap-px border-t border-[var(--border)] bg-[var(--border)] xl:grid-cols-4">
+          <MetricTile
+            title="Tokens"
+            value={
+              activeReport
+                ? formatCompactNumber(activeReport.totals.totalTokens)
+                : activeProviderCard.loading
+                  ? '—'
+                  : '0'
+            }
+            subtitle={
+              activeReport
+                ? `In ${formatCompactNumber(activeReport.totals.inputTokens)} · Out ${formatCompactNumber(activeReport.totals.outputTokens)}`
+                : undefined
+            }
+          />
+          <MetricTile
+            title="Cost"
+            value={
+              activeReport
+                ? formatCurrency(activeReport.totals.totalCostUsd, estimatedCost)
+                : activeProviderCard.loading
+                  ? '—'
+                  : '$0.00'
+            }
+            subtitle={activeReport ? (estimatedCost ? 'Estimated' : 'Actual') : undefined}
+          />
+          <MetricTile
+            title="Sessions"
+            value={
+              activeReport
+                ? activeReport.totals.sessionCount.toLocaleString('en-US')
+                : activeProviderCard.loading
+                  ? '—'
+                  : '0'
+            }
+            subtitle={activeReport ? `${activeReport.rangeDays}d window` : undefined}
+          />
+          <MetricTile
+            title="Cache hit"
+            value={
+              activeReport
+                ? formatPercent(activeReport.totals.cacheHitRate)
+                : activeProviderCard.loading
+                  ? '—'
+                  : '0%'
+            }
+            subtitle={
+              activeReport
+                ? `${formatCompactNumber(activeReport.totals.cacheReadTokens)} cached`
+                : undefined
+            }
+          />
+        </div>
+      </SettingsGroup>
 
+      <SettingsGroup title="Daily usage">
+        {renderUsageState(activeProviderCard) || (
+          <div className="px-4 py-4">
             {showReadyState && activeReport!.totals.totalTokens > 0 ? (
               <UsageChart
                 daily={activeReport!.daily}
@@ -309,34 +245,17 @@ export function ClaudeUsageSettingsContent() {
                 costEstimated={activeReport!.costMode === 'estimated'}
               />
             ) : (
-              <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--border)] px-5 py-12 text-center text-sm text-[var(--text-secondary)]">
-                No usage recorded in this period.
-              </div>
+              <InlineEmpty label="No usage in this range." />
             )}
-          </SurfaceCard>
+          </div>
         )}
-      </SettingsSection>
+      </SettingsGroup>
 
-      <SettingsSection
-        title="Model Breakdown"
-        description="Inspect tokens, cost, session count, and cache usage per model for the selected provider."
-      >
-        {renderUsageState(activeProviderCard, {
-          loadingTitle: 'Loading breakdown',
-          loadingDescription: 'Refreshing per-model usage totals for this provider.',
-          emptyTitle: 'No model activity',
-          emptyDescription: 'Once this provider records usage, model-level details will appear here.',
-        }) || (
-          activeReport && activeReport.models.length > 0 ? (
-            <SurfaceCard className="overflow-hidden">
-              <div className="border-b border-[var(--border)] px-5 py-4">
-                <div className="text-lg font-semibold text-[var(--text-primary)]">Model Breakdown</div>
-                <div className="mt-1 text-sm text-[var(--text-secondary)]">
-                  Token, spend, session, and cache usage by model.
-                </div>
-              </div>
-
-              <div className="grid grid-cols-[minmax(0,1.4fr)_1fr_120px_100px_120px] gap-4 px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+      <SettingsGroup title="Model breakdown">
+        {renderUsageState(activeProviderCard) ||
+          (activeReport && activeReport.models.length > 0 ? (
+            <div>
+              <div className="grid grid-cols-[minmax(0,1.4fr)_1fr_110px_90px_110px] gap-4 px-4 py-2 text-[10.5px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">
                 <div>Model</div>
                 <div>Tokens</div>
                 <div>Cost</div>
@@ -344,138 +263,122 @@ export function ClaudeUsageSettingsContent() {
                 <div>Cache</div>
               </div>
 
-              {activeReport.models.map((model) => (
-                <div
-                  key={model.model}
-                  className="grid grid-cols-[minmax(0,1.4fr)_1fr_120px_100px_120px] gap-4 border-t border-[var(--border)] px-5 py-4 text-sm"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <ModelProviderLogo model={model.model} color={modelColors[model.model]} />
-                      <span className="truncate font-medium text-[var(--text-primary)]">{model.model}</span>
+              <div className="divide-y divide-[var(--border)] border-t border-[var(--border)]">
+                {activeReport.models.map((model) => (
+                  <div
+                    key={model.model}
+                    className="grid grid-cols-[minmax(0,1.4fr)_1fr_110px_90px_110px] gap-4 px-4 py-3 text-[12.5px]"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <ModelProviderLogo model={model.model} color={modelColors[model.model]} />
+                        <span className="truncate font-medium text-[var(--text-primary)]">{model.model}</span>
+                      </div>
+                      <div className="mt-0.5 text-[11.5px] text-[var(--text-muted)]">
+                        In {formatCompactNumber(model.inputTokens)} · Out {formatCompactNumber(model.outputTokens)}
+                      </div>
                     </div>
-                    <div className="mt-1 text-[var(--text-secondary)]">
-                      In {formatCompactNumber(model.inputTokens)}  Out {formatCompactNumber(model.outputTokens)}
+                    <div className="font-medium text-[var(--text-primary)]">
+                      {formatCompactNumber(model.totalTokens)}
                     </div>
+                    <div className="font-medium text-[var(--text-primary)]">
+                      {formatCurrency(model.totalCostUsd, activeReport.costMode === 'estimated')}
+                    </div>
+                    <div className="text-[var(--text-primary)]">{model.sessionCount.toLocaleString('en-US')}</div>
+                    <div className="text-[var(--text-muted)]">{formatCompactNumber(model.cacheReadTokens)}</div>
                   </div>
-                  <div className="font-medium text-[var(--text-primary)]">{formatCompactNumber(model.totalTokens)}</div>
-                  <div className="font-medium text-[var(--text-primary)]">
-                    {formatCurrency(model.totalCostUsd, activeReport.costMode === 'estimated')}
-                  </div>
-                  <div className="text-[var(--text-primary)]">{model.sessionCount.toLocaleString('en-US')}</div>
-                  <div className="text-[var(--text-secondary)]">{formatCompactNumber(model.cacheReadTokens)}</div>
-                </div>
-              ))}
-            </SurfaceCard>
+                ))}
+              </div>
+            </div>
           ) : (
-            <SurfaceCard className="px-5 py-10 text-sm text-[var(--text-secondary)]">
-              No model usage recorded in this period.
-            </SurfaceCard>
-          )
-        )}
-      </SettingsSection>
+            <InlineEmpty label="No model activity in this range." />
+          ))}
+      </SettingsGroup>
     </div>
   );
 }
 
-function renderUsageState(
-  provider: UsageProviderCard,
-  copy: {
-    loadingTitle: string;
-    loadingDescription: string;
-    emptyTitle: string;
-    emptyDescription: string;
-  }
-) {
+function renderUsageState(provider: UsageProviderCard) {
   if (provider.loading && !provider.report) {
-    return (
-      <SurfaceCard className="px-5 py-10 text-sm text-[var(--text-secondary)]">
-        <div className="text-sm font-medium text-[var(--text-primary)]">{copy.loadingTitle}</div>
-        <div className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">{copy.loadingDescription}</div>
-      </SurfaceCard>
-    );
+    return <InlineEmpty label="Loading usage…" />;
   }
 
   if (provider.error && !provider.loading) {
     return (
-      <SurfaceCard className="px-5 py-5">
-        <div className="text-sm font-medium text-[var(--text-primary)]">Unable to load usage</div>
-        <div className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">{provider.error}</div>
-      </SurfaceCard>
+      <div className="px-4 py-4 text-[12px] text-[var(--error)]">
+        <span className="font-medium">Unable to load usage.</span> {provider.error}
+      </div>
     );
   }
 
   if (!provider.report && !provider.loading && !provider.error) {
     return (
-      <SurfaceCard className="px-5 py-10">
-        <div className="text-base font-semibold text-[var(--text-primary)]">{copy.emptyTitle}</div>
-        <div className="mt-2 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">
-          {provider.id === 'opencode'
-            ? 'OpenCode is available in the provider selector, but its detailed usage pipeline is not connected yet. Once local usage data is wired in, the same metrics, charts, and model breakdown will appear here.'
-            : copy.emptyDescription}
-        </div>
-      </SurfaceCard>
+      <InlineEmpty
+        label={
+          provider.id === 'opencode'
+            ? 'OpenCode usage pipeline is not wired up yet.'
+            : 'No usage recorded in this range.'
+        }
+      />
     );
   }
 
   return null;
 }
 
-function UsageProviderSegmentTab({
-  provider,
-  selected,
+function InlineEmpty({ label }: { label: string }) {
+  return (
+    <div className="px-4 py-8 text-center text-[12px] text-[var(--text-muted)]">{label}</div>
+  );
+}
+
+function ProviderSegmentedControl({
+  providers,
+  activeId,
   onSelect,
 }: {
-  provider: UsageProviderCard;
-  selected: boolean;
-  onSelect: () => void;
+  providers: UsageProviderCard[];
+  activeId: AgentProvider;
+  onSelect: (id: AgentProvider) => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`w-full rounded-[var(--radius-lg)] border px-3 py-3 text-left transition-colors ${
-        selected
-          ? 'border-[var(--sidebar-item-border)] bg-[var(--sidebar-item-active)]'
-          : 'border-transparent bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]'
-      }`}
-    >
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center">
+    <SegmentedControl ariaLabel="Select provider">
+      {providers.map((provider) => (
+        <SegmentedControlItem
+          key={provider.id}
+          active={provider.id === activeId}
+          onClick={() => onSelect(provider.id)}
+          ariaLabel={provider.title}
+        >
           {provider.logo}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-3">
-            <div className="truncate text-sm font-medium text-[var(--text-primary)]">{provider.title}</div>
-            <div className="flex items-center gap-1.5">
-              <span className={`h-2.5 w-2.5 rounded-full ${provider.status.dot}`} />
-              <span className={`text-[11px] font-medium ${provider.status.tone}`}>{provider.status.label}</span>
-            </div>
-          </div>
-          <div className="mt-1 line-clamp-2 text-[12px] leading-5 text-[var(--text-secondary)]">
-            {provider.status.summary}
-          </div>
-        </div>
-      </div>
-    </button>
+          <span>{provider.title}</span>
+          <span className={`h-1.5 w-1.5 rounded-full ${provider.status.dot}`} aria-hidden="true" />
+        </SegmentedControlItem>
+      ))}
+    </SegmentedControl>
   );
 }
 
-function UsageStatusBadge({ provider }: { provider: UsageProviderCard }) {
+function RangeSegmentedControl({
+  value,
+  onChange,
+}: {
+  value: ClaudeUsageRangeDays;
+  onChange: (value: ClaudeUsageRangeDays) => void;
+}) {
   return (
-    <span className="inline-flex h-8 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] px-2.5 text-[12px] font-medium">
-      <span className={`h-2 w-2 rounded-full ${provider.status.dot}`} />
-      <span className={provider.status.tone}>{provider.status.label}</span>
-    </span>
-  );
-}
-
-function MetaBadge({ label }: { label: string }) {
-  return (
-    <span className="inline-flex h-8 items-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 text-[12px] font-medium text-[var(--text-muted)]">
-      {label}
-    </span>
+    <SegmentedControl ariaLabel="Select time range">
+      {RANGE_OPTIONS.map((days) => (
+        <SegmentedControlItem
+          key={days}
+          active={value === days}
+          onClick={() => onChange(days)}
+          className="min-w-[38px]"
+        >
+          {days}D
+        </SegmentedControlItem>
+      ))}
+    </SegmentedControl>
   );
 }
 
@@ -530,20 +433,6 @@ function normalizeUsageLoadError(error: unknown, channel: string): string {
     : rawMessage;
 }
 
-function SurfaceCard({
-  children,
-  className = '',
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={`rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] ${className}`}>
-      {children}
-    </div>
-  );
-}
-
 function MetricTile({
   title,
   value,
@@ -551,15 +440,19 @@ function MetricTile({
 }: {
   title: string;
   value: string;
-  subtitle: string;
+  subtitle?: string;
 }) {
   return (
-    <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-4">
-      <div className="text-sm text-[var(--text-secondary)]">{title}</div>
-      <div className="mt-2 text-[24px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+    <div className="bg-[var(--bg-primary)] px-4 py-3">
+      <div className="text-[11.5px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">
+        {title}
+      </div>
+      <div className="mt-1 text-[20px] font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
         {value}
       </div>
-      <div className="mt-2 text-sm leading-5 text-[var(--text-secondary)]">{subtitle}</div>
+      {subtitle ? (
+        <div className="mt-0.5 truncate text-[11.5px] text-[var(--text-muted)]">{subtitle}</div>
+      ) : null}
     </div>
   );
 }

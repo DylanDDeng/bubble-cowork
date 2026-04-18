@@ -1,10 +1,6 @@
-import {
-  ChevronDown,
-  Eye,
-  EyeOff,
-  LoaderCircle,
-} from 'lucide-react';
+import { ChevronDown, Eye, EyeOff } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
 import claudeLogo from '../../assets/claude-color.svg';
 import openaiLogo from '../../assets/openai.svg';
 import minimaxLogo from '../../assets/minimax-color.svg';
@@ -15,9 +11,7 @@ import zhipuLogo from '../../assets/zhipu-color.svg';
 import { useClaudeRuntimeStatus } from '../../hooks/useClaudeRuntimeStatus';
 import { useCodexRuntimeStatus } from '../../hooks/useCodexRuntimeStatus';
 import { useOpencodeRuntimeStatus } from '../../hooks/useOpencodeRuntimeStatus';
-import { Badge } from '../ui/badge';
 import { OpenCodeLogo } from '../OpenCodeLogo';
-import { Input } from '../ui/input';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,7 +27,7 @@ import type {
   OpenCodeRuntimeStatus,
 } from '../../types';
 import { normalizeCompatibleProvidersConfig } from '../../hooks/useCompatibleProviderConfig';
-import { SettingsSection } from './SettingsPrimitives';
+import { SettingsGroup, SettingsToggle } from './SettingsPrimitives';
 
 const DEFAULT_CONFIG = normalizeCompatibleProvidersConfig(undefined);
 const PROVIDER_IDS = ['minimaxCn', 'minimax', 'mimo', 'zhipu', 'moonshot', 'deepseek'] as ClaudeCompatibleProviderId[];
@@ -276,10 +270,14 @@ export function CompatibleProviderSettingsContent() {
     setMessage(null);
 
     try {
+      const merged: ClaudeCompatibleProviderConfig = {
+        ...draftProvider,
+        enabled: config.providers[expandedProviderId].enabled,
+      };
       const nextConfig = normalizeCompatibleProvidersConfig({
         providers: {
           ...config.providers,
-          [expandedProviderId]: draftProvider,
+          [expandedProviderId]: merged,
         },
       });
       const saved = await window.electron.saveClaudeCompatibleProviderConfig(nextConfig);
@@ -287,11 +285,11 @@ export function CompatibleProviderSettingsContent() {
       rememberProviderModelValue(expandedProviderId, 'model', draftProvider.model);
       rememberProviderModelValue(expandedProviderId, 'smallFastModel', draftProvider.smallFastModel);
       window.dispatchEvent(new CustomEvent('claude-compatible-provider-updated'));
-      setMessage({
-        providerId: expandedProviderId,
-        text: 'Saved. Restart Claude sessions to apply the updated provider connection.',
-        tone: 'default',
-      });
+      toast.success('Provider saved. Restart Claude sessions to apply.');
+      setExpandedProviderId(null);
+      setDraftProvider(null);
+      setShowSecret(false);
+      setAdvancedOpen(false);
     } catch (error) {
       setMessage({
         providerId: expandedProviderId,
@@ -303,150 +301,107 @@ export function CompatibleProviderSettingsContent() {
     }
   };
 
-  const handleResetProvider = () => {
-    if (!expandedProviderId || savingProvider) {
+  const handleToggleEnabled = async (providerId: ClaudeCompatibleProviderId, nextEnabled: boolean) => {
+    if (savingProvider) {
       return;
     }
-    setDraftProvider({ ...config.providers[expandedProviderId] });
-    setShowSecret(false);
-    setAdvancedOpen(Boolean(config.providers[expandedProviderId].smallFastModel || config.providers[expandedProviderId].maxOutputTokens));
-    setErrors({});
+
+    const updated: ClaudeCompatibleProviderConfig = {
+      ...config.providers[providerId],
+      enabled: nextEnabled,
+    };
+    const nextConfig = normalizeCompatibleProvidersConfig({
+      providers: { ...config.providers, [providerId]: updated },
+    });
+
+    const previous = config;
+    setConfig(nextConfig);
+    if (expandedProviderId === providerId && draftProvider) {
+      setDraftProvider({ ...draftProvider, enabled: nextEnabled });
+    }
+
+    try {
+      const saved = await window.electron.saveClaudeCompatibleProviderConfig(nextConfig);
+      setConfig(normalizeCompatibleProvidersConfig(saved));
+      window.dispatchEvent(new CustomEvent('claude-compatible-provider-updated'));
+    } catch (error) {
+      setConfig(previous);
+      toast.error(error instanceof Error ? error.message : 'Failed to update provider.');
+    }
   };
 
   const activeProviderMessage = message && expandedProviderId && message.providerId === expandedProviderId ? message : null;
 
   return (
     <div className="space-y-6 pb-8">
-      <SettingsSection
-        title="Runtime Health"
-        description="Check whether each local runtime is ready before you start configuring provider connections."
-      >
+      <SettingsGroup title="Runtime Health">
         <RuntimeStatusRow
-          title="Claude Code Runtime"
+          title="Claude Code"
           logo={<img src={claudeLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
-          summary={claudeRuntimeLoading ? 'Checking Claude runtime…' : claudeRuntimeStatus.summary}
           detail={!claudeRuntimeLoading && !claudeRuntimeStatus.ready ? claudeRuntimeStatus.detail : undefined}
           status={buildClaudeRailStatus(claudeRuntimeStatus, claudeRuntimeLoading)}
         />
         <RuntimeStatusRow
-          title="Codex CLI ACP"
+          title="Codex CLI"
           logo={<img src={openaiLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
-          summary={buildCodexSummary(codexRuntimeStatus, codexRuntimeLoading)}
+          detail={!codexRuntimeLoading && !codexRuntimeStatus.ready ? buildCodexSummary(codexRuntimeStatus, codexRuntimeLoading) : undefined}
           status={buildCodexRailStatus(codexRuntimeStatus, codexRuntimeLoading)}
         />
         <RuntimeStatusRow
-          title="OpenCode ACP"
+          title="OpenCode"
           logo={<OpenCodeLogo className="h-5 w-5 flex-shrink-0" />}
-          summary={buildOpencodeSummary(opencodeRuntimeStatus, opencodeRuntimeLoading)}
+          detail={!opencodeRuntimeLoading && !opencodeRuntimeStatus.ready ? buildOpencodeSummary(opencodeRuntimeStatus, opencodeRuntimeLoading) : undefined}
           status={buildOpencodeRailStatus(opencodeRuntimeStatus, opencodeRuntimeLoading)}
         />
-      </SettingsSection>
+      </SettingsGroup>
 
-      <SettingsSection
-        title="Claude-Compatible Providers"
-        description="Manage the remote endpoints Claude Code can use. Edit connections inline and keep runtime context visible."
-      >
+      <SettingsGroup title="Claude-Compatible Providers">
         {PROVIDER_IDS.map((providerId) => {
           const provider = config.providers[providerId];
           const meta = PROVIDER_META[providerId];
           const expanded = expandedProviderId === providerId;
           const providerDraft = expanded ? draftProvider : null;
           const providerBusy = savingProvider === providerId;
-          const isDirty =
-            expanded && providerDraft
-              ? JSON.stringify(providerDraft) !== JSON.stringify(provider)
-              : false;
+          const configured = provider.baseUrl.trim() !== '' && provider.secret.trim() !== '';
 
           return (
-            <SettingsSurfaceRow
+            <ProviderRow
               key={providerId}
-              title={<RowTitleWithLogo logo={<img src={meta.logo} alt="" className="h-5 w-5" aria-hidden="true" />} title={meta.label} />}
-              description={
-                <div className="space-y-1">
-                  <div>{meta.description}</div>
-                  <div className="text-[12px] text-[var(--text-muted)]">{buildProviderSummary(provider)}</div>
-                </div>
-              }
-              right={
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <StateBadge
-                    label={provider.enabled ? 'Enabled' : 'Disabled'}
-                    variant={provider.enabled ? 'accent' : 'muted'}
-                  />
-                  <MetaBadge label={provider.baseUrl.trim() ? 'Configured' : 'Needs setup'} />
-                  <button
-                    type="button"
-                    onClick={() => openProviderEditor(providerId)}
-                    disabled={loading || savingProvider !== null}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] px-2.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-60"
-                    aria-expanded={expanded}
-                  >
-                    <span>{expanded ? 'Collapse' : 'Edit'}</span>
-                    <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-                  </button>
-                </div>
-              }
+              label={meta.label}
+              logo={<img src={meta.logo} alt="" className="h-5 w-5" aria-hidden="true" />}
+              enabled={provider.enabled}
+              configured={configured}
               expanded={expanded}
+              disabled={loading || savingProvider !== null}
+              onToggleEnabled={(next) => handleToggleEnabled(providerId, next)}
+              onToggleExpand={() => openProviderEditor(providerId)}
             >
               {providerDraft ? (
-                <div className="space-y-5">
-                  <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                    <FieldBlock
-                      label="Provider Status"
-                      description="Enable this connection when you want Claude Code to route requests through it."
-                    >
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateDraftProvider((current) => ({
-                            ...current,
-                            enabled: !current.enabled,
-                          }))
-                        }
-                        disabled={providerBusy}
-                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors disabled:opacity-60 ${
-                          providerDraft.enabled
-                            ? 'border-transparent bg-[var(--accent)]'
-                            : 'border-[var(--border)] bg-[var(--bg-tertiary)]'
-                        }`}
-                        aria-pressed={providerDraft.enabled}
-                        aria-label={providerDraft.enabled ? 'Disable provider' : 'Enable provider'}
-                      >
-                        <span
-                          className={`pointer-events-none block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-                            providerDraft.enabled ? 'translate-x-5' : 'translate-x-0.5'
-                          }`}
-                        />
-                      </button>
-                    </FieldBlock>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void handleSaveProvider();
+                  }}
+                  className="space-y-4"
+                >
+                  <FormField label="Base URL" error={errors.baseUrl}>
+                    <input
+                      value={providerDraft.baseUrl}
+                      onChange={(event) => {
+                        setErrors((current) => ({ ...current, baseUrl: undefined }));
+                        updateDraftProvider((current) => ({
+                          ...current,
+                          baseUrl: event.target.value,
+                        }));
+                      }}
+                      placeholder="https://your-compatible-endpoint/v1"
+                      className={getInputClassName(Boolean(errors.baseUrl))}
+                      disabled={providerBusy}
+                    />
+                  </FormField>
 
-                    <FieldBlock
-                      label="Base URL"
-                      description="The endpoint Claude Code will call for this provider."
-                      error={errors.baseUrl}
-                    >
-                      <input
-                        value={providerDraft.baseUrl}
-                        onChange={(event) => {
-                          setErrors((current) => ({ ...current, baseUrl: undefined }));
-                          updateDraftProvider((current) => ({
-                            ...current,
-                            baseUrl: event.target.value,
-                          }));
-                        }}
-                        placeholder="https://your-compatible-endpoint/v1"
-                        className={getInputClassName(Boolean(errors.baseUrl))}
-                        disabled={providerBusy}
-                      />
-                    </FieldBlock>
-                  </div>
-
-                  <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                    <FieldBlock
-                      label="Default Model"
-                      description="The main model name sent to this provider."
-                      error={errors.model}
-                    >
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                    <FormField label="Model" error={errors.model}>
                       <SuggestionInput
                         value={providerDraft.model}
                         onChange={(value) => {
@@ -458,15 +413,12 @@ export function CompatibleProviderSettingsContent() {
                         }}
                         suggestions={modelSuggestions}
                         placeholder={getProviderModelPlaceholder(providerId)}
+                        hasError={Boolean(errors.model)}
                         disabled={providerBusy}
                       />
-                    </FieldBlock>
+                    </FormField>
 
-                    <FieldBlock
-                      label="Endpoint Token"
-                      description="Stored locally and sent as the bearer token for this endpoint."
-                      error={errors.secret}
-                    >
+                    <FormField label="Token" error={errors.secret}>
                       <div className="relative">
                         <input
                           type={showSecret ? 'text' : 'password'}
@@ -479,126 +431,103 @@ export function CompatibleProviderSettingsContent() {
                               secret: event.target.value,
                             }));
                           }}
-                          placeholder="token..."
+                          placeholder="sk-..."
                           className={getInputClassName(Boolean(errors.secret), true)}
                           disabled={providerBusy}
                         />
                         <button
                           type="button"
                           onClick={() => setShowSecret((current) => !current)}
-                          className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-[var(--radius-lg)] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+                          className="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
                           aria-label={showSecret ? 'Hide token' : 'Show token'}
                           disabled={providerBusy}
                         >
-                          {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                         </button>
                       </div>
-                    </FieldBlock>
+                    </FormField>
                   </div>
 
-                  <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)]">
+                  <div>
                     <button
                       type="button"
                       onClick={() => setAdvancedOpen((current) => !current)}
-                      className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left"
+                      className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
                       aria-expanded={advancedOpen}
                     >
-                      <div>
-                        <div className="text-[13px] font-medium text-[var(--text-primary)]">Advanced</div>
-                        <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">
-                          Optional overrides for fast fallback requests and output limits.
-                        </div>
-                      </div>
-                      <ChevronDown className={`h-4 w-4 flex-shrink-0 text-[var(--text-muted)] transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? 'rotate-0' : '-rotate-90'}`} />
+                      <span>Advanced</span>
                     </button>
 
-                    <div
-                      className={`grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ${
-                        advancedOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
-                      }`}
-                    >
-                      <div className="min-h-0 overflow-hidden">
-                        <div className="grid gap-5 border-t border-[var(--border)] px-3 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                          <FieldBlock
-                            label="Small Fast Model"
-                            description="Optional lower-latency model for lightweight Claude requests."
-                          >
-                            <SuggestionInput
-                              value={providerDraft.smallFastModel || ''}
-                              onChange={(value) =>
-                                updateDraftProvider((current) => ({
-                                  ...current,
-                                  smallFastModel: value,
-                                }))
-                              }
-                              suggestions={smallFastModelSuggestions}
-                              placeholder="Optional override"
-                              disabled={providerBusy}
-                            />
-                          </FieldBlock>
+                    {advancedOpen ? (
+                      <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                        <FormField label="Small fast model">
+                          <SuggestionInput
+                            value={providerDraft.smallFastModel || ''}
+                            onChange={(value) =>
+                              updateDraftProvider((current) => ({
+                                ...current,
+                                smallFastModel: value,
+                              }))
+                            }
+                            suggestions={smallFastModelSuggestions}
+                            placeholder="Optional"
+                            disabled={providerBusy}
+                          />
+                        </FormField>
 
-                          <FieldBlock
-                            label="Max Output Tokens"
-                            description="Optional output token limit passed through to the provider."
-                          >
-                            <input
-                              type="number"
-                              min="1"
-                              step="1"
-                              value={providerDraft.maxOutputTokens ?? ''}
-                              onChange={(event) =>
-                                updateDraftProvider((current) => ({
-                                  ...current,
-                                  maxOutputTokens: event.target.value
-                                    ? Math.max(1, Math.trunc(Number(event.target.value)))
-                                    : undefined,
-                                }))
-                              }
-                              placeholder="Optional override"
-                              className={getInputClassName(false)}
-                              disabled={providerBusy}
-                            />
-                          </FieldBlock>
-                        </div>
+                        <FormField label="Max output tokens">
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={providerDraft.maxOutputTokens ?? ''}
+                            onChange={(event) =>
+                              updateDraftProvider((current) => ({
+                                ...current,
+                                maxOutputTokens: event.target.value
+                                  ? Math.max(1, Math.trunc(Number(event.target.value)))
+                                  : undefined,
+                              }))
+                            }
+                            placeholder="Optional"
+                            className={getInputClassName(false)}
+                            disabled={providerBusy}
+                          />
+                        </FormField>
                       </div>
-                    </div>
+                    ) : null}
                   </div>
 
-                  {activeProviderMessage ? (
-                    <InlineMessage tone={activeProviderMessage.tone}>
+                  {activeProviderMessage && activeProviderMessage.tone === 'error' ? (
+                    <div className="rounded-md border border-[var(--error)]/25 bg-[var(--error)]/5 px-3 py-2 text-[12px] text-[var(--error)]">
                       {activeProviderMessage.text}
-                    </InlineMessage>
+                    </div>
                   ) : null}
 
-                  <div className="flex items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
-                    <div className="text-[12px] text-[var(--text-muted)]">
-                      {isDirty ? 'Unsaved changes' : 'Saved and in sync'}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handleResetProvider}
-                        disabled={!isDirty || providerBusy}
-                        className="inline-flex h-9 items-center rounded-[var(--radius-lg)] border border-[var(--border)] px-4 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-                      >
-                        Reset
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleSaveProvider}
-                        disabled={!isDirty || providerBusy}
-                        className="inline-flex h-9 items-center rounded-[var(--radius-lg)] bg-[var(--accent)] px-4 text-[13px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-50"
-                      >
-                        {providerBusy ? 'Saving...' : 'Save Provider'}
-                      </button>
-                    </div>
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => openProviderEditor(providerId)}
+                      disabled={providerBusy}
+                      className="inline-flex h-8 items-center rounded-md px-3 text-[12.5px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={providerBusy}
+                      className="inline-flex h-8 items-center rounded-md bg-[var(--accent)] px-3 text-[12.5px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-50"
+                    >
+                      {providerBusy ? 'Saving…' : 'Save'}
+                    </button>
                   </div>
-                </div>
+                </form>
               ) : null}
-            </SettingsSurfaceRow>
+            </ProviderRow>
           );
         })}
-      </SettingsSection>
+      </SettingsGroup>
     </div>
   );
 }
@@ -606,100 +535,118 @@ export function CompatibleProviderSettingsContent() {
 function RuntimeStatusRow({
   title,
   logo,
-  summary,
   detail,
   status,
 }: {
   title: string;
   logo: ReactNode;
-  summary: string;
   detail?: string;
   status: { label: string; tone: string; dot: string };
 }) {
   return (
-    <SettingsSurfaceRow
-      title={<RowTitleWithLogo logo={logo} title={title} />}
-      description={
-        <div className="space-y-1">
-          <div>{summary}</div>
-          {detail ? <div className="text-[12px] text-[var(--text-muted)]">{detail}</div> : null}
-        </div>
-      }
-      right={<StatusBadge label={status.label} toneClassName={status.tone} dotClassName={status.dot} />}
-    />
+    <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5">
+      <span className="flex h-5 w-5 items-center justify-center">{logo}</span>
+      <div className="min-w-0">
+        <div className="text-[13px] font-medium text-[var(--text-primary)]">{title}</div>
+        {detail ? (
+          <div className="mt-0.5 truncate text-[11.5px] leading-4 text-[var(--text-muted)]">{detail}</div>
+        ) : null}
+      </div>
+      <span className="inline-flex items-center gap-1.5 text-[12px] font-medium">
+        <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
+        <span className={status.tone}>{status.label}</span>
+      </span>
+    </div>
   );
 }
 
-function SettingsSurfaceRow({
-  title,
-  description,
-  right,
-  expanded = false,
+function ProviderRow({
+  label,
+  logo,
+  enabled,
+  configured,
+  expanded,
+  disabled,
+  onToggleEnabled,
+  onToggleExpand,
   children,
 }: {
-  title: ReactNode;
-  description: ReactNode;
-  right?: ReactNode;
-  expanded?: boolean;
+  label: string;
+  logo: ReactNode;
+  enabled: boolean;
+  configured: boolean;
+  expanded: boolean;
+  disabled?: boolean;
+  onToggleEnabled: (next: boolean) => void;
+  onToggleExpand: () => void;
   children?: ReactNode;
 }) {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onToggleExpand();
+    }
+  };
+
   return (
-    <div className="border-b border-[var(--border)] py-3.5 last:border-b-0">
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(200px,280px)] gap-4">
-        <div className="min-w-0">
-          <div className="text-[14px] font-medium text-[var(--text-primary)]">{title}</div>
-          <div className="mt-0.5 text-[13px] leading-5 text-[var(--text-muted)]">{description}</div>
+    <div>
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={onToggleExpand}
+        onKeyDown={handleKeyDown}
+        className="grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 transition-colors hover:bg-[var(--bg-secondary)]/60"
+      >
+        <span className="flex h-5 w-5 items-center justify-center">{logo}</span>
+        <div className="min-w-0 flex items-center gap-2">
+          <span className="truncate text-[13px] font-medium text-[var(--text-primary)]">{label}</span>
+          {enabled && !configured ? (
+            <span className="text-[11px] text-[var(--text-muted)]">Needs setup</span>
+          ) : null}
         </div>
-        {right ? <div className="flex items-start justify-end">{right}</div> : <div />}
+        <div
+          className="flex items-center gap-2"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+          role="presentation"
+        >
+          <SettingsToggle
+            checked={enabled}
+            onChange={onToggleEnabled}
+            disabled={disabled}
+            ariaLabel={enabled ? `Disable ${label}` : `Enable ${label}`}
+          />
+          <ChevronDown
+            className={`h-4 w-4 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`}
+            aria-hidden="true"
+          />
+        </div>
       </div>
 
-      {children ? (
-        <div
-          className={`grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-200 ${
-            expanded ? 'mt-4 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0'
-          }`}
-        >
-          <div className="min-h-0 overflow-hidden">
-            {expanded ? <div className="border-t border-[var(--border)] pt-4">{children}</div> : null}
-          </div>
+      {expanded && children ? (
+        <div className="border-t border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4">
+          {children}
         </div>
       ) : null}
     </div>
   );
 }
 
-function RowTitleWithLogo({
-  logo,
-  title,
-}: {
-  logo: ReactNode;
-  title: string;
-}) {
-  return (
-    <span className="flex items-center gap-2.5">
-      <span className="flex h-5 w-5 items-center justify-center">{logo}</span>
-      <span>{title}</span>
-    </span>
-  );
-}
-
-function FieldBlock({
+function FormField({
   label,
-  description,
   error,
   children,
 }: {
   label: string;
-  description: string;
   error?: string;
   children: ReactNode;
 }) {
   return (
     <div>
-      <div className="mb-1.5 text-[13px] font-medium text-[var(--text-primary)]">{label}</div>
-      <div className="mb-2 text-[12px] leading-5 text-[var(--text-muted)]">{description}</div>
+      <div className="mb-1 text-[12px] font-medium text-[var(--text-muted)]">{label}</div>
       {children}
-      {error ? <div className="mt-1.5 text-[12px] text-[var(--error)]">{error}</div> : null}
+      {error ? <div className="mt-1 text-[11.5px] text-[var(--error)]">{error}</div> : null}
     </div>
   );
 }
@@ -710,34 +657,36 @@ function SuggestionInput({
   suggestions,
   placeholder,
   disabled,
+  hasError,
 }: {
   value: string;
   onChange: (value: string) => void;
   suggestions: string[];
   placeholder?: string;
   disabled?: boolean;
+  hasError?: boolean;
 }) {
   return (
     <div className="relative">
-      <Input
+      <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-10 rounded-[var(--radius-lg)] border-[var(--border)] bg-[var(--bg-primary)] pr-11 text-sm text-[var(--text-primary)] focus-visible:ring-[var(--accent)]"
+        className={getInputClassName(Boolean(hasError), true)}
         disabled={disabled}
       />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-[var(--radius-lg)] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+            className="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
             disabled={disabled}
             aria-label="Open model suggestions"
           >
-            <ChevronDown className="h-4 w-4" />
+            <ChevronDown className="h-3.5 w-3.5" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-[320px]">
+        <DropdownMenuContent align="end" className="w-[280px]">
           {suggestions.length > 0 ? (
             suggestions.map((suggestion) => (
               <DropdownMenuItem key={suggestion} onSelect={() => onChange(suggestion)}>
@@ -751,86 +700,6 @@ function SuggestionInput({
       </DropdownMenu>
     </div>
   );
-}
-
-function InlineMessage({
-  tone,
-  children,
-}: {
-  tone: 'default' | 'error';
-  children: ReactNode;
-}) {
-  return (
-    <div
-      className={`rounded-[var(--radius-lg)] border px-4 py-3 text-sm ${
-        tone === 'error'
-          ? 'border-[var(--error)]/25 bg-[var(--bg-secondary)] text-[var(--error)]'
-          : 'border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]'
-      }`}
-    >
-      {children}
-    </div>
-  );
-}
-
-function StatusBadge({
-  label,
-  toneClassName,
-  dotClassName,
-}: {
-  label: string;
-  toneClassName: string;
-  dotClassName: string;
-}) {
-  return (
-    <span className="inline-flex h-8 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] px-2.5 text-[12px] font-medium">
-      <span className={`h-2 w-2 rounded-full ${dotClassName}`} />
-      <span className={toneClassName}>{label}</span>
-    </span>
-  );
-}
-
-function StateBadge({
-  label,
-  variant,
-}: {
-  label: string;
-  variant: 'accent' | 'muted';
-}) {
-  return (
-    <Badge
-      variant={variant}
-      className="border-transparent px-2.5 py-1 text-[11px] font-medium"
-    >
-      {label}
-    </Badge>
-  );
-}
-
-function MetaBadge({ label }: { label: string }) {
-  return (
-    <span className="inline-flex h-8 items-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 text-[12px] font-medium text-[var(--text-muted)]">
-      {label}
-    </span>
-  );
-}
-
-function buildProviderSummary(provider: ClaudeCompatibleProviderConfig): string {
-  if (!provider.enabled) {
-    return 'Disabled. This provider will not be offered to Claude sessions.';
-  }
-
-  const parts: string[] = [];
-  if (provider.model.trim()) {
-    parts.push(`Model: ${provider.model.trim()}`);
-  }
-  if (provider.baseUrl.trim()) {
-    parts.push(`Endpoint: ${provider.baseUrl.trim()}`);
-  }
-  if (!provider.secret.trim()) {
-    parts.push('Token missing');
-  }
-  return parts.length > 0 ? parts.join(' • ') : 'Enabled, but setup is incomplete.';
 }
 
 function getProviderModelPlaceholder(providerId: ClaudeCompatibleProviderId): string {
@@ -852,8 +721,8 @@ function getProviderModelPlaceholder(providerId: ClaudeCompatibleProviderId): st
 }
 
 function getInputClassName(hasError: boolean, withTrailingControl = false) {
-  return `h-10 w-full rounded-[var(--radius-lg)] border bg-[var(--bg-primary)] px-3 text-sm text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] ${
-    withTrailingControl ? 'pr-11' : ''
+  return `h-8 w-full rounded-md border bg-[var(--bg-primary)] px-2.5 text-[12.5px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] ${
+    withTrailingControl ? 'pr-8' : ''
   } ${
     hasError
       ? 'border-[var(--error)] focus:border-[var(--error)]'

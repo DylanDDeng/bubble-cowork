@@ -9,7 +9,7 @@ import { McpSettingsContent } from './McpSettings';
 import { ProviderPicker } from '../ProviderPicker';
 import { BridgeSettingsContent } from './BridgeSettings';
 import { MemorySettingsContent } from './MemorySettings';
-import { SettingsRow, SettingsSection } from './SettingsPrimitives';
+import { SettingsGroup, SettingsRow } from './SettingsPrimitives';
 import type { ColorThemeId, FontSelection, FontSettingsPayload, FontSlot, ImportedFontFace, SystemFontOption, Theme } from '../../types';
 import { BUILTIN_FONT_OPTIONS, getDefaultFontSelections, getFontPreviewLabel } from '../../theme/fonts';
 import { COLOR_THEME_FAMILIES, resolveThemeMode } from '../../theme/themes';
@@ -79,13 +79,13 @@ export function Settings() {
 
   const activeMeta = SETTINGS_TABS[activeSettingsTab];
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-primary)]">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-secondary)]">
       <div className="flex h-8 flex-shrink-0">
         <div className="drag-region w-[280px] flex-shrink-0 border-r border-[var(--border)] bg-[var(--bg-tertiary)]" />
-        <div className="drag-region flex-1 bg-[var(--bg-primary)]" />
+        <div className="drag-region flex-1 bg-[var(--bg-secondary)]" />
       </div>
 
-      <div className="flex min-h-0 flex-1 bg-[var(--bg-primary)]">
+      <div className="flex min-h-0 flex-1 bg-[var(--bg-secondary)]">
       <aside className="w-[280px] flex-shrink-0 select-none border-r border-[var(--border)] bg-[var(--bg-tertiary)]">
         <div className="flex h-full flex-col px-3 pb-6 pt-4">
           <button
@@ -118,12 +118,12 @@ export function Settings() {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-5xl px-12 py-8">
-          <header className="mb-8">
-            <h1 className="text-[22px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+        <div className="mx-auto max-w-3xl px-10 py-8">
+          <header className="mb-6">
+            <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
               {activeMeta.title}
             </h1>
-            <p className="mt-1 text-[13px] leading-5 text-[var(--text-muted)]">
+            <p className="mt-1 text-[12px] leading-5 text-[var(--text-muted)]">
               {activeMeta.description}
             </p>
           </header>
@@ -283,9 +283,8 @@ function GeneralSettingsContent({
 
   return (
     <div className="space-y-6 pb-8">
-      {/* General group */}
-      <SettingsSection title="General">
-        <SettingsRow label="Default Agent" description="New sessions use this agent.">
+      <SettingsGroup>
+        <SettingsRow variant="card" label="Default Agent" description="New sessions use this agent.">
           <ProviderPicker
             value={defaultProvider}
             onChange={(provider) => {
@@ -296,12 +295,12 @@ function GeneralSettingsContent({
           />
         </SettingsRow>
 
-        <SettingsRow label="Updates" description={`Version ${appVersion}`}>
+        <SettingsRow variant="card" label="Updates" description={`Version ${appVersion}`}>
           <button
             type="button"
             onClick={() => void handleCheckForUpdates()}
             disabled={checkingUpdates}
-            className="inline-flex h-9 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--accent-light)] px-4 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+            className="inline-flex h-8 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
           >
             {checkingUpdates ? 'Checking...' : 'Check for Updates'}
             {updateStatus.available ? (
@@ -313,24 +312,23 @@ function GeneralSettingsContent({
             ) : null}
           </button>
         </SettingsRow>
-      </SettingsSection>
+      </SettingsGroup>
 
-      {/* Appearance group */}
-      <SettingsSection title="Appearance">
-        <SettingsRow label="Mode" description="Light, dark, or follow system.">
-          <div className="inline-flex items-center gap-0.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] p-0.5">
+      <SettingsGroup title="Appearance">
+        <SettingsRow variant="card" label="Mode" description="Light, dark, or follow system.">
+          <div className="inline-flex items-center gap-0.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] p-0.5">
             <ThemeOption label="Light" value="light" current={theme} onClick={() => setTheme('light')} icon={<Sun className="w-3.5 h-3.5" />} />
             <ThemeOption label="Dark" value="dark" current={theme} onClick={() => setTheme('dark')} icon={<Moon className="w-3.5 h-3.5" />} />
             <ThemeOption label="System" value="system" current={theme} onClick={() => setTheme('system')} icon={<Monitor className="w-3.5 h-3.5" />} />
           </div>
         </SettingsRow>
 
-        <SettingsRow label="Color Theme" description={`Current: ${resolvedMode}`}>
-          <div className="relative w-full max-w-[200px]">
+        <SettingsRow variant="card" label="Color Theme" description={`Current: ${resolvedMode}`}>
+          <div className="relative w-[200px]">
             <button
               type="button"
               onClick={() => setThemePickerOpen((current) => !current)}
-              className="flex h-9 w-full items-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--accent-light)] px-3 text-left text-[13px] transition-colors hover:border-[var(--accent)]"
+              className="flex h-8 w-full items-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-left text-[12px] transition-colors hover:border-[var(--text-muted)]"
             >
               <div className="min-w-0 flex-1 truncate font-medium text-[var(--text-primary)]">{activeTheme.label}</div>
               <ChevronDown className={`h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)] transition-transform ${themePickerOpen ? 'rotate-180' : ''}`} />
@@ -363,7 +361,7 @@ function GeneralSettingsContent({
             )}
 
             {hasColorThemeOverrides && (
-              <div className="mt-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-tertiary)]/70 px-2.5 py-2 text-[12px]">
+              <div className="mt-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-2 text-[12px]">
                 <div className="font-medium text-[var(--text-primary)]">Custom CSS overriding theme</div>
                 <button
                   type="button"
@@ -378,12 +376,12 @@ function GeneralSettingsContent({
           </div>
         </SettingsRow>
 
-        <SettingsRow label="Custom CSS" description="Theme token overrides.">
-          <div className="w-full max-w-[200px]">
+        <SettingsRow variant="card" label="Custom CSS" description="Theme token overrides." align={customCssOpen ? 'start' : 'center'}>
+          <div className="w-[200px]">
             <button
               type="button"
               onClick={() => setCustomCssOpen((current) => !current)}
-              className="flex h-9 w-full items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--accent-light)] px-3 text-left text-[13px] transition-colors hover:border-[var(--accent)]"
+              className="flex h-8 w-full items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-left text-[12px] transition-colors hover:border-[var(--text-muted)]"
             >
               <div className="min-w-0 flex-1 truncate font-medium text-[var(--text-primary)]">
                 {customThemeCss.trim() ? customCssSummary : 'None'}
@@ -397,7 +395,7 @@ function GeneralSettingsContent({
                   <button
                     type="button"
                     onClick={() => setCustomThemeCss('')}
-                    className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-tertiary)] px-2 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+                    className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
                   >
                     <Eraser className="w-3 h-3" />
                     Clear
@@ -414,11 +412,10 @@ function GeneralSettingsContent({
             )}
           </div>
         </SettingsRow>
-      </SettingsSection>
+      </SettingsGroup>
 
-      {/* Typography group */}
-      <SettingsSection title="Typography">
-        <SettingsRow label="UI Font" description="Sidebar, settings, and UI text.">
+      <SettingsGroup title="Typography">
+        <SettingsRow variant="card" label="UI Font" description="Sidebar, settings, and UI text.">
           <FontSlotControl
             slot="ui"
             selection={fontSelections.ui}
@@ -429,7 +426,7 @@ function GeneralSettingsContent({
           />
         </SettingsRow>
 
-        <SettingsRow label="Code Font" description="Code blocks, logs, and paths.">
+        <SettingsRow variant="card" label="Code Font" description="Code blocks, logs, and paths.">
           <FontSlotControl
             slot="mono"
             selection={fontSelections.mono}
@@ -439,7 +436,7 @@ function GeneralSettingsContent({
             onChange={(selection) => void updateFontSelection('mono', selection)}
           />
         </SettingsRow>
-      </SettingsSection>
+      </SettingsGroup>
     </div>
   );
 }

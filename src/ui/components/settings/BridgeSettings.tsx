@@ -1,7 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { FolderOpen, Play, Square } from 'lucide-react';
 import { toast } from 'sonner';
-import type { AgentProvider, FeishuBridgeConfig, FeishuBridgeStatus } from '../../types';
+import type { FeishuBridgeConfig, FeishuBridgeStatus } from '../../types';
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+  SettingsGroup,
+  SettingsRow,
+  SettingsToggle,
+} from './SettingsPrimitives';
 
 const DEFAULT_CONFIG: FeishuBridgeConfig = {
   enabled: false,
@@ -13,6 +20,12 @@ const DEFAULT_CONFIG: FeishuBridgeConfig = {
   allowedUserIds: '',
   autoStart: false,
 };
+
+const INPUT_CLASS =
+  'h-8 w-full rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 text-[12.5px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]';
+
+const GHOST_BUTTON_CLASS =
+  'inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12.5px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)] disabled:opacity-50';
 
 export function BridgeSettingsContent() {
   const [config, setConfig] = useState<FeishuBridgeConfig>(DEFAULT_CONFIG);
@@ -47,9 +60,12 @@ export function BridgeSettingsContent() {
 
     void load();
     const timer = window.setInterval(() => {
-      void window.electron.getFeishuBridgeStatus().then((nextStatus) => {
-        if (!cancelled) setStatus(nextStatus);
-      }).catch(() => {});
+      void window.electron
+        .getFeishuBridgeStatus()
+        .then((nextStatus) => {
+          if (!cancelled) setStatus(nextStatus);
+        })
+        .catch(() => {});
     }, 3000);
 
     return () => {
@@ -103,257 +119,230 @@ export function BridgeSettingsContent() {
   };
 
   if (loading) {
-    return <div className="text-sm text-[var(--text-secondary)]">Loading bridge settings...</div>;
+    return (
+      <div className="px-1 py-2 text-[12.5px] text-[var(--text-muted)]">Loading bridge settings…</div>
+    );
   }
 
   const isRunning = status?.running === true;
+  const isConnected = status?.connected === true;
+  const stateLabel = isRunning ? (isConnected ? 'Running · Connected' : 'Running') : 'Stopped';
+  const stateTone = isRunning
+    ? isConnected
+      ? 'text-[var(--success)]'
+      : 'text-[var(--text-primary)]'
+    : 'text-[var(--text-muted)]';
+  const stateDot = isRunning
+    ? isConnected
+      ? 'bg-[var(--success)]'
+      : 'bg-[var(--warning)]'
+    : 'bg-[var(--text-muted)]';
 
   return (
     <div className="space-y-6 pb-8">
-      <BridgeSection title="Status">
-        <BridgeRow label="State" description="Current bridge connection status.">
-          <div className="flex items-center gap-3">
-            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium ${
-              isRunning
-                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400'
-                : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'
-            }`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${isRunning ? 'bg-emerald-500' : 'bg-[var(--text-muted)]'}`} />
-              {isRunning ? 'Running' : 'Stopped'}
-            </span>
-            {status?.connected && (
-              <span className="text-[12px] text-emerald-600 dark:text-emerald-400">Connected</span>
-            )}
-          </div>
-        </BridgeRow>
+      <SettingsGroup title="Status">
+        <SettingsRow variant="card" label="State" description="Current bridge connection.">
+          <span className="inline-flex items-center gap-1.5 text-[12px] font-medium">
+            <span className={`h-1.5 w-1.5 rounded-full ${stateDot}`} aria-hidden="true" />
+            <span className={stateTone}>{stateLabel}</span>
+          </span>
+        </SettingsRow>
 
-        <BridgeRow label="Controls" description="Start or stop the bridge service.">
+        <SettingsRow variant="card" label="Controls" description="Start or stop the bridge service.">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => void handleToggle('start')}
               disabled={toggling || isRunning}
-              className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--accent-light)] px-3 py-1.5 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+              className={GHOST_BUTTON_CLASS}
             >
-              <Play className="h-3.5 w-3.5" />
+              <Play className="h-3 w-3" />
               Start
             </button>
             <button
               type="button"
               onClick={() => void handleToggle('stop')}
               disabled={toggling || !isRunning}
-              className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+              className={GHOST_BUTTON_CLASS}
             >
               <Square className="h-3 w-3" fill="currentColor" />
               Stop
             </button>
           </div>
-        </BridgeRow>
+        </SettingsRow>
 
-        <BridgeRow label="Active bindings" description="Feishu chats mapped to local sessions.">
-          <span className="text-[14px] font-medium text-[var(--text-primary)]">
-            {String(status?.activeBindings || 0)}
+        <SettingsRow variant="card" label="Active bindings" description="Feishu chats mapped to local sessions.">
+          <span className="text-[13px] font-medium text-[var(--text-primary)]">
+            {status?.activeBindings ?? 0}
           </span>
-        </BridgeRow>
+        </SettingsRow>
 
-        {status?.botOpenId && status.botOpenId !== 'Unknown' && (
-          <BridgeRow label="Bot Open ID" description="The bot identity used by the bridge.">
-            <span className="max-w-[240px] truncate text-[13px] font-mono text-[var(--text-secondary)]">
+        {status?.botOpenId && status.botOpenId !== 'Unknown' ? (
+          <SettingsRow variant="card" label="Bot Open ID" description="The bot identity used by the bridge.">
+            <span className="max-w-[220px] truncate font-mono text-[12px] text-[var(--text-muted)]">
               {status.botOpenId}
             </span>
-          </BridgeRow>
-        )}
+          </SettingsRow>
+        ) : null}
 
-        {status?.lastError && (
-          <BridgeRow label="Last error" description="">
-            <span className="max-w-[320px] truncate text-[13px] text-[var(--error)]">
+        {status?.lastError ? (
+          <SettingsRow variant="card" label="Last error" align="start">
+            <span className="max-w-[280px] truncate text-[12px] text-[var(--error)]">
               {status.lastError}
             </span>
-          </BridgeRow>
-        )}
-      </BridgeSection>
+          </SettingsRow>
+        ) : null}
+      </SettingsGroup>
 
-      <BridgeSection title="Credentials">
-        <BridgeRow label="Bridge enabled" description="Required before the bridge can start.">
-          <ToggleButton checked={config.enabled} onChange={(checked) => updateConfig('enabled', checked)} />
-        </BridgeRow>
+      <SettingsGroup title="Credentials">
+        <SettingsRow
+          variant="card"
+          label="Bridge enabled"
+          description="Required before the bridge can start."
+        >
+          <SettingsToggle
+            checked={config.enabled}
+            onChange={(next) => updateConfig('enabled', next)}
+            ariaLabel="Toggle bridge enabled"
+          />
+        </SettingsRow>
 
-        <BridgeRow label="App ID" description="From your Feishu self-built app credentials.">
+        <BridgeFieldRow label="App ID" description="From your Feishu self-built app credentials.">
           <input
             value={config.appId}
             onChange={(event) => updateConfig('appId', event.target.value)}
-            className="h-9 w-full rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+            className={INPUT_CLASS}
+            placeholder="cli_xxxxxxxxxxxx"
           />
-        </BridgeRow>
+        </BridgeFieldRow>
 
-        <BridgeRow label="App Secret" description="Stored locally on this machine.">
+        <BridgeFieldRow label="App Secret" description="Stored locally on this machine.">
           <input
             type="password"
             value={config.appSecret}
             onChange={(event) => updateConfig('appSecret', event.target.value)}
-            className="h-9 w-full rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+            className={INPUT_CLASS}
+            placeholder="••••••••••••••••"
           />
-        </BridgeRow>
-      </BridgeSection>
+        </BridgeFieldRow>
+      </SettingsGroup>
 
-      <BridgeSection title="Runtime">
-        <BridgeRow label="Default workspace" description="Used when a Feishu chat starts a new session.">
+      <SettingsGroup title="Runtime">
+        <BridgeFieldRow
+          label="Default workspace"
+          description="Used when a Feishu chat starts a new session."
+        >
           <div className="flex items-center gap-2">
             <input
               value={config.defaultCwd}
               onChange={(event) => updateConfig('defaultCwd', event.target.value)}
-              className="h-9 min-w-0 flex-1 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+              className={`${INPUT_CLASS} flex-1`}
+              placeholder="/path/to/project"
             />
             <button
               type="button"
               onClick={() => void handlePickDirectory()}
-              className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+              className={GHOST_BUTTON_CLASS}
             >
               <FolderOpen className="h-3.5 w-3.5" />
               Browse
             </button>
           </div>
-        </BridgeRow>
+        </BridgeFieldRow>
 
-        <BridgeRow label="Runtime" description="Choose which agent runtime handles Feishu chats.">
-          <div className="inline-flex items-center gap-0.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] p-0.5">
-            <ProviderModeButton
-              label="Claude"
-              value="claude"
-              current={config.provider}
+        <SettingsRow
+          variant="card"
+          label="Runtime"
+          description="Choose which agent runtime handles Feishu chats."
+        >
+          <SegmentedControl ariaLabel="Agent runtime">
+            <SegmentedControlItem
+              active={config.provider === 'claude'}
               onClick={() => updateConfig('provider', 'claude')}
-            />
-            <ProviderModeButton
-              label="Codex"
-              value="codex"
-              current={config.provider}
+            >
+              Claude
+            </SegmentedControlItem>
+            <SegmentedControlItem
+              active={config.provider === 'codex'}
               onClick={() => updateConfig('provider', 'codex')}
-            />
-          </div>
-        </BridgeRow>
+            >
+              Codex
+            </SegmentedControlItem>
+          </SegmentedControl>
+        </SettingsRow>
 
-        <BridgeRow label="Default model" description="Optional. Leave blank for runtime default.">
+        <BridgeFieldRow
+          label="Default model"
+          description="Optional. Leave blank for runtime default."
+        >
           <input
             value={config.model}
             onChange={(event) => updateConfig('model', event.target.value)}
-            className="h-9 w-full rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+            className={INPUT_CLASS}
+            placeholder="e.g. claude-sonnet-4-5"
           />
-        </BridgeRow>
+        </BridgeFieldRow>
 
-        <BridgeRow label="Allowed user IDs" description="Comma-separated. Leave blank to allow all.">
+        <BridgeFieldRow
+          label="Allowed user IDs"
+          description="Comma-separated open IDs. Leave blank to allow all."
+        >
           <input
             value={config.allowedUserIds}
             onChange={(event) => updateConfig('allowedUserIds', event.target.value)}
-            className="h-9 w-full rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
+            className={INPUT_CLASS}
+            placeholder="ou_xxx, ou_yyy"
           />
-        </BridgeRow>
+        </BridgeFieldRow>
 
-        <BridgeRow label="Start on launch" description="Auto-start bridge when the app opens.">
-          <ToggleButton checked={config.autoStart} onChange={(checked) => updateConfig('autoStart', checked)} />
-        </BridgeRow>
-      </BridgeSection>
+        <SettingsRow
+          variant="card"
+          label="Start on launch"
+          description="Auto-start bridge when the app opens."
+        >
+          <SettingsToggle
+            checked={config.autoStart}
+            onChange={(next) => updateConfig('autoStart', next)}
+            ariaLabel="Toggle auto-start on launch"
+          />
+        </SettingsRow>
+      </SettingsGroup>
 
       <div className="flex justify-end">
         <button
           type="button"
           onClick={() => void handleSave()}
           disabled={saving}
-          className="h-9 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--accent-light)] px-4 text-[13px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+          className="inline-flex h-8 items-center rounded-md bg-[var(--accent)] px-4 text-[12.5px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-50"
         >
-          {saving ? 'Saving...' : 'Save'}
+          {saving ? 'Saving…' : 'Save'}
         </button>
       </div>
     </div>
   );
 }
 
-function BridgeSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="border-b border-[var(--border)] pb-6 last:border-b-0 last:pb-0">
-      <h2 className="mb-3 text-[13px] font-semibold uppercase tracking-[0.06em] text-[var(--text-muted)]">
-        {title}
-      </h2>
-      <div>{children}</div>
-    </section>
-  );
-}
-
-function BridgeRow({
+// Stacked label-above-input row used for text inputs inside a SettingsGroup.
+// Mirrors the `FormField` pattern elsewhere but keeps group-style hairline
+// dividers via the parent `SettingsGroup`'s `divide-y`.
+function BridgeFieldRow({
   label,
   description,
   children,
 }: {
   label: string;
-  description: string;
-  children: React.ReactNode;
+  description?: string;
+  children: ReactNode;
 }) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_minmax(240px,360px)] items-center gap-4 border-b border-[var(--border)] py-3.5 last:border-b-0">
+    <div className="flex flex-col gap-2 px-4 py-3">
       <div>
-        <div className="text-[14px] font-medium text-[var(--text-primary)]">{label}</div>
+        <div className="text-[13px] font-medium text-[var(--text-primary)]">{label}</div>
         {description ? (
-          <div className="mt-0.5 text-[13px] leading-5 text-[var(--text-muted)]">{description}</div>
+          <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">{description}</div>
         ) : null}
       </div>
-      <div className="flex justify-end">{children}</div>
+      {children}
     </div>
-  );
-}
-
-function ProviderModeButton({
-  label,
-  value,
-  current,
-  onClick,
-}: {
-  label: string;
-  value: AgentProvider;
-  current: AgentProvider;
-  onClick: () => void;
-}) {
-  const active = value === current;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-[var(--radius-lg)] px-3 py-1.5 text-[12px] transition-colors ${
-        active
-          ? 'bg-[var(--accent-light)] font-medium text-[var(--text-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
-          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function ToggleButton({
-  checked,
-  onChange,
-}: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={checked}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-        checked ? 'bg-[var(--accent)]' : 'bg-[var(--bg-tertiary)]'
-      }`}
-    >
-      <span
-        className={`absolute h-4.5 w-4.5 rounded-full bg-white transition-transform ${
-          checked ? 'translate-x-5.5' : 'translate-x-0.5'
-        }`}
-      />
-    </button>
   );
 }
