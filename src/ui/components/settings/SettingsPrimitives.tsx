@@ -86,7 +86,7 @@ export function SettingsGroup({
           ) : null}
         </div>
       ) : null}
-      <div className="overflow-hidden rounded-[12px] border border-[var(--border)] bg-[var(--bg-primary)]">
+      <div className="overflow-hidden rounded-[12px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         <div className="divide-y divide-[var(--border)]">{children}</div>
       </div>
     </section>
