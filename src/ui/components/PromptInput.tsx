@@ -952,7 +952,30 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   return (
     <div className="bg-transparent">
       <div className="mx-auto max-w-4xl">
-        <div className="group rounded-[28px] bg-[var(--border)]/45 p-px transition-colors duration-200 focus-within:bg-[var(--border)]/70">
+        <div className="group relative rounded-[28px] bg-[var(--border)]/45 p-px transition-colors duration-200 focus-within:bg-[var(--border)]/70">
+          {projectFileMentions.hasMentionQuery ? (
+            <div className="absolute inset-x-0 bottom-full z-40">
+              <ProjectFileMentionMenu
+                suggestions={projectFileMentions.suggestions}
+                selectedIndex={projectFileMentions.selectedIndex}
+                loading={projectFileMentions.loading}
+                onSelect={(suggestion) => {
+                  void handleSelectProjectFile(suggestion);
+                }}
+              />
+            </div>
+          ) : skillAutocomplete.hasSlashQuery && (
+            <div className="absolute inset-x-0 bottom-full z-40">
+              <ClaudeSkillMenu
+                suggestions={skillAutocomplete.suggestions}
+                selectedIndex={skillAutocomplete.selectedIndex}
+                empty={skillAutocomplete.suggestions.length === 0}
+                title="Commands & Skills"
+                emptyMessage="No matching commands or skills."
+                onSelect={skillAutocomplete.selectSuggestion}
+              />
+            </div>
+          )}
           <div className="rounded-[26px] border border-[var(--border)]/65 bg-[var(--bg-primary)] transition-colors duration-200">
           {attachments.length > 0 && (
             <div className="px-5 pt-4">
@@ -1024,26 +1047,6 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
             }`}
             autoFocus={false}
           />
-
-          {projectFileMentions.hasMentionQuery ? (
-            <ProjectFileMentionMenu
-              suggestions={projectFileMentions.suggestions}
-              selectedIndex={projectFileMentions.selectedIndex}
-              loading={projectFileMentions.loading}
-              onSelect={(suggestion) => {
-                void handleSelectProjectFile(suggestion);
-              }}
-            />
-          ) : skillAutocomplete.hasSlashQuery && (
-            <ClaudeSkillMenu
-              suggestions={skillAutocomplete.suggestions}
-              selectedIndex={skillAutocomplete.selectedIndex}
-              empty={skillAutocomplete.suggestions.length === 0}
-              title="Commands & Skills"
-              emptyMessage="No matching commands or skills."
-              onSelect={skillAutocomplete.selectSuggestion}
-            />
-          )}
 
           <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
             <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
