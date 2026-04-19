@@ -88,17 +88,6 @@ export function useClaudeSkillAutocomplete({
     return filterClaudeSlashCommands(availableCommands, query);
   }, [availableCommands, enabled, query]);
 
-  const suggestions = useMemo(() => {
-    if (!enabled || query === null) {
-      return [] as ClaudeSlashSuggestion[];
-    }
-
-    return [
-      ...commandSuggestions.map((command) => ({ kind: 'command', command }) as ClaudeSlashSuggestion),
-      ...skillSuggestions.map((skill) => ({ kind: 'skill', skill }) as ClaudeSlashSuggestion),
-    ];
-  }, [commandSuggestions, enabled, query, skillSuggestions]);
-
   const selectedSkillState = useMemo(
     () => (enabled && enableSkills ? parseSelectedSkillPrompt(prompt, availableSkills) : null),
     [availableSkills, enableSkills, enabled, prompt]
@@ -108,6 +97,26 @@ export function useClaudeSkillAutocomplete({
     () => (enabled ? parseSelectedSlashCommandPrompt(prompt, availableCommands) : null),
     [availableCommands, enabled, prompt]
   );
+
+  // Claude CLI exposes every skill as a slash command too, so drop commands
+  // whose names collide with a known skill to avoid duplicate entries.
+  const suggestions = useMemo(() => {
+    if (!enabled || query === null) {
+      return [] as ClaudeSlashSuggestion[];
+    }
+
+    const skillNameSet = new Set(
+      availableSkills.map((skill) => skill.name.replace(/^\//, '').toLowerCase())
+    );
+    const dedupedCommands = commandSuggestions.filter(
+      (command) => !skillNameSet.has(command.name.toLowerCase())
+    );
+
+    return [
+      ...dedupedCommands.map((command) => ({ kind: 'command', command }) as ClaudeSlashSuggestion),
+      ...skillSuggestions.map((skill) => ({ kind: 'skill', skill }) as ClaudeSlashSuggestion),
+    ];
+  }, [availableSkills, commandSuggestions, enabled, query, skillSuggestions]);
 
   useEffect(() => {
     if (!enabled || !selectedSkillState) {
@@ -136,7 +145,10 @@ export function useClaudeSkillAutocomplete({
     setSelectedIndex(0);
   }, [selectedIndex, suggestions.length]);
 
-  const hasSlashQuery = enabled && query !== null;
+  // Hide the picker once a skill/command has been selected, even though the
+  // canonicalised prompt (e.g. "/agent-browser") still matches the slash query
+  // regex — the chip already represents the selection.
+  const hasSlashQuery = enabled && query !== null && !selectedSkillState && !selectedCommandState;
 
   const selectSkill = (skill: ClaudeSkillSummary) => {
     setPrompt(insertSlashSkill(prompt, skill.name));
