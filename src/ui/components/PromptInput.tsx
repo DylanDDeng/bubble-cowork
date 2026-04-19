@@ -22,8 +22,6 @@ import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
-import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
-import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { SavePromptButton } from './prompts/SavePromptButton';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
 import { useOpencodeModelConfig } from '../hooks/useOpencodeModelConfig';
@@ -69,8 +67,6 @@ import {
   loadPreferredOpencodePermissionMode,
   savePreferredOpencodePermissionMode,
 } from '../utils/opencode-permission';
-import { buildPromptWithSkill } from '../utils/claude-skills';
-import { buildPromptWithSlashCommand } from '../utils/claude-slash';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
 import {
@@ -243,6 +239,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     projectPath: activeSession?.cwd,
     sessionMessages: activeSession?.messages || [],
     setPrompt,
+    setCursorIndex,
     onAutoSubmitCommand: handleAutoSubmitClaudeCommand,
   });
   const projectFileMentions = useProjectFileMentions({
@@ -250,16 +247,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     prompt: skillAutocomplete.displayPrompt,
     cursorIndex,
   });
-  const promptLibraryContent = useMemo(
-    () => (
-      skillAutocomplete.selectedSkill
-        ? buildPromptWithSkill(skillAutocomplete.selectedSkill.name, skillAutocomplete.displayPrompt)
-        : skillAutocomplete.selectedCommand
-          ? buildPromptWithSlashCommand(skillAutocomplete.selectedCommand.name, skillAutocomplete.displayPrompt)
-          : prompt
-    ).trim(),
-    [prompt, skillAutocomplete.displayPrompt, skillAutocomplete.selectedCommand, skillAutocomplete.selectedSkill]
-  );
+  const promptLibraryContent = useMemo(() => prompt.trim(), [prompt]);
 
   useEffect(() => {
     if (!promptLibraryInsertRequest) {
@@ -536,20 +524,17 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   ]);
 
   const buildDispatchPrompt = async (): Promise<string | null> => {
-    if (skillAutocomplete.selectedSkill) {
-      const displayPrompt = buildPromptWithSkill(
-        skillAutocomplete.selectedSkill.name,
-        skillAutocomplete.displayPrompt
-      ).trim();
+    const trimmedPrompt = prompt.trim();
 
+    if (skillAutocomplete.selectedSkill) {
       const expandedPrompt =
         provider === 'claude'
-          ? displayPrompt
+          ? trimmedPrompt
           : await (async () => {
               const result = await window.electron.expandClaudeSkillPrompt(
                 skillAutocomplete.selectedSkill.path,
                 skillAutocomplete.selectedSkill.name,
-                skillAutocomplete.displayPrompt
+                skillAutocomplete.selectedSkillRemainder
               );
 
               if (!result.ok || !result.prompt) {
@@ -570,19 +555,9 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       });
     }
 
-    if (skillAutocomplete.selectedCommand) {
-      return buildPromptWithProjectFileMentions({
-        cwd: activeSession?.cwd || null,
-        prompt: buildPromptWithSlashCommand(
-          skillAutocomplete.selectedCommand.name,
-          skillAutocomplete.displayPrompt
-        ).trim(),
-      });
-    }
-
     return buildPromptWithProjectFileMentions({
       cwd: activeSession?.cwd || null,
-      prompt: prompt.trim(),
+      prompt: trimmedPrompt,
     });
   };
 
@@ -628,13 +603,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     if (!prompt.trim() && attachments.length === 0) return;
     setMenuOpen(false);
 
-    const displayPrompt = (
-      skillAutocomplete.selectedSkill
-        ? buildPromptWithSkill(skillAutocomplete.selectedSkill.name, skillAutocomplete.displayPrompt)
-        : skillAutocomplete.selectedCommand
-          ? buildPromptWithSlashCommand(skillAutocomplete.selectedCommand.name, skillAutocomplete.displayPrompt)
-          : prompt
-    ).trim();
+    const displayPrompt = prompt.trim();
     const normalizedPrompt = await buildDispatchPrompt();
     if (normalizedPrompt === null) {
       return;
@@ -925,20 +894,6 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       }
     }
 
-    if (
-      (skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand) &&
-      skillAutocomplete.displayPrompt.length === 0 &&
-      e.key === 'Backspace'
-    ) {
-      e.preventDefault();
-      if (skillAutocomplete.selectedSkill) {
-        skillAutocomplete.clearSelectedSkill();
-      } else {
-        skillAutocomplete.clearSelectedCommand();
-      }
-      return;
-    }
-
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (isRunning) {
@@ -988,30 +943,11 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
             </div>
           )}
 
-            {skillAutocomplete.selectedSkill && (
-              <div className="px-5 pt-3">
-                <SelectedClaudeSkillChip
-                  skill={skillAutocomplete.selectedSkill}
-                  onClear={skillAutocomplete.clearSelectedSkill}
-                  compact
-                />
-              </div>
-            )}
-
-          {!skillAutocomplete.selectedSkill && skillAutocomplete.selectedCommand && (
-            <div className="px-5 pt-3">
-              <SelectedClaudeCommandChip
-                command={skillAutocomplete.selectedCommand}
-                onClear={skillAutocomplete.clearSelectedCommand}
-                compact
-              />
-            </div>
-          )}
-
           <ComposerPromptEditor
             ref={editorRef}
             value={skillAutocomplete.displayPrompt}
             cursorIndex={cursorIndex}
+            slashContext={skillAutocomplete.slashContext}
             onChange={(value, nextCursorIndex) => {
               void handlePromptChange(value, nextCursorIndex);
             }}
@@ -1033,18 +969,12 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                 ? 'Press Enter to stop...'
                 : pendingStart
                 ? 'Starting session...'
-                : skillAutocomplete.selectedSkill
-                ? `Add instructions for ${skillAutocomplete.selectedSkill.name}...`
-                : skillAutocomplete.selectedCommand
-                ? `Add instructions for ${skillAutocomplete.selectedCommand.title.replace(/^\//, '')}...`
                 : targetSessionId
                 ? 'Continue the conversation...'
                 : 'Start a new session...'
             }
             disabled={isBusy}
-            className={`w-full bg-transparent px-4 pb-1 text-[14px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50 ${
-              skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-2' : 'pt-3'
-            }`}
+            className="w-full bg-transparent px-4 pt-3 pb-1 text-[14px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50"
             autoFocus={false}
           />
 

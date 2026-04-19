@@ -22,8 +22,6 @@ import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
-import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
-import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { SavePromptButton } from './prompts/SavePromptButton';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
 import { useCompatibleProviderConfig } from '../hooks/useCompatibleProviderConfig';
@@ -65,8 +63,6 @@ import {
   loadPreferredOpencodePermissionMode,
   savePreferredOpencodePermissionMode,
 } from '../utils/opencode-permission';
-import { buildPromptWithSkill } from '../utils/claude-skills';
-import { buildPromptWithSlashCommand } from '../utils/claude-slash';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
 import {
@@ -193,22 +189,14 @@ export function NewSessionView() {
     prompt,
     projectPath: cwd || undefined,
     setPrompt,
+    setCursorIndex,
   });
   const projectFileMentions = useProjectFileMentions({
     cwd,
     prompt: skillAutocomplete.displayPrompt,
     cursorIndex,
   });
-  const promptLibraryContent = useMemo(
-    () => (
-      skillAutocomplete.selectedSkill
-        ? buildPromptWithSkill(skillAutocomplete.selectedSkill.name, skillAutocomplete.displayPrompt)
-        : skillAutocomplete.selectedCommand
-          ? buildPromptWithSlashCommand(skillAutocomplete.selectedCommand.name, skillAutocomplete.displayPrompt)
-          : prompt
-    ).trim(),
-    [prompt, skillAutocomplete.displayPrompt, skillAutocomplete.selectedCommand, skillAutocomplete.selectedSkill]
-  );
+  const promptLibraryContent = useMemo(() => prompt.trim(), [prompt]);
 
   useEffect(() => {
     if (!promptLibraryInsertRequest) {
@@ -245,20 +233,17 @@ export function NewSessionView() {
   }, [showCwdHint]);
 
   const buildDispatchPrompt = async (): Promise<string | null> => {
-    if (skillAutocomplete.selectedSkill) {
-      const displayPrompt = buildPromptWithSkill(
-        skillAutocomplete.selectedSkill.name,
-        skillAutocomplete.displayPrompt
-      ).trim();
+    const trimmedPrompt = prompt.trim();
 
+    if (skillAutocomplete.selectedSkill) {
       const expandedPrompt =
         provider === 'claude'
-          ? displayPrompt
+          ? trimmedPrompt
           : await (async () => {
               const result = await window.electron.expandClaudeSkillPrompt(
                 skillAutocomplete.selectedSkill.path,
                 skillAutocomplete.selectedSkill.name,
-                skillAutocomplete.displayPrompt
+                skillAutocomplete.selectedSkillRemainder
               );
 
               if (!result.ok || !result.prompt) {
@@ -279,19 +264,9 @@ export function NewSessionView() {
       });
     }
 
-    if (skillAutocomplete.selectedCommand) {
-      return buildPromptWithProjectFileMentions({
-        cwd,
-        prompt: buildPromptWithSlashCommand(
-          skillAutocomplete.selectedCommand.name,
-          skillAutocomplete.displayPrompt
-        ).trim(),
-      });
-    }
-
     return buildPromptWithProjectFileMentions({
       cwd,
-      prompt: prompt.trim(),
+      prompt: trimmedPrompt,
     });
   };
 
@@ -449,13 +424,7 @@ export function NewSessionView() {
     setPendingStart(true);
     setMenuOpen(false);
 
-    const displayPrompt = (
-      skillAutocomplete.selectedSkill
-        ? buildPromptWithSkill(skillAutocomplete.selectedSkill.name, skillAutocomplete.displayPrompt)
-        : skillAutocomplete.selectedCommand
-          ? buildPromptWithSlashCommand(skillAutocomplete.selectedCommand.name, skillAutocomplete.displayPrompt)
-          : prompt
-    ).trim();
+    const displayPrompt = prompt.trim();
     const normalizedPrompt = await buildDispatchPrompt();
     if (normalizedPrompt === null) {
       setPendingStart(false);
@@ -706,20 +675,6 @@ export function NewSessionView() {
       }
     }
 
-    if (
-      (skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand) &&
-      skillAutocomplete.displayPrompt.length === 0 &&
-      e.key === 'Backspace'
-    ) {
-      e.preventDefault();
-      if (skillAutocomplete.selectedSkill) {
-        skillAutocomplete.clearSelectedSkill();
-      } else {
-        skillAutocomplete.clearSelectedCommand();
-      }
-      return;
-    }
-
     if (e.key === 'Enter' && !e.shiftKey && (prompt.trim() || attachments.length > 0) && !pendingStart) {
       e.preventDefault();
       handleStart();
@@ -825,30 +780,11 @@ export function NewSessionView() {
                 </div>
               )}
 
-              {skillAutocomplete.selectedSkill && (
-                <div className="px-5 pt-3">
-                  <SelectedClaudeSkillChip
-                    skill={skillAutocomplete.selectedSkill}
-                    onClear={skillAutocomplete.clearSelectedSkill}
-                    compact
-                  />
-                </div>
-              )}
-
-              {!skillAutocomplete.selectedSkill && skillAutocomplete.selectedCommand && (
-                <div className="px-5 pt-3">
-                  <SelectedClaudeCommandChip
-                    command={skillAutocomplete.selectedCommand}
-                    onClear={skillAutocomplete.clearSelectedCommand}
-                    compact
-                  />
-                </div>
-              )}
-
               <ComposerPromptEditor
                 ref={editorRef}
                 value={skillAutocomplete.displayPrompt}
                 cursorIndex={cursorIndex}
+                slashContext={skillAutocomplete.slashContext}
                 onChange={(value, nextCursorIndex) => {
                   void handlePromptChange(value, nextCursorIndex);
                 }}
@@ -865,16 +801,8 @@ export function NewSessionView() {
                   isComposingRef.current = false;
                 }}
                 onKeyDown={handleKeyDown}
-                placeholder={
-                  skillAutocomplete.selectedSkill
-                    ? `Add instructions for ${skillAutocomplete.selectedSkill.name}...`
-                    : skillAutocomplete.selectedCommand
-                      ? `Add instructions for ${skillAutocomplete.selectedCommand.title.replace(/^\//, '')}...`
-                    : 'Describe your task...'
-                }
-                className={`w-full bg-transparent px-4 pb-1 text-[14px] outline-none resize-none no-drag max-h-[200px] ${
-                  skillAutocomplete.selectedSkill || skillAutocomplete.selectedCommand ? 'pt-2 min-h-[56px]' : 'pt-3 min-h-[56px]'
-                }`}
+                placeholder="Describe your task..."
+                className="w-full bg-transparent px-4 pt-3 pb-1 text-[14px] outline-none resize-none no-drag min-h-[56px] max-h-[200px]"
                 autoFocus
               />
 

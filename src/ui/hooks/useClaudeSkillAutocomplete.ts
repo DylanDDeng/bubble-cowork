@@ -4,7 +4,6 @@ import { useAppStore } from '../store/useAppStore';
 import type { ClaudeSkillSummary, StreamMessage } from '../types';
 import type { ClaudeSlashSuggestion } from '../utils/claude-slash';
 import {
-  buildPromptWithSkill,
   filterClaudeSkills,
   parseSelectedSkillPrompt,
   getSessionSkillNames,
@@ -13,13 +12,13 @@ import {
   mergeClaudeSkills,
 } from '../utils/claude-skills';
 import {
-  buildPromptWithSlashCommand,
   buildProviderSlashCommands,
   filterClaudeSlashCommands,
   getSessionSlashCommands,
   parseSelectedSlashCommandPrompt,
   shouldAutoSubmitSlashCommand,
 } from '../utils/claude-slash';
+import { createSlashTokenContext, type SlashTokenContext } from '../utils/composer-segments';
 import type { AgentProvider } from '../types';
 
 export function useClaudeSkillAutocomplete({
@@ -30,6 +29,7 @@ export function useClaudeSkillAutocomplete({
   projectPath,
   sessionMessages = [],
   setPrompt,
+  setCursorIndex,
   onAutoSubmitCommand,
 }: {
   enabled: boolean;
@@ -39,6 +39,7 @@ export function useClaudeSkillAutocomplete({
   projectPath?: string;
   sessionMessages?: StreamMessage[];
   setPrompt: (prompt: string) => void;
+  setCursorIndex?: (index: number) => void;
   onAutoSubmitCommand?: (prompt: string) => void;
 }) {
   const { claudeUserSkills, claudeProjectSkills } = useAppStore();
@@ -119,22 +120,6 @@ export function useClaudeSkillAutocomplete({
   }, [availableSkills, commandSuggestions, enabled, query, skillSuggestions]);
 
   useEffect(() => {
-    if (!enabled || !selectedSkillState) {
-      return;
-    }
-
-    const leadingWhitespace = prompt.match(/^\s*/)?.[0] || '';
-    const canonicalPrompt = `${leadingWhitespace}${buildPromptWithSkill(
-      selectedSkillState.skill.name,
-      selectedSkillState.remainder
-    )}`;
-
-    if (canonicalPrompt !== prompt) {
-      setPrompt(canonicalPrompt);
-    }
-  }, [enabled, prompt, selectedSkillState, setPrompt]);
-
-  useEffect(() => {
     setSelectedIndex(0);
   }, [query]);
 
@@ -151,7 +136,9 @@ export function useClaudeSkillAutocomplete({
   const hasSlashQuery = enabled && query !== null && !selectedSkillState && !selectedCommandState;
 
   const selectSkill = (skill: ClaudeSkillSummary) => {
-    setPrompt(insertSlashSkill(prompt, skill.name));
+    const nextPrompt = insertSlashSkill(prompt, skill.name);
+    setPrompt(nextPrompt);
+    setCursorIndex?.(nextPrompt.length);
   };
 
   const selectSuggestion = (suggestion: ClaudeSlashSuggestion) => {
@@ -163,36 +150,35 @@ export function useClaudeSkillAutocomplete({
       }
 
       setPrompt(nextPrompt);
+      setCursorIndex?.(nextPrompt.length);
       return;
     }
 
     selectSkill(suggestion.skill);
   };
 
-  const setDisplayPrompt = (nextPrompt: string) => {
-    if (selectedSkillState) {
-      setPrompt(buildPromptWithSkill(selectedSkillState.skill.name, nextPrompt));
-      return;
-    }
-
-    if (selectedCommandState) {
-      setPrompt(buildPromptWithSlashCommand(selectedCommandState.command.name, nextPrompt));
-      return;
-    }
-
-    setPrompt(nextPrompt);
-  };
+  const slashContext = useMemo<SlashTokenContext>(
+    () =>
+      createSlashTokenContext(
+        enabled && enableSkills ? availableSkills.map((skill) => skill.name) : [],
+        enabled ? availableCommands.map((command) => command.name) : []
+      ),
+    [availableCommands, availableSkills, enableSkills, enabled]
+  );
 
   return {
     hasSlashQuery,
     suggestions,
     availableSkills,
     availableCommands,
+    slashContext,
     selectedIndex,
     setSelectedIndex,
     selectedSkill: selectedSkillState?.skill || null,
     selectedCommand: selectedCommandState?.command || null,
-    displayPrompt: selectedSkillState?.remainder ?? selectedCommandState?.remainder ?? prompt,
+    selectedSkillRemainder: selectedSkillState?.remainder ?? '',
+    selectedCommandRemainder: selectedCommandState?.remainder ?? '',
+    displayPrompt: prompt,
     moveSelection: (direction: 1 | -1) => {
       if (suggestions.length === 0) {
         return;
@@ -215,12 +201,16 @@ export function useClaudeSkillAutocomplete({
         selectSuggestion(suggestion);
       }
     },
-    setDisplayPrompt,
+    setDisplayPrompt: (nextPrompt: string) => {
+      setPrompt(nextPrompt);
+    },
     clearSelectedSkill: () => {
       setPrompt(selectedSkillState?.remainder || '');
+      setCursorIndex?.(0);
     },
     clearSelectedCommand: () => {
       setPrompt(selectedCommandState?.remainder || '');
+      setCursorIndex?.(0);
     },
     selectSkill,
     selectSuggestion,

@@ -8,10 +8,14 @@ import {
   useRef,
 } from 'react';
 import { getFileTypeIconUrl } from './FileTypeIcon';
+import { extractProjectFileMentions } from '../utils/project-file-mentions';
 import {
-  extractProjectFileMentions,
-  splitPromptIntoProjectFileSegments,
-} from '../utils/project-file-mentions';
+  removeLeadingSlashTokenAdjacentToCursor,
+  splitPromptIntoComposerSegments,
+  type PromptSegment,
+  type SlashSegmentKind,
+  type SlashTokenContext,
+} from '../utils/composer-segments';
 
 export interface ComposerPromptEditorHandle {
   focus: () => void;
@@ -36,6 +40,14 @@ function basenameOfPath(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
+function isSegmentElement(node: Node | null | undefined): boolean {
+  return (
+    node instanceof HTMLElement &&
+    typeof node.dataset.segmentType === 'string' &&
+    node.dataset.segmentType.length > 0
+  );
+}
+
 function getChildTextLength(node: ChildNode): number {
   if (node.nodeName === 'BR') {
     return 1;
@@ -45,7 +57,7 @@ function getChildTextLength(node: ChildNode): number {
     return node.textContent?.length || 0;
   }
 
-  if (node.dataset.segmentType === 'mention') {
+  if (isSegmentElement(node)) {
     return node.dataset.rawText?.length || 0;
   }
 
@@ -101,8 +113,9 @@ function getCursorIndex(root: HTMLDivElement): number {
     offset += getChildTextLength(child);
   }
 
-  if (directChild instanceof HTMLElement && directChild.dataset.segmentType === 'mention') {
-    const tokenLength = directChild.dataset.rawText?.length || 0;
+  if (isSegmentElement(directChild)) {
+    const element = directChild as HTMLElement;
+    const tokenLength = element.dataset.rawText?.length || 0;
     return startOffset <= 0 ? offset : offset + tokenLength;
   }
 
@@ -140,7 +153,7 @@ function setCursorIndex(root: HTMLDivElement, index: number): void {
     const child = children[childIndex]!;
     const childLength = getChildTextLength(child);
 
-    if (child instanceof HTMLElement && child.dataset.segmentType === 'mention') {
+    if (isSegmentElement(child)) {
       if (remaining <= 0) {
         range.setStart(root, childIndex);
         range.collapse(true);
@@ -192,7 +205,7 @@ function serializeEditorValue(root: HTMLDivElement): string {
       return node.textContent || '';
     }
 
-    if (node.dataset.segmentType === 'mention') {
+    if (isSegmentElement(node)) {
       return node.dataset.rawText || '';
     }
 
@@ -235,8 +248,36 @@ function createMentionNode(path: string, rawText: string): HTMLSpanElement {
   return chip;
 }
 
-function renderSegments(root: HTMLDivElement, value: string): void {
-  const segments = splitPromptIntoProjectFileSegments(value);
+function createSlashNode(kind: SlashSegmentKind, name: string, rawText: string): HTMLSpanElement {
+  const chip = document.createElement('span');
+  chip.dataset.segmentType = 'slash';
+  chip.dataset.slashKind = kind;
+  chip.dataset.rawText = rawText;
+  chip.dataset.slashName = name;
+  chip.contentEditable = 'false';
+  chip.spellcheck = false;
+  chip.title = rawText;
+  chip.className =
+    'mx-[1px] inline-flex max-w-[240px] select-none items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-tertiary)] px-1.5 py-0.5 align-baseline text-[12px] leading-none text-[var(--text-primary)]';
+
+  const iconBox = document.createElement('span');
+  iconBox.className = 'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center';
+  iconBox.setAttribute('aria-hidden', 'true');
+  iconBox.innerHTML =
+    kind === 'skill'
+      ? '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/></svg>'
+      : '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>';
+
+  const label = document.createElement('span');
+  label.className = 'truncate font-mono text-[11px]';
+  label.textContent = rawText;
+
+  chip.append(iconBox, label);
+  return chip;
+}
+
+function renderSegments(root: HTMLDivElement, value: string, slashContext?: SlashTokenContext): void {
+  const segments: PromptSegment[] = splitPromptIntoComposerSegments(value, slashContext);
   root.replaceChildren();
 
   for (const segment of segments) {
@@ -245,7 +286,12 @@ function renderSegments(root: HTMLDivElement, value: string): void {
       continue;
     }
 
-    root.append(createMentionNode(segment.path, segment.text));
+    if (segment.type === 'mention') {
+      root.append(createMentionNode(segment.path, segment.text));
+      continue;
+    }
+
+    root.append(createSlashNode(segment.kind, segment.name, segment.text));
   }
 }
 
@@ -302,10 +348,12 @@ export const ComposerPromptEditor = forwardRef<
     disabled?: boolean;
     autoFocus?: boolean;
     className?: string;
+    slashContext?: SlashTokenContext;
   }
 >(function ComposerPromptEditor(props, ref) {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const isApplyingSelectionRef = useRef(false);
+  const lastRenderedSlashContextRef = useRef<SlashTokenContext | undefined>(undefined);
   const displayHasValue = useMemo(() => props.value.length > 0, [props.value]);
 
   useImperativeHandle(
@@ -335,8 +383,10 @@ export const ComposerPromptEditor = forwardRef<
       return;
     }
 
-    if (serializeEditorValue(editorRef.current) !== props.value) {
-      renderSegments(editorRef.current, props.value);
+    const slashContextChanged = lastRenderedSlashContextRef.current !== props.slashContext;
+    if (serializeEditorValue(editorRef.current) !== props.value || slashContextChanged) {
+      renderSegments(editorRef.current, props.value, props.slashContext);
+      lastRenderedSlashContextRef.current = props.slashContext;
     }
 
     if (document.activeElement !== editorRef.current) {
@@ -348,7 +398,7 @@ export const ComposerPromptEditor = forwardRef<
     queueMicrotask(() => {
       isApplyingSelectionRef.current = false;
     });
-  }, [props.cursorIndex, props.value]);
+  }, [props.cursorIndex, props.value, props.slashContext]);
 
   const handleInput = () => {
     if (!editorRef.current || isApplyingSelectionRef.current) {
@@ -459,15 +509,29 @@ export const ComposerPromptEditor = forwardRef<
           const selection = window.getSelection();
           const collapsed = selection?.isCollapsed ?? true;
           if (collapsed && (event.key === 'Backspace' || event.key === 'Delete')) {
-            const removal = removeMentionAdjacentToCursor(
+            const mentionRemoval = removeMentionAdjacentToCursor(
               props.value,
               props.cursorIndex,
               event.key
             );
-            if (removal) {
+            if (mentionRemoval) {
               event.preventDefault();
-              props.onChange(removal.value, removal.cursorIndex);
+              props.onChange(mentionRemoval.value, mentionRemoval.cursorIndex);
               return;
+            }
+
+            if (props.slashContext) {
+              const slashRemoval = removeLeadingSlashTokenAdjacentToCursor(
+                props.value,
+                props.cursorIndex,
+                event.key,
+                props.slashContext
+              );
+              if (slashRemoval) {
+                event.preventDefault();
+                props.onChange(slashRemoval.value, slashRemoval.cursorIndex);
+                return;
+              }
             }
           }
 
