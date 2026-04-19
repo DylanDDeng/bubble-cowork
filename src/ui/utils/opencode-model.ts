@@ -22,19 +22,7 @@ export function savePreferredOpencodeModel(model: string | null): void {
 export function formatOpencodeModelLabel(model: string): string {
   const normalized = model.trim();
   if (!normalized) return 'OpenCode model';
-
-  return normalized
-    .split('-')
-    .map((part, index) => {
-      if (index === 0) return part.toUpperCase();
-      if (/^\d/.test(part)) return part;
-      return part.charAt(0).toUpperCase() + part.slice(1);
-    })
-    .join('-')
-    .replace(/-OpenCode/g, ' OpenCode')
-    .replace(/-Mini/g, ' Mini')
-    .replace(/-Max/g, ' Max')
-    .replace(/-Coder/g, ' Coder');
+  return normalized.toLowerCase();
 }
 
 export function buildOpencodeModelOptions(config: OpenCodeModelConfig): string[] {
