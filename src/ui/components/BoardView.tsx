@@ -348,7 +348,7 @@ function StatusDropdown({
         <ChevronDown className="h-3 w-3 text-[var(--text-muted)]" />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 min-w-[140px] overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] py-1 shadow-lg">
+        <div className="popover-surface absolute right-0 top-full z-50 mt-2 min-w-[140px] overflow-hidden p-1">
           {sorted.map((status) => (
             <button
               key={status.id}

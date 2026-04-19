@@ -1144,7 +1144,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                       className="fixed inset-0 z-20"
                       onClick={() => setMenuOpen(false)}
                     />
-                    <div className="absolute bottom-full mb-2 left-0 z-30 min-w-[220px] rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-lg">
+                    <div className="popover-surface absolute bottom-full mb-2 left-0 z-30 min-w-[220px] p-1.5">
                       <button
                         onClick={async () => {
                           setMenuOpen(false);

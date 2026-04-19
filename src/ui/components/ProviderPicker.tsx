@@ -57,8 +57,8 @@ export function ProviderPicker({ value, onChange, disabled, embedded = false }: 
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div
-            className={`absolute z-30 min-w-[140px] rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-lg ${
-              embedded ? 'right-0 top-full mt-2' : 'left-0 bottom-full mb-1'
+            className={`popover-surface absolute z-30 min-w-[140px] p-1.5 ${
+              embedded ? 'right-0 top-full mt-2' : 'left-0 bottom-full mb-2'
             }`}
           >
             {PROVIDERS.map((provider) => (

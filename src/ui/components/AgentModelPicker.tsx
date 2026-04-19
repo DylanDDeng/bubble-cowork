@@ -281,7 +281,7 @@ export function AgentModelPicker({
       return (
         <>
           {hasClaudeCodeItems && (
-            <div className="px-2 py-1 text-[10px] font-medium text-[var(--text-muted)]">
+            <div className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--text-muted)]">
               Claude Code
             </div>
           )}
@@ -318,8 +318,8 @@ export function AgentModelPicker({
             </button>
           ))}
           {filteredCompatibleOptions.map((option) => (
-            <div key={option.id} className="mt-2 border-t border-[var(--border)] pt-2">
-              <div className="px-2 py-1 text-[10px] font-medium text-[var(--text-muted)]">
+            <div key={option.id} className="mt-1.5 border-t border-[var(--popover-border)] pt-1.5">
+              <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--text-muted)]">
                 {option.label}
               </div>
               <button
@@ -445,7 +445,7 @@ export function AgentModelPicker({
       {open && !disabled && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 z-20 mb-1 min-w-[220px] max-h-[min(70vh,560px)] overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-lg">
+          <div className="popover-surface popover-surface--lg absolute bottom-full left-0 z-20 mb-2 min-w-[240px] max-h-[min(70vh,560px)] overflow-y-auto p-1.5">
             {openMode === 'provider' ? (
               <>
                 {PROVIDERS.map((item) => (
@@ -467,19 +467,19 @@ export function AgentModelPicker({
               <>
                 <button
                   onClick={() => setMode('provider')}
-                  className="mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                  className="mb-1 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-secondary)]"
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
                   <span>Change Agent</span>
                 </button>
-                <div className="sticky top-0 z-10 mb-1 bg-[var(--bg-secondary)] px-1 pb-1">
+                <div className="sticky top-0 z-10 mb-1 bg-[var(--popover-bg)] pb-1.5">
                   <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
                     <Input
                       value={modelSearchQuery}
                       onChange={(event) => setModelSearchQuery(event.target.value)}
                       placeholder="Search models"
-                      className="h-9 rounded-lg border-[var(--border)] bg-[var(--bg-primary)] pl-9 text-[12px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:ring-[var(--accent)]"
+                      className="h-8 rounded-lg border-transparent bg-[var(--bg-tertiary)] pl-8 text-[12px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:border-transparent focus-visible:bg-[var(--bg-secondary)] focus-visible:ring-1 focus-visible:ring-[var(--accent)]/40"
                     />
                   </div>
                 </div>
@@ -488,7 +488,7 @@ export function AgentModelPicker({
                   claudeModel &&
                   supportsClaude1mContext(resolvedClaudeValue) &&
                   claudeModel.onToggleContext1m && (
-                    <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--bg-tertiary)]/70 px-3 py-2.5">
+                    <div className="mt-1.5 rounded-lg border border-[var(--popover-border)] bg-[var(--bg-tertiary)]/60 px-3 py-2.5">
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <div className="text-[12px] font-medium text-[var(--text-primary)]">

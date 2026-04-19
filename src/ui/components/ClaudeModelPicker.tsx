@@ -52,7 +52,7 @@ export function ClaudeModelPicker({
       {open && !disabled && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 z-20 mb-2 min-w-[208px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-lg">
+          <div className="popover-surface absolute bottom-full left-0 z-20 mb-2 min-w-[208px] overflow-hidden p-1.5">
             <div className="px-2 py-1 text-[10px] font-medium text-[var(--text-muted)]">
               Claude Code
             </div>

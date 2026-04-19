@@ -967,7 +967,7 @@ export function NewSessionView() {
                       className="fixed inset-0 z-20"
                       onClick={() => setMenuOpen(false)}
                     />
-                    <div className="absolute bottom-full mb-2 left-0 z-30 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl shadow-lg p-1 min-w-[220px]">
+                    <div className="popover-surface absolute bottom-full mb-2 left-0 z-30 p-1.5 min-w-[220px]">
                       <button
                         onClick={async () => {
                           setMenuOpen(false);

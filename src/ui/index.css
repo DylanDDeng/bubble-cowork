@@ -77,6 +77,21 @@
   --radius-lg: 8px;
   --radius-xl: 12px;
   --radius-2xl: 16px;
+
+  /* Popover / dropdown surface (unified) */
+  --popover-bg: #FFFFFF;
+  --popover-border: rgba(17, 24, 39, 0.08);
+  --popover-ring: rgba(255, 255, 255, 0.72);
+  --popover-radius: 14px;
+  --popover-shadow:
+    0 0 0 1px rgba(17, 24, 39, 0.03),
+    0 1px 2px rgba(15, 18, 25, 0.04),
+    0 14px 36px -12px rgba(15, 18, 25, 0.18);
+  --popover-shadow-lg:
+    0 0 0 1px rgba(17, 24, 39, 0.04),
+    0 2px 4px rgba(15, 18, 25, 0.05),
+    0 24px 56px -14px rgba(15, 18, 25, 0.22);
+
   --terminal-font-family: "JetBrainsMono NFM", "JetBrainsMono NF", "JetBrains Mono", monospace;
 }
 
@@ -147,7 +162,44 @@
   --sidebar-item-hover: rgba(255, 255, 255, 0.08);
   --sidebar-item-active: rgba(129, 140, 248, 0.14);
   --sidebar-item-border: rgba(255, 255, 255, 0.12);
+
+  /* Popover / dropdown surface (unified) */
+  --popover-bg: #1E2025;
+  --popover-border: rgba(255, 255, 255, 0.08);
+  --popover-ring: rgba(255, 255, 255, 0.04);
+  --popover-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 2px 4px rgba(0, 0, 0, 0.3),
+    0 18px 44px -12px rgba(0, 0, 0, 0.55);
+  --popover-shadow-lg:
+    0 0 0 1px rgba(0, 0, 0, 0.45),
+    0 4px 8px rgba(0, 0, 0, 0.35),
+    0 28px 64px -14px rgba(0, 0, 0, 0.65);
+
   --terminal-font-family: "JetBrainsMono NFM", "JetBrainsMono NF", "JetBrains Mono", monospace;
+}
+
+/* Unified popover / dropdown surface ---------------------------------------
+ * Use on any floating panel (model picker, dropdown menu, context menu, ...)
+ * to keep visual language consistent across the app.
+ * ------------------------------------------------------------------------- */
+.popover-surface {
+  background-color: var(--popover-bg);
+  border: 1px solid var(--popover-border);
+  border-radius: var(--popover-radius);
+  box-shadow: var(--popover-shadow);
+  /* Subtle inner hairline on top edge for the "glass sheet" feel */
+  background-image: linear-gradient(
+    180deg,
+    var(--popover-ring) 0,
+    transparent 1px
+  );
+  background-repeat: no-repeat;
+  background-size: 100% 1px;
+}
+
+.popover-surface--lg {
+  box-shadow: var(--popover-shadow-lg);
 }
 
 /* Base styles */

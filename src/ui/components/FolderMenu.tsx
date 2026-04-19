@@ -52,7 +52,7 @@ export function FolderMenu({ sessionId, currentFolderPath, onNewFolderRequest }:
       </DropdownMenu.SubTrigger>
       <DropdownMenu.Portal>
         <DropdownMenu.SubContent
-          className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-1 min-w-[180px] max-h-[300px] overflow-y-auto shadow-lg z-50"
+          className="popover-surface z-50 min-w-[180px] max-h-[300px] overflow-y-auto p-1.5"
           sideOffset={8}
           alignOffset={-5}
         >

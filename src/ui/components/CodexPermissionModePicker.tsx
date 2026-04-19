@@ -33,7 +33,7 @@ export function CodexPermissionModePicker({
       {open && !disabled && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 z-20 mb-2 flex min-w-[152px] flex-col gap-0.5 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-lg">
+          <div className="popover-surface absolute bottom-full left-0 z-20 mb-2 flex min-w-[152px] flex-col gap-0.5 p-1.5">
             {(['defaultPermissions', 'fullAccess'] as const).map((mode) => (
               <CodexPermissionModeOption
                 key={mode}
