@@ -3323,18 +3323,18 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       _event,
       cwd: string,
       filePath: string,
-      options?: { openInBrowser?: boolean }
+      _options?: { openInBrowser?: boolean }
     ): Promise<{ ok: boolean; url?: string; message?: string }> => {
+      // HTML artifact previews are routed to the in-app browser panel from the
+      // renderer. This handler only resolves the local preview server URL — it
+      // must NOT open the system default browser, even if a legacy caller still
+      // passes `{ openInBrowser: true }`. Callers that genuinely need to open a
+      // URL externally should invoke `open-external-url` explicitly.
       try {
         const preview = await getHtmlPreviewUrl(cwd, filePath);
         if (!preview.ok) {
           return preview;
         }
-
-        if (options?.openInBrowser !== false) {
-          await shell.openExternal(preview.url);
-        }
-
         return { ok: true, url: preview.url };
       } catch (error) {
         return { ok: false, message: String(error) };

@@ -442,21 +442,49 @@ export function App() {
       }
       autoPreviewedArtifactsRef.current.add(previewKey);
 
-      void window.electron.previewArtifactPath(session.cwd, artifact.filePath, { openInBrowser: true }).then((result) => {
-        if (!result.ok) {
+      const sessionId = session.id;
+      void window.electron
+        .previewArtifactPath(session.cwd, artifact.filePath, { openInBrowser: false })
+        .then(async (result) => {
+          if (!result.ok || !result.url) {
+            autoPreviewedArtifactsRef.current.delete(previewKey);
+            toast.error(result.message || 'Failed to open preview');
+            return;
+          }
+          try {
+            const currentState = await window.electron.browser.getState({ sessionId });
+            if (currentState.tabs.length === 0) {
+              await window.electron.browser.open({
+                sessionId,
+                initialUrl: result.url,
+              });
+            } else {
+              await window.electron.browser.newTab({
+                sessionId,
+                url: result.url,
+                activate: true,
+              });
+            }
+          } catch (error) {
+            autoPreviewedArtifactsRef.current.delete(previewKey);
+            toast.error(`Failed to open in browser panel: ${error}`);
+            return;
+          }
+
+          if (sessionId === activeSessionId) {
+            setBrowserPanelOpen(true);
+            setProjectTreeCollapsed(true);
+          }
+          pendingAutoPreviewSessionsRef.current.delete(sessionId);
+        })
+        .catch((error) => {
           autoPreviewedArtifactsRef.current.delete(previewKey);
-          toast.error(result.message || 'Failed to open preview');
-          return;
-        }
-        pendingAutoPreviewSessionsRef.current.delete(session.id);
-      }).catch((error) => {
-        autoPreviewedArtifactsRef.current.delete(previewKey);
-        toast.error(String(error));
-      });
+          toast.error(String(error));
+        });
     }
 
     sessionStatusSnapshotRef.current = nextStatuses;
-  }, [sessions]);
+  }, [sessions, activeSessionId, setBrowserPanelOpen, setProjectTreeCollapsed]);
 
   useEffect(() => {
     applyThemePreferences({

@@ -569,8 +569,14 @@ export class BrowserManager {
     const activeTab = this.getActiveTab(state);
     for (const tab of state.tabs) {
       if (tab.id !== activeTab?.id) continue;
+      // Capture whether this tab actually needs a fresh load BEFORE calling
+      // ensureLiveRuntime, because that helper flips status to 'live' as soon
+      // as the view is created.
+      const runtimeKey = buildRuntimeKey(sessionId, tab.id);
+      const runtimeExisted = this.runtimes.has(runtimeKey);
+      const wasSuspended = tab.status === 'suspended';
       const runtime = this.ensureLiveRuntime(sessionId, tab.id);
-      if (tab.status === 'suspended') {
+      if (!runtimeExisted || wasSuspended) {
         void this.loadTab(sessionId, tab.id, { force: true, runtime });
       } else {
         syncTabStateFromRuntime(state, tab, runtime.view.webContents);
@@ -617,9 +623,12 @@ export class BrowserManager {
     const state = this.ensureWorkspace(sessionId);
     const activeTab = this.getActiveTab(state);
     if (!activeTab) return;
+    const runtimeKey = buildRuntimeKey(sessionId, activeTab.id);
+    const runtimeExisted = this.runtimes.has(runtimeKey);
+    const wasSuspended = activeTab.status === 'suspended';
     const runtime = this.ensureLiveRuntime(sessionId, activeTab.id);
     this.attachRuntime(runtime, bounds);
-    if (activeTab.status === 'suspended') {
+    if (!runtimeExisted || wasSuspended) {
       void this.loadTab(sessionId, activeTab.id, { force: true, runtime });
     } else {
       this.syncRuntimeState(sessionId, activeTab.id);
