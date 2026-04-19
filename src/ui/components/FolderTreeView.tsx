@@ -189,7 +189,7 @@ export function FolderTreeView({
                 aria-expanded={expanded}
               >
                 {expanded ? <FolderOpen className="w-3.5 h-3.5" /> : <FolderClosed className="w-3.5 h-3.5" />}
-                <span className="text-sm font-medium truncate flex-1">{group.label}</span>
+                <span className="text-[13px] font-medium truncate flex-1">{group.label}</span>
                 <span className="text-xs text-[var(--text-muted)]">{group.sessions.length}</span>
               </button>
 
@@ -260,7 +260,7 @@ export function FolderTreeView({
       })}
 
       {projectGroups.length === 0 && (
-        <div className="text-center text-[var(--text-muted)] py-8 text-sm">
+        <div className="text-center text-[var(--text-muted)] py-8 text-[13px]">
           {sidebarSearchQuery ? 'No matching sessions' : 'No sessions yet'}
         </div>
       )}
@@ -324,7 +324,7 @@ function SessionItem({
             <Pin className="w-3.5 h-3.5" />
           </span>
         )}
-        <span className="flex-1 truncate text-[14px] font-medium leading-[1.3]">{session.title}</span>
+        <span className="flex-1 truncate text-[13px] font-medium leading-[1.3]">{session.title}</span>
         {session.source === 'claude_code' && (
           <span className="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--text-secondary)]">
             Claude Code

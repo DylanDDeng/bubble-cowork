@@ -415,7 +415,7 @@ export function Sidebar() {
                   className="group flex flex-1 items-center gap-2 rounded-[var(--radius-xl)] px-2 py-2 text-left no-drag transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
                 >
                   <SquarePen className="h-3.5 w-3.5 text-[var(--text-muted)]" strokeWidth={1.9} />
-                  <span className="text-sm font-medium">New Thread</span>
+                  <span className="text-[13px] font-medium">New Thread</span>
                 </button>
 
                 <button
@@ -430,7 +430,7 @@ export function Sidebar() {
               </div>
 
               <div className="px-4 py-2 flex items-center justify-between gap-2">
-                <span className="text-sm text-[var(--text-muted)]">Sessions</span>
+                <span className="text-[13px] text-[var(--text-muted)]">Sessions</span>
                 <StatusFilter />
               </div>
 
