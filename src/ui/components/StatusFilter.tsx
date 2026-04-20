@@ -37,7 +37,7 @@ export function StatusFilter() {
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
-          className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-1 min-w-[160px] shadow-lg z-50"
+          className="popover-surface z-50 min-w-[160px] p-1.5"
           sideOffset={5}
           align="end"
         >

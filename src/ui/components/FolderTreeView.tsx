@@ -365,7 +365,7 @@ function SessionItem({
 
         <DropdownMenu.Portal>
           <DropdownMenu.Content
-            className="bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg p-1 min-w-[160px] shadow-lg z-50"
+            className="popover-surface z-50 min-w-[160px] p-1.5"
             sideOffset={5}
           >
             <DropdownMenu.Item

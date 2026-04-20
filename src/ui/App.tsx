@@ -1090,7 +1090,7 @@ function GitHeaderActions({
           <DropdownMenu.Trigger asChild>
             <button
               type="button"
-              className="inline-flex h-6 items-center justify-center border-l border-[var(--border)] px-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+              className="inline-flex h-6 items-center justify-center border-l border-[var(--border)]/60 px-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] data-[state=open]:bg-[var(--bg-tertiary)] data-[state=open]:text-[var(--text-primary)]"
               aria-label="Git actions"
             >
               <ChevronDown className="h-3 w-3" />
@@ -1100,7 +1100,8 @@ function GitHeaderActions({
         <DropdownMenu.Portal>
           <DropdownMenu.Content
             align="end"
-            className="z-50 min-w-[180px] rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-lg"
+            sideOffset={6}
+            className="popover-surface z-50 min-w-[180px] p-1.5"
           >
             <DropdownMenu.Item
               onSelect={() => {
