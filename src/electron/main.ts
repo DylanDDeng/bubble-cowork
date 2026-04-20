@@ -2,59 +2,16 @@ import { app, BrowserWindow, Menu, dialog, shell, ipcMain, session } from 'elect
 import { autoUpdater } from 'electron-updater';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
 import { setupIPCHandlers, cleanup } from './ipc-handlers';
 import { registerBrowserIpc, disposeBrowserIpc } from './browser-ipc';
 import { isDev, getPreloadPath, getUIPath, DEV_SERVER_URL, ipcMainHandle } from './util';
+import { ensureShellEnvironment } from './libs/shell-environment';
 
-// 修复打包后的环境变量问题（macOS/Linux GUI 应用无法继承 shell 的环境变量）
-function fixEnvironment(): void {
-  if (process.platform === 'darwin' || process.platform === 'linux') {
-    try {
-      // 从用户的默认 shell 获取完整环境变量
-      const shell = process.env.SHELL || '/bin/zsh';
-      const envOutput = execSync(`${shell} -lc 'env'`, {
-        encoding: 'utf-8',
-        timeout: 5000,
-      });
-
-      // 解析并注入关键环境变量
-      for (const line of envOutput.split('\n')) {
-        const idx = line.indexOf('=');
-        if (idx > 0) {
-          const key = line.substring(0, idx);
-          const value = line.substring(idx + 1);
-          // 注入关键变量
-          if (['PATH', 'ANTHROPIC_API_KEY', 'OPENCODE_API_KEY', 'HOME', 'USER', 'LANG'].includes(key)) {
-            process.env[key] = value;
-          }
-        }
-      }
-
-      console.log('[Environment] Loaded from shell:', {
-        hasPath: !!process.env.PATH,
-        hasApiKey: !!process.env.ANTHROPIC_API_KEY,
-        apiKeyPrefix: process.env.ANTHROPIC_API_KEY?.substring(0, 15),
-      });
-    } catch (error) {
-      console.warn('[Environment] Failed to load from shell:', error);
-      // 如果失败，添加常见的 node 安装路径
-      const commonPaths = [
-        '/usr/local/bin',
-        '/opt/homebrew/bin',
-        '/usr/bin',
-        '/bin',
-        `${process.env.HOME}/.nvm/versions/node/current/bin`,
-        `${process.env.HOME}/.volta/bin`,
-        `${process.env.HOME}/.local/bin`,
-      ];
-      process.env.PATH = `${commonPaths.join(':')}:${process.env.PATH || ''}`;
-    }
-  }
-}
-
-// 在应用启动前修复环境变量
-fixEnvironment();
+// 修复打包后的环境变量问题（macOS/Linux GUI 应用无法继承 shell 的环境变量）。
+// 细节见 src/electron/libs/shell-environment.ts：使用 interactive + login shell 抓 env
+// （让 .zshrc / .bashrc 里 nvm、volta、fnm 等 CLI 管理器生效），失败时用基于磁盘存在性的
+// 常见路径兜底（含 nvm/fnm/asdf 各自的 node bin 目录）。
+ensureShellEnvironment();
 
 // 禁用 macOS 窗口恢复提示（避免强制退出后弹出 "reopen windows" 对话框卡住启动）
 if (process.platform === 'darwin') {
