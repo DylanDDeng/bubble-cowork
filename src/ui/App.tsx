@@ -120,6 +120,7 @@ export function App() {
     terminalDrawerHeight,
     browserPanelOpen,
     browserPanelWidth,
+    rightPanelFullscreen,
     sessionsLoaded,
     setProjectTreeCollapsed,
     setProjectPanelView,
@@ -127,6 +128,7 @@ export function App() {
     setTerminalDrawerHeight,
     setBrowserPanelOpen,
     setBrowserPanelWidth,
+    setRightPanelFullscreen,
     closeSplitChat,
     globalError,
     clearGlobalError,
@@ -713,7 +715,10 @@ export function App() {
       {/* Sidebar */}
       {!showSettings && <Sidebar />}
 
-      {/* Main content area */}
+      {/* Main content area — hidden (display:none) when a right panel is fullscreened.
+          Uses display:contents when visible so its children still participate as flex items
+          of the outer app row (preserves existing layout). */}
+      <div className={rightPanelFullscreen ? 'hidden' : 'contents'}>
       {!showSettings && activeWorkspace === 'chat' && !sessionsLoaded ? (
         <div className="flex-1 min-w-0 bg-[var(--bg-primary)]" />
       ) : showSettings ? (
@@ -812,6 +817,7 @@ export function App() {
       ) : (
         <NewSessionView key={newSessionKey} />
       )}
+      </div>
 
       {/* Right project tree panel */}
       {!showSettings && activeWorkspace === 'chat' && (
@@ -819,6 +825,10 @@ export function App() {
           collapsed={projectTreeCollapsed || browserPanelOpen}
           activeTab={projectPanelView}
           onClose={() => setProjectTreeCollapsed(true)}
+          isFullscreen={rightPanelFullscreen === 'files'}
+          onToggleFullscreen={() =>
+            setRightPanelFullscreen(rightPanelFullscreen === 'files' ? null : 'files')
+          }
         />
       )}
 
@@ -830,6 +840,10 @@ export function App() {
           width={browserPanelWidth}
           onClose={() => setBrowserPanelOpen(false)}
           onWidthChange={setBrowserPanelWidth}
+          isFullscreen={rightPanelFullscreen === 'browser'}
+          onToggleFullscreen={() =>
+            setRightPanelFullscreen(rightPanelFullscreen === 'browser' ? null : 'browser')
+          }
         />
       )}
 

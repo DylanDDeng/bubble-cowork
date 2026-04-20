@@ -32,6 +32,8 @@ import {
   FileText,
   Globe,
   Loader2,
+  Maximize2,
+  Minimize2,
   MoreHorizontal,
   Plus,
   RefreshCw,
@@ -78,6 +80,8 @@ interface BrowserPanelProps {
   width: number;
   onClose: () => void;
   onWidthChange: (width: number) => void;
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
 }
 
 function persistedToState(state: PersistedSessionBrowserState): SessionBrowserState {
@@ -123,6 +127,8 @@ export function BrowserPanel({
   width,
   onClose,
   onWidthChange,
+  isFullscreen,
+  onToggleFullscreen,
 }: BrowserPanelProps) {
   const requestChatInjection = useAppStore((s) => s.requestChatInjection);
 
@@ -521,21 +527,44 @@ export function BrowserPanel({
     };
   }, [isResizing, onWidthChange]);
 
+  // Esc exits fullscreen. Only binds when in fullscreen so we don't swallow
+  // Escape elsewhere (address bar blur, modal close, etc.).
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        onToggleFullscreen();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isFullscreen, onToggleFullscreen]);
+
   // ===== Render =====
   return (
     <div
-      className={`relative flex h-full flex-shrink-0 flex-col border-l border-[var(--border)] bg-[var(--bg-primary)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-        collapsed ? 'pointer-events-none' : ''
-      }`}
-      style={{
-        width: collapsed ? 0 : width,
-        opacity: collapsed ? 0 : 1,
-        transform: collapsed ? 'translateX(18px)' : 'translateX(0)',
-        borderLeftWidth: collapsed ? 0 : 1,
-      }}
-      aria-hidden={collapsed}
+      className={`relative flex h-full flex-col border-l border-[var(--border)] bg-[var(--bg-primary)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        isFullscreen ? 'flex-1 min-w-0' : 'flex-shrink-0'
+      } ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`}
+      style={
+        isFullscreen
+          ? {
+              width: 'auto',
+              opacity: 1,
+              transform: 'translateX(0)',
+              borderLeftWidth: 1,
+            }
+          : {
+              width: collapsed ? 0 : width,
+              opacity: collapsed ? 0 : 1,
+              transform: collapsed ? 'translateX(18px)' : 'translateX(0)',
+              borderLeftWidth: collapsed ? 0 : 1,
+            }
+      }
+      aria-hidden={collapsed && !isFullscreen}
     >
-      {!collapsed && (
+      {!collapsed && !isFullscreen && (
         <div
           className="group absolute left-0 top-0 bottom-0 z-10 w-3 -translate-x-1/2 cursor-col-resize no-drag"
           onMouseDown={handleResizeStart}
@@ -684,6 +713,19 @@ export function BrowserPanel({
             aria-label="Open DevTools"
           >
             <MoreHorizontal className="h-[13px] w-[13px]" />
+          </button>
+          <button
+            type="button"
+            onClick={onToggleFullscreen}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+            title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          >
+            {isFullscreen ? (
+              <Minimize2 className="h-[13px] w-[13px]" />
+            ) : (
+              <Maximize2 className="h-[13px] w-[13px]" />
+            )}
           </button>
           <button
             type="button"

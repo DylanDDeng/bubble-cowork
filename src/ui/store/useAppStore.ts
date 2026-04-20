@@ -387,6 +387,7 @@ export const useAppStore = create<Store>()(
       terminalDrawerHeight: sanitizeTerminalDrawerHeight(initialUiResumeState?.terminalDrawerHeight),
       browserPanelOpen: false,
       browserPanelWidth: 480,
+      rightPanelFullscreen: null,
       sessionsLoaded: false,
       // 搜索状态
       sidebarSearchQuery: '',
@@ -781,7 +782,11 @@ export const useAppStore = create<Store>()(
   setProjectTree: (cwd, tree) => set({ projectTreeCwd: cwd, projectTree: tree }),
 
   setProjectTreeCollapsed: (collapsed) => {
-    set({ projectTreeCollapsed: collapsed });
+    set((state) => ({
+      projectTreeCollapsed: collapsed,
+      rightPanelFullscreen:
+        collapsed && state.rightPanelFullscreen === 'files' ? null : state.rightPanelFullscreen,
+    }));
     persistUiResumeStateSnapshot(get());
   },
 
@@ -801,12 +806,38 @@ export const useAppStore = create<Store>()(
   },
 
   setBrowserPanelOpen: (browserPanelOpen) => {
-    set({ browserPanelOpen });
+    set((state) => ({
+      browserPanelOpen,
+      rightPanelFullscreen:
+        !browserPanelOpen && state.rightPanelFullscreen === 'browser'
+          ? null
+          : state.rightPanelFullscreen,
+    }));
   },
 
   setBrowserPanelWidth: (width) => {
     const clamped = Math.min(960, Math.max(360, Math.round(width)));
     set({ browserPanelWidth: clamped });
+  },
+
+  setRightPanelFullscreen: (target) => {
+    if (target === 'browser') {
+      set({
+        rightPanelFullscreen: 'browser',
+        browserPanelOpen: true,
+        projectTreeCollapsed: true,
+      });
+      return;
+    }
+    if (target === 'files') {
+      set({
+        rightPanelFullscreen: 'files',
+        projectTreeCollapsed: false,
+        browserPanelOpen: false,
+      });
+      return;
+    }
+    set({ rightPanelFullscreen: null });
   },
 
   applyUiResumeState: (resumeState) =>

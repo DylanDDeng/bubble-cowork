@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FolderClosed, FolderOpen, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, GitBranch, GitCommit, Minus, Upload, FolderGit2 } from 'lucide-react';
+import { FolderClosed, FolderOpen, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, GitBranch, GitCommit, Minus, Upload, FolderGit2, Maximize2, Minimize2 } from 'lucide-react';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
@@ -202,10 +202,14 @@ export function ProjectTreePanel({
   collapsed = false,
   activeTab,
   onClose,
+  isFullscreen = false,
+  onToggleFullscreen,
 }: {
   collapsed?: boolean;
   activeTab: 'files' | 'changes';
   onClose: () => void;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
 }) {
   const MIN_CHANGES_SPINNER_MS = 450;
   const PANEL_DIMENSIONS: Record<
@@ -857,6 +861,30 @@ export function ProjectTreePanel({
     };
   }, [isPanelResizing]);
 
+  // Esc exits fullscreen. Only binds when in fullscreen so we don't swallow
+  // Escape elsewhere.
+  useEffect(() => {
+    if (!isFullscreen || !onToggleFullscreen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        onToggleFullscreen();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isFullscreen, onToggleFullscreen]);
+
+  // Fullscreen is only meaningful while a preview is open. If the preview goes
+  // away for any reason (e.g. active session change resets selection), exit
+  // fullscreen so the panel collapses back to its rail width instead of sitting
+  // expanded with just the file tree.
+  useEffect(() => {
+    if (isFullscreen && !selectedFilePath && onToggleFullscreen) {
+      onToggleFullscreen();
+    }
+  }, [isFullscreen, selectedFilePath, onToggleFullscreen]);
+
   const handlePanelResizeStart = (event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -896,18 +924,27 @@ export function ProjectTreePanel({
       )}
 
       <div
-        className={`relative flex h-full flex-shrink-0 flex-col border-l border-[var(--tree-item-border)] bg-[var(--preview-surface)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-          collapsed ? 'pointer-events-none' : ''
-        }`}
-        style={{
-          width: collapsed ? 0 : panelWidth,
-          opacity: collapsed ? 0 : 1,
-          transform: collapsed ? 'translateX(18px)' : 'translateX(0)',
-          borderLeftWidth: collapsed ? 0 : 1,
-        }}
-        aria-hidden={collapsed}
+        className={`relative flex h-full flex-col border-l border-[var(--tree-item-border)] bg-[var(--preview-surface)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          isFullscreen ? 'flex-1 min-w-0' : 'flex-shrink-0'
+        } ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`}
+        style={
+          isFullscreen
+            ? {
+                width: 'auto',
+                opacity: 1,
+                transform: 'translateX(0)',
+                borderLeftWidth: 1,
+              }
+            : {
+                width: collapsed ? 0 : panelWidth,
+                opacity: collapsed ? 0 : 1,
+                transform: collapsed ? 'translateX(18px)' : 'translateX(0)',
+                borderLeftWidth: collapsed ? 0 : 1,
+              }
+        }
+        aria-hidden={collapsed && !isFullscreen}
       >
-        {!selectedFilePath && (
+        {!selectedFilePath && !isFullscreen && (
           <div
             className="group absolute left-0 top-0 bottom-0 z-10 w-3 -translate-x-1/2 cursor-col-resize no-drag"
             onMouseDown={handlePanelResizeStart}
@@ -1021,14 +1058,20 @@ export function ProjectTreePanel({
         {selectedFilePath && (
           <div
             className="absolute top-8 bottom-0 z-20 border-l border-[var(--tree-item-border)] bg-[var(--preview-surface)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]"
-            style={{ right: 'calc(100% - 1px)', width: previewPanelWidth }}
+            style={
+              isFullscreen
+                ? { left: 0, right: 0, width: 'auto' }
+                : { right: 'calc(100% - 1px)', width: previewPanelWidth }
+            }
           >
-            <div
-              className="group absolute left-0 top-0 bottom-0 w-3 -translate-x-1/2 cursor-col-resize no-drag"
-              onMouseDown={handlePreviewResizeStart}
-            >
-              <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
-            </div>
+            {!isFullscreen && (
+              <div
+                className="group absolute left-0 top-0 bottom-0 w-3 -translate-x-1/2 cursor-col-resize no-drag"
+                onMouseDown={handlePreviewResizeStart}
+              >
+                <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
+              </div>
+            )}
 
             <div className="h-full min-w-0 flex flex-col px-3 py-3">
               <div className="flex items-center justify-between gap-2 pb-2">
@@ -1064,8 +1107,24 @@ export function ProjectTreePanel({
                     </button>
                   )}
 
+                  {onToggleFullscreen && (
+                    <IconSquareButton
+                      onClick={onToggleFullscreen}
+                      title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+                      ariaLabel={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                    >
+                      {isFullscreen ? (
+                        <Minimize2 className="w-4 h-4" />
+                      ) : (
+                        <Maximize2 className="w-4 h-4" />
+                      )}
+                    </IconSquareButton>
+                  )}
                   <IconSquareButton
-                    onClick={() => setSelectedFilePath(null)}
+                    onClick={() => {
+                      setSelectedFilePath(null);
+                      if (isFullscreen && onToggleFullscreen) onToggleFullscreen();
+                    }}
                     title="Close preview"
                     ariaLabel="Close preview"
                   >

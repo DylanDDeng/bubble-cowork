@@ -162,6 +162,7 @@ export interface AppState {
   terminalDrawerHeight: number;
   browserPanelOpen: boolean;
   browserPanelWidth: number;
+  rightPanelFullscreen: 'browser' | 'files' | null;
   sessionsLoaded: boolean;
   // 搜索状态
   sidebarSearchQuery: string;
@@ -237,6 +238,7 @@ export interface AppActions {
   setTerminalDrawerHeight: (height: number) => void;
   setBrowserPanelOpen: (open: boolean) => void;
   setBrowserPanelWidth: (width: number) => void;
+  setRightPanelFullscreen: (target: 'browser' | 'files' | null) => void;
   applyUiResumeState: (state: import('../shared/types').UiResumeState | null) => void;
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;
