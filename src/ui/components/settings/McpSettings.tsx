@@ -8,14 +8,26 @@ import { SettingsGroup } from './SettingsPrimitives';
 
 type StatusTone = 'success' | 'warning' | 'error' | 'muted';
 
+type ServerTool = 'claude' | 'codex';
 type ServerScope = 'global' | 'project';
+type GroupId = 'claude-global' | 'claude-project' | 'codex-global';
 
 interface ActiveEditorState {
-  scope: ServerScope;
+  groupId: GroupId;
   name: string | null;
 }
 
-const TYPE_OPTIONS: Array<{
+interface ServerGroup {
+  id: GroupId;
+  tool: ServerTool;
+  scope: ServerScope;
+  title: string;
+  description: string;
+  servers: Record<string, McpServerConfig>;
+  allowedTransports: Array<NonNullable<McpServerConfig['type']>>;
+}
+
+const ALL_TRANSPORTS: Array<{
   value: NonNullable<McpServerConfig['type']>;
   label: string;
   description: string;
@@ -41,6 +53,7 @@ export function McpSettingsContent() {
   const {
     mcpGlobalServers,
     mcpProjectServers,
+    mcpCodexGlobalServers,
     mcpServerStatus,
     showSettings,
     activeSessionId,
@@ -48,6 +61,7 @@ export function McpSettingsContent() {
   } = useAppStore();
 
   const [activeEditor, setActiveEditor] = useState<ActiveEditorState | null>(null);
+  const [selectedTool, setSelectedTool] = useState<ServerTool>('claude');
   const currentProjectPath = activeSessionId ? sessions[activeSessionId]?.cwd : undefined;
   const currentProjectName = currentProjectPath?.split('/').pop() || 'this workspace';
 
@@ -60,60 +74,59 @@ export function McpSettingsContent() {
     }
   }, [showSettings, currentProjectPath]);
 
-  const handleDelete = (name: string, scope: ServerScope) => {
-    const confirmed = window.confirm(`Delete the ${scope} server "${name}"?`);
-    if (!confirmed) return;
+  const groups = useMemo<ServerGroup[]>(() => {
+    const items: ServerGroup[] = [
+      {
+        id: 'claude-global',
+        tool: 'claude',
+        scope: 'global',
+        title: 'Global Servers',
+        description: 'Reusable MCP connections available in every workspace.',
+        servers: mcpGlobalServers,
+        allowedTransports: ['stdio', 'http', 'sse'],
+      },
+    ];
 
-    if (scope === 'global') {
-      const { [name]: deleted, ...rest } = mcpGlobalServers;
-      sendEvent({
-        type: 'mcp.save-config',
-        payload: { globalServers: rest },
-      });
-    } else {
-      const { [name]: deleted, ...rest } = mcpProjectServers;
-      sendEvent({
-        type: 'mcp.save-config',
-        payload: {
-          projectServers: rest,
-          projectPath: currentProjectPath,
-        },
+    if (currentProjectPath) {
+      items.push({
+        id: 'claude-project',
+        tool: 'claude',
+        scope: 'project',
+        title: 'Project Servers',
+        description: `Connections only available in ${currentProjectName}.`,
+        servers: mcpProjectServers,
+        allowedTransports: ['stdio', 'http', 'sse'],
       });
     }
 
-    if (activeEditor?.scope === scope && activeEditor.name === name) {
-      setActiveEditor(null);
-    }
-    toast.success(`Deleted "${name}".`);
-  };
+    items.push({
+      id: 'codex-global',
+      tool: 'codex',
+      scope: 'global',
+      title: 'Global Servers',
+      description: 'Written to ~/.codex/config.toml. Codex only supports local (stdio) MCP servers.',
+      servers: mcpCodexGlobalServers,
+      allowedTransports: ['stdio'],
+    });
 
-  const handleSave = (name: string, config: McpServerConfig, scope: ServerScope) => {
-    const trimmedName = name.trim();
+    return items;
+  }, [
+    mcpGlobalServers,
+    mcpProjectServers,
+    mcpCodexGlobalServers,
+    currentProjectPath,
+    currentProjectName,
+  ]);
 
-    if (scope === 'global') {
-      const nextServers =
-        activeEditor?.name && activeEditor.name !== trimmedName
-          ? renameServer(mcpGlobalServers, activeEditor.name, trimmedName, config)
-          : {
-              ...mcpGlobalServers,
-              [trimmedName]: config,
-            };
-
+  const dispatchSave = (groupId: GroupId, nextServers: Record<string, McpServerConfig>) => {
+    if (groupId === 'claude-global') {
       sendEvent({
         type: 'mcp.save-config',
-        payload: {
-          globalServers: nextServers,
-        },
+        payload: { globalServers: nextServers },
       });
-    } else {
-      const nextServers =
-        activeEditor?.name && activeEditor.name !== trimmedName
-          ? renameServer(mcpProjectServers, activeEditor.name, trimmedName, config)
-          : {
-              ...mcpProjectServers,
-              [trimmedName]: config,
-            };
-
+      return;
+    }
+    if (groupId === 'claude-project') {
       sendEvent({
         type: 'mcp.save-config',
         payload: {
@@ -121,54 +134,149 @@ export function McpSettingsContent() {
           projectPath: currentProjectPath,
         },
       });
+      return;
     }
+    if (groupId === 'codex-global') {
+      sendEvent({
+        type: 'mcp.save-config',
+        payload: { codexGlobalServers: nextServers },
+      });
+    }
+  };
+
+  const handleDelete = (name: string, group: ServerGroup) => {
+    const confirmed = window.confirm(`Delete the ${group.title} server "${name}"?`);
+    if (!confirmed) return;
+
+    const { [name]: _removed, ...rest } = group.servers;
+    dispatchSave(group.id, rest);
+
+    if (activeEditor?.groupId === group.id && activeEditor.name === name) {
+      setActiveEditor(null);
+    }
+    toast.success(`Deleted "${name}".`);
+  };
+
+  const handleSave = (name: string, config: McpServerConfig, group: ServerGroup) => {
+    const trimmedName = name.trim();
+
+    const nextServers =
+      activeEditor?.name && activeEditor.name !== trimmedName
+        ? renameServer(group.servers, activeEditor.name, trimmedName, config)
+        : {
+            ...group.servers,
+            [trimmedName]: config,
+          };
+
+    dispatchSave(group.id, nextServers);
 
     setActiveEditor(null);
     toast.success(`${activeEditor?.name ? 'Updated' : 'Saved'} "${trimmedName}".`);
   };
 
-  const hasProjectScope = Boolean(currentProjectPath);
+  const visibleGroups = useMemo(
+    () => groups.filter((group) => group.tool === selectedTool),
+    [groups, selectedTool]
+  );
+
+  const counts = useMemo(() => {
+    const byTool: Record<ServerTool, number> = { claude: 0, codex: 0 };
+    for (const group of groups) {
+      byTool[group.tool] += Object.keys(group.servers).length;
+    }
+    return byTool;
+  }, [groups]);
+
+  const handleSelectTool = (tool: ServerTool) => {
+    if (tool === selectedTool) return;
+    setSelectedTool(tool);
+    setActiveEditor(null);
+  };
 
   return (
-    <div className="space-y-6 pb-8">
-      <ServerScopeSection
-        title="Global Servers"
-        description="Reusable MCP connections available in every workspace."
-        scope="global"
-        servers={mcpGlobalServers}
-        statusEntries={mcpServerStatus}
-        activeEditor={activeEditor}
-        onAddNew={() => setActiveEditor({ scope: 'global', name: null })}
-        onEdit={(name) => setActiveEditor({ scope: 'global', name })}
-        onCancelEdit={() => setActiveEditor(null)}
-        onSave={handleSave}
-        onDelete={handleDelete}
-      />
+    <div className="space-y-5 pb-8">
+      <ToolTabBar selected={selectedTool} onSelect={handleSelectTool} counts={counts} />
 
-      {hasProjectScope ? (
-        <ServerScopeSection
-          title="Project Servers"
-          description={`Connections only available in ${currentProjectName}.`}
-          scope="project"
-          servers={mcpProjectServers}
+      {visibleGroups.map((group) => (
+        <ServerGroupSection
+          key={group.id}
+          group={group}
           statusEntries={mcpServerStatus}
           activeEditor={activeEditor}
-          onAddNew={() => setActiveEditor({ scope: 'project', name: null })}
-          onEdit={(name) => setActiveEditor({ scope: 'project', name })}
+          onAddNew={() => setActiveEditor({ groupId: group.id, name: null })}
+          onEdit={(name) => setActiveEditor({ groupId: group.id, name })}
           onCancelEdit={() => setActiveEditor(null)}
-          onSave={handleSave}
-          onDelete={handleDelete}
+          onSave={(name, config) => handleSave(name, config, group)}
+          onDelete={(name) => handleDelete(name, group)}
         />
-      ) : null}
+      ))}
     </div>
   );
 }
 
-function ServerScopeSection({
-  title,
-  description,
-  scope,
-  servers,
+function ToolTabBar({
+  selected,
+  onSelect,
+  counts,
+}: {
+  selected: ServerTool;
+  onSelect: (tool: ServerTool) => void;
+  counts: Record<ServerTool, number>;
+}) {
+  const tabs: Array<{ id: ServerTool; label: string; hint: string }> = [
+    {
+      id: 'claude',
+      label: 'Claude Code',
+      hint: '~/.claude.json',
+    },
+    {
+      id: 'codex',
+      label: 'Codex',
+      hint: '~/.codex/config.toml',
+    },
+  ];
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Agent runtime"
+      className="flex items-center gap-1 border-b border-[var(--border)]"
+    >
+      {tabs.map((tab) => {
+        const isActive = tab.id === selected;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            onClick={() => onSelect(tab.id)}
+            title={tab.hint}
+            className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] font-medium transition-colors ${
+              isActive
+                ? 'border-[var(--text-primary)] text-[var(--text-primary)]'
+                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <span>{tab.label}</span>
+            <span
+              className={`inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 text-[10.5px] leading-[16px] ${
+                isActive
+                  ? 'bg-[var(--text-primary)] text-[var(--bg-primary)]'
+                  : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'
+              }`}
+            >
+              {counts[tab.id]}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ServerGroupSection({
+  group,
   statusEntries,
   activeEditor,
   onAddNew,
@@ -177,45 +285,56 @@ function ServerScopeSection({
   onSave,
   onDelete,
 }: {
-  title: string;
-  description: string;
-  scope: ServerScope;
-  servers: Record<string, McpServerConfig>;
+  group: ServerGroup;
   statusEntries: McpServerStatus[];
   activeEditor: ActiveEditorState | null;
   onAddNew: () => void;
   onEdit: (name: string) => void;
   onCancelEdit: () => void;
-  onSave: (name: string, config: McpServerConfig, scope: ServerScope) => void;
-  onDelete: (name: string, scope: ServerScope) => void;
+  onSave: (name: string, config: McpServerConfig) => void;
+  onDelete: (name: string) => void;
 }) {
-  const existingNames = useMemo(() => Object.keys(servers), [servers]);
-  const isAddingNew = activeEditor?.scope === scope && activeEditor.name === null;
-  const serverEntries = Object.entries(servers);
+  const existingNames = useMemo(() => Object.keys(group.servers), [group.servers]);
+  const isAddingNew = activeEditor?.groupId === group.id && activeEditor.name === null;
+  const serverEntries = Object.entries(group.servers);
+
+  const emptyDescription = (() => {
+    if (group.tool === 'codex') {
+      return 'Add a local MCP server for the Codex CLI. Written to ~/.codex/config.toml.';
+    }
+    return group.scope === 'global'
+      ? 'Add a reusable MCP connection to make tools available in every Claude Code workspace.'
+      : 'Add a workspace-only MCP connection for Claude Code.';
+  })();
 
   return (
-    <SettingsGroup title={title} description={description}>
+    <SettingsGroup title={group.title} description={group.description}>
       {serverEntries.length === 0 && !isAddingNew ? (
         <EmptyStateRow
-          title={`No ${scope === 'global' ? 'global' : 'project'} servers configured`}
-          description={`Add a ${scope === 'global' ? 'reusable' : 'workspace-only'} MCP connection to make tools available in this scope.`}
+          title="No servers configured"
+          description={emptyDescription}
           actionLabel="Configure Server"
           onAction={onAddNew}
         />
       ) : null}
 
       {serverEntries.map(([name, config]) => {
-        const isExpanded = activeEditor?.scope === scope && activeEditor.name === name;
-        const status = statusEntries.find((entry) => entry.name === name);
+        const isExpanded = activeEditor?.groupId === group.id && activeEditor.name === name;
+        // Codex 与 Claude 共用一套 mcpServerStatus，不同工具下重名时状态无法精确区分。
+        // 目前只对 Claude 显示状态点，Codex 先保持为 "Unknown"。
+        const status =
+          group.tool === 'claude'
+            ? statusEntries.find((entry) => entry.name === name)
+            : undefined;
         return (
           <ServerListRow
-            key={`${scope}-${name}`}
+            key={`${group.id}-${name}`}
             name={name}
             config={config}
-            scope={scope}
             status={status}
             expanded={isExpanded}
             existingNames={existingNames}
+            allowedTransports={group.allowedTransports}
             onToggleExpand={() => {
               if (isExpanded) {
                 onCancelEdit();
@@ -223,34 +342,32 @@ function ServerScopeSection({
                 onEdit(name);
               }
             }}
-            onDelete={() => onDelete(name, scope)}
-            onSave={(nextName, nextConfig) => onSave(nextName, nextConfig, scope)}
+            onDelete={() => onDelete(name)}
+            onSave={(nextName, nextConfig) => onSave(nextName, nextConfig)}
             onCancel={onCancelEdit}
           />
         );
       })}
 
       <NewServerRow
-        scope={scope}
+        group={group}
         expanded={isAddingNew}
         existingNames={existingNames}
         onToggle={() => (isAddingNew ? onCancelEdit() : onAddNew())}
-        onSave={(name, config) => onSave(name, config, scope)}
+        onSave={(name, config) => onSave(name, config)}
         onCancel={onCancelEdit}
       />
     </SettingsGroup>
   );
 }
 
-// A single MCP server row: avatar + name/status + action controls. Clicking
-// the row (or the chevron) expands the edit form below.
 function ServerListRow({
   name,
   config,
-  scope,
   status,
   expanded,
   existingNames,
+  allowedTransports,
   onToggleExpand,
   onDelete,
   onSave,
@@ -258,10 +375,10 @@ function ServerListRow({
 }: {
   name: string;
   config: McpServerConfig;
-  scope: ServerScope;
   status?: McpServerStatus;
   expanded: boolean;
   existingNames: string[];
+  allowedTransports: Array<NonNullable<McpServerConfig['type']>>;
   onToggleExpand: () => void;
   onDelete: () => void;
   onSave: (name: string, config: McpServerConfig) => void;
@@ -319,10 +436,10 @@ function ServerListRow({
             </div>
           ) : null}
           <McpServerForm
-            scope={scope}
             initialName={name}
             initialConfig={config}
             existingNames={existingNames}
+            allowedTransports={allowedTransports}
             onSave={onSave}
             onCancel={onCancel}
           />
@@ -332,22 +449,28 @@ function ServerListRow({
   );
 }
 
-// The "+ New MCP Server" bottom row, mirroring Cursor's add-row pattern.
 function NewServerRow({
-  scope,
+  group,
   expanded,
   existingNames,
   onToggle,
   onSave,
   onCancel,
 }: {
-  scope: ServerScope;
+  group: ServerGroup;
   expanded: boolean;
   existingNames: string[];
   onToggle: () => void;
   onSave: (name: string, config: McpServerConfig) => void;
   onCancel: () => void;
 }) {
+  const hint =
+    group.tool === 'codex'
+      ? 'Add a Codex CLI MCP server.'
+      : group.scope === 'global'
+        ? 'Add a Claude Code global MCP server.'
+        : 'Add a Claude Code project MCP server.';
+
   return (
     <div>
       <button
@@ -361,9 +484,7 @@ function NewServerRow({
         </span>
         <div className="min-w-0">
           <div className="text-[13px] font-medium text-[var(--text-primary)]">New MCP Server</div>
-          <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">
-            Add a custom {scope === 'global' ? 'global' : 'project'} MCP server.
-          </div>
+          <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">{hint}</div>
         </div>
         <ChevronDown className={`h-4 w-4 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
@@ -371,8 +492,8 @@ function NewServerRow({
       {expanded ? (
         <div className="border-t border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4">
           <McpServerForm
-            scope={scope}
             existingNames={existingNames}
+            allowedTransports={group.allowedTransports}
             onSave={onSave}
             onCancel={onCancel}
           />
@@ -458,22 +579,31 @@ function RowIconButton({
 }
 
 function McpServerForm({
-  scope,
   initialName = '',
   initialConfig,
   existingNames,
+  allowedTransports,
   onSave,
   onCancel,
 }: {
-  scope: ServerScope;
   initialName?: string;
   initialConfig?: McpServerConfig;
   existingNames: string[];
+  allowedTransports: Array<NonNullable<McpServerConfig['type']>>;
   onSave: (name: string, config: McpServerConfig) => void;
   onCancel: () => void;
 }) {
+  const typeOptions = useMemo(
+    () => ALL_TRANSPORTS.filter((option) => allowedTransports.includes(option.value)),
+    [allowedTransports]
+  );
+  const defaultType: NonNullable<McpServerConfig['type']> =
+    (initialConfig?.type && allowedTransports.includes(initialConfig.type)
+      ? initialConfig.type
+      : allowedTransports[0]) || 'stdio';
+
   const [name, setName] = useState(initialName);
-  const [type, setType] = useState<NonNullable<McpServerConfig['type']>>(initialConfig?.type || 'stdio');
+  const [type, setType] = useState<NonNullable<McpServerConfig['type']>>(defaultType);
   const [command, setCommand] = useState(initialConfig?.command || '');
   const [args, setArgs] = useState(initialConfig?.args?.join(' ') || '');
   const [url, setUrl] = useState(initialConfig?.url || '');
@@ -565,9 +695,11 @@ function McpServerForm({
         />
       </FormField>
 
-      <FormField label="Transport">
-        <TransportSegmentedControl value={type} onChange={setType} />
-      </FormField>
+      {typeOptions.length > 1 ? (
+        <FormField label="Transport">
+          <TransportSegmentedControl value={type} options={typeOptions} onChange={setType} />
+        </FormField>
+      ) : null}
 
       {type === 'stdio' ? (
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
@@ -752,14 +884,16 @@ function FormField({
 
 function TransportSegmentedControl({
   value,
+  options,
   onChange,
 }: {
   value: NonNullable<McpServerConfig['type']>;
+  options: typeof ALL_TRANSPORTS;
   onChange: (value: NonNullable<McpServerConfig['type']>) => void;
 }) {
   return (
     <div className="inline-flex w-full items-center gap-0.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] p-0.5">
-      {TYPE_OPTIONS.map((option) => {
+      {options.map((option) => {
         const selected = value === option.value;
         return (
           <button

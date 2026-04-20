@@ -14,6 +14,7 @@ import { runAgentLoop } from './libs/agent-loop';
 import { readProjectTree } from './libs/project-tree';
 import { normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
 import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfig, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
+import { getCodexMcpServers, saveCodexMcpServers } from './libs/codex-mcp-settings';
 import {
   loadCompatibleProviderConfig,
   saveCompatibleProviderConfig,
@@ -5136,10 +5137,11 @@ function handlePermissionResponse(
   return false;
 }
 
-// 获取 MCP 配置（返回全局和项目级分开）
+// 获取 MCP 配置（返回全局和项目级分开，同时包含 Codex 的 MCP 配置）
 function handleMcpGetConfig(mainWindow: BrowserWindow, projectPath?: string): void {
   const globalServers = getGlobalMcpServers();
   const projectServers = projectPath ? getProjectMcpServers(projectPath) : {};
+  const codexGlobalServers = getCodexMcpServers();
 
   // 合并用于向后兼容
   const mergedServers = { ...globalServers, ...projectServers };
@@ -5150,6 +5152,7 @@ function handleMcpGetConfig(mainWindow: BrowserWindow, projectPath?: string): vo
       servers: mergedServers,  // 向后兼容
       globalServers,
       projectServers,
+      codexGlobalServers,
     },
   });
 }
@@ -5161,10 +5164,11 @@ function handleMcpSaveConfig(
     servers?: Record<string, McpServerConfig>;
     globalServers?: Record<string, McpServerConfig>;
     projectServers?: Record<string, McpServerConfig>;
+    codexGlobalServers?: Record<string, McpServerConfig>;
     projectPath?: string;
   }
 ): void {
-  // 保存全局配置
+  // 保存 Claude 全局配置
   if (payload.globalServers !== undefined) {
     saveMcpServers(payload.globalServers);
   } else if (payload.servers !== undefined) {
@@ -5172,14 +5176,24 @@ function handleMcpSaveConfig(
     saveMcpServers(payload.servers);
   }
 
-  // 保存项目级配置
+  // 保存 Claude 项目级配置
   if (payload.projectPath && payload.projectServers !== undefined) {
     saveProjectMcpServers(payload.projectPath, payload.projectServers);
+  }
+
+  // 保存 Codex 全局配置（写入 ~/.codex/config.toml）
+  if (payload.codexGlobalServers !== undefined) {
+    try {
+      saveCodexMcpServers(payload.codexGlobalServers);
+    } catch (error) {
+      console.warn('Failed to save Codex MCP servers:', error);
+    }
   }
 
   // 返回更新后的配置
   const globalServers = getGlobalMcpServers();
   const projectServers = payload.projectPath ? getProjectMcpServers(payload.projectPath) : {};
+  const codexGlobalServers = getCodexMcpServers();
 
   broadcast(mainWindow, {
     type: 'mcp.config',
@@ -5187,6 +5201,7 @@ function handleMcpSaveConfig(
       servers: globalServers,
       globalServers,
       projectServers,
+      codexGlobalServers,
     },
   });
 }

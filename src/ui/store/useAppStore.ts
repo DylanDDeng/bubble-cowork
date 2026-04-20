@@ -401,6 +401,7 @@ export const useAppStore = create<Store>()(
       mcpServers: {},
       mcpGlobalServers: {},
       mcpProjectServers: {},
+      mcpCodexGlobalServers: {},
       mcpServerStatus: [],
       claudeUserSkills: [],
       claudeProjectSkills: [],
@@ -487,6 +488,7 @@ export const useAppStore = create<Store>()(
           mcpServers: event.payload.servers,
           mcpGlobalServers: event.payload.globalServers || event.payload.servers,
           mcpProjectServers: event.payload.projectServers || {},
+          mcpCodexGlobalServers: event.payload.codexGlobalServers || {},
         });
         break;
 

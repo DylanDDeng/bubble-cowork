@@ -362,6 +362,7 @@ export type ClientEvent =
       servers?: Record<string, McpServerConfig>;
       globalServers?: Record<string, McpServerConfig>;
       projectServers?: Record<string, McpServerConfig>;
+      codexGlobalServers?: Record<string, McpServerConfig>;
       projectPath?: string;
     } }
   // Skills 事件
@@ -402,6 +403,7 @@ export type ServerEvent =
       servers: Record<string, McpServerConfig>;
       globalServers?: Record<string, McpServerConfig>;
       projectServers?: Record<string, McpServerConfig>;
+      codexGlobalServers?: Record<string, McpServerConfig>;
     } }
   | { type: 'mcp.status'; payload: { servers: McpServerStatus[] } }
   | { type: 'skills.list'; payload: {
