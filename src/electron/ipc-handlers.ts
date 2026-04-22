@@ -85,6 +85,8 @@ const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
 const MAX_FILE_PREVIEW_BYTES = 5 * 1024 * 1024; // 5MB
 const DIRECT_EDIT_BOOTSTRAP_MAX_TRANSCRIPT_CHARS = 20_000;
 const LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD = 500;
+const LONG_PROMPT_ATTACHMENT_INSTRUCTION =
+  'The main request is attached as a text file. Read the attachment first, then respond normally.';
 
 const ATTACHMENT_MIME_TYPES: Record<string, string> = {
   '.txt': 'text/plain',
@@ -2305,7 +2307,7 @@ async function maybeConvertLongPromptToAttachment(params: {
   }
 
   return {
-    prompt: '',
+    prompt: LONG_PROMPT_ATTACHMENT_INSTRUCTION,
     attachments: [...attachments, attachment],
     converted: true,
   };

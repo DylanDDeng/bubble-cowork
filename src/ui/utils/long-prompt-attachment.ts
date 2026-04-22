@@ -2,6 +2,8 @@ import type { Attachment } from '../types';
 import { hasProjectFileMentions } from './project-file-mentions';
 
 export const LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD = 500;
+const LONG_PROMPT_ATTACHMENT_INSTRUCTION =
+  'The main request is attached as a text file. Read the attachment first, then respond normally.';
 
 export async function maybeConvertLongPromptToAttachment(params: {
   cwd?: string | null;
@@ -54,7 +56,7 @@ export async function maybeConvertLongPromptToAttachment(params: {
   }
 
   return {
-    prompt: '',
+    prompt: LONG_PROMPT_ATTACHMENT_INSTRUCTION,
     attachments: [...params.attachments, attachment],
     converted: true,
     attachmentName: attachment.name,
