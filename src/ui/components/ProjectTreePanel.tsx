@@ -691,7 +691,7 @@ export function ProjectTreePanel({
       const preview = (await reader(cwd, node.path)) as ProjectFilePreview;
       if (previewRequestIdRef.current !== requestId) return;
       setSelectedPreview(preview);
-      if (preview.kind === 'text' && preview.editable) {
+      if ((preview.kind === 'text' || preview.kind === 'markdown') && preview.editable) {
         setDraftText(preview.text);
       }
     } catch (error) {
@@ -751,18 +751,24 @@ export function ProjectTreePanel({
     };
   }, [collapsed, selectedFilePath, previewPanelWidth]);
 
-  const canSaveTxt =
+  const canSaveText =
     !!cwd &&
     !!selectedPreview &&
-    selectedPreview.kind === 'text' &&
+    (selectedPreview.kind === 'text' || selectedPreview.kind === 'markdown') &&
     selectedPreview.editable &&
     draftText !== selectedPreview.text;
 
-  const handleSaveTxt = async () => {
+  const handleSaveText = async () => {
     if (!cwd) return;
-    if (!selectedPreview || selectedPreview.kind !== 'text' || !selectedPreview.editable) return;
+    if (
+      !selectedPreview ||
+      (selectedPreview.kind !== 'text' && selectedPreview.kind !== 'markdown') ||
+      !selectedPreview.editable
+    ) {
+      return;
+    }
     if (!selectedFilePath) return;
-    if (!canSaveTxt) return;
+    if (!canSaveText) return;
 
     setSaveState('saving');
     setSaveError(null);
@@ -1092,9 +1098,9 @@ export function ProjectTreePanel({
                     <ViewModeToggle value={viewMode} onChange={setViewMode} />
                   )}
 
-                  {canSaveTxt && (
+                  {canSaveText && (
                     <button
-                      onClick={handleSaveTxt}
+                      onClick={handleSaveText}
                       disabled={saveState === 'saving'}
                       className="px-2 py-1 text-xs rounded-md bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
                       title="Save"
@@ -1195,7 +1201,19 @@ export function ProjectTreePanel({
                 )}
 
                 {!previewLoading && selectedPreview?.kind === 'markdown' && (
-                  viewMode === 'code' ? (
+                  viewMode === 'code' && selectedPreview.editable ? (
+                    <>
+                      <textarea
+                        value={draftText}
+                        onChange={(e) => setDraftText(e.target.value)}
+                        className="w-full h-full min-h-[220px] resize-none bg-transparent outline-none font-mono text-sm whitespace-pre-wrap"
+                        spellCheck={false}
+                      />
+                      {saveState === 'error' && saveError && (
+                        <div className="mt-2 text-xs text-[var(--error)]">{saveError}</div>
+                      )}
+                    </>
+                  ) : viewMode === 'code' ? (
                     <HighlightedCode
                       code={selectedPreview.text}
                       language="markdown"
@@ -1203,7 +1221,7 @@ export function ProjectTreePanel({
                     />
                   ) : (
                     <div className="text-sm">
-                      <MDContent content={selectedPreview.text} allowHtml={false} />
+                      <MDContent content={selectedPreview.editable ? draftText : selectedPreview.text} allowHtml={false} />
                     </div>
                   )
                 )}

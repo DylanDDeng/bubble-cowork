@@ -3194,7 +3194,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
             ext,
             size: stat.size,
             text,
-            editable: ext === '.txt',
+            editable: ext === '.txt' || ext === '.md',
           };
         } catch (error) {
           return {
@@ -3262,7 +3262,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   );
 
-  // RPC: 写入项目文本文件（仅允许写 .txt，安全：cwd 内，<=5MB）
+  // RPC: 写入项目文本文件（当前允许写 .txt / .md，安全：cwd 内，<=5MB）
   ipcMainHandle(
     'write-project-text-file',
     async (
@@ -3274,8 +3274,8 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       const resolved = resolve(cwd || '.', filePath || '');
       const ext = extname(resolved).toLowerCase();
 
-      if (ext !== '.txt') {
-        return { ok: false, message: 'Only .txt files are editable right now.' };
+      if (ext !== '.txt' && ext !== '.md') {
+        return { ok: false, message: 'Only .txt and .md files are editable right now.' };
       }
 
       const validation = await validateProjectFilePath(cwd, resolved);
