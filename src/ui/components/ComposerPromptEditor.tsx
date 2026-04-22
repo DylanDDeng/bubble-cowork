@@ -339,8 +339,8 @@ export const ComposerPromptEditor = forwardRef<
     value: string;
     cursorIndex: number;
     onChange: (value: string, cursorIndex: number) => void;
-    onPasteText?: (context: ComposerPasteContext) => boolean | void;
-    onPasteImages?: (images: ComposerPasteImage[]) => boolean | void;
+    onPasteText?: (context: ComposerPasteContext) => boolean | void | Promise<boolean | void>;
+    onPasteImages?: (images: ComposerPasteImage[]) => boolean | void | Promise<boolean | void>;
     onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
     onCompositionStart?: () => void;
     onCompositionEnd?: () => void;
@@ -476,6 +476,10 @@ export const ComposerPromptEditor = forwardRef<
       end: props.cursorIndex,
     };
     const handled = props.onPasteText?.(context);
+    if (handled instanceof Promise) {
+      void handled;
+      return;
+    }
     if (handled === true) {
       return;
     }

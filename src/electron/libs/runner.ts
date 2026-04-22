@@ -327,7 +327,8 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
 
   const enqueuePrompt = (text: string, promptAttachments?: Attachment[], requestedModel?: string) => {
     const trimmed = text.trim();
-    if (!trimmed) {
+    const hasAttachments = (promptAttachments?.filter((a) => a && a.path).length || 0) > 0;
+    if (!trimmed && !hasAttachments) {
       return;
     }
 
@@ -359,8 +360,10 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           _memoryMessageStore.set(sessionKey, []);
         }
         const recentMessages = _memoryMessageStore.get(sessionKey)!;
-        recentMessages.push({ role: 'user', content: trimmed });
-        while (recentMessages.length > 10) recentMessages.shift();
+        if (trimmed) {
+          recentMessages.push({ role: 'user', content: trimmed });
+          while (recentMessages.length > 10) recentMessages.shift();
+        }
       })
       .catch((error) => {
         const err = error instanceof Error ? error : new Error(String(error));

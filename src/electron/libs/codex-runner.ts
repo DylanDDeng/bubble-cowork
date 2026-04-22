@@ -929,7 +929,8 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
 
   const enqueuePrompt = (text: string, promptAttachments?: Attachment[]) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    const hasAttachments = (promptAttachments?.filter((a) => a && a.path).length || 0) > 0;
+    if (!trimmed && !hasAttachments) return;
 
     enqueueChain = enqueueChain
       .then(async () => {

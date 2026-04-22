@@ -811,37 +811,41 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     return created.length > 0;
   }, [isBusy]);
 
-  const handleLongPaste = useCallback(async (
+  const handleLongPaste = useCallback((
     context: { text: string; start: number; end: number }
-  ): Promise<boolean> => {
+  ): boolean => {
     const pastedText = context.text.trim();
     if (pastedText.length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
       return false;
     }
 
-    const promptWithAttachment = await maybeConvertLongPromptToAttachment({
-      cwd: activeSession?.cwd || null,
-      prompt: pastedText,
-      attachments,
-    });
+    void (async () => {
+      const promptWithAttachment = await maybeConvertLongPromptToAttachment({
+        cwd: activeSession?.cwd || null,
+        prompt: pastedText,
+        attachments,
+      });
 
-    if (!promptWithAttachment.converted) {
-      if (promptWithAttachment.reason === 'attachment_create_failed') {
-        toast.error('Failed to convert the long message into an attachment.');
+      if (!promptWithAttachment.converted) {
+        if (promptWithAttachment.reason === 'attachment_create_failed') {
+          toast.error('Failed to convert the long message into an attachment.');
+        }
+        return;
       }
-      return false;
-    }
 
-    const nextPrompt = `${prompt.slice(0, context.start)}${prompt.slice(context.end)}`;
-    setAttachments(promptWithAttachment.attachments);
-    skillAutocomplete.setDisplayPrompt(nextPrompt);
-    setCursorIndex(context.start);
-    window.requestAnimationFrame(() => {
-      editorRef.current?.focus();
-      editorRef.current?.setCursorIndex(context.start);
-    });
+      const currentPrompt = skillAutocomplete.displayPrompt;
+      const nextPrompt = `${currentPrompt.slice(0, context.start)}${currentPrompt.slice(context.end)}`;
+      setAttachments(promptWithAttachment.attachments);
+      skillAutocomplete.setDisplayPrompt(nextPrompt);
+      setCursorIndex(context.start);
+      window.requestAnimationFrame(() => {
+        editorRef.current?.focus();
+        editorRef.current?.setCursorIndex(context.start);
+      });
+    })();
+
     return true;
-  }, [activeSession?.cwd, attachments, prompt, skillAutocomplete]);
+  }, [activeSession?.cwd, attachments, skillAutocomplete]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (isImeComposingEvent(e, isComposingRef)) {
@@ -952,7 +956,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
               void handlePromptChange(value, nextCursorIndex);
             }}
             onPasteText={(context) => {
-              void handleLongPaste(context);
+              return handleLongPaste(context);
             }}
             onPasteImages={(images) => {
               void handlePasteImages(images);
