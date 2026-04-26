@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog, shell, ipcMain, session } from 'electron';
+import { app, BrowserWindow, Menu, dialog, shell, ipcMain, nativeTheme, session } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -6,6 +6,7 @@ import { setupIPCHandlers, cleanup } from './ipc-handlers';
 import { registerBrowserIpc, disposeBrowserIpc } from './browser-ipc';
 import { isDev, getPreloadPath, getUIPath, DEV_SERVER_URL, ipcMainHandle } from './util';
 import { ensureShellEnvironment } from './libs/shell-environment';
+import type { AppUpdateStatus } from '../shared/types';
 
 // 修复打包后的环境变量问题（macOS/Linux GUI 应用无法继承 shell 的环境变量）。
 // 细节见 src/electron/libs/shell-environment.ts：使用 interactive + login shell 抓 env
@@ -46,9 +47,10 @@ let updaterInitialized = false;
 let devFileWatcher: fs.FSWatcher | null = null;
 let updateCheckStarted = false;
 let pendingManualUpdateCheck = false;
-let latestUpdateStatus: { available: boolean; version: string | null } = {
+let latestUpdateStatus: AppUpdateStatus = {
   available: false,
   version: null,
+  autoDetected: false,
 };
 let latestUiResumeState: import('../shared/types').UiResumeState | null = null;
 let isQuitting = false;
@@ -451,12 +453,17 @@ function setupAutoUpdater(): void {
   });
 
   autoUpdater.on('update-available', async (info) => {
+    const shouldNotify = pendingManualUpdateCheck;
     latestUpdateStatus = {
       available: true,
       version: info?.version || null,
+      autoDetected: !pendingManualUpdateCheck || latestUpdateStatus.autoDetected,
     };
     broadcastUpdateStatus();
     pendingManualUpdateCheck = false;
+    if (!shouldNotify) {
+      return;
+    }
     const result = await dialog.showMessageBox({
       type: 'info',
       title: 'Update available',
@@ -475,6 +482,7 @@ function setupAutoUpdater(): void {
     latestUpdateStatus = {
       available: false,
       version: null,
+      autoDetected: false,
     };
     broadcastUpdateStatus();
     const shouldNotify = pendingManualUpdateCheck;
@@ -660,6 +668,10 @@ app.whenReady().then(() => {
   });
   ipcMainHandle('get-app-version', async () => {
     return app.getVersion();
+  });
+  ipcMainHandle('set-theme', async (_event, theme: 'light' | 'dark' | 'system') => {
+    nativeTheme.themeSource = theme;
+    return { ok: true };
   });
   createWindow();
   scheduleAutomaticUpdateCheck();

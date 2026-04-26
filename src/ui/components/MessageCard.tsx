@@ -492,9 +492,18 @@ function GenericSlashChip({ name, compact = false }: { name: string; compact?: b
     <div
       className={`inline-flex max-w-full items-center shadow-sm ${
         compact
-          ? 'rounded-[var(--radius-lg)] px-2 py-0.5 border border-current/20 bg-current/10'
+          ? 'rounded-[var(--radius-lg)] px-2 py-0.5 border'
           : 'rounded-[var(--radius-xl)] px-2.5 py-2 border border-[var(--border)] bg-[var(--bg-tertiary)]'
       }`}
+      style={
+        compact
+          ? {
+              borderColor: 'var(--composer-chip-border)',
+              backgroundColor: 'var(--composer-chip-bg)',
+              color: 'var(--composer-chip-text)',
+            }
+          : undefined
+      }
     >
       <div
         className={`truncate font-medium ${

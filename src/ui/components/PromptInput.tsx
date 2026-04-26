@@ -108,8 +108,6 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     consumePromptLibraryInsert,
     pendingChatInjection,
     consumeChatInjection,
-    fontSelections,
-    importedFonts,
   } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);

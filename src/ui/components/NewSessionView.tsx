@@ -90,8 +90,6 @@ export function NewSessionView() {
     setProjectCwd,
     promptLibraryInsertRequest,
     consumePromptLibraryInsert,
-    fontSelections,
-    importedFonts,
   } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);

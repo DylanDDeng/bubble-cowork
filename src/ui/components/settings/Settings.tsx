@@ -1,7 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Eraser, ChevronDown, Check, Bot, Brain } from 'lucide-react';
-import { toast } from 'sonner';
+import { useEffect, useState } from 'react';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Bot, Brain } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
@@ -9,10 +7,10 @@ import { McpSettingsContent } from './McpSettings';
 import { ProviderPicker } from '../ProviderPicker';
 import { BridgeSettingsContent } from './BridgeSettings';
 import { MemorySettingsContent } from './MemorySettings';
+import { ThemePackEditor } from './ThemePackEditor';
 import { SettingsGroup, SettingsRow } from './SettingsPrimitives';
-import type { ColorThemeId, FontSelection, FontSettingsPayload, FontSlot, ImportedFontFace, SystemFontOption, Theme } from '../../types';
-import { BUILTIN_FONT_OPTIONS, getDefaultFontSelections, getFontPreviewLabel } from '../../theme/fonts';
-import { COLOR_THEME_FAMILIES, resolveThemeMode } from '../../theme/themes';
+import type { AppUpdateStatus, ChromeTheme, Theme, ThemeFonts, ThemeState, ThemeVariant } from '../../types';
+import { resolveThemeMode, resolveThemePack } from '../../theme/themes';
 import { loadPreferredProvider, savePreferredProvider } from '../../utils/provider';
 
 const SETTINGS_TABS = {
@@ -63,15 +61,16 @@ export function Settings() {
     setActiveSettingsTab,
     theme,
     setTheme,
-    colorThemeId,
-    setColorThemeId,
-    customThemeCss,
-    setCustomThemeCss,
-    fontSelections,
-    importedFonts,
-    systemFonts,
-    systemFontsLoaded,
-    setFontSettings,
+    themeState,
+    setThemeState,
+    updateThemeVariant,
+    setThemeVariantCodeThemeId,
+    setThemeVariantFonts,
+    resetThemeVariant,
+    uiFontFamily,
+    setUiFontFamily,
+    chatCodeFontFamily,
+    setChatCodeFontFamily,
     updateStatus,
   } = useAppStore();
 
@@ -132,15 +131,16 @@ export function Settings() {
             <GeneralSettingsContent
               theme={theme}
               setTheme={setTheme}
-              colorThemeId={colorThemeId}
-              setColorThemeId={setColorThemeId}
-              customThemeCss={customThemeCss}
-              setCustomThemeCss={setCustomThemeCss}
-              fontSelections={fontSelections}
-              importedFonts={importedFonts}
-              systemFonts={systemFonts}
-              systemFontsLoaded={systemFontsLoaded}
-              setFontSettings={setFontSettings}
+              themeState={themeState}
+              setThemeState={setThemeState}
+              updateThemeVariant={updateThemeVariant}
+              setThemeVariantCodeThemeId={setThemeVariantCodeThemeId}
+              setThemeVariantFonts={setThemeVariantFonts}
+              resetThemeVariant={resetThemeVariant}
+              uiFontFamily={uiFontFamily}
+              setUiFontFamily={setUiFontFamily}
+              chatCodeFontFamily={chatCodeFontFamily}
+              setChatCodeFontFamily={setChatCodeFontFamily}
               updateStatus={updateStatus}
             />
           )}
@@ -189,58 +189,38 @@ function SettingsNavItem({
 function GeneralSettingsContent({
   theme,
   setTheme,
-  colorThemeId,
-  setColorThemeId,
-  customThemeCss,
-  setCustomThemeCss,
-  fontSelections,
-  importedFonts,
-  systemFonts,
-  systemFontsLoaded,
-  setFontSettings,
+  themeState,
+  setThemeState,
+  updateThemeVariant,
+  setThemeVariantCodeThemeId,
+  setThemeVariantFonts,
+  resetThemeVariant,
+  uiFontFamily,
+  setUiFontFamily,
+  chatCodeFontFamily,
+  setChatCodeFontFamily,
   updateStatus,
 }: {
   theme: Theme;
   setTheme: (theme: Theme) => void;
-  colorThemeId: ColorThemeId;
-  setColorThemeId: (colorThemeId: ColorThemeId) => void;
-  customThemeCss: string;
-  setCustomThemeCss: (customThemeCss: string) => void;
-  fontSelections: FontSettingsPayload['selections'];
-  importedFonts: ImportedFontFace[];
-  systemFonts: SystemFontOption[];
-  systemFontsLoaded: boolean;
-  setFontSettings: (settings: FontSettingsPayload) => void;
-  updateStatus: {
-    available: boolean;
-    version: string | null;
-  };
+  themeState: ThemeState;
+  setThemeState: (themeState: ThemeState) => void;
+  updateThemeVariant: (variant: ThemeVariant, patch: Partial<ChromeTheme>) => void;
+  setThemeVariantCodeThemeId: (variant: ThemeVariant, codeThemeId: string) => void;
+  setThemeVariantFonts: (variant: ThemeVariant, patch: Partial<ThemeFonts>) => void;
+  resetThemeVariant: (variant: ThemeVariant) => void;
+  uiFontFamily: string;
+  setUiFontFamily: (value: string) => void;
+  chatCodeFontFamily: string;
+  setChatCodeFontFamily: (value: string) => void;
+  updateStatus: AppUpdateStatus;
 }) {
   const resolvedMode = resolveThemeMode(theme);
-  const [themePickerOpen, setThemePickerOpen] = useState(false);
-  const [customCssOpen, setCustomCssOpen] = useState(false);
   const [appVersion, setAppVersion] = useState('...');
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [defaultProvider, setDefaultProvider] = useState(loadPreferredProvider());
-  const activeTheme = COLOR_THEME_FAMILIES.find((family) => family.id === colorThemeId) || COLOR_THEME_FAMILIES[0];
-  const customCssSummary = customThemeCss.trim()
-    ? `${customThemeCss.trim().split(/\n+/).length} line${customThemeCss.trim().split(/\n+/).length > 1 ? 's' : ''} of overrides`
-    : 'No custom overrides';
-  const hasColorThemeOverrides = /--(?:bg-primary|bg-secondary|bg-tertiary|text-primary|text-secondary|text-muted|accent|accent-hover|accent-light|accent-foreground|border|sidebar-item-hover|sidebar-item-active|sidebar-item-border)\s*:/.test(
-    customThemeCss
-  );
-
-  const updateFontSelection = async (slot: FontSlot, nextSelection: FontSelection) => {
-    try {
-      const saved = await window.electron.saveFontSelections({
-        ...fontSelections,
-        [slot]: nextSelection,
-      });
-      setFontSettings(saved);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to update font.');
-    }
-  };
+  const lightTheme = resolveThemePack(themeState, 'light');
+  const darkTheme = resolveThemePack(themeState, 'dark');
 
   useEffect(() => {
     let cancelled = false;
@@ -249,11 +229,16 @@ function GeneralSettingsContent({
       .then(([version, update]) => {
         if (!cancelled) {
           setAppVersion(version);
-          if (update.available !== updateStatus.available || update.version !== updateStatus.version) {
+          if (
+            update.available !== updateStatus.available ||
+            update.version !== updateStatus.version ||
+            update.autoDetected !== updateStatus.autoDetected
+          ) {
             useAppStore.setState({
               updateStatus: {
                 available: update.available,
                 version: update.version,
+                autoDetected: update.autoDetected,
               },
             });
           }
@@ -303,11 +288,11 @@ function GeneralSettingsContent({
             className="inline-flex h-8 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
           >
             {checkingUpdates ? 'Checking...' : 'Check for Updates'}
-            {updateStatus.available ? (
+            {updateStatus.autoDetected ? (
               <span
                 className="inline-flex h-2 w-2 rounded-full bg-[var(--error)]"
-                title={updateStatus.version ? `Update ${updateStatus.version} available` : 'Update available'}
-                aria-label={updateStatus.version ? `Update ${updateStatus.version} available` : 'Update available'}
+                title={updateStatus.version ? `Update ${updateStatus.version} detected automatically` : 'Update detected automatically'}
+                aria-label={updateStatus.version ? `Update ${updateStatus.version} detected automatically` : 'Update detected automatically'}
               />
             ) : null}
           </button>
@@ -322,118 +307,63 @@ function GeneralSettingsContent({
             <ThemeOption label="System" value="system" current={theme} onClick={() => setTheme('system')} icon={<Monitor className="w-3.5 h-3.5" />} />
           </div>
         </SettingsRow>
-
-        <SettingsRow variant="card" label="Color Theme" description={`Current: ${resolvedMode}`}>
-          <div className="relative w-[200px]">
-            <button
-              type="button"
-              onClick={() => setThemePickerOpen((current) => !current)}
-              className="flex h-8 w-full items-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-left text-[12px] transition-colors hover:border-[var(--text-muted)]"
-            >
-              <div className="min-w-0 flex-1 truncate font-medium text-[var(--text-primary)]">{activeTheme.label}</div>
-              <ChevronDown className={`h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)] transition-transform ${themePickerOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {themePickerOpen && (
-              <>
-                <div className="fixed inset-0 z-20" onClick={() => setThemePickerOpen(false)} />
-                <div className="absolute left-0 right-0 top-full z-30 mt-1 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] p-1 shadow-sm">
-                  <div className="space-y-0.5">
-                    {COLOR_THEME_FAMILIES.map((family) => {
-                      const selected = family.id === colorThemeId;
-                      return (
-                        <button
-                          key={family.id}
-                          type="button"
-                          onClick={() => { setColorThemeId(family.id); setThemePickerOpen(false); }}
-                          className={`flex w-full items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 text-left text-[13px] transition-colors ${
-                            selected ? 'bg-[var(--accent-light)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
-                          }`}
-                        >
-                          <div className="min-w-0 flex-1 truncate font-medium">{family.label}</div>
-                          {selected ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" /> : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {hasColorThemeOverrides && (
-              <div className="mt-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-2 text-[12px]">
-                <div className="font-medium text-[var(--text-primary)]">Custom CSS overriding theme</div>
-                <button
-                  type="button"
-                  onClick={() => setCustomThemeCss('')}
-                  className="mt-1.5 inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-2 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
-                >
-                  <Eraser className="w-3 h-3" />
-                  Clear
-                </button>
-              </div>
-            )}
-          </div>
-        </SettingsRow>
-
-        <SettingsRow variant="card" label="Custom CSS" description="Theme token overrides." align={customCssOpen ? 'start' : 'center'}>
-          <div className="w-[200px]">
-            <button
-              type="button"
-              onClick={() => setCustomCssOpen((current) => !current)}
-              className="flex h-8 w-full items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-left text-[12px] transition-colors hover:border-[var(--text-muted)]"
-            >
-              <div className="min-w-0 flex-1 truncate font-medium text-[var(--text-primary)]">
-                {customThemeCss.trim() ? customCssSummary : 'None'}
-              </div>
-              <ChevronDown className={`h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)] transition-transform ${customCssOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {customCssOpen && (
-              <div className="mt-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] p-2.5 shadow-sm">
-                <div className="mb-2 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setCustomThemeCss('')}
-                    className="inline-flex items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
-                  >
-                    <Eraser className="w-3 h-3" />
-                    Clear
-                  </button>
-                </div>
-                <textarea
-                  value={customThemeCss}
-                  onChange={(event) => setCustomThemeCss(event.target.value)}
-                  placeholder={`:root {\n  --bg-primary: #0f1117;\n  --accent: #7aa2f7;\n}`}
-                  className="min-h-[140px] w-full rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 font-mono text-[12px] leading-5 text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--text-muted)]"
-                  spellCheck={false}
-                />
-              </div>
-            )}
-          </div>
-        </SettingsRow>
       </SettingsGroup>
 
+      <div className="space-y-3">
+        <ThemePackEditor
+          variant="light"
+          mode={theme}
+          isActive={resolvedMode === 'light'}
+          pack={lightTheme}
+          themeState={themeState}
+          onReset={() => resetThemeVariant('light')}
+          onCodeThemeChange={(codeThemeId) => setThemeVariantCodeThemeId('light', codeThemeId)}
+          onThemePatch={(patch) => updateThemeVariant('light', patch)}
+          onFontPatch={(patch) => setThemeVariantFonts('light', patch)}
+          onImportThemeString={setThemeState}
+        />
+        <ThemePackEditor
+          variant="dark"
+          mode={theme}
+          isActive={resolvedMode === 'dark'}
+          pack={darkTheme}
+          themeState={themeState}
+          onReset={() => resetThemeVariant('dark')}
+          onCodeThemeChange={(codeThemeId) => setThemeVariantCodeThemeId('dark', codeThemeId)}
+          onThemePatch={(patch) => updateThemeVariant('dark', patch)}
+          onFontPatch={(patch) => setThemeVariantFonts('dark', patch)}
+          onImportThemeString={setThemeState}
+        />
+      </div>
+
       <SettingsGroup title="Typography">
-        <SettingsRow variant="card" label="UI Font" description="Sidebar, settings, and UI text.">
-          <FontSlotControl
-            slot="ui"
-            selection={fontSelections.ui}
-            importedFonts={importedFonts}
-            systemFonts={systemFonts}
-            systemFontsLoaded={systemFontsLoaded}
-            onChange={(selection) => void updateFontSelection('ui', selection)}
+        <SettingsRow
+          variant="card"
+          label="UI Font Override"
+          description="Override the active theme's UI font across the app."
+        >
+          <input
+            type="text"
+            value={uiFontFamily}
+            onChange={(event) => setUiFontFamily(event.target.value)}
+            placeholder="-apple-system, BlinkMacSystemFont..."
+            spellCheck={false}
+            className="h-8 w-[280px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-right text-[12px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
           />
         </SettingsRow>
 
-        <SettingsRow variant="card" label="Code Font" description="Code blocks, logs, and paths.">
-          <FontSlotControl
-            slot="mono"
-            selection={fontSelections.mono}
-            importedFonts={importedFonts}
-            systemFonts={systemFonts}
-            systemFontsLoaded={systemFontsLoaded}
-            onChange={(selection) => void updateFontSelection('mono', selection)}
+        <SettingsRow
+          variant="card"
+          label="Code Font Override"
+          description="Override code blocks and inline code in chat."
+        >
+          <input
+            type="text"
+            value={chatCodeFontFamily}
+            onChange={(event) => setChatCodeFontFamily(event.target.value)}
+            placeholder='"JetBrains Mono", monospace'
+            spellCheck={false}
+            className="h-8 w-[280px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-right font-mono text-[12px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
           />
         </SettingsRow>
       </SettingsGroup>
@@ -467,223 +397,5 @@ function ThemeOption({
       {icon}
       <span>{label}</span>
     </button>
-  );
-}
-
-function FontSlotControl({
-  slot,
-  selection,
-  importedFonts,
-  systemFonts,
-  systemFontsLoaded,
-  onChange,
-}: {
-  slot: FontSlot;
-  selection: FontSelection;
-  importedFonts: ImportedFontFace[];
-  systemFonts: SystemFontOption[];
-  systemFontsLoaded: boolean;
-  onChange: (selection: FontSelection) => void;
-}) {
-  const currentLabel = getFontPreviewLabel(slot, selection, importedFonts);
-  const [fontInput, setFontInput] = useState(currentLabel);
-  const skipNextBlurCommitRef = useRef(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const triggerRef = useRef<HTMLDivElement>(null);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; width: number } | null>(null);
-  const normalizedInput = fontInput.trim().toLowerCase();
-  const options = useMemo(
-    () => [
-      ...BUILTIN_FONT_OPTIONS[slot].map((option) => ({
-        label: option.label,
-        selection: { source: 'builtin', id: option.id } as FontSelection,
-      })),
-      ...systemFonts.map((font) => ({
-        label: font.label,
-        selection: { source: 'system', id: font.id } as FontSelection,
-      })),
-      ...importedFonts.map((font) => ({
-        label: font.label,
-        selection: { source: 'imported', id: font.id } as FontSelection,
-      })),
-    ],
-    [importedFonts, slot, systemFonts]
-  );
-  const matchingOption = options.find((option) => option.label.toLowerCase() === normalizedInput) || null;
-  const filteredOptions = useMemo(
-    () =>
-      normalizedInput
-        ? options.filter((option) => option.label.toLowerCase().includes(normalizedInput))
-        : options,
-    [normalizedInput, options]
-  );
-
-  useEffect(() => {
-    setFontInput(currentLabel);
-  }, [currentLabel]);
-
-  const commitSelection = () => {
-    const trimmed = fontInput.trim();
-    const defaultSelection = getDefaultFontSelections()[slot];
-    if (!trimmed) {
-      if (
-        selection.source !== defaultSelection.source ||
-        selection.id !== defaultSelection.id
-      ) {
-        onChange(defaultSelection);
-      } else {
-        setFontInput(getFontPreviewLabel(slot, defaultSelection, importedFonts));
-      }
-      return;
-    }
-
-    if (matchingOption) {
-      if (
-        selection.source !== matchingOption.selection.source ||
-        selection.id !== matchingOption.selection.id
-      ) {
-        onChange(matchingOption.selection);
-      } else {
-        setFontInput(getFontPreviewLabel(slot, matchingOption.selection, importedFonts));
-      }
-      return;
-    }
-
-    setFontInput(currentLabel);
-    setMenuOpen(false);
-    toast.error('Pick a font from the detected font list before applying.');
-  };
-
-  const handleOptionSelect = (nextSelection: FontSelection) => {
-    const nextLabel = getFontPreviewLabel(slot, nextSelection, importedFonts);
-    setFontInput(nextLabel);
-    setMenuOpen(false);
-
-    if (selection.source !== nextSelection.source || selection.id !== nextSelection.id) {
-      onChange(nextSelection);
-    }
-  };
-
-  useEffect(() => {
-    if (!menuOpen) {
-      setMenuPosition(null);
-      return;
-    }
-
-    const updateMenuPosition = () => {
-      const rect = triggerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      setMenuPosition({
-        top: rect.bottom + 8,
-        left: rect.left,
-        width: rect.width,
-      });
-    };
-
-    updateMenuPosition();
-    window.addEventListener('resize', updateMenuPosition);
-    window.addEventListener('scroll', updateMenuPosition, true);
-
-    return () => {
-      window.removeEventListener('resize', updateMenuPosition);
-      window.removeEventListener('scroll', updateMenuPosition, true);
-    };
-  }, [menuOpen]);
-
-  return (
-    <div className="w-full max-w-[520px] space-y-2">
-      <div ref={triggerRef} className="relative ml-auto w-full max-w-[320px]">
-        <div className="rounded-[var(--radius-lg)] border border-[var(--sidebar-item-border)] bg-[var(--accent-light)] transition-colors focus-within:border-[var(--text-muted)]">
-          <input
-            value={fontInput}
-            onChange={(event) => {
-              setFontInput(event.target.value);
-              setMenuOpen(true);
-            }}
-            onFocus={() => setMenuOpen(true)}
-            onBlur={() => {
-              if (skipNextBlurCommitRef.current) {
-                skipNextBlurCommitRef.current = false;
-                return;
-              }
-              setMenuOpen(false);
-              commitSelection();
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                skipNextBlurCommitRef.current = true;
-                commitSelection();
-                (event.currentTarget as HTMLInputElement).blur();
-              }
-              if (event.key === 'Escape') {
-                setFontInput(currentLabel);
-                setMenuOpen(false);
-                (event.currentTarget as HTMLInputElement).blur();
-              }
-            }}
-            placeholder="Type or pick a font..."
-            className="h-9 w-full min-w-0 rounded-[var(--radius-lg)] bg-transparent px-3 pr-10 text-[13px] font-medium text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-          />
-          <button
-            type="button"
-            onMouseDown={(event) => {
-              event.preventDefault();
-              setMenuOpen((current) => !current);
-            }}
-            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
-            aria-label="Toggle font options"
-          >
-            <ChevronDown className={`h-4 w-4 transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
-          </button>
-        </div>
-      </div>
-
-      {menuOpen && filteredOptions.length > 0 && menuPosition &&
-        createPortal(
-          <>
-            <div className="fixed inset-0 z-20" onMouseDown={() => setMenuOpen(false)} />
-            <div
-              className="fixed z-30 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_14px_32px_rgba(15,23,42,0.08)]"
-              style={{
-                top: menuPosition.top,
-                left: menuPosition.left,
-                width: menuPosition.width,
-              }}
-            >
-              <div className="max-h-[220px] overflow-y-auto">
-                {filteredOptions.map((option) => {
-                  const selectedOption =
-                    option.selection.source === selection.source && option.selection.id === selection.id;
-                  return (
-                    <button
-                      key={`${slot}-${option.selection.source}-${option.selection.id}`}
-                      type="button"
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        handleOptionSelect(option.selection);
-                      }}
-                      className={`flex w-full items-center justify-between gap-3 rounded-[var(--radius-lg)] px-3 py-2 text-left transition-colors ${
-                        selectedOption
-                          ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
-                          : 'text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-                      }`}
-                    >
-                      <span className="truncate text-[14px] font-medium">{option.label}</span>
-                      {selectedOption ? <Check className="h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" /> : null}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </>,
-          document.body
-        )}
-
-      {!systemFontsLoaded && (
-        <div className="text-sm text-[var(--text-muted)]">Loading system fonts...</div>
-      )}
-    </div>
   );
 }

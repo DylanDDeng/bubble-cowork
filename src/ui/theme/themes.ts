@@ -1,849 +1,997 @@
-import type { ColorThemeId, Theme } from '../types';
+import type {
+  ChromeTheme,
+  CodeThemeOption,
+  ThemeFonts,
+  ThemeMode,
+  ThemeSemanticColors,
+  ThemeSharePayload,
+  ThemePack,
+  ThemeState,
+  ThemeVariant,
+} from './theme-types';
 
-type ThemeVariables = Record<string, string>;
-type ResolvedThemeMode = 'light' | 'dark';
-
-export interface ColorThemeFamily {
-  id: ColorThemeId;
-  label: string;
-  description: string;
-  variants: Record<ResolvedThemeMode, ThemeVariables>;
-}
-
-const PAPER_LIGHT: ThemeVariables = {
-  '--bg-primary': '#FFFFFF',
-  '--bg-secondary': '#F9F9FB',
-  '--bg-tertiary': '#F8F7F8',
-  '--text-primary': '#111111',
-  '--text-secondary': '#62646A',
-  '--text-muted': '#989BA3',
-  '--accent': '#111827',
-  '--accent-hover': '#030712',
-  '--accent-light': 'rgba(17, 24, 39, 0.08)',
-  '--accent-foreground': '#F9FAFB',
-  '--success': '#22c55e',
-  '--error': '#ef4444',
-  '--warning': '#f59e0b',
-  '--border': '#E5E7EB',
-  '--tool-pending': '#f59e0b',
-  '--tool-running': '#6B7280',
-  '--tool-success': '#22c55e',
-  '--tool-error': '#ef4444',
-  '--code-inline-bg': '#F0F0F2',
-  '--code-inline-border': '#E3E3E7',
-  '--code-inline-text': '#4B5563',
-  '--code-block-bg': '#EDEDF0',
-  '--code-block-header-bg': '#EDEDF0',
-  '--code-block-border': '#E6E6EA',
-  '--code-block-text': '#1F2937',
-  '--code-copy-bg': 'transparent',
-  '--code-copy-hover': 'rgba(17, 24, 39, 0.05)',
-  '--code-token-comment': '#9CA3AF',
-  '--code-token-keyword': '#C24D84',
-  '--code-token-string': '#1F8C5B',
-  '--code-token-function': '#6B46C1',
-  '--code-token-number': '#D97706',
-  '--code-token-operator': '#6B7280',
-  '--code-token-variable': '#111827',
-  '--user-bubble-bg': '#111827',
-  '--user-bubble-text': '#F9FAFB',
-  '--user-bubble-border': 'transparent',
-  '--user-bubble-shadow': 'none',
-  '--tree-item-hover': 'rgba(17, 24, 39, 0.05)',
-  '--tree-item-active': 'rgba(17, 24, 39, 0.08)',
-  '--tree-item-border': 'rgba(17, 24, 39, 0.12)',
-  '--tree-file-accent-bg': '#F3F5F8',
-  '--tree-file-accent-border': '#DDE3EA',
-  '--tree-file-accent-fg': '#667185',
-  '--tree-file-media-bg': '#F3F5F8',
-  '--tree-file-media-border': '#DDE3EA',
-  '--tree-file-media-fg': '#6B7280',
-  '--tree-file-warm-bg': '#FFF1EA',
-  '--tree-file-warm-border': '#FFD7C8',
-  '--tree-file-warm-fg': '#D35B2F',
-  '--tree-file-neutral-bg': '#F5F7FA',
-  '--tree-file-neutral-border': '#DEE3EA',
-  '--tree-file-neutral-fg': '#667185',
-  '--preview-surface': '#FFFFFF',
-  '--sidebar-item-hover': '#EEEEEE',
-  '--sidebar-item-active': '#EEEEEE',
-  '--sidebar-item-border': 'rgba(17, 24, 39, 0.08)',
+type RgbColor = {
+  red: number;
+  green: number;
+  blue: number;
 };
 
-const PAPER_DARK: ThemeVariables = {
-  '--bg-primary': '#111214',
-  '--bg-secondary': '#17181B',
-  '--bg-tertiary': '#22242A',
-  '--text-primary': '#F5F5F5',
-  '--text-secondary': '#B2B5BB',
-  '--text-muted': '#80838A',
-  '--accent': '#E5E7EB',
-  '--accent-hover': '#F5F5F5',
-  '--accent-light': 'rgba(229, 231, 235, 0.12)',
-  '--accent-foreground': '#111214',
-  '--success': '#4ade80',
-  '--error': '#f87171',
-  '--warning': '#fbbf24',
-  '--border': 'rgba(255, 255, 255, 0.12)',
-  '--tool-pending': '#fbbf24',
-  '--tool-running': '#9CA3AF',
-  '--tool-success': '#4ade80',
-  '--tool-error': '#f87171',
-  '--code-inline-bg': '#303237',
-  '--code-inline-border': '#41454D',
-  '--code-inline-text': '#E5E7EB',
-  '--code-block-bg': '#2A2D33',
-  '--code-block-header-bg': '#2A2D33',
-  '--code-block-border': '#3B4048',
-  '--code-block-text': '#F3F4F6',
-  '--code-copy-bg': 'rgba(255, 255, 255, 0.06)',
-  '--code-copy-hover': 'rgba(255, 255, 255, 0.1)',
-  '--code-token-comment': '#9CA3AF',
-  '--code-token-keyword': '#F472B6',
-  '--code-token-string': '#4ADE80',
-  '--code-token-function': '#A78BFA',
-  '--code-token-number': '#F59E0B',
-  '--code-token-operator': '#CBD5E1',
-  '--code-token-variable': '#F3F4F6',
-  '--user-bubble-bg': '#E5E7EB',
-  '--user-bubble-text': '#111214',
-  '--user-bubble-border': 'transparent',
-  '--user-bubble-shadow': 'none',
-  '--tree-item-hover': 'rgba(255, 255, 255, 0.05)',
-  '--tree-item-active': 'rgba(255, 255, 255, 0.09)',
-  '--tree-item-border': 'rgba(255, 255, 255, 0.14)',
-  '--tree-file-accent-bg': '#252C39',
-  '--tree-file-accent-border': '#31415D',
-  '--tree-file-accent-fg': '#A9C1FF',
-  '--tree-file-media-bg': '#1B2A3E',
-  '--tree-file-media-border': '#294F7A',
-  '--tree-file-media-fg': '#7CC6FF',
-  '--tree-file-warm-bg': '#34231B',
-  '--tree-file-warm-border': '#56382A',
-  '--tree-file-warm-fg': '#F3A77B',
-  '--tree-file-neutral-bg': '#20252E',
-  '--tree-file-neutral-border': '#333A46',
-  '--tree-file-neutral-fg': '#AAB4C4',
-  '--preview-surface': '#141821',
-  '--sidebar-item-hover': 'rgba(255, 255, 255, 0.08)',
-  '--sidebar-item-active': 'rgba(255, 255, 255, 0.12)',
-  '--sidebar-item-border': 'rgba(255, 255, 255, 0.12)',
+type ThemeSeedPatch = Partial<
+  Pick<ChromeTheme, 'accent' | 'contrast' | 'ink' | 'opaqueWindows' | 'surface'>
+> & {
+  fonts?: Partial<ThemeFonts>;
+  semanticColors?: Partial<ThemeSemanticColors>;
 };
 
-const GRAPHITE_LIGHT: ThemeVariables = {
-  ...PAPER_LIGHT,
-  '--bg-primary': '#F3F6FB',
-  '--bg-secondary': '#F8FAFD',
-  '--bg-tertiary': '#E7EDF8',
-  '--text-primary': '#0F172A',
-  '--text-secondary': '#475467',
-  '--text-muted': '#8A94A6',
-  '--accent': '#1D4ED8',
-  '--accent-hover': '#1E40AF',
-  '--accent-light': 'rgba(29, 78, 216, 0.12)',
-  '--accent-foreground': '#EFF6FF',
-  '--border': '#CBD6E7',
-  '--code-inline-bg': '#E9EEF6',
-  '--code-inline-border': '#D6E0EE',
-  '--code-inline-text': '#334155',
-  '--code-block-bg': '#ECF1F8',
-  '--code-block-header-bg': '#ECF1F8',
-  '--code-block-border': '#D8E1EE',
-  '--code-token-keyword': '#7C3AED',
-  '--code-token-string': '#047857',
-  '--code-token-function': '#1D4ED8',
-  '--code-token-number': '#C2410C',
-  '--user-bubble-bg': '#1D4ED8',
-  '--user-bubble-text': '#EFF6FF',
-  '--user-bubble-border': 'transparent',
-  '--tree-item-hover': 'rgba(29, 78, 216, 0.08)',
-  '--tree-item-active': 'rgba(29, 78, 216, 0.14)',
-  '--tree-item-border': 'rgba(29, 78, 216, 0.18)',
-  '--tree-file-accent-bg': '#E8F0FF',
-  '--tree-file-accent-border': '#C9D9FF',
-  '--tree-file-accent-fg': '#1D4ED8',
-  '--tree-file-media-bg': '#EAF4FF',
-  '--tree-file-media-border': '#CFE4FF',
-  '--tree-file-media-fg': '#2563EB',
-  '--preview-surface': '#FBFCFE',
-  '--sidebar-item-hover': 'rgba(29, 78, 216, 0.08)',
-  '--sidebar-item-active': 'rgba(29, 78, 216, 0.14)',
-  '--sidebar-item-border': 'rgba(29, 78, 216, 0.16)',
+const BLACK: RgbColor = { red: 0, green: 0, blue: 0 };
+const WHITE: RgbColor = { red: 255, green: 255, blue: 255 };
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+const THEME_SHARE_PREFIX = 'codex-theme-v1:';
+const TRANSITION_CLASS = 'no-transitions';
+
+const SURFACE_UNDER_BASE_ALPHA: Record<ThemeVariant, number> = {
+  dark: 0.16,
+  light: 0.04,
 };
 
-const GRAPHITE_DARK: ThemeVariables = {
-  ...PAPER_DARK,
-  '--bg-primary': '#0F1117',
-  '--bg-secondary': '#151925',
-  '--bg-tertiary': '#1F2635',
-  '--text-primary': '#EEF2FF',
-  '--text-secondary': '#B5C0D6',
-  '--text-muted': '#7D8BA5',
-  '--accent': '#7AA2F7',
-  '--accent-hover': '#9AB8FF',
-  '--accent-light': 'rgba(122, 162, 247, 0.16)',
-  '--accent-foreground': '#0F1117',
-  '--border': 'rgba(148, 163, 184, 0.18)',
-  '--code-inline-bg': '#1B2230',
-  '--code-inline-border': '#2B3548',
-  '--code-inline-text': '#D7E2F2',
-  '--code-block-bg': '#171D29',
-  '--code-block-header-bg': '#171D29',
-  '--code-block-border': '#283245',
-  '--code-token-comment': '#7D8BA5',
-  '--code-token-keyword': '#C792EA',
-  '--code-token-string': '#8BD49C',
-  '--code-token-function': '#82AAFF',
-  '--code-token-number': '#F7B267',
-  '--code-token-operator': '#B6C2D9',
-  '--user-bubble-bg': '#7AA2F7',
-  '--user-bubble-text': '#0F1117',
-  '--user-bubble-border': 'transparent',
-  '--user-bubble-shadow': 'none',
-  '--tree-item-hover': 'rgba(122, 162, 247, 0.10)',
-  '--tree-item-active': 'rgba(122, 162, 247, 0.16)',
-  '--tree-item-border': 'rgba(122, 162, 247, 0.22)',
-  '--tree-file-accent-bg': '#1A2436',
-  '--tree-file-accent-border': '#2F4367',
-  '--tree-file-accent-fg': '#7AA2F7',
-  '--tree-file-media-bg': '#162637',
-  '--tree-file-media-border': '#284968',
-  '--tree-file-media-fg': '#78C5FF',
-  '--preview-surface': '#121825',
-  '--sidebar-item-hover': 'rgba(122, 162, 247, 0.12)',
-  '--sidebar-item-active': 'rgba(122, 162, 247, 0.18)',
-  '--sidebar-item-border': 'rgba(122, 162, 247, 0.18)',
+const SURFACE_UNDER_CONTRAST_STEP: Record<ThemeVariant, number> = {
+  dark: 0.0015,
+  light: 0.0012,
 };
 
-const SEPIA_LIGHT: ThemeVariables = {
-  ...PAPER_LIGHT,
-  '--bg-primary': '#F7F1E7',
-  '--bg-secondary': '#FFF9F0',
-  '--bg-tertiary': '#EFE3D1',
-  '--text-primary': '#3D2F22',
-  '--text-secondary': '#6B5B4D',
-  '--text-muted': '#9C8B78',
-  '--accent': '#8A5A44',
-  '--accent-hover': '#744938',
-  '--accent-light': 'rgba(138, 90, 68, 0.12)',
-  '--accent-foreground': '#FFF7ED',
-  '--border': '#DDCBB7',
-  '--code-inline-bg': '#F0E4D4',
-  '--code-inline-border': '#E0CFB9',
-  '--code-inline-text': '#5B4635',
-  '--code-block-bg': '#F5EBDD',
-  '--code-block-header-bg': '#F5EBDD',
-  '--code-block-border': '#E2D3BE',
-  '--code-token-keyword': '#A23E48',
-  '--code-token-string': '#5C7C46',
-  '--code-token-function': '#8C5E34',
-  '--code-token-number': '#B45309',
-  '--user-bubble-bg': '#8A5A44',
-  '--user-bubble-text': '#FFF7ED',
-  '--user-bubble-border': 'transparent',
-  '--tree-item-hover': 'rgba(138, 90, 68, 0.08)',
-  '--tree-item-active': 'rgba(138, 90, 68, 0.14)',
-  '--tree-item-border': 'rgba(138, 90, 68, 0.16)',
-  '--tree-file-accent-bg': '#F0E4D4',
-  '--tree-file-accent-border': '#E0CFB9',
-  '--tree-file-accent-fg': '#8A5A44',
-  '--tree-file-media-bg': '#EDF3E6',
-  '--tree-file-media-border': '#D6E0C9',
-  '--tree-file-media-fg': '#5C7C46',
-  '--tree-file-warm-bg': '#F8E8D8',
-  '--tree-file-warm-border': '#E4C7A9',
-  '--tree-file-warm-fg': '#B45309',
-  '--tree-file-neutral-bg': '#F3E9DA',
-  '--tree-file-neutral-border': '#DDCBB7',
-  '--tree-file-neutral-fg': '#7B6756',
-  '--preview-surface': '#FFF9F0',
-  '--sidebar-item-hover': 'rgba(138, 90, 68, 0.08)',
-  '--sidebar-item-active': 'rgba(138, 90, 68, 0.14)',
-  '--sidebar-item-border': 'rgba(138, 90, 68, 0.16)',
+const PANEL_BASE_ALPHA: Record<ThemeVariant, number> = {
+  dark: 0.03,
+  light: 0.18,
 };
 
-const SEPIA_DARK: ThemeVariables = {
-  ...PAPER_DARK,
-  '--bg-primary': '#1A1511',
-  '--bg-secondary': '#211B15',
-  '--bg-tertiary': '#30261D',
-  '--text-primary': '#F5EAD9',
-  '--text-secondary': '#D0BBA1',
-  '--text-muted': '#A18E78',
-  '--accent': '#E2A96B',
-  '--accent-hover': '#EDBC88',
-  '--accent-light': 'rgba(226, 169, 107, 0.16)',
-  '--accent-foreground': '#241B14',
-  '--border': 'rgba(226, 169, 107, 0.18)',
-  '--code-inline-bg': '#2A2118',
-  '--code-inline-border': '#3B2F23',
-  '--code-inline-text': '#E7D7C2',
-  '--code-block-bg': '#241C15',
-  '--code-block-header-bg': '#241C15',
-  '--code-block-border': '#3A2D21',
-  '--code-token-keyword': '#F38BA8',
-  '--code-token-string': '#A6D189',
-  '--code-token-function': '#E5C890',
-  '--code-token-number': '#F6C177',
-  '--code-token-operator': '#D6C6AE',
-  '--user-bubble-bg': '#E2A96B',
-  '--user-bubble-text': '#241B14',
-  '--user-bubble-border': 'transparent',
-  '--tree-item-hover': 'rgba(226, 169, 107, 0.12)',
-  '--tree-item-active': 'rgba(226, 169, 107, 0.18)',
-  '--tree-item-border': 'rgba(226, 169, 107, 0.18)',
-  '--tree-file-accent-bg': '#2B2118',
-  '--tree-file-accent-border': '#453225',
-  '--tree-file-accent-fg': '#E2A96B',
-  '--tree-file-media-bg': '#21261A',
-  '--tree-file-media-border': '#38412C',
-  '--tree-file-media-fg': '#A6D189',
-  '--tree-file-warm-bg': '#32231A',
-  '--tree-file-warm-border': '#5A3A28',
-  '--tree-file-warm-fg': '#F6C177',
-  '--tree-file-neutral-bg': '#241D17',
-  '--tree-file-neutral-border': '#3B2F23',
-  '--tree-file-neutral-fg': '#CBBBA6',
-  '--preview-surface': '#18130F',
-  '--sidebar-item-hover': 'rgba(226, 169, 107, 0.12)',
-  '--sidebar-item-active': 'rgba(226, 169, 107, 0.18)',
-  '--sidebar-item-border': 'rgba(226, 169, 107, 0.18)',
+const PANEL_CONTRAST_STEP: Record<ThemeVariant, number> = {
+  dark: 0.03,
+  light: 0.008,
 };
 
-const ROSE_LIGHT: ThemeVariables = {
-  ...PAPER_LIGHT,
-  '--bg-primary': '#FFF7FA',
-  '--bg-secondary': '#FFF0F5',
-  '--bg-tertiary': '#FCECF2',
-  '--text-primary': '#2D1320',
-  '--text-secondary': '#6C4255',
-  '--text-muted': '#A07689',
-  '--accent': '#B83280',
-  '--accent-hover': '#97266D',
-  '--accent-light': 'rgba(184, 50, 128, 0.12)',
-  '--accent-foreground': '#FFF5FA',
-  '--border': '#EBC8D8',
-  '--code-inline-bg': '#F8E6EE',
-  '--code-inline-border': '#EFCFDD',
-  '--code-inline-text': '#6B3655',
-  '--code-block-bg': '#FAEDF3',
-  '--code-block-header-bg': '#FAEDF3',
-  '--code-block-border': '#EFCFDD',
-  '--code-token-keyword': '#B83280',
-  '--code-token-string': '#2F855A',
-  '--code-token-function': '#6B46C1',
-  '--code-token-number': '#DD6B20',
-  '--user-bubble-bg': '#B83280',
-  '--user-bubble-text': '#FFF5FA',
-  '--user-bubble-border': 'transparent',
-  '--tree-item-hover': 'rgba(184, 50, 128, 0.08)',
-  '--tree-item-active': 'rgba(184, 50, 128, 0.14)',
-  '--tree-item-border': 'rgba(184, 50, 128, 0.16)',
-  '--tree-file-accent-bg': '#F8E6EE',
-  '--tree-file-accent-border': '#EFCFDD',
-  '--tree-file-accent-fg': '#B83280',
-  '--tree-file-media-bg': '#F1EAFE',
-  '--tree-file-media-border': '#DECDF8',
-  '--tree-file-media-fg': '#7C53D5',
-  '--tree-file-warm-bg': '#FFF0EA',
-  '--tree-file-warm-border': '#FFD8C8',
-  '--tree-file-warm-fg': '#DD6B20',
-  '--tree-file-neutral-bg': '#F7EDF3',
-  '--tree-file-neutral-border': '#E8CAD7',
-  '--tree-file-neutral-fg': '#8A5D72',
-  '--preview-surface': '#FFFFFF',
-  '--sidebar-item-hover': 'rgba(184, 50, 128, 0.08)',
-  '--sidebar-item-active': 'rgba(184, 50, 128, 0.14)',
-  '--sidebar-item-border': 'rgba(184, 50, 128, 0.16)',
-};
+const BASE_DISPLAY_FONT =
+  'ui-serif, "New York", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, Cambria, "Times New Roman", Times, serif';
+const BASE_UI_FONT =
+  '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif';
+const BASE_MONO_FONT =
+  '"JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace';
 
-const ROSE_DARK: ThemeVariables = {
-  ...PAPER_DARK,
-  '--bg-primary': '#170F16',
-  '--bg-secondary': '#211320',
-  '--bg-tertiary': '#321A2F',
-  '--text-primary': '#F9EAF1',
-  '--text-secondary': '#D6B2C5',
-  '--text-muted': '#A88497',
-  '--accent': '#F472B6',
-  '--accent-hover': '#F9A8D4',
-  '--accent-light': 'rgba(244, 114, 182, 0.16)',
-  '--accent-foreground': '#2A1122',
-  '--border': 'rgba(244, 114, 182, 0.16)',
-  '--code-inline-bg': '#291724',
-  '--code-inline-border': '#3A2032',
-  '--code-inline-text': '#F2D5E3',
-  '--code-block-bg': '#23141F',
-  '--code-block-header-bg': '#23141F',
-  '--code-block-border': '#3B2234',
-  '--code-token-keyword': '#FF8CC6',
-  '--code-token-string': '#86EFAC',
-  '--code-token-function': '#C4B5FD',
-  '--code-token-number': '#FDBA74',
-  '--code-token-operator': '#E7CAD8',
-  '--user-bubble-bg': '#F472B6',
-  '--user-bubble-text': '#2A1122',
-  '--user-bubble-border': 'transparent',
-  '--tree-item-hover': 'rgba(244, 114, 182, 0.12)',
-  '--tree-item-active': 'rgba(244, 114, 182, 0.18)',
-  '--tree-item-border': 'rgba(244, 114, 182, 0.18)',
-  '--tree-file-accent-bg': '#2B1725',
-  '--tree-file-accent-border': '#4A2440',
-  '--tree-file-accent-fg': '#F472B6',
-  '--tree-file-media-bg': '#241A2F',
-  '--tree-file-media-border': '#3D2A50',
-  '--tree-file-media-fg': '#C4B5FD',
-  '--tree-file-warm-bg': '#331F1A',
-  '--tree-file-warm-border': '#5E3426',
-  '--tree-file-warm-fg': '#FDBA74',
-  '--tree-file-neutral-bg': '#231721',
-  '--tree-file-neutral-border': '#3A2032',
-  '--tree-file-neutral-fg': '#D6B2C5',
-  '--preview-surface': '#181018',
-  '--sidebar-item-hover': 'rgba(244, 114, 182, 0.12)',
-  '--sidebar-item-active': 'rgba(244, 114, 182, 0.18)',
-  '--sidebar-item-border': 'rgba(244, 114, 182, 0.18)',
-};
+export const CODE_THEME_OPTIONS: readonly CodeThemeOption[] = [
+  { id: 'codex', label: 'Codex', variants: ['light', 'dark'] },
+  { id: 'absolutely', label: 'Absolutely', variants: ['light', 'dark'] },
+  { id: 'dp-code', label: 'Harbor', variants: ['light', 'dark'] },
+  { id: 'linear', label: 'Linear', variants: ['light', 'dark'] },
+  { id: 'notion', label: 'Notion', variants: ['light', 'dark'] },
+  { id: 'github', label: 'GitHub', variants: ['light', 'dark'] },
+  { id: 'catppuccin', label: 'Catppuccin', variants: ['light', 'dark'] },
+  { id: 'everforest', label: 'Everforest', variants: ['light', 'dark'] },
+  { id: 'rose-pine', label: 'Rose Pine', variants: ['light', 'dark'] },
+  { id: 'tokyo-night', label: 'Tokyo Night', variants: ['dark'] },
+  { id: 'raycast', label: 'Raycast', variants: ['light', 'dark'] },
+  { id: 'vercel', label: 'Vercel', variants: ['light', 'dark'] },
+] as const;
 
-const FOREST_LIGHT: ThemeVariables = {
-  ...PAPER_LIGHT,
-  '--bg-primary': '#F3F7F2',
-  '--bg-secondary': '#FBFDF9',
-  '--bg-tertiary': '#E4ECE3',
-  '--text-primary': '#17241C',
-  '--text-secondary': '#4D6254',
-  '--text-muted': '#7C9082',
-  '--accent': '#2F6B4F',
-  '--accent-hover': '#24543E',
-  '--accent-light': 'rgba(47, 107, 79, 0.12)',
-  '--accent-foreground': '#F4FBF6',
-  '--border': '#CDD9CF',
-  '--code-inline-bg': '#E5EEE4',
-  '--code-inline-border': '#D3E0D4',
-  '--code-inline-text': '#365243',
-  '--code-block-bg': '#EAF1E9',
-  '--code-block-header-bg': '#EAF1E9',
-  '--code-block-border': '#D6E1D7',
-  '--code-token-keyword': '#8B3D3D',
-  '--code-token-string': '#2F6B4F',
-  '--code-token-function': '#2B5A88',
-  '--code-token-number': '#B26A1F',
-  '--user-bubble-bg': '#2F6B4F',
-  '--user-bubble-text': '#F4FBF6',
-  '--user-bubble-border': 'transparent',
-  '--tree-item-hover': 'rgba(47, 107, 79, 0.08)',
-  '--tree-item-active': 'rgba(47, 107, 79, 0.14)',
-  '--tree-item-border': 'rgba(47, 107, 79, 0.16)',
-  '--tree-file-accent-bg': '#E4EEE7',
-  '--tree-file-accent-border': '#C9D9CD',
-  '--tree-file-accent-fg': '#2F6B4F',
-  '--tree-file-media-bg': '#E7F2EE',
-  '--tree-file-media-border': '#CFE2D9',
-  '--tree-file-media-fg': '#2E7A67',
-  '--tree-file-warm-bg': '#F9ECDC',
-  '--tree-file-warm-border': '#EBCDAA',
-  '--tree-file-warm-fg': '#A65D1A',
-  '--tree-file-neutral-bg': '#EDF2ED',
-  '--tree-file-neutral-border': '#D6DED7',
-  '--tree-file-neutral-fg': '#5D7063',
-  '--preview-surface': '#FCFEFB',
-  '--sidebar-item-hover': 'rgba(47, 107, 79, 0.08)',
-  '--sidebar-item-active': 'rgba(47, 107, 79, 0.14)',
-  '--sidebar-item-border': 'rgba(47, 107, 79, 0.16)',
-};
-
-const FOREST_DARK: ThemeVariables = {
-  ...PAPER_DARK,
-  '--bg-primary': '#0F1713',
-  '--bg-secondary': '#15201A',
-  '--bg-tertiary': '#203128',
-  '--text-primary': '#ECF5EF',
-  '--text-secondary': '#B7C8BC',
-  '--text-muted': '#809586',
-  '--accent': '#78C79A',
-  '--accent-hover': '#96D8B1',
-  '--accent-light': 'rgba(120, 199, 154, 0.16)',
-  '--accent-foreground': '#102018',
-  '--border': 'rgba(120, 199, 154, 0.18)',
-  '--code-inline-bg': '#1C2A22',
-  '--code-inline-border': '#294036',
-  '--code-inline-text': '#D7E9DD',
-  '--code-block-bg': '#18251F',
-  '--code-block-header-bg': '#18251F',
-  '--code-block-border': '#2A3E34',
-  '--code-token-keyword': '#F29C9C',
-  '--code-token-string': '#8FD9AE',
-  '--code-token-function': '#82B9FF',
-  '--code-token-number': '#E7B56A',
-  '--code-token-operator': '#CDDCD0',
-  '--user-bubble-bg': '#78C79A',
-  '--user-bubble-text': '#102018',
-  '--user-bubble-border': 'transparent',
-  '--tree-item-hover': 'rgba(120, 199, 154, 0.12)',
-  '--tree-item-active': 'rgba(120, 199, 154, 0.18)',
-  '--tree-item-border': 'rgba(120, 199, 154, 0.18)',
-  '--tree-file-accent-bg': '#17271F',
-  '--tree-file-accent-border': '#2A483A',
-  '--tree-file-accent-fg': '#78C79A',
-  '--tree-file-media-bg': '#132924',
-  '--tree-file-media-border': '#224740',
-  '--tree-file-media-fg': '#7FD4C1',
-  '--tree-file-warm-bg': '#312317',
-  '--tree-file-warm-border': '#59402A',
-  '--tree-file-warm-fg': '#E7B56A',
-  '--tree-file-neutral-bg': '#1A231D',
-  '--tree-file-neutral-border': '#2E3A31',
-  '--tree-file-neutral-fg': '#B5C5B8',
-  '--preview-surface': '#101A14',
-  '--sidebar-item-hover': 'rgba(120, 199, 154, 0.12)',
-  '--sidebar-item-active': 'rgba(120, 199, 154, 0.18)',
-  '--sidebar-item-border': 'rgba(120, 199, 154, 0.18)',
-};
-
-const AMBER_LIGHT: ThemeVariables = {
-  ...PAPER_LIGHT,
-  '--bg-primary': '#FFF8EE',
-  '--bg-secondary': '#FFFDF7',
-  '--bg-tertiary': '#F7E8D1',
-  '--text-primary': '#2E2012',
-  '--text-secondary': '#6E563B',
-  '--text-muted': '#9D8164',
-  '--accent': '#C47A18',
-  '--accent-hover': '#A86412',
-  '--accent-light': 'rgba(196, 122, 24, 0.14)',
-  '--accent-foreground': '#FFF8EF',
-  '--border': '#E6CFAD',
-  '--code-inline-bg': '#F7EBD8',
-  '--code-inline-border': '#E8D5B6',
-  '--code-inline-text': '#6E5334',
-  '--code-block-bg': '#FAF0E0',
-  '--code-block-header-bg': '#FAF0E0',
-  '--code-block-border': '#EBDCC1',
-  '--code-token-keyword': '#A44949',
-  '--code-token-string': '#7A6A1F',
-  '--code-token-function': '#9A5B13',
-  '--code-token-number': '#C47A18',
-  '--user-bubble-bg': '#C47A18',
-  '--user-bubble-text': '#FFF8EF',
-  '--user-bubble-border': 'transparent',
-  '--tree-item-hover': 'rgba(196, 122, 24, 0.08)',
-  '--tree-item-active': 'rgba(196, 122, 24, 0.14)',
-  '--tree-item-border': 'rgba(196, 122, 24, 0.18)',
-  '--tree-file-accent-bg': '#F7E9D3',
-  '--tree-file-accent-border': '#E7D1AF',
-  '--tree-file-accent-fg': '#9A5B13',
-  '--tree-file-media-bg': '#FFF1D8',
-  '--tree-file-media-border': '#F0D2A6',
-  '--tree-file-media-fg': '#C47A18',
-  '--tree-file-warm-bg': '#FDE5D2',
-  '--tree-file-warm-border': '#F1C8A6',
-  '--tree-file-warm-fg': '#B45309',
-  '--tree-file-neutral-bg': '#F8EFDE',
-  '--tree-file-neutral-border': '#E6D5B8',
-  '--tree-file-neutral-fg': '#7B6446',
-  '--preview-surface': '#FFFDF9',
-  '--sidebar-item-hover': 'rgba(196, 122, 24, 0.08)',
-  '--sidebar-item-active': 'rgba(196, 122, 24, 0.14)',
-  '--sidebar-item-border': 'rgba(196, 122, 24, 0.16)',
-};
-
-const AMBER_DARK: ThemeVariables = {
-  ...PAPER_DARK,
-  '--bg-primary': '#171108',
-  '--bg-secondary': '#21180D',
-  '--bg-tertiary': '#332414',
-  '--text-primary': '#F8EBD8',
-  '--text-secondary': '#D9BE98',
-  '--text-muted': '#A98C67',
-  '--accent': '#F0B04B',
-  '--accent-hover': '#F6C978',
-  '--accent-light': 'rgba(240, 176, 75, 0.18)',
-  '--accent-foreground': '#261B0D',
-  '--border': 'rgba(240, 176, 75, 0.18)',
-  '--code-inline-bg': '#291E11',
-  '--code-inline-border': '#3F2E1A',
-  '--code-inline-text': '#EDDABD',
-  '--code-block-bg': '#22180D',
-  '--code-block-header-bg': '#22180D',
-  '--code-block-border': '#3A2917',
-  '--code-token-keyword': '#F38BA8',
-  '--code-token-string': '#D9C86E',
-  '--code-token-function': '#F4B666',
-  '--code-token-number': '#FFD089',
-  '--code-token-operator': '#E6D0B2',
-  '--user-bubble-bg': '#F0B04B',
-  '--user-bubble-text': '#261B0D',
-  '--user-bubble-border': 'transparent',
-  '--tree-item-hover': 'rgba(240, 176, 75, 0.12)',
-  '--tree-item-active': 'rgba(240, 176, 75, 0.18)',
-  '--tree-item-border': 'rgba(240, 176, 75, 0.18)',
-  '--tree-file-accent-bg': '#2B1E10',
-  '--tree-file-accent-border': '#4A341A',
-  '--tree-file-accent-fg': '#F0B04B',
-  '--tree-file-media-bg': '#322311',
-  '--tree-file-media-border': '#5A3E1C',
-  '--tree-file-media-fg': '#FFC76E',
-  '--tree-file-warm-bg': '#362012',
-  '--tree-file-warm-border': '#62351D',
-  '--tree-file-warm-fg': '#FFB37A',
-  '--tree-file-neutral-bg': '#241A10',
-  '--tree-file-neutral-border': '#3D2B19',
-  '--tree-file-neutral-fg': '#D2BC9E',
-  '--preview-surface': '#181107',
-  '--sidebar-item-hover': 'rgba(240, 176, 75, 0.12)',
-  '--sidebar-item-active': 'rgba(240, 176, 75, 0.18)',
-  '--sidebar-item-border': 'rgba(240, 176, 75, 0.18)',
-};
-
-const STUDIO_LIGHT: ThemeVariables = {
-  ...PAPER_LIGHT,
-  '--bg-primary': '#F6F3EF',
-  '--bg-secondary': '#FBF8F4',
-  '--bg-tertiary': '#ECE5DD',
-  '--text-primary': '#191512',
-  '--text-secondary': '#5D534A',
-  '--text-muted': '#8A7D72',
-  '--accent': '#C84E2F',
-  '--accent-hover': '#A73E24',
-  '--accent-light': 'rgba(200, 78, 47, 0.12)',
-  '--accent-foreground': '#FFF7F3',
-  '--border': '#D9CEC3',
-  '--code-inline-bg': '#EEE5DC',
-  '--code-inline-border': '#DED0C2',
-  '--code-inline-text': '#584B40',
-  '--code-block-bg': '#F0E8DF',
-  '--code-block-header-bg': '#F0E8DF',
-  '--code-block-border': '#E0D3C5',
-  '--code-token-keyword': '#C84E2F',
-  '--code-token-string': '#2F7A66',
-  '--code-token-function': '#2E5AAC',
-  '--code-token-number': '#A65A17',
-  '--user-bubble-bg': '#C84E2F',
-  '--user-bubble-text': '#FFF7F3',
-  '--user-bubble-border': 'transparent',
-  '--tree-item-hover': 'rgba(200, 78, 47, 0.08)',
-  '--tree-item-active': 'rgba(200, 78, 47, 0.14)',
-  '--tree-item-border': 'rgba(200, 78, 47, 0.16)',
-  '--tree-file-accent-bg': '#F2E2DB',
-  '--tree-file-accent-border': '#E7C4B8',
-  '--tree-file-accent-fg': '#C84E2F',
-  '--tree-file-media-bg': '#E4EEF0',
-  '--tree-file-media-border': '#C5D8DD',
-  '--tree-file-media-fg': '#2F7A86',
-  '--tree-file-warm-bg': '#F7E5D7',
-  '--tree-file-warm-border': '#EBC7AF',
-  '--tree-file-warm-fg': '#B85C21',
-  '--tree-file-neutral-bg': '#EEE7E0',
-  '--tree-file-neutral-border': '#DDD2C7',
-  '--tree-file-neutral-fg': '#6C6055',
-  '--preview-surface': '#FCFAF7',
-  '--sidebar-item-hover': 'rgba(200, 78, 47, 0.08)',
-  '--sidebar-item-active': 'rgba(200, 78, 47, 0.14)',
-  '--sidebar-item-border': 'rgba(200, 78, 47, 0.16)',
-};
-
-const STUDIO_DARK: ThemeVariables = {
-  ...PAPER_DARK,
-  '--bg-primary': '#12100F',
-  '--bg-secondary': '#1A1715',
-  '--bg-tertiary': '#2A221E',
-  '--text-primary': '#F5EEE8',
-  '--text-secondary': '#D0C0B3',
-  '--text-muted': '#9C8A7D',
-  '--accent': '#FF7A59',
-  '--accent-hover': '#FF9A7F',
-  '--accent-light': 'rgba(255, 122, 89, 0.16)',
-  '--accent-foreground': '#2A1510',
-  '--border': 'rgba(255, 122, 89, 0.16)',
-  '--code-inline-bg': '#261F1B',
-  '--code-inline-border': '#382D27',
-  '--code-inline-text': '#EADCD1',
-  '--code-block-bg': '#1F1A17',
-  '--code-block-header-bg': '#1F1A17',
-  '--code-block-border': '#342A25',
-  '--code-token-keyword': '#FF9B7C',
-  '--code-token-string': '#7FD9C4',
-  '--code-token-function': '#8CB4FF',
-  '--code-token-number': '#F5B26B',
-  '--code-token-operator': '#E3D0C2',
-  '--user-bubble-bg': '#FF7A59',
-  '--user-bubble-text': '#2A1510',
-  '--user-bubble-border': 'transparent',
-  '--tree-item-hover': 'rgba(255, 122, 89, 0.12)',
-  '--tree-item-active': 'rgba(255, 122, 89, 0.18)',
-  '--tree-item-border': 'rgba(255, 122, 89, 0.18)',
-  '--tree-file-accent-bg': '#291D19',
-  '--tree-file-accent-border': '#4A2C24',
-  '--tree-file-accent-fg': '#FF7A59',
-  '--tree-file-media-bg': '#182326',
-  '--tree-file-media-border': '#2A444A',
-  '--tree-file-media-fg': '#7FD9E4',
-  '--tree-file-warm-bg': '#322018',
-  '--tree-file-warm-border': '#5A3626',
-  '--tree-file-warm-fg': '#F5B26B',
-  '--tree-file-neutral-bg': '#211B18',
-  '--tree-file-neutral-border': '#382D27',
-  '--tree-file-neutral-fg': '#D0C0B3',
-  '--preview-surface': '#151210',
-  '--sidebar-item-hover': 'rgba(255, 122, 89, 0.12)',
-  '--sidebar-item-active': 'rgba(255, 122, 89, 0.18)',
-  '--sidebar-item-border': 'rgba(255, 122, 89, 0.18)',
-};
-
-export const DEFAULT_COLOR_THEME_ID: ColorThemeId = 'paper';
-
-export const COLOR_THEME_FAMILIES: ColorThemeFamily[] = [
-  {
-    id: 'paper',
-    label: 'Paper',
-    description: 'Clean neutral workspace with soft contrast.',
-    variants: {
-      light: PAPER_LIGHT,
-      dark: PAPER_DARK,
+const THEME_SEED_CATALOG: Record<string, Partial<Record<ThemeVariant, ChromeTheme>>> = {
+  codex: {
+    dark: {
+      accent: '#0169cc',
+      contrast: 60,
+      fonts: { code: null, ui: null },
+      ink: '#fcfcfc',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#00a240',
+        diffRemoved: '#e02e2a',
+        skill: '#b06dff',
+      },
+      surface: '#111111',
+    },
+    light: {
+      accent: '#0169cc',
+      contrast: 45,
+      fonts: { code: null, ui: null },
+      ink: '#0d0d0d',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#00a240',
+        diffRemoved: '#ba2623',
+        skill: '#751ed9',
+      },
+      surface: '#ffffff',
     },
   },
-  {
-    id: 'graphite',
-    label: 'Graphite',
-    description: 'Sharper editor-like contrast with cool slate tones.',
-    variants: {
-      light: GRAPHITE_LIGHT,
-      dark: GRAPHITE_DARK,
+  absolutely: {
+    dark: {
+      accent: '#cc7d5e',
+      contrast: 60,
+      fonts: { code: null, ui: null },
+      ink: '#f9f9f7',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#00c853',
+        diffRemoved: '#ff5f38',
+        skill: '#cc7d5e',
+      },
+      surface: '#2d2d2b',
+    },
+    light: {
+      accent: '#cc7d5e',
+      contrast: 45,
+      fonts: { code: null, ui: null },
+      ink: '#2d2d2b',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#00c853',
+        diffRemoved: '#ff5f38',
+        skill: '#cc7d5e',
+      },
+      surface: '#f9f9f7',
     },
   },
-  {
-    id: 'sepia',
-    label: 'Sepia',
-    description: 'Warm document-centric palette for reading and writing.',
-    variants: {
-      light: SEPIA_LIGHT,
-      dark: SEPIA_DARK,
+  'dp-code': {
+    dark: {
+      accent: '#4fb0c6',
+      contrast: 72,
+      fonts: { code: null, ui: null },
+      ink: '#eef4f7',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#54c690',
+        diffRemoved: '#f06a6f',
+        skill: '#8f86ff',
+      },
+      surface: '#0f161b',
+    },
+    light: {
+      accent: '#1f8aa0',
+      contrast: 58,
+      fonts: { code: null, ui: null },
+      ink: '#1b2730',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#1f9a63',
+        diffRemoved: '#cf4c57',
+        skill: '#6b63e8',
+      },
+      surface: '#f6fbfc',
     },
   },
-  {
-    id: 'rose',
-    label: 'Rose Night',
-    description: 'Berry-tinted palette with stronger accent color.',
-    variants: {
-      light: ROSE_LIGHT,
-      dark: ROSE_DARK,
+  linear: {
+    dark: {
+      accent: '#606acc',
+      contrast: 68,
+      fonts: { code: null, ui: 'Inter' },
+      ink: '#e3e4e6',
+      opaqueWindows: true,
+      semanticColors: {
+        diffAdded: '#69c967',
+        diffRemoved: '#ff7e78',
+        skill: '#c2a1ff',
+      },
+      surface: '#0f0f11',
+    },
+    light: {
+      accent: '#5566d9',
+      contrast: 52,
+      fonts: { code: null, ui: 'Inter' },
+      ink: '#17181c',
+      opaqueWindows: true,
+      semanticColors: {
+        diffAdded: '#00a240',
+        diffRemoved: '#ba2623',
+        skill: '#6a63ff',
+      },
+      surface: '#f8f8fb',
     },
   },
-  {
-    id: 'forest',
-    label: 'Forest',
-    description: 'Quiet green palette with softer, natural contrast.',
-    variants: {
-      light: FOREST_LIGHT,
-      dark: FOREST_DARK,
+  notion: {
+    dark: {
+      accent: '#3183d8',
+      contrast: 60,
+      fonts: { code: null, ui: null },
+      ink: '#d9d9d8',
+      opaqueWindows: true,
+      semanticColors: {
+        diffAdded: '#4ec9b0',
+        diffRemoved: '#fa423e',
+        skill: '#3183d8',
+      },
+      surface: '#191919',
+    },
+    light: {
+      accent: '#3183d8',
+      contrast: 45,
+      fonts: { code: null, ui: null },
+      ink: '#37352f',
+      opaqueWindows: true,
+      semanticColors: {
+        diffAdded: '#008000',
+        diffRemoved: '#a31515',
+        skill: '#0000ff',
+      },
+      surface: '#ffffff',
     },
   },
-  {
-    id: 'amber',
-    label: 'Amber',
-    description: 'Golden editorial palette with warmer highlights.',
-    variants: {
-      light: AMBER_LIGHT,
-      dark: AMBER_DARK,
+  github: {
+    dark: {
+      accent: '#58a6ff',
+      contrast: 58,
+      fonts: { code: null, ui: null },
+      ink: '#f0f6fc',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#3fb950',
+        diffRemoved: '#f85149',
+        skill: '#bc8cff',
+      },
+      surface: '#0d1117',
+    },
+    light: {
+      accent: '#0969da',
+      contrast: 44,
+      fonts: { code: null, ui: null },
+      ink: '#1f2328',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#1a7f37',
+        diffRemoved: '#cf222e',
+        skill: '#8250df',
+      },
+      surface: '#ffffff',
     },
   },
-  {
-    id: 'studio',
-    label: 'Studio',
-    description: 'Creative high-contrast palette with bold signal accents.',
-    variants: {
-      light: STUDIO_LIGHT,
-      dark: STUDIO_DARK,
+  catppuccin: {
+    dark: {
+      accent: '#cba6f7',
+      contrast: 60,
+      fonts: { code: null, ui: null },
+      ink: '#cdd6f4',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#a6e3a1',
+        diffRemoved: '#f38ba8',
+        skill: '#cba6f7',
+      },
+      surface: '#1e1e2e',
+    },
+    light: {
+      accent: '#8839ef',
+      contrast: 45,
+      fonts: { code: null, ui: null },
+      ink: '#4c4f69',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#40a02b',
+        diffRemoved: '#d20f39',
+        skill: '#8839ef',
+      },
+      surface: '#eff1f5',
     },
   },
-];
+  everforest: {
+    dark: {
+      accent: '#a7c080',
+      contrast: 60,
+      fonts: { code: null, ui: null },
+      ink: '#d3c6aa',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#a7c080',
+        diffRemoved: '#e67e80',
+        skill: '#d699b6',
+      },
+      surface: '#2d353b',
+    },
+    light: {
+      accent: '#8da101',
+      contrast: 44,
+      fonts: { code: null, ui: null },
+      ink: '#5c6a72',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#6f894e',
+        diffRemoved: '#c85552',
+        skill: '#9d6fca',
+      },
+      surface: '#fdf6e3',
+    },
+  },
+  'rose-pine': {
+    dark: {
+      accent: '#ea9a97',
+      contrast: 60,
+      fonts: { code: null, ui: null },
+      ink: '#e0def4',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#9ccfd8',
+        diffRemoved: '#908caa',
+        skill: '#c4a7e7',
+      },
+      surface: '#232136',
+    },
+    light: {
+      accent: '#d7827e',
+      contrast: 45,
+      fonts: { code: null, ui: null },
+      ink: '#575279',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#56949f',
+        diffRemoved: '#b4637a',
+        skill: '#907aa9',
+      },
+      surface: '#faf4ed',
+    },
+  },
+  'tokyo-night': {
+    dark: {
+      accent: '#7aa2f7',
+      contrast: 70,
+      fonts: { code: null, ui: null },
+      ink: '#c0caf5',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#9ece6a',
+        diffRemoved: '#f7768e',
+        skill: '#bb9af7',
+      },
+      surface: '#1a1b26',
+    },
+  },
+  raycast: {
+    dark: {
+      accent: '#ff6363',
+      contrast: 60,
+      fonts: { code: '"JetBrains Mono"', ui: 'Inter' },
+      ink: '#fefefe',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#59d499',
+        diffRemoved: '#ff6363',
+        skill: '#cf2f98',
+      },
+      surface: '#101010',
+    },
+    light: {
+      accent: '#ff6363',
+      contrast: 45,
+      fonts: { code: '"JetBrains Mono"', ui: 'Inter' },
+      ink: '#030303',
+      opaqueWindows: false,
+      semanticColors: {
+        diffAdded: '#006b4f',
+        diffRemoved: '#b12424',
+        skill: '#9a1b6e',
+      },
+      surface: '#ffffff',
+    },
+  },
+  vercel: {
+    dark: {
+      accent: '#ffffff',
+      contrast: 72,
+      fonts: { code: '"Geist Mono"', ui: 'Geist' },
+      ink: '#f5f5f5',
+      opaqueWindows: true,
+      semanticColors: {
+        diffAdded: '#40c977',
+        diffRemoved: '#ff7b72',
+        skill: '#8b5cf6',
+      },
+      surface: '#000000',
+    },
+    light: {
+      accent: '#111111',
+      contrast: 55,
+      fonts: { code: '"Geist Mono"', ui: 'Geist' },
+      ink: '#171717',
+      opaqueWindows: true,
+      semanticColors: {
+        diffAdded: '#159d6c',
+        diffRemoved: '#d1435b',
+        skill: '#6d28d9',
+      },
+      surface: '#ffffff',
+    },
+  },
+};
 
-const THEME_STYLE_TAG_ID = 'cowork-theme-vars';
-const CUSTOM_STYLE_TAG_ID = 'cowork-theme-custom-css';
-const THEME_VARIABLE_NAMES = Object.keys(PAPER_LIGHT);
+export const DEFAULT_CHROME_THEME_BY_VARIANT: Record<ThemeVariant, ChromeTheme> = {
+  dark: {
+    accent: '#339cff',
+    contrast: 60,
+    fonts: { code: null, ui: null },
+    ink: '#ffffff',
+    opaqueWindows: false,
+    semanticColors: {
+      diffAdded: '#40c977',
+      diffRemoved: '#fa423e',
+      skill: '#ad7bf9',
+    },
+    surface: '#181818',
+  },
+  light: {
+    accent: '#339cff',
+    contrast: 45,
+    fonts: { code: null, ui: null },
+    ink: '#1a1c1f',
+    opaqueWindows: false,
+    semanticColors: {
+      diffAdded: '#00a240',
+      diffRemoved: '#ba2623',
+      skill: '#924ff7',
+    },
+    surface: '#ffffff',
+  },
+};
 
-export function resolveThemeMode(themeMode: Theme): ResolvedThemeMode {
+export const DEFAULT_THEME_STATE: ThemeState = {
+  chromeThemes: {
+    dark: getCodeThemeSeed('codex', 'dark'),
+    light: getCodeThemeSeed('codex', 'light'),
+  },
+  codeThemeIds: {
+    dark: 'codex',
+    light: 'codex',
+  },
+};
+
+export function resolveThemeMode(themeMode: ThemeMode): ThemeVariant {
   if (themeMode === 'system') {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
   return themeMode;
 }
 
-export function getColorThemeFamily(colorThemeId: ColorThemeId): ColorThemeFamily {
-  return (
-    COLOR_THEME_FAMILIES.find((theme) => theme.id === colorThemeId) ||
-    COLOR_THEME_FAMILIES[0]
-  );
+export function getAvailableCodeThemes(variant: ThemeVariant): readonly CodeThemeOption[] {
+  return CODE_THEME_OPTIONS.filter((option) => option.variants.includes(variant));
 }
 
-export function getThemePreviewPalette(colorThemeId: ColorThemeId, themeMode: Theme): string[] {
-  const resolvedMode = resolveThemeMode(themeMode);
-  const variables = getColorThemeFamily(colorThemeId).variants[resolvedMode];
-  return [
-    variables['--bg-primary'],
-    variables['--bg-tertiary'],
-    variables['--accent'],
-    variables['--text-primary'],
-  ];
+export function getCodeThemeSeed(codeThemeId: string, variant: ThemeVariant): ChromeTheme {
+  const normalizedCodeThemeId = normalizeCodeThemeId(codeThemeId, variant);
+  const seeded = THEME_SEED_CATALOG[normalizedCodeThemeId]?.[variant];
+  return normalizeChromeTheme(seeded, variant);
+}
+
+export function normalizeThemeState(value: unknown): ThemeState {
+  const state = isRecord(value) ? value : {};
+  const chromeThemes = isRecord(state.chromeThemes) ? state.chromeThemes : {};
+  const codeThemeIds = isRecord(state.codeThemeIds) ? state.codeThemeIds : {};
+
+  return {
+    chromeThemes: {
+      dark: normalizeChromeTheme(chromeThemes.dark, 'dark'),
+      light: normalizeChromeTheme(chromeThemes.light, 'light'),
+    },
+    codeThemeIds: {
+      dark: normalizeCodeThemeId(codeThemeIds.dark, 'dark'),
+      light: normalizeCodeThemeId(codeThemeIds.light, 'light'),
+    },
+  };
+}
+
+export function resolveThemePack(themeState: ThemeState, variant: ThemeVariant): ThemePack {
+  return {
+    codeThemeId: normalizeCodeThemeId(themeState.codeThemeIds[variant], variant),
+    theme: normalizeChromeTheme(themeState.chromeThemes[variant], variant),
+  };
+}
+
+export function updateThemePack(
+  themeState: ThemeState,
+  variant: ThemeVariant,
+  patch: Partial<ChromeTheme>
+): ThemeState {
+  return {
+    ...themeState,
+    chromeThemes: {
+      ...themeState.chromeThemes,
+      [variant]: normalizeChromeTheme(
+        mergeThemeSeedPatch(resolveThemePack(themeState, variant).theme, patch),
+        variant
+      ),
+    },
+  };
+}
+
+export function setThemePackFonts(
+  themeState: ThemeState,
+  variant: ThemeVariant,
+  patch: Partial<ThemeFonts>
+): ThemeState {
+  return updateThemePack(themeState, variant, {
+    fonts: {
+      ...resolveThemePack(themeState, variant).theme.fonts,
+      ...patch,
+    },
+  });
+}
+
+export function setThemeCodeThemeId(
+  themeState: ThemeState,
+  variant: ThemeVariant,
+  codeThemeId: string
+): ThemeState {
+  const normalized = normalizeCodeThemeId(codeThemeId, variant);
+  const seed = getCodeThemeSeed(normalized, variant);
+  const previous = resolveThemePack(themeState, variant).theme;
+
+  return {
+    chromeThemes: {
+      ...themeState.chromeThemes,
+      [variant]: normalizeChromeTheme(
+        mergeThemeSeedPatch(previous, {
+          accent: seed.accent,
+          contrast: seed.contrast,
+          ink: seed.ink,
+          opaqueWindows: seed.opaqueWindows,
+          semanticColors: seed.semanticColors,
+          surface: seed.surface,
+        }),
+        variant
+      ),
+    },
+    codeThemeIds: {
+      ...themeState.codeThemeIds,
+      [variant]: normalized,
+    },
+  };
+}
+
+export function resetThemeVariant(themeState: ThemeState, variant: ThemeVariant): ThemeState {
+  return {
+    chromeThemes: {
+      ...themeState.chromeThemes,
+      [variant]: getCodeThemeSeed(DEFAULT_THEME_STATE.codeThemeIds[variant], variant),
+    },
+    codeThemeIds: {
+      ...themeState.codeThemeIds,
+      [variant]: DEFAULT_THEME_STATE.codeThemeIds[variant],
+    },
+  };
+}
+
+export function areThemePacksEqual(left: ThemePack, right: ThemePack): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+export function createThemeShareString(variant: ThemeVariant, pack: ThemePack): string {
+  return `${THEME_SHARE_PREFIX}${JSON.stringify({
+    codeThemeId: pack.codeThemeId,
+    theme: pack.theme,
+    variant,
+  })}`;
+}
+
+export function parseThemeShareString(value: string): ThemeSharePayload {
+  const normalized = value.trim();
+  if (!normalized.startsWith(THEME_SHARE_PREFIX)) {
+    throw new Error('Theme share string must start with codex-theme-v1:');
+  }
+
+  const payloadText = normalized.slice(THEME_SHARE_PREFIX.length);
+  let payload: unknown;
+  try {
+    payload = JSON.parse(payloadText);
+  } catch {
+    throw new Error('Theme share string does not contain valid JSON.');
+  }
+
+  if (!isRecord(payload)) {
+    throw new Error('Theme share string must encode an object.');
+  }
+
+  const variant = payload.variant === 'dark' ? 'dark' : payload.variant === 'light' ? 'light' : null;
+  if (!variant) {
+    throw new Error('Theme share variant must be light or dark.');
+  }
+
+  return {
+    codeThemeId: normalizeCodeThemeId(payload.codeThemeId, variant),
+    theme: normalizeChromeTheme(payload.theme, variant),
+    variant,
+  };
+}
+
+export function importThemeShareString(
+  themeState: ThemeState,
+  targetVariant: ThemeVariant,
+  value: string
+): ThemeState {
+  const payload = parseThemeShareString(value);
+  if (payload.variant !== targetVariant) {
+    throw new Error(`Expected a ${targetVariant} theme string, received ${payload.variant}.`);
+  }
+
+  return {
+    chromeThemes: {
+      ...themeState.chromeThemes,
+      [targetVariant]: payload.theme,
+    },
+    codeThemeIds: {
+      ...themeState.codeThemeIds,
+      [targetVariant]: payload.codeThemeId,
+    },
+  };
 }
 
 export function applyThemePreferences({
   themeMode,
-  colorThemeId,
-  customThemeCss,
+  themeState,
+  uiFontFamily,
+  chatCodeFontFamily,
 }: {
-  themeMode: Theme;
-  colorThemeId: ColorThemeId;
-  customThemeCss: string;
+  themeMode: ThemeMode;
+  themeState: ThemeState;
+  uiFontFamily: string;
+  chatCodeFontFamily: string;
 }) {
   const root = document.documentElement;
   const resolvedMode = resolveThemeMode(themeMode);
-  const variables = getColorThemeFamily(colorThemeId).variants[resolvedMode];
+  const pack = resolveThemePack(themeState, resolvedMode);
+  const variables = buildThemeVariables(pack, resolvedMode, uiFontFamily, chatCodeFontFamily);
 
+  root.classList.add(TRANSITION_CLASS);
   root.classList.toggle('dark', resolvedMode === 'dark');
-  root.dataset.colorTheme = colorThemeId;
-  root.dataset.themeMode = resolvedMode;
+  root.dataset.themeMode = themeMode;
+  root.dataset.themeVariant = resolvedMode;
+  root.dataset.codeThemeId = pack.codeThemeId;
+  root.dataset.windowMaterial = pack.theme.opaqueWindows ? 'opaque' : 'translucent';
 
-  for (const variableName of THEME_VARIABLE_NAMES) {
-    const value = variables[variableName];
-    if (value) {
-      root.style.setProperty(variableName, value);
-    } else {
-      root.style.removeProperty(variableName);
-    }
+  for (const [name, value] of Object.entries(variables)) {
+    root.style.setProperty(name, value);
   }
 
-  let themeStyleTag = document.getElementById(THEME_STYLE_TAG_ID) as HTMLStyleElement | null;
-  themeStyleTag?.remove();
-
-  const normalizedCss = normalizeCustomThemeCss(customThemeCss);
-  let customStyleTag = document.getElementById(CUSTOM_STYLE_TAG_ID) as HTMLStyleElement | null;
-
-  if (!normalizedCss) {
-    customStyleTag?.remove();
-    return;
+  if (typeof window !== 'undefined' && typeof window.electron?.setTheme === 'function') {
+    void window.electron.setTheme(themeMode).catch(() => undefined);
   }
 
-  if (!customStyleTag) {
-    customStyleTag = document.createElement('style');
-    customStyleTag.id = CUSTOM_STYLE_TAG_ID;
-  }
-  document.head.appendChild(customStyleTag);
-
-  customStyleTag.textContent = makeCssVariableOverridesImportant(normalizedCss);
-}
-
-function normalizeCustomThemeCss(customThemeCss: string): string {
-  const trimmed = customThemeCss.trim();
-  if (!trimmed) {
-    return '';
-  }
-
-  return trimmed.includes('{') ? trimmed : `:root {\n${trimmed}\n}`;
-}
-
-function makeCssVariableOverridesImportant(css: string): string {
-  return css.replace(/(--[\w-]+\s*:\s*)([^;!]+)(;)/g, (_match, prefix, value, suffix) => {
-    return `${prefix}${String(value).trim()} !important${suffix}`;
+  root.offsetHeight;
+  requestAnimationFrame(() => {
+    root.classList.remove(TRANSITION_CLASS);
   });
+}
+
+export function getThemePreviewPalette(themeState: ThemeState, variant: ThemeVariant): string[] {
+  const pack = resolveThemePack(themeState, variant);
+  return [pack.theme.surface, pack.theme.ink, pack.theme.accent, pack.theme.semanticColors.skill];
+}
+
+function buildThemeVariables(
+  pack: ThemePack,
+  variant: ThemeVariant,
+  uiFontFamily: string,
+  chatCodeFontFamily: string
+): Record<string, string> {
+  const theme = buildComputedTheme(pack.theme, variant);
+  const controlBackground = variant === 'light'
+    ? mixHex(pack.theme.surface, pack.theme.ink, 0.06 + theme.contrast * 0.05)
+    : mixHex(pack.theme.surface, '#ffffff', 0.09 + theme.contrast * 0.04);
+  const elevatedPrimary = variant === 'light'
+    ? mixHex(pack.theme.surface, pack.theme.ink, 0.08 + theme.contrast * 0.08)
+    : mixHex(pack.theme.surface, '#ffffff', 0.16 + theme.contrast * 0.12);
+  const elevatedSecondary = variant === 'light'
+    ? mixHex(pack.theme.surface, pack.theme.ink, 0.04 + theme.contrast * 0.05)
+    : mixHex(pack.theme.surface, '#ffffff', 0.08 + theme.contrast * 0.08);
+  const panel = buildPanelBackground(theme);
+  const surfaceUnder = buildSurfaceUnder(pack.theme, theme.surface, theme.ink, variant);
+  const accentLight = variant === 'light'
+    ? formatRgba(parseHexColor(pack.theme.accent), 0.12 + theme.contrast * 0.03)
+    : formatRgba(parseHexColor(pack.theme.accent), 0.16 + theme.contrast * 0.03);
+  const border = formatRgba(theme.ink, variant === 'light' ? 0.08 + theme.contrast * 0.04 : 0.1 + theme.contrast * 0.04);
+  const borderLight = formatRgba(theme.ink, variant === 'light' ? 0.04 + theme.contrast * 0.02 : 0.05 + theme.contrast * 0.02);
+  const textSecondary = formatRgba(theme.ink, 0.72 + theme.contrast * 0.08);
+  const textMuted = formatRgba(theme.ink, 0.48 + theme.contrast * 0.12);
+  const popoverBackground = variant === 'light'
+    ? formatOpaqueRgb(mixRgb(parseHexColor(panel), WHITE, 0.22))
+    : formatOpaqueRgb(mixRgb(parseHexColor(panel), WHITE, 0.08));
+  const accentForeground = getReadableTextColor(pack.theme.accent);
+  const userBubbleBg = variant === 'light' ? pack.theme.accent : pack.theme.ink;
+  const userBubbleText = variant === 'light' ? accentForeground : formatHex(parseHexColor(pack.theme.surface));
+  const uiFont = normalizeFontFamily(uiFontFamily) || normalizeFontFamily(pack.theme.fonts.ui) || BASE_UI_FONT;
+  const monoFont =
+    normalizeFontFamily(chatCodeFontFamily) ||
+    normalizeFontFamily(pack.theme.fonts.code) ||
+    BASE_MONO_FONT;
+  const skillColor = parseHexColor(pack.theme.semanticColors.skill);
+  const commandChipBackground = variant === 'light'
+    ? formatRgba(parseHexColor(pack.theme.accent), 0.1)
+    : formatRgba(theme.ink, 0.06 + theme.contrast * 0.03);
+  const commandChipBorder = variant === 'light'
+    ? formatRgba(parseHexColor(pack.theme.accent), 0.18)
+    : formatRgba(theme.ink, 0.12 + theme.contrast * 0.03);
+  const mentionChipBackground = variant === 'light'
+    ? formatRgba(parseHexColor(pack.theme.accent), 0.08)
+    : formatRgba(parseHexColor(pack.theme.accent), 0.14);
+  const mentionChipBorder = variant === 'light'
+    ? formatRgba(parseHexColor(pack.theme.accent), 0.12)
+    : formatRgba(parseHexColor(pack.theme.accent), 0.2);
+  const skillChipBackground = variant === 'light'
+    ? formatRgba(skillColor, 0.1)
+    : formatRgba(skillColor, 0.16);
+  const skillChipBorder = variant === 'light'
+    ? formatRgba(skillColor, 0.16)
+    : formatRgba(skillColor, 0.22);
+  const skillChipText = variant === 'light'
+    ? mixHex(pack.theme.semanticColors.skill, pack.theme.ink, 0.28)
+    : mixHex(pack.theme.semanticColors.skill, '#ffffff', 0.16);
+
+  return {
+    '--bg-primary': surfaceUnder,
+    '--bg-secondary': panel,
+    '--bg-tertiary': elevatedSecondary,
+    '--text-primary': pack.theme.ink,
+    '--text-secondary': textSecondary,
+    '--text-muted': textMuted,
+    '--accent': pack.theme.accent,
+    '--accent-hover': mixHex(pack.theme.accent, variant === 'light' ? '#000000' : '#ffffff', 0.12),
+    '--accent-light': accentLight,
+    '--accent-foreground': accentForeground,
+    '--success': pack.theme.semanticColors.diffAdded,
+    '--error': pack.theme.semanticColors.diffRemoved,
+    '--warning': variant === 'dark' ? '#f5b44a' : '#d97706',
+    '--border': border,
+    '--tool-pending': variant === 'dark' ? '#f5b44a' : '#d97706',
+    '--tool-running': pack.theme.accent,
+    '--tool-success': pack.theme.semanticColors.diffAdded,
+    '--tool-error': pack.theme.semanticColors.diffRemoved,
+    '--code-inline-bg': elevatedSecondary,
+    '--code-inline-border': borderLight,
+    '--code-inline-text': textSecondary,
+    '--code-block-bg': elevatedPrimary,
+    '--code-block-header-bg': elevatedPrimary,
+    '--code-block-border': border,
+    '--code-block-text': pack.theme.ink,
+    '--code-copy-bg': variant === 'dark' ? 'rgba(255, 255, 255, 0.06)' : 'transparent',
+    '--code-copy-hover': variant === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(17, 24, 39, 0.05)',
+    '--code-token-comment': textMuted,
+    '--code-token-keyword': pack.theme.semanticColors.skill,
+    '--code-token-string': pack.theme.semanticColors.diffAdded,
+    '--code-token-function': pack.theme.accent,
+    '--code-token-number': variant === 'dark' ? '#f6c177' : '#d97706',
+    '--code-token-operator': textSecondary,
+    '--code-token-variable': pack.theme.ink,
+    '--user-bubble-bg': userBubbleBg,
+    '--user-bubble-text': userBubbleText,
+    '--user-bubble-border': 'transparent',
+    '--user-bubble-shadow': 'none',
+    '--tree-item-hover': variant === 'light' ? 'rgba(17, 24, 39, 0.05)' : 'rgba(255, 255, 255, 0.05)',
+    '--tree-item-active': accentLight,
+    '--tree-item-border': borderLight,
+    '--tree-file-accent-bg': accentLight,
+    '--tree-file-accent-border': border,
+    '--tree-file-accent-fg': pack.theme.accent,
+    '--tree-file-media-bg': variant === 'light'
+      ? formatRgba(parseHexColor(pack.theme.semanticColors.skill), 0.08)
+      : formatRgba(parseHexColor(pack.theme.semanticColors.skill), 0.12),
+    '--tree-file-media-border': border,
+    '--tree-file-media-fg': pack.theme.semanticColors.skill,
+    '--tree-file-warm-bg': variant === 'light'
+      ? 'rgba(251, 146, 60, 0.12)'
+      : 'rgba(245, 158, 11, 0.12)',
+    '--tree-file-warm-border': border,
+    '--tree-file-warm-fg': variant === 'dark' ? '#f6c177' : '#dd6b20',
+    '--tree-file-neutral-bg': elevatedSecondary,
+    '--tree-file-neutral-border': border,
+    '--tree-file-neutral-fg': textSecondary,
+    '--preview-surface': panel,
+    '--sidebar-item-hover': variant === 'light' ? 'rgba(17, 24, 39, 0.05)' : 'rgba(255, 255, 255, 0.08)',
+    '--sidebar-item-active': accentLight,
+    '--sidebar-item-border': borderLight,
+    '--popover-bg': popoverBackground,
+    '--popover-border': borderLight,
+    '--popover-ring': variant === 'light' ? 'rgba(255, 255, 255, 0.72)' : 'rgba(255, 255, 255, 0.04)',
+    '--popover-radius': '14px',
+    '--popover-shadow': variant === 'light'
+      ? '0 0 0 1px rgba(17, 24, 39, 0.03), 0 1px 2px rgba(15, 18, 25, 0.04), 0 14px 36px -12px rgba(15, 18, 25, 0.18)'
+      : '0 0 0 1px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3), 0 18px 44px -12px rgba(0, 0, 0, 0.55)',
+    '--popover-shadow-lg': variant === 'light'
+      ? '0 0 0 1px rgba(17, 24, 39, 0.04), 0 2px 4px rgba(15, 18, 25, 0.05), 0 24px 56px -14px rgba(15, 18, 25, 0.22)'
+      : '0 0 0 1px rgba(0, 0, 0, 0.45), 0 4px 8px rgba(0, 0, 0, 0.35), 0 28px 64px -14px rgba(0, 0, 0, 0.65)',
+    '--app-shell-background': pack.theme.opaqueWindows ? surfaceUnder : 'transparent',
+    '--app-sidebar-surface': pack.theme.opaqueWindows
+      ? surfaceUnder
+      : variant === 'dark'
+        ? `color-mix(in srgb, ${surfaceUnder} 72%, transparent)`
+        : `color-mix(in srgb, ${surfaceUnder} 64%, transparent)`,
+    '--app-sidebar-shadow': variant === 'dark'
+      ? 'inset 0 1px 0 rgba(255,255,255,0.025)'
+      : 'inset 0 1px 0 rgba(0,0,0,0.03)',
+    '--app-sidebar-backdrop-filter': pack.theme.opaqueWindows ? 'none' : 'blur(8px) saturate(135%)',
+    '--composer-chip-bg': commandChipBackground,
+    '--composer-chip-border': commandChipBorder,
+    '--composer-chip-text': pack.theme.ink,
+    '--composer-skill-chip-bg': skillChipBackground,
+    '--composer-skill-chip-border': skillChipBorder,
+    '--composer-skill-chip-text': skillChipText,
+    '--composer-mention-chip-bg': mentionChipBackground,
+    '--composer-mention-chip-border': mentionChipBorder,
+    '--composer-mention-chip-text': pack.theme.accent,
+    '--font-sans': uiFont,
+    '--font-mono': monoFont,
+    '--font-serif': BASE_DISPLAY_FONT,
+  };
+}
+
+function buildComputedTheme(theme: ChromeTheme, variant: ThemeVariant) {
+  return {
+    contrast: normalizeContrast(theme.contrast, variant),
+    ink: parseHexColor(theme.ink),
+    surface: parseHexColor(theme.surface),
+    variant,
+  };
+}
+
+function buildSurfaceUnder(
+  theme: ChromeTheme,
+  surface: RgbColor,
+  ink: RgbColor,
+  variant: ThemeVariant
+): string {
+  const baseline = DEFAULT_CHROME_THEME_BY_VARIANT[variant].contrast;
+  const mixAmount =
+    SURFACE_UNDER_BASE_ALPHA[variant] +
+    (theme.contrast - baseline) * SURFACE_UNDER_CONTRAST_STEP[variant];
+  return variant === 'light'
+    ? mixHex(formatHex(surface), formatHex(ink), mixAmount)
+    : mixHex(formatHex(surface), '#000000', mixAmount);
+}
+
+function buildPanelBackground(theme: ReturnType<typeof buildComputedTheme>): string {
+  const anchor = theme.variant === 'light' ? WHITE : theme.ink;
+  return mixHex(
+    formatHex(theme.surface),
+    formatHex(anchor),
+    PANEL_BASE_ALPHA[theme.variant] + theme.contrast * PANEL_CONTRAST_STEP[theme.variant]
+  );
+}
+
+function normalizeContrast(value: number, variant: ThemeVariant): number {
+  const baseline = DEFAULT_CHROME_THEME_BY_VARIANT[variant].contrast;
+  if (value <= baseline) {
+    return value / 100;
+  }
+  return baseline / 100 + ((value - baseline) / 100) * 1.4;
+}
+
+function normalizeChromeTheme(value: unknown, variant: ThemeVariant): ChromeTheme {
+  const fallback = DEFAULT_CHROME_THEME_BY_VARIANT[variant];
+  const theme = isRecord(value) ? value : {};
+
+  return {
+    accent: normalizeHexColor(theme.accent) ?? fallback.accent,
+    contrast: normalizeStoredContrast(theme.contrast, fallback.contrast),
+    fonts: normalizeThemeFonts(theme.fonts),
+    ink: normalizeHexColor(theme.ink) ?? fallback.ink,
+    opaqueWindows:
+      theme.opaqueWindows === true || theme.opaqueWindows === false
+        ? theme.opaqueWindows
+        : fallback.opaqueWindows,
+    semanticColors: normalizeSemanticColors(theme.semanticColors, fallback.semanticColors),
+    surface: normalizeHexColor(theme.surface) ?? fallback.surface,
+  };
+}
+
+function normalizeThemeFonts(value: unknown): ThemeFonts {
+  const fonts = isRecord(value) ? value : {};
+  return {
+    ui: normalizeFontFamily(typeof fonts.ui === 'string' ? fonts.ui : null),
+    code: normalizeFontFamily(typeof fonts.code === 'string' ? fonts.code : null),
+  };
+}
+
+function normalizeSemanticColors(
+  value: unknown,
+  fallback: ThemeSemanticColors
+): ThemeSemanticColors {
+  const semanticColors = isRecord(value) ? value : {};
+  return {
+    diffAdded: normalizeHexColor(semanticColors.diffAdded) ?? fallback.diffAdded,
+    diffRemoved: normalizeHexColor(semanticColors.diffRemoved) ?? fallback.diffRemoved,
+    skill: normalizeHexColor(semanticColors.skill) ?? fallback.skill,
+  };
+}
+
+function normalizeCodeThemeId(value: unknown, variant: ThemeVariant): string {
+  const codeThemeId =
+    typeof value === 'string' ? value.trim().toLowerCase() : DEFAULT_THEME_STATE.codeThemeIds[variant];
+  const available = getAvailableCodeThemes(variant).some((option) => option.id === codeThemeId);
+  return available ? codeThemeId : DEFAULT_THEME_STATE.codeThemeIds[variant];
+}
+
+function normalizeStoredContrast(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return fallback;
+  }
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function normalizeHexColor(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = value.trim();
+  return HEX_COLOR_RE.test(normalized) ? normalized.toLowerCase() : null;
+}
+
+function normalizeFontFamily(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function mergeThemeSeedPatch(theme: ChromeTheme, patch: Partial<ChromeTheme>): ChromeTheme {
+  const nextPatch = patch as ThemeSeedPatch;
+  return {
+    ...theme,
+    ...nextPatch,
+    fonts: {
+      ...theme.fonts,
+      ...(nextPatch.fonts ?? {}),
+    },
+    semanticColors: {
+      ...theme.semanticColors,
+      ...(nextPatch.semanticColors ?? {}),
+    },
+  };
+}
+
+function parseHexColor(hex: string): RgbColor {
+  const normalized = normalizeHexColor(hex);
+  if (!normalized) {
+    return { ...WHITE };
+  }
+
+  return {
+    red: parseInt(normalized.slice(1, 3), 16),
+    green: parseInt(normalized.slice(3, 5), 16),
+    blue: parseInt(normalized.slice(5, 7), 16),
+  };
+}
+
+function formatHex(color: RgbColor): string {
+  return `#${toHex(color.red)}${toHex(color.green)}${toHex(color.blue)}`;
+}
+
+function toHex(value: number): string {
+  return clampChannel(value).toString(16).padStart(2, '0');
+}
+
+function clampChannel(value: number): number {
+  return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+function mixHex(fromHex: string, toHex: string, amount: number): string {
+  return formatHex(mixRgb(parseHexColor(fromHex), parseHexColor(toHex), amount));
+}
+
+function mixRgb(from: RgbColor, to: RgbColor, amount: number): RgbColor {
+  const clamped = Math.max(0, Math.min(1, amount));
+  return {
+    red: from.red + (to.red - from.red) * clamped,
+    green: from.green + (to.green - from.green) * clamped,
+    blue: from.blue + (to.blue - from.blue) * clamped,
+  };
+}
+
+function formatRgba(color: RgbColor, alpha: number): string {
+  const clamped = Math.max(0, Math.min(1, alpha));
+  return `rgba(${clampChannel(color.red)}, ${clampChannel(color.green)}, ${clampChannel(color.blue)}, ${clamped.toFixed(3)})`;
+}
+
+function formatOpaqueRgb(color: RgbColor): string {
+  return `rgb(${clampChannel(color.red)}, ${clampChannel(color.green)}, ${clampChannel(color.blue)})`;
+}
+
+function getReadableTextColor(hex: string): string {
+  const color = parseHexColor(hex);
+  const luminance = (0.299 * color.red + 0.587 * color.green + 0.114 * color.blue) / 255;
+  return luminance > 0.6 ? '#111111' : '#fcfcfc';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }

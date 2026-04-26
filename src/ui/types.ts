@@ -3,8 +3,9 @@
 // Settings 标签类型
 export type SettingsTab = 'mcp' | 'general' | 'providers' | 'usage' | 'bridge' | 'memory';
 
+import type { ChromeTheme, ThemeFonts, ThemeMode, ThemePack, ThemeState, ThemeVariant } from './theme/theme-types';
 // 从共享类型导入
-import type { AgentProvider, ProjectTreeNode, TodoState, StatusConfig, FolderConfig } from '../shared/types';
+import type { AgentProvider, AppUpdateStatus, ProjectTreeNode, TodoState, StatusConfig, FolderConfig } from '../shared/types';
 
 export type {
   SessionInfo,
@@ -21,6 +22,7 @@ export type {
   PermissionResult,
   ClientEvent,
   ServerEvent,
+  AppUpdateStatus,
   UiResumeState,
   McpServerConfig,
   McpServerStatus,
@@ -76,8 +78,8 @@ export type {
 } from '../shared/types';
 
 // 主题类型
-export type Theme = 'light' | 'dark' | 'system';
-export type ColorThemeId = 'paper' | 'graphite' | 'sepia' | 'rose' | 'forest' | 'amber' | 'studio';
+export type Theme = ThemeMode;
+export type { ChromeTheme, ThemeFonts, ThemePack, ThemeState, ThemeVariant };
 export type ChatLayoutMode = 'single' | 'split';
 export type ChatPaneId = 'primary' | 'secondary';
 export type WorkspaceSurface = 'chat' | 'terminal';
@@ -190,10 +192,7 @@ export interface AppState {
   // Settings 状态
   showSettings: boolean;
   activeSettingsTab: SettingsTab;
-  updateStatus: {
-    available: boolean;
-    version: string | null;
-  };
+  updateStatus: AppUpdateStatus;
   promptLibraryInsertRequest: PromptLibraryInsertRequest | null;
   pendingChatInjection: ChatInjectionRequest | null;
   // 状态配置
@@ -203,12 +202,9 @@ export interface AppState {
   folderConfigs: FolderConfig[];
   // 主题
   theme: Theme;
-  colorThemeId: ColorThemeId;
-  customThemeCss: string;
-  fontSelections: import('../shared/types').FontSettingsPayload['selections'];
-  importedFonts: import('../shared/types').ImportedFontFace[];
-  systemFonts: import('../shared/types').SystemFontOption[];
-  systemFontsLoaded: boolean;
+  themeState: ThemeState;
+  uiFontFamily: string;
+  chatCodeFontFamily: string;
 }
 
 // Store Actions
@@ -275,10 +271,13 @@ export interface AppActions {
   setFolderConfigs: (configs: FolderConfig[]) => void;
   // 主题 Actions
   setTheme: (theme: Theme) => void;
-  setColorThemeId: (colorThemeId: ColorThemeId) => void;
-  setCustomThemeCss: (customThemeCss: string) => void;
-  setFontSettings: (settings: import('../shared/types').FontSettingsPayload) => void;
-  setSystemFonts: (fonts: import('../shared/types').SystemFontOption[]) => void;
+  setThemeState: (themeState: ThemeState) => void;
+  updateThemeVariant: (variant: ThemeVariant, patch: Partial<ChromeTheme>) => void;
+  setThemeVariantCodeThemeId: (variant: ThemeVariant, codeThemeId: string) => void;
+  setThemeVariantFonts: (variant: ThemeVariant, patch: Partial<ThemeFonts>) => void;
+  resetThemeVariant: (variant: ThemeVariant) => void;
+  setUiFontFamily: (value: string) => void;
+  setChatCodeFontFamily: (value: string) => void;
 }
 
 export type PromptLibraryInsertMode = 'append' | 'replace';

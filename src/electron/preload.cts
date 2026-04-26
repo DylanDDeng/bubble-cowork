@@ -129,6 +129,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-app-version');
   },
 
+  setTheme: (theme: 'light' | 'dark' | 'system') => {
+    return ipcRenderer.invoke('set-theme', theme);
+  },
+
   getUiResumeState: (): Promise<UiResumeState | null> => {
     return ipcRenderer.invoke('get-ui-resume-state');
   },

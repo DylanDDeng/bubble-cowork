@@ -381,6 +381,12 @@ export type ClientEvent =
   | { type: 'folder.move'; payload: { oldPath: string; newPath: string } }
   | { type: 'session.setFolder'; payload: { sessionId: string; folderPath: string | null } };
 
+export interface AppUpdateStatus {
+  available: boolean;
+  version: string | null;
+  autoDetected: boolean;
+}
+
 // Server -> Client 事件
 export type ServerEvent =
   | { type: 'session.list'; payload: { sessions: SessionInfo[] } }
@@ -397,7 +403,7 @@ export type ServerEvent =
   | { type: 'permission.request'; payload: PermissionRequestPayload }
   | { type: 'runner.error'; payload: { message: string; sessionId?: string } }
   | { type: 'project.tree'; payload: { cwd: string; tree: ProjectTreeNode } }
-  | { type: 'app.update'; payload: { available: boolean; version: string | null } }
+  | { type: 'app.update'; payload: AppUpdateStatus }
   // MCP 事件
   | { type: 'mcp.config'; payload: {
       servers: Record<string, McpServerConfig>;

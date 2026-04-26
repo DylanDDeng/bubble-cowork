@@ -41,7 +41,6 @@ import { DecisionPanel } from './components/DecisionPanel';
 import { ExternalFilePermissionDialog } from './components/ExternalFilePermissionDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useCodexModelConfig } from './hooks/useCodexModelConfig';
-import { applyFontPreferences } from './theme/fonts';
 import { applyThemePreferences } from './theme/themes';
 import { extractLatestSuccessfulHtmlArtifact } from './utils/artifacts';
 import { StructuredResponse } from './components/StructuredResponse';
@@ -134,12 +133,9 @@ export function App() {
     clearGlobalError,
     removePermissionRequest,
     theme,
-    colorThemeId,
-    customThemeCss,
-    fontSelections,
-    importedFonts,
-    setFontSettings,
-    setSystemFonts,
+    themeState,
+    uiFontFamily,
+    chatCodeFontFamily,
     setHistoryNavigationTarget,
   } = useAppStore();
 
@@ -491,47 +487,11 @@ export function App() {
   useEffect(() => {
     applyThemePreferences({
       themeMode: theme,
-      colorThemeId,
-      customThemeCss,
+      themeState,
+      uiFontFamily,
+      chatCodeFontFamily,
     });
-    applyFontPreferences({
-      fontSelections,
-      importedFonts,
-    });
-  }, [colorThemeId, customThemeCss, fontSelections, importedFonts, theme]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    window.electron
-      .getFontSettings()
-      .then((settings) => {
-        if (!cancelled) {
-          setFontSettings(settings);
-        }
-      })
-      .catch((error) => {
-        console.error('Failed to load font settings:', error);
-      });
-
-    window.electron
-      .listSystemFonts()
-      .then((fonts) => {
-        if (!cancelled) {
-          setSystemFonts(fonts);
-        }
-      })
-      .catch((error) => {
-        console.error('Failed to list system fonts:', error);
-        if (!cancelled) {
-          setSystemFonts([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [setFontSettings, setSystemFonts]);
+  }, [chatCodeFontFamily, theme, themeState, uiFontFamily]);
 
   // Request history when switching sessions
   useEffect(() => {

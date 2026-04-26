@@ -228,7 +228,10 @@ function createMentionNode(path: string, rawText: string): HTMLSpanElement {
   chip.spellcheck = false;
   chip.title = path;
   chip.className =
-    'mx-[1px] inline-flex max-w-[240px] select-none items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-tertiary)] px-1.5 py-0.5 align-baseline text-[12px] leading-none text-[var(--text-primary)]';
+    'mx-[1px] inline-flex max-w-[240px] select-none items-center gap-1 rounded-md border px-1.5 py-0.5 align-baseline text-[12px] leading-none';
+  chip.style.borderColor = 'var(--composer-mention-chip-border)';
+  chip.style.backgroundColor = 'var(--composer-mention-chip-bg)';
+  chip.style.color = 'var(--composer-mention-chip-text)';
 
   const icon = document.createElement('img');
   icon.src = getFileTypeIconUrl(basenameOfPath(path));
@@ -258,7 +261,13 @@ function createSlashNode(kind: SlashSegmentKind, name: string, rawText: string):
   chip.spellcheck = false;
   chip.title = rawText;
   chip.className =
-    'mx-[1px] inline-flex max-w-[240px] select-none items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-tertiary)] px-1.5 py-0.5 align-baseline text-[12px] leading-none text-[var(--text-primary)]';
+    'mx-[1px] inline-flex max-w-[240px] select-none items-center gap-1 rounded-md border px-1.5 py-0.5 align-baseline text-[12px] leading-none';
+  chip.style.borderColor =
+    kind === 'skill' ? 'var(--composer-skill-chip-border)' : 'var(--composer-chip-border)';
+  chip.style.backgroundColor =
+    kind === 'skill' ? 'var(--composer-skill-chip-bg)' : 'var(--composer-chip-bg)';
+  chip.style.color =
+    kind === 'skill' ? 'var(--composer-skill-chip-text)' : 'var(--composer-chip-text)';
 
   const iconBox = document.createElement('span');
   iconBox.className = 'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center';

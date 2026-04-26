@@ -22,29 +22,35 @@ import type {
   SettingsTab,
   FolderConfig,
   Theme,
-  ColorThemeId,
-  FontSettingsPayload,
+  ThemeFonts,
+  ThemeState,
+  ThemeVariant,
+  ChromeTheme,
   PromptLibraryInsertMode,
 } from '../types';
-import { DEFAULT_COLOR_THEME_ID, applyThemePreferences } from '../theme/themes';
-import { applyFontPreferences, getDefaultFontSelections } from '../theme/fonts';
+import {
+  DEFAULT_THEME_STATE,
+  applyThemePreferences,
+  normalizeThemeState,
+  resetThemeVariant as resetThemeVariantState,
+  setThemeCodeThemeId,
+  setThemePackFonts,
+  updateThemePack,
+} from '../theme/themes';
 import { loadPreferredProvider } from '../utils/provider';
 
 function applyAppearance({
   theme,
-  colorThemeId,
-  customThemeCss,
-  fontSelections,
-  importedFonts,
+  themeState,
+  uiFontFamily,
+  chatCodeFontFamily,
 }: {
   theme: Theme;
-  colorThemeId: ColorThemeId;
-  customThemeCss: string;
-  fontSelections: FontSettingsPayload['selections'];
-  importedFonts: FontSettingsPayload['importedFonts'];
+  themeState: ThemeState;
+  uiFontFamily: string;
+  chatCodeFontFamily: string;
 }) {
-  applyThemePreferences({ themeMode: theme, colorThemeId, customThemeCss });
-  applyFontPreferences({ fontSelections, importedFonts });
+  applyThemePreferences({ themeMode: theme, themeState, uiFontFamily, chatCodeFontFamily });
 }
 
 type Store = AppState & AppActions;
@@ -414,6 +420,7 @@ export const useAppStore = create<Store>()(
       updateStatus: {
         available: false,
         version: null,
+        autoDetected: false,
       },
       promptLibraryInsertRequest: null,
       pendingChatInjection: null,
@@ -424,12 +431,9 @@ export const useAppStore = create<Store>()(
       folderConfigs: [],
       // 主题
       theme: 'system' as const,
-      colorThemeId: DEFAULT_COLOR_THEME_ID,
-      customThemeCss: '',
-      fontSelections: getDefaultFontSelections(),
-      importedFonts: [],
-      systemFonts: [],
-      systemFontsLoaded: false,
+      themeState: DEFAULT_THEME_STATE,
+      uiFontFamily: '',
+      chatCodeFontFamily: '',
 
   // Actions
   setConnected: (connected) => set({ connected }),
@@ -480,6 +484,7 @@ export const useAppStore = create<Store>()(
           updateStatus: {
             available: event.payload.available,
             version: event.payload.version || null,
+            autoDetected: event.payload.autoDetected,
           },
         });
         break;
@@ -1061,38 +1066,55 @@ export const useAppStore = create<Store>()(
   // 主题
   setTheme: (theme) => {
     set({ theme });
-    const { colorThemeId, customThemeCss, fontSelections, importedFonts } = get();
-    applyAppearance({ theme, colorThemeId, customThemeCss, fontSelections, importedFonts });
+    const { themeState, uiFontFamily, chatCodeFontFamily } = get();
+    applyAppearance({ theme, themeState, uiFontFamily, chatCodeFontFamily });
   },
 
-  setColorThemeId: (colorThemeId) => {
-    set({ colorThemeId });
-    const { theme, customThemeCss, fontSelections, importedFonts } = get();
-    applyAppearance({ theme, colorThemeId, customThemeCss, fontSelections, importedFonts });
+  setThemeState: (themeState) => {
+    const normalized = normalizeThemeState(themeState);
+    set({ themeState: normalized });
+    const { theme, uiFontFamily, chatCodeFontFamily } = get();
+    applyAppearance({ theme, themeState: normalized, uiFontFamily, chatCodeFontFamily });
   },
 
-  setCustomThemeCss: (customThemeCss) => {
-    set({ customThemeCss });
-    const { theme, colorThemeId, fontSelections, importedFonts } = get();
-    applyAppearance({ theme, colorThemeId, customThemeCss, fontSelections, importedFonts });
-  },
-  setFontSettings: (settings) => {
-    set({
-      fontSelections: settings.selections,
-      importedFonts: settings.importedFonts,
-    });
-    const { theme, colorThemeId, customThemeCss } = get();
-    applyAppearance({
-      theme,
-      colorThemeId,
-      customThemeCss,
-      fontSelections: settings.selections,
-      importedFonts: settings.importedFonts,
-    });
+  updateThemeVariant: (variant, patch) => {
+    const nextThemeState = updateThemePack(get().themeState, variant, patch);
+    set({ themeState: nextThemeState });
+    const { theme, uiFontFamily, chatCodeFontFamily } = get();
+    applyAppearance({ theme, themeState: nextThemeState, uiFontFamily, chatCodeFontFamily });
   },
 
-  setSystemFonts: (systemFonts) => {
-    set({ systemFonts, systemFontsLoaded: true });
+  setThemeVariantCodeThemeId: (variant, codeThemeId) => {
+    const nextThemeState = setThemeCodeThemeId(get().themeState, variant, codeThemeId);
+    set({ themeState: nextThemeState });
+    const { theme, uiFontFamily, chatCodeFontFamily } = get();
+    applyAppearance({ theme, themeState: nextThemeState, uiFontFamily, chatCodeFontFamily });
+  },
+
+  setThemeVariantFonts: (variant, patch) => {
+    const nextThemeState = setThemePackFonts(get().themeState, variant, patch);
+    set({ themeState: nextThemeState });
+    const { theme, uiFontFamily, chatCodeFontFamily } = get();
+    applyAppearance({ theme, themeState: nextThemeState, uiFontFamily, chatCodeFontFamily });
+  },
+
+  resetThemeVariant: (variant) => {
+    const nextThemeState = resetThemeVariantState(get().themeState, variant);
+    set({ themeState: nextThemeState });
+    const { theme, uiFontFamily, chatCodeFontFamily } = get();
+    applyAppearance({ theme, themeState: nextThemeState, uiFontFamily, chatCodeFontFamily });
+  },
+
+  setUiFontFamily: (uiFontFamily) => {
+    set({ uiFontFamily });
+    const { theme, themeState, chatCodeFontFamily } = get();
+    applyAppearance({ theme, themeState, uiFontFamily, chatCodeFontFamily });
+  },
+
+  setChatCodeFontFamily: (chatCodeFontFamily) => {
+    set({ chatCodeFontFamily });
+    const { theme, themeState, uiFontFamily } = get();
+    applyAppearance({ theme, themeState, uiFontFamily, chatCodeFontFamily });
   },
     }),
     {
@@ -1112,8 +1134,9 @@ export const useAppStore = create<Store>()(
         terminalDrawerOpen: state.terminalDrawerOpen,
         terminalDrawerHeight: state.terminalDrawerHeight,
         theme: state.theme,
-        colorThemeId: state.colorThemeId,
-        customThemeCss: state.customThemeCss,
+        themeState: state.themeState,
+        uiFontFamily: state.uiFontFamily,
+        chatCodeFontFamily: state.chatCodeFontFamily,
         draftSessions: Object.fromEntries(
           Object.entries(state.sessions).filter(([, session]) => session.isDraft)
         ),
@@ -1134,13 +1157,15 @@ export const useAppStore = create<Store>()(
           terminalDrawerOpen?: boolean;
           terminalDrawerHeight?: number;
           theme?: Theme;
-          colorThemeId?: ColorThemeId;
-          customThemeCss?: string;
+          themeState?: ThemeState;
+          uiFontFamily?: string;
+          chatCodeFontFamily?: string;
           draftSessions?: Record<string, SessionView>;
         } | undefined;
         const theme = persisted?.theme || currentState.theme;
-        const colorThemeId = persisted?.colorThemeId || currentState.colorThemeId;
-        const customThemeCss = persisted?.customThemeCss || currentState.customThemeCss;
+        const themeState = normalizeThemeState(persisted?.themeState || currentState.themeState);
+        const uiFontFamily = persisted?.uiFontFamily ?? currentState.uiFontFamily;
+        const chatCodeFontFamily = persisted?.chatCodeFontFamily ?? currentState.chatCodeFontFamily;
         const chatLayoutMode = normalizeChatLayoutMode(persisted?.chatLayoutMode);
         const savedSplitVisible = persisted?.savedSplitVisible ?? currentState.savedSplitVisible;
         const activePaneId = normalizeActivePaneId(persisted?.activePaneId);
@@ -1153,10 +1178,9 @@ export const useAppStore = create<Store>()(
         ) as Record<string, SessionView>;
         applyAppearance({
           theme,
-          colorThemeId,
-          customThemeCss,
-          fontSelections: currentState.fontSelections,
-          importedFonts: currentState.importedFonts,
+          themeState,
+          uiFontFamily,
+          chatCodeFontFamily,
         });
         return {
           ...currentState,
@@ -1191,8 +1215,9 @@ export const useAppStore = create<Store>()(
             currentState.terminalDrawerHeight
           ),
           theme,
-          colorThemeId,
-          customThemeCss,
+          themeState,
+          uiFontFamily,
+          chatCodeFontFamily,
         };
       },
     }
@@ -1202,14 +1227,13 @@ export const useAppStore = create<Store>()(
 // 监听系统主题变化
 if (typeof window !== 'undefined') {
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    const { theme, colorThemeId, customThemeCss, fontSelections, importedFonts } = useAppStore.getState();
+    const { theme, themeState, uiFontFamily, chatCodeFontFamily } = useAppStore.getState();
     if (theme === 'system') {
       applyAppearance({
         theme: 'system',
-        colorThemeId,
-        customThemeCss,
-        fontSelections,
-        importedFonts,
+        themeState,
+        uiFontFamily,
+        chatCodeFontFamily,
       });
     }
   });

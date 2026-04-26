@@ -32,6 +32,7 @@ import type {
   SkillMarketInstallResult,
   FeishuBridgeConfig,
   FeishuBridgeStatus,
+  AppUpdateStatus,
 } from './shared/types';
 import type {
   BrowserCapturePageResult,
@@ -59,6 +60,7 @@ declare global {
     stopTerminalSession: (sessionId: string) => Promise<{ ok: boolean; message?: string }>;
     setWindowMinSize: (width: number, height: number) => Promise<{ ok: boolean }>;
     getAppVersion: () => Promise<string>;
+    setTheme: (theme: 'light' | 'dark' | 'system') => Promise<{ ok: boolean }>;
     getUiResumeState: () => Promise<UiResumeState | null>;
     getUiResumeStateSync: () => UiResumeState | null;
     saveUiResumeState: (state: UiResumeState) => Promise<{ ok: boolean }>;
@@ -70,7 +72,7 @@ declare global {
       after?: number
     ) => Promise<import('./shared/types').SessionHistoryPayload>;
     checkForUpdates: () => Promise<{ ok: boolean }>;
-    getUpdateStatus: () => Promise<{ available: boolean; version: string | null }>;
+    getUpdateStatus: () => Promise<AppUpdateStatus>;
     getClaudeModelConfig: () => Promise<ClaudeModelConfig>;
     getClaudeCompatibleProviderConfig: () => Promise<ClaudeCompatibleProvidersConfig>;
     saveClaudeCompatibleProviderConfig: (config: ClaudeCompatibleProvidersConfig) => Promise<ClaudeCompatibleProvidersConfig>;
