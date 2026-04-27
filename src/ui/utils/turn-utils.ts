@@ -1,7 +1,7 @@
 // Turn Phase 状态机工具函数
 
 import type { TurnPhase, StreamMessage, ToolStatus } from '../types';
-import { getMessageContentBlocks } from './message-content';
+import { getMessageContentBlocks, normalizeToolUseBlock } from './message-content';
 
 /**
  * 推导当前 Turn 阶段
@@ -97,11 +97,9 @@ export function hasRunningToolInMessages(
   for (const msg of messages) {
     if (msg.type === 'assistant') {
       for (const block of getMessageContentBlocks(msg)) {
-        if (block.type === 'tool_use') {
-          const status = toolStatusMap.get(block.id);
-          if (status === 'pending') {
-            return true;
-          }
+        const normalized = normalizeToolUseBlock(block);
+        if (normalized && toolStatusMap.get(normalized.id) === 'pending') {
+          return true;
         }
       }
     }

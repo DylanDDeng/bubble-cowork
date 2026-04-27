@@ -6,12 +6,20 @@ import { useAppStore } from '../store/useAppStore';
 import { aggregateMessages } from '../utils/aggregated-messages';
 import { createStreamingWorkstreamModel } from '../utils/workstream';
 import { deriveTurnPhase, hasRunningToolInMessages } from '../utils/turn-utils';
-import { getMessageContentBlocks } from '../utils/message-content';
+import {
+  getMessageContentBlocks,
+  normalizeToolResultBlock,
+  normalizeToolUseBlock,
+} from '../utils/message-content';
 import { resolveCodexModel } from '../utils/codex-model';
 import { MessageCard } from './MessageCard';
 import { ToolExecutionBatch } from './ToolExecutionBatch';
 import { StructuredResponse } from './StructuredResponse';
-import { AssistantWorkstream } from './AssistantWorkstream';
+import {
+  AssistantWorkstream,
+  ResponseDivider,
+  WorkingFooter,
+} from './AssistantWorkstream';
 import { PromptInput } from './PromptInput';
 import { InSessionSearch } from './search/InSessionSearch';
 import { DecisionPanel } from './DecisionPanel';
@@ -110,18 +118,27 @@ export function ChatPane({
     if (!session) return { toolStatusMap: statusMap, toolResultsMap: resultsMap };
 
     for (const msg of session.messages) {
-      if (msg.type === 'assistant') {
-        for (const block of getMessageContentBlocks(msg)) {
-          if (block.type === 'tool_use') {
-            statusMap.set(block.id, 'pending');
+      if (msg.type !== 'assistant' && msg.type !== 'user') continue;
+      for (const block of getMessageContentBlocks(msg)) {
+        const normalizedUse = normalizeToolUseBlock(block);
+        if (normalizedUse) {
+          if (!statusMap.has(normalizedUse.id)) {
+            statusMap.set(normalizedUse.id, 'pending');
           }
+          continue;
         }
-      } else if (msg.type === 'user') {
-        for (const block of getMessageContentBlocks(msg)) {
-          if (block.type === 'tool_result') {
-            statusMap.set(block.tool_use_id, block.is_error ? 'error' : 'success');
-            resultsMap.set(block.tool_use_id, block as ToolResultBlock);
-          }
+        const normalizedResult = normalizeToolResultBlock(block);
+        if (normalizedResult) {
+          statusMap.set(
+            normalizedResult.tool_use_id,
+            normalizedResult.is_error ? 'error' : 'success'
+          );
+          resultsMap.set(normalizedResult.tool_use_id, {
+            type: 'tool_result',
+            tool_use_id: normalizedResult.tool_use_id,
+            content: normalizedResult.content,
+            is_error: normalizedResult.is_error,
+          });
         }
       }
     }
@@ -376,10 +393,14 @@ export function ChatPane({
     [session?.permissionRequests]
   );
 
-  const activeGenericPermissionRequest = useMemo(
-    () => session?.permissionRequests.find((request) => isAskUserQuestionInput(request.input)) || null,
+  const genericPermissionQueue = useMemo(
+    () =>
+      (session?.permissionRequests || []).filter((request) =>
+        isAskUserQuestionInput(request.input)
+      ),
     [session?.permissionRequests]
   );
+  const activeGenericPermissionRequest = genericPermissionQueue[0] || null;
 
   const lastUserPromptIndex = useMemo(() => {
     if (!session) return -1;
@@ -489,11 +510,27 @@ export function ChatPane({
               )}
 
               <TurnDiffContext.Provider value={turnDiffContextValue}>
-              {aggregatedMessages.map((item, idx) => {
+              {(() => {
+                let lastToolBatchIdx = -1;
+                for (let i = aggregatedMessages.length - 1; i >= 0; i--) {
+                  if (aggregatedMessages[i].type === 'tool_batch') {
+                    lastToolBatchIdx = i;
+                    break;
+                  }
+                }
+                return aggregatedMessages.map((item, idx) => {
                 const turnCard = turnCardByAggregatedIndex.get(idx);
                 if (item.type === 'tool_batch') {
                   const anchor = String(item.originalIndices[0]);
                   const highlighted = highlightedHistoryAnchor === anchor;
+                  const next = aggregatedMessages[idx + 1];
+                  const nextIsAssistantText =
+                    !!next &&
+                    next.type === 'message' &&
+                    next.message.type === 'assistant' &&
+                    getMessageContentBlocks(next.message).some(
+                      (block) => block.type === 'text' && Boolean(block.text?.trim())
+                    );
                   return (
                     <div key={`batch-${idx}`}>
                       <div
@@ -513,7 +550,8 @@ export function ChatPane({
                           toolStatusMap={toolStatusMap}
                           toolResultsMap={toolResultsMap}
                           isSessionRunning={session.status === 'running'}
-                          cwd={session.cwd || null}
+                          showResponseDivider={nextIsAssistantText}
+                          isLastBatch={idx === lastToolBatchIdx}
                         />
                       </div>
                       {turnCard ? <TurnChangesCard summary={turnCard} /> : null}
@@ -542,8 +580,6 @@ export function ChatPane({
                       message={item.message}
                       toolStatusMap={toolStatusMap}
                       toolResultsMap={toolResultsMap}
-                      permissionRequests={session.permissionRequests}
-                      onPermissionResult={handlePermissionResult}
                       userPromptActions={
                         item.message.type === 'user_prompt' &&
                         session.readOnly !== true &&
@@ -600,26 +636,42 @@ export function ChatPane({
                   {turnCard ? <TurnChangesCard summary={turnCard} /> : null}
                   </div>
                 );
-              })}
+                });
+              })()}
               </TurnDiffContext.Provider>
 
               {(streamingWorkstreamModel || (showPartialMessage && partialMessage)) && (
-                <div className="my-3 min-w-0 overflow-x-auto streaming-content">
-                  {streamingWorkstreamModel && <AssistantWorkstream model={streamingWorkstreamModel} />}
-                  {partialMessage && (
+                <div className="my-2 min-w-0 overflow-x-auto streaming-content">
+                  {streamingWorkstreamModel ? (
+                    <AssistantWorkstream model={streamingWorkstreamModel} />
+                  ) : null}
+                  {partialMessage ? (
                     <ErrorBoundary
                       resetKey={partialMessage}
                       fallback={
-                        <div className="p-3 bg-gray-800 rounded-lg">
-                          <pre className="text-sm text-gray-300 whitespace-pre-wrap break-words">{partialMessage}</pre>
+                        <div className="rounded bg-gray-800 p-3">
+                          <pre className="whitespace-pre-wrap break-words text-sm text-gray-300">
+                            {partialMessage}
+                          </pre>
                         </div>
                       }
                     >
                       <StructuredResponse content={partialMessage} streaming />
                     </ErrorBoundary>
-                  )}
+                  ) : null}
                 </div>
               )}
+
+              {/* Single source of "Working for Xs..." footer during streaming.
+                  If the latest aggregated item is a tool_batch, that batch
+                  already renders its own footer, so we suppress this one. */}
+              {(() => {
+                if (session.status !== 'running') return null;
+                const last = aggregatedMessages[aggregatedMessages.length - 1];
+                if (last && last.type === 'tool_batch') return null;
+                if (turnPhase === 'complete') return null;
+                return <WorkingFooter startedAt={undefined} />;
+              })()}
 
               <div ref={messagesEndRef} />
             </div>
@@ -627,6 +679,34 @@ export function ChatPane({
 
           {session.readOnly ? null : (
             <div className="px-8 pb-4">
+              {activeGenericPermissionRequest && isAskUserQuestionInput(activeGenericPermissionRequest.input) ? (
+                <div className="mb-3 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--accent)]/35 bg-[var(--bg-secondary)] shadow-sm">
+                  <div className="flex items-center justify-between gap-3 px-4 py-2">
+                    <div className="flex min-w-0 items-baseline gap-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                        Permission
+                      </span>
+                      <span className="truncate text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--text-secondary)]">
+                        · {activeGenericPermissionRequest.toolName}
+                      </span>
+                    </div>
+                    {genericPermissionQueue.length > 1 ? (
+                      <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-[var(--accent)]/15 px-2 text-[10px] font-medium text-[var(--accent)]">
+                        1/{genericPermissionQueue.length}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="border-t border-[var(--border)]/60 px-4 py-3">
+                    <DecisionPanel
+                      chrome="bare"
+                      input={activeGenericPermissionRequest.input}
+                      onSubmit={(result) =>
+                        handlePermissionResult(activeGenericPermissionRequest.toolUseId, result)
+                      }
+                    />
+                  </div>
+                </div>
+              ) : null}
               <PromptInput sessionId={sessionId} />
             </div>
           )}
@@ -639,26 +719,6 @@ export function ChatPane({
           )}
 
           <TurnDiffDrawer record={selectedDiffRecord} onClose={handleCloseDiff} />
-
-          {isActive && activeGenericPermissionRequest && isAskUserQuestionInput(activeGenericPermissionRequest.input) && (
-            <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/18 px-4 backdrop-blur-[1px]">
-              <div className="w-full max-w-2xl rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] p-5 shadow-2xl">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                  Permission Request
-                </div>
-                <div className="mt-2 text-lg font-semibold text-[var(--text-primary)]">
-                  {activeGenericPermissionRequest.toolName}
-                </div>
-                <div className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-                  The agent needs your approval before continuing.
-                </div>
-                <DecisionPanel
-                  input={activeGenericPermissionRequest.input}
-                  onSubmit={(result) => handlePermissionResult(activeGenericPermissionRequest.toolUseId, result)}
-                />
-              </div>
-            </div>
-          )}
         </>
       )}
     </div>

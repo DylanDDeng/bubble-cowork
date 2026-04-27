@@ -1,13 +1,24 @@
 import type {
   AskUserQuestionInput,
+  CanonicalToolKind,
   ContentBlock,
   PermissionRequestPayload,
   StreamMessage,
   ToolStatus,
   TurnPhase,
 } from '../types';
-import { getMessageContentBlocks } from './message-content';
-import { getToolSummary, safeJsonStringify } from './tool-summary';
+import {
+  getMessageContentBlocks,
+  normalizeToolUseBlock,
+  type NormalizedToolUseBlock,
+} from './message-content';
+import {
+  classifyToolUse,
+  deriveReadableToolDisplay,
+  formatReadableToolSummary,
+  getToolSummary,
+  safeJsonStringify,
+} from './tool-summary';
 import { extractLatestTodoProgress } from './todo-progress';
 
 export type ToolUseBlock = ContentBlock & { type: 'tool_use' };
@@ -31,6 +42,7 @@ export type WorkstreamEntry =
       id: string;
       type: 'tool' | 'task' | 'memory';
       toolName: string;
+      kind: CanonicalToolKind;
       summary: string;
       detail?: string;
       status: ToolStatus;
@@ -62,6 +74,9 @@ export interface WorkstreamModel {
   toolCount: number;
   noteCount: number;
   hiddenEntryCount: number;
+  /** First message createdAt — used to drive the "Working for Xs" live timer. */
+  startedAt?: number;
+  /** Final wall-clock duration when state === 'completed'. */
   durationMs?: number;
   todoProgress: ReturnType<typeof extractLatestTodoProgress> | null;
 }
@@ -146,14 +161,24 @@ function getApprovalStateFromRequest(
   };
 }
 
+function normalizedToToolUseBlock(normalized: NormalizedToolUseBlock): ToolUseBlock {
+  return {
+    type: 'tool_use',
+    id: normalized.id,
+    name: normalized.name,
+    input: normalized.input,
+  };
+}
+
 export function extractToolBlocks(
   messages: (StreamMessage & { type: 'assistant' })[]
 ): ToolUseBlock[] {
   const blocks: ToolUseBlock[] = [];
   for (const msg of messages) {
     for (const block of getMessageContentBlocks(msg)) {
-      if (block.type === 'tool_use') {
-        blocks.push(block as ToolUseBlock);
+      const normalized = normalizeToolUseBlock(block);
+      if (normalized) {
+        blocks.push(normalizedToToolUseBlock(normalized));
       }
     }
   }
@@ -173,17 +198,24 @@ export function extractTraceEntries(
           id: `thinking-${entries.length}`,
           content: block.thinking.trim(),
         });
-      } else if (block.type === 'text' && block.text?.trim()) {
+        continue;
+      }
+
+      if (block.type === 'text' && block.text?.trim()) {
         entries.push({
           type: 'note',
           id: `note-${entries.length}`,
           content: block.text.trim(),
         });
-      } else if (block.type === 'tool_use') {
+        continue;
+      }
+
+      const normalizedTool = normalizeToolUseBlock(block);
+      if (normalizedTool) {
         entries.push({
           type: 'tool',
-          id: block.id,
-          block: block as ToolUseBlock,
+          id: normalizedTool.id,
+          block: normalizedToToolUseBlock(normalizedTool),
         });
       }
     }
@@ -195,7 +227,8 @@ export function extractTraceEntries(
 function createEntryFromTrace(
   entry: TraceEntry,
   toolStatusMap: Map<string, ToolStatus>,
-  toolResultsMap: Map<string, ToolResultBlock>
+  toolResultsMap: Map<string, ToolResultBlock>,
+  pendingFallbackStatus: ToolStatus = 'pending'
 ): WorkstreamEntry | null {
   if (entry.type === 'thinking') {
     return {
@@ -211,15 +244,21 @@ function createEntryFromTrace(
     return {
       id: entry.id,
       type: 'note',
-      summary: truncateSummary(entry.content, 140),
+      summary: truncateSummary(entry.content, 120),
       detail: entry.content,
     };
   }
 
   const block = entry.block;
-  const status = toolStatusMap.get(block.id) || 'pending';
   const result = toolResultsMap.get(block.id);
-  const summary = getToolSummary(block.name, block.input) || block.name;
+  const rawStatus = toolStatusMap.get(block.id);
+  const status =
+    rawStatus === 'pending' && !result
+      ? pendingFallbackStatus
+      : rawStatus || (result?.is_error ? 'error' : 'success');
+  const display = deriveReadableToolDisplay(block.name, block.input, status);
+  const summary = formatReadableToolSummary(display) || block.name;
+  const kind = classifyToolUse(block.name, block.input);
   const detail = result?.is_error
     ? typeof result.content === 'string'
       ? result.content
@@ -230,7 +269,7 @@ function createEntryFromTrace(
     return {
       id: block.id,
       type: 'approval',
-      summary,
+      summary: getToolSummary(block.name, block.input) || summary,
       detail,
       state: status === 'error' ? 'denied' : status === 'success' ? 'approved' : 'waiting',
     };
@@ -241,6 +280,7 @@ function createEntryFromTrace(
       id: block.id,
       type: 'task',
       toolName: block.name,
+      kind,
       summary,
       detail,
       status,
@@ -254,6 +294,7 @@ function createEntryFromTrace(
       id: block.id,
       type: 'memory',
       toolName: block.name,
+      kind,
       summary,
       detail,
       status,
@@ -266,6 +307,7 @@ function createEntryFromTrace(
     id: block.id,
     type: 'tool',
     toolName: block.name,
+    kind,
     summary,
     detail,
     status,
@@ -389,9 +431,27 @@ export function createBatchWorkstreamModel(params: {
 }): WorkstreamModel {
   const allBlocks = extractToolBlocks(params.messages);
   const traceEntries = extractTraceEntries(params.messages);
+  const activePendingToolId = params.isSessionRunning
+    ? [...traceEntries]
+        .reverse()
+        .find(
+          (entry) =>
+            entry.type === 'tool' &&
+            !params.toolResultsMap.has(entry.block.id) &&
+            params.toolStatusMap.get(entry.block.id) !== 'success' &&
+            params.toolStatusMap.get(entry.block.id) !== 'error'
+        )?.block.id || null
+    : null;
   const entries = traceEntries
     .filter((entry) => !(entry.type === 'tool' && entry.block.name === 'TodoWrite'))
-    .map((entry) => createEntryFromTrace(entry, params.toolStatusMap, params.toolResultsMap))
+    .map((entry) =>
+      createEntryFromTrace(
+        entry,
+        params.toolStatusMap,
+        params.toolResultsMap,
+        entry.type === 'tool' && entry.block.id === activePendingToolId ? 'pending' : 'success'
+      )
+    )
     .filter((entry): entry is WorkstreamEntry => Boolean(entry));
 
   const state = deriveWorkstreamState(entries, params.isSessionRunning);
@@ -403,6 +463,7 @@ export function createBatchWorkstreamModel(params: {
     (entry) => entry.type === 'note' || entry.type === 'thinking'
   ).length;
   const durationMs = computeBatchDurationMs(params.messages, state);
+  const startedAt = computeBatchStartedAt(params.messages);
 
   return {
     state,
@@ -413,9 +474,22 @@ export function createBatchWorkstreamModel(params: {
     toolCount,
     noteCount,
     hiddenEntryCount: Math.max(entries.length - previewEntries.length, 0),
+    startedAt,
     durationMs,
     todoProgress: extractLatestTodoProgress(allBlocks),
   };
+}
+
+function computeBatchStartedAt(
+  messages: (StreamMessage & { type: 'assistant' })[]
+): number | undefined {
+  let min = Number.POSITIVE_INFINITY;
+  for (const message of messages) {
+    const ts = (message as { createdAt?: number }).createdAt;
+    if (typeof ts !== 'number' || !Number.isFinite(ts)) continue;
+    if (ts < min) min = ts;
+  }
+  return Number.isFinite(min) ? min : undefined;
 }
 
 function computeBatchDurationMs(

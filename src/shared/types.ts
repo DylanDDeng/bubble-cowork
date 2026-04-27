@@ -644,6 +644,26 @@ export type ContentBlock =
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
 
+// ===== Canonical tool kinds =====
+// Provider-agnostic taxonomy used by the UI to drive icons, copy, and grouping
+// without leaking specific tool names from any single provider (Claude / Codex
+// / OpenCode). Adapters can map their native tool concepts onto this vocabulary;
+// new providers slot in by adding entries to the classifier rather than UI code.
+export type CanonicalToolKind =
+  | 'reasoning'
+  | 'file_read'
+  | 'file_change'
+  | 'command_execution'
+  | 'pattern_search'
+  | 'web_search'
+  | 'mcp_tool_call'
+  | 'subagent'
+  | 'todo_update'
+  | 'memory'
+  | 'image_view'
+  | 'approval'
+  | 'unknown';
+
 export interface StreamEvent {
   type: 'content_block_start' | 'content_block_delta' | 'content_block_stop';
   index?: number;

@@ -28,8 +28,6 @@ import { BoardView } from './components/BoardView';
 import { PromptLibraryView } from './components/prompts/PromptLibraryView';
 import { NewSessionView } from './components/NewSessionView';
 import { PromptInput } from './components/PromptInput';
-import { MessageCard } from './components/MessageCard';
-import { ToolExecutionBatch } from './components/ToolExecutionBatch';
 import { InSessionSearch } from './components/search/InSessionSearch';
 import { Settings } from './components/settings/Settings';
 import { SkillMarketSettingsContent } from './components/settings/SkillMarketSettings';
@@ -44,7 +42,11 @@ import { useCodexModelConfig } from './hooks/useCodexModelConfig';
 import { applyThemePreferences } from './theme/themes';
 import { extractLatestSuccessfulHtmlArtifact } from './utils/artifacts';
 import { StructuredResponse } from './components/StructuredResponse';
-import { getMessageContentBlocks } from './utils/message-content';
+import {
+  getMessageContentBlocks,
+  normalizeToolResultBlock,
+  normalizeToolUseBlock,
+} from './utils/message-content';
 import { aggregateMessages } from './utils/aggregated-messages';
 import { resolveCodexModel } from './utils/codex-model';
 import {
@@ -205,18 +207,27 @@ export function App() {
     if (!activeSession) return { toolStatusMap: statusMap, toolResultsMap: resultsMap };
 
     for (const msg of activeSession.messages) {
-      if (msg.type === 'assistant') {
-        for (const block of getMessageContentBlocks(msg)) {
-          if (block.type === 'tool_use') {
-            statusMap.set(block.id, 'pending');
+      if (msg.type !== 'assistant' && msg.type !== 'user') continue;
+      for (const block of getMessageContentBlocks(msg)) {
+        const normalizedUse = normalizeToolUseBlock(block);
+        if (normalizedUse) {
+          if (!statusMap.has(normalizedUse.id)) {
+            statusMap.set(normalizedUse.id, 'pending');
           }
+          continue;
         }
-      } else if (msg.type === 'user') {
-        for (const block of getMessageContentBlocks(msg)) {
-          if (block.type === 'tool_result') {
-            statusMap.set(block.tool_use_id, block.is_error ? 'error' : 'success');
-            resultsMap.set(block.tool_use_id, block as ToolResultBlock);
-          }
+        const normalizedResult = normalizeToolResultBlock(block);
+        if (normalizedResult) {
+          statusMap.set(
+            normalizedResult.tool_use_id,
+            normalizedResult.is_error ? 'error' : 'success'
+          );
+          resultsMap.set(normalizedResult.tool_use_id, {
+            type: 'tool_result',
+            tool_use_id: normalizedResult.tool_use_id,
+            content: normalizedResult.content,
+            is_error: normalizedResult.is_error,
+          });
         }
       }
     }

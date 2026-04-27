@@ -1,7 +1,7 @@
 import type { ContentBlock, RunnerOptions, StreamMessage } from '../../types';
 import { isDev } from '../../util';
 import { createRuntimeTurnMemoryTracker } from '../agent-runtime';
-import { runCodex, runOpenCode } from '../codex-runner';
+import { runOpenCode } from '../codex-runner';
 import { runClaude } from '../runner';
 import type { AgentRuntime } from './types';
 
@@ -59,16 +59,16 @@ function trackMemorySignals(
 
 function getProviderRunner(options: RunnerOptions): typeof runClaude {
   const provider = options.session.provider || 'claude';
-  return provider === 'codex'
-    ? runCodex
-    : provider === 'opencode'
-      ? runOpenCode
-      : runClaude;
+  // Codex is now handled by ProviderService, not native runtime
+  return provider === 'opencode'
+    ? runOpenCode
+    : runClaude;
 }
 
 function shouldUseRuntimeMemoryLoop(options: RunnerOptions): boolean {
   const provider = options.session.provider || 'claude';
-  return provider === 'codex' || provider === 'opencode';
+  // Only OpenCode uses native runtime memory loop; Codex uses ProviderService
+  return provider === 'opencode';
 }
 
 export const nativeRuntime: AgentRuntime = {

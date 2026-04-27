@@ -1,11 +1,14 @@
+// Legacy ACP runner. Codex used to run through this; it now goes through
+// `provider/codex-adapter.ts` + ProviderService. This file is kept for OpenCode
+// (which still uses its own ACP server). The codex-only helpers were removed
+// in the provider migration; the file name is retained for git history clarity.
 import { spawn } from 'child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, realpathSync } from 'fs';
 import { readFile } from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { RunnerOptions, RunnerHandle, StreamMessage, Attachment } from '../types';
 import { isDev } from '../util';
-import { getMcpServers } from './claude-settings';
 import { buildRuntimeManagedPrompt } from './agent-runtime';
 import type {
   CodexPermissionMode,
@@ -49,7 +52,7 @@ type SessionUpdate =
   | { sessionUpdate: string; [key: string]: unknown };
 
 interface AcpAdapter {
-  id: 'codex' | 'opencode';
+  id: 'opencode';
   label: string;
   command: string;
   getArgs: (model?: string) => string[];
@@ -62,14 +65,6 @@ const ACP_CLIENT_INFO = {
   version: '0.0.10',
 };
 
-const CODEX_ADAPTER: AcpAdapter = {
-  id: 'codex',
-  label: 'Codex',
-  command: 'codex-acp',
-  getArgs: (model) => (model ? ['-c', `model=${JSON.stringify(model)}`] : []),
-  protocolVersion: 1,
-};
-
 const OPENCODE_ADAPTER: AcpAdapter = {
   id: 'opencode',
   label: 'OpenCode',
@@ -80,42 +75,6 @@ const OPENCODE_ADAPTER: AcpAdapter = {
   protocolVersion: 1,
 };
 
-function getCodexPermissionOverrides(mode: CodexPermissionMode | undefined): string[] {
-  switch (mode || 'defaultPermissions') {
-    case 'fullAccess':
-      return [
-        '-c',
-        'approval_policy="never"',
-        '-c',
-        'sandbox_mode="workspace-write"',
-      ];
-    case 'defaultPermissions':
-    default:
-      return [
-        '-c',
-        'approval_policy="on-request"',
-        '-c',
-        'sandbox_mode="workspace-write"',
-      ];
-  }
-}
-
-function getCodexReasoningOverrides(effort: CodexReasoningEffort | undefined): string[] {
-  if (!effort) {
-    return [];
-  }
-
-  return ['-c', `model_reasoning_effort=${JSON.stringify(effort)}`];
-}
-
-function getCodexFastModeOverrides(enabled: boolean | undefined): string[] {
-  if (enabled === undefined) {
-    return [];
-  }
-
-  return ['-c', `fast_mode=${enabled ? 'true' : 'false'}`];
-}
-
 function buildOpenCodePermissionConfig(
   mode: OpenCodePermissionMode | undefined
 ): 'allow' | { '*': 'ask' } {
@@ -123,20 +82,11 @@ function buildOpenCodePermissionConfig(
 }
 
 function buildAcpProcessEnv(
-  adapter: AcpAdapter,
+  _adapter: AcpAdapter,
   selectedModel?: string,
   opencodePermissionMode?: OpenCodePermissionMode
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
-
-  if (adapter.id === 'codex') {
-    prepareCodexAcpHome(env);
-    return env;
-  }
-
-  if (adapter.id !== 'opencode') {
-    return env;
-  }
 
   let inlineConfig: Record<string, unknown> = {};
   const existingInlineConfig = env.OPENCODE_CONFIG_CONTENT;
@@ -158,69 +108,6 @@ function buildAcpProcessEnv(
   });
 
   return env;
-}
-
-function prepareCodexAcpHome(env: NodeJS.ProcessEnv): void {
-  const home = env.HOME;
-  if (!home) {
-    return;
-  }
-
-  const sourceCodexHome = path.join(home, '.codex');
-  const sourceAuthPath = path.join(sourceCodexHome, 'auth.json');
-  const sourceConfigPath = path.join(sourceCodexHome, 'config.toml');
-  const aegisCodexHome = path.join(sourceCodexHome, 'aegis-acp');
-  const aegisConfigPath = path.join(aegisCodexHome, 'config.toml');
-  const aegisAuthPath = path.join(aegisCodexHome, 'auth.json');
-
-  try {
-    mkdirSync(aegisCodexHome, { recursive: true });
-
-    const sourceAuthExists = existsSync(sourceAuthPath);
-    const aegisAuthExists = existsSync(aegisAuthPath);
-    if (sourceAuthExists) {
-      let shouldSyncAuth = !aegisAuthExists;
-      if (!shouldSyncAuth && aegisAuthExists) {
-        try {
-          const sourceMtime = statSync(sourceAuthPath).mtimeMs;
-          const aegisMtime = statSync(aegisAuthPath).mtimeMs;
-          shouldSyncAuth = sourceMtime > aegisMtime;
-        } catch {
-          shouldSyncAuth = false;
-        }
-      }
-
-      if (shouldSyncAuth) {
-        copyFileSync(sourceAuthPath, aegisAuthPath);
-      }
-    }
-
-    const sourceConfigExists = existsSync(sourceConfigPath);
-    const aegisConfigExists = existsSync(aegisConfigPath);
-    if (sourceConfigExists) {
-      let shouldSyncConfig = !aegisConfigExists;
-      if (!shouldSyncConfig && aegisConfigExists) {
-        try {
-          const sourceMtime = statSync(sourceConfigPath).mtimeMs;
-          const aegisMtime = statSync(aegisConfigPath).mtimeMs;
-          shouldSyncConfig = sourceMtime > aegisMtime;
-        } catch {
-          shouldSyncConfig = false;
-        }
-      }
-      if (shouldSyncConfig) {
-        copyFileSync(sourceConfigPath, aegisConfigPath);
-      }
-    } else if (!aegisConfigExists) {
-      writeFileSync(aegisConfigPath, '', 'utf8');
-    }
-
-    env.CODEX_HOME = aegisCodexHome;
-  } catch (error) {
-    if (isDev()) {
-      console.warn('[Codex ACP] Failed to prepare Aegis CODEX_HOME, falling back to default ~/.codex.', error);
-    }
-  }
 }
 
 function resolveExecutableOnPath(command: string, envPath: string | undefined): string | null {
@@ -453,10 +340,6 @@ async function buildPromptContent(
   return blocks;
 }
 
-export function runCodex(options: RunnerOptions): RunnerHandle {
-  return runAcp(options, CODEX_ADAPTER);
-}
-
 export function runOpenCode(options: RunnerOptions): RunnerHandle {
   return runAcp(options, OPENCODE_ADAPTER);
 }
@@ -470,7 +353,26 @@ export async function runCodexOneShot(params: {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
 }): Promise<{ text: string; sessionId?: string; model?: string }> {
-  return runAcpOneShot(CODEX_ADAPTER, params);
+  // Use ProviderService with CodexAdapter (codex app-server)
+  const { getProviderService } = await import('./provider/service');
+  const { CodexAdapter } = await import('./provider/codex-adapter');
+
+  const service = getProviderService();
+  if (!service.getAdapter('codex')) {
+    service.registerAdapter(new CodexAdapter());
+  }
+
+  const threadId = `codex-oneshot-${Date.now()}`;
+  return service.runOneShot({
+    threadId,
+    cwd: params.cwd || process.cwd(),
+    prompt: params.prompt,
+    model: params.model,
+    resumeSessionId: params.resumeSessionId,
+    codexPermissionMode: params.codexPermissionMode,
+    codexReasoningEffort: params.codexReasoningEffort,
+    codexFastMode: params.codexFastMode,
+  });
 }
 
 export async function runOpenCodeOneShot(params: {
@@ -561,20 +463,12 @@ async function runAcpOneShot(
     cwd?: string;
     resumeSessionId?: string;
     model?: string;
-    codexPermissionMode?: CodexPermissionMode;
-    codexReasoningEffort?: CodexReasoningEffort;
-    codexFastMode?: boolean;
     opencodePermissionMode?: OpenCodePermissionMode;
   }
 ): Promise<{ text: string; sessionId?: string; model?: string }> {
   const selectedModel =
     typeof params.model === 'string' && params.model.trim().length > 0 ? params.model.trim() : undefined;
-  const spawnArgs = [
-    ...adapter.getArgs(selectedModel),
-    ...(adapter.id === 'codex' ? getCodexPermissionOverrides(params.codexPermissionMode) : []),
-    ...(adapter.id === 'codex' ? getCodexReasoningOverrides(params.codexReasoningEffort) : []),
-    ...(adapter.id === 'codex' ? getCodexFastModeOverrides(params.codexFastMode) : []),
-  ];
+  const spawnArgs = [...adapter.getArgs(selectedModel)];
   const env = buildAcpProcessEnv(adapter, selectedModel, params.opencodePermissionMode);
   const invocation = resolveNodeWrappedCommand(adapter.command, spawnArgs, env);
   const proc = spawn(invocation.command, invocation.args, {
@@ -785,9 +679,6 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
     model,
     session,
     resumeSessionId,
-    codexPermissionMode,
-    codexReasoningEffort,
-    codexFastMode,
     opencodePermissionMode,
     onMessage,
     onError,
@@ -810,12 +701,7 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
   let terminalErrorHandled = false;
   let activeRequestWatchdog: ReturnType<typeof createActivityWatchdog> | null = null;
 
-  const spawnArgs = [
-    ...adapter.getArgs(selectedModel),
-    ...(adapter.id === 'codex' ? getCodexPermissionOverrides(codexPermissionMode) : []),
-    ...(adapter.id === 'codex' ? getCodexReasoningOverrides(codexReasoningEffort) : []),
-    ...(adapter.id === 'codex' ? getCodexFastModeOverrides(codexFastMode) : []),
-  ];
+  const spawnArgs = [...adapter.getArgs(selectedModel)];
   const env = buildAcpProcessEnv(adapter, selectedModel, opencodePermissionMode);
   const invocation = resolveNodeWrappedCommand(adapter.command, spawnArgs, env);
   const proc = spawn(invocation.command, invocation.args, {
@@ -868,23 +754,6 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
       activeRequestWatchdog?.touch();
       console.warn(`[${adapter.label} ACP]`, line);
 
-      if (
-        !terminalErrorHandled &&
-        adapter.id === 'codex' &&
-        /(refresh_token_reused|refresh token has already been used|sign in again|log out and sign in again)/i.test(line)
-      ) {
-        terminalErrorHandled = true;
-        onError?.(
-          new Error(
-            'Codex authentication failed because the refresh token was already used. Please sign out and sign in again before starting a new Codex session.'
-          )
-        );
-        try {
-          proc.kill();
-        } catch {
-          // ignore
-        }
-      }
     }
   });
 
@@ -1123,10 +992,8 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
     promptCapabilities = { image: !!promptCaps.image };
 
     const cwd = session.cwd || process.cwd();
-    const mcpServers =
-      adapter.id === 'opencode' || adapter.id === 'codex'
-        ? []
-        : (getMcpServers(session.cwd ?? undefined) as Record<string, unknown>);
+    // OpenCode owns its own MCP config — don't forward Aegis's Claude MCP map.
+    const mcpServers: Record<string, unknown> = {};
     let sessionResult: Record<string, unknown> | undefined;
 
     if (resumeSessionId) {

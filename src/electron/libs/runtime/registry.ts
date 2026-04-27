@@ -29,19 +29,19 @@ function getConfiguredRuntimeMode(): RuntimeMode {
 }
 
 function resolveProviderRuntimeId(provider: AgentProvider | undefined): AgentRuntimeId {
-  return provider === 'codex'
-    ? 'codex'
-    : provider === 'opencode'
-      ? 'opencode'
-      : 'claude';
+  // Codex is now handled by ProviderService, not RuntimeRegistry
+  return provider === 'opencode'
+    ? 'opencode'
+    : 'claude';
 }
 
 export function resolveRuntime(provider: AgentProvider | undefined): AgentRuntime {
   const runtimeMode = getConfiguredRuntimeMode();
   const providerRuntimeId = resolveProviderRuntimeId(provider);
+  // Codex is handled by ProviderService; only OpenCode uses native runtime
   const preferNative =
     runtimeMode === 'native' ||
-    (runtimeMode === 'auto' && (provider === 'codex' || provider === 'opencode'));
+    (runtimeMode === 'auto' && provider === 'opencode');
 
   if (preferNative) {
     const nativeRuntime = runtimes.get('native');

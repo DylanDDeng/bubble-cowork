@@ -1,6 +1,7 @@
 import type { RunnerHandle, RunnerOptions } from '../../types';
 
-export type AgentRuntimeId = 'native' | 'claude' | 'codex' | 'opencode';
+// Codex is now handled by ProviderService, not RuntimeRegistry
+export type AgentRuntimeId = 'native' | 'claude' | 'opencode';
 
 export interface AgentRuntime {
   id: AgentRuntimeId;

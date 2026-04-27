@@ -75,6 +75,7 @@ export type {
   CreateStatusInput,
   UpdateStatusInput,
   FolderConfig,
+  CanonicalToolKind,
 } from '../shared/types';
 
 // 主题类型

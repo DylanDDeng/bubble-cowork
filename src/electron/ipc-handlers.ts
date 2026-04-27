@@ -4681,7 +4681,7 @@ function startRunner(
     console.log('[Runner Select]', {
       sessionId: session.id,
       provider,
-      runner: provider === 'claude' ? 'claude-agent-sdk' : provider === 'codex' ? 'codex-acp' : 'opencode acp',
+      runner: provider === 'claude' ? 'claude-agent-sdk' : provider === 'codex' ? 'codex-app-server' : 'opencode acp',
       model: modelOverride,
       compatibleProviderId,
       cwd: session.cwd || process.cwd(),

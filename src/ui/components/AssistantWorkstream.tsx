@@ -1,16 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Brain,
-  Check,
-  ChevronDown,
-  CircleAlert,
+  ChevronRight,
   CircleX,
-  Database,
   LoaderCircle,
   ShieldAlert,
-  Wrench,
 } from 'lucide-react';
-import type { ToolStatus } from '../types';
 import {
   type ToolResultBlock,
   type ToolUseBlock,
@@ -30,10 +24,10 @@ import {
   type UnifiedDiffHunk,
   type UnifiedDiffLine,
 } from '../utils/unified-diff';
-import { formatDurationLabel } from '../utils/format-duration';
 import { TodoProgressCard } from './TodoProgressCard';
 import { DiffStatLabel } from './DiffStatLabel';
 import { useTurnDiffContext } from './TurnDiffContext';
+import { StructuredResponse } from './StructuredResponse';
 import type { ChangeRecord } from '../utils/change-records';
 
 interface AssistantWorkstreamProps {
@@ -41,203 +35,270 @@ interface AssistantWorkstreamProps {
   className?: string;
 }
 
+const VISIBLE_COMPACT_ENTRIES = 8;
+
 export function AssistantWorkstream({ model, className = '' }: AssistantWorkstreamProps) {
-  const [expanded, setExpanded] = useState(
-    model.state === 'waiting' || model.state === 'error'
-  );
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  // Hooks must run in the same order every render — keep useMemo above any
+  // conditional early return.
+  const groups = useMemo(() => groupEntries(model.entries), [model.entries]);
 
-  useEffect(() => {
-    if (model.state === 'waiting' || model.state === 'error') {
-      setExpanded(true);
-    }
-  }, [model.state]);
-
-  const isCompletedCollapsed = model.state === 'completed' && !expanded;
-  const visibleEntries = expanded
-    ? model.entries
-    : isCompletedCollapsed
-      ? []
-      : model.previewEntries;
-  const showToggle =
-    (model.state === 'completed' && model.entries.length > 0) ||
-    model.entries.length > model.previewEntries.length ||
-    model.entries.length > 3;
-  const meta = useMemo(() => buildWorkstreamMeta(model), [model]);
-
-  if (model.entries.length === 0 && !model.todoProgress && model.summary.trim().length === 0) {
+  if (model.entries.length === 0 && !model.todoProgress) {
     return null;
   }
 
-  if (model.entries.length === 0 && model.todoProgress) {
-    return <TodoProgressCard state={model.todoProgress} className={className || 'my-2'} />;
-  }
-
-  const showSummaryLine = !isCompletedCollapsed && model.summary.trim().length > 0;
-  const toggleLabel = expanded
-    ? 'Hide details'
-    : model.state === 'completed'
-      ? 'Show details'
-      : `Show ${model.hiddenEntryCount} more`;
-
   return (
-    <div className={`my-2 border-l border-[var(--border)]/60 pl-3 ${className}`}>
-      <div className="flex items-start gap-3 py-1.5">
-        <StatusGlyph state={model.state} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start gap-2">
-            <div className="min-w-0 flex-1">
-              <div className="text-[12px] font-medium text-[var(--text-primary)]">{model.title}</div>
-              {showSummaryLine ? (
-                <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-secondary)]">{model.summary}</div>
-              ) : null}
-            </div>
-            {showToggle ? (
-              <button
-                type="button"
-                onClick={() => setExpanded((current) => !current)}
-                className="inline-flex h-6 items-center gap-1 px-1 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
-                aria-expanded={expanded}
-              >
-                <span>{toggleLabel}</span>
-                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-              </button>
-            ) : null}
-          </div>
-
-          {meta.length > 0 ? (
-            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
-              {meta.map((item) => (
-                <span
-                  key={item}
-                  className="rounded-full bg-[var(--bg-tertiary)]/55 px-2 py-0.5"
-                >
-                  {item}
-                </span>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </div>
-
+    <div className={`my-2 ${className}`.trim()}>
+      {groups.map((group, idx) => {
+        if (group.kind === 'text') {
+          return <TextSegment key={`g${idx}`} entry={group.entry} />;
+        }
+        return (
+          <CompactGroup
+            key={`g${idx}`}
+            entries={group.entries}
+            overflowOpen={overflowOpen}
+            onToggleOverflow={() => setOverflowOpen((v) => !v)}
+          />
+        );
+      })}
       {model.todoProgress ? (
-        <div className="mt-2 border-t border-[var(--border)]/35 py-3 pr-0">
+        <div className="my-2">
           <TodoProgressCard state={model.todoProgress} />
         </div>
       ) : null}
+    </div>
+  );
+}
 
-      {visibleEntries.length > 0 ? (
-        <div className="mt-2 border-t border-[var(--border)]/35 py-2 pr-0">
-          <div className="space-y-0.5">
-            {visibleEntries.map((entry) => (
-              <WorkstreamEntryRow key={entry.id} entry={entry} expandedMode={expanded} />
-            ))}
-          </div>
+// ── Grouping ────────────────────────────────────────────────────────────────
+
+type EntryGroup =
+  | { kind: 'text'; entry: Extract<WorkstreamEntry, { type: 'note' }> }
+  | { kind: 'compact'; entries: WorkstreamEntry[] };
+
+function groupEntries(entries: WorkstreamEntry[]): EntryGroup[] {
+  const groups: EntryGroup[] = [];
+  let buffer: WorkstreamEntry[] = [];
+
+  const flush = () => {
+    if (buffer.length > 0) {
+      groups.push({ kind: 'compact', entries: buffer });
+      buffer = [];
+    }
+  };
+
+  for (const entry of entries) {
+    if (entry.type === 'note') {
+      flush();
+      groups.push({ kind: 'text', entry });
+    } else {
+      buffer.push(entry);
+    }
+  }
+  flush();
+  return groups;
+}
+
+// ── Text segment (assistant narration during the trace) ─────────────────────
+
+function TextSegment({
+  entry,
+}: {
+  entry: Extract<WorkstreamEntry, { type: 'note' }>;
+}) {
+  const text = entry.detail || entry.summary;
+  if (!text.trim()) return null;
+  return (
+    <div className="my-2 min-w-0 overflow-x-auto">
+      <StructuredResponse content={text} />
+    </div>
+  );
+}
+
+// ── Compact group with overflow ─────────────────────────────────────────────
+
+function CompactGroup({
+  entries,
+  overflowOpen,
+  onToggleOverflow,
+}: {
+  entries: WorkstreamEntry[];
+  overflowOpen: boolean;
+  onToggleOverflow: () => void;
+}) {
+  const showOverflow = entries.length > VISIBLE_COMPACT_ENTRIES;
+  const visibleEntries =
+    showOverflow && !overflowOpen ? entries.slice(0, VISIBLE_COMPACT_ENTRIES) : entries;
+  const hiddenCount = entries.length - VISIBLE_COMPACT_ENTRIES;
+
+  return (
+    <div className="my-2 space-y-px">
+      {visibleEntries.map((entry) => (
+        <EntryRow key={entry.id} entry={entry} />
+      ))}
+      {showOverflow ? (
+        <button
+          type="button"
+          onClick={onToggleOverflow}
+          className="flex w-full items-center justify-start py-0.5 text-[12px] text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
+        >
+          {overflowOpen
+            ? 'Hide additional tool calls'
+            : `+${hiddenCount} more tool call${hiddenCount > 1 ? 's' : ''}`}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+// ── Entry row dispatcher ────────────────────────────────────────────────────
+
+function EntryRow({ entry }: { entry: WorkstreamEntry }) {
+  if (entry.type === 'thinking') {
+    return <ThinkingRow entry={entry} />;
+  }
+  if (entry.type === 'approval') {
+    return <ApprovalRow entry={entry} />;
+  }
+  if (entry.type === 'error') {
+    return <ErrorRow entry={entry} />;
+  }
+  return <ToolRow entry={entry} />;
+}
+
+// ── Thinking row ────────────────────────────────────────────────────────────
+
+function ThinkingRow({
+  entry,
+}: {
+  entry: Extract<WorkstreamEntry, { type: 'thinking' }>;
+}) {
+  const isActive = entry.state === 'active';
+  return (
+    <div
+      className="flex items-baseline gap-1.5 py-0.5 text-[12px] leading-5 text-[var(--text-muted)]/55"
+      title={entry.detail}
+    >
+      <span className="min-w-0 flex-1 truncate">{entry.summary}</span>
+      {isActive ? (
+        <span className="inline-flex h-1 w-1 flex-shrink-0 rounded-full bg-[var(--text-muted)]/45 animate-pulse" />
+      ) : null}
+    </div>
+  );
+}
+
+// ── Approval row ────────────────────────────────────────────────────────────
+
+function ApprovalRow({
+  entry,
+}: {
+  entry: Extract<WorkstreamEntry, { type: 'approval' }>;
+}) {
+  const tone =
+    entry.state === 'approved'
+      ? 'text-emerald-600'
+      : entry.state === 'denied'
+        ? 'text-[var(--error)]'
+        : 'text-amber-600';
+
+  return (
+    <div className="flex items-center gap-2 py-0.5 text-[12px] leading-5 text-[var(--text-primary)]">
+      <ShieldAlert className={`h-3.5 w-3.5 flex-shrink-0 ${tone}`} />
+      <span className="min-w-0 flex-1 truncate">{entry.summary}</span>
+      <span className={`flex-shrink-0 text-[11px] uppercase tracking-[0.06em] ${tone}`}>
+        {entry.state}
+      </span>
+    </div>
+  );
+}
+
+// ── Error row ───────────────────────────────────────────────────────────────
+
+function ErrorRow({
+  entry,
+}: {
+  entry: Extract<WorkstreamEntry, { type: 'error' }>;
+}) {
+  return (
+    <div className="flex items-baseline gap-2 py-0.5 text-[12px] leading-5 text-[var(--error)]" title={entry.detail}>
+      <CircleX className="h-3.5 w-3.5 flex-shrink-0" />
+      <span className="min-w-0 flex-1 truncate">{entry.summary}</span>
+    </div>
+  );
+}
+
+// ── Tool/task/memory row (the compact dpcode-style line) ────────────────────
+
+function ToolRow({
+  entry,
+}: {
+  entry: Extract<WorkstreamEntry, { type: 'tool' | 'task' | 'memory' }>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { changeRecordByToolUseId, onOpenDiff } = useTurnDiffContext();
+  const changeRecord = changeRecordByToolUseId.get(entry.block.id) || null;
+
+  const canExpand = hasEntryDetail(entry);
+  const isPending = entry.status === 'pending';
+  const isError = entry.status === 'error';
+
+  const summaryClass = isError
+    ? 'text-[var(--error)]'
+    : isPending
+      ? 'text-[var(--text-muted)]/70'
+      : 'text-[var(--text-muted)]/55 group-hover:text-[var(--text-secondary)]';
+
+  return (
+    <div className="group">
+      <button
+        type="button"
+        onClick={() => canExpand && setExpanded((v) => !v)}
+        disabled={!canExpand}
+        title={entry.detail || entry.summary}
+        className={`flex w-full items-baseline gap-1.5 py-0.5 text-left text-[12px] leading-5 transition-colors disabled:opacity-100 ${
+          canExpand ? '' : 'cursor-default'
+        }`}
+      >
+        <span className={`min-w-0 flex-1 truncate ${summaryClass}`}>{entry.summary}</span>
+        <RightStatusGlyph entry={entry} canExpand={canExpand} expanded={expanded} />
+      </button>
+
+      {changeRecord ? (
+        <EditedFileHint record={changeRecord} onOpen={onOpenDiff} />
+      ) : null}
+
+      {expanded && canExpand ? (
+        <div className="mb-1 ml-1 border-l border-[var(--border)]/50 pl-3">
+          <ToolEntryDetail entry={entry} />
         </div>
       ) : null}
     </div>
   );
 }
 
-function buildWorkstreamMeta(model: WorkstreamModel): string[] {
-  const items: string[] = [];
-  if (model.toolCount > 0) {
-    items.push(`${model.toolCount} tool${model.toolCount > 1 ? 's' : ''}`);
-  }
-  if (model.noteCount > 0) {
-    items.push(`${model.noteCount} note${model.noteCount > 1 ? 's' : ''}`);
-  }
-  const durationLabel = formatDurationLabel(model.durationMs);
-  if (durationLabel) {
-    items.push(durationLabel);
-  }
-  return items;
-}
-
-function StatusGlyph({ state }: { state: WorkstreamModel['state'] }) {
-  if (state === 'waiting') {
-    return (
-      <span className="mt-0.5 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-amber-500/14 text-amber-600">
-        <ShieldAlert className="h-3 w-3" />
-      </span>
-    );
-  }
-  if (state === 'error') {
-    return (
-      <span className="mt-0.5 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-[var(--error)]/14 text-[var(--error)]">
-        <CircleX className="h-3.5 w-3.5" />
-      </span>
-    );
-  }
-  if (state === 'running') {
-    return <LoaderCircle className="mt-0.5 h-4 w-4 flex-shrink-0 animate-spin text-[var(--accent)]" />;
-  }
-  return (
-    <span className="mt-0.5 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-emerald-500/14 text-emerald-600">
-      <Check className="h-3 w-3" />
-    </span>
-  );
-}
-
-function WorkstreamEntryRow({
+function RightStatusGlyph({
   entry,
-  expandedMode,
+  canExpand,
+  expanded,
 }: {
-  entry: WorkstreamEntry;
-  expandedMode: boolean;
+  entry: Extract<WorkstreamEntry, { type: 'tool' | 'task' | 'memory' }>;
+  canExpand: boolean;
+  expanded: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const canExpand = expandedMode && hasEntryDetail(entry);
-  const { changeRecordByToolUseId, onOpenDiff } = useTurnDiffContext();
-  const changeRecord =
-    entry.type === 'tool' ? changeRecordByToolUseId.get(entry.block.id) || null : null;
-
-  useEffect(() => {
-    if (!expandedMode) {
-      setExpanded(false);
-    }
-  }, [expandedMode]);
-
-  const { icon, tone, meta, summary } = getEntryPresentation(entry);
-
+  if (entry.status === 'pending') {
+    return <LoaderCircle className="h-3 w-3 flex-shrink-0 animate-spin text-[var(--text-muted)]/55" />;
+  }
+  if (entry.status === 'error') {
+    return <CircleX className="h-3 w-3 flex-shrink-0 text-[var(--error)]" />;
+  }
+  if (!canExpand) return null;
   return (
-    <div className="px-0 py-0.5">
-      <div className="flex items-start gap-2">
-        <div className={`mt-1 flex h-4 w-4 flex-shrink-0 items-center justify-center ${tone.icon}`}>
-          {icon}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start gap-2">
-            <div className={`min-w-0 flex-1 ${tone.summary}`}>{summary}</div>
-            {meta ? <div className={`flex-shrink-0 text-[11px] ${tone.meta}`}>{meta}</div> : null}
-            {canExpand ? (
-              <button
-                type="button"
-                onClick={() => setExpanded((current) => !current)}
-                className="flex-shrink-0 text-[11px] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
-              >
-                {expanded ? 'Less' : 'More'}
-              </button>
-            ) : null}
-          </div>
-
-          {changeRecord ? (
-            <EditedFileHint record={changeRecord} onOpen={onOpenDiff} />
-          ) : null}
-
-          {expandedMode ? (
-            <div className="mt-0.5 text-[11px] leading-5 text-[var(--text-muted)]">
-              {getEntrySecondaryText(entry)}
-            </div>
-          ) : null}
-
-          {expandedMode && expanded && hasEntryDetail(entry) ? (
-            <div className="mt-2 border-l border-[var(--border)]/50 pl-3">
-              <WorkstreamEntryDetail entry={entry} />
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </div>
+    <ChevronRight
+      className={`h-3 w-3 flex-shrink-0 text-[var(--text-muted)]/45 transition-transform ${
+        expanded ? 'rotate-90' : ''
+      }`}
+    />
   );
 }
 
@@ -248,29 +309,23 @@ function EditedFileHint({
   record: ChangeRecord;
   onOpen?: (record: ChangeRecord) => void;
 }) {
-  const verb = record.operation === 'write'
-    ? 'Created'
-    : record.operation === 'delete'
-      ? 'Deleted'
-      : 'Edited';
+  const verb =
+    record.operation === 'write' ? 'Created' : record.operation === 'delete' ? 'Deleted' : 'Edited';
   const clickable = Boolean(onOpen);
   const fileName = record.fileName || record.filePath;
 
-  const content = (
+  const body = (
     <>
-      <span className="text-[var(--text-muted)]">{verb}</span>
+      <span className="text-[var(--text-muted)]/60">{verb}</span>
       <span
-        className={`max-w-[22rem] truncate font-mono ${
-          clickable ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'
+        className={`max-w-[28rem] truncate font-mono ${
+          clickable ? 'text-[var(--accent)] group-hover:underline' : 'text-[var(--text-secondary)]'
         }`}
       >
         {fileName}
       </span>
       {record.addedLines + record.removedLines > 0 ? (
-        <DiffStatLabel
-          additions={record.addedLines}
-          deletions={record.removedLines}
-        />
+        <DiffStatLabel additions={record.addedLines} deletions={record.removedLines} />
       ) : null}
     </>
   );
@@ -281,173 +336,41 @@ function EditedFileHint({
         type="button"
         onClick={() => onOpen?.(record)}
         title={record.filePath}
-        className="mt-1 inline-flex items-baseline gap-1.5 text-left text-[11px] leading-5 transition-opacity hover:opacity-80"
+        className="group ml-0.5 mt-0.5 inline-flex items-baseline gap-1.5 text-left text-[11px] leading-5 transition-opacity"
       >
-        {content}
+        {body}
       </button>
     );
   }
-
   return (
     <div
       title={record.filePath}
-      className="mt-1 inline-flex items-baseline gap-1.5 text-[11px] leading-5"
+      className="ml-0.5 mt-0.5 inline-flex items-baseline gap-1.5 text-[11px] leading-5"
     >
-      {content}
+      {body}
     </div>
   );
 }
 
-function getEntryPresentation(entry: WorkstreamEntry) {
-  if (entry.type === 'thinking') {
-    return {
-      icon: <Brain className="h-3.5 w-3.5" />,
-      tone: {
-        icon: 'text-[var(--text-muted)]',
-        summary: 'text-[12px] leading-5 text-[var(--text-secondary)]/90',
-        meta: 'text-[var(--text-muted)]',
-      },
-      summary: entry.summary,
-      meta: entry.state === 'active' ? 'live' : null,
-    };
-  }
+// ── Tool detail (args / output / diff), shown when row is expanded ──────────
 
-  if (entry.type === 'note') {
-    return {
-      icon: <span className="h-1.5 w-1.5 rounded-full bg-current" />,
-      tone: {
-        icon: 'text-[var(--text-muted)]',
-        summary: 'text-[12px] leading-5 text-[var(--text-secondary)]',
-        meta: 'text-[var(--text-muted)]',
-      },
-      summary: entry.summary,
-      meta: null,
-    };
-  }
-
-  if (entry.type === 'approval') {
-    return {
-      icon:
-        entry.state === 'approved' ? (
-          <StatusCircleIcon kind="success" />
-        ) : entry.state === 'denied' ? (
-          <StatusCircleIcon kind="error" />
-        ) : (
-          <StatusCircleIcon kind="waiting" />
-        ),
-      tone: {
-        icon: '',
-        summary: 'text-[12px] font-medium leading-5 text-[var(--text-primary)]',
-        meta: 'text-[var(--text-muted)]',
-      },
-      summary: entry.summary,
-      meta: entry.state === 'approved' ? 'approved' : entry.state === 'denied' ? 'denied' : 'waiting',
-    };
-  }
-
-  const statusTone =
-    entry.status === 'error'
-      ? 'text-[var(--error)]'
-      : entry.status === 'pending'
-        ? 'text-[var(--accent)]'
-        : entry.type === 'memory'
-          ? 'text-violet-500'
-          : entry.type === 'task'
-            ? 'text-sky-500'
-            : 'text-[var(--text-primary)]';
-
-  return {
-    icon:
-      entry.status === 'success' ? (
-        <StatusCircleIcon kind="success" />
-      ) : entry.status === 'error' ? (
-        <StatusCircleIcon kind="error" />
-      ) : entry.status === 'pending' ? (
-        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-      ) : entry.type === 'memory' ? (
-        <Database className="h-3.5 w-3.5" />
-      ) : (
-        <Wrench className="h-3.5 w-3.5" />
-      ),
-    tone: {
-      icon: statusTone,
-      summary: `text-[12px] leading-5 ${entry.status === 'error' ? 'text-[var(--error)]' : 'text-[var(--text-primary)]'}`,
-      meta: 'text-[var(--text-muted)]',
-    },
-    summary: entry.summary,
-    meta: entry.status,
-  };
-}
-
-function StatusCircleIcon({
-  kind,
-}: {
-  kind: 'success' | 'error' | 'waiting';
-}) {
-  if (kind === 'success') {
-    return (
-      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500/14 text-emerald-600">
-        <Check className="h-3 w-3" />
-      </span>
-    );
-  }
-
-  if (kind === 'error') {
-    return (
-      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-[var(--error)]/14 text-[var(--error)]">
-        <CircleX className="h-3.5 w-3.5" />
-      </span>
-    );
-  }
-
-  return (
-    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-500/14 text-amber-600">
-      <ShieldAlert className="h-3 w-3" />
-    </span>
+function hasEntryDetail(
+  entry: Extract<WorkstreamEntry, { type: 'tool' | 'task' | 'memory' }>
+): boolean {
+  const inputRecord = isRecord(entry.block.input) ? getPublicToolInput(entry.block.input) : {};
+  return Boolean(
+    entry.detail || entry.result || Object.keys(inputRecord).length
   );
 }
 
-function getEntrySecondaryText(entry: WorkstreamEntry): string | null {
-  if (entry.type === 'tool' || entry.type === 'task' || entry.type === 'memory') {
-    const fallback = entry.type === 'memory' ? 'Memory action' : entry.type === 'task' ? 'Task' : entry.toolName;
-    return entry.toolName || fallback;
-  }
-
-  if (entry.type === 'approval') {
-    return entry.detail || null;
-  }
-
-  return null;
-}
-
-function hasEntryDetail(entry: WorkstreamEntry): boolean {
-  if (entry.type === 'tool' || entry.type === 'task' || entry.type === 'memory') {
-    return true;
-  }
-
-  return Boolean(entry.detail && entry.detail.trim() && entry.detail.trim() !== entry.summary.trim());
-}
-
-function WorkstreamEntryDetail({ entry }: { entry: WorkstreamEntry }) {
-  if (entry.type === 'thinking' || entry.type === 'note' || entry.type === 'approval' || entry.type === 'error') {
-    return (
-      <pre className="whitespace-pre-wrap break-words text-[12px] leading-6 text-[var(--text-secondary)]">
-        {entry.detail || entry.summary}
-      </pre>
-    );
-  }
-
-  return <ToolLikeEntryDetail entry={entry} />;
-}
-
-function ToolLikeEntryDetail({
+function ToolEntryDetail({
   entry,
 }: {
   entry: Extract<WorkstreamEntry, { type: 'tool' | 'task' | 'memory' }>;
 }) {
   const [showArgs, setShowArgs] = useState(false);
   const [showOutput, setShowOutput] = useState(false);
-  const inputRecord = isRecord(entry.block.input) ? entry.block.input : {};
+  const inputRecord = isRecord(entry.block.input) ? getPublicToolInput(entry.block.input) : {};
   const hasArgs = Object.keys(inputRecord).length > 0;
   const contentStr =
     entry.result?.content != null
@@ -467,7 +390,6 @@ function ToolLikeEntryDetail({
     if (diffContent) {
       return parseUnifiedDiff(diffContent);
     }
-
     if (entry.toolName === 'Edit') {
       const oldText = getToolInputOldText(inputRecord);
       const newText = getToolInputNewText(inputRecord);
@@ -475,24 +397,22 @@ function ToolLikeEntryDetail({
         return createUnifiedDiffHunks(oldText, newText, { contextLines: 3 });
       }
     }
-
     if (entry.toolName === 'Write') {
       const content = getToolInputContent(inputRecord);
       if (content) {
         return buildWritePreviewHunks(content);
       }
     }
-
     return [];
   }, [diffContent, entry.toolName, inputRecord]);
 
   return (
-    <div className="space-y-2 text-[12px]">
+    <div className="my-1 space-y-2 text-[12px]">
       {hasArgs ? (
         <CollapsibleSection
           label="Arguments"
           expanded={showArgs}
-          onToggle={() => setShowArgs((current) => !current)}
+          onToggle={() => setShowArgs((v) => !v)}
         >
           <pre className="whitespace-pre-wrap break-all text-[12px] leading-5 text-[var(--text-secondary)]">
             {safeJsonStringify(entry.block.input, 2)}
@@ -519,7 +439,7 @@ function ToolLikeEntryDetail({
         <CollapsibleSection
           label={diffHunks.length > 0 ? 'Raw output' : `Output (${outputLines} line${outputLines > 1 ? 's' : ''})`}
           expanded={showOutput}
-          onToggle={() => setShowOutput((current) => !current)}
+          onToggle={() => setShowOutput((v) => !v)}
           isError={entry.result?.is_error}
         >
           <pre
@@ -557,14 +477,22 @@ function CollapsibleSection({
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+        className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left"
       >
-        <span className={`text-[11px] font-medium uppercase tracking-[0.08em] ${isError ? 'text-[var(--error)]' : 'text-[var(--text-muted)]'}`}>
+        <span
+          className={`text-[11px] font-medium uppercase tracking-[0.08em] ${
+            isError ? 'text-[var(--error)]' : 'text-[var(--text-muted)]'
+          }`}
+        >
           {label}
         </span>
-        <ChevronDown className={`h-3.5 w-3.5 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        <ChevronRight
+          className={`h-3 w-3 text-[var(--text-muted)] transition-transform ${
+            expanded ? 'rotate-90' : ''
+          }`}
+        />
       </button>
-      {expanded ? <div className="border-t border-[var(--border)]/60 px-3 py-3">{children}</div> : null}
+      {expanded ? <div className="border-t border-[var(--border)]/60 px-3 py-2">{children}</div> : null}
     </div>
   );
 }
@@ -573,12 +501,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function getPublicToolInput(input: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(input).filter(([key]) => !key.startsWith('__aegis'))
+  );
+}
+
 function buildWritePreviewHunks(content: string): UnifiedDiffHunk[] {
   const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   if (lines[lines.length - 1] === '') {
     lines.pop();
   }
-
   return [
     {
       oldStart: 0,
@@ -598,7 +531,7 @@ function buildWritePreviewHunks(content: string): UnifiedDiffHunk[] {
 function DiffHunkView({ hunk }: { hunk: UnifiedDiffHunk }) {
   return (
     <div className="border-t border-[var(--border)]/50 first:border-t-0">
-      <div className="px-3 py-1.5 font-mono text-[11px] text-[var(--text-muted)]">
+      <div className="px-3 py-1 font-mono text-[11px] text-[var(--text-muted)]">
         {`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`}
       </div>
       {hunk.lines.map((line, index) => (
@@ -622,13 +555,86 @@ function DiffLineView({ line }: { line: UnifiedDiffLine }) {
         ? 'text-rose-400'
         : 'text-[var(--text-muted)]';
   const marker = line.type === 'addition' ? '+' : line.type === 'deletion' ? '-' : ' ';
-
   return (
-    <div className={`grid grid-cols-[56px_56px_18px_minmax(0,1fr)] items-start gap-0 font-mono text-[12px] leading-6 ${containerClass}`}>
+    <div
+      className={`grid grid-cols-[56px_56px_18px_minmax(0,1fr)] items-start gap-0 font-mono text-[12px] leading-6 ${containerClass}`}
+    >
       <div className="px-2 text-right text-[var(--text-muted)]">{line.oldLineNumber ?? ''}</div>
       <div className="px-2 text-right text-[var(--text-muted)]">{line.newLineNumber ?? ''}</div>
       <div className={`px-1 text-center ${markerClass}`}>{marker}</div>
-      <div className="min-w-0 whitespace-pre-wrap break-words px-2 text-[var(--text-primary)]">{line.text || ' '}</div>
+      <div className="min-w-0 whitespace-pre-wrap break-words px-2 text-[var(--text-primary)]">
+        {line.text || ' '}
+      </div>
     </div>
   );
 }
+
+// ── Live "Working for Xs" footer (used by ChatPane below the trace) ─────────
+
+export function WorkingFooter({ startedAt, label = 'Working' }: { startedAt: number | undefined; label?: string }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  // Only run the live timer when we actually have a start anchor — otherwise
+  // we'd burn a setInterval per render with nothing to display.
+  useEffect(() => {
+    if (typeof startedAt !== 'number') return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+
+  if (typeof startedAt !== 'number') {
+    return (
+      <div className="my-2 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]/70">
+        <span>{label}…</span>
+        <PulsingDots />
+      </div>
+    );
+  }
+
+  const elapsedMs = Math.max(0, now - startedAt);
+  const elapsed = formatElapsed(elapsedMs);
+  return (
+    <div className="my-2 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]/70">
+      <span>
+        {label} for {elapsed}
+      </span>
+      <PulsingDots />
+    </div>
+  );
+}
+
+function PulsingDots() {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="h-1 w-1 rounded-full bg-[var(--text-muted)]/40 animate-pulse [animation-delay:0ms]" />
+      <span className="h-1 w-1 rounded-full bg-[var(--text-muted)]/40 animate-pulse [animation-delay:150ms]" />
+      <span className="h-1 w-1 rounded-full bg-[var(--text-muted)]/40 animate-pulse [animation-delay:300ms]" />
+    </span>
+  );
+}
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
+}
+
+// ── Response divider ("Response · Worked for Xs") ───────────────────────────
+
+export function ResponseDivider({ durationMs }: { durationMs: number | undefined }) {
+  const elapsed = typeof durationMs === 'number' ? formatElapsed(durationMs) : null;
+  return (
+    <div className="my-4 flex items-center gap-3 px-1">
+      <div className="h-px flex-1 bg-[var(--border)]/60" />
+      <span className="text-[11px] tracking-[0.04em] text-[var(--text-muted)]/80">
+        Response{elapsed ? ` · Worked for ${elapsed}` : ''}
+      </span>
+      <div className="h-px flex-1 bg-[var(--border)]/60" />
+    </div>
+  );
+}
+
+// Re-export utility types for callers that import alongside.
+export type { ToolResultBlock, ToolUseBlock };

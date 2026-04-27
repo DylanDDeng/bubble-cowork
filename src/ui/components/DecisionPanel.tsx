@@ -5,9 +5,11 @@ import type { AskUserQuestionInput, AskUserQuestion, PermissionResult } from '..
 interface DecisionPanelProps {
   input: AskUserQuestionInput;
   onSubmit: (result: PermissionResult) => void;
+  /** "bare" omits the outer card so the panel can be embedded in another container. */
+  chrome?: 'card' | 'bare';
 }
 
-export function DecisionPanel({ input, onSubmit }: DecisionPanelProps) {
+export function DecisionPanel({ input, onSubmit, chrome = 'card' }: DecisionPanelProps) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [otherInputs, setOtherInputs] = useState<Record<string, string>>({});
 
@@ -84,8 +86,13 @@ export function DecisionPanel({ input, onSubmit }: DecisionPanelProps) {
     return answers[key] || otherInputs[key]?.trim();
   });
 
+  const wrapperClass =
+    chrome === 'bare'
+      ? ''
+      : 'bg-[var(--bg-tertiary)] rounded-lg p-4 my-3 border border-[var(--accent)]/30';
+
   return (
-    <div className="bg-[var(--bg-tertiary)] rounded-lg p-4 my-3 border border-[var(--accent)]/30">
+    <div className={wrapperClass}>
       {input.questions.map((question, idx) => (
         <div key={idx} className={idx > 0 ? 'mt-4 pt-4 border-t border-[var(--border)]' : ''}>
           {/* Header */}

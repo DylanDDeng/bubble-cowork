@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Copy, Check, Pencil, RotateCcw } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import { ToolGroup } from './ToolGroup';
 import { AttachmentChips } from './AttachmentChips';
 import { AttachmentPreviewGrid } from './AttachmentPreviewGrid';
-import { ThinkingBlock } from './ThinkingBlock';
 import { StructuredResponse } from './StructuredResponse';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
-import { getContentBlocks } from '../utils/message-content';
+import { ToolExecutionBatch } from './ToolExecutionBatch';
+import { getContentBlocks, isAnyToolUseBlockType } from '../utils/message-content';
 import type { ClaudeSlashCommand } from '../utils/claude-slash';
 import { buildProviderSlashCommands, getSessionSlashCommands, parseSelectedSlashCommandPrompt } from '../utils/claude-slash';
 import type { ClaudeSkillSummary } from '../types';
@@ -18,8 +17,6 @@ import type {
   Attachment,
   ContentBlock,
   ToolStatus,
-  PermissionRequestPayload,
-  PermissionResult,
 } from '../types';
 
 type UserPromptPrefixDisplay =
@@ -27,41 +24,8 @@ type UserPromptPrefixDisplay =
   | { kind: 'skill'; skill: ClaudeSkillSummary; remainder: string }
   | { kind: 'generic'; name: string; remainder: string };
 
-// 工具使用块类型
-type ToolUseBlock = ContentBlock & { type: 'tool_use' };
 // 工具结果块类型
 type ToolResultBlock = ContentBlock & { type: 'tool_result' };
-
-// 内容分组类型
-type ContentGroup =
-  | { type: 'tool_group'; blocks: ToolUseBlock[] }
-  | { type: 'single'; block: ContentBlock };
-
-// 将内容块分组：连续的 tool_use 合并为一组
-function groupContentBlocks(content: ContentBlock[]): ContentGroup[] {
-  const groups: ContentGroup[] = [];
-  let currentToolGroup: ToolUseBlock[] = [];
-
-  for (const block of content) {
-    if (block.type === 'tool_use') {
-      currentToolGroup.push(block as ToolUseBlock);
-    } else {
-      // 遇到非 tool_use，先保存当前工具组
-      if (currentToolGroup.length > 0) {
-        groups.push({ type: 'tool_group', blocks: currentToolGroup });
-        currentToolGroup = [];
-      }
-      groups.push({ type: 'single', block });
-    }
-  }
-
-  // 处理末尾的工具组
-  if (currentToolGroup.length > 0) {
-    groups.push({ type: 'tool_group', blocks: currentToolGroup });
-  }
-
-  return groups;
-}
 
 function extractGenericSlashPrompt(prompt: string): { name: string; remainder: string } | null {
   const trimmed = prompt.trimStart();
@@ -90,8 +54,6 @@ interface MessageCardProps {
   sessionId?: string | null;
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
-  permissionRequests: PermissionRequestPayload[];
-  onPermissionResult: (toolUseId: string, result: PermissionResult) => void;
   userPromptActions?: {
     canEditAndRetry: boolean;
     isSessionRunning: boolean;
@@ -104,8 +66,6 @@ export function MessageCard({
   sessionId,
   toolStatusMap,
   toolResultsMap,
-  permissionRequests,
-  onPermissionResult,
   userPromptActions,
 }: MessageCardProps) {
   switch (message.type) {
@@ -132,16 +92,14 @@ export function MessageCard({
     case 'assistant':
       return (
         <AssistantCard
-          content={message.message.content as unknown}
+          message={message}
           toolStatusMap={toolStatusMap}
           toolResultsMap={toolResultsMap}
-          permissionRequests={permissionRequests}
-          onPermissionResult={onPermissionResult}
         />
       );
 
     case 'user':
-      // user 消息中的 tool_result 已经在 ToolGroup 中显示，这里不再单独渲染
+      // user 消息里的 tool_result 已经被工作流批次吸收，单独渲染没意义
       return null;
 
     case 'result':
@@ -517,73 +475,63 @@ function GenericSlashChip({ name, compact = false }: { name: string; compact?: b
 }
 
 
-// Assistant 消息卡片
+type AssistantMessage = StreamMessage & { type: 'assistant' };
+
+// Assistant 消息卡片：trace 内容（thinking + tool_use）走 workstream，
+// text 块走 markdown 渲染。
 function AssistantCard({
-  content,
+  message,
   toolStatusMap,
   toolResultsMap,
-  permissionRequests,
-  onPermissionResult,
 }: {
-  content: unknown;
+  message: AssistantMessage;
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
-  permissionRequests: PermissionRequestPayload[];
-  onPermissionResult: (toolUseId: string, result: PermissionResult) => void;
 }) {
-  // 将内容分组：连续的 tool_use 合并为一组
-  const groups = useMemo(() => groupContentBlocks(getContentBlocks(content)), [content]);
+  const blocks = useMemo(
+    () => getContentBlocks(message.message.content as unknown),
+    [message.message.content]
+  );
+  const hasTrace = useMemo(
+    () => blocks.some((block) => block.type === 'thinking' || isAnyToolUseBlockType(block.type)),
+    [blocks]
+  );
+  const traceOnlyMessage = useMemo(
+    () => ({
+      ...message,
+      message: {
+        ...message.message,
+        content: blocks.filter(
+          (block) => block.type === 'thinking' || isAnyToolUseBlockType(block.type)
+        ),
+      },
+    }),
+    [blocks, message]
+  );
+  const textBlocks = useMemo(
+    () =>
+      blocks.filter(
+        (block): block is ContentBlock & { type: 'text' } =>
+          block.type === 'text' && Boolean(block.text?.trim())
+      ),
+    [blocks]
+  );
 
   return (
     <div className="my-3 min-w-0">
-      {groups.map((group, idx) => {
-        if (group.type === 'tool_group') {
-          return (
-            <ToolGroup
-              key={idx}
-              toolUseBlocks={group.blocks}
-              toolResults={toolResultsMap}
-              toolStatusMap={toolStatusMap}
-            />
-          );
-        }
-        // text, thinking 块单独渲染
-        return (
-          <ContentBlockCard
-            key={idx}
-            block={group.block}
-            toolStatusMap={toolStatusMap}
-            permissionRequests={permissionRequests}
-            onPermissionResult={onPermissionResult}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-
-// 内容块卡片（仅处理 text 和 thinking，tool_use 由 ToolGroup 处理）
-function ContentBlockCard({
-  block,
-}: {
-  block: ContentBlock;
-  toolStatusMap: Map<string, ToolStatus>;
-  permissionRequests: PermissionRequestPayload[];
-  onPermissionResult: (toolUseId: string, result: PermissionResult) => void;
-}) {
-  switch (block.type) {
-    case 'text':
-      return (
-        <div className="min-w-0 overflow-x-auto">
+      {hasTrace ? (
+        <ToolExecutionBatch
+          messages={[traceOnlyMessage]}
+          toolStatusMap={toolStatusMap}
+          toolResultsMap={toolResultsMap}
+          isSessionRunning={false}
+        />
+      ) : null}
+      {textBlocks.map((block, idx) => (
+        <div key={`text-${idx}`} className="min-w-0 overflow-x-auto">
           <StructuredResponse content={block.text} />
         </div>
-      );
-
-    case 'thinking':
-      return <ThinkingBlock content={block.thinking} durationMs={block.durationMs} />;
-
-    default:
-      return null;
-  }
+      ))}
+    </div>
+  );
 }

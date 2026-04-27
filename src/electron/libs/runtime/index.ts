@@ -1,5 +1,4 @@
 import { claudeRuntime } from './claude-runtime';
-import { codexRuntime } from './codex-runtime';
 import { nativeRuntime } from './native-runtime';
 import { opencodeRuntime } from './opencode-runtime';
 import { registerRuntime } from './registry';
@@ -12,7 +11,6 @@ export function ensureAgentRuntimeRegistry(): void {
   }
   registerRuntime(nativeRuntime);
   registerRuntime(claudeRuntime);
-  registerRuntime(codexRuntime);
   registerRuntime(opencodeRuntime);
   initialized = true;
 }
