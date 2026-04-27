@@ -687,8 +687,8 @@ function buildThemeVariables(
     ? formatOpaqueRgb(mixRgb(parseHexColor(panel), WHITE, 0.22))
     : formatOpaqueRgb(mixRgb(parseHexColor(panel), WHITE, 0.08));
   const accentForeground = getReadableTextColor(pack.theme.accent);
-  const userBubbleBg = variant === 'light' ? pack.theme.accent : pack.theme.ink;
-  const userBubbleText = variant === 'light' ? accentForeground : formatHex(parseHexColor(pack.theme.surface));
+  const userBubbleBg = '#EBEBEB';
+  const userBubbleText = '#111214';
   const uiFont = normalizeFontFamily(uiFontFamily) || normalizeFontFamily(pack.theme.fonts.ui) || BASE_UI_FONT;
   const monoFont =
     normalizeFontFamily(chatCodeFontFamily) ||

@@ -44,8 +44,8 @@
   --code-token-variable: #111827;
 
   /* User prompt bubble */
-  --user-bubble-bg: #111827;
-  --user-bubble-text: #F9FAFB;
+  --user-bubble-bg: #EBEBEB;
+  --user-bubble-text: #111214;
   --user-bubble-border: transparent;
   --user-bubble-shadow: none;
   --tree-item-hover: rgba(17, 24, 39, 0.05);
@@ -137,7 +137,7 @@
   --code-token-variable: #F3F4F6;
 
   /* User prompt bubble */
-  --user-bubble-bg: #E5E7EB;
+  --user-bubble-bg: #EBEBEB;
   --user-bubble-text: #111214;
   --user-bubble-border: transparent;
   --user-bubble-shadow: none;
