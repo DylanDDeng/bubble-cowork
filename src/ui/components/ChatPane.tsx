@@ -15,11 +15,7 @@ import { resolveCodexModel } from '../utils/codex-model';
 import { MessageCard } from './MessageCard';
 import { ToolExecutionBatch } from './ToolExecutionBatch';
 import { StructuredResponse } from './StructuredResponse';
-import {
-  AssistantWorkstream,
-  ResponseDivider,
-  WorkingFooter,
-} from './AssistantWorkstream';
+import { AssistantWorkstream, WorkingFooter } from './AssistantWorkstream';
 import { PromptInput } from './PromptInput';
 import { InSessionSearch } from './search/InSessionSearch';
 import { DecisionPanel } from './DecisionPanel';
@@ -550,7 +546,7 @@ export function ChatPane({
                           toolStatusMap={toolStatusMap}
                           toolResultsMap={toolResultsMap}
                           isSessionRunning={session.status === 'running'}
-                          showResponseDivider={nextIsAssistantText}
+                          hasFollowingResponse={nextIsAssistantText}
                           isLastBatch={idx === lastToolBatchIdx}
                         />
                       </div>

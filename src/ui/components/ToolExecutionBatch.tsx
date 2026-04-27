@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
 import type { ContentBlock, ToolStatus, StreamMessage } from '../types';
-import { AssistantWorkstream, ResponseDivider, WorkingFooter } from './AssistantWorkstream';
+import { AssistantWorkstream, WorkingFooter } from './AssistantWorkstream';
 import { createBatchWorkstreamModel, type ToolResultBlock } from '../utils/workstream';
 import { TodoProgressCard } from './TodoProgressCard';
 
@@ -11,11 +12,10 @@ interface ToolExecutionBatchProps {
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
   isSessionRunning: boolean;
-  /** When true, render a "Response · Worked for Xs" divider after the trace.
-   * ChatPane sets this when the next aggregated item is a standalone assistant
-   * text message. Codex can start that final text before its session status has
-   * flipped to completed, so this is intentionally independent of running state. */
-  showResponseDivider?: boolean;
+  /** True when the next aggregated item is the final assistant response.
+   * Codex can start that text before session status flips to completed, so use
+   * this to stop live "Working" copy without rendering a separate divider. */
+  hasFollowingResponse?: boolean;
   /** True only for the LAST tool_batch in the aggregated transcript. Without
    * this gate, every historical batch would also report `state==='running'`
    * while the session is mid-turn (because deriveWorkstreamState OR's in
@@ -29,9 +29,10 @@ export function ToolExecutionBatch({
   toolStatusMap,
   toolResultsMap,
   isSessionRunning,
-  showResponseDivider = false,
+  hasFollowingResponse = false,
   isLastBatch = false,
 }: ToolExecutionBatchProps) {
+  const [expanded, setExpanded] = useState(false);
   const batchIsRunning = isSessionRunning && isLastBatch;
   const model = useMemo(
     () =>
@@ -52,23 +53,92 @@ export function ToolExecutionBatch({
     return null;
   }
 
-  const showDivider = showResponseDivider;
-  const showWorking = batchIsRunning && !showDivider;
-  const dividerDurationMs =
-    showDivider ? model.durationMs ?? estimateElapsedMs(model.startedAt) : undefined;
+  const workIsRunning = batchIsRunning && !hasFollowingResponse;
+  const showWorking = expanded && workIsRunning;
 
   return (
     <>
-      <AssistantWorkstream model={model} />
+      <WorkstreamToggle
+        expanded={expanded}
+        model={model}
+        isRunning={workIsRunning}
+        onToggle={() => setExpanded((value) => !value)}
+      />
+      {expanded ? <AssistantWorkstream model={model} /> : null}
       {showWorking ? <WorkingFooter startedAt={model.startedAt} /> : null}
-      {showDivider ? <ResponseDivider durationMs={dividerDurationMs} /> : null}
     </>
   );
 }
 
-function estimateElapsedMs(startedAt: number | undefined): number | undefined {
+function WorkstreamToggle({
+  expanded,
+  model,
+  isRunning,
+  onToggle,
+}: {
+  expanded: boolean;
+  model: ReturnType<typeof createBatchWorkstreamModel>;
+  isRunning: boolean;
+  onToggle: () => void;
+}) {
+  const now = useLiveNow(isRunning);
+  const stepCount = model.entries.length;
+  const elapsedMs = model.durationMs ?? estimateElapsedMs(model.startedAt, now);
+  const elapsedLabel = typeof elapsedMs === 'number' ? formatElapsed(elapsedMs) : null;
+  const stateLabel = isRunning ? 'Working' : 'Worked';
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="group my-2 flex w-full items-center gap-1.5 py-0.5 text-left text-[12px] leading-5 text-[var(--text-muted)]/60 transition-colors hover:text-[var(--text-secondary)]"
+      aria-expanded={expanded}
+    >
+      <ChevronRight
+        className={`h-3 w-3 flex-shrink-0 text-[var(--text-muted)]/45 transition-transform group-hover:text-[var(--text-secondary)]/70 ${
+          expanded ? 'rotate-90' : ''
+        }`}
+      />
+      <span>{expanded ? 'Hide work' : 'Show work'}</span>
+      <span className="text-[var(--text-muted)]/35">·</span>
+      <span>
+        {stepCount} step{stepCount === 1 ? '' : 's'}
+      </span>
+      {elapsedLabel ? (
+        <>
+          <span className="text-[var(--text-muted)]/35">·</span>
+          <span>
+            {stateLabel} for {elapsedLabel}
+          </span>
+        </>
+      ) : null}
+    </button>
+  );
+}
+
+function useLiveNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [active]);
+
+  return now;
+}
+
+function estimateElapsedMs(startedAt: number | undefined, now = Date.now()): number | undefined {
   if (typeof startedAt !== 'number' || !Number.isFinite(startedAt)) return undefined;
-  return Math.max(0, Date.now() - startedAt);
+  return Math.max(0, now - startedAt);
+}
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
 }
 
 export type ToolUseBlock = ContentBlock & { type: 'tool_use' };
