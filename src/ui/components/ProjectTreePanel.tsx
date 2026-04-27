@@ -910,6 +910,10 @@ export function ProjectTreePanel({
       (selectedPreview.kind === 'html' && viewMode === 'code') ||
       (selectedPreview.kind === 'text' && !selectedPreview.editable)
     );
+  const isMarkdownPreviewSurface =
+    !previewLoading &&
+    selectedPreview?.kind === 'markdown' &&
+    viewMode === 'view';
 
   return (
     <>
@@ -1150,6 +1154,8 @@ export function ProjectTreePanel({
                 className={`flex-1 min-h-0 overflow-auto rounded-lg border border-[var(--border)] ${
                   isCodePreviewSurface
                     ? 'bg-[var(--code-block-bg)] p-0'
+                    : isMarkdownPreviewSurface
+                      ? 'bg-[var(--preview-surface)] p-0'
                     : 'bg-[var(--preview-surface)] p-3'
                 }`}
               >
@@ -1220,9 +1226,11 @@ export function ProjectTreePanel({
                       className="min-h-full rounded-none"
                     />
                   ) : (
-                    <div className="text-sm">
-                      <MDContent content={selectedPreview.editable ? draftText : selectedPreview.text} allowHtml={false} />
-                    </div>
+                    <MDContent
+                      content={selectedPreview.editable ? draftText : selectedPreview.text}
+                      allowHtml={false}
+                      className="project-markdown-preview"
+                    />
                   )
                 )}
 

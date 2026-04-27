@@ -373,17 +373,34 @@ body {
 }
 
 .markdown-content .md-code-block {
-  margin: 0.85rem 0;
-  border-radius: var(--radius-xl);
+  --code-block-bg: #F7F6F3;
+  --code-block-header-bg: #F7F6F3;
+  --code-block-border: rgba(55, 53, 47, 0.09);
+  --code-block-text: #37352F;
+  --code-token-comment: rgba(55, 53, 47, 0.46);
+  --md-code-meta-color: rgba(55, 53, 47, 0.55);
+  --md-code-copy-color: rgba(55, 53, 47, 0.48);
+  --md-code-copy-hover-bg: rgba(55, 53, 47, 0.08);
+  --md-code-copy-hover-color: rgba(55, 53, 47, 0.82);
+
+  margin: 0.75rem 0;
+  border-radius: 6px;
   overflow: hidden;
   border: 1px solid var(--code-block-border);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--code-block-header-bg) 94%, var(--bg-primary)) 0%,
-      var(--code-block-bg) 44px
-    );
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+  background: var(--code-block-bg);
+  box-shadow: none;
+}
+
+.dark .markdown-content .md-code-block {
+  --code-block-bg: #202124;
+  --code-block-header-bg: #202124;
+  --code-block-border: rgba(255, 255, 255, 0.08);
+  --code-block-text: rgba(255, 255, 255, 0.86);
+  --code-token-comment: rgba(255, 255, 255, 0.36);
+  --md-code-meta-color: rgba(255, 255, 255, 0.48);
+  --md-code-copy-color: rgba(255, 255, 255, 0.42);
+  --md-code-copy-hover-bg: rgba(255, 255, 255, 0.08);
+  --md-code-copy-hover-color: rgba(255, 255, 255, 0.82);
 }
 
 /* header inherits code-block bg; HighlightedCode renders the body */
@@ -395,10 +412,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
-  padding: 8px 10px 8px 12px;
-  background: color-mix(in srgb, var(--code-block-header-bg) 97%, transparent);
-  border-bottom: 1px solid var(--code-block-border);
+  gap: 0.5rem;
+  min-height: 34px;
+  padding: 7px 9px 3px 12px;
+  background: var(--code-block-header-bg);
 }
 
 .markdown-content .md-code-meta {
@@ -411,43 +428,53 @@ body {
   display: inline-flex;
   align-items: center;
   max-width: 100%;
-  min-height: 24px;
-  padding: 0 8px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--code-block-border) 70%, transparent);
-  background: color-mix(in srgb, var(--bg-primary) 42%, var(--code-block-bg));
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.05em;
-  color: var(--text-secondary);
-  text-transform: uppercase;
+  min-height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--md-code-meta-color);
+  text-transform: none;
 }
 
 .markdown-content .md-code-copy {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.4rem;
-  min-width: 26px;
-  height: 26px;
+  gap: 0.35rem;
+  min-width: 24px;
+  height: 24px;
   border: 1px solid transparent;
-  background: color-mix(in srgb, var(--bg-primary) 24%, transparent);
-  color: var(--text-secondary);
-  border-radius: 999px;
-  padding: 0 8px;
+  background: transparent;
+  color: var(--md-code-copy-color);
+  border-radius: 4px;
+  padding: 0 6px;
   cursor: pointer;
-  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+  opacity: 0;
+  transition: background-color 120ms ease, color 120ms ease, opacity 120ms ease;
 }
 
 .markdown-content .md-code-copy-label {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.markdown-content .md-code-block:hover .md-code-copy,
+.markdown-content .md-code-copy:focus-visible {
+  opacity: 1;
 }
 
 .markdown-content .md-code-copy:hover {
-  background: color-mix(in srgb, var(--accent-light) 62%, transparent);
-  color: var(--text-primary);
-  border-color: color-mix(in srgb, var(--accent) 14%, var(--code-block-border));
+  background: var(--md-code-copy-hover-bg);
+  color: var(--md-code-copy-hover-color);
+}
+
+@media (hover: none) {
+  .markdown-content .md-code-copy {
+    opacity: 1;
+  }
 }
 
 .highlighted-code-block {
@@ -646,6 +673,214 @@ body {
 
 .markdown-content th {
   background: color-mix(in srgb, var(--bg-tertiary) 76%, transparent);
+}
+
+.project-markdown-preview {
+  --project-md-text: color-mix(in srgb, var(--text-primary) 92%, #37352F);
+  --project-md-muted: color-mix(in srgb, var(--text-secondary) 86%, #787774);
+  --project-md-soft: color-mix(in srgb, var(--text-muted) 72%, transparent);
+  --project-md-rule: color-mix(in srgb, var(--border) 78%, transparent);
+  --project-md-callout-bg: color-mix(in srgb, var(--bg-tertiary) 44%, transparent);
+  --project-md-table-head: color-mix(in srgb, var(--bg-tertiary) 72%, transparent);
+  --project-md-row-hover: color-mix(in srgb, var(--bg-tertiary) 36%, transparent);
+
+  box-sizing: border-box;
+  width: min(100%, 760px);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 28px 30px 44px;
+  color: var(--project-md-text);
+  font-size: 15px;
+  line-height: 1.72;
+}
+
+.project-markdown-preview > :first-child {
+  margin-top: 0;
+}
+
+.project-markdown-preview > :last-child {
+  margin-bottom: 0;
+}
+
+.project-markdown-preview h1,
+.project-markdown-preview h2,
+.project-markdown-preview h3 {
+  color: var(--text-primary);
+  letter-spacing: 0;
+}
+
+.project-markdown-preview h1 {
+  margin: 0 0 1rem;
+  font-size: 24px;
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+.project-markdown-preview h2 {
+  margin: 1.85rem 0 0.75rem;
+  padding-bottom: 0.38rem;
+  border-bottom: 1px solid var(--project-md-rule);
+  font-size: 18px;
+  line-height: 1.35;
+  font-weight: 650;
+}
+
+.project-markdown-preview h3 {
+  margin: 1.35rem 0 0.45rem;
+  font-size: 15px;
+  line-height: 1.45;
+  font-weight: 650;
+}
+
+.project-markdown-preview p {
+  margin: 0.68rem 0;
+}
+
+.project-markdown-preview strong {
+  color: var(--text-primary);
+  font-weight: 650;
+}
+
+.project-markdown-preview em {
+  color: color-mix(in srgb, var(--project-md-text) 86%, var(--project-md-muted));
+}
+
+.project-markdown-preview ul,
+.project-markdown-preview ol {
+  margin: 0.7rem 0;
+  padding-left: 1.45rem;
+}
+
+.project-markdown-preview li {
+  margin: 0.32rem 0;
+  padding-left: 0.1rem;
+}
+
+.project-markdown-preview li::marker {
+  color: var(--project-md-soft);
+}
+
+.project-markdown-preview li > p {
+  margin: 0.2rem 0;
+}
+
+.project-markdown-preview input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0 0.55rem 0 -1.45rem;
+  vertical-align: -0.12em;
+  accent-color: #787774;
+  opacity: 1;
+}
+
+.project-markdown-preview li:has(input[type="checkbox"]) {
+  list-style: none;
+}
+
+.project-markdown-preview li:has(input[type="checkbox"]:checked) {
+  color: var(--project-md-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--project-md-muted) 55%, transparent);
+}
+
+.project-markdown-preview a {
+  color: var(--project-md-text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--project-md-muted) 45%, transparent);
+  text-underline-offset: 0.16em;
+  transition: color 120ms ease, text-decoration-color 120ms ease;
+}
+
+.project-markdown-preview a:hover {
+  color: var(--accent);
+  text-decoration-color: color-mix(in srgb, var(--accent) 62%, transparent);
+}
+
+.project-markdown-preview blockquote {
+  margin: 1rem 0;
+  padding: 0.75rem 0.95rem;
+  border-left: 3px solid color-mix(in srgb, var(--project-md-muted) 34%, transparent);
+  border-radius: 0 6px 6px 0;
+  background: var(--project-md-callout-bg);
+  color: color-mix(in srgb, var(--project-md-text) 78%, var(--project-md-muted));
+}
+
+.project-markdown-preview blockquote > :first-child {
+  margin-top: 0;
+}
+
+.project-markdown-preview blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.project-markdown-preview hr {
+  margin: 2rem 0;
+  border-top-color: var(--project-md-rule);
+}
+
+.project-markdown-preview .md-inline-code {
+  border-color: color-mix(in srgb, var(--code-inline-border) 52%, transparent);
+  background: color-mix(in srgb, var(--code-inline-bg) 50%, transparent);
+  color: color-mix(in srgb, var(--code-inline-text) 88%, var(--text-primary));
+  border-radius: 4px;
+  padding: 0.06rem 0.26rem;
+}
+
+.project-markdown-preview .md-code-block {
+  margin: 1rem 0;
+}
+
+.project-markdown-preview table {
+  overflow: hidden;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--project-md-rule);
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.project-markdown-preview th,
+.project-markdown-preview td {
+  border: 0;
+  border-right: 1px solid var(--project-md-rule);
+  border-bottom: 1px solid var(--project-md-rule);
+  padding: 0.6rem 0.75rem;
+  vertical-align: top;
+}
+
+.project-markdown-preview th:last-child,
+.project-markdown-preview td:last-child {
+  border-right: 0;
+}
+
+.project-markdown-preview tr:last-child td {
+  border-bottom: 0;
+}
+
+.project-markdown-preview th {
+  background: var(--project-md-table-head);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.project-markdown-preview tbody tr:hover {
+  background: var(--project-md-row-hover);
+}
+
+.project-markdown-preview img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.2rem 0;
+  border-radius: 8px;
+}
+
+@media (max-width: 520px) {
+  .project-markdown-preview {
+    padding: 20px 18px 34px;
+  }
 }
 
 /* Shimmer loading animation */
