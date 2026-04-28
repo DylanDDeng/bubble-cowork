@@ -12,6 +12,15 @@ import type {
 import * as registry from './registry';
 import { providerSessionDirectory } from './directory';
 import type { PermissionResult } from '../../../shared/types';
+import type {
+  ProviderComposerCapabilities,
+  ProviderListPluginsInput,
+  ProviderListPluginsResult,
+  ProviderListSkillsInput,
+  ProviderListSkillsResult,
+  ProviderReadPluginInput,
+  ProviderReadPluginResult,
+} from '../../../shared/types';
 
 class ProviderServiceImpl implements ProviderService {
   readonly events = new EventEmitter();
@@ -26,6 +35,10 @@ class ProviderServiceImpl implements ProviderService {
     const listener = (event: ProviderRuntimeEvent) => {
       this.events.emit('event', event);
       // Also emit by specific event type for convenience
+      if (event.type === 'error') {
+        this.events.emit('provider_error', event);
+        return;
+      }
       this.events.emit(event.type, event);
     };
     adapter.events.on('event', listener);
@@ -120,6 +133,57 @@ class ProviderServiceImpl implements ProviderService {
     }
 
     await adapter.respondToRequest(threadId, requestId, decision);
+  }
+
+  getComposerCapabilities(provider: ProviderKind): ProviderComposerCapabilities {
+    const adapter = registry.getAdapter(provider);
+    if (!adapter?.getComposerCapabilities) {
+      return {
+        provider,
+        supportsSkillMentions: false,
+        supportsSkillDiscovery: false,
+        supportsNativeSlashCommandDiscovery: false,
+        supportsPluginMentions: false,
+        supportsPluginDiscovery: false,
+        supportsRuntimeModelList: false,
+      };
+    }
+
+    return adapter.getComposerCapabilities();
+  }
+
+  async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {
+    const adapter = registry.getAdapter(input.provider);
+    if (!adapter?.listSkills) {
+      return { skills: [], source: 'unsupported', cached: false };
+    }
+
+    return adapter.listSkills(input);
+  }
+
+  async listPlugins(input: ProviderListPluginsInput): Promise<ProviderListPluginsResult> {
+    const adapter = registry.getAdapter(input.provider);
+    if (!adapter?.listPlugins) {
+      return {
+        marketplaces: [],
+        marketplaceLoadErrors: [],
+        remoteSyncError: null,
+        featuredPluginIds: [],
+        source: 'unsupported',
+        cached: false,
+      };
+    }
+
+    return adapter.listPlugins(input);
+  }
+
+  async readPlugin(input: ProviderReadPluginInput): Promise<ProviderReadPluginResult> {
+    const adapter = registry.getAdapter(input.provider);
+    if (!adapter?.readPlugin) {
+      throw new Error(`Provider "${input.provider}" does not support plugin detail discovery.`);
+    }
+
+    return adapter.readPlugin(input);
   }
 
   /**

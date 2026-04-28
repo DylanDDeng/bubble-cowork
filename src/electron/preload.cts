@@ -15,6 +15,13 @@ import type {
   SystemFontOption,
   UiResumeState,
   UpsertPromptLibraryItemInput,
+  ProviderComposerCapabilities,
+  ProviderListPluginsInput,
+  ProviderListPluginsResult,
+  ProviderListSkillsInput,
+  ProviderListSkillsResult,
+  ProviderReadPluginInput,
+  ProviderReadPluginResult,
 } from '../shared/types';
 import type {
   BrowserCapturePageResult,
@@ -225,6 +232,24 @@ contextBridge.exposeInMainWorld('electron', {
 
   getCodexRuntimeStatus: () => {
     return ipcRenderer.invoke('get-codex-runtime-status');
+  },
+  getCodexComposerCapabilities: (): Promise<ProviderComposerCapabilities> => {
+    return ipcRenderer.invoke('codex-get-composer-capabilities');
+  },
+  listCodexSkills: (
+    input: Omit<ProviderListSkillsInput, 'provider'>
+  ): Promise<ProviderListSkillsResult> => {
+    return ipcRenderer.invoke('codex-list-skills', input);
+  },
+  listCodexPlugins: (
+    input?: Omit<ProviderListPluginsInput, 'provider'>
+  ): Promise<ProviderListPluginsResult> => {
+    return ipcRenderer.invoke('codex-list-plugins', input);
+  },
+  readCodexPlugin: (
+    input: Omit<ProviderReadPluginInput, 'provider'>
+  ): Promise<ProviderReadPluginResult> => {
+    return ipcRenderer.invoke('codex-read-plugin', input);
   },
 
   getOpencodeModelConfig: () => {

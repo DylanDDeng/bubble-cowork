@@ -1,4 +1,4 @@
-import { isValidElement, useMemo, useState, type ReactNode } from 'react';
+import { isValidElement, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -9,6 +9,7 @@ import { Check, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { HighlightedCode } from '../components/HighlightedCode';
+import { useAppStore } from '../store/useAppStore';
 
 interface MDContentProps {
   content: string;
@@ -86,6 +87,117 @@ function looksLikeRevealablePath(value: string): boolean {
     text.startsWith('~\\') ||
     /^\/(Users|home|tmp|var|etc|opt|private|Volumes|mnt)\//.test(text) ||
     /^[A-Za-z]:[\\/]/.test(text)
+  );
+}
+
+function stripHashAndQuery(value: string): string {
+  const queryIndex = value.indexOf('?');
+  const hashIndex = value.indexOf('#');
+  const cutPoints = [queryIndex, hashIndex].filter((index) => index >= 0);
+  if (cutPoints.length === 0) return value;
+  return value.slice(0, Math.min(...cutPoints));
+}
+
+function normalizeSlashPath(value: string): string {
+  return value.replace(/\\/g, '/').replace(/\/+/g, '/');
+}
+
+function stripLineSuffix(path: string): string {
+  // Model answers often cite files as README.md:3 or src/App.tsx:120:8.
+  // The preview API expects only the file path; line navigation can be layered
+  // on later without treating the line suffix as part of the filename.
+  return path.replace(/:(\d+)(?::\d+)?$/, '');
+}
+
+function getProjectFileHref(href: string | undefined, cwd: string | null): string | null {
+  if (!href || !cwd) return null;
+
+  const raw = href.trim();
+  if (!raw || raw.startsWith('#')) return null;
+  if (/^(?:https?|mailto|tel|javascript|data|blob):/i.test(raw)) return null;
+  if (/^[a-z][a-z\d+.-]*:/i.test(raw) && !raw.toLowerCase().startsWith('file:')) {
+    return null;
+  }
+
+  let path = raw;
+  if (raw.toLowerCase().startsWith('file:')) {
+    try {
+      path = decodeURIComponent(new URL(raw).pathname);
+    } catch {
+      return null;
+    }
+  } else {
+    path = stripHashAndQuery(raw);
+    try {
+      path = decodeURIComponent(path);
+    } catch {
+      // Keep the raw path if it contains a partial percent escape.
+    }
+  }
+
+  path = stripLineSuffix(normalizeSlashPath(path.trim()));
+  if (!path || path.includes('\0')) return null;
+
+  const normalizedCwd = normalizeSlashPath(cwd).replace(/\/$/, '');
+  if (path === normalizedCwd) return null;
+  if (path.startsWith(`${normalizedCwd}/`)) {
+    path = path.slice(normalizedCwd.length + 1);
+  } else if (path.startsWith('/')) {
+    return null;
+  }
+
+  path = path.replace(/^\.\//, '');
+  return path && path !== '.' ? path : null;
+}
+
+function MarkdownAnchor({
+  href,
+  children,
+}: {
+  href?: string;
+  children: ReactNode;
+}) {
+  const {
+    activeSessionId,
+    sessions,
+    projectCwd,
+    setBrowserPanelOpen,
+    setProjectPanelView,
+    setProjectTreeCollapsed,
+  } = useAppStore();
+  const cwd = (activeSessionId ? sessions[activeSessionId]?.cwd : null) || projectCwd || null;
+  const projectFilePath = getProjectFileHref(href, cwd);
+
+  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!projectFilePath || !cwd) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    setBrowserPanelOpen(false);
+    setProjectPanelView('files');
+    setProjectTreeCollapsed(false);
+
+    window.setTimeout(() => {
+      window.dispatchEvent(
+        new CustomEvent('aegis:open-project-file', {
+          detail: { cwd, path: projectFilePath },
+        })
+      );
+    }, 0);
+  };
+
+  return (
+    <a
+      href={href}
+      className="text-[var(--accent)] hover:underline"
+      target={projectFilePath ? undefined : '_blank'}
+      rel={projectFilePath ? undefined : 'noopener noreferrer'}
+      onClick={handleClick}
+      title={projectFilePath ? `Open ${projectFilePath}` : undefined}
+    >
+      {children}
+    </a>
   );
 }
 
@@ -180,16 +292,7 @@ const components: Components = {
   ul: ({ children }) => <ul className="list-disc pl-6 my-2">{children}</ul>,
   ol: ({ children }) => <ol className="list-decimal pl-6 my-2">{children}</ol>,
   li: ({ children }) => <li className="my-1">{children}</li>,
-  a: ({ href, children }) => (
-    <a
-      href={href}
-      className="text-[var(--accent)] hover:underline"
-      target="_blank"
-      rel="noopener noreferrer"
-    >
-      {children}
-    </a>
-  ),
+  a: ({ href, children }) => <MarkdownAnchor href={href}>{children}</MarkdownAnchor>,
   blockquote: ({ children }) => (
     <blockquote className="border-l-[3px] border-[var(--border)] pl-4 my-2 text-[var(--text-secondary)]">
       {children}

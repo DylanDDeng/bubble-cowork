@@ -36,6 +36,9 @@ interface AssistantWorkstreamProps {
 }
 
 const VISIBLE_COMPACT_ENTRIES = 8;
+const MAX_TRACE_TEXT_CHARS = 20_000;
+const MAX_TITLE_CHARS = 800;
+const MAX_TOOL_OUTPUT_CHARS = 120_000;
 
 export function AssistantWorkstream({ model, className = '' }: AssistantWorkstreamProps) {
   const [overflowOpen, setOverflowOpen] = useState(false);
@@ -109,9 +112,10 @@ function TextSegment({
 }) {
   const text = entry.detail || entry.summary;
   if (!text.trim()) return null;
+  const displayText = truncateWithNotice(text, MAX_TRACE_TEXT_CHARS);
   return (
     <div className="my-2 min-w-0 overflow-x-auto">
-      <StructuredResponse content={text} />
+      <StructuredResponse content={displayText} />
     </div>
   );
 }
@@ -178,7 +182,7 @@ function ThinkingRow({
   return (
     <div
       className="flex items-baseline gap-1.5 py-0.5 text-[12px] leading-5 text-[var(--text-muted)]/55"
-      title={entry.detail}
+      title={safeTitle(entry.detail)}
     >
       <span className="min-w-0 flex-1 truncate">{entry.summary}</span>
       {isActive ? (
@@ -221,7 +225,7 @@ function ErrorRow({
   entry: Extract<WorkstreamEntry, { type: 'error' }>;
 }) {
   return (
-    <div className="flex items-baseline gap-2 py-0.5 text-[12px] leading-5 text-[var(--error)]" title={entry.detail}>
+    <div className="flex items-baseline gap-2 py-0.5 text-[12px] leading-5 text-[var(--error)]" title={safeTitle(entry.detail)}>
       <CircleX className="h-3.5 w-3.5 flex-shrink-0" />
       <span className="min-w-0 flex-1 truncate">{entry.summary}</span>
     </div>
@@ -255,7 +259,7 @@ function ToolRow({
         type="button"
         onClick={() => canExpand && setExpanded((v) => !v)}
         disabled={!canExpand}
-        title={entry.detail || entry.summary}
+        title={safeTitle(entry.detail || entry.summary)}
         className={`flex w-full items-baseline gap-1.5 py-0.5 text-left text-[12px] leading-5 transition-colors disabled:opacity-100 ${
           canExpand ? '' : 'cursor-default'
         }`}
@@ -380,6 +384,7 @@ function ToolEntryDetail({
       : '';
   const hasOutput = contentStr.length > 0;
   const outputLines = hasOutput ? contentStr.split('\n').length : 0;
+  const displayContentStr = truncateWithNotice(contentStr, MAX_TOOL_OUTPUT_CHARS);
   const diffContent =
     entry.toolName === 'Write' || entry.toolName === 'Edit' || entry.toolName === 'Delete'
       ? getToolResultDiffContent(entry.result)
@@ -447,12 +452,12 @@ function ToolEntryDetail({
               entry.result?.is_error ? 'text-[var(--error)]' : 'text-[var(--text-secondary)]'
             }`}
           >
-            {contentStr}
+            {displayContentStr}
           </pre>
         </CollapsibleSection>
       ) : entry.detail ? (
         <pre className="whitespace-pre-wrap break-words text-[12px] leading-6 text-[var(--text-secondary)]">
-          {entry.detail}
+          {truncateWithNotice(entry.detail, MAX_TRACE_TEXT_CHARS)}
         </pre>
       ) : null}
     </div>
@@ -505,6 +510,21 @@ function getPublicToolInput(input: Record<string, unknown>): Record<string, unkn
   return Object.fromEntries(
     Object.entries(input).filter(([key]) => !key.startsWith('__aegis'))
   );
+}
+
+function truncateWithNotice(value: string, maxChars: number): string {
+  if (value.length <= maxChars) {
+    return value;
+  }
+  const omitted = value.length - maxChars;
+  return `${value.slice(0, maxChars).trimEnd()}\n\n[Output truncated by Aegis: ${omitted.toLocaleString()} characters hidden]`;
+}
+
+function safeTitle(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  return truncateWithNotice(value, MAX_TITLE_CHARS);
 }
 
 function buildWritePreviewHunks(content: string): UnifiedDiffHunk[] {

@@ -54,6 +54,7 @@ interface MessageCardProps {
   sessionId?: string | null;
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
+  assistantPresentation?: 'answer' | 'progress';
   userPromptActions?: {
     canEditAndRetry: boolean;
     isSessionRunning: boolean;
@@ -66,6 +67,7 @@ export function MessageCard({
   sessionId,
   toolStatusMap,
   toolResultsMap,
+  assistantPresentation = 'answer',
   userPromptActions,
 }: MessageCardProps) {
   switch (message.type) {
@@ -95,6 +97,7 @@ export function MessageCard({
           message={message}
           toolStatusMap={toolStatusMap}
           toolResultsMap={toolResultsMap}
+          presentation={assistantPresentation}
         />
       );
 
@@ -483,12 +486,15 @@ function AssistantCard({
   message,
   toolStatusMap,
   toolResultsMap,
+  presentation,
 }: {
   message: AssistantMessage;
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
+  presentation: 'answer' | 'progress';
 }) {
   const isStreaming = message.streaming === true;
+  const isProgress = presentation === 'progress';
   const blocks = useMemo(
     () => getContentBlocks(message.message.content as unknown),
     [message.message.content]
@@ -519,7 +525,13 @@ function AssistantCard({
   );
 
   return (
-    <div className="my-3 min-w-0">
+    <div
+      className={
+        isProgress
+          ? 'my-2 min-w-0 border-l-2 border-[var(--border)] py-0.5 pl-3 text-[13px] text-[var(--text-secondary)]'
+          : 'my-3 min-w-0'
+      }
+    >
       {hasTrace ? (
         <ToolExecutionBatch
           messages={[traceOnlyMessage]}
@@ -530,7 +542,11 @@ function AssistantCard({
       ) : null}
       {textBlocks.map((block, idx) => (
         <div key={`text-${idx}`} className="min-w-0 overflow-x-auto">
-          <StructuredResponse content={block.text} streaming={isStreaming} />
+          <StructuredResponse
+            content={block.text}
+            streaming={isStreaming}
+            className={isProgress ? 'assistant-progress-markdown' : ''}
+          />
         </div>
       ))}
     </div>

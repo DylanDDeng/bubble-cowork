@@ -100,6 +100,8 @@ export interface RunnerOptions {
   codexPermissionMode?: import('../shared/types').CodexPermissionMode;
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
   codexFastMode?: boolean;
+  codexSkills?: import('../shared/types').ProviderInputReference[];
+  codexMentions?: import('../shared/types').ProviderInputReference[];
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   onMessage: (message: import('../shared/types').StreamMessage) => void;
   onError?: (error: Error) => void;
@@ -116,7 +118,13 @@ export interface RunnerOptions {
 
 export interface RunnerHandle {
   abort: () => void;
-  send: (prompt: string, attachments?: import('../shared/types').Attachment[], model?: string) => void;
+  send: (
+    prompt: string,
+    attachments?: import('../shared/types').Attachment[],
+    model?: string,
+    codexSkills?: import('../shared/types').ProviderInputReference[],
+    codexMentions?: import('../shared/types').ProviderInputReference[]
+  ) => void;
 }
 
 // 内部会话状态

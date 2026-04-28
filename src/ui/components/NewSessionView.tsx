@@ -69,6 +69,7 @@ import {
   LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD,
   maybeConvertLongPromptToAttachment,
 } from '../utils/long-prompt-attachment';
+import { buildCodexReferencePayload } from '../utils/codex-composer';
 
 function isImeComposingEvent(
   event: React.KeyboardEvent,
@@ -218,11 +219,15 @@ export function NewSessionView() {
   }, []);
 
   useEffect(() => {
+    if (provider === 'codex') {
+      return;
+    }
+
     sendEvent({
       type: 'skills.list',
       payload: { projectPath: cwd || undefined },
     });
-  }, [cwd]);
+  }, [cwd, provider]);
 
   useEffect(() => {
     if (!showCwdHint) return;
@@ -235,22 +240,24 @@ export function NewSessionView() {
 
     if (skillAutocomplete.selectedSkill) {
       const expandedPrompt =
-        provider === 'claude'
-          ? trimmedPrompt
-          : await (async () => {
-              const result = await window.electron.expandClaudeSkillPrompt(
-                skillAutocomplete.selectedSkill.path,
-                skillAutocomplete.selectedSkill.name,
-                skillAutocomplete.selectedSkillRemainder
-              );
+        provider === 'codex'
+          ? skillAutocomplete.selectedSkillRemainder.trim()
+          : provider === 'claude'
+            ? trimmedPrompt
+            : await (async () => {
+                const result = await window.electron.expandClaudeSkillPrompt(
+                  skillAutocomplete.selectedSkill.path,
+                  skillAutocomplete.selectedSkill.name,
+                  skillAutocomplete.selectedSkillRemainder
+                );
 
-              if (!result.ok || !result.prompt) {
-                toast.error(result.message || `Failed to expand /${skillAutocomplete.selectedSkill.name}.`);
-                return null;
-              }
+                if (!result.ok || !result.prompt) {
+                  toast.error(result.message || `Failed to expand /${skillAutocomplete.selectedSkill.name}.`);
+                  return null;
+                }
 
-              return result.prompt.trim();
-            })();
+                return result.prompt.trim();
+              })();
 
       if (expandedPrompt === null) {
         return null;
@@ -438,6 +445,10 @@ export function NewSessionView() {
       ? promptWithAttachment.prompt
       : normalizedPrompt;
     const outgoingAttachments = promptWithAttachment.attachments;
+    const codexReferences =
+      provider === 'codex'
+        ? buildCodexReferencePayload(skillAutocomplete.selectedSkill)
+        : {};
     if (promptWithAttachment.reason === 'attachment_create_failed') {
       toast.error('Failed to convert the long message into an attachment. Sending inline instead.');
     }
@@ -480,6 +491,8 @@ export function NewSessionView() {
           provider === 'codex' ? selectedCodexReasoningEffort : undefined,
         codexFastMode:
           provider === 'codex' ? selectedCodexFastMode : undefined,
+        codexSkills: provider === 'codex' ? codexReferences.codexSkills : undefined,
+        codexMentions: provider === 'codex' ? codexReferences.codexMentions : undefined,
         opencodePermissionMode:
           provider === 'opencode' ? selectedOpencodePermissionMode : undefined,
       },

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { FolderClosed, FolderOpen, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, GitBranch, GitCommit, Minus, Upload, FolderGit2, Maximize2, Minimize2 } from 'lucide-react';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { toast } from 'sonner';
@@ -652,18 +652,35 @@ export function ProjectTreePanel({
     });
   };
 
-  const selectFile = async (node: ProjectTreeNode) => {
-    if (node.kind !== 'file') return;
+  const expandParentsForPath = useCallback((path: string) => {
+    const parts = path.split('/').filter(Boolean);
+    if (parts.length <= 1) return;
+
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      let current = '';
+      for (const part of parts.slice(0, -1)) {
+        current = current ? `${current}/${part}` : part;
+        next.add(current);
+      }
+      return next;
+    });
+  }, []);
+
+  const selectFilePath = useCallback(async (filePath: string, fileName?: string, toggleSame = false) => {
     if (!cwd) return;
 
     // Toggle: 如果点击的是已选中的文件，取消选中
-    if (selectedFilePath === node.path) {
+    if (toggleSame && selectedFilePath === filePath) {
       setSelectedFilePath(null);
       setSelectedPreview(null);
       return;
     }
 
-    setSelectedFilePath(node.path);
+    const name = fileName || filePath.split('/').filter(Boolean).pop() || filePath;
+
+    setSelectedFilePath(filePath);
+    expandParentsForPath(filePath);
     setViewMode('view');
     setPreviewLoading(true);
     setSelectedPreview(null);
@@ -677,8 +694,8 @@ export function ProjectTreePanel({
       setPreviewLoading(false);
       setSelectedPreview({
         kind: 'error',
-        path: node.path,
-        name: node.name,
+        path: filePath,
+        name,
         ext: '',
         message:
           'File preview API is not available. Please restart the app (or re-run `npm run transpile:electron`).',
@@ -688,7 +705,7 @@ export function ProjectTreePanel({
 
     const requestId = (previewRequestIdRef.current += 1);
     try {
-      const preview = (await reader(cwd, node.path)) as ProjectFilePreview;
+      const preview = (await reader(cwd, filePath)) as ProjectFilePreview;
       if (previewRequestIdRef.current !== requestId) return;
       setSelectedPreview(preview);
       if ((preview.kind === 'text' || preview.kind === 'markdown') && preview.editable) {
@@ -698,8 +715,8 @@ export function ProjectTreePanel({
       if (previewRequestIdRef.current !== requestId) return;
       setSelectedPreview({
         kind: 'error',
-        path: node.path,
-        name: node.name,
+        path: filePath,
+        name,
         ext: '',
         message: String(error),
       });
@@ -708,7 +725,24 @@ export function ProjectTreePanel({
         setPreviewLoading(false);
       }
     }
+  }, [cwd, expandParentsForPath, selectedFilePath]);
+
+  const selectFile = async (node: ProjectTreeNode) => {
+    if (node.kind !== 'file') return;
+    await selectFilePath(node.path, node.name, true);
   };
+
+  useEffect(() => {
+    const handleOpenProjectFile = (event: Event) => {
+      const detail = (event as CustomEvent<{ cwd?: string; path?: string }>).detail;
+      if (!detail?.path) return;
+      if (detail.cwd && cwd && detail.cwd !== cwd) return;
+      void selectFilePath(detail.path, undefined, false);
+    };
+
+    window.addEventListener('aegis:open-project-file', handleOpenProjectFile);
+    return () => window.removeEventListener('aegis:open-project-file', handleOpenProjectFile);
+  }, [cwd, selectFilePath]);
 
   const handleCopyPath = async (path: string) => {
     try {
@@ -910,6 +944,10 @@ export function ProjectTreePanel({
       (selectedPreview.kind === 'html' && viewMode === 'code') ||
       (selectedPreview.kind === 'text' && !selectedPreview.editable)
     );
+  const isMarkdownCodePreviewSurface =
+    !previewLoading &&
+    selectedPreview?.kind === 'markdown' &&
+    viewMode === 'code';
   const isMarkdownPreviewSurface =
     !previewLoading &&
     selectedPreview?.kind === 'markdown' &&
@@ -1152,7 +1190,9 @@ export function ProjectTreePanel({
 
               <div
                 className={`flex-1 min-h-0 overflow-auto rounded-lg border border-[var(--border)] ${
-                  isCodePreviewSurface
+                  isMarkdownCodePreviewSurface
+                    ? 'bg-[var(--preview-surface)] p-0'
+                    : isCodePreviewSurface
                     ? 'bg-[var(--code-block-bg)] p-0'
                     : isMarkdownPreviewSurface
                       ? 'bg-[var(--preview-surface)] p-0'
@@ -1223,7 +1263,7 @@ export function ProjectTreePanel({
                     <HighlightedCode
                       code={selectedPreview.text}
                       language="markdown"
-                      className="min-h-full rounded-none"
+                      className="min-h-full rounded-none project-markdown-code-preview"
                     />
                   ) : (
                     <MDContent

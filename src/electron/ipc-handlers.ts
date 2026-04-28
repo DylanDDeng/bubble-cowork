@@ -10,7 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
 import { runCodexOneShot, runOpenCodeOneShot } from './libs/codex-runner';
 import { generateSessionTitle, runClaudeOneShot } from './libs/util';
-import { runAgentLoop } from './libs/agent-loop';
+import { ensureProviderService, runAgentLoop } from './libs/agent-loop';
 import { readProjectTree } from './libs/project-tree';
 import { normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
 import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfig, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
@@ -79,7 +79,12 @@ import type {
   FontSettingsPayload,
   FeishuBridgeConfig,
   UpsertPromptLibraryItemInput,
+  ProviderInputReference,
+  ProviderListPluginsInput,
+  ProviderListSkillsInput,
+  ProviderReadPluginInput,
 } from '../shared/types';
+import { getProviderService } from './libs/provider/service';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
 const MAX_FILE_PREVIEW_BYTES = 5 * 1024 * 1024; // 5MB
@@ -883,9 +888,14 @@ function isZeroTokenResult(message: Extract<StreamMessage, { type: 'result' }>):
 
 function buildUnavailableClaudeSkillMessage(
   skillName: string,
-  source: 'user' | 'project'
+  source: import('../shared/types').ClaudeSkillSummary['source']
 ): string {
-  const sourceLabel = source === 'project' ? 'workspace' : 'user-level';
+  const sourceLabel =
+    source === 'project'
+      ? 'workspace'
+      : source === 'plugin'
+        ? 'plugin'
+        : 'user-level';
 
   return [
     `\`/${skillName}\` was entered as a Claude skill, but this session did not load that ${sourceLabel} skill.`,
@@ -2887,6 +2897,42 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return getCodexRuntimeStatus();
   });
 
+  ipcMainHandle('codex-get-composer-capabilities', async () => {
+    ensureProviderService();
+    return getProviderService().getComposerCapabilities('codex');
+  });
+
+  ipcMainHandle('codex-list-skills', async (_event, input: Omit<ProviderListSkillsInput, 'provider'>) => {
+    ensureProviderService();
+    return getProviderService().listSkills({
+      provider: 'codex',
+      cwd: input.cwd,
+      threadId: input.threadId,
+      forceReload: input.forceReload,
+    });
+  });
+
+  ipcMainHandle('codex-list-plugins', async (_event, input?: Omit<ProviderListPluginsInput, 'provider'>) => {
+    ensureProviderService();
+    return getProviderService().listPlugins({
+      provider: 'codex',
+      cwd: input?.cwd,
+      threadId: input?.threadId,
+      forceReload: input?.forceReload,
+      forceRemoteSync: input?.forceRemoteSync,
+    });
+  });
+
+  ipcMainHandle('codex-read-plugin', async (_event, input: Omit<ProviderReadPluginInput, 'provider'>) => {
+    ensureProviderService();
+    return getProviderService().readPlugin({
+      provider: 'codex',
+      marketplacePath: input.marketplacePath,
+      remoteMarketplaceName: input.remoteMarketplaceName,
+      pluginName: input.pluginName,
+    });
+  });
+
   ipcMainHandle('get-opencode-model-config', async () => {
     return getOpencodeModelConfig();
   });
@@ -4147,6 +4193,8 @@ async function handleSessionStart(
     codexPermissionMode,
     codexReasoningEffort,
     codexFastMode,
+    codexSkills,
+    codexMentions,
     opencodePermissionMode,
     hiddenFromThreads,
   } = payload;
@@ -4168,7 +4216,7 @@ async function handleSessionStart(
   const outgoingAttachments = longPromptAttachment.attachments;
   const effectiveRunnerPrompt = longPromptAttachment.converted
     ? outgoingPrompt
-    : (effectivePrompt || sourcePrompt).trim();
+    : (effectivePrompt ?? sourcePrompt).trim();
   const runnerPrompt = augmentPromptForLiveWidgetProtocol(
     await buildRunnerPromptWithMemory(chosenProvider, effectiveRunnerPrompt, cwd),
   );
@@ -4326,7 +4374,9 @@ async function handleSessionStart(
     chosenProvider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
     chosenProvider === 'codex' ? normalizeCodexReasoningEffort(codexReasoningEffort) : undefined,
     chosenProvider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
-    chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined
+    chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
+    chosenProvider === 'codex' ? codexSkills : undefined,
+    chosenProvider === 'codex' ? codexMentions : undefined
   );
   return session.id;
 }
@@ -4350,6 +4400,8 @@ async function handleSessionContinue(
     codexPermissionMode,
     codexReasoningEffort,
     codexFastMode,
+    codexSkills,
+    codexMentions,
     opencodePermissionMode,
   } = payload;
 
@@ -4371,7 +4423,7 @@ async function handleSessionContinue(
   const outgoingAttachments = longPromptAttachment.attachments;
   const effectiveRunnerPrompt = longPromptAttachment.converted
     ? outgoingPrompt
-    : (effectivePrompt || outgoingPrompt).trim();
+    : (effectivePrompt ?? outgoingPrompt).trim();
 
   if (await maybeHandleLocalSlashCommand(mainWindow, session, outgoingPrompt, outgoingAttachments)) {
     return true;
@@ -4578,7 +4630,13 @@ async function handleSessionContinue(
       existingEntry.handle.abort();
       runnerHandles.delete(sessionId);
     } else {
-      existingEntry.handle.send(runnerPrompt, outgoingAttachments, nextModel);
+      existingEntry.handle.send(
+        runnerPrompt,
+        outgoingAttachments,
+        nextModel,
+        nextProvider === 'codex' ? codexSkills : undefined,
+        nextProvider === 'codex' ? codexMentions : undefined
+      );
       return true;
     }
   }
@@ -4655,7 +4713,9 @@ async function handleSessionContinue(
     nextProvider === 'codex' ? (nextCodexPermissionMode || 'defaultPermissions') : undefined,
     nextProvider === 'codex' ? nextCodexReasoningEffort : undefined,
     nextProvider === 'codex' ? nextCodexFastMode : undefined,
-    nextProvider === 'opencode' ? (nextOpenCodePermissionMode || 'defaultPermissions') : undefined
+    nextProvider === 'opencode' ? (nextOpenCodePermissionMode || 'defaultPermissions') : undefined,
+    nextProvider === 'codex' ? codexSkills : undefined,
+    nextProvider === 'codex' ? codexMentions : undefined
   );
   return true;
 }
@@ -4676,7 +4736,9 @@ function startRunner(
   codexPermissionMode?: import('../shared/types').CodexPermissionMode,
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort,
   codexFastMode?: boolean,
-  opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode
+  opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode,
+  codexSkills?: ProviderInputReference[],
+  codexMentions?: ProviderInputReference[]
 ): void {
   if (!session) return;
 
@@ -4715,6 +4777,8 @@ function startRunner(
     codexPermissionMode,
     codexReasoningEffort,
     codexFastMode,
+    codexSkills: provider === 'codex' ? codexSkills : undefined,
+    codexMentions: provider === 'codex' ? codexMentions : undefined,
     opencodePermissionMode,
     onMessage: (message) => {
       // 提取并保存 claude session id

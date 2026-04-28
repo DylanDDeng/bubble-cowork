@@ -73,6 +73,7 @@ import {
   LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD,
   maybeConvertLongPromptToAttachment,
 } from '../utils/long-prompt-attachment';
+import { buildCodexReferencePayload } from '../utils/codex-composer';
 
 function isImeComposingEvent(
   event: React.KeyboardEvent,
@@ -526,22 +527,24 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
 
     if (skillAutocomplete.selectedSkill) {
       const expandedPrompt =
-        provider === 'claude'
-          ? trimmedPrompt
-          : await (async () => {
-              const result = await window.electron.expandClaudeSkillPrompt(
-                skillAutocomplete.selectedSkill.path,
-                skillAutocomplete.selectedSkill.name,
-                skillAutocomplete.selectedSkillRemainder
-              );
+        provider === 'codex'
+          ? skillAutocomplete.selectedSkillRemainder.trim()
+          : provider === 'claude'
+            ? trimmedPrompt
+            : await (async () => {
+                const result = await window.electron.expandClaudeSkillPrompt(
+                  skillAutocomplete.selectedSkill.path,
+                  skillAutocomplete.selectedSkill.name,
+                  skillAutocomplete.selectedSkillRemainder
+                );
 
-              if (!result.ok || !result.prompt) {
-                toast.error(result.message || `Failed to expand /${skillAutocomplete.selectedSkill.name}.`);
-                return null;
-              }
+                if (!result.ok || !result.prompt) {
+                  toast.error(result.message || `Failed to expand /${skillAutocomplete.selectedSkill.name}.`);
+                  return null;
+                }
 
-              return result.prompt.trim();
-            })();
+                return result.prompt.trim();
+              })();
 
       if (expandedPrompt === null) {
         return null;
@@ -616,6 +619,10 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       ? promptWithAttachment.prompt
       : normalizedPrompt;
     const outgoingAttachments = promptWithAttachment.attachments;
+    const codexReferences =
+      provider === 'codex'
+        ? buildCodexReferencePayload(skillAutocomplete.selectedSkill)
+        : {};
     if (promptWithAttachment.reason === 'attachment_create_failed') {
       toast.error('Failed to convert the long message into an attachment. Sending inline instead.');
     }
@@ -661,6 +668,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
             provider === 'codex' ? selectedCodexReasoningEffort : undefined,
           codexFastMode:
             provider === 'codex' ? selectedCodexFastMode : undefined,
+          codexSkills: provider === 'codex' ? codexReferences.codexSkills : undefined,
+          codexMentions: provider === 'codex' ? codexReferences.codexMentions : undefined,
           opencodePermissionMode:
             provider === 'opencode' ? selectedOpencodePermissionMode : undefined,
         },
@@ -672,7 +681,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       sendEvent({
         type: 'session.continue',
         payload: {
-            sessionId: targetSessionId,
+          sessionId: targetSessionId,
           prompt: outgoingPrompt,
           effectivePrompt: outgoingEffectivePrompt,
           attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
@@ -700,6 +709,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
             provider === 'codex' ? selectedCodexReasoningEffort : undefined,
           codexFastMode:
             provider === 'codex' ? selectedCodexFastMode : undefined,
+          codexSkills: provider === 'codex' ? codexReferences.codexSkills : undefined,
+          codexMentions: provider === 'codex' ? codexReferences.codexMentions : undefined,
           opencodePermissionMode:
             provider === 'opencode' ? selectedOpencodePermissionMode : undefined,
         },

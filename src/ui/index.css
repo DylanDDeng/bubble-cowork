@@ -317,6 +317,19 @@ body {
   margin: 0.42rem 0;
 }
 
+.markdown-content.assistant-progress-markdown {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.markdown-content.assistant-progress-markdown p {
+  margin: 0.28rem 0;
+}
+
+.markdown-content.assistant-progress-markdown .md-inline-code {
+  color: var(--text-secondary);
+}
+
 .markdown-content ul,
 .markdown-content ol {
   margin: 0.42rem 0;
@@ -482,6 +495,10 @@ body {
   color: var(--code-block-text);
   font-size: 13px;
   line-height: 1.65;
+}
+
+.highlighted-code-block.project-markdown-code-preview {
+  background: var(--preview-surface);
 }
 
 .highlighted-code-scroll {

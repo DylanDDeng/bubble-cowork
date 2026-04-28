@@ -12,7 +12,18 @@ import type {
 } from './types';
 import { CodexAppServerManager } from './codex-app-server-manager';
 import { isDev } from '../../util';
-import type { ContentBlock, PermissionResult, StreamMessage } from '../../../shared/types';
+import type {
+  ContentBlock,
+  PermissionResult,
+  ProviderComposerCapabilities,
+  ProviderListPluginsInput,
+  ProviderListPluginsResult,
+  ProviderListSkillsInput,
+  ProviderListSkillsResult,
+  ProviderReadPluginInput,
+  ProviderReadPluginResult,
+  StreamMessage,
+} from '../../../shared/types';
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v);
@@ -106,8 +117,9 @@ function inferCodexToolNameFromFields(params: {
 
 const CAPABILITIES: ProviderAdapterCapabilities = {
   sessionModelSwitch: false,
-  skillDiscovery: false,
-  mcpServers: false,
+  skillDiscovery: true,
+  pluginDiscovery: true,
+  mcpServers: true,
   imageAttachments: true,
   forkThread: false,
   compactThread: false,
@@ -123,9 +135,12 @@ interface ActiveSession {
 
 interface StreamingTextState {
   text: string;
+  pendingText: string;
   blockIndex: number;
   uuid: string;
   createdAt: number;
+  flushTimer: ReturnType<typeof setTimeout> | null;
+  hasFlushed: boolean;
 }
 
 interface StreamingThinkingState {
@@ -141,9 +156,10 @@ export class CodexAdapter implements ProviderAdapter {
 
   private manager: CodexAppServerManager;
   private sessions = new Map<string, ActiveSession>();
+  private static readonly STREAMING_TEXT_COALESCE_MS = 100;
   // Per-thread streaming accumulator. Codex emits agent text as token-level
-  // deltas; expose them as updates to one assistant message so the transcript
-  // grows in place instead of rendering a separate overlay or appending rows.
+  // deltas; expose those deltas through one stable assistant message id so the
+  // transcript grows in place like dpcode instead of replacing full snapshots.
   private streamingText = new Map<string, StreamingTextState>();
   private streamingThinking = new Map<string, StreamingThinkingState>();
   private finalizedStreamingText = new Map<string, string>();
@@ -168,9 +184,7 @@ export class CodexAdapter implements ProviderAdapter {
   private setupEventForwarding(): void {
     // Forward manager events as ProviderRuntimeEvents
     this.manager.on('text_delta', ({ threadId, text }) => {
-      const state = this.getOrCreateStreamingTextState(threadId);
-      state.text += text;
-      this.emitAssistantTextSnapshot(threadId, state, true);
+      this.enqueueStreamingTextDelta(threadId, text);
     });
 
     this.manager.on('reasoning_delta', ({ threadId, text }) => {
@@ -397,8 +411,12 @@ export class CodexAdapter implements ProviderAdapter {
       return;
     }
 
+    if (textState) {
+      this.flushStreamingTextDelta(threadId);
+    }
+
     // Close the reasoning stream overlay. Assistant text itself is represented
-    // by the in-place assistant message snapshot.
+    // by the in-place assistant message delta stream.
     this.emit({
       type: 'message',
       threadId,
@@ -411,7 +429,32 @@ export class CodexAdapter implements ProviderAdapter {
       } as StreamMessage,
     });
 
-    const finalText = (textState?.text || fallbackText || '').trim();
+    const fallbackFullText = fallbackText || '';
+    const finalTextState =
+      textState ??
+      (fallbackFullText
+        ? ({
+            text: fallbackFullText,
+            pendingText: '',
+            blockIndex: 1,
+            uuid: uuidv4(),
+            createdAt: Date.now(),
+            flushTimer: null,
+            hasFlushed: false,
+          } satisfies StreamingTextState)
+        : null);
+    if (
+      finalTextState &&
+      fallbackFullText &&
+      fallbackFullText.startsWith(finalTextState.text) &&
+      fallbackFullText.length > finalTextState.text.length
+    ) {
+      const remaining = fallbackFullText.slice(finalTextState.text.length);
+      finalTextState.text = fallbackFullText;
+      this.emitAssistantTextDelta(threadId, finalTextState, remaining);
+    }
+
+    const finalText = finalTextState?.text || fallbackFullText;
     const finalThinking = (thinkingState?.thinking || '').trim();
     if (!finalText && !finalThinking) {
       return;
@@ -421,15 +464,17 @@ export class CodexAdapter implements ProviderAdapter {
     }
 
     const finalState =
-      textState ??
+      finalTextState ??
       ({
-        text: finalText,
+        text: '',
+        pendingText: '',
         blockIndex: 1,
         uuid: uuidv4(),
         createdAt: Date.now(),
+        flushTimer: null,
+        hasFlushed: false,
       } satisfies StreamingTextState);
-    finalState.text = finalText;
-    this.emitAssistantTextSnapshot(threadId, finalState, false, finalThinking);
+    this.emitAssistantTextComplete(threadId, finalState, finalText, finalThinking);
     if (finalText) {
       this.finalizedStreamingText.set(threadId, finalText);
     }
@@ -440,26 +485,71 @@ export class CodexAdapter implements ProviderAdapter {
     if (!state) {
       // Use index 1 so reasoning (index 0) and answer text are distinct when a
       // reasoning stream_event is also present.
-      state = { text: '', blockIndex: 1, uuid: uuidv4(), createdAt: Date.now() };
+      state = {
+        text: '',
+        pendingText: '',
+        blockIndex: 1,
+        uuid: uuidv4(),
+        createdAt: Date.now(),
+        flushTimer: null,
+        hasFlushed: false,
+      };
       this.streamingText.set(threadId, state);
     }
     return state;
   }
 
-  private emitAssistantTextSnapshot(
+  private enqueueStreamingTextDelta(threadId: string, text: string): void {
+    if (!text) {
+      return;
+    }
+
+    const state = this.getOrCreateStreamingTextState(threadId);
+    state.pendingText += text;
+
+    if (!state.hasFlushed) {
+      this.flushStreamingTextDelta(threadId);
+      return;
+    }
+
+    if (state.flushTimer) {
+      return;
+    }
+
+    state.flushTimer = setTimeout(() => {
+      state.flushTimer = null;
+      this.flushStreamingTextDelta(threadId);
+    }, CodexAdapter.STREAMING_TEXT_COALESCE_MS);
+  }
+
+  private flushStreamingTextDelta(threadId: string): void {
+    const state = this.streamingText.get(threadId);
+    if (!state) {
+      return;
+    }
+
+    if (state.flushTimer) {
+      clearTimeout(state.flushTimer);
+      state.flushTimer = null;
+    }
+
+    if (!state.pendingText) {
+      return;
+    }
+
+    const delta = state.pendingText;
+    state.pendingText = '';
+    state.text += delta;
+    state.hasFlushed = true;
+    this.emitAssistantTextDelta(threadId, state, delta);
+  }
+
+  private emitAssistantTextDelta(
     threadId: string,
     state: StreamingTextState,
-    streaming: boolean,
-    finalThinking = ''
+    delta: string
   ): void {
-    const content: ContentBlock[] = [];
-    if (finalThinking) {
-      content.push({ type: 'thinking', thinking: finalThinking });
-    }
-    if (state.text) {
-      content.push({ type: 'text', text: state.text });
-    }
-    if (content.length === 0) {
+    if (!delta) {
       return;
     }
 
@@ -470,13 +560,44 @@ export class CodexAdapter implements ProviderAdapter {
         type: 'assistant',
         uuid: state.uuid,
         createdAt: state.createdAt,
-        streaming,
+        streaming: true,
+        message: { content: [{ type: 'text', text: delta }] },
+      },
+    });
+  }
+
+  private emitAssistantTextComplete(
+    threadId: string,
+    state: StreamingTextState,
+    finalText: string,
+    finalThinking = ''
+  ): void {
+    const content: ContentBlock[] = [];
+    if (finalThinking) {
+      content.push({ type: 'thinking', thinking: finalThinking });
+    }
+    if (finalText) {
+      content.push({ type: 'text', text: finalText });
+    }
+
+    this.emit({
+      type: 'message',
+      threadId,
+      message: {
+        type: 'assistant',
+        uuid: state.uuid,
+        createdAt: state.createdAt,
+        streaming: false,
         message: { content },
       },
     });
   }
 
   private clearStreamingState(threadId: string): void {
+    const textState = this.streamingText.get(threadId);
+    if (textState?.flushTimer) {
+      clearTimeout(textState.flushTimer);
+    }
     this.streamingText.delete(threadId);
     this.streamingThinking.delete(threadId);
     this.emittedToolCalls.delete(threadId);
@@ -485,6 +606,44 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   // ── ProviderAdapter Implementation ───────────────────────────────────────
+
+  getComposerCapabilities(): ProviderComposerCapabilities {
+    return {
+      provider: 'codex',
+      supportsSkillMentions: true,
+      supportsSkillDiscovery: true,
+      supportsNativeSlashCommandDiscovery: false,
+      supportsPluginMentions: true,
+      supportsPluginDiscovery: true,
+      supportsRuntimeModelList: false,
+      supportsThreadCompaction: false,
+      supportsThreadImport: false,
+    };
+  }
+
+  async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {
+    return this.manager.listSkills({
+      cwd: input.cwd,
+      threadId: input.threadId,
+      forceReload: input.forceReload,
+    });
+  }
+
+  async listPlugins(input: ProviderListPluginsInput): Promise<ProviderListPluginsResult> {
+    return this.manager.listPlugins({
+      cwd: input.cwd,
+      threadId: input.threadId,
+      forceReload: input.forceReload,
+    });
+  }
+
+  async readPlugin(input: ProviderReadPluginInput): Promise<ProviderReadPluginResult> {
+    return this.manager.readPlugin({
+      marketplacePath: input.marketplacePath,
+      remoteMarketplaceName: input.remoteMarketplaceName,
+      pluginName: input.pluginName,
+    });
+  }
 
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {
     const { providerThreadId, model } = await this.manager.createSession(
@@ -510,13 +669,16 @@ export class CodexAdapter implements ProviderAdapter {
       model,
     });
 
-    // Send initial prompt if provided
-    if (input.prompt) {
+    // Send initial prompt if provided. A Codex skill/plugin-only turn may have
+    // an empty text prompt but still needs a structured input item.
+    if (input.prompt || input.codexSkills?.length || input.codexMentions?.length || input.attachments?.length) {
       await this.sendTurn({
         threadId: input.threadId,
         prompt: input.prompt,
         attachments: input.attachments,
         model: input.model || model,
+        codexSkills: input.codexSkills,
+        codexMentions: input.codexMentions,
       });
     }
 
@@ -562,17 +724,27 @@ export class CodexAdapter implements ProviderAdapter {
       status: 'running',
     });
 
-    await this.manager.sendTurn(input.threadId, input.prompt, input.attachments);
+    await this.manager.sendTurn(
+      input.threadId,
+      input.prompt,
+      input.attachments,
+      input.codexSkills,
+      input.codexMentions
+    );
   }
 
   async stopSession(threadId: string): Promise<void> {
     await this.manager.stopSession(threadId);
+    this.clearStreamingState(threadId);
     this.sessions.delete(threadId);
     this.lastStartInput.delete(threadId);
   }
 
   async stopAll(): Promise<void> {
     await this.manager.stop();
+    for (const threadId of this.streamingText.keys()) {
+      this.clearStreamingState(threadId);
+    }
     this.sessions.clear();
     this.lastStartInput.clear();
   }
@@ -674,9 +846,10 @@ export class CodexAdapter implements ProviderAdapter {
       console.warn('[CodexAdapter] failed to stop manager during auth recovery:', error);
     }
 
+    for (const threadId of this.streamingText.keys()) {
+      this.clearStreamingState(threadId);
+    }
     this.sessions.clear();
-    this.streamingText.clear();
-    this.streamingThinking.clear();
     this.emittedToolCalls.clear();
     this.emittedToolResults.clear();
     this.pendingToolCallIds.clear();

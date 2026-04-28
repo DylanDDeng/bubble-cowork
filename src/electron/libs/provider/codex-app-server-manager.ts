@@ -2,7 +2,21 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
 import * as readline from 'readline';
 import { v4 as uuidv4 } from 'uuid';
-import type { StreamMessage, Attachment, PermissionResult } from '../../../shared/types';
+import type {
+  StreamMessage,
+  Attachment,
+  PermissionResult,
+  ProviderListPluginsResult,
+  ProviderListSkillsResult,
+  ProviderPluginAppSummary,
+  ProviderPluginDescriptor,
+  ProviderPluginDetail,
+  ProviderPluginInterface,
+  ProviderPluginSource,
+  ProviderInputReference,
+  ProviderReadPluginResult,
+  ProviderSkillDescriptor,
+} from '../../../shared/types';
 import { isDev } from '../../util';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -57,17 +71,20 @@ const TURN_TIMEOUT_MS = 300_000;
 // Codex app-server emits these as housekeeping signal — we don't act on them yet,
 // so swallow them silently instead of cluttering dev logs as "unhandled".
 const IGNORED_NOTIFICATIONS = new Set<string>([
-  'mcpServer/startupStatus/updated',
   'account/rateLimits/updated',
   'thread/tokenUsage/updated',
   'thread/status/changed',
-  'skills/changed',
-  'app/list/updated',
   'fs/changed',
+  'hook/started',
+  'hook/completed',
   'warning',
   'deprecationNotice',
   'configWarning',
 ]);
+
+function isTransientConnectionMessage(message: string): boolean {
+  return /^Reconnecting\.\.\. \d+\/\d+$/i.test(message.trim());
+}
 
 // ── CodexAppServerManager ──────────────────────────────────────────────────
 
@@ -79,6 +96,10 @@ export class CodexAppServerManager extends EventEmitter {
   private sessions = new Map<string, CodexSession>();
   private pendingApprovals = new Map<string, PendingApproval>();
   private initialized = false;
+  private skillsCache = new Map<string, ProviderListSkillsResult>();
+  private pluginsCache = new Map<string, ProviderListPluginsResult>();
+  private pluginDetailCache = new Map<string, ProviderReadPluginResult>();
+  private lastActiveThreadId: string | null = null;
 
   constructor(private readonly binaryPath = 'codex') {
     super();
@@ -185,6 +206,114 @@ export class CodexAppServerManager extends EventEmitter {
     this.initialized = false;
     this.sessions.clear();
     this.pendingApprovals.clear();
+    this.lastActiveThreadId = null;
+  }
+
+  // ── Discovery ───────────────────────────────────────────────────────────────
+
+  async listSkills(input: {
+    cwd: string;
+    threadId?: string;
+    forceReload?: boolean;
+  }): Promise<ProviderListSkillsResult> {
+    const cwd = input.cwd.trim();
+    if (!cwd) {
+      return { skills: [], source: 'codex-app-server', cached: false };
+    }
+
+    const cacheKey = JSON.stringify({ cwd, threadId: input.threadId?.trim() || null });
+    if (!input.forceReload) {
+      const cached = this.skillsCache.get(cacheKey);
+      if (cached) return { ...cached, cached: true };
+    }
+
+    await this.ensureSpawned(cwd);
+    const response = (await this.sendRequest<Record<string, unknown>>(
+      'skills/list',
+      {
+        cwds: [cwd],
+        ...(input.forceReload ? { forceReload: true } : {}),
+      },
+      REQUEST_TIMEOUT_MS
+    )) as Record<string, unknown>;
+
+    const result: ProviderListSkillsResult = {
+      skills: this.parseSkillsListResponse(response, cwd),
+      source: 'codex-app-server',
+      cached: false,
+    };
+    this.skillsCache.set(cacheKey, result);
+    return result;
+  }
+
+  async listPlugins(input: {
+    cwd?: string;
+    threadId?: string;
+    forceReload?: boolean;
+  }): Promise<ProviderListPluginsResult> {
+    const cwd = input.cwd?.trim() || null;
+    const cacheKey = JSON.stringify({ cwd, threadId: input.threadId?.trim() || null });
+    if (!input.forceReload) {
+      const cached = this.pluginsCache.get(cacheKey);
+      if (cached) return { ...cached, cached: true };
+    }
+
+    await this.ensureSpawned(cwd || process.cwd());
+    const response = (await this.sendRequest<Record<string, unknown>>(
+      'plugin/list',
+      cwd ? { cwds: [cwd] } : {},
+      REQUEST_TIMEOUT_MS
+    )) as Record<string, unknown>;
+
+    const result: ProviderListPluginsResult = {
+      ...this.parsePluginListResponse(response),
+      source: 'codex-app-server',
+      cached: false,
+    };
+    this.pluginsCache.set(cacheKey, result);
+    return result;
+  }
+
+  async readPlugin(input: {
+    marketplacePath?: string | null;
+    remoteMarketplaceName?: string | null;
+    pluginName: string;
+  }): Promise<ProviderReadPluginResult> {
+    const marketplacePath = input.marketplacePath?.trim() || null;
+    const remoteMarketplaceName = input.remoteMarketplaceName?.trim() || null;
+    const pluginName = input.pluginName.trim();
+    const cacheKey = JSON.stringify({ marketplacePath, remoteMarketplaceName, pluginName });
+    const cached = this.pluginDetailCache.get(cacheKey);
+    if (cached) return { ...cached, cached: true };
+
+    await this.ensureSpawned(process.cwd());
+    const response = (await this.sendRequest<Record<string, unknown>>(
+      'plugin/read',
+      {
+        ...(marketplacePath ? { marketplacePath } : {}),
+        ...(remoteMarketplaceName ? { remoteMarketplaceName } : {}),
+        pluginName,
+      },
+      REQUEST_TIMEOUT_MS
+    )) as Record<string, unknown>;
+
+    const result: ProviderReadPluginResult = {
+      plugin: this.parsePluginReadResponse(response),
+      source: 'codex-app-server',
+      cached: false,
+    };
+    this.pluginDetailCache.set(cacheKey, result);
+    return result;
+  }
+
+  private invalidateDiscoveryCaches(kind: 'skills' | 'plugins' | 'all'): void {
+    if (kind === 'skills' || kind === 'all') {
+      this.skillsCache.clear();
+    }
+    if (kind === 'plugins' || kind === 'all') {
+      this.pluginsCache.clear();
+      this.pluginDetailCache.clear();
+    }
   }
 
   // ── Session Management ───────────────────────────────────────────────────
@@ -231,6 +360,7 @@ export class CodexAppServerManager extends EventEmitter {
       providerThreadId,
       status: 'ready',
     });
+    this.lastActiveThreadId = threadId;
 
     return { providerThreadId, model: model || undefined };
   }
@@ -246,21 +376,43 @@ export class CodexAppServerManager extends EventEmitter {
   async sendTurn(
     threadId: string,
     prompt: string,
-    attachments?: Attachment[]
+    attachments?: Attachment[],
+    codexSkills?: ProviderInputReference[],
+    codexMentions?: ProviderInputReference[]
   ): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) {
       throw new Error(`No session found for thread "${threadId}"`);
     }
+    this.lastActiveThreadId = threadId;
+    session.status = 'running';
 
     // Build prompt content per Codex UserInput schema:
     //   { type: 'text', text }            → plain text
+    //   { type: 'skill', name, path }      → Codex skill activation
+    //   { type: 'mention', name, path }    → Codex plugin/app mention
     //   { type: 'localImage', path }      → image file (agent receives the actual image)
     //   anything else → fall back to a text description
     type UserInput =
       | { type: 'text'; text: string }
+      | { type: 'skill'; name: string; path: string }
+      | { type: 'mention'; name: string; path: string }
       | { type: 'localImage'; path: string };
-    const content: UserInput[] = [{ type: 'text', text: prompt }];
+    const content: UserInput[] = [];
+    const trimmedPrompt = prompt.trim();
+    if (trimmedPrompt) {
+      content.push({ type: 'text', text: prompt });
+    }
+
+    for (const skill of codexSkills || []) {
+      if (!skill.name.trim() || !skill.path.trim()) continue;
+      content.push({ type: 'skill', name: skill.name.trim(), path: skill.path.trim() });
+    }
+
+    for (const mention of codexMentions || []) {
+      if (!mention.name.trim() || !mention.path.trim()) continue;
+      content.push({ type: 'mention', name: mention.name.trim(), path: mention.path.trim() });
+    }
 
     if (attachments?.length) {
       const fileLines: string[] = [];
@@ -278,6 +430,10 @@ export class CodexAppServerManager extends EventEmitter {
           text: 'Attachments:\n' + fileLines.join('\n'),
         });
       }
+    }
+
+    if (content.length === 0) {
+      content.push({ type: 'text', text: '' });
     }
 
     const response = (await this.sendRequest(
@@ -319,6 +475,9 @@ export class CodexAppServerManager extends EventEmitter {
     }
 
     this.sessions.delete(threadId);
+    if (this.lastActiveThreadId === threadId) {
+      this.lastActiveThreadId = this.findMostRecentFallbackThreadId();
+    }
   }
 
   // ── Approval Responses ───────────────────────────────────────────────────
@@ -687,6 +846,10 @@ export class CodexAppServerManager extends EventEmitter {
         const message = this.readString(this.readObject(params, 'error'), 'message');
         const threadId = this.findThreadByProviderThreadId(this.readString(params, 'threadId'));
         if (threadId && message) {
+          if (isTransientConnectionMessage(message)) {
+            this.emit('connection_reconnecting', { threadId, message });
+            break;
+          }
           const session = this.sessions.get(threadId);
           if (session) {
             session.status = 'error';
@@ -694,6 +857,23 @@ export class CodexAppServerManager extends EventEmitter {
           }
           this.emit('error_notification', { threadId, message });
         }
+        break;
+      }
+
+      case 'skills/changed': {
+        this.invalidateDiscoveryCaches('skills');
+        this.emit('skills_changed', { params });
+        break;
+      }
+
+      case 'app/list/updated': {
+        this.invalidateDiscoveryCaches('plugins');
+        this.emit('app_list_updated', { params });
+        break;
+      }
+
+      case 'mcpServer/startupStatus/updated': {
+        this.emit('mcp_status_updated', { params });
         break;
       }
 
@@ -715,9 +895,7 @@ export class CodexAppServerManager extends EventEmitter {
 
   private findThreadByProviderThreadId(providerThreadId: string | null): string | null {
     if (!providerThreadId) {
-      // Fallback: return first session (usually there's only one active)
-      const first = this.sessions.values().next().value;
-      return first?.threadId || null;
+      return this.findMostRecentFallbackThreadId();
     }
     for (const [threadId, session] of this.sessions) {
       if (session.providerThreadId === providerThreadId) {
@@ -725,6 +903,20 @@ export class CodexAppServerManager extends EventEmitter {
       }
     }
     return null;
+  }
+
+  private findMostRecentFallbackThreadId(): string | null {
+    if (this.lastActiveThreadId && this.sessions.has(this.lastActiveThreadId)) {
+      return this.lastActiveThreadId;
+    }
+
+    for (const [threadId, session] of Array.from(this.sessions.entries()).reverse()) {
+      if (session.status === 'running') {
+        return threadId;
+      }
+    }
+
+    return Array.from(this.sessions.keys()).pop() || null;
   }
 
   private inferThreadId(params?: Record<string, unknown>): string {
@@ -750,6 +942,288 @@ export class CodexAppServerManager extends EventEmitter {
     if (!obj || typeof obj !== 'object') return null;
     const value = obj[key];
     return typeof value === 'string' ? value : null;
+  }
+
+  private asObject(value: unknown): Record<string, unknown> | undefined {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined;
+  }
+
+  private readArray(
+    obj: Record<string, unknown> | undefined,
+    key: string
+  ): unknown[] | undefined {
+    if (!obj || typeof obj !== 'object') return undefined;
+    const value = obj[key];
+    return Array.isArray(value) ? value : undefined;
+  }
+
+  private optionalString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+  }
+
+  private parseSkillsListResponse(response: unknown, requestedCwd: string): ProviderSkillDescriptor[] {
+    const record = this.asObject(response);
+    const result = this.asObject(record?.result) ?? record;
+    if (!result) return [];
+
+    const entries = this.readArray(result, 'data');
+    if (entries) {
+      const skills = entries.flatMap((entry) => {
+        const entryRecord = this.asObject(entry);
+        if (!entryRecord) return [];
+        const entryCwd = this.optionalString(entryRecord.cwd);
+        if (entryCwd && requestedCwd && entryCwd !== requestedCwd) {
+          return [];
+        }
+        return (this.readArray(entryRecord, 'skills') ?? []).flatMap((skill) => {
+          const parsed = this.parseSkillDescriptor(skill);
+          return parsed ? [parsed] : [];
+        });
+      });
+      return skills.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    const skills = (this.readArray(result, 'skills') ?? []).flatMap((skill) => {
+      const parsed = this.parseSkillDescriptor(skill);
+      return parsed ? [parsed] : [];
+    });
+    return skills.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private parseSkillDescriptor(value: unknown): ProviderSkillDescriptor | undefined {
+    const record = this.asObject(value);
+    if (!record) return undefined;
+    const name = this.optionalString(record.name);
+    if (!name) return undefined;
+
+    const skillInterface = this.parseSkillInterface(this.asObject(record.interface));
+    const description =
+      this.optionalString(record.description) ??
+      this.optionalString(record.shortDescription) ??
+      skillInterface?.shortDescription;
+    const path = this.optionalString(record.path) ?? name;
+    const scope = this.optionalString(record.scope);
+
+    return {
+      name,
+      ...(description ? { description } : {}),
+      path,
+      enabled: record.enabled !== false,
+      ...(scope ? { scope } : {}),
+      ...(skillInterface ? { interface: skillInterface } : {}),
+      ...(record.dependencies !== undefined ? { dependencies: record.dependencies } : {}),
+    };
+  }
+
+  private parseSkillInterface(value: Record<string, unknown> | undefined): ProviderSkillDescriptor['interface'] | undefined {
+    if (!value) return undefined;
+    const displayName = this.optionalString(value.displayName);
+    const shortDescription = this.optionalString(value.shortDescription);
+    if (!displayName && !shortDescription) return undefined;
+    return {
+      ...(displayName ? { displayName } : {}),
+      ...(shortDescription ? { shortDescription } : {}),
+    };
+  }
+
+  private parsePluginListResponse(
+    response: unknown
+  ): Omit<ProviderListPluginsResult, 'source' | 'cached'> {
+    const record = this.asObject(response);
+    const result = this.asObject(record?.result) ?? record;
+    if (!result) {
+      return {
+        marketplaces: [],
+        marketplaceLoadErrors: [],
+        remoteSyncError: null,
+        featuredPluginIds: [],
+      };
+    }
+
+    const marketplaces = (this.readArray(result, 'marketplaces') ?? []).flatMap((marketplace) => {
+      const marketplaceRecord = this.asObject(marketplace);
+      if (!marketplaceRecord) return [];
+      const name = this.optionalString(marketplaceRecord.name);
+      if (!name) return [];
+      const path = this.optionalString(marketplaceRecord.path) ?? null;
+      const marketplaceInterfaceRecord = this.asObject(marketplaceRecord.interface);
+      const marketplaceDisplayName = this.optionalString(marketplaceInterfaceRecord?.displayName);
+      const plugins = (this.readArray(marketplaceRecord, 'plugins') ?? []).flatMap((plugin) => {
+        const parsed = this.parsePluginSummary(plugin);
+        return parsed ? [parsed] : [];
+      });
+
+      return [{
+        name,
+        path,
+        ...(marketplaceDisplayName
+          ? { interface: { displayName: marketplaceDisplayName } }
+          : {}),
+        plugins,
+      }];
+    });
+
+    const marketplaceLoadErrors = (this.readArray(result, 'marketplaceLoadErrors') ?? [])
+      .flatMap((error) => {
+        const errorRecord = this.asObject(error);
+        const marketplacePath = this.optionalString(errorRecord?.marketplacePath);
+        const message = this.optionalString(errorRecord?.message);
+        return marketplacePath && message ? [{ marketplacePath, message }] : [];
+      });
+    const featuredPluginIds = (this.readArray(result, 'featuredPluginIds') ?? [])
+      .flatMap((value) => {
+        const id = this.optionalString(value);
+        return id ? [id] : [];
+      });
+    const remoteSyncError = this.optionalString(result.remoteSyncError) ?? null;
+
+    return {
+      marketplaces,
+      marketplaceLoadErrors,
+      remoteSyncError,
+      featuredPluginIds,
+    };
+  }
+
+  private parsePluginSummary(value: unknown): ProviderPluginDescriptor | undefined {
+    const record = this.asObject(value);
+    if (!record) return undefined;
+    const id = this.optionalString(record.id);
+    const name = this.optionalString(record.name);
+    const installPolicy = this.optionalString(record.installPolicy);
+    const authPolicy = this.optionalString(record.authPolicy);
+    if (
+      !id ||
+      !name ||
+      (installPolicy !== 'NOT_AVAILABLE' &&
+        installPolicy !== 'AVAILABLE' &&
+        installPolicy !== 'INSTALLED_BY_DEFAULT') ||
+      (authPolicy !== 'ON_INSTALL' && authPolicy !== 'ON_USE')
+    ) {
+      return undefined;
+    }
+
+    return {
+      id,
+      name,
+      source: this.parsePluginSource(record.source),
+      installed: record.installed === true,
+      enabled: record.enabled === true,
+      installPolicy,
+      authPolicy,
+      ...(this.parsePluginInterface(this.asObject(record.interface))
+        ? { interface: this.parsePluginInterface(this.asObject(record.interface)) }
+        : {}),
+    };
+  }
+
+  private parsePluginSource(value: unknown): ProviderPluginSource {
+    const record = this.asObject(value);
+    const type = this.optionalString(record?.type);
+    if (type === 'local') {
+      return { type: 'local', path: this.optionalString(record?.path) ?? '' };
+    }
+    if (type === 'git') {
+      return {
+        type: 'git',
+        url: this.optionalString(record?.url) ?? '',
+        path: this.optionalString(record?.path) ?? null,
+        refName: this.optionalString(record?.refName) ?? null,
+        sha: this.optionalString(record?.sha) ?? null,
+      };
+    }
+    return { type: 'remote' };
+  }
+
+  private parsePluginInterface(value: Record<string, unknown> | undefined): ProviderPluginInterface | undefined {
+    if (!value) return undefined;
+    const stringArray = (key: string): string[] | undefined => {
+      const items = (this.readArray(value, key) ?? []).flatMap((entry) => {
+        const text = this.optionalString(entry);
+        return text ? [text] : [];
+      });
+      return items.length > 0 ? items : undefined;
+    };
+
+    const pluginInterface: ProviderPluginInterface = {
+      ...(this.optionalString(value.displayName) ? { displayName: this.optionalString(value.displayName) } : {}),
+      ...(this.optionalString(value.shortDescription) ? { shortDescription: this.optionalString(value.shortDescription) } : {}),
+      ...(this.optionalString(value.longDescription) ? { longDescription: this.optionalString(value.longDescription) } : {}),
+      ...(this.optionalString(value.developerName) ? { developerName: this.optionalString(value.developerName) } : {}),
+      ...(this.optionalString(value.category) ? { category: this.optionalString(value.category) } : {}),
+      ...(stringArray('capabilities') ? { capabilities: stringArray('capabilities') } : {}),
+      ...(this.optionalString(value.websiteUrl) ? { websiteUrl: this.optionalString(value.websiteUrl) } : {}),
+      ...(this.optionalString(value.privacyPolicyUrl) ? { privacyPolicyUrl: this.optionalString(value.privacyPolicyUrl) } : {}),
+      ...(this.optionalString(value.termsOfServiceUrl) ? { termsOfServiceUrl: this.optionalString(value.termsOfServiceUrl) } : {}),
+      ...(stringArray('defaultPrompt') ? { defaultPrompt: stringArray('defaultPrompt') } : {}),
+      ...(this.optionalString(value.brandColor) ? { brandColor: this.optionalString(value.brandColor) } : {}),
+      ...(this.optionalString(value.composerIcon) ? { composerIcon: this.optionalString(value.composerIcon) } : {}),
+      ...(this.optionalString(value.composerIconUrl) ? { composerIconUrl: this.optionalString(value.composerIconUrl) } : {}),
+      ...(this.optionalString(value.logo) ? { logo: this.optionalString(value.logo) } : {}),
+      ...(this.optionalString(value.logoUrl) ? { logoUrl: this.optionalString(value.logoUrl) } : {}),
+      ...(stringArray('screenshots') ? { screenshots: stringArray('screenshots') } : {}),
+      ...(stringArray('screenshotUrls') ? { screenshotUrls: stringArray('screenshotUrls') } : {}),
+    };
+
+    return Object.keys(pluginInterface).length > 0 ? pluginInterface : undefined;
+  }
+
+  private parsePluginReadResponse(response: unknown): ProviderPluginDetail {
+    const record = this.asObject(response);
+    const result = this.asObject(record?.result) ?? record;
+    const pluginRecord = this.asObject(result?.plugin) ?? result;
+    if (!pluginRecord) {
+      throw new Error('plugin/read response did not include a plugin payload.');
+    }
+
+    const marketplaceName = this.optionalString(pluginRecord.marketplaceName);
+    const marketplacePath = this.optionalString(pluginRecord.marketplacePath) ?? null;
+    const summary = this.parsePluginSummary(pluginRecord.summary);
+    if (!marketplaceName || !summary) {
+      throw new Error('plugin/read response did not include a valid plugin summary.');
+    }
+
+    return {
+      marketplaceName,
+      marketplacePath,
+      summary,
+      ...(this.optionalString(pluginRecord.description)
+        ? { description: this.optionalString(pluginRecord.description) }
+        : {}),
+      skills: (this.readArray(pluginRecord, 'skills') ?? []).flatMap((skill) => {
+        const parsed = this.parseSkillDescriptor(skill);
+        return parsed ? [parsed] : [];
+      }),
+      apps: (this.readArray(pluginRecord, 'apps') ?? []).flatMap((app) => {
+        const parsed = this.parsePluginAppSummary(app);
+        return parsed ? [parsed] : [];
+      }),
+      mcpServers: (this.readArray(pluginRecord, 'mcpServers') ?? []).flatMap((server) => {
+        const name = this.optionalString(server);
+        return name ? [name] : [];
+      }),
+    };
+  }
+
+  private parsePluginAppSummary(value: unknown): ProviderPluginAppSummary | undefined {
+    const record = this.asObject(value);
+    if (!record) return undefined;
+    const id = this.optionalString(record.id);
+    const name = this.optionalString(record.name);
+    if (!id || !name) return undefined;
+    return {
+      id,
+      name,
+      ...(this.optionalString(record.description)
+        ? { description: this.optionalString(record.description) }
+        : {}),
+      ...(this.optionalString(record.installUrl)
+        ? { installUrl: this.optionalString(record.installUrl) }
+        : {}),
+      needsAuth: record.needsAuth === true,
+    };
   }
 
   private extractTextContent(params: Record<string, unknown>): string | null {

@@ -22,6 +22,14 @@ import type {
   ClaudeAccessMode,
   ClaudeExecutionMode,
   ClaudeCompatibleProviderId,
+  ProviderComposerCapabilities,
+  ProviderInputReference,
+  ProviderListPluginsInput,
+  ProviderListPluginsResult,
+  ProviderListSkillsInput,
+  ProviderListSkillsResult,
+  ProviderReadPluginInput,
+  ProviderReadPluginResult,
 } from '../../../shared/types';
 import type { SessionRow } from '../../types';
 
@@ -34,6 +42,8 @@ export interface ProviderAdapterCapabilities {
   sessionModelSwitch: boolean;
   /** Supports skill discovery */
   skillDiscovery: boolean;
+  /** Supports plugin discovery */
+  pluginDiscovery?: boolean;
   /** Supports MCP servers */
   mcpServers: boolean;
   /** Supports image attachments */
@@ -60,6 +70,8 @@ export interface ProviderSessionStartInput {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  codexSkills?: ProviderInputReference[];
+  codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
   claudeAccessMode?: ClaudeAccessMode;
   claudeExecutionMode?: ClaudeExecutionMode;
@@ -72,6 +84,8 @@ export interface ProviderSendTurnInput {
   prompt: string;
   attachments?: Attachment[];
   model?: string;
+  codexSkills?: ProviderInputReference[];
+  codexMentions?: ProviderInputReference[];
 }
 
 export interface ProviderSession {
@@ -110,6 +124,12 @@ export interface ProviderAdapter {
 
   // Permission responses
   respondToRequest(threadId: string, requestId: string, decision: PermissionResult): Promise<void>;
+
+  // Optional provider discovery APIs
+  getComposerCapabilities?(): ProviderComposerCapabilities;
+  listSkills?(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult>;
+  listPlugins?(input: ProviderListPluginsInput): Promise<ProviderListPluginsResult>;
+  readPlugin?(input: ProviderReadPluginInput): Promise<ProviderReadPluginResult>;
 
   // Event stream (all events from this provider)
   readonly events: EventEmitter;
@@ -152,6 +172,12 @@ export interface ProviderService {
 
   // Permission
   respondToRequest(threadId: string, requestId: string, decision: PermissionResult): Promise<void>;
+
+  // Discovery
+  getComposerCapabilities(provider: ProviderKind): ProviderComposerCapabilities;
+  listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult>;
+  listPlugins(input: ProviderListPluginsInput): Promise<ProviderListPluginsResult>;
+  readPlugin(input: ProviderReadPluginInput): Promise<ProviderReadPluginResult>;
 
   // Events (merged from all adapters)
   readonly events: EventEmitter;

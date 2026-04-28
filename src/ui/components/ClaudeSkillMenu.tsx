@@ -39,7 +39,9 @@ export function ClaudeSkillMenu({
               ? suggestion.skill.description || `/${suggestion.skill.name}`
               : suggestion.command.description;
             const badge = isSkill
-              ? suggestion.skill.source === 'project'
+              ? suggestion.skill.source === 'plugin'
+                ? 'Plugin'
+                : suggestion.skill.source === 'project'
                 ? 'Workspace'
                 : 'Personal'
               : 'Command';

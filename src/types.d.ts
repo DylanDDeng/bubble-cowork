@@ -33,6 +33,13 @@ import type {
   FeishuBridgeConfig,
   FeishuBridgeStatus,
   AppUpdateStatus,
+  ProviderComposerCapabilities,
+  ProviderListPluginsInput,
+  ProviderListPluginsResult,
+  ProviderListSkillsInput,
+  ProviderListSkillsResult,
+  ProviderReadPluginInput,
+  ProviderReadPluginResult,
 } from './shared/types';
 import type {
   BrowserCapturePageResult,
@@ -88,6 +95,10 @@ declare global {
     getCodexModelConfig: () => Promise<CodexModelConfig>;
     saveCodexModelVisibility: (enabledModels: string[]) => Promise<CodexModelConfig>;
     getCodexRuntimeStatus: () => Promise<CodexRuntimeStatus>;
+    getCodexComposerCapabilities: () => Promise<ProviderComposerCapabilities>;
+    listCodexSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
+    listCodexPlugins: (input?: Omit<ProviderListPluginsInput, 'provider'>) => Promise<ProviderListPluginsResult>;
+    readCodexPlugin: (input: Omit<ProviderReadPluginInput, 'provider'>) => Promise<ProviderReadPluginResult>;
     getOpencodeModelConfig: () => Promise<OpenCodeModelConfig>;
     saveOpencodeModelVisibility: (enabledModels: string[]) => Promise<OpenCodeModelConfig>;
     getOpencodeRuntimeStatus: () => Promise<OpenCodeRuntimeStatus>; 

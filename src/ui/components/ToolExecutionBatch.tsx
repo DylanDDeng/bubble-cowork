@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import type { ContentBlock, ToolStatus, StreamMessage } from '../types';
 import { AssistantWorkstream, WorkingFooter } from './AssistantWorkstream';
-import { createBatchWorkstreamModel, type ToolResultBlock } from '../utils/workstream';
+import {
+  createBatchWorkstreamModel,
+  type ToolResultBlock,
+  type WorkstreamModel,
+} from '../utils/workstream';
 import { TodoProgressCard } from './TodoProgressCard';
 
 type AssistantMessage = StreamMessage & { type: 'assistant' };
@@ -12,16 +16,15 @@ interface ToolExecutionBatchProps {
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
   isSessionRunning: boolean;
-  /** True when the next aggregated item is the final assistant response.
-   * Codex can start that text before session status flips to completed, so use
-   * this to stop live "Working" copy without rendering a separate divider. */
-  hasFollowingResponse?: boolean;
-  /** True only for the LAST tool_batch in the aggregated transcript. Without
-   * this gate, every historical batch would also report `state==='running'`
-   * while the session is mid-turn (because deriveWorkstreamState OR's in
-   * isSessionRunning) and each would mount its own setInterval-backed
-   * WorkingFooter — N historical batches × 1s ticks = main-thread freeze. */
+  /** True only for the active work group in the transcript. Without this gate,
+   * every historical batch would also report `state==='running'` while the
+   * session is mid-turn and each would mount its own setInterval-backed
+   * WorkingFooter. */
   isLastBatch?: boolean;
+  expanded?: boolean;
+  defaultExpanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
+  resetKey?: string | number | null;
 }
 
 export function ToolExecutionBatch({
@@ -29,10 +32,12 @@ export function ToolExecutionBatch({
   toolStatusMap,
   toolResultsMap,
   isSessionRunning,
-  hasFollowingResponse = false,
   isLastBatch = false,
+  expanded,
+  defaultExpanded,
+  onExpandedChange,
+  resetKey,
 }: ToolExecutionBatchProps) {
-  const [expanded, setExpanded] = useState(false);
   const batchIsRunning = isSessionRunning && isLastBatch;
   const model = useMemo(
     () =>
@@ -45,6 +50,61 @@ export function ToolExecutionBatch({
     [messages, toolResultsMap, toolStatusMap, batchIsRunning]
   );
 
+  const disclosureResetKey = resetKey ?? messages.map((message) => message.uuid).join(':');
+  return (
+    <WorkstreamDisclosure
+      model={model}
+      isRunning={batchIsRunning}
+      expanded={expanded}
+      defaultExpanded={defaultExpanded}
+      onExpandedChange={onExpandedChange}
+      resetKey={disclosureResetKey}
+    />
+  );
+}
+
+export function WorkstreamDisclosure({
+  model,
+  isRunning,
+  defaultExpanded = false,
+  expanded,
+  onExpandedChange,
+  resetKey,
+}: {
+  model: WorkstreamModel;
+  isRunning: boolean;
+  defaultExpanded?: boolean;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
+  resetKey?: string | number | null;
+}) {
+  const isControlled = typeof expanded === 'boolean';
+  const [uncontrolledExpanded, setUncontrolledExpanded] = useState(() => defaultExpanded);
+  const previousResetKeyRef = useRef(resetKey);
+  const resolvedExpanded = isControlled ? expanded : uncontrolledExpanded;
+
+  useEffect(() => {
+    if (isControlled) {
+      previousResetKeyRef.current = resetKey;
+      return;
+    }
+
+    if (previousResetKeyRef.current === resetKey) {
+      return;
+    }
+
+    previousResetKeyRef.current = resetKey;
+    setUncontrolledExpanded(defaultExpanded);
+  }, [defaultExpanded, isControlled, resetKey]);
+
+  const setExpanded = (nextExpanded: boolean) => {
+    if (isControlled) {
+      onExpandedChange?.(nextExpanded);
+      return;
+    }
+    setUncontrolledExpanded(nextExpanded);
+  };
+
   if (model.entries.length === 0 && model.todoProgress) {
     return <TodoProgressCard state={model.todoProgress} className="my-2" />;
   }
@@ -53,18 +113,17 @@ export function ToolExecutionBatch({
     return null;
   }
 
-  const workIsRunning = batchIsRunning && !hasFollowingResponse;
-  const showWorking = expanded && workIsRunning;
+  const showWorking = resolvedExpanded && isRunning;
 
   return (
     <>
       <WorkstreamToggle
-        expanded={expanded}
+        expanded={resolvedExpanded}
         model={model}
-        isRunning={workIsRunning}
-        onToggle={() => setExpanded((value) => !value)}
+        isRunning={isRunning}
+        onToggle={() => setExpanded(!resolvedExpanded)}
       />
-      {expanded ? <AssistantWorkstream model={model} /> : null}
+      {resolvedExpanded ? <AssistantWorkstream model={model} /> : null}
       {showWorking ? <WorkingFooter startedAt={model.startedAt} /> : null}
     </>
   );
@@ -77,7 +136,7 @@ function WorkstreamToggle({
   onToggle,
 }: {
   expanded: boolean;
-  model: ReturnType<typeof createBatchWorkstreamModel>;
+  model: WorkstreamModel;
   isRunning: boolean;
   onToggle: () => void;
 }) {

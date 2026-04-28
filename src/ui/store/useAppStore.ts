@@ -14,6 +14,7 @@ import type {
   ServerEvent,
   SessionInfo,
   StreamMessage,
+  ContentBlock,
   Attachment,
   SearchFilters,
   SearchMatch,
@@ -59,6 +60,8 @@ type SetState = (
 ) => void;
 const runtimeNoticeClearTimers = new Map<string, number>();
 
+type AssistantStreamMessage = StreamMessage & { type: 'assistant' };
+
 function clearRuntimeNoticeTimer(sessionId: string): void {
   const timer = runtimeNoticeClearTimers.get(sessionId);
   if (timer !== undefined) {
@@ -90,6 +93,62 @@ function scheduleRuntimeNoticeClear(sessionId: string, set: SetState): void {
   }, 2000);
 
   runtimeNoticeClearTimers.set(sessionId, timer);
+}
+
+function isAssistantStreamMessage(message: StreamMessage): message is AssistantStreamMessage {
+  return message.type === 'assistant';
+}
+
+function getAssistantText(message: AssistantStreamMessage): string {
+  return message.message.content
+    .filter((block): block is ContentBlock & { type: 'text' } => block.type === 'text')
+    .map((block) => block.text || '')
+    .join('');
+}
+
+function mergeAssistantText(existingText: string, incomingText: string, incomingStreaming: boolean): string {
+  if (incomingStreaming || incomingText.length === 0) {
+    return `${existingText}${incomingText}`;
+  }
+  if (incomingText.startsWith(existingText)) {
+    return incomingText;
+  }
+  if (existingText.startsWith(incomingText)) {
+    return existingText;
+  }
+  return `${existingText}${incomingText}`;
+}
+
+function mergeCodexAssistantMessage(
+  existing: AssistantStreamMessage,
+  incoming: AssistantStreamMessage
+): AssistantStreamMessage {
+  const existingText = getAssistantText(existing);
+  const incomingText = getAssistantText(incoming);
+  const nextText = mergeAssistantText(existingText, incomingText, incoming.streaming === true);
+  const existingNonText = existing.message.content.filter((block) => block.type !== 'text');
+  const incomingNonText = incoming.message.content.filter((block) => block.type !== 'text');
+  const nextNonText = incomingNonText.length > 0 ? incomingNonText : existingNonText;
+  const nextContent: ContentBlock[] = [
+    ...nextNonText,
+    ...(nextText ? [{ type: 'text' as const, text: nextText }] : []),
+  ];
+
+  return {
+    ...incoming,
+    createdAt: existing.createdAt,
+    message: {
+      ...incoming.message,
+      content: nextContent,
+    },
+  };
+}
+
+function shouldPreserveStreamingStateForMessage(
+  provider: SessionInfo['provider'],
+  message: StreamMessage
+): boolean {
+  return provider === 'codex' && message.type === 'assistant' && message.streaming === true;
 }
 
 function sanitizeSidebarWidth(width: number | undefined, fallback: number): number {
@@ -1728,11 +1787,17 @@ function handleStreamMessage(
         (m) => (m as { uuid?: unknown }).uuid === maybeUuid
       );
       if (existingIndex >= 0) {
-        const existing = currentSession.messages[existingIndex] as { createdAt?: number };
+        const existingMessage = currentSession.messages[existingIndex];
+        const existing = existingMessage as { createdAt?: number };
         const mergedMessage: StreamMessage =
-          typeof existing.createdAt === 'number' && Number.isFinite(existing.createdAt)
-            ? ({ ...(stampedMessage as object), createdAt: existing.createdAt } as StreamMessage)
-            : stampedMessage;
+          currentSession.provider === 'codex' &&
+          existingMessage &&
+          isAssistantStreamMessage(existingMessage) &&
+          isAssistantStreamMessage(stampedMessage)
+            ? mergeCodexAssistantMessage(existingMessage, stampedMessage)
+            : typeof existing.createdAt === 'number' && Number.isFinite(existing.createdAt)
+              ? ({ ...(stampedMessage as object), createdAt: existing.createdAt } as StreamMessage)
+              : stampedMessage;
         const nextMessages = currentSession.messages.slice();
         nextMessages[existingIndex] = mergedMessage;
         return {
@@ -1746,7 +1811,9 @@ function handleStreamMessage(
                   ? extractLatestClaudeModelUsage([mergedMessage], currentSession.model) || currentSession.latestClaudeModelUsage
                   : currentSession.latestClaudeModelUsage,
               messages: nextMessages,
-              streaming: createEmptyStreamingState(),
+              streaming: shouldPreserveStreamingStateForMessage(currentSession.provider, mergedMessage)
+                ? currentSession.streaming
+                : createEmptyStreamingState(),
             },
           },
         };
@@ -1764,7 +1831,9 @@ function handleStreamMessage(
               ? extractLatestClaudeModelUsage([stampedMessage], currentSession.model) || currentSession.latestClaudeModelUsage
               : currentSession.latestClaudeModelUsage,
           messages: [...currentSession.messages, stampedMessage],
-          streaming: createEmptyStreamingState(),
+          streaming: shouldPreserveStreamingStateForMessage(currentSession.provider, stampedMessage)
+            ? currentSession.streaming
+            : createEmptyStreamingState(),
         },
       },
     };

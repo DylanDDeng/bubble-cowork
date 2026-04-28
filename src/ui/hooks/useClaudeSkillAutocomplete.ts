@@ -19,7 +19,84 @@ import {
   shouldAutoSubmitSlashCommand,
 } from '../utils/claude-slash';
 import { createSlashTokenContext, type SlashTokenContext } from '../utils/composer-segments';
-import type { AgentProvider } from '../types';
+import { CODEX_PLUGIN_SLASH_PREFIX } from '../utils/codex-composer';
+import type {
+  AgentProvider,
+  ProviderListPluginsResult,
+  ProviderPluginDescriptor,
+  ProviderPluginMarketplaceDescriptor,
+  ProviderSkillDescriptor,
+} from '../types';
+
+function codexSkillSource(scope?: string): ClaudeSkillSummary['source'] {
+  const normalized = (scope || '').toLowerCase();
+  if (normalized === 'repo' || normalized === 'project' || normalized === 'workspace') {
+    return 'project';
+  }
+  return 'user';
+}
+
+function toCodexSlashSkill(skill: ProviderSkillDescriptor): ClaudeSkillSummary | null {
+  const name = skill.name.replace(/^\//, '').trim();
+  const path = skill.path.trim();
+  if (!name || !path || skill.enabled === false) {
+    return null;
+  }
+
+  return {
+    name,
+    title: skill.interface?.displayName || name,
+    description: skill.interface?.shortDescription || skill.description,
+    path,
+    source: codexSkillSource(skill.scope),
+  };
+}
+
+function isInstalledCodexPlugin(plugin: ProviderPluginDescriptor): boolean {
+  return plugin.enabled || plugin.installed || plugin.installPolicy === 'INSTALLED_BY_DEFAULT';
+}
+
+function getCodexPluginReferencePath(
+  marketplace: ProviderPluginMarketplaceDescriptor,
+  plugin: ProviderPluginDescriptor
+): string {
+  const marketplaceName = marketplace.name.trim();
+  const pluginName = plugin.name.trim();
+  if (marketplaceName && pluginName) {
+    return `plugin://${pluginName}@${marketplaceName}`;
+  }
+
+  if (plugin.source.type === 'local') return plugin.source.path;
+  if (plugin.source.type === 'git') return plugin.source.path || plugin.source.url;
+  return marketplace.path || marketplace.name;
+}
+
+function toCodexPluginSlashSkill(
+  marketplace: ProviderPluginMarketplaceDescriptor,
+  plugin: ProviderPluginDescriptor
+): ClaudeSkillSummary | null {
+  const pluginName = plugin.name.trim();
+  const path = getCodexPluginReferencePath(marketplace, plugin).trim();
+  if (!pluginName || !path || !isInstalledCodexPlugin(plugin)) {
+    return null;
+  }
+
+  return {
+    name: `${CODEX_PLUGIN_SLASH_PREFIX}${pluginName}`,
+    title: plugin.interface?.displayName || pluginName,
+    description: plugin.interface?.shortDescription || plugin.interface?.longDescription || 'Codex plugin',
+    path,
+    source: 'plugin',
+  };
+}
+
+function flattenCodexPluginSlashSkills(result: ProviderListPluginsResult): ClaudeSkillSummary[] {
+  return result.marketplaces.flatMap((marketplace) =>
+    marketplace.plugins
+      .map((plugin) => toCodexPluginSlashSkill(marketplace, plugin))
+      .filter((skill): skill is ClaudeSkillSummary => Boolean(skill))
+  );
+}
 
 export function useClaudeSkillAutocomplete({
   enabled,
@@ -43,10 +120,11 @@ export function useClaudeSkillAutocomplete({
   onAutoSubmitCommand?: (prompt: string) => void;
 }) {
   const { claudeUserSkills, claudeProjectSkills } = useAppStore();
+  const [codexSlashSkills, setCodexSlashSkills] = useState<ClaudeSkillSummary[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useEffect(() => {
-    if (!enabled || !enableSkills) {
+    if (!enabled || !enableSkills || provider === 'codex') {
       return;
     }
 
@@ -54,18 +132,69 @@ export function useClaudeSkillAutocomplete({
       type: 'skills.list',
       payload: { projectPath },
     });
-  }, [enableSkills, enabled, projectPath]);
+  }, [enableSkills, enabled, projectPath, provider]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!enabled || !enableSkills || provider !== 'codex') {
+      setCodexSlashSkills([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const cwd = projectPath?.trim();
+    if (!cwd) {
+      setCodexSlashSkills([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void Promise.all([
+      window.electron.listCodexSkills({ cwd }),
+      window.electron.listCodexPlugins({ cwd }),
+    ])
+      .then(([skillsResult, pluginsResult]) => {
+        if (cancelled) return;
+
+        const skills = skillsResult.skills
+          .map(toCodexSlashSkill)
+          .filter((skill): skill is ClaudeSkillSummary => Boolean(skill));
+        const plugins = flattenCodexPluginSlashSkills(pluginsResult);
+        setCodexSlashSkills(mergeClaudeSkills(plugins, skills));
+      })
+      .catch((error) => {
+        console.warn('[Codex composer] Failed to load Codex skills/plugins:', error);
+        if (!cancelled) {
+          setCodexSlashSkills([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enableSkills, enabled, projectPath, provider]);
 
   const query = useMemo(() => getSlashSkillQuery(prompt), [prompt]);
   const sessionSkillNames = useMemo(
-    () => (enableSkills ? getSessionSkillNames(sessionMessages) : new Set<string>()),
-    [enableSkills, sessionMessages]
+    () => (enableSkills && provider !== 'codex' ? getSessionSkillNames(sessionMessages) : new Set<string>()),
+    [enableSkills, provider, sessionMessages]
   );
   const sessionSlashCommands = useMemo(() => getSessionSlashCommands(sessionMessages), [sessionMessages]);
 
   const availableSkills = useMemo(
-    () => (enableSkills ? mergeClaudeSkills(claudeUserSkills, claudeProjectSkills, sessionSkillNames) : []),
-    [claudeUserSkills, claudeProjectSkills, enableSkills, sessionSkillNames]
+    () => {
+      if (!enableSkills) {
+        return [];
+      }
+      if (provider === 'codex') {
+        return codexSlashSkills;
+      }
+      return mergeClaudeSkills(claudeUserSkills, claudeProjectSkills, sessionSkillNames);
+    },
+    [claudeUserSkills, claudeProjectSkills, codexSlashSkills, enableSkills, provider, sessionSkillNames]
   );
 
   const availableCommands = useMemo(

@@ -16,6 +16,7 @@ import { sendEvent } from '../../hooks/useIPC';
 import { useAppStore } from '../../store/useAppStore';
 import type { SkillMarketDetail, SkillMarketItem } from '../../types';
 import { SkillsSettingsContentInner } from './SkillsSettings';
+import { CodexPluginLibraryContent } from './CodexPluginLibrary';
 
 const DEFAULT_HOT_LIMIT = 60;
 const DEFAULT_SEARCH_LIMIT = 80;
@@ -50,7 +51,7 @@ export function SkillMarketSettingsContent() {
     claudeUserSkills,
     claudeProjectSkills,
   } = useAppStore();
-  const [view, setView] = useState<'skills' | 'market'>('market');
+  const [view, setView] = useState<'skills' | 'market' | 'codex'>('market');
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<SkillMarketItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -266,6 +267,17 @@ export function SkillMarketSettingsContent() {
           >
             Marketplace
           </button>
+          <button
+            type="button"
+            onClick={() => setView('codex')}
+            className={`rounded-lg border px-3 py-1.5 text-[15px] transition-colors ${
+              view === 'codex'
+                ? 'border-[var(--border)] bg-[var(--bg-secondary)] font-medium text-[var(--text-primary)]'
+                : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            Codex
+          </button>
         </div>
 
         <div className="flex items-center gap-2 text-[13px] text-[var(--text-muted)]">
@@ -273,13 +285,17 @@ export function SkillMarketSettingsContent() {
           <span>
             {view === 'market'
               ? 'Install skills from skills.sh without leaving the app.'
-              : 'Browse installed user and project skills in one place.'}
+              : view === 'codex'
+                ? 'Browse plugins and skills exposed by Codex app-server.'
+                : 'Browse installed user and project skills in one place.'}
           </span>
         </div>
       </div>
 
       {view === 'skills' ? (
         <SkillsSettingsContentInner embedded />
+      ) : view === 'codex' ? (
+        <CodexPluginLibraryContent />
       ) : (
         marketLayout === 'narrow' ? (
           narrowPane === 'detail' && selectedId ? (

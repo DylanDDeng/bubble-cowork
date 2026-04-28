@@ -75,6 +75,12 @@ function rankSkill(skill: ClaudeSkillSummary, query: string): number {
   return 5;
 }
 
+function rankSkillSource(source: ClaudeSkillSummary['source']): number {
+  if (source === 'project') return 0;
+  if (source === 'plugin') return 1;
+  return 2;
+}
+
 export function mergeClaudeSkills(
   userSkills: ClaudeSkillSummary[],
   projectSkills: ClaudeSkillSummary[],
@@ -104,7 +110,7 @@ export function mergeClaudeSkills(
       }
 
       if (left.source !== right.source) {
-        return left.source === 'project' ? -1 : 1;
+        return rankSkillSource(left.source) - rankSkillSource(right.source);
       }
 
       return left.name.localeCompare(right.name);
@@ -130,7 +136,7 @@ export function filterClaudeSkills(
       }
 
       if (left.source !== right.source) {
-        return left.source === 'project' ? -1 : 1;
+        return rankSkillSource(left.source) - rankSkillSource(right.source);
       }
 
       return left.name.localeCompare(right.name);

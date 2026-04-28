@@ -3,7 +3,7 @@ import path from 'path';
 
 // 判断是否为开发环境
 export function isDev(): boolean {
-  return !app.isPackaged;
+  return !app?.isPackaged;
 }
 
 // 获取 Preload 脚本路径

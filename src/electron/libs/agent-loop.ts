@@ -6,7 +6,7 @@ import { isDev } from '../util';
 
 let providerServiceInitialized = false;
 
-function ensureProviderService(): void {
+export function ensureProviderService(): void {
   if (providerServiceInitialized) {
     return;
   }
@@ -107,6 +107,8 @@ function runCodexViaProviderService(options: RunnerOptions): RunnerHandle {
     codexPermissionMode: options.codexPermissionMode,
     codexReasoningEffort: options.codexReasoningEffort,
     codexFastMode: options.codexFastMode,
+    codexSkills: options.codexSkills,
+    codexMentions: options.codexMentions,
   });
 
   // Wait for session start in background
@@ -124,7 +126,13 @@ function runCodexViaProviderService(options: RunnerOptions): RunnerHandle {
       });
       service.events.off('event', handleEvent);
     },
-    send: (prompt: string, attachments?: import('../../shared/types').Attachment[], model?: string) => {
+    send: (
+      prompt: string,
+      attachments?: import('../../shared/types').Attachment[],
+      model?: string,
+      codexSkills?: import('../../shared/types').ProviderInputReference[],
+      codexMentions?: import('../../shared/types').ProviderInputReference[]
+    ) => {
       if (abortController.signal.aborted) return;
 
       service
@@ -133,6 +141,8 @@ function runCodexViaProviderService(options: RunnerOptions): RunnerHandle {
           prompt,
           attachments,
           model,
+          codexSkills,
+          codexMentions,
         })
         .catch((error) => {
           if (!abortController.signal.aborted) {

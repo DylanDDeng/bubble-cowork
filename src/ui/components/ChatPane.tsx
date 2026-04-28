@@ -3,7 +3,6 @@ import { X } from 'lucide-react';
 import { toast } from 'sonner';
 import { sendEvent } from '../hooks/useIPC';
 import { useAppStore } from '../store/useAppStore';
-import { aggregateMessages } from '../utils/aggregated-messages';
 import { createStreamingWorkstreamModel } from '../utils/workstream';
 import { deriveTurnPhase, hasRunningToolInMessages } from '../utils/turn-utils';
 import {
@@ -11,11 +10,12 @@ import {
   normalizeToolResultBlock,
   normalizeToolUseBlock,
 } from '../utils/message-content';
+import { deriveTranscriptTimelineItems } from '../utils/transcript-timeline';
 import { resolveCodexModel } from '../utils/codex-model';
 import { MessageCard } from './MessageCard';
-import { ToolExecutionBatch } from './ToolExecutionBatch';
+import { ToolExecutionBatch, WorkstreamDisclosure } from './ToolExecutionBatch';
 import { StructuredResponse } from './StructuredResponse';
-import { AssistantWorkstream, WorkingFooter } from './AssistantWorkstream';
+import { WorkingFooter } from './AssistantWorkstream';
 import { PromptInput } from './PromptInput';
 import { InSessionSearch } from './search/InSessionSearch';
 import { DecisionPanel } from './DecisionPanel';
@@ -157,19 +157,39 @@ export function ChatPane({
     return { toolStatusMap: statusMap, toolResultsMap: resultsMap };
   }, [session?.messages]);
 
+  const hasRunningTool = useMemo(
+    () => (session ? hasRunningToolInMessages(session.messages, toolStatusMap) : false),
+    [session?.messages, toolStatusMap]
+  );
+
   const turnPhase = useMemo(() => {
     if (!session) return 'complete' as const;
 
     const isRunning = session.status === 'running';
-    const hasRunningTool = hasRunningToolInMessages(session.messages, toolStatusMap);
     const isStreaming = showPartialMessage || streamingAssistantText.length > 0;
 
     return deriveTurnPhase(session.messages, isRunning, hasRunningTool, isStreaming);
-  }, [session?.messages, session?.status, toolStatusMap, showPartialMessage, streamingAssistantText]);
+  }, [session?.messages, session?.status, hasRunningTool, showPartialMessage, streamingAssistantText]);
 
-  const aggregatedMessages = useMemo(
-    () => (session ? aggregateMessages(session.messages) : []),
-    [session?.messages]
+  const lastUserPromptIndex = useMemo(() => {
+    if (!session) return -1;
+    for (let i = session.messages.length - 1; i >= 0; i -= 1) {
+      if (session.messages[i]?.type === 'user_prompt') {
+        return i;
+      }
+    }
+    return -1;
+  }, [session?.messages]);
+
+  const timelineItems = useMemo(
+    () =>
+      session
+        ? deriveTranscriptTimelineItems(session.messages, {
+            activeTurnStartIndex: lastUserPromptIndex,
+            sessionRunning: session.status === 'running',
+          })
+        : [],
+    [lastUserPromptIndex, session?.messages, session?.status]
   );
 
   const { turns, changeRecordByToolUseId } = useMemo(
@@ -180,19 +200,19 @@ export function ChatPane({
     [session?.messages]
   );
 
-  const turnCardByAggregatedIndex = useMemo(() => {
+  const turnCardByTimelineIndex = useMemo(() => {
     const map = new Map<number, TurnChangeSummary>();
-    if (turns.length === 0 || aggregatedMessages.length === 0) {
+    if (turns.length === 0 || timelineItems.length === 0) {
       return map;
     }
     for (const turn of turns) {
       if (turn.totalFiles === 0) continue;
       let lastIdx = -1;
-      for (let i = 0; i < aggregatedMessages.length; i += 1) {
-        const item = aggregatedMessages[i];
+      for (let i = 0; i < timelineItems.length; i += 1) {
+        const item = timelineItems[i];
         const lastOrig =
-          item.type === 'tool_batch'
-            ? item.originalIndices[item.originalIndices.length - 1]
+          item.type === 'work'
+            ? item.group.originalIndices[item.group.originalIndices.length - 1]
             : item.originalIndex;
         if (lastOrig <= turn.lastMessageIndex) {
           lastIdx = i;
@@ -205,7 +225,7 @@ export function ChatPane({
       }
     }
     return map;
-  }, [turns, aggregatedMessages]);
+  }, [turns, timelineItems]);
 
   const handleOpenDiff = useCallback((record: ChangeRecord) => {
     setSelectedDiffRecord(record);
@@ -228,21 +248,21 @@ export function ChatPane({
       return null;
     }
 
-    for (const item of aggregatedMessages) {
+    for (const item of timelineItems) {
       if (item.type === 'message' && item.message.createdAt === historyNavigationTarget.messageCreatedAt) {
         return String(item.originalIndex);
       }
 
       if (
-        item.type === 'tool_batch' &&
-        item.messages.some((message) => message.createdAt === historyNavigationTarget.messageCreatedAt)
+        item.type === 'work' &&
+        item.group.messages.some((message) => message.createdAt === historyNavigationTarget.messageCreatedAt)
       ) {
-        return String(item.originalIndices[0]);
+        return String(item.group.originalIndices[0]);
       }
     }
 
     return null;
-  }, [aggregatedMessages, historyNavigationTarget, sessionId]);
+  }, [historyNavigationTarget, sessionId, timelineItems]);
 
   const historyNavigationPending =
     !!historyNavigationTarget &&
@@ -414,16 +434,6 @@ export function ChatPane({
   );
   const activeGenericPermissionRequest = genericPermissionQueue[0] || null;
 
-  const lastUserPromptIndex = useMemo(() => {
-    if (!session) return -1;
-    for (let i = session.messages.length - 1; i >= 0; i -= 1) {
-      if (session.messages[i]?.type === 'user_prompt') {
-        return i;
-      }
-    }
-    return -1;
-  }, [session?.messages]);
-
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     const droppedSessionId = event.dataTransfer.getData('application/x-aegis-session-id');
     if (!droppedSessionId || !onDropSession) {
@@ -522,31 +532,46 @@ export function ChatPane({
               )}
 
               <TurnDiffContext.Provider value={turnDiffContextValue}>
-              {(() => {
-                let lastToolBatchIdx = -1;
-                for (let i = aggregatedMessages.length - 1; i >= 0; i--) {
-                  if (aggregatedMessages[i].type === 'tool_batch') {
-                    lastToolBatchIdx = i;
-                    break;
-                  }
-                }
-                return aggregatedMessages.map((item, idx) => {
-                const turnCard = turnCardByAggregatedIndex.get(idx);
-                if (item.type === 'tool_batch') {
-                  const anchor = String(item.originalIndices[0]);
-                  const highlighted = highlightedHistoryAnchor === anchor;
-                  const next = aggregatedMessages[idx + 1];
-                  const nextIsAssistantText =
-                    !!next &&
-                    next.type === 'message' &&
-                    next.message.type === 'assistant' &&
-                    getMessageContentBlocks(next.message).some(
-                      (block) => block.type === 'text' && Boolean(block.text?.trim())
+                {timelineItems.map((item, idx) => {
+                  const turnCard = turnCardByTimelineIndex.get(idx);
+                  if (item.type === 'work') {
+                    const anchor = String(item.group.originalIndices[0]);
+                    const highlighted = highlightedHistoryAnchor === anchor;
+                    return (
+                      <div key={item.group.id}>
+                        <div
+                          data-message-index={item.group.originalIndices[0]}
+                          className={highlighted ? 'rounded-2xl transition-colors duration-300' : undefined}
+                          style={
+                            highlighted
+                              ? {
+                                  backgroundColor: 'color-mix(in srgb, var(--accent-light) 70%, transparent)',
+                                  boxShadow: '0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent)',
+                                }
+                              : undefined
+                          }
+                        >
+                          <ToolExecutionBatch
+                            messages={item.group.messages}
+                            toolStatusMap={toolStatusMap}
+                            toolResultsMap={toolResultsMap}
+                            isSessionRunning={session.status === 'running'}
+                            isLastBatch={item.active}
+                            defaultExpanded={item.defaultExpanded}
+                            resetKey={item.disclosureResetKey}
+                          />
+                        </div>
+                        {turnCard ? <TurnChangesCard summary={turnCard} /> : null}
+                      </div>
                     );
+                  }
+
+                  const anchor = String(item.originalIndex);
+                  const highlighted = highlightedHistoryAnchor === anchor;
                   return (
-                    <div key={`batch-${idx}`}>
+                    <div key={`message-${item.originalIndex}`}>
                       <div
-                        data-message-index={item.originalIndices[0]}
+                        data-message-index={item.originalIndex}
                         className={highlighted ? 'rounded-2xl transition-colors duration-300' : undefined}
                         style={
                           highlighted
@@ -557,105 +582,91 @@ export function ChatPane({
                             : undefined
                         }
                       >
-                        <ToolExecutionBatch
-                          messages={item.messages}
+                        <MessageCard
+                          sessionId={sessionId}
+                          message={item.message}
                           toolStatusMap={toolStatusMap}
                           toolResultsMap={toolResultsMap}
-                          isSessionRunning={session.status === 'running'}
-                          hasFollowingResponse={nextIsAssistantText}
-                          isLastBatch={idx === lastToolBatchIdx}
+                          assistantPresentation={item.assistantPresentation}
+                          userPromptActions={
+                            item.message.type === 'user_prompt' &&
+                            session.readOnly !== true &&
+                            (session.provider === 'claude' || session.provider === 'codex' || session.provider === 'opencode')
+                              ? {
+                                  canEditAndRetry: item.originalIndex === lastUserPromptIndex,
+                                  isSessionRunning: session.status === 'running',
+                                  onResend: (prompt: string, attachments) => {
+                                    if (!sessionId) return;
+                                    if (!prompt.trim() && (!attachments || attachments.length === 0)) return;
+                                    if (session.status === 'running') return;
+
+                                    sendEvent({
+                                      type: 'session.editLatestPrompt',
+                                      payload: {
+                                        sessionId,
+                                        prompt: prompt.trim(),
+                                        attachments: attachments && attachments.length > 0 ? attachments : undefined,
+                                        provider: session.provider,
+                                        model:
+                                          session.provider === 'codex'
+                                            ? resolveCodexModel(session.model, codexModelConfig) || undefined
+                                            : session.model,
+                                        compatibleProviderId: session.compatibleProviderId,
+                                        betas: session.betas,
+                                        claudeAccessMode:
+                                          session.provider === 'claude'
+                                            ? session.claudeAccessMode || 'default'
+                                            : undefined,
+                                        claudeExecutionMode:
+                                          session.provider === 'claude'
+                                            ? session.claudeExecutionMode || 'execute'
+                                            : undefined,
+                                        codexPermissionMode:
+                                          session.provider === 'codex'
+                                            ? session.codexPermissionMode || 'defaultPermissions'
+                                            : undefined,
+                                        codexReasoningEffort:
+                                          session.provider === 'codex' ? session.codexReasoningEffort : undefined,
+                                        codexFastMode:
+                                          session.provider === 'codex' ? session.codexFastMode === true : undefined,
+                                        opencodePermissionMode:
+                                          session.provider === 'opencode'
+                                            ? session.opencodePermissionMode || 'defaultPermissions'
+                                            : undefined,
+                                      },
+                                    });
+                                  },
+                                }
+                              : undefined
+                          }
                         />
+                        {item.inlineWorkGroup ? (
+                          <div className="-mt-1 pl-1">
+                            <ToolExecutionBatch
+                              messages={item.inlineWorkGroup.messages}
+                              toolStatusMap={toolStatusMap}
+                              toolResultsMap={toolResultsMap}
+                              isSessionRunning={false}
+                              defaultExpanded={false}
+                            />
+                          </div>
+                        ) : null}
                       </div>
                       {turnCard ? <TurnChangesCard summary={turnCard} /> : null}
                     </div>
                   );
-                }
-
-                const anchor = String(item.originalIndex);
-                const highlighted = highlightedHistoryAnchor === anchor;
-                return (
-                  <div key={idx}>
-                  <div
-                    data-message-index={item.originalIndex}
-                    className={highlighted ? 'rounded-2xl transition-colors duration-300' : undefined}
-                    style={
-                      highlighted
-                        ? {
-                            backgroundColor: 'color-mix(in srgb, var(--accent-light) 70%, transparent)',
-                            boxShadow: '0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent)',
-                          }
-                        : undefined
-                    }
-                  >
-                    <MessageCard
-                      sessionId={sessionId}
-                      message={item.message}
-                      toolStatusMap={toolStatusMap}
-                      toolResultsMap={toolResultsMap}
-                      userPromptActions={
-                        item.message.type === 'user_prompt' &&
-                        session.readOnly !== true &&
-                        (session.provider === 'claude' || session.provider === 'codex' || session.provider === 'opencode')
-                          ? {
-                              canEditAndRetry: item.originalIndex === lastUserPromptIndex,
-                              isSessionRunning: session.status === 'running',
-                              onResend: (prompt: string, attachments) => {
-                                if (!sessionId) return;
-                                if (!prompt.trim() && (!attachments || attachments.length === 0)) return;
-                                if (session.status === 'running') return;
-
-                                sendEvent({
-                                  type: 'session.editLatestPrompt',
-                                  payload: {
-                                    sessionId,
-                                    prompt: prompt.trim(),
-                                    attachments: attachments && attachments.length > 0 ? attachments : undefined,
-                                    provider: session.provider,
-                                    model:
-                                      session.provider === 'codex'
-                                        ? resolveCodexModel(session.model, codexModelConfig) || undefined
-                                        : session.model,
-                                    compatibleProviderId: session.compatibleProviderId,
-                                    betas: session.betas,
-                                    claudeAccessMode:
-                                      session.provider === 'claude'
-                                        ? session.claudeAccessMode || 'default'
-                                        : undefined,
-                                    claudeExecutionMode:
-                                      session.provider === 'claude'
-                                        ? session.claudeExecutionMode || 'execute'
-                                        : undefined,
-                                    codexPermissionMode:
-                                      session.provider === 'codex'
-                                        ? session.codexPermissionMode || 'defaultPermissions'
-                                        : undefined,
-                                    codexReasoningEffort:
-                                      session.provider === 'codex' ? session.codexReasoningEffort : undefined,
-                                    codexFastMode:
-                                      session.provider === 'codex' ? session.codexFastMode === true : undefined,
-                                    opencodePermissionMode:
-                                      session.provider === 'opencode'
-                                        ? session.opencodePermissionMode || 'defaultPermissions'
-                                        : undefined,
-                                  },
-                                });
-                              },
-                            }
-                          : undefined
-                      }
-                    />
-                  </div>
-                  {turnCard ? <TurnChangesCard summary={turnCard} /> : null}
-                  </div>
-                );
-                });
-              })()}
+                })}
               </TurnDiffContext.Provider>
 
               {(streamingWorkstreamModel || (showPartialMessage && partialMessage)) && (
                 <div className="my-2 min-w-0 overflow-x-auto streaming-content">
                   {streamingWorkstreamModel ? (
-                    <AssistantWorkstream model={streamingWorkstreamModel} />
+                    <WorkstreamDisclosure
+                      model={streamingWorkstreamModel}
+                      isRunning={turnPhase !== 'complete'}
+                      defaultExpanded={turnPhase !== 'complete'}
+                      resetKey={`${sessionId}:${lastUserPromptIndex}`}
+                    />
                   ) : null}
                   {partialMessage ? (
                     <ErrorBoundary
@@ -675,12 +686,12 @@ export function ChatPane({
               )}
 
               {/* Single source of "Working for Xs..." footer during streaming.
-                  If the latest aggregated item is a tool_batch, that batch
-                  already renders its own footer, so we suppress this one. */}
+                  If the active timeline row is work, that row already renders
+                  its own footer, so we suppress this one. */}
               {(() => {
                 if (session.status !== 'running') return null;
-                const last = aggregatedMessages[aggregatedMessages.length - 1];
-                if (last && last.type === 'tool_batch') return null;
+                const last = timelineItems[timelineItems.length - 1];
+                if (last && last.type === 'work' && last.active) return null;
                 if (turnPhase === 'complete') return null;
                 return <WorkingFooter startedAt={undefined} />;
               })()}

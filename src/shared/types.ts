@@ -131,7 +131,7 @@ export interface ClaudeSkillSummary {
   title: string;
   description?: string;
   path: string;
-  source: 'user' | 'project';
+  source: 'user' | 'project' | 'plugin';
 }
 
 export interface ClaudeModelConfig {
@@ -336,6 +336,157 @@ export type SessionSource =
   | 'codex_local'
   | 'opencode_local';
 
+export interface ProviderComposerCapabilities {
+  provider: AgentProvider;
+  supportsSkillMentions: boolean;
+  supportsSkillDiscovery: boolean;
+  supportsNativeSlashCommandDiscovery: boolean;
+  supportsPluginMentions: boolean;
+  supportsPluginDiscovery: boolean;
+  supportsRuntimeModelList: boolean;
+  supportsThreadCompaction?: boolean;
+  supportsThreadImport?: boolean;
+}
+
+export interface ProviderSkillInterface {
+  displayName?: string;
+  shortDescription?: string;
+}
+
+export interface ProviderSkillDescriptor {
+  name: string;
+  description?: string;
+  path: string;
+  enabled: boolean;
+  scope?: string;
+  interface?: ProviderSkillInterface;
+  dependencies?: unknown;
+}
+
+export interface ProviderInputReference {
+  name: string;
+  path: string;
+}
+
+export interface ProviderListSkillsInput {
+  provider: AgentProvider;
+  cwd: string;
+  threadId?: string;
+  forceReload?: boolean;
+}
+
+export interface ProviderListSkillsResult {
+  skills: ProviderSkillDescriptor[];
+  source?: string;
+  cached?: boolean;
+}
+
+export type ProviderPluginInstallPolicy =
+  | 'NOT_AVAILABLE'
+  | 'AVAILABLE'
+  | 'INSTALLED_BY_DEFAULT';
+export type ProviderPluginAuthPolicy = 'ON_INSTALL' | 'ON_USE';
+
+export type ProviderPluginSource =
+  | { type: 'local'; path: string }
+  | { type: 'git'; url: string; path?: string | null; refName?: string | null; sha?: string | null }
+  | { type: 'remote' };
+
+export interface ProviderPluginInterface {
+  displayName?: string;
+  shortDescription?: string;
+  longDescription?: string;
+  developerName?: string;
+  category?: string;
+  capabilities?: string[];
+  websiteUrl?: string;
+  privacyPolicyUrl?: string;
+  termsOfServiceUrl?: string;
+  defaultPrompt?: string[];
+  brandColor?: string;
+  composerIcon?: string;
+  composerIconUrl?: string;
+  logo?: string;
+  logoUrl?: string;
+  screenshots?: string[];
+  screenshotUrls?: string[];
+}
+
+export interface ProviderPluginDescriptor {
+  id: string;
+  name: string;
+  source: ProviderPluginSource;
+  installed: boolean;
+  enabled: boolean;
+  installPolicy: ProviderPluginInstallPolicy;
+  authPolicy: ProviderPluginAuthPolicy;
+  interface?: ProviderPluginInterface;
+}
+
+export interface ProviderPluginMarketplaceInterface {
+  displayName?: string;
+}
+
+export interface ProviderPluginMarketplaceDescriptor {
+  name: string;
+  path: string | null;
+  interface?: ProviderPluginMarketplaceInterface;
+  plugins: ProviderPluginDescriptor[];
+}
+
+export interface ProviderPluginMarketplaceLoadError {
+  marketplacePath: string;
+  message: string;
+}
+
+export interface ProviderListPluginsInput {
+  provider: AgentProvider;
+  cwd?: string;
+  threadId?: string;
+  forceRemoteSync?: boolean;
+  forceReload?: boolean;
+}
+
+export interface ProviderListPluginsResult {
+  marketplaces: ProviderPluginMarketplaceDescriptor[];
+  marketplaceLoadErrors: ProviderPluginMarketplaceLoadError[];
+  remoteSyncError: string | null;
+  featuredPluginIds: string[];
+  source?: string;
+  cached?: boolean;
+}
+
+export interface ProviderPluginAppSummary {
+  id: string;
+  name: string;
+  description?: string;
+  installUrl?: string;
+  needsAuth: boolean;
+}
+
+export interface ProviderPluginDetail {
+  marketplaceName: string;
+  marketplacePath: string | null;
+  summary: ProviderPluginDescriptor;
+  description?: string;
+  skills: ProviderSkillDescriptor[];
+  apps: ProviderPluginAppSummary[];
+  mcpServers: string[];
+}
+
+export interface ProviderReadPluginInput {
+  provider: AgentProvider;
+  marketplacePath?: string | null;
+  remoteMarketplaceName?: string | null;
+  pluginName: string;
+}
+
+export interface ProviderReadPluginResult {
+  plugin: ProviderPluginDetail;
+  source?: string;
+  cached?: boolean;
+}
+
 // 项目文件树节点
 export interface ProjectTreeNode {
   name: string;
@@ -444,6 +595,8 @@ export interface SessionStartPayload {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  codexSkills?: ProviderInputReference[];
+  codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
   hiddenFromThreads?: boolean;
 }
@@ -462,6 +615,8 @@ export interface SessionContinuePayload {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  codexSkills?: ProviderInputReference[];
+  codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
 }
 
