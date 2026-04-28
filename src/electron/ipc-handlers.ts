@@ -798,6 +798,16 @@ function buildLocalAssistantMessage(text: string): StreamMessage {
   };
 }
 
+function shouldPersistProviderMessage(message: StreamMessage): boolean {
+  if (message.type === 'stream_event') {
+    return false;
+  }
+  if (message.type === 'assistant' && message.streaming === true) {
+    return false;
+  }
+  return true;
+}
+
 function buildSessionCostSummary(session: ReturnType<typeof sessions.getSession>): string {
   if (!session) {
     return 'No active session found.';
@@ -4795,15 +4805,20 @@ function startRunner(
       }
 
       if (sanitizedStreamMessage.message) {
-        // 保存消息
-        sessions.addMessage(session.id, sanitizedStreamMessage.message);
+        const shouldPersistMessage = shouldPersistProviderMessage(sanitizedStreamMessage.message);
+        if (shouldPersistMessage) {
+          // 保存消息
+          sessions.addMessage(session.id, sanitizedStreamMessage.message);
+        }
 
         // 广播消息
         broadcast(mainWindow, {
           type: 'stream.message',
           payload: { sessionId: session.id, message: sanitizedStreamMessage.message },
         });
-        void feishuBridge.handleSessionMessage(session.id, sanitizedStreamMessage.message);
+        if (shouldPersistMessage) {
+          void feishuBridge.handleSessionMessage(session.id, sanitizedStreamMessage.message);
+        }
       }
 
       // 检查是否为 result 消息，更新状态

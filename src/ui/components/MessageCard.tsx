@@ -488,6 +488,7 @@ function AssistantCard({
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
 }) {
+  const isStreaming = message.streaming === true;
   const blocks = useMemo(
     () => getContentBlocks(message.message.content as unknown),
     [message.message.content]
@@ -524,12 +525,12 @@ function AssistantCard({
           messages={[traceOnlyMessage]}
           toolStatusMap={toolStatusMap}
           toolResultsMap={toolResultsMap}
-          isSessionRunning={false}
+          isSessionRunning={isStreaming}
         />
       ) : null}
       {textBlocks.map((block, idx) => (
         <div key={`text-${idx}`} className="min-w-0 overflow-x-auto">
-          <StructuredResponse content={block.text} />
+          <StructuredResponse content={block.text} streaming={isStreaming} />
         </div>
       ))}
     </div>

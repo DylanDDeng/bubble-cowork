@@ -616,7 +616,7 @@ export type StreamMessage =
       session_id: string;
       compactMetadata: CompactMetadata;
     })
-  | (StreamMessageBase & { type: 'assistant'; uuid: string; message: AssistantMessage })
+  | (StreamMessageBase & { type: 'assistant'; uuid: string; message: AssistantMessage; streaming?: boolean })
   | (StreamMessageBase & { type: 'user'; uuid: string; message: UserMessage })
   | (StreamMessageBase & {
       type: 'result';

@@ -108,6 +108,21 @@ export function ChatPane({
     };
   }, [session?.streaming.text, session?.streaming.thinking, session?.streaming.isStreaming]);
 
+  const streamingAssistantText = useMemo(() => {
+    if (!session) return '';
+    for (let i = session.messages.length - 1; i >= 0; i -= 1) {
+      const message = session.messages[i];
+      if (message.type !== 'assistant' || message.streaming !== true) {
+        continue;
+      }
+      return getMessageContentBlocks(message)
+        .filter((block): block is ContentBlock & { type: 'text' } => block.type === 'text')
+        .map((block) => block.text || '')
+        .join('\n');
+    }
+    return '';
+  }, [session?.messages]);
+
   const { toolStatusMap, toolResultsMap } = useMemo(() => {
     const statusMap = new Map<string, ToolStatus>();
     const resultsMap = new Map<string, ToolResultBlock>();
@@ -147,10 +162,10 @@ export function ChatPane({
 
     const isRunning = session.status === 'running';
     const hasRunningTool = hasRunningToolInMessages(session.messages, toolStatusMap);
-    const isStreaming = showPartialMessage;
+    const isStreaming = showPartialMessage || streamingAssistantText.length > 0;
 
     return deriveTurnPhase(session.messages, isRunning, hasRunningTool, isStreaming);
-  }, [session?.messages, session?.status, toolStatusMap, showPartialMessage]);
+  }, [session?.messages, session?.status, toolStatusMap, showPartialMessage, streamingAssistantText]);
 
   const aggregatedMessages = useMemo(
     () => (session ? aggregateMessages(session.messages) : []),
@@ -267,6 +282,7 @@ export function ChatPane({
     session?.streaming.isStreaming,
     partialMessage,
     partialThinking,
+    streamingAssistantText,
     showPartialMessage,
   ]);
 

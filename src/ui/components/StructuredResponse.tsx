@@ -232,7 +232,8 @@ export function StructuredResponse({
   className = '',
 }: StructuredResponseProps) {
   const deferredContent = useDeferredValue(content);
-  const segments = useMemo(() => parseStructuredSegments(deferredContent), [deferredContent]);
+  const renderedContent = streaming ? content : deferredContent;
+  const segments = useMemo(() => parseStructuredSegments(renderedContent), [renderedContent]);
 
   if (segments.length === 0) {
     return null;
@@ -240,7 +241,7 @@ export function StructuredResponse({
 
   const hasWidget = segments.some((segment) => segment.type === 'widget');
   if (!hasWidget) {
-    return <MDContent content={deferredContent} className={className} />;
+    return <MDContent content={renderedContent} className={className} />;
   }
 
   return (

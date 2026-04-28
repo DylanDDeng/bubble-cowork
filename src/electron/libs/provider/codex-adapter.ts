@@ -124,6 +124,8 @@ interface ActiveSession {
 interface StreamingTextState {
   text: string;
   blockIndex: number;
+  uuid: string;
+  createdAt: number;
 }
 
 interface StreamingThinkingState {
@@ -140,12 +142,11 @@ export class CodexAdapter implements ProviderAdapter {
   private manager: CodexAppServerManager;
   private sessions = new Map<string, ActiveSession>();
   // Per-thread streaming accumulator. Codex emits agent text as token-level
-  // deltas which we forward to the UI as Anthropic-shaped stream_event chunks
-  // (content_block_delta → text_delta). The UI's store knows to fold these
-  // into `session.streaming.text`. When the agent message item completes, we
-  // emit content_block_stop and a final discrete `assistant` bubble.
+  // deltas; expose them as updates to one assistant message so the transcript
+  // grows in place instead of rendering a separate overlay or appending rows.
   private streamingText = new Map<string, StreamingTextState>();
   private streamingThinking = new Map<string, StreamingThinkingState>();
+  private finalizedStreamingText = new Map<string, string>();
   private emittedToolCalls = new Map<string, Set<string>>();
   private emittedToolResults = new Map<string, Set<string>>();
   private pendingToolCallIds = new Map<string, string[]>();
@@ -167,27 +168,9 @@ export class CodexAdapter implements ProviderAdapter {
   private setupEventForwarding(): void {
     // Forward manager events as ProviderRuntimeEvents
     this.manager.on('text_delta', ({ threadId, text }) => {
-      let state = this.streamingText.get(threadId);
-      if (!state) {
-        // Use index 1 so reasoning (index 0) and answer text are distinct
-        // content blocks, matching Anthropic's stream_event semantics.
-        state = { text: '', blockIndex: 1 };
-        this.streamingText.set(threadId, state);
-      }
+      const state = this.getOrCreateStreamingTextState(threadId);
       state.text += text;
-
-      this.emit({
-        type: 'message',
-        threadId,
-        message: {
-          type: 'stream_event',
-          event: {
-            type: 'content_block_delta',
-            index: state.blockIndex,
-            delta: { type: 'text_delta', text },
-          },
-        } as StreamMessage,
-      });
+      this.emitAssistantTextSnapshot(threadId, state, true);
     });
 
     this.manager.on('reasoning_delta', ({ threadId, text }) => {
@@ -213,43 +196,7 @@ export class CodexAdapter implements ProviderAdapter {
     });
 
     this.manager.on('agent_message_done', ({ threadId, text }) => {
-      const textState = this.streamingText.get(threadId);
-      const thinkingState = this.streamingThinking.get(threadId);
-      const finalText = (textState?.text || text || '').trim();
-      const finalThinking = (thinkingState?.thinking || '').trim();
-
-      // Close the streaming block so the UI clears its in-progress overlay.
-      this.emit({
-        type: 'message',
-        threadId,
-        message: {
-          type: 'stream_event',
-          event: {
-            type: 'content_block_stop',
-            index: textState?.blockIndex ?? thinkingState?.blockIndex ?? 0,
-          },
-        } as StreamMessage,
-      });
-
-      if (finalText || finalThinking) {
-        const content: ContentBlock[] = [];
-        if (finalThinking) {
-          content.push({ type: 'thinking', thinking: finalThinking });
-        }
-        if (finalText) {
-          content.push({ type: 'text', text: finalText });
-        }
-        this.emit({
-          type: 'message',
-          threadId,
-          message: {
-            type: 'assistant',
-            uuid: uuidv4(),
-            message: { content },
-          } as StreamMessage,
-        });
-      }
-
+      this.finalizeStreamingAssistant(threadId, text);
       this.clearStreamingState(threadId);
     });
 
@@ -329,6 +276,7 @@ export class CodexAdapter implements ProviderAdapter {
     });
 
     this.manager.on('turn_completed', ({ threadId }) => {
+      this.finalizeStreamingAssistant(threadId);
       this.clearStreamingState(threadId);
       this.updateSessionStatus(threadId, 'completed');
       const message: StreamMessage = {
@@ -342,6 +290,7 @@ export class CodexAdapter implements ProviderAdapter {
     });
 
     this.manager.on('turn_aborted', ({ threadId }) => {
+      this.finalizeStreamingAssistant(threadId);
       this.clearStreamingState(threadId);
       this.updateSessionStatus(threadId, 'completed');
       const message: StreamMessage = {
@@ -355,6 +304,7 @@ export class CodexAdapter implements ProviderAdapter {
     });
 
     this.manager.on('error_notification', ({ threadId, message }) => {
+      this.finalizeStreamingAssistant(threadId);
       this.clearStreamingState(threadId);
       this.updateSessionStatus(threadId, 'error');
       if (isAuthRefreshError(message)) {
@@ -367,6 +317,7 @@ export class CodexAdapter implements ProviderAdapter {
     this.manager.on('process_exit', ({ code, signal }) => {
       // Mark all sessions as error
       for (const [threadId] of this.sessions) {
+        this.finalizeStreamingAssistant(threadId);
         this.clearStreamingState(threadId);
         this.updateSessionStatus(threadId, 'error');
         this.emit({
@@ -379,6 +330,7 @@ export class CodexAdapter implements ProviderAdapter {
 
     this.manager.on('process_error', (error: Error) => {
       for (const [threadId] of this.sessions) {
+        this.finalizeStreamingAssistant(threadId);
         this.clearStreamingState(threadId);
         this.updateSessionStatus(threadId, 'error');
         this.emit({ type: 'error', threadId, error });
@@ -436,6 +388,92 @@ export class CodexAdapter implements ProviderAdapter {
 
   private emit(event: ProviderRuntimeEvent): void {
     this.events.emit('event', event);
+  }
+
+  private finalizeStreamingAssistant(threadId: string, fallbackText = ''): void {
+    const textState = this.streamingText.get(threadId);
+    const thinkingState = this.streamingThinking.get(threadId);
+    if (!textState && !thinkingState && !fallbackText.trim()) {
+      return;
+    }
+
+    // Close the reasoning stream overlay. Assistant text itself is represented
+    // by the in-place assistant message snapshot.
+    this.emit({
+      type: 'message',
+      threadId,
+      message: {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_stop',
+          index: textState?.blockIndex ?? thinkingState?.blockIndex ?? 0,
+        },
+      } as StreamMessage,
+    });
+
+    const finalText = (textState?.text || fallbackText || '').trim();
+    const finalThinking = (thinkingState?.thinking || '').trim();
+    if (!finalText && !finalThinking) {
+      return;
+    }
+    if (!textState && !thinkingState && finalText && this.finalizedStreamingText.get(threadId) === finalText) {
+      return;
+    }
+
+    const finalState =
+      textState ??
+      ({
+        text: finalText,
+        blockIndex: 1,
+        uuid: uuidv4(),
+        createdAt: Date.now(),
+      } satisfies StreamingTextState);
+    finalState.text = finalText;
+    this.emitAssistantTextSnapshot(threadId, finalState, false, finalThinking);
+    if (finalText) {
+      this.finalizedStreamingText.set(threadId, finalText);
+    }
+  }
+
+  private getOrCreateStreamingTextState(threadId: string): StreamingTextState {
+    let state = this.streamingText.get(threadId);
+    if (!state) {
+      // Use index 1 so reasoning (index 0) and answer text are distinct when a
+      // reasoning stream_event is also present.
+      state = { text: '', blockIndex: 1, uuid: uuidv4(), createdAt: Date.now() };
+      this.streamingText.set(threadId, state);
+    }
+    return state;
+  }
+
+  private emitAssistantTextSnapshot(
+    threadId: string,
+    state: StreamingTextState,
+    streaming: boolean,
+    finalThinking = ''
+  ): void {
+    const content: ContentBlock[] = [];
+    if (finalThinking) {
+      content.push({ type: 'thinking', thinking: finalThinking });
+    }
+    if (state.text) {
+      content.push({ type: 'text', text: state.text });
+    }
+    if (content.length === 0) {
+      return;
+    }
+
+    this.emit({
+      type: 'message',
+      threadId,
+      message: {
+        type: 'assistant',
+        uuid: state.uuid,
+        createdAt: state.createdAt,
+        streaming,
+        message: { content },
+      },
+    });
   }
 
   private clearStreamingState(threadId: string): void {
@@ -516,6 +554,7 @@ export class CodexAdapter implements ProviderAdapter {
     }
 
     session.status = 'running';
+    this.finalizedStreamingText.delete(input.threadId);
     this.clearStreamingState(input.threadId);
     this.emit({
       type: 'status_change',
