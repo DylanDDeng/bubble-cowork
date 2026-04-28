@@ -18,6 +18,7 @@ import { StructuredResponse } from './StructuredResponse';
 import { WorkingFooter } from './AssistantWorkstream';
 import { PromptInput } from './PromptInput';
 import { InSessionSearch } from './search/InSessionSearch';
+import { CodexApprovalPermissionDialog } from './CodexApprovalPermissionDialog';
 import { DecisionPanel } from './DecisionPanel';
 import { ExternalFilePermissionDialog } from './ExternalFilePermissionDialog';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -31,6 +32,7 @@ import {
 import type { ChangeRecord } from '../utils/change-records';
 import type {
   AskUserQuestionInput,
+  CodexApprovalPermissionInput,
   ContentBlock,
   ExternalFilePermissionInput,
   PermissionResult,
@@ -55,6 +57,15 @@ function isAskUserQuestionInput(input: unknown): input is AskUserQuestionInput {
     input !== null &&
     'questions' in input &&
     Array.isArray((input as { questions?: unknown }).questions)
+  );
+}
+
+function isCodexApprovalPermissionInput(input: unknown): input is CodexApprovalPermissionInput {
+  return (
+    typeof input === 'object' &&
+    input !== null &&
+    'kind' in input &&
+    (input as { kind?: unknown }).kind === 'codex-approval'
   );
 }
 
@@ -424,6 +435,10 @@ export function ChatPane({
     () => session?.permissionRequests.find((request) => isExternalFilePermissionInput(request.input)) || null,
     [session?.permissionRequests]
   );
+  const activeCodexPermissionRequest = useMemo(
+    () => session?.permissionRequests.find((request) => isCodexApprovalPermissionInput(request.input)) || null,
+    [session?.permissionRequests]
+  );
 
   const genericPermissionQueue = useMemo(
     () =>
@@ -740,6 +755,16 @@ export function ChatPane({
               onSubmit={(result) => handlePermissionResult(activeExternalPermissionRequest.toolUseId, result)}
             />
           )}
+
+          {isActive &&
+            !activeExternalPermissionRequest &&
+            activeCodexPermissionRequest &&
+            isCodexApprovalPermissionInput(activeCodexPermissionRequest.input) && (
+              <CodexApprovalPermissionDialog
+                input={activeCodexPermissionRequest.input}
+                onSubmit={(result) => handlePermissionResult(activeCodexPermissionRequest.toolUseId, result)}
+              />
+            )}
 
           <TurnDiffDrawer record={selectedDiffRecord} onClose={handleCloseDiff} />
         </>

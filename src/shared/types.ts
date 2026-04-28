@@ -720,9 +720,29 @@ export interface ExternalFilePermissionInput {
   toolName: string;
 }
 
+export type CodexApprovalKind = 'command' | 'file-change' | 'permissions' | 'tool';
+
+export interface CodexApprovalPermissionInput {
+  kind: 'codex-approval';
+  approvalKind: CodexApprovalKind;
+  method: string;
+  question: string;
+  title: string;
+  toolName: string;
+  reason?: string | null;
+  command?: string | null;
+  cwd?: string | null;
+  filePath?: string | null;
+  files?: string[];
+  grantRoot?: string | null;
+  permissionSummary?: string[];
+  canAllowForSession?: boolean;
+}
+
 export type PermissionRequestInput =
   | AskUserQuestionInput
-  | ExternalFilePermissionInput;
+  | ExternalFilePermissionInput
+  | CodexApprovalPermissionInput;
 
 // StreamMessage 类型（SDK 消息或内部消息）
 export type StreamMessageBase = {

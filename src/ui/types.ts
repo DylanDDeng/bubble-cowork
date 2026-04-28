@@ -15,6 +15,7 @@ export type {
   ProjectTreeNode,
   AskUserQuestionInput,
   AskUserQuestion,
+  CodexApprovalPermissionInput,
   ExternalFilePermissionInput,
   PermissionRequestInput,
   ContentBlock,

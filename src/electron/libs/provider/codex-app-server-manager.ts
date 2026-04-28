@@ -5,6 +5,8 @@ import { v4 as uuidv4 } from 'uuid';
 import type {
   StreamMessage,
   Attachment,
+  CodexPermissionMode,
+  CodexReasoningEffort,
   PermissionResult,
   ProviderListPluginsResult,
   ProviderListSkillsResult,
@@ -44,9 +46,14 @@ interface JsonRpcResponse {
 interface CodexSession {
   threadId: string;
   providerThreadId: string;
+  cwd: string;
   activeTurnId?: string;
   status: 'connecting' | 'ready' | 'running' | 'error';
   lastError?: string;
+  model?: string;
+  codexPermissionMode?: CodexPermissionMode;
+  codexReasoningEffort?: CodexReasoningEffort;
+  codexFastMode?: boolean;
 }
 
 interface PendingRequest {
@@ -60,6 +67,14 @@ interface PendingApproval {
   jsonRpcId: number;
   method: string;
   threadId: string;
+  params?: Record<string, unknown>;
+}
+
+interface CodexRunOptions {
+  model?: string;
+  codexPermissionMode?: CodexPermissionMode;
+  codexReasoningEffort?: CodexReasoningEffort;
+  codexFastMode?: boolean;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -321,7 +336,8 @@ export class CodexAppServerManager extends EventEmitter {
   async createSession(
     threadId: string,
     cwd: string,
-    resumeCursor?: string
+    resumeCursor?: string,
+    options: CodexRunOptions = {}
   ): Promise<{ providerThreadId: string; model?: string }> {
     await this.ensureSpawned(cwd);
 
@@ -336,10 +352,10 @@ export class CodexAppServerManager extends EventEmitter {
         )) as Record<string, unknown>;
       } catch {
         // Fall through to create new
-        response = await this.createNewThread(cwd);
+        response = await this.createNewThread(cwd, options);
       }
     } else {
-      response = await this.createNewThread(cwd);
+      response = await this.createNewThread(cwd, options);
     }
 
     const providerThreadId = String(
@@ -358,17 +374,29 @@ export class CodexAppServerManager extends EventEmitter {
     this.sessions.set(threadId, {
       threadId,
       providerThreadId,
+      cwd,
       status: 'ready',
+      model: options.model,
+      codexPermissionMode: options.codexPermissionMode,
+      codexReasoningEffort: options.codexReasoningEffort,
+      codexFastMode: options.codexFastMode,
     });
     this.lastActiveThreadId = threadId;
 
     return { providerThreadId, model: model || undefined };
   }
 
-  private async createNewThread(cwd: string): Promise<Record<string, unknown>> {
+  private async createNewThread(
+    cwd: string,
+    options: CodexRunOptions = {}
+  ): Promise<Record<string, unknown>> {
     return (await this.sendRequest(
       'thread/start',
-      { cwd },
+      {
+        cwd,
+        ...(options.model ? { model: options.model } : {}),
+        ...this.buildThreadPermissionOptions(cwd, options.codexPermissionMode),
+      },
       REQUEST_TIMEOUT_MS
     )) as Record<string, unknown>;
   }
@@ -378,7 +406,8 @@ export class CodexAppServerManager extends EventEmitter {
     prompt: string,
     attachments?: Attachment[],
     codexSkills?: ProviderInputReference[],
-    codexMentions?: ProviderInputReference[]
+    codexMentions?: ProviderInputReference[],
+    options: CodexRunOptions = {}
   ): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) {
@@ -386,6 +415,10 @@ export class CodexAppServerManager extends EventEmitter {
     }
     this.lastActiveThreadId = threadId;
     session.status = 'running';
+    session.model = options.model || session.model;
+    session.codexPermissionMode = options.codexPermissionMode || session.codexPermissionMode;
+    session.codexReasoningEffort = options.codexReasoningEffort || session.codexReasoningEffort;
+    session.codexFastMode = options.codexFastMode ?? session.codexFastMode;
 
     // Build prompt content per Codex UserInput schema:
     //   { type: 'text', text }            → plain text
@@ -441,6 +474,14 @@ export class CodexAppServerManager extends EventEmitter {
       {
         threadId: session.providerThreadId,
         input: content,
+        ...(options.model || session.model ? { model: options.model || session.model } : {}),
+        ...(options.codexReasoningEffort || session.codexReasoningEffort
+          ? { effort: options.codexReasoningEffort || session.codexReasoningEffort }
+          : {}),
+        ...this.buildTurnPermissionOptions(
+          session.cwd,
+          options.codexPermissionMode || session.codexPermissionMode
+        ),
       },
       TURN_TIMEOUT_MS
     )) as Record<string, unknown>;
@@ -480,12 +521,62 @@ export class CodexAppServerManager extends EventEmitter {
     }
   }
 
+  private normalizeCodexPermissionMode(
+    mode: CodexPermissionMode | undefined
+  ): CodexPermissionMode {
+    return mode === 'fullAccess' ? 'fullAccess' : 'defaultPermissions';
+  }
+
+  private buildThreadPermissionOptions(
+    _cwd: string,
+    mode: CodexPermissionMode | undefined
+  ): Record<string, unknown> {
+    if (this.normalizeCodexPermissionMode(mode) === 'fullAccess') {
+      return {
+        approvalPolicy: 'never',
+        approvalsReviewer: 'user',
+        sandbox: 'danger-full-access',
+      };
+    }
+
+    return {
+      approvalPolicy: 'on-request',
+      approvalsReviewer: 'user',
+      sandbox: 'workspace-write',
+    };
+  }
+
+  private buildTurnPermissionOptions(
+    cwd: string,
+    mode: CodexPermissionMode | undefined
+  ): Record<string, unknown> {
+    if (this.normalizeCodexPermissionMode(mode) === 'fullAccess') {
+      return {
+        approvalPolicy: 'never',
+        approvalsReviewer: 'user',
+        sandboxPolicy: { type: 'dangerFullAccess' },
+      };
+    }
+
+    return {
+      approvalPolicy: 'on-request',
+      approvalsReviewer: 'user',
+      sandboxPolicy: {
+        type: 'workspaceWrite',
+        writableRoots: [cwd || process.cwd()],
+        readOnlyAccess: { type: 'fullAccess' },
+        networkAccess: false,
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
+      },
+    };
+  }
+
   // ── Approval Responses ───────────────────────────────────────────────────
 
   async respondToApproval(
     requestId: string,
-    approved: boolean,
-    message?: string
+    result: PermissionResult
   ): Promise<void> {
     const pending = this.pendingApprovals.get(requestId);
     if (!pending) {
@@ -493,14 +584,151 @@ export class CodexAppServerManager extends EventEmitter {
     }
 
     this.writeMessage({
+      jsonrpc: '2.0',
       id: pending.jsonRpcId,
-      result: {
-        approved,
-        ...(message ? { message } : {}),
-      },
+      result: this.buildApprovalResponse(pending, result),
     });
 
     this.pendingApprovals.delete(requestId);
+  }
+
+  private buildApprovalResponse(
+    pending: PendingApproval,
+    result: PermissionResult
+  ): Record<string, unknown> {
+    const method = pending.method;
+    const lower = method.toLowerCase();
+
+    if (lower === 'item/commandexecution/requestapproval') {
+      return {
+        decision: this.selectModernApprovalDecision(pending.params, result, [
+          'acceptForSession',
+          'accept',
+        ]),
+      };
+    }
+
+    if (lower === 'item/filechange/requestapproval') {
+      return {
+        decision: this.selectModernApprovalDecision(pending.params, result, [
+          'acceptForSession',
+          'accept',
+        ]),
+      };
+    }
+
+    if (lower === 'item/permissions/requestapproval') {
+      return this.buildPermissionsApprovalResponse(pending.params, result);
+    }
+
+    if (lower === 'item/tool/requestuserinput') {
+      return this.buildToolUserInputResponse(pending.params, result);
+    }
+
+    if (lower === 'applypatchapproval' || lower === 'execcommandapproval') {
+      return {
+        decision:
+          result.behavior === 'allow'
+            ? result.scope === 'session'
+              ? 'approved_for_session'
+              : 'approved'
+            : 'denied',
+      };
+    }
+
+    return {
+      decision: result.behavior === 'allow' ? 'accept' : 'decline',
+      approved: result.behavior === 'allow',
+      ...(result.message ? { message: result.message } : {}),
+    };
+  }
+
+  private selectModernApprovalDecision(
+    params: Record<string, unknown> | undefined,
+    result: PermissionResult,
+    allowPreference: string[]
+  ): string {
+    if (result.behavior !== 'allow') {
+      return this.pickAvailableDecision(params, ['decline', 'cancel']);
+    }
+
+    const preferences =
+      result.scope === 'session' ? allowPreference : allowPreference.filter((item) => item !== 'acceptForSession');
+    return this.pickAvailableDecision(params, preferences.length > 0 ? preferences : ['accept']);
+  }
+
+  private pickAvailableDecision(
+    params: Record<string, unknown> | undefined,
+    preferred: string[]
+  ): string {
+    const available = this.readArray(params, 'availableDecisions')
+      ?.filter((item): item is string => typeof item === 'string');
+
+    if (!available || available.length === 0) {
+      return preferred[0] || 'decline';
+    }
+
+    return preferred.find((decision) => available.includes(decision)) || available[0] || preferred[0] || 'decline';
+  }
+
+  private buildPermissionsApprovalResponse(
+    params: Record<string, unknown> | undefined,
+    result: PermissionResult
+  ): Record<string, unknown> {
+    if (result.behavior !== 'allow') {
+      return {
+        permissions: {},
+        scope: 'turn',
+        strictAutoReview: false,
+      };
+    }
+
+    const requested = this.readObject(params, 'permissions');
+    const granted: Record<string, unknown> = {};
+    const network = this.readObject(requested, 'network');
+    const fileSystem = this.readObject(requested, 'fileSystem');
+    if (network) granted.network = network;
+    if (fileSystem) granted.fileSystem = fileSystem;
+
+    return {
+      permissions: granted,
+      scope: result.scope === 'session' ? 'session' : 'turn',
+      strictAutoReview: false,
+    };
+  }
+
+  private buildToolUserInputResponse(
+    params: Record<string, unknown> | undefined,
+    result: PermissionResult
+  ): Record<string, unknown> {
+    if (result.behavior !== 'allow') {
+      return { answers: {} };
+    }
+
+    const updatedInput = this.asObject(result.updatedInput);
+    const rawAnswers = this.asObject(updatedInput?.answers);
+    const questions = this.readArray(params, 'questions') || [];
+    const answers: Record<string, { answers: string[] }> = {};
+
+    for (const question of questions) {
+      const record = this.asObject(question);
+      if (!record) continue;
+      const id = this.optionalString(record.id);
+      const text = this.optionalString(record.question);
+      if (!id) continue;
+
+      const value = (id && rawAnswers?.[id]) ?? (text && rawAnswers?.[text]);
+      if (typeof value !== 'string') continue;
+      const splitAnswers = value
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (splitAnswers.length > 0) {
+        answers[id] = { answers: splitAnswers };
+      }
+    }
+
+    return { answers };
   }
 
   // ── JSON-RPC Communication ───────────────────────────────────────────────
@@ -622,6 +850,7 @@ export class CodexAppServerManager extends EventEmitter {
         jsonRpcId: request.id,
         method: request.method,
         threadId: this.inferThreadId(request.params),
+        params: request.params,
       });
 
       this.emit('approval_request', {
@@ -640,6 +869,7 @@ export class CodexAppServerManager extends EventEmitter {
         jsonRpcId: request.id,
         method: request.method,
         threadId: this.inferThreadId(request.params),
+        params: request.params,
       });
 
       this.emit('user_input_request', {

@@ -13,6 +13,8 @@ import type {
 import { CodexAppServerManager } from './codex-app-server-manager';
 import { isDev } from '../../util';
 import type {
+  CodexApprovalKind,
+  CodexApprovalPermissionInput,
   ContentBlock,
   PermissionResult,
   ProviderComposerCapabilities,
@@ -50,6 +52,10 @@ function getRecordField(
   key: string
 ): Record<string, unknown> | null {
   return obj && isObject(obj[key]) ? (obj[key] as Record<string, unknown>) : null;
+}
+
+function getArray(v: unknown): unknown[] {
+  return Array.isArray(v) ? v : [];
 }
 
 function parseRecord(value: unknown): Record<string, unknown> | null {
@@ -355,15 +361,15 @@ export class CodexAdapter implements ProviderAdapter {
       void this.handleAuthFailure(error.message);
     });
 
-    this.manager.on('approval_request', ({ requestId, params }) => {
+    this.manager.on('approval_request', ({ requestId, method, params }) => {
       const threadId = this.inferThreadIdFromParams(params);
-      const toolName = this.inferToolNameFromApproval(params);
+      const { toolName, input } = this.buildCodexApprovalInput(method, params);
       this.emit({
         type: 'permission_request',
         threadId,
         requestId,
         toolName,
-        input: params,
+        input,
       });
     });
 
@@ -649,7 +655,13 @@ export class CodexAdapter implements ProviderAdapter {
     const { providerThreadId, model } = await this.manager.createSession(
       input.threadId,
       input.cwd,
-      input.resumeSessionId
+      input.resumeSessionId,
+      {
+        model: input.model,
+        codexPermissionMode: input.codexPermissionMode,
+        codexReasoningEffort: input.codexReasoningEffort,
+        codexFastMode: input.codexFastMode,
+      }
     );
 
     const session: ActiveSession = {
@@ -729,7 +741,10 @@ export class CodexAdapter implements ProviderAdapter {
       input.prompt,
       input.attachments,
       input.codexSkills,
-      input.codexMentions
+      input.codexMentions,
+      {
+        model: input.model,
+      }
     );
   }
 
@@ -768,8 +783,7 @@ export class CodexAdapter implements ProviderAdapter {
     requestId: string,
     decision: PermissionResult
   ): Promise<void> {
-    const approved = decision.behavior === 'allow';
-    await this.manager.respondToApproval(requestId, approved, decision.message);
+    await this.manager.respondToApproval(requestId, decision);
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -817,6 +831,132 @@ export class CodexAdapter implements ProviderAdapter {
       if (typeof name === 'string') return name;
     }
     return 'approval';
+  }
+
+  private buildCodexApprovalInput(
+    method: string,
+    params: unknown
+  ): { toolName: string; input: CodexApprovalPermissionInput } {
+    const p = getRecord(params) || {};
+    const lower = method.toLowerCase();
+    const approvalKind: CodexApprovalKind = lower.includes('command')
+      ? 'command'
+      : lower.includes('filechange') || lower.includes('applypatch')
+        ? 'file-change'
+        : lower.includes('permissions')
+          ? 'permissions'
+          : 'tool';
+    const toolName =
+      approvalKind === 'command'
+        ? 'Bash'
+        : approvalKind === 'file-change'
+          ? 'Edit'
+          : approvalKind === 'permissions'
+            ? 'Permission'
+            : this.inferToolNameFromApproval(params);
+
+    const command = this.extractApprovalCommand(p);
+    const cwd = getFirstString(p.cwd);
+    const files = this.extractApprovalFiles(p);
+    const grantRoot = getFirstString(p.grantRoot);
+    const reason = getFirstString(p.reason) || null;
+    const permissionSummary = [
+      ...this.summarizePermissionRequest(getRecord(p.permissions)),
+      ...this.summarizePermissionRequest(getRecord(p.additionalPermissions)),
+    ];
+
+    const question =
+      approvalKind === 'command'
+        ? 'Codex wants to run a command'
+        : approvalKind === 'file-change'
+          ? 'Codex wants to modify files'
+          : approvalKind === 'permissions'
+            ? 'Codex is requesting additional permissions'
+            : 'Codex is requesting approval';
+
+    return {
+      toolName,
+      input: {
+        kind: 'codex-approval',
+        approvalKind,
+        method,
+        question,
+        title: question,
+        toolName,
+        reason,
+        command: command || null,
+        cwd: cwd || null,
+        filePath: grantRoot || files[0] || null,
+        files,
+        grantRoot: grantRoot || null,
+        permissionSummary,
+        canAllowForSession: this.canApproveForSession(p, approvalKind),
+      },
+    };
+  }
+
+  private extractApprovalCommand(params: Record<string, unknown>): string {
+    const direct = getFirstString(params.command);
+    if (direct) return direct;
+    const commandArray = getArray(params.command)
+      .map((part) => (typeof part === 'string' ? part : String(part)))
+      .filter(Boolean);
+    return commandArray.join(' ');
+  }
+
+  private extractApprovalFiles(params: Record<string, unknown>): string[] {
+    const fileChanges = getRecord(params.fileChanges);
+    if (fileChanges) {
+      return Object.keys(fileChanges).filter(Boolean);
+    }
+
+    const files = getArray(params.files)
+      .map((file) => (typeof file === 'string' ? file : ''))
+      .filter(Boolean);
+    return files;
+  }
+
+  private summarizePermissionRequest(value: Record<string, unknown> | null): string[] {
+    if (!value) return [];
+    const summary: string[] = [];
+    const network = getRecord(value.network);
+    if (network?.enabled === true) {
+      summary.push('Network access');
+    }
+
+    const fileSystem = getRecord(value.fileSystem);
+    if (fileSystem) {
+      for (const pathValue of getArray(fileSystem.read)) {
+        if (typeof pathValue === 'string') summary.push(`Read ${pathValue}`);
+      }
+      for (const pathValue of getArray(fileSystem.write)) {
+        if (typeof pathValue === 'string') summary.push(`Write ${pathValue}`);
+      }
+      for (const entry of getArray(fileSystem.entries)) {
+        const record = getRecord(entry);
+        if (!record) continue;
+        const access = getFirstString(record.access);
+        const pathRecord = getRecord(record.path);
+        const path = getFirstString(pathRecord?.path, pathRecord?.pattern, pathRecord?.value);
+        if (access && path) {
+          summary.push(`${access[0]?.toUpperCase() || ''}${access.slice(1)} ${path}`);
+        }
+      }
+    }
+
+    return Array.from(new Set(summary));
+  }
+
+  private canApproveForSession(
+    params: Record<string, unknown>,
+    approvalKind: CodexApprovalKind
+  ): boolean {
+    if (approvalKind === 'permissions') return true;
+    const available = getArray(params.availableDecisions);
+    if (available.length === 0) {
+      return true;
+    }
+    return available.includes('acceptForSession');
   }
 
   /**
