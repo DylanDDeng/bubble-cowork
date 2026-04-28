@@ -336,6 +336,54 @@ export type SessionSource =
   | 'codex_local'
   | 'opencode_local';
 
+export type TaskSource = 'local' | 'github' | 'linear' | 'markdown';
+export type TaskStatus = 'todo' | 'running' | 'needs_review' | 'done' | 'cancelled';
+export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type AgentRunStatus =
+  | 'queued'
+  | 'running'
+  | 'waiting_permission'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+export type AgentRunWorkspaceMode = 'current_cwd' | 'isolated';
+
+export interface BoardTask {
+  id: string;
+  source: TaskSource;
+  externalId?: string;
+  externalUrl?: string;
+  title: string;
+  description?: string;
+  status: TaskStatus;
+  cwd?: string;
+  branch?: string;
+  labels: string[];
+  priority?: TaskPriority;
+  acceptedRunId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AgentRun {
+  id: string;
+  taskId: string;
+  sessionId: string;
+  provider: AgentProvider;
+  model?: string;
+  workspaceMode: AgentRunWorkspaceMode;
+  workspacePath?: string;
+  workspaceBranch?: string;
+  status: AgentRunStatus;
+  startedAt: number;
+  completedAt?: number;
+  lastEventSummary?: string;
+  changedFilesCount?: number;
+  artifactCount?: number;
+  testStatus?: 'unknown' | 'passed' | 'failed';
+  validationCommand?: string;
+}
+
 export interface ProviderComposerCapabilities {
   provider: AgentProvider;
   supportsSkillMentions: boolean;
@@ -506,6 +554,12 @@ export type ClientEvent =
   | { type: 'session.delete'; payload: { sessionId: string } }
   | { type: 'session.setTodoState'; payload: { sessionId: string; todoState: TodoState } }
   | { type: 'session.togglePin'; payload: { sessionId: string } }
+  | { type: 'task.list' }
+  | { type: 'task.create'; payload: TaskCreatePayload }
+  | { type: 'task.update'; payload: { taskId: string; updates: TaskUpdatePayload } }
+  | { type: 'task.startRun'; payload: TaskStartRunPayload }
+  | { type: 'task.acceptRun'; payload: { taskId: string; runId: string } }
+  | { type: 'task.rejectRun'; payload: { taskId: string; runId: string } }
   | { type: 'permission.response'; payload: PermissionResponsePayload }
   // MCP 事件
   | { type: 'mcp.get-config'; payload?: { projectPath?: string } }
@@ -546,6 +600,10 @@ export type ServerEvent =
   | { type: 'session.deleted'; payload: { sessionId: string } }
   | { type: 'session.todoStateChanged'; payload: { sessionId: string; todoState: TodoState } }
   | { type: 'session.pinned'; payload: { sessionId: string; pinned: boolean } }
+  | { type: 'task.list'; payload: { tasks: BoardTask[]; runs: AgentRun[] } }
+  | { type: 'task.changed'; payload: { task: BoardTask } }
+  | { type: 'task.runChanged'; payload: { run: AgentRun } }
+  | { type: 'task.deleted'; payload: { taskId: string } }
   | {
       type: 'stream.user_prompt';
       payload: { sessionId: string; prompt: string; attachments?: Attachment[]; createdAt?: number };
@@ -618,6 +676,38 @@ export interface SessionContinuePayload {
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
+}
+
+export interface TaskCreatePayload {
+  title: string;
+  description?: string;
+  cwd?: string;
+  source?: TaskSource;
+  externalId?: string;
+  externalUrl?: string;
+  labels?: string[];
+  priority?: TaskPriority;
+}
+
+export interface TaskUpdatePayload {
+  title?: string;
+  description?: string;
+  status?: TaskStatus;
+  cwd?: string | null;
+  branch?: string | null;
+  labels?: string[];
+  priority?: TaskPriority | null;
+  externalId?: string | null;
+  externalUrl?: string | null;
+}
+
+export interface TaskStartRunPayload extends Omit<SessionStartPayload, 'title' | 'todoState'> {
+  taskId?: string;
+  taskTitle?: string;
+  taskDescription?: string;
+  taskLabels?: string[];
+  taskPriority?: TaskPriority;
+  workspaceMode?: AgentRunWorkspaceMode;
 }
 
 export interface SessionInfo {

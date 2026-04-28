@@ -5,7 +5,7 @@ import { execFile } from 'child_process';
 import type { AddressInfo } from 'net';
 import { spawn as spawnPty, type IPty } from 'node-pty';
 import { promisify } from 'util';
-import { basename, extname, resolve, relative, isAbsolute, join } from 'path';
+import { basename, dirname, extname, resolve, relative, isAbsolute, join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
 import { runCodexOneShot, runOpenCodeOneShot } from './libs/codex-runner';
@@ -50,6 +50,8 @@ import {
 } from './libs/skill-market';
 import * as statusConfig from './libs/status-config';
 import * as folderConfig from './libs/folder-config';
+import { loadBoardWorkflow, runWorkflowCommand, type BoardWorkflowConfig } from './libs/board-workflow';
+import { prepareBoardRunWorkspace } from './libs/board-workspace';
 import { ipcMainHandle, isDev } from './util';
 import { scheduleExternalClaudeSessionSync } from './libs/external-claude-sessions';
 import { getHistorySourceForSession, toUnifiedSessionRecord } from './libs/history/registry';
@@ -76,8 +78,15 @@ import type {
   UpdateStatusInput,
   TodoState,
   FolderConfig,
+  AgentRun,
+  AgentRunStatus,
+  AgentRunWorkspaceMode,
   FontSettingsPayload,
   FeishuBridgeConfig,
+  TaskCreatePayload,
+  TaskStartRunPayload,
+  TaskStatus,
+  TaskUpdatePayload,
   UpsertPromptLibraryItemInput,
   ProviderInputReference,
   ProviderListPluginsInput,
@@ -2371,6 +2380,207 @@ function broadcast(mainWindow: BrowserWindow, event: ServerEvent): void {
   mainWindow.webContents.send('server-event', JSON.stringify(event));
 }
 
+function broadcastTaskList(mainWindow: BrowserWindow): void {
+  broadcast(mainWindow, {
+    type: 'task.list',
+    payload: {
+      tasks: sessions.listTasks(),
+      runs: sessions.listAgentRuns(),
+    },
+  });
+}
+
+function broadcastTaskChanged(mainWindow: BrowserWindow, taskId: string): void {
+  const task = sessions.getTask(taskId);
+  if (!task) return;
+  broadcast(mainWindow, { type: 'task.changed', payload: { task } });
+}
+
+function broadcastRunChanged(mainWindow: BrowserWindow, run: AgentRun | undefined): void {
+  if (!run) return;
+  broadcast(mainWindow, { type: 'task.runChanged', payload: { run } });
+}
+
+function getReviewTodoState(): TodoState {
+  return statusConfig.listStatuses().some((status) => status.id === 'needs-review')
+    ? 'needs-review'
+    : 'todo';
+}
+
+function updateTaskRunForSessionStatus(
+  mainWindow: BrowserWindow,
+  sessionId: string,
+  status: SessionStatus,
+  summary?: string
+): void {
+  const run = sessions.getAgentRunBySessionId(sessionId);
+  if (!run) return;
+
+  let runStatus: AgentRunStatus | null = null;
+  let taskStatus: TaskStatus | null = null;
+
+  if (status === 'running') {
+    runStatus = 'running';
+    taskStatus = 'running';
+  } else if (status === 'completed') {
+    runStatus = 'completed';
+    taskStatus = 'needs_review';
+  } else if (status === 'error') {
+    runStatus = 'failed';
+    taskStatus = 'todo';
+  }
+
+  if (runStatus) {
+    const nextRun = sessions.updateAgentRun(run.id, {
+      status: runStatus,
+      lastEventSummary: summary || (runStatus === 'completed' ? 'Run completed' : runStatus === 'failed' ? 'Run failed' : 'Run in progress'),
+    });
+    broadcastRunChanged(mainWindow, nextRun);
+  }
+
+  const latestTaskRun = taskStatus ? sessions.getLatestAgentRunForTask(run.taskId) : undefined;
+  if (taskStatus && latestTaskRun?.id === run.id) {
+    const nextTask = sessions.updateTaskStatus(run.taskId, taskStatus);
+    if (nextTask) {
+      broadcast(mainWindow, { type: 'task.changed', payload: { task: nextTask } });
+    }
+  }
+}
+
+function getUnknownErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function getWorkspaceChangedFileCount(cwd: string): Promise<number | undefined> {
+  try {
+    await execFileAsync('git', ['rev-parse', '--git-dir'], { cwd, timeout: 5000 });
+    const { stdout } = await execFileAsync('git', ['-c', 'core.quotepath=false', 'status', '--porcelain', '-uall', '-z'], {
+      cwd,
+      timeout: 10000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    return parseGitStatusEntries(stdout).length;
+  } catch {
+    return undefined;
+  }
+}
+
+async function getWorkspaceChangedEntries(cwd: string): Promise<Array<{ filePath: string; status: string; staged: boolean }>> {
+  await execFileAsync('git', ['rev-parse', '--git-dir'], { cwd, timeout: 5000 });
+  const { stdout } = await execFileAsync('git', ['-c', 'core.quotepath=false', 'status', '--porcelain', '-uall', '-z'], {
+    cwd,
+    timeout: 10000,
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  return parseGitStatusEntries(stdout);
+}
+
+async function pathHasBaseWorkspaceChanges(baseCwd: string, filePath: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-c', 'core.quotepath=false', 'status', '--porcelain', '-z', '--', filePath], {
+      cwd: baseCwd,
+      timeout: 5000,
+      maxBuffer: 1024 * 1024,
+    });
+    return stdout.length > 0;
+  } catch {
+    return true;
+  }
+}
+
+async function applyIsolatedRunToBaseWorkspace(
+  run: AgentRun,
+  baseCwd: string
+): Promise<{ ok: true; appliedCount: number } | { ok: false; message: string }> {
+  if (!run.workspacePath) {
+    return { ok: false, message: 'This isolated run is missing a workspace path.' };
+  }
+
+  let entries: Array<{ filePath: string; status: string; staged: boolean }>;
+  try {
+    entries = await getWorkspaceChangedEntries(run.workspacePath);
+  } catch (error) {
+    return { ok: false, message: `Unable to inspect isolated workspace: ${getUnknownErrorMessage(error)}` };
+  }
+
+  if (entries.length === 0) {
+    return { ok: true, appliedCount: 0 };
+  }
+
+  const conflictPaths: string[] = [];
+  for (const entry of entries) {
+    if (await pathHasBaseWorkspaceChanges(baseCwd, entry.filePath)) {
+      conflictPaths.push(entry.filePath);
+      if (conflictPaths.length >= 5) break;
+    }
+  }
+
+  if (conflictPaths.length > 0) {
+    return {
+      ok: false,
+      message: `Base workspace has local changes on ${conflictPaths.join(', ')}. Resolve or apply the isolated workspace manually.`,
+    };
+  }
+
+  for (const entry of entries) {
+    const sourcePath = join(run.workspacePath, entry.filePath);
+    const targetPath = join(baseCwd, entry.filePath);
+
+    if (entry.status === 'D') {
+      await fsPromises.rm(targetPath, { force: true });
+      continue;
+    }
+
+    await fsPromises.mkdir(dirname(targetPath), { recursive: true });
+    await fsPromises.copyFile(sourcePath, targetPath);
+  }
+
+  return { ok: true, appliedCount: entries.length };
+}
+
+async function runValidationForCompletedBoardRun(mainWindow: BrowserWindow, sessionId: string): Promise<void> {
+  const run = sessions.getAgentRunBySessionId(sessionId);
+  if (!run) return;
+
+  const task = sessions.getTask(run.taskId);
+  const session = sessions.getSession(sessionId);
+  const validationCwd = run.workspacePath || session?.cwd || task?.cwd;
+  if (!validationCwd) return;
+
+  const workflow = task?.cwd ? loadBoardWorkflow(task.cwd) : { path: null } satisfies BoardWorkflowConfig;
+  const changedFilesCount = await getWorkspaceChangedFileCount(validationCwd);
+  const validateCommand = run.validationCommand || workflow.validateCommand;
+
+  if (!validateCommand) {
+    if (changedFilesCount !== undefined) {
+      broadcastRunChanged(mainWindow, sessions.updateAgentRun(run.id, { changedFilesCount }));
+      broadcastTaskChanged(mainWindow, run.taskId);
+    }
+    return;
+  }
+
+  broadcastRunChanged(mainWindow, sessions.updateAgentRun(run.id, {
+    testStatus: 'unknown',
+    validationCommand: validateCommand,
+    changedFilesCount,
+    lastEventSummary: `Running validation: ${validateCommand}`,
+  }));
+  broadcastTaskChanged(mainWindow, run.taskId);
+
+  const result = await runWorkflowCommand(validateCommand, validationCwd);
+  const nextChangedFilesCount = await getWorkspaceChangedFileCount(validationCwd);
+  const nextRun = sessions.updateAgentRun(run.id, {
+    testStatus: result.ok ? 'passed' : 'failed',
+    validationCommand: validateCommand,
+    changedFilesCount: nextChangedFilesCount ?? changedFilesCount,
+    lastEventSummary: result.ok
+      ? `Validation passed: ${validateCommand}`
+      : `Validation failed: ${result.summary}`,
+  });
+  broadcastRunChanged(mainWindow, nextRun);
+  broadcastTaskChanged(mainWindow, run.taskId);
+}
+
 async function emitProjectTree(mainWindow: BrowserWindow, cwd: string): Promise<void> {
   try {
     const tree = await readProjectTree(cwd);
@@ -2633,7 +2843,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       return handleSessionContinue(mainWindow, { sessionId, prompt, provider, model });
     },
     resolvePermission: ({ sessionId, toolUseId, result }) => {
-      return handlePermissionResponse({ sessionId, toolUseId, result });
+      return handlePermissionResponse(mainWindow, { sessionId, toolUseId, result });
     },
   });
   void feishuBridge.maybeAutoStart();
@@ -4050,7 +4260,7 @@ async function handleClientEvent(
       break;
 
     case 'permission.response':
-      handlePermissionResponse(event.payload);
+      handlePermissionResponse(mainWindow, event.payload);
       break;
 
     case 'mcp.get-config':
@@ -4071,6 +4281,30 @@ async function handleClientEvent(
 
     case 'session.togglePin':
       handleSessionTogglePin(mainWindow, event.payload);
+      break;
+
+    case 'task.list':
+      broadcastTaskList(mainWindow);
+      break;
+
+    case 'task.create':
+      handleTaskCreate(mainWindow, event.payload);
+      break;
+
+    case 'task.update':
+      handleTaskUpdate(mainWindow, event.payload);
+      break;
+
+    case 'task.startRun':
+      await handleTaskStartRun(mainWindow, event.payload);
+      break;
+
+    case 'task.acceptRun':
+      await handleTaskAcceptRun(mainWindow, event.payload);
+      break;
+
+    case 'task.rejectRun':
+      handleTaskRejectRun(mainWindow, event.payload);
       break;
 
     case 'status.list':
@@ -4156,6 +4390,8 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     payload: { sessions: sessionInfos },
   });
 
+  broadcastTaskList(mainWindow);
+
   // 同时发送状态配置列表
   const statuses = statusConfig.listStatuses();
   broadcast(mainWindow, {
@@ -4169,6 +4405,228 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     type: 'folder.list',
     payload: { folders },
   });
+}
+
+function handleTaskCreate(mainWindow: BrowserWindow, payload: TaskCreatePayload): void {
+  const title = payload.title.trim();
+  if (!title) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'Enter a task title before creating a task.' },
+    });
+    return;
+  }
+
+  const task = sessions.createTask({ ...payload, title });
+  broadcast(mainWindow, { type: 'task.changed', payload: { task } });
+}
+
+function handleTaskUpdate(
+  mainWindow: BrowserWindow,
+  payload: { taskId: string; updates: TaskUpdatePayload }
+): void {
+  const task = sessions.updateTask(payload.taskId, payload.updates);
+  if (!task) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'Unknown task.' },
+    });
+    return;
+  }
+  broadcast(mainWindow, { type: 'task.changed', payload: { task } });
+}
+
+async function handleTaskStartRun(
+  mainWindow: BrowserWindow,
+  payload: TaskStartRunPayload
+): Promise<void> {
+  const prompt = payload.prompt.trim();
+  const cwd = payload.cwd?.trim();
+  if (!prompt) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'Enter a prompt before starting a run.' },
+    });
+    return;
+  }
+  if (!cwd) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'Select a project folder before starting a run.' },
+    });
+    return;
+  }
+
+  const workflow = loadBoardWorkflow(cwd);
+  let task = payload.taskId ? sessions.getTask(payload.taskId) : undefined;
+  if (!task) {
+    const taskTitle = payload.taskTitle?.trim() || prompt.slice(0, 60) || 'New task';
+    task = sessions.createTask({
+      title: taskTitle,
+      description: payload.taskDescription || prompt,
+      cwd,
+      source: 'local',
+      labels: payload.taskLabels,
+      priority: payload.taskPriority,
+    });
+    broadcast(mainWindow, { type: 'task.changed', payload: { task } });
+  } else if (task.status === 'done' || task.status === 'cancelled') {
+    task = sessions.updateTaskStatus(task.id, 'todo', null) || task;
+    broadcast(mainWindow, { type: 'task.changed', payload: { task } });
+  }
+
+  const requestedWorkspaceMode: AgentRunWorkspaceMode =
+    payload.workspaceMode || workflow.workspaceMode || 'current_cwd';
+  let workspace;
+  try {
+    workspace = await prepareBoardRunWorkspace({
+      baseCwd: cwd,
+      taskId: task.id,
+      taskTitle: task.title,
+      mode: requestedWorkspaceMode,
+    });
+  } catch (error) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: {
+        message: `Unable to prepare ${requestedWorkspaceMode === 'isolated' ? 'isolated' : 'current'} workspace: ${getUnknownErrorMessage(error)}`,
+      },
+    });
+    return;
+  }
+
+  if (workspace.branch) {
+    const branchedTask = sessions.updateTask(task.id, { branch: workspace.branch });
+    if (branchedTask) {
+      task = branchedTask;
+      broadcast(mainWindow, { type: 'task.changed', payload: { task } });
+    }
+  }
+
+  if (workflow.beforeRunCommand) {
+    const beforeRun = await runWorkflowCommand(workflow.beforeRunCommand, workspace.cwd);
+    if (!beforeRun.ok) {
+      const resetTask = sessions.updateTaskStatus(task.id, 'todo') || task;
+      broadcast(mainWindow, { type: 'task.changed', payload: { task: resetTask } });
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: { message: `Before-run hook failed: ${beforeRun.summary}` },
+      });
+      return;
+    }
+  }
+
+  const sessionPayload: SessionStartPayload = {
+    title: task.title,
+    prompt,
+    effectivePrompt: payload.effectivePrompt,
+    cwd: workspace.cwd,
+    todoState: 'todo',
+    allowedTools: payload.allowedTools,
+    attachments: payload.attachments,
+    provider: payload.provider || workflow.defaultProvider,
+    model: payload.model || workflow.defaultModel,
+    compatibleProviderId: payload.compatibleProviderId,
+    betas: payload.betas,
+    claudeAccessMode: payload.claudeAccessMode,
+    claudeExecutionMode: payload.claudeExecutionMode,
+    codexPermissionMode: payload.codexPermissionMode,
+    codexReasoningEffort: payload.codexReasoningEffort,
+    codexFastMode: payload.codexFastMode,
+    codexSkills: payload.codexSkills,
+    codexMentions: payload.codexMentions,
+    opencodePermissionMode: payload.opencodePermissionMode,
+    hiddenFromThreads: payload.hiddenFromThreads,
+  };
+
+  const sessionId = await handleSessionStart(mainWindow, sessionPayload);
+
+  if (!sessionId) {
+    return;
+  }
+
+  const run = sessions.createAgentRun({
+    taskId: task.id,
+    sessionId,
+    provider: sessionPayload.provider || 'claude',
+    model: sessionPayload.model,
+    workspaceMode: workspace.mode,
+    workspacePath: workspace.workspacePath,
+    workspaceBranch: workspace.branch,
+    status: 'running',
+    validationCommand: workflow.validateCommand,
+  });
+  broadcastRunChanged(mainWindow, run);
+
+  const runningTask = sessions.updateTaskStatus(task.id, 'running');
+  if (runningTask) {
+    broadcast(mainWindow, { type: 'task.changed', payload: { task: runningTask } });
+  }
+}
+
+async function handleTaskAcceptRun(mainWindow: BrowserWindow, payload: { taskId: string; runId: string }): Promise<void> {
+  const run = sessions.getAgentRun(payload.runId);
+  if (!run || run.taskId !== payload.taskId) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'Unknown run for this task.' },
+    });
+    return;
+  }
+
+  const taskBeforeAccept = sessions.getTask(payload.taskId);
+  const workflow = taskBeforeAccept?.cwd ? loadBoardWorkflow(taskBeforeAccept.cwd) : null;
+  if (workflow?.requireValidationPassed && run.validationCommand && run.testStatus !== 'passed') {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'This workflow requires validation to pass before accepting the run.' },
+    });
+    return;
+  }
+
+  if (run.workspaceMode === 'isolated') {
+    if (!taskBeforeAccept?.cwd) {
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: { message: 'This isolated run is missing the base workspace path.' },
+      });
+      return;
+    }
+
+    const applied = await applyIsolatedRunToBaseWorkspace(run, taskBeforeAccept.cwd);
+    if (!applied.ok) {
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: { message: applied.message },
+      });
+      return;
+    }
+
+    broadcastRunChanged(mainWindow, sessions.updateAgentRun(run.id, {
+      lastEventSummary: `Accepted and applied ${applied.appliedCount} file${applied.appliedCount === 1 ? '' : 's'} to base workspace`,
+    }));
+  }
+
+  const task = sessions.updateTaskStatus(payload.taskId, 'done', payload.runId);
+  if (task) {
+    broadcast(mainWindow, { type: 'task.changed', payload: { task } });
+  }
+}
+
+function handleTaskRejectRun(mainWindow: BrowserWindow, payload: { taskId: string; runId: string }): void {
+  const run = sessions.getAgentRun(payload.runId);
+  if (!run || run.taskId !== payload.taskId) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: 'Unknown run for this task.' },
+    });
+    return;
+  }
+
+  const task = sessions.updateTaskStatus(payload.taskId, 'todo', null);
+  if (task) {
+    broadcast(mainWindow, { type: 'task.changed', payload: { task } });
+  }
 }
 
 // 新建会话
@@ -4805,6 +5263,16 @@ function startRunner(
           }
         }
 
+        const run = sessions.getAgentRunBySessionId(session.id);
+        if (run) {
+          broadcastRunChanged(mainWindow, sessions.updateAgentRun(run.id, {
+            status: 'running',
+            model: message.model || modelOverride || run.model,
+            lastEventSummary: 'Agent session initialized',
+          }));
+          broadcastTaskChanged(mainWindow, run.taskId);
+        }
+
         broadcast(mainWindow, {
           type: 'session.status',
           payload: {
@@ -4910,18 +5378,29 @@ function startRunner(
         const status: SessionStatus = message.subtype === 'success' ? 'completed' : 'error';
         sessions.updateSessionStatus(session.id, status);
 
-        // Auto-transition: move open-category sessions to "done" on successful completion
+        // Auto-transition: agent completion means "ready for review", not "done".
         if (status === 'completed') {
           const currentTodo = sessions.getSession(session.id)?.todo_state || 'todo';
           const allStatuses = statusConfig.listStatuses();
           const currentCfg = allStatuses.find((s) => s.id === currentTodo);
           if (currentCfg?.category === 'open') {
-            sessions.updateSessionTodoState(session.id, 'done');
+            const reviewTodoState = getReviewTodoState();
+            sessions.updateSessionTodoState(session.id, reviewTodoState);
             broadcast(mainWindow, {
               type: 'session.todoStateChanged',
-              payload: { sessionId: session.id, todoState: 'done' },
+              payload: { sessionId: session.id, todoState: reviewTodoState },
             });
           }
+        }
+
+        updateTaskRunForSessionStatus(
+          mainWindow,
+          session.id,
+          status,
+          status === 'completed' ? 'Run completed; awaiting review' : 'Run failed'
+        );
+        if (status === 'completed') {
+          void runValidationForCompletedBoardRun(mainWindow, session.id);
         }
 
         broadcast(mainWindow, {
@@ -4983,6 +5462,7 @@ function startRunner(
       console.error('Runner error:', error);
 
       sessions.updateSessionStatus(session.id, 'error');
+      updateTaskRunForSessionStatus(mainWindow, session.id, 'error', message);
       broadcast(mainWindow, {
         type: 'session.status',
         payload: {
@@ -5056,6 +5536,15 @@ function startRunner(
       });
     },
     onPermissionRequest: async (toolUseId, toolName, input) => {
+      const run = sessions.getAgentRunBySessionId(session.id);
+      if (run) {
+        broadcastRunChanged(mainWindow, sessions.updateAgentRun(run.id, {
+          status: 'waiting_permission',
+          lastEventSummary: `Waiting for ${toolName} permission`,
+        }));
+        broadcastTaskChanged(mainWindow, run.taskId);
+      }
+
       // 广播权限请求
       broadcast(mainWindow, {
         type: 'permission.request',
@@ -5202,6 +5691,7 @@ function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void
 
 // 处理权限响应
 function handlePermissionResponse(
+  mainWindow: BrowserWindow,
   payload: PermissionResponsePayload
 ): boolean {
   const { sessionId, toolUseId, result } = payload;
@@ -5213,6 +5703,14 @@ function handlePermissionResponse(
   if (pending) {
     pending.resolve(result);
     state.pendingPermissions.delete(toolUseId);
+    const run = sessions.getAgentRunBySessionId(sessionId);
+    if (run && result.behavior !== 'deny') {
+      broadcastRunChanged(mainWindow, sessions.updateAgentRun(run.id, {
+        status: 'running',
+        lastEventSummary: 'Permission granted; run resumed',
+      }));
+      broadcastTaskChanged(mainWindow, run.taskId);
+    }
     return true;
   }
   return false;
