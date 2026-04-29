@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type {
   StreamMessage,
   Attachment,
+  CodexExecutionMode,
   CodexPermissionMode,
   CodexReasoningEffort,
   PermissionResult,
@@ -51,6 +52,7 @@ interface CodexSession {
   status: 'connecting' | 'ready' | 'running' | 'error';
   lastError?: string;
   model?: string;
+  codexExecutionMode?: CodexExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
@@ -72,6 +74,7 @@ interface PendingApproval {
 
 interface CodexRunOptions {
   model?: string;
+  codexExecutionMode?: CodexExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
@@ -376,7 +379,8 @@ export class CodexAppServerManager extends EventEmitter {
       providerThreadId,
       cwd,
       status: 'ready',
-      model: options.model,
+      model: model || options.model,
+      codexExecutionMode: options.codexExecutionMode,
       codexPermissionMode: options.codexPermissionMode,
       codexReasoningEffort: options.codexReasoningEffort,
       codexFastMode: options.codexFastMode,
@@ -395,7 +399,7 @@ export class CodexAppServerManager extends EventEmitter {
       {
         cwd,
         ...(options.model ? { model: options.model } : {}),
-        ...this.buildThreadPermissionOptions(cwd, options.codexPermissionMode),
+        ...this.buildThreadPermissionOptions(cwd, options.codexPermissionMode, options.codexExecutionMode),
       },
       REQUEST_TIMEOUT_MS
     )) as Record<string, unknown>;
@@ -416,6 +420,7 @@ export class CodexAppServerManager extends EventEmitter {
     this.lastActiveThreadId = threadId;
     session.status = 'running';
     session.model = options.model || session.model;
+    session.codexExecutionMode = options.codexExecutionMode || session.codexExecutionMode;
     session.codexPermissionMode = options.codexPermissionMode || session.codexPermissionMode;
     session.codexReasoningEffort = options.codexReasoningEffort || session.codexReasoningEffort;
     session.codexFastMode = options.codexFastMode ?? session.codexFastMode;
@@ -478,9 +483,15 @@ export class CodexAppServerManager extends EventEmitter {
         ...(options.codexReasoningEffort || session.codexReasoningEffort
           ? { effort: options.codexReasoningEffort || session.codexReasoningEffort }
           : {}),
+        ...this.buildCollaborationModeOptions(
+          options.codexExecutionMode || session.codexExecutionMode,
+          options.model || session.model,
+          options.codexReasoningEffort || session.codexReasoningEffort
+        ),
         ...this.buildTurnPermissionOptions(
           session.cwd,
-          options.codexPermissionMode || session.codexPermissionMode
+          options.codexPermissionMode || session.codexPermissionMode,
+          options.codexExecutionMode || session.codexExecutionMode
         ),
       },
       TURN_TIMEOUT_MS
@@ -527,10 +538,25 @@ export class CodexAppServerManager extends EventEmitter {
     return mode === 'fullAccess' ? 'fullAccess' : 'defaultPermissions';
   }
 
+  private normalizeCodexExecutionMode(
+    mode: CodexExecutionMode | undefined
+  ): CodexExecutionMode {
+    return mode === 'plan' ? 'plan' : 'execute';
+  }
+
   private buildThreadPermissionOptions(
     _cwd: string,
-    mode: CodexPermissionMode | undefined
+    mode: CodexPermissionMode | undefined,
+    executionMode: CodexExecutionMode | undefined
   ): Record<string, unknown> {
+    if (this.normalizeCodexExecutionMode(executionMode) === 'plan') {
+      return {
+        approvalPolicy: 'on-request',
+        approvalsReviewer: 'user',
+        sandbox: 'read-only',
+      };
+    }
+
     if (this.normalizeCodexPermissionMode(mode) === 'fullAccess') {
       return {
         approvalPolicy: 'never',
@@ -548,8 +574,21 @@ export class CodexAppServerManager extends EventEmitter {
 
   private buildTurnPermissionOptions(
     cwd: string,
-    mode: CodexPermissionMode | undefined
+    mode: CodexPermissionMode | undefined,
+    executionMode: CodexExecutionMode | undefined
   ): Record<string, unknown> {
+    if (this.normalizeCodexExecutionMode(executionMode) === 'plan') {
+      return {
+        approvalPolicy: 'on-request',
+        approvalsReviewer: 'user',
+        sandboxPolicy: {
+          type: 'readOnly',
+          access: { type: 'fullAccess' },
+          networkAccess: false,
+        },
+      };
+    }
+
     if (this.normalizeCodexPermissionMode(mode) === 'fullAccess') {
       return {
         approvalPolicy: 'never',
@@ -568,6 +607,29 @@ export class CodexAppServerManager extends EventEmitter {
         networkAccess: false,
         excludeTmpdirEnvVar: false,
         excludeSlashTmp: false,
+      },
+    };
+  }
+
+  private buildCollaborationModeOptions(
+    executionMode: CodexExecutionMode | undefined,
+    model: string | undefined,
+    reasoningEffort: CodexReasoningEffort | undefined
+  ): Record<string, unknown> {
+    const normalizedMode = this.normalizeCodexExecutionMode(executionMode);
+    const selectedModel = model?.trim();
+    if (!selectedModel && normalizedMode !== 'plan') {
+      return {};
+    }
+
+    return {
+      collaborationMode: {
+        mode: normalizedMode === 'plan' ? 'plan' : 'default',
+        settings: {
+          model: selectedModel || model || '',
+          reasoning_effort: normalizedMode === 'plan' ? reasoningEffort || 'medium' : reasoningEffort || null,
+          developer_instructions: null,
+        },
       },
     };
   }
@@ -967,6 +1029,22 @@ export class CodexAppServerManager extends EventEmitter {
         // Lifecycle marker only; no text payload to forward.
         break;
 
+      case 'turn/plan/updated': {
+        const threadId = this.findThreadByProviderThreadId(this.readString(params, 'threadId'));
+        if (threadId) {
+          this.emit('plan_updated', { threadId, params });
+        }
+        break;
+      }
+
+      case 'item/plan/delta': {
+        const threadId = this.findThreadByProviderThreadId(this.readString(params, 'threadId'));
+        if (threadId) {
+          this.emit('plan_delta', { threadId, params });
+        }
+        break;
+      }
+
       // Note: codex app-server delivers final agent_message text via
       // `item/completed` (handled below), and per-token chunks via
       // `item/agentMessage/delta`. This `item/agentMessage` notification is
@@ -1064,6 +1142,13 @@ export class CodexAppServerManager extends EventEmitter {
           }
           case 'toolResult': {
             this.emit('tool_result', { threadId, params: item });
+            break;
+          }
+          case 'plan': {
+            const text = this.extractTextContent(item);
+            const itemId = this.readString(item, 'id');
+            const turnId = this.readString(params, 'turnId') || this.readString(item, 'turnId');
+            this.emit('plan_item_completed', { threadId, text: text ?? '', itemId, turnId, params });
             break;
           }
         }
@@ -1457,6 +1542,7 @@ export class CodexAppServerManager extends EventEmitter {
   }
 
   private extractTextContent(params: Record<string, unknown>): string | null {
+    if (typeof params.text === 'string') return params.text;
     const content = params.content;
     if (typeof content === 'string') return content;
     if (Array.isArray(content)) {
@@ -1473,7 +1559,7 @@ export class CodexAppServerManager extends EventEmitter {
 
   private normalizeItemType(
     item: Record<string, unknown>
-  ): 'agentMessage' | 'toolCall' | 'toolResult' | null {
+  ): 'agentMessage' | 'toolCall' | 'toolResult' | 'plan' | null {
     const raw =
       this.readString(item, 'type') ||
       this.readString(item, 'itemType') ||
@@ -1487,6 +1573,10 @@ export class CodexAppServerManager extends EventEmitter {
       normalized === 'message'
     ) {
       return 'agentMessage';
+    }
+
+    if (normalized === 'plan') {
+      return 'plan';
     }
 
     if (

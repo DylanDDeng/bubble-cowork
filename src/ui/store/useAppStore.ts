@@ -316,6 +316,10 @@ function normalizeClaudeExecutionMode(value: unknown): import('../types').Claude
   return value === 'plan' ? 'plan' : 'execute';
 }
 
+function normalizeCodexExecutionMode(value: unknown): import('../types').CodexExecutionMode {
+  return value === 'plan' ? 'plan' : 'execute';
+}
+
 function sanitizeHistoryMessages(messages: StreamMessage[]): StreamMessage[] {
   return messages.filter((message) => message.type !== 'stream_event');
 }
@@ -1305,6 +1309,7 @@ function handleSessionList(
       betas: session.betas,
       claudeAccessMode: normalizeClaudeAccessMode(session.claudeAccessMode),
       claudeExecutionMode: normalizeClaudeExecutionMode(session.claudeExecutionMode),
+      codexExecutionMode: normalizeCodexExecutionMode(session.codexExecutionMode),
       codexPermissionMode: session.codexPermissionMode,
       codexReasoningEffort: session.codexReasoningEffort,
       codexFastMode: session.codexFastMode,
@@ -1404,6 +1409,7 @@ function handleSessionStatus(
     betas?: SessionInfo['betas'];
     claudeAccessMode?: SessionInfo['claudeAccessMode'];
     claudeExecutionMode?: SessionInfo['claudeExecutionMode'];
+    codexExecutionMode?: SessionInfo['codexExecutionMode'];
     codexPermissionMode?: SessionInfo['codexPermissionMode'];
     codexReasoningEffort?: SessionInfo['codexReasoningEffort'];
     codexFastMode?: SessionInfo['codexFastMode'];
@@ -1424,6 +1430,7 @@ function handleSessionStatus(
     betas,
     claudeAccessMode,
     claudeExecutionMode,
+    codexExecutionMode,
     codexPermissionMode,
     codexReasoningEffort,
     codexFastMode,
@@ -1467,6 +1474,10 @@ function handleSessionStatus(
             claudeExecutionMode !== undefined
               ? normalizeClaudeExecutionMode(claudeExecutionMode)
               : normalizeClaudeExecutionMode(session.claudeExecutionMode),
+          codexExecutionMode:
+            codexExecutionMode !== undefined
+              ? normalizeCodexExecutionMode(codexExecutionMode)
+              : normalizeCodexExecutionMode(session.codexExecutionMode),
           codexPermissionMode:
             codexPermissionMode !== undefined ? codexPermissionMode : session.codexPermissionMode,
           codexReasoningEffort:
@@ -1512,6 +1523,7 @@ function handleSessionStatus(
       betas,
       claudeAccessMode: normalizeClaudeAccessMode(claudeAccessMode),
       claudeExecutionMode: normalizeClaudeExecutionMode(claudeExecutionMode),
+      codexExecutionMode: normalizeCodexExecutionMode(codexExecutionMode),
       codexPermissionMode,
       codexReasoningEffort,
       codexFastMode,

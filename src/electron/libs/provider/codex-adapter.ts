@@ -17,6 +17,7 @@ import type {
   CodexApprovalPermissionInput,
   ContentBlock,
   PermissionResult,
+  PlanStepStatus,
   ProviderComposerCapabilities,
   ProviderListPluginsInput,
   ProviderListPluginsResult,
@@ -129,7 +130,7 @@ const CAPABILITIES: ProviderAdapterCapabilities = {
   imageAttachments: true,
   forkThread: false,
   compactThread: false,
-  planMode: false,
+  planMode: true,
 };
 
 interface ActiveSession {
@@ -404,6 +405,54 @@ export class CodexAdapter implements ProviderAdapter {
         this.emit({ type: 'message', threadId, message });
       }
     });
+
+    this.manager.on('plan_updated', ({ threadId, params }) => {
+      const p = params as Record<string, unknown>;
+      const turnId = typeof p.turnId === 'string' ? p.turnId : '';
+      const rawPlan = Array.isArray(p.plan) ? p.plan : [];
+      const steps = rawPlan.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object') {
+          return [];
+        }
+        const item = entry as Record<string, unknown>;
+        const step = typeof item.step === 'string' ? item.step.trim() : '';
+        if (!step) {
+          return [];
+        }
+        const rawStatus = typeof item.status === 'string' ? item.status : '';
+        const normalizedStatus = rawStatus.replace(/[-_\s]/g, '').toLowerCase();
+        const status: PlanStepStatus =
+          normalizedStatus === 'completed'
+            ? 'completed'
+            : normalizedStatus === 'inprogress'
+              ? 'inProgress'
+              : 'pending';
+        return [{ step, status }];
+      });
+
+      const message: StreamMessage = {
+        type: 'plan_update',
+        uuid: `codex-plan:${threadId}:${turnId || 'active'}`,
+        turnId,
+        explanation: typeof p.explanation === 'string' ? p.explanation : null,
+        steps,
+      };
+      this.emit({ type: 'message', threadId, message });
+    });
+
+    this.manager.on('plan_item_completed', ({ threadId, text, itemId, turnId }) => {
+      const planMarkdown = typeof text === 'string' ? text.trim() : '';
+      if (!planMarkdown) {
+        return;
+      }
+      const message: StreamMessage = {
+        type: 'proposed_plan',
+        uuid: `codex-proposed-plan:${threadId}:${itemId || turnId || uuidv4()}`,
+        planMarkdown,
+        ...(typeof turnId === 'string' && turnId ? { turnId } : {}),
+      };
+      this.emit({ type: 'message', threadId, message });
+    });
   }
 
   private emit(event: ProviderRuntimeEvent): void {
@@ -658,6 +707,7 @@ export class CodexAdapter implements ProviderAdapter {
       input.resumeSessionId,
       {
         model: input.model,
+        codexExecutionMode: input.codexExecutionMode,
         codexPermissionMode: input.codexPermissionMode,
         codexReasoningEffort: input.codexReasoningEffort,
         codexFastMode: input.codexFastMode,
@@ -683,15 +733,19 @@ export class CodexAdapter implements ProviderAdapter {
 
     // Send initial prompt if provided. A Codex skill/plugin-only turn may have
     // an empty text prompt but still needs a structured input item.
-    if (input.prompt || input.codexSkills?.length || input.codexMentions?.length || input.attachments?.length) {
-      await this.sendTurn({
-        threadId: input.threadId,
-        prompt: input.prompt,
-        attachments: input.attachments,
-        model: input.model || model,
-        codexSkills: input.codexSkills,
-        codexMentions: input.codexMentions,
-      });
+	    if (input.prompt || input.codexSkills?.length || input.codexMentions?.length || input.attachments?.length) {
+	      await this.sendTurn({
+	        threadId: input.threadId,
+	        prompt: input.prompt,
+	        attachments: input.attachments,
+	        model: input.model || model,
+	        codexExecutionMode: input.codexExecutionMode,
+	        codexPermissionMode: input.codexPermissionMode,
+	        codexReasoningEffort: input.codexReasoningEffort,
+	        codexFastMode: input.codexFastMode,
+	        codexSkills: input.codexSkills,
+	        codexMentions: input.codexMentions,
+	      });
     }
 
     return {
@@ -743,9 +797,13 @@ export class CodexAdapter implements ProviderAdapter {
       input.codexSkills,
       input.codexMentions,
       {
-        model: input.model,
-      }
-    );
+	        model: input.model,
+	        codexExecutionMode: input.codexExecutionMode,
+	        codexPermissionMode: input.codexPermissionMode,
+	        codexReasoningEffort: input.codexReasoningEffort,
+	        codexFastMode: input.codexFastMode,
+	      }
+	    );
   }
 
   async stopSession(threadId: string): Promise<void> {

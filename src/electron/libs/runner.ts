@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Base64ImageSource, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages';
 import type { RunnerOptions, RunnerHandle, StreamMessage, PermissionResult, Attachment } from '../types';
 import type { ClaudeModelUsage } from '../../shared/types';
-import { getClaudeEnv, getMcpServers } from './claude-settings';
+import { getClaudeEnv, getMcpServers, sanitizeOfficialClaudeEnv } from './claude-settings';
 import { applyCompatibleProviderEnv } from './compatible-provider-config';
 import {
   reconcileClaudeDisplayModel,
@@ -21,6 +21,7 @@ import { shouldExtractMemory, hasMemoryWritesInTurn, extractMemories } from './m
 
 type ClaudeSettingSource = 'user' | 'project' | 'local';
 const CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local'];
+const OFFICIAL_CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['project'];
 
 // Persistent store for memory extraction messages (survives across runClaude calls)
 const _memoryMessageStore = new Map<string, Array<{ role: string; content: string }>>();
@@ -398,7 +399,9 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         currentModel,
         compatibleProviderId || session.compatible_provider_id || null
       );
-      env = providerOverride.env;
+      env = providerOverride.matchedProviderId
+        ? providerOverride.env
+        : sanitizeOfficialClaudeEnv(providerOverride.env);
       compatibleProviderMatched = Boolean(providerOverride.matchedProviderId);
       currentModel = providerOverride.forcedModel || currentModel;
       currentRuntimeModel = compatibleProviderMatched
@@ -453,7 +456,9 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           executable: executable as unknown as 'node',
           executableArgs,
           pathToClaudeCodeExecutable,
-          settingSources: CLAUDE_SETTING_SOURCES,
+          settingSources: compatibleProviderMatched
+            ? CLAUDE_SETTING_SOURCES
+            : OFFICIAL_CLAUDE_SETTING_SOURCES,
           mcpServers: {
             ...getMcpServers(session.cwd ?? undefined),
             'aegis-memory': aegisMemoryMcp,

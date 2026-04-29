@@ -17,6 +17,7 @@ import type {
   Attachment,
   PermissionResult,
   CodexPermissionMode,
+  CodexExecutionMode,
   CodexReasoningEffort,
   OpenCodePermissionMode,
   ClaudeAccessMode,
@@ -67,6 +68,7 @@ export interface ProviderSessionStartInput {
   resumeSessionId?: string;
 
   // Provider-specific config
+  codexExecutionMode?: CodexExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
@@ -84,6 +86,10 @@ export interface ProviderSendTurnInput {
   prompt: string;
   attachments?: Attachment[];
   model?: string;
+  codexExecutionMode?: CodexExecutionMode;
+  codexPermissionMode?: CodexPermissionMode;
+  codexReasoningEffort?: CodexReasoningEffort;
+  codexFastMode?: boolean;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
 }

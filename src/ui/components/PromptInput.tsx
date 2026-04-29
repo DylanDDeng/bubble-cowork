@@ -8,6 +8,7 @@ import type {
   ClaudeAccessMode,
   ClaudeExecutionMode,
   ClaudeCompatibleProviderId,
+  CodexExecutionMode,
   CodexPermissionMode,
   CodexReasoningEffort,
   OpenCodePermissionMode,
@@ -15,10 +16,10 @@ import type {
 import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
-import { ClaudeExecutionModePicker } from './ClaudeExecutionModePicker';
 import { CodexFastModeToggle } from './CodexFastModeToggle';
 import { CodexReasoningEffortPicker } from './CodexReasoningEffortPicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
+import { PlanModeBadge, PlanModeMenuItem } from './PlanModeControls';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
@@ -51,6 +52,7 @@ import {
   resolveCodexModel,
   savePreferredCodexModel,
 } from '../utils/codex-model';
+import { loadPreferredCodexExecutionMode, savePreferredCodexExecutionMode } from '../utils/codex-execution';
 import { loadPreferredCodexPermissionMode, savePreferredCodexPermissionMode } from '../utils/codex-permission';
 import {
   getCodexReasoningOptions,
@@ -128,6 +130,9 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   );
   const [selectedClaudeAccessMode, setSelectedClaudeAccessMode] = useState<ClaudeAccessMode>('default');
   const [selectedClaudeExecutionMode, setSelectedClaudeExecutionMode] = useState<ClaudeExecutionMode>('execute');
+  const [selectedCodexExecutionMode, setSelectedCodexExecutionMode] = useState<CodexExecutionMode>(
+    loadPreferredCodexExecutionMode()
+  );
   const [selectedCodexPermissionMode, setSelectedCodexPermissionMode] = useState<CodexPermissionMode>(
     loadPreferredCodexPermissionMode()
   );
@@ -218,6 +223,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
             : undefined,
         claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
         claudeExecutionMode: provider === 'claude' ? selectedClaudeExecutionMode : undefined,
+        codexExecutionMode: provider === 'codex' ? selectedCodexExecutionMode : undefined,
         codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
         codexReasoningEffort:
           provider === 'codex' ? selectedCodexReasoningEffort : undefined,
@@ -313,6 +319,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
 
   useEffect(() => {
     if (activeSession?.provider === 'codex') {
+      setSelectedCodexExecutionMode(activeSession.codexExecutionMode || 'execute');
       setSelectedCodexPermissionMode(activeSession.codexPermissionMode || 'defaultPermissions');
       setSelectedCodexReasoningEffort(
         activeSession.codexReasoningEffort ||
@@ -326,9 +333,11 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     }
 
     if (!targetSessionId) {
+      setSelectedCodexExecutionMode(loadPreferredCodexExecutionMode());
       setSelectedCodexPermissionMode(loadPreferredCodexPermissionMode());
     }
   }, [
+    activeSession?.codexExecutionMode,
     activeSession?.codexPermissionMode,
     activeSession?.codexReasoningEffort,
     activeSession?.codexFastMode,
@@ -662,6 +671,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
               : undefined,
           claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
           claudeExecutionMode: provider === 'claude' ? selectedClaudeExecutionMode : undefined,
+          codexExecutionMode: provider === 'codex' ? selectedCodexExecutionMode : undefined,
           codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
           codexReasoningEffort:
             provider === 'codex' ? selectedCodexReasoningEffort : undefined,
@@ -703,6 +713,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
               : undefined,
           claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
           claudeExecutionMode: provider === 'claude' ? selectedClaudeExecutionMode : undefined,
+          codexExecutionMode: provider === 'codex' ? selectedCodexExecutionMode : undefined,
           codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
           codexReasoningEffort:
             provider === 'codex' ? selectedCodexReasoningEffort : undefined,
@@ -1070,6 +1081,23 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                 </div>
               )}
 
+              {provider === 'claude' && selectedClaudeExecutionMode === 'plan' ? (
+                <PlanModeBadge
+                  onDisable={() => setSelectedClaudeExecutionMode('execute')}
+                  disabled={isBusy}
+                />
+              ) : null}
+
+              {provider === 'codex' && selectedCodexExecutionMode === 'plan' ? (
+                <PlanModeBadge
+                  onDisable={() => {
+                    setSelectedCodexExecutionMode('execute');
+                    savePreferredCodexExecutionMode('execute');
+                  }}
+                  disabled={isBusy}
+                />
+              ) : null}
+
               <SavePromptButton content={promptLibraryContent} disabled={isBusy} />
 
               <div className="relative">
@@ -1102,6 +1130,29 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                           <span>Add files or photos</span>
                         </span>
                       </button>
+                      {provider === 'claude' || provider === 'codex' ? (
+                        <>
+                          <div className="my-1 h-px bg-[var(--border)]/70" />
+                          <PlanModeMenuItem
+                            providerLabel={provider === 'codex' ? 'Codex' : 'Claude'}
+                            active={
+                              provider === 'codex'
+                                ? selectedCodexExecutionMode === 'plan'
+                                : selectedClaudeExecutionMode === 'plan'
+                            }
+                            onChange={(active) => {
+                              if (provider === 'codex') {
+                                const nextMode = active ? 'plan' : 'execute';
+                                setSelectedCodexExecutionMode(nextMode);
+                                savePreferredCodexExecutionMode(nextMode);
+                              } else {
+                                setSelectedClaudeExecutionMode(active ? 'plan' : 'execute');
+                              }
+                              setMenuOpen(false);
+                            }}
+                          />
+                        </>
+                      ) : null}
                     </div>
                   </>
                 )}
@@ -1137,11 +1188,6 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           <div className="flex items-center justify-start px-4 pt-2 text-[12px]">
             {provider === 'claude' ? (
               <div className="flex items-center gap-4">
-                <ClaudeExecutionModePicker
-                  value={selectedClaudeExecutionMode}
-                  onChange={setSelectedClaudeExecutionMode}
-                  disabled={isBusy}
-                />
                 <ClaudeAccessModePicker
                   value={selectedClaudeAccessMode}
                   onChange={setSelectedClaudeAccessMode}
@@ -1149,14 +1195,16 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                 />
               </div>
             ) : provider === 'codex' ? (
-              <CodexPermissionModePicker
-                value={selectedCodexPermissionMode}
-                onChange={(mode) => {
-                  setSelectedCodexPermissionMode(mode);
-                  savePreferredCodexPermissionMode(mode);
-                }}
-                disabled={isBusy}
-              />
+              <div className="flex items-center gap-4">
+                <CodexPermissionModePicker
+                  value={selectedCodexPermissionMode}
+                  onChange={(mode) => {
+                    setSelectedCodexPermissionMode(mode);
+                    savePreferredCodexPermissionMode(mode);
+                  }}
+                  disabled={isBusy}
+                />
+              </div>
             ) : (
               <CodexPermissionModePicker
                 value={selectedOpencodePermissionMode}

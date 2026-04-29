@@ -32,6 +32,7 @@ export interface SessionRow {
   betas: string | null;
   claude_access_mode: import('../shared/types').ClaudeAccessMode | null;
   claude_execution_mode: import('../shared/types').ClaudeExecutionMode | null;
+  codex_execution_mode: import('../shared/types').CodexExecutionMode | null;
   codex_permission_mode: import('../shared/types').CodexPermissionMode | null;
   codex_reasoning_effort: import('../shared/types').CodexReasoningEffort | null;
   codex_fast_mode: number | null;
@@ -97,6 +98,7 @@ export interface RunnerOptions {
   betas?: string[];
   claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
   claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode;
+  codexExecutionMode?: import('../shared/types').CodexExecutionMode;
   codexPermissionMode?: import('../shared/types').CodexPermissionMode;
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
   codexFastMode?: boolean;
@@ -118,14 +120,20 @@ export interface RunnerOptions {
 
 export interface RunnerHandle {
   abort: () => void;
-  send: (
-    prompt: string,
-    attachments?: import('../shared/types').Attachment[],
-    model?: string,
-    codexSkills?: import('../shared/types').ProviderInputReference[],
-    codexMentions?: import('../shared/types').ProviderInputReference[]
-  ) => void;
-}
+	  send: (
+	    prompt: string,
+	    attachments?: import('../shared/types').Attachment[],
+	    model?: string,
+	    codexSkills?: import('../shared/types').ProviderInputReference[],
+	    codexMentions?: import('../shared/types').ProviderInputReference[],
+	    options?: {
+	      codexExecutionMode?: import('../shared/types').CodexExecutionMode;
+	      codexPermissionMode?: import('../shared/types').CodexPermissionMode;
+	      codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
+	      codexFastMode?: boolean;
+	    }
+	  ) => void;
+	}
 
 // 内部会话状态
 export interface SessionState {
