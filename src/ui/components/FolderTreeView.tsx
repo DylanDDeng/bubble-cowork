@@ -40,7 +40,9 @@ interface ProjectTreeViewProps {
   onSessionClick: (sessionId: string, options?: { preserveSplit?: boolean }) => void;
   onSessionDelete: (sessionId: string) => void;
   onCopyResume: (session: SessionView) => void;
+  onSelectProjectFolder: () => void;
   onNewSessionForProject: (cwd: string) => void;
+  projectCwd: string | null;
 }
 
 function ProviderGlyph({ provider }: { provider?: AgentProvider }) {
@@ -73,7 +75,9 @@ export function FolderTreeView({
   onSessionClick,
   onSessionDelete,
   onCopyResume,
+  onSelectProjectFolder,
   onNewSessionForProject,
+  projectCwd,
 }: ProjectTreeViewProps) {
   const {
     sessions,
@@ -107,7 +111,7 @@ export function FolderTreeView({
     return { primary, secondary };
   }, [savedSplitVisible, chatPanes.primary.sessionId, chatPanes.secondary.sessionId, sessions]);
 
-  const projectGroups = useMemo(() => {
+  const { pinnedSessions, projectGroups } = useMemo(() => {
     let sessionList = Object.values(sessions).filter(
       (session) => !session.hiddenFromThreads && session.source !== 'claude_code'
     );
@@ -126,9 +130,13 @@ export function FolderTreeView({
       );
     }
 
+    const pinnedSessions = sessionList
+      .filter((session) => session.pinned)
+      .sort((left, right) => right.updatedAt - left.updatedAt);
+    const regularSessions = sessionList.filter((session) => !session.pinned);
     const grouped = new Map<string, ProjectGroup>();
 
-    for (const session of sessionList) {
+    for (const session of regularSessions) {
       const fullPath = session.cwd?.trim() || null;
       const key = fullPath || '__no_project__';
 
@@ -148,7 +156,7 @@ export function FolderTreeView({
       grouped.get(key)!.sessions.push(session);
     }
 
-    return Array.from(grouped.values())
+    const projectGroups = Array.from(grouped.values())
       .map((group) => ({
         ...group,
         sessions: group.sessions.sort((left, right) => right.updatedAt - left.updatedAt),
@@ -158,6 +166,8 @@ export function FolderTreeView({
         const rightLatest = right.sessions[0]?.updatedAt || 0;
         return rightLatest - leftLatest;
       });
+
+    return { pinnedSessions, projectGroups };
   }, [sessions, sidebarSearchQuery, splitPair]);
 
   const isExpanded = (key: string) => !collapsedGroups.has(key);
@@ -176,6 +186,54 @@ export function FolderTreeView({
 
   return (
     <div>
+      {pinnedSessions.length > 0 && (
+        <section className="mb-4">
+          <div className="mb-1 px-2 text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">
+            Pinned
+          </div>
+          {pinnedSessions.map((session) => {
+            const isSessionActive = activeSessionId === session.id;
+
+            return (
+              <SessionItem
+                key={`pinned:${session.id}`}
+                session={session}
+                isActive={isSessionActive}
+                runtimeBadge={
+                  session.runtimeNotice
+                    ? session.runtimeNotice
+                    : !isSessionActive && session.status === 'running'
+                      ? 'running'
+                      : null
+                }
+                depth={0}
+                onClick={() => onSessionClick(session.id)}
+                onDelete={() => onSessionDelete(session.id)}
+                onCopyResume={() => onCopyResume(session)}
+                onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
+              />
+            );
+          })}
+        </section>
+      )}
+
+      <div className="mb-2 flex items-center justify-between gap-2 px-1">
+        <div className="rounded-md px-1 text-[13px] text-[var(--text-primary)] transition-colors">
+          Projects
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            void onSelectProjectFolder();
+          }}
+          className="flex h-7 w-7 items-center justify-center rounded-lg no-drag text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+          aria-label={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
+          title={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
+        >
+          <FolderOpen className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
       {projectGroups.map((group) => {
         const expanded = isExpanded(group.key);
         return (
@@ -256,7 +314,7 @@ export function FolderTreeView({
         );
       })}
 
-      {projectGroups.length === 0 && (
+      {projectGroups.length === 0 && pinnedSessions.length === 0 && (
         <div className="text-center text-[var(--text-muted)] py-8 text-[13px]">
           {sidebarSearchQuery ? 'No matching sessions' : 'No sessions yet'}
         </div>
@@ -285,10 +343,11 @@ function SessionItem({
   onTogglePin: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const hasMenuActions = !!session.claudeSessionId || session.readOnly !== true;
 
   return (
     <div
-      className={`group relative cursor-pointer rounded-lg px-3 py-1.5 transition-colors duration-150 ${
+      className={`group/session relative cursor-pointer rounded-lg py-1.5 pl-8 pr-3 transition-colors duration-150 ${
         isActive
           ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]'
           : menuOpen
@@ -307,12 +366,24 @@ function SessionItem({
       }}
       onClick={onClick}
     >
+      <button
+        type="button"
+        draggable={false}
+        onClick={(event) => {
+          event.stopPropagation();
+          onTogglePin();
+        }}
+        className={`absolute left-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md opacity-0 transition-all duration-150 hover:text-[var(--text-primary)] focus:opacity-100 group-hover/session:opacity-100 ${
+          session.pinned ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'
+        }`}
+        aria-label={session.pinned ? 'Unpin conversation' : 'Pin conversation'}
+        aria-pressed={session.pinned}
+        title={session.pinned ? 'Unpin conversation' : 'Pin conversation'}
+      >
+        <Pin className="h-3.5 w-3.5" fill={session.pinned ? 'currentColor' : 'none'} />
+      </button>
+
       <div className="flex min-h-[22px] items-center gap-2 pr-8">
-        {session.pinned && (
-          <span className="flex-shrink-0 text-[var(--text-muted)]">
-            <Pin className="w-3.5 h-3.5" />
-          </span>
-        )}
         <span className="flex-1 truncate text-[13px] font-medium leading-[1.3]">{session.title}</span>
         {session.source === 'claude_code' && (
           <span className="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--text-secondary)]">
@@ -343,54 +414,49 @@ function SessionItem({
         )}
       </div>
 
-      <DropdownMenu.Root open={menuOpen} onOpenChange={setMenuOpen}>
-        <DropdownMenu.Trigger asChild>
-          <button
-            className={`absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md transition-all duration-150 hover:bg-[var(--bg-tertiary)] ${
-              menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-            }`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <MoreVertical className="w-4 h-4" />
-          </button>
-        </DropdownMenu.Trigger>
-
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            className="popover-surface z-50 min-w-[160px] p-1.5"
-            sideOffset={5}
-          >
-            <DropdownMenu.Item
-              className="flex items-center gap-2 px-3 py-2 text-[13px] rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150"
-              onClick={onTogglePin}
+      {hasMenuActions && (
+        <DropdownMenu.Root open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenu.Trigger asChild>
+            <button
+              className={`absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md transition-all duration-150 hover:bg-[var(--bg-tertiary)] ${
+                menuOpen ? 'opacity-100' : 'opacity-0 group-hover/session:opacity-100'
+              }`}
+              onClick={(e) => e.stopPropagation()}
             >
-              <Pin className="w-3.5 h-3.5" />
-              {session.pinned ? 'Unpin' : 'Pin to Top'}
-            </DropdownMenu.Item>
-            {(session.claudeSessionId || session.readOnly !== true) && (
-              <DropdownMenu.Separator className="h-px bg-[var(--border)] my-1" />
-            )}
-            {session.claudeSessionId && (
-              <DropdownMenu.Item
-                className="flex items-center gap-2 px-3 py-2 text-[13px] rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150"
-                onClick={onCopyResume}
-              >
-                <Copy className="w-3.5 h-3.5" />
-                Copy Resume Command
-              </DropdownMenu.Item>
-            )}
-            {session.readOnly !== true && (
-              <DropdownMenu.Item
-                className="flex items-center gap-2 px-3 py-2 text-[13px] rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150 text-red-400"
-                onClick={onDelete}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Delete
-              </DropdownMenu.Item>
-            )}
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
+              <MoreVertical className="w-4 h-4" />
+            </button>
+          </DropdownMenu.Trigger>
+
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              className="popover-surface z-50 min-w-[160px] p-1.5"
+              sideOffset={5}
+            >
+              {session.claudeSessionId && (
+                <DropdownMenu.Item
+                  className="flex items-center gap-2 px-3 py-2 text-[13px] rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150"
+                  onClick={onCopyResume}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  Copy Resume Command
+                </DropdownMenu.Item>
+              )}
+              {session.claudeSessionId && session.readOnly !== true && (
+                <DropdownMenu.Separator className="h-px bg-[var(--border)] my-1" />
+              )}
+              {session.readOnly !== true && (
+                <DropdownMenu.Item
+                  className="flex items-center gap-2 px-3 py-2 text-[13px] rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150 text-red-400"
+                  onClick={onDelete}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete
+                </DropdownMenu.Item>
+              )}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      )}
     </div>
   );
 }

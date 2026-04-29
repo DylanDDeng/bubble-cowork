@@ -3,7 +3,6 @@ import * as Dialog from '@radix-ui/react-dialog';
 import {
   Bookmark,
   Boxes,
-  FolderOpen,
   Search,
   Settings,
   SquarePen,
@@ -437,36 +436,7 @@ export function Sidebar() {
                 <SidebarSkillLibraryPanel onShowProjects={() => activateSidebarView('threads')} />
               ) : (
                 <div className="flex min-h-0 flex-1 flex-col">
-                  <div className="px-2 pb-2 pt-4">
-                    <div className="flex items-center justify-between gap-2 px-1">
-                      <button
-                        type="button"
-                        onClick={() => activateSidebarView('threads')}
-                        className={`rounded-md px-1 text-[13px] transition-colors ${
-                          activeWorkspace === 'chat' && chatSidebarView === 'threads'
-                            ? 'text-[var(--text-primary)]'
-                            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-                        }`}
-                      >
-                        Projects
-                      </button>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void handleProjectFolderSelect();
-                          }}
-                          className="flex h-7 w-7 items-center justify-center rounded-lg no-drag text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                          aria-label={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
-                          title={projectCwd ? `Project folder: ${projectCwd}` : 'Select project folder'}
-                        >
-                          <FolderOpen className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto px-2 pt-2">
+                  <div className="flex-1 overflow-y-auto px-2 pt-4">
                     <FolderTreeView
                       onSessionClick={(sessionId, options) => {
                         setShowSettings(false);
@@ -478,6 +448,8 @@ export function Sidebar() {
                       }}
                       onSessionDelete={handleDelete}
                       onCopyResume={handleResumeCommand}
+                      onSelectProjectFolder={handleProjectFolderSelect}
+                      projectCwd={projectCwd}
                       onNewSessionForProject={(nextCwd) => {
                         setProjectCwd(nextCwd);
                         setShowSettings(false);
