@@ -111,7 +111,7 @@ export interface SessionStreamingState {
 }
 
 export type ActiveWorkspace = 'chat' | 'skills' | 'prompts';
-export type ChatSidebarView = 'threads';
+export type ChatSidebarView = 'threads' | 'prompts' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
 
 // UI 会话视图状态

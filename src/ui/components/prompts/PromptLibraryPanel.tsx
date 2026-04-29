@@ -3,6 +3,7 @@ import {
   Bookmark,
   Copy,
   Download,
+  FolderOpen,
   Pencil,
   Plus,
   Search,
@@ -69,7 +70,7 @@ function matchesPrompt(item: PromptLibraryItem, query: string, selectedTags: str
   return selectedTags.every((tag) => item.tags.includes(tag));
 }
 
-export function PromptLibraryPanel() {
+export function PromptLibraryPanel({ onShowProjects }: { onShowProjects?: () => void }) {
   const { requestPromptLibraryInsert } = useAppStore();
   const [items, setItems] = useState<PromptLibraryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -159,6 +160,19 @@ export function PromptLibraryPanel() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col px-3 pb-3">
+      {onShowProjects ? (
+        <div className="px-1 pt-3">
+          <button
+            type="button"
+            onClick={onShowProjects}
+            className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+          >
+            <FolderOpen className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+            <span className="text-[13px] font-medium">Projects</span>
+          </button>
+        </div>
+      ) : null}
+
       <div className="flex items-center justify-between gap-2 px-1 pb-3 pt-4">
         <div className="text-base font-semibold text-[var(--text-primary)]">Prompt Library</div>
 

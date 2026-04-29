@@ -1241,19 +1241,23 @@ export const useAppStore = create<Store>()(
           uiFontFamily,
           chatCodeFontFamily,
         });
+        const sidebarView =
+          persisted?.chatSidebarView === 'prompts' ||
+          persisted?.activeWorkspace === 'prompts'
+            ? 'prompts'
+            : persisted?.chatSidebarView === 'skills' ||
+                persisted?.activeWorkspace === 'skills'
+              ? 'skills'
+              : 'threads';
+
         return {
           ...currentState,
           sessions: {
             ...currentState.sessions,
             ...draftSessions,
           },
-          activeWorkspace:
-            persisted?.activeWorkspace === 'skills'
-              ? 'skills'
-              : persisted?.activeWorkspace === 'prompts'
-                ? 'prompts'
-                : 'chat',
-          chatSidebarView: persisted?.chatSidebarView === 'threads' ? 'threads' : 'threads',
+          activeWorkspace: 'chat',
+          chatSidebarView: sidebarView,
           chatLayoutMode,
           savedSplitVisible,
           activePaneId,

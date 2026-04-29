@@ -22,6 +22,22 @@ type SplitPairState = {
   secondary: SessionView;
 };
 
+function formatSidebarTime(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 60) return 'now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo`;
+  return `${Math.floor(months / 12)}y`;
+}
+
 interface ProjectTreeViewProps {
   onSessionClick: (sessionId: string, options?: { preserveSplit?: boolean }) => void;
   onSessionDelete: (sessionId: string) => void;
@@ -179,24 +195,23 @@ export function FolderTreeView({
       {projectGroups.map((group) => {
         const expanded = isExpanded(group.key);
         return (
-          <div key={group.key}>
-            <div className="group flex items-center gap-1 px-1">
+          <div key={group.key} className="mb-3">
+            <div className="group/project flex items-center gap-1 px-1">
               <button
                 type="button"
-                className="flex min-w-0 flex-1 select-none items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]"
+                className="flex min-w-0 flex-1 select-none items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
                 onClick={() => toggleGroupExpanded(group.key)}
                 title={group.fullPath || 'Sessions without a project folder'}
                 aria-expanded={expanded}
               >
                 {expanded ? <FolderOpen className="w-3.5 h-3.5" /> : <FolderClosed className="w-3.5 h-3.5" />}
                 <span className="text-[13px] font-medium truncate flex-1">{group.label}</span>
-                <span className="text-xs text-[var(--text-muted)]">{group.sessions.length}</span>
               </button>
 
               {group.fullPath && (
                 <button
                   type="button"
-                  className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-100 transition-all duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-0 transition-all duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] group-hover/project:opacity-100"
                   title={`Start a new thread in ${group.label}`}
                   aria-label={`Start a new thread in ${group.label}`}
                   onClick={(event) => {
@@ -295,7 +310,7 @@ function SessionItem({
 
   return (
     <div
-      className={`group relative cursor-pointer rounded-md px-3 py-1.5 transition-colors duration-150 ${
+      className={`group relative cursor-pointer rounded-lg px-3 py-1.5 transition-colors duration-150 ${
         isActive
           ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]'
           : menuOpen
@@ -304,7 +319,7 @@ function SessionItem({
       }`}
       style={{
         marginLeft: `${depth * 16}px`,
-        marginBottom: '4px',
+        marginBottom: '3px',
       }}
       draggable
       onDragStart={(event) => {
@@ -314,10 +329,7 @@ function SessionItem({
       }}
       onClick={onClick}
     >
-      <div className="flex items-center gap-2 pr-8 min-h-[20px]">
-        <span className="flex-shrink-0 text-[var(--text-muted)]">
-          <ProviderGlyph provider={session.provider} />
-        </span>
+      <div className="flex min-h-[22px] items-center gap-2 pr-8">
         {currentStatusConfig && <StatusIcon status={currentStatusConfig} className="flex-shrink-0" />}
         {session.pinned && (
           <span className="flex-shrink-0 text-[var(--text-muted)]">
@@ -330,6 +342,9 @@ function SessionItem({
             Claude Code
           </span>
         )}
+        <span className="flex-shrink-0 text-[12px] text-[var(--text-muted)]">
+          {formatSidebarTime(session.updatedAt)}
+        </span>
         {runtimeBadge && (
           <span
             className={`status-dot ${runtimeBadge} flex-shrink-0`}
