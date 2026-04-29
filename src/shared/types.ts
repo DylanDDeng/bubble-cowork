@@ -101,9 +101,15 @@ export interface ClaudeModelConfig {
 
 export type ClaudeAccessMode = 'default' | 'fullAccess';
 export type ClaudeExecutionMode = 'execute' | 'plan';
+export type ClaudeReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type CodexPermissionMode = 'defaultPermissions' | 'fullAccess';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'fullAccess';
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
+
+export interface ClaudeReasoningLevelOption {
+  effort: ClaudeReasoningEffort;
+  description: string;
+}
 
 export interface CodexReasoningLevelOption {
   effort: CodexReasoningEffort;
@@ -540,6 +546,7 @@ export interface SessionStartPayload {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   claudeExecutionMode?: ClaudeExecutionMode;
+  claudeReasoningEffort?: ClaudeReasoningEffort;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
@@ -560,6 +567,7 @@ export interface SessionContinuePayload {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   claudeExecutionMode?: ClaudeExecutionMode;
+  claudeReasoningEffort?: ClaudeReasoningEffort;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
@@ -582,6 +590,7 @@ export interface SessionInfo {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   claudeExecutionMode?: ClaudeExecutionMode;
+  claudeReasoningEffort?: ClaudeReasoningEffort;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
@@ -610,6 +619,7 @@ export interface SessionStatusPayload {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   claudeExecutionMode?: ClaudeExecutionMode;
+  claudeReasoningEffort?: ClaudeReasoningEffort;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;

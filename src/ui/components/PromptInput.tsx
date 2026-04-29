@@ -7,6 +7,7 @@ import type {
   Attachment,
   ClaudeAccessMode,
   ClaudeExecutionMode,
+  ClaudeReasoningEffort,
   ClaudeCompatibleProviderId,
   CodexPermissionMode,
   CodexReasoningEffort,
@@ -16,8 +17,7 @@ import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
 import { ClaudeExecutionModePicker } from './ClaudeExecutionModePicker';
-import { CodexFastModeToggle } from './CodexFastModeToggle';
-import { CodexReasoningEffortPicker } from './CodexReasoningEffortPicker';
+import { ReasoningTraitsPicker } from './ReasoningTraitsPicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
@@ -44,6 +44,11 @@ import {
   savePreferredClaudeModel,
   supportsClaude1mContext,
 } from '../utils/claude-model';
+import {
+  getClaudeReasoningOptions,
+  getDefaultClaudeReasoningEffort,
+  savePreferredClaudeReasoningEffort,
+} from '../utils/claude-reasoning';
 import {
   buildCodexModelOptions,
   formatCodexModelLabel,
@@ -128,6 +133,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   );
   const [selectedClaudeAccessMode, setSelectedClaudeAccessMode] = useState<ClaudeAccessMode>('default');
   const [selectedClaudeExecutionMode, setSelectedClaudeExecutionMode] = useState<ClaudeExecutionMode>('execute');
+  const [selectedClaudeReasoningEffort, setSelectedClaudeReasoningEffort] =
+    useState<ClaudeReasoningEffort>('high');
   const [selectedCodexPermissionMode, setSelectedCodexPermissionMode] = useState<CodexPermissionMode>(
     loadPreferredCodexPermissionMode()
   );
@@ -154,6 +161,17 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       ),
     [claudeModelConfig, compatibleOptions]
   );
+  const resolvedSelectedClaudeModel = useMemo(
+    () => selectedClaudeModel || claudeModelConfig.defaultModel || availableClaudeModels[0] || null,
+    [availableClaudeModels, claudeModelConfig.defaultModel, selectedClaudeModel]
+  );
+  const claudeReasoningOptions = useMemo(
+    () =>
+      selectedClaudeCompatibleProviderId
+        ? []
+        : getClaudeReasoningOptions(resolvedSelectedClaudeModel),
+    [resolvedSelectedClaudeModel, selectedClaudeCompatibleProviderId]
+  );
   const codexModelConfig = useCodexModelConfig();
   const codexModelOptions = useMemo(
     () => buildCodexModelOptions(codexModelConfig),
@@ -167,6 +185,15 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     () => getCodexReasoningOptions(codexModelConfig, resolvedSelectedCodexModel),
     [codexModelConfig, resolvedSelectedCodexModel]
   );
+  const codexDefaultReasoningEffort = useMemo(() => {
+    const matched = codexModelConfig.availableModels.find((entry) => entry.name === resolvedSelectedCodexModel);
+    return (
+      matched?.defaultReasoningEffort ||
+      codexModelConfig.defaultReasoningEffort ||
+      codexReasoningOptions[0]?.effort ||
+      'medium'
+    );
+  }, [codexModelConfig, codexReasoningOptions, resolvedSelectedCodexModel]);
   const codexFastModeSupported = useMemo(
     () => supportsCodexFastMode(codexModelConfig, resolvedSelectedCodexModel),
     [codexModelConfig, resolvedSelectedCodexModel]
@@ -218,6 +245,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
             : undefined,
         claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
         claudeExecutionMode: provider === 'claude' ? selectedClaudeExecutionMode : undefined,
+        claudeReasoningEffort: provider === 'claude' ? selectedClaudeReasoningEffort : undefined,
         codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
         codexReasoningEffort:
           provider === 'codex' ? selectedCodexReasoningEffort : undefined,
@@ -302,14 +330,27 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     if (activeSession?.provider === 'claude') {
       setSelectedClaudeAccessMode(activeSession.claudeAccessMode || 'default');
       setSelectedClaudeExecutionMode(activeSession.claudeExecutionMode || 'execute');
+      setSelectedClaudeReasoningEffort(
+        activeSession.claudeReasoningEffort ||
+        getDefaultClaudeReasoningEffort(activeSession.model || resolvedSelectedClaudeModel)
+      );
       return;
     }
 
     if (!targetSessionId) {
       setSelectedClaudeAccessMode('default');
       setSelectedClaudeExecutionMode('execute');
+      setSelectedClaudeReasoningEffort(getDefaultClaudeReasoningEffort(resolvedSelectedClaudeModel));
     }
-  }, [activeSession?.claudeAccessMode, activeSession?.claudeExecutionMode, activeSession?.provider, targetSessionId]);
+  }, [
+    activeSession?.claudeAccessMode,
+    activeSession?.claudeExecutionMode,
+    activeSession?.claudeReasoningEffort,
+    activeSession?.model,
+    activeSession?.provider,
+    resolvedSelectedClaudeModel,
+    targetSessionId,
+  ]);
 
   useEffect(() => {
     if (activeSession?.provider === 'codex') {
@@ -391,6 +432,28 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       savePreferredClaudeModel(fallbackModel);
     }
   }, [availableClaudeModels, claudeModelConfig.defaultModel, provider, selectedClaudeModel]);
+
+  useEffect(() => {
+    if (provider !== 'claude') {
+      return;
+    }
+
+    if (claudeReasoningOptions.some((option) => option.effort === selectedClaudeReasoningEffort)) {
+      return;
+    }
+
+    const nextEffort = getDefaultClaudeReasoningEffort(resolvedSelectedClaudeModel);
+    setSelectedClaudeReasoningEffort(
+      claudeReasoningOptions.some((option) => option.effort === nextEffort)
+        ? nextEffort
+        : 'high'
+    );
+  }, [
+    claudeReasoningOptions,
+    provider,
+    resolvedSelectedClaudeModel,
+    selectedClaudeReasoningEffort,
+  ]);
 
   useEffect(() => {
     if (!selectedClaudeModel) {
@@ -662,6 +725,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
               : undefined,
           claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
           claudeExecutionMode: provider === 'claude' ? selectedClaudeExecutionMode : undefined,
+          claudeReasoningEffort: provider === 'claude' ? selectedClaudeReasoningEffort : undefined,
           codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
           codexReasoningEffort:
             provider === 'codex' ? selectedCodexReasoningEffort : undefined,
@@ -703,6 +767,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
               : undefined,
           claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
           claudeExecutionMode: provider === 'claude' ? selectedClaudeExecutionMode : undefined,
+          claudeReasoningEffort: provider === 'claude' ? selectedClaudeReasoningEffort : undefined,
           codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
           codexReasoningEffort:
             provider === 'codex' ? selectedCodexReasoningEffort : undefined,
@@ -1046,28 +1111,41 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
               }}
             />
 
-              {provider === 'codex' && (
-                <div className="flex items-center gap-3">
-                <CodexReasoningEffortPicker
-                  value={selectedCodexReasoningEffort}
-                  options={codexReasoningOptions}
-                  onChange={(effort) => {
-                    setSelectedCodexReasoningEffort(effort);
-                    savePreferredCodexReasoningEffort(selectedCodexModel, effort);
+              {provider === 'claude' && (
+                <ReasoningTraitsPicker
+                  value={selectedClaudeReasoningEffort}
+                  options={claudeReasoningOptions}
+                  defaultEffort="high"
+                  onEffortChange={(effort) => {
+                    setSelectedClaudeReasoningEffort(effort);
+                    savePreferredClaudeReasoningEffort(resolvedSelectedClaudeModel, effort);
                   }}
                   disabled={isBusy}
                 />
-                {codexFastModeSupported && (
-                  <CodexFastModeToggle
-                    enabled={selectedCodexFastMode}
-                      onToggle={(enabled) => {
-                        setSelectedCodexFastMode(enabled);
-                        savePreferredCodexFastMode(codexModelConfig, selectedCodexModel, enabled);
-                      }}
-                    disabled={isBusy}
-                  />
-                )}
-                </div>
+              )}
+
+              {provider === 'codex' && (
+                <ReasoningTraitsPicker
+                  value={selectedCodexReasoningEffort}
+                  options={codexReasoningOptions}
+                  defaultEffort={codexDefaultReasoningEffort}
+                  onEffortChange={(effort) => {
+                    setSelectedCodexReasoningEffort(effort);
+                    savePreferredCodexReasoningEffort(resolvedSelectedCodexModel, effort);
+                  }}
+                  fastMode={
+                    codexFastModeSupported
+                      ? {
+                          enabled: selectedCodexFastMode,
+                          onToggle: (enabled) => {
+                            setSelectedCodexFastMode(enabled);
+                            savePreferredCodexFastMode(codexModelConfig, resolvedSelectedCodexModel, enabled);
+                          },
+                        }
+                      : undefined
+                  }
+                  disabled={isBusy}
+                />
               )}
 
               <SavePromptButton content={promptLibraryContent} disabled={isBusy} />

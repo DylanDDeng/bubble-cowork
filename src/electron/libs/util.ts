@@ -1,4 +1,4 @@
-import type { AgentProvider, ClaudeCompatibleProviderId } from '../../shared/types';
+import type { AgentProvider, ClaudeCompatibleProviderId, ClaudeReasoningEffort } from '../../shared/types';
 import { getClaudeEnv } from './claude-settings';
 import { applyCompatibleProviderEnv } from './compatible-provider-config';
 import {
@@ -9,6 +9,7 @@ import { getClaudeCodeRuntime } from './claude-runtime';
 
 type ClaudeSettingSource = 'user' | 'project' | 'local';
 const CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local'];
+const DEFAULT_CLAUDE_REASONING_EFFORT: ClaudeReasoningEffort = 'high';
 type ClaudeAgentSdkModule = typeof import('@anthropic-ai/claude-agent-sdk');
 
 async function loadClaudeAgentSdk(): Promise<ClaudeAgentSdkModule> {
@@ -30,6 +31,61 @@ interface SDKMessage {
   };
 }
 
+function normalizeClaudeReasoningEffort(
+  value?: string | null
+): ClaudeReasoningEffort {
+  switch ((value || '').trim().toLowerCase()) {
+    case 'low':
+    case 'medium':
+    case 'high':
+    case 'xhigh':
+    case 'max':
+      return value!.trim().toLowerCase() as ClaudeReasoningEffort;
+    default:
+      return DEFAULT_CLAUDE_REASONING_EFFORT;
+  }
+}
+
+function resolveExplicitMaxThinkingTokens(): number | null {
+  const raw = process.env.CLAUDE_CODE_MAX_THINKING_TOKENS;
+  if (!raw) {
+    return null;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return Math.floor(parsed);
+}
+
+function buildClaudeThinkingOptions(params: {
+  effort?: ClaudeReasoningEffort;
+  compatibleProviderMatched: boolean;
+}): {
+  thinking?: { type: 'adaptive' | 'enabled'; budgetTokens?: number; display?: 'summarized' };
+  effort?: ClaudeReasoningEffort;
+} {
+  if (params.compatibleProviderMatched) {
+    return {};
+  }
+
+  const explicitMaxThinkingTokens = resolveExplicitMaxThinkingTokens();
+  if (explicitMaxThinkingTokens) {
+    return {
+      thinking: {
+        type: 'enabled',
+        budgetTokens: explicitMaxThinkingTokens,
+        display: 'summarized',
+      },
+    };
+  }
+
+  return {
+    thinking: { type: 'adaptive', display: 'summarized' },
+    effort: normalizeClaudeReasoningEffort(params.effort),
+  };
+}
+
 export async function runClaudeOneShot(params: {
   prompt: string;
   cwd?: string;
@@ -37,6 +93,7 @@ export async function runClaudeOneShot(params: {
   model?: string;
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
+  claudeReasoningEffort?: ClaudeReasoningEffort;
 }): Promise<{ text: string; sessionId?: string; model?: string }> {
   const sdk = await loadClaudeAgentSdk();
   let env = {
@@ -49,6 +106,10 @@ export async function runClaudeOneShot(params: {
   const runtimeModel = providerOverride.matchedProviderId
     ? forcedModel
     : toClaudeCodeRuntimeModel(forcedModel, params.betas);
+  const thinkingOptions = buildClaudeThinkingOptions({
+    effort: params.claudeReasoningEffort,
+    compatibleProviderMatched: Boolean(providerOverride.matchedProviderId),
+  });
   const { executable, executableArgs, env: runtimeEnv, pathToClaudeCodeExecutable } = getClaudeCodeRuntime();
   Object.assign(env, runtimeEnv);
 
@@ -65,6 +126,7 @@ export async function runClaudeOneShot(params: {
       cwd: params.cwd || process.cwd(),
       resume: params.resumeSessionId,
       model: runtimeModel,
+      ...thinkingOptions,
       settings: runtimeModel ? { model: runtimeModel } : undefined,
       betas: params.betas as Array<'context-1m-2025-08-07'> | undefined,
       executable: executable as unknown as 'node',
@@ -128,7 +190,8 @@ export async function generateSessionTitle(
   model?: string,
   compatibleProviderId?: ClaudeCompatibleProviderId,
   betas?: string[],
-  provider: AgentProvider = 'claude'
+  provider: AgentProvider = 'claude',
+  claudeReasoningEffort?: ClaudeReasoningEffort
 ): Promise<string> {
   if (provider !== 'claude') {
     return generateSessionTitleLocally(prompt);
@@ -146,6 +209,7 @@ Just output the title, nothing else.`;
       model,
       compatibleProviderId,
       betas,
+      claudeReasoningEffort,
     });
     return result.text.slice(0, 50);
   } catch (error) {
