@@ -26,6 +26,7 @@ import type {
   ThemeVariant,
   ChromeTheme,
   PromptLibraryInsertMode,
+  WorkspaceChannel,
 } from '../types';
 import {
   DEFAULT_THEME_STATE,
@@ -36,6 +37,7 @@ import {
   setThemePackFonts,
   updateThemePack,
 } from '../theme/themes';
+import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { loadPreferredProvider } from '../utils/provider';
 
 function applyAppearance({
@@ -57,6 +59,53 @@ type SetState = (
   partial: Store | Partial<Store> | ((state: Store) => Store | Partial<Store>)
 ) => void;
 const runtimeNoticeClearTimers = new Map<string, number>();
+
+function getProjectChannelKey(cwd?: string | null): string {
+  return cwd?.trim() || '__no_project__';
+}
+
+function normalizeWorkspaceChannelId(value?: string | null): string {
+  const trimmed = value?.trim();
+  return trimmed || DEFAULT_WORKSPACE_CHANNEL_ID;
+}
+
+function normalizeWorkspaceChannelName(value: string): string {
+  return value
+    .trim()
+    .replace(/^#+/, '')
+    .replace(/\s+/g, '-')
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .toLowerCase();
+}
+
+function createDefaultWorkspaceChannel(projectCwd?: string | null): WorkspaceChannel {
+  const now = Date.now();
+  return {
+    id: DEFAULT_WORKSPACE_CHANNEL_ID,
+    projectCwd: projectCwd?.trim() || '',
+    name: 'all',
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function ensureDefaultWorkspaceChannel(
+  channels: WorkspaceChannel[] | undefined,
+  projectCwd?: string | null
+): WorkspaceChannel[] {
+  const existing = channels || [];
+  if (existing.some((channel) => channel.id === DEFAULT_WORKSPACE_CHANNEL_ID)) {
+    return existing;
+  }
+  return [createDefaultWorkspaceChannel(projectCwd), ...existing];
+}
+
+function resolveActiveChannelIdForProject(
+  activeChannelByProject: Record<string, string>,
+  cwd?: string | null
+): string {
+  return normalizeWorkspaceChannelId(activeChannelByProject[getProjectChannelKey(cwd)]);
+}
 
 type AssistantStreamMessage = StreamMessage & { type: 'assistant' };
 
@@ -258,7 +307,7 @@ function createEmptyStreamingState() {
   };
 }
 
-function createDraftSessionView(cwd?: string | null): SessionView {
+function createDraftSessionView(cwd?: string | null, channelId?: string | null): SessionView {
   const now = Date.now();
   const id = `draft-${now}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -270,6 +319,7 @@ function createDraftSessionView(cwd?: string | null): SessionView {
     readOnly: false,
     isDraft: true,
     cwd: cwd || undefined,
+    channelId: normalizeWorkspaceChannelId(channelId),
     provider: loadPreferredProvider(),
     claudeExecutionMode: 'execute',
     claudeReasoningEffort: 'high',
@@ -386,6 +436,8 @@ export const useAppStore = create<Store>()(
       // 状态
       connected: false,
       sessions: {},
+      workspaceChannelsByProject: {},
+      activeChannelByProject: {},
       activeSessionId: initialUiResumeState?.activeSessionId ?? null,
       activeWorkspace: 'chat' as ActiveWorkspace,
       chatSidebarView: 'threads' as ChatSidebarView,
@@ -597,6 +649,10 @@ export const useAppStore = create<Store>()(
       case 'session.folderChanged':
         handleSessionFolderChanged(event.payload, set, get);
         break;
+
+      case 'session.channelChanged':
+        handleSessionChannelChanged(event.payload, set, get);
+        break;
     }
   },
 
@@ -620,6 +676,10 @@ export const useAppStore = create<Store>()(
 
         return {
           activeSessionId: sessionId,
+          activeChannelByProject: {
+            ...state.activeChannelByProject,
+            [getProjectChannelKey(session.cwd)]: normalizeWorkspaceChannelId(session.channelId),
+          },
           activeWorkspace: 'chat',
           showNewSession: false,
         };
@@ -652,6 +712,10 @@ export const useAppStore = create<Store>()(
 
       return {
         activeSessionId: sessionId,
+        activeChannelByProject: {
+          ...state.activeChannelByProject,
+          [getProjectChannelKey(session.cwd)]: normalizeWorkspaceChannelId(session.channelId),
+        },
         chatPanes: nextPanes,
         activeWorkspace: 'chat',
         showNewSession: false,
@@ -679,6 +743,13 @@ export const useAppStore = create<Store>()(
       return {
         activeWorkspace,
         activeSessionId: nextActiveSessionId,
+        activeChannelByProject: nextActiveSessionId && state.sessions[nextActiveSessionId]
+          ? {
+              ...state.activeChannelByProject,
+              [getProjectChannelKey(state.sessions[nextActiveSessionId].cwd)]:
+                normalizeWorkspaceChannelId(state.sessions[nextActiveSessionId].channelId),
+            }
+          : state.activeChannelByProject,
         chatPanes: {
           ...state.chatPanes,
         [state.activePaneId]: {
@@ -691,6 +762,85 @@ export const useAppStore = create<Store>()(
     }),
 
   setChatSidebarView: (chatSidebarView) => set({ chatSidebarView }),
+
+  createWorkspaceChannel: (projectCwd, name) => {
+    const projectKey = getProjectChannelKey(projectCwd);
+    const channelId = normalizeWorkspaceChannelName(name);
+    if (!channelId || channelId === DEFAULT_WORKSPACE_CHANNEL_ID) {
+      return null;
+    }
+
+    const now = Date.now();
+    set((state) => {
+      const currentChannels = ensureDefaultWorkspaceChannel(
+        state.workspaceChannelsByProject[projectKey],
+        projectCwd
+      );
+      if (currentChannels.some((channel) => channel.id === channelId)) {
+        return {
+          activeChannelByProject: {
+            ...state.activeChannelByProject,
+            [projectKey]: channelId,
+          },
+        };
+      }
+
+      return {
+        workspaceChannelsByProject: {
+          ...state.workspaceChannelsByProject,
+          [projectKey]: [
+            ...currentChannels,
+            {
+              id: channelId,
+              projectCwd,
+              name: channelId,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ],
+        },
+        activeChannelByProject: {
+          ...state.activeChannelByProject,
+          [projectKey]: channelId,
+        },
+      };
+    });
+
+    return channelId;
+  },
+
+  setActiveChannelForProject: (projectCwd, channelId) =>
+    set((state) => ({
+      activeChannelByProject: {
+        ...state.activeChannelByProject,
+        [getProjectChannelKey(projectCwd)]: normalizeWorkspaceChannelId(channelId),
+      },
+    })),
+
+  setSessionChannel: (sessionId, channelId) =>
+    set((state) => {
+      const session = state.sessions[sessionId];
+      if (!session) {
+        return state;
+      }
+
+      const normalizedChannelId = normalizeWorkspaceChannelId(channelId);
+      const projectKey = getProjectChannelKey(session.cwd);
+      return {
+        sessions: {
+          ...state.sessions,
+          [sessionId]: {
+            ...session,
+            channelId: normalizedChannelId,
+            updatedAt: Date.now(),
+          },
+        },
+        activeChannelByProject: {
+          ...state.activeChannelByProject,
+          [projectKey]: normalizedChannelId,
+        },
+      };
+    }),
 
   setActivePane: (activePaneId) =>
     {
@@ -945,12 +1095,19 @@ export const useAppStore = create<Store>()(
 
   setPendingStart: (pending) => set({ pendingStart: pending }),
 
-  createDraftSession: (cwd) => {
-    const draft = createDraftSessionView(cwd ?? get().projectCwd);
+  createDraftSession: (cwd, channelId) => {
+    const draftCwd = cwd ?? get().projectCwd;
+    const draftChannelId =
+      channelId ?? resolveActiveChannelIdForProject(get().activeChannelByProject, draftCwd);
+    const draft = createDraftSessionView(draftCwd, draftChannelId);
     set((state) => ({
       sessions: {
         ...state.sessions,
         [draft.id]: draft,
+      },
+      activeChannelByProject: {
+        ...state.activeChannelByProject,
+        [getProjectChannelKey(draftCwd)]: normalizeWorkspaceChannelId(draftChannelId),
       },
       activeSessionId: draft.id,
       chatPanes: {
@@ -1182,6 +1339,8 @@ export const useAppStore = create<Store>()(
       name: 'cowork-app-storage',
       partialize: (state) => ({
         activeWorkspace: state.activeWorkspace,
+        workspaceChannelsByProject: state.workspaceChannelsByProject,
+        activeChannelByProject: state.activeChannelByProject,
         chatSidebarView: state.chatSidebarView,
         chatLayoutMode: state.chatLayoutMode,
         savedSplitVisible: state.savedSplitVisible,
@@ -1205,6 +1364,8 @@ export const useAppStore = create<Store>()(
       merge: (persistedState: unknown, currentState: Store) => {
         const persisted = persistedState as {
           activeWorkspace?: ActiveWorkspace;
+          workspaceChannelsByProject?: Record<string, WorkspaceChannel[]>;
+          activeChannelByProject?: Record<string, string>;
           chatSidebarView?: ChatSidebarView;
           chatLayoutMode?: ChatLayoutMode;
           savedSplitVisible?: boolean;
@@ -1259,6 +1420,9 @@ export const useAppStore = create<Store>()(
             ...draftSessions,
           },
           activeWorkspace: 'chat',
+          workspaceChannelsByProject:
+            persisted?.workspaceChannelsByProject || currentState.workspaceChannelsByProject,
+          activeChannelByProject: persisted?.activeChannelByProject || currentState.activeChannelByProject,
           chatSidebarView: sidebarView,
           chatLayoutMode,
           savedSplitVisible,
@@ -1309,9 +1473,35 @@ function handleSessionList(
   get: () => Store
 ) {
   const sessionsMap: Record<string, SessionView> = {};
+  const nextActiveChannelByProject = { ...get().activeChannelByProject };
+  const nextWorkspaceChannelsByProject = { ...get().workspaceChannelsByProject };
 
   for (const session of sessions) {
     const existing = get().sessions[session.id];
+    const channelId = normalizeWorkspaceChannelId(session.channelId);
+    const projectKey = getProjectChannelKey(session.cwd);
+    const projectChannels = ensureDefaultWorkspaceChannel(
+      nextWorkspaceChannelsByProject[projectKey],
+      session.cwd
+    );
+    if (!projectChannels.some((channel) => channel.id === channelId)) {
+      const now = Date.now();
+      nextWorkspaceChannelsByProject[projectKey] = [
+        ...projectChannels,
+        {
+          id: channelId,
+          projectCwd: session.cwd || '',
+          name: channelId,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ];
+    } else {
+      nextWorkspaceChannelsByProject[projectKey] = projectChannels;
+    }
+    if (!nextActiveChannelByProject[projectKey]) {
+      nextActiveChannelByProject[projectKey] = channelId;
+    }
     sessionsMap[session.id] = {
       id: session.id,
       title: session.title,
@@ -1335,6 +1525,7 @@ function handleSessionList(
       pinned: session.pinned || false,
       folderPath: session.folderPath || null,
       hiddenFromThreads: session.hiddenFromThreads === true,
+      channelId,
       latestClaudeModelUsage: session.latestClaudeModelUsage,
       messages: existing?.messages || [],
       hydrated: existing?.hydrated || false,
@@ -1401,6 +1592,8 @@ function handleSessionList(
 
   set({
     sessions: sessionsMap,
+    workspaceChannelsByProject: nextWorkspaceChannelsByProject,
+    activeChannelByProject: nextActiveChannelByProject,
     showNewSession,
     activeSessionId,
     chatPanes: nextPanes,
@@ -1434,6 +1627,7 @@ function handleSessionStatus(
     codexFastMode?: SessionInfo['codexFastMode'];
     opencodePermissionMode?: SessionInfo['opencodePermissionMode'];
     hiddenFromThreads?: boolean;
+    channelId?: string;
   },
   set: SetState,
   get: () => Store
@@ -1456,6 +1650,7 @@ function handleSessionStatus(
     codexFastMode,
     opencodePermissionMode,
     hiddenFromThreads,
+    channelId,
   } = payload;
   const state = get();
   const session = state.sessions[sessionId];
@@ -1516,6 +1711,10 @@ function handleSessionStatus(
               : session.opencodePermissionMode,
           hiddenFromThreads:
             hiddenFromThreads !== undefined ? hiddenFromThreads : session.hiddenFromThreads,
+          channelId:
+            channelId !== undefined
+              ? normalizeWorkspaceChannelId(channelId)
+              : normalizeWorkspaceChannelId(session.channelId),
           latestClaudeModelUsage: session.latestClaudeModelUsage,
           streaming:
             status === 'running'
@@ -1554,6 +1753,7 @@ function handleSessionStatus(
       codexFastMode,
       opencodePermissionMode,
       hiddenFromThreads: hiddenFromThreads === true,
+      channelId: normalizeWorkspaceChannelId(channelId),
       latestClaudeModelUsage: undefined,
       messages: [],
       hydrated: true, // 新会话不需要 hydration
@@ -1572,6 +1772,10 @@ function handleSessionStatus(
       sessions: {
         ...nextSessions,
         [sessionId]: newSession,
+      },
+      activeChannelByProject: {
+        ...state.activeChannelByProject,
+        [getProjectChannelKey(cwd)]: normalizeWorkspaceChannelId(channelId),
       },
       activeSessionId: shouldFocusNewSession ? sessionId : state.activeSessionId,
       chatPanes: shouldFocusNewSession
@@ -1925,6 +2129,33 @@ function handleSessionFolderChanged(
         folderPath,
         updatedAt: Date.now(),
       },
+    },
+  });
+}
+
+// 处理 Session channel 变更
+function handleSessionChannelChanged(
+  payload: { sessionId: string; channelId: string },
+  set: SetState,
+  get: () => Store
+) {
+  const { sessionId, channelId } = payload;
+  const session = get().sessions[sessionId];
+  if (!session) return;
+
+  const normalizedChannelId = normalizeWorkspaceChannelId(channelId);
+  set({
+    sessions: {
+      ...get().sessions,
+      [sessionId]: {
+        ...session,
+        channelId: normalizedChannelId,
+        updatedAt: Date.now(),
+      },
+    },
+    activeChannelByProject: {
+      ...get().activeChannelByProject,
+      [getProjectChannelKey(session.cwd)]: normalizedChannelId,
     },
   });
 }

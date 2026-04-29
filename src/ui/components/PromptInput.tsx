@@ -31,6 +31,7 @@ import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
 import { useOpencodeRuntimeStatus } from '../hooks/useOpencodeRuntimeStatus';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
+import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import { getSessionModel } from '../utils/session-model';
 import {
@@ -109,6 +110,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   const {
     activeSessionId,
     sessions,
+    activeChannelByProject,
     pendingStart,
     setShowNewSession,
     setPendingStart,
@@ -707,6 +709,11 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
 
       setPendingStart(true);
       useAppStore.setState({ pendingDraftSessionId: targetSessionId });
+      const projectKey = (activeSession.cwd || '').trim() || '__no_project__';
+      const channelId =
+        activeSession.channelId ||
+        activeChannelByProject[projectKey] ||
+        DEFAULT_WORKSPACE_CHANNEL_ID;
       sendEvent({
         type: 'session.start',
         payload: {
@@ -714,6 +721,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           prompt: outgoingPrompt,
           effectivePrompt: outgoingEffectivePrompt,
           cwd: activeSession.cwd,
+          channelId,
           attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
           provider,
           model:

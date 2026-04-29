@@ -31,6 +31,7 @@ import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
 import { useOpencodeModelConfig } from '../hooks/useOpencodeModelConfig';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
+import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import { getLatestProviderModel } from '../utils/session-model';
 import {
@@ -89,6 +90,7 @@ export function NewSessionView() {
   const {
     pendingStart,
     projectCwd,
+    activeChannelByProject,
     sidebarCollapsed,
     sessions,
     setPendingStart,
@@ -463,6 +465,8 @@ export function NewSessionView() {
     // 用 prompt 前 30 字符作为临时标题（后台会异步生成更好的标题）
     const tempTitleSource = displayPrompt || outgoingPrompt;
     const tempTitle = tempTitleSource.slice(0, 30) + (tempTitleSource.length > 30 ? '...' : '');
+    const projectKey = (cwd || '').trim() || '__no_project__';
+    const channelId = activeChannelByProject[projectKey] || DEFAULT_WORKSPACE_CHANNEL_ID;
 
     // 立即发送开始会话事件
     sendEvent({
@@ -472,6 +476,7 @@ export function NewSessionView() {
         prompt: outgoingPrompt,
         effectivePrompt: outgoingEffectivePrompt,
         cwd: cwd || undefined,
+        channelId,
         attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
         provider,
         model:

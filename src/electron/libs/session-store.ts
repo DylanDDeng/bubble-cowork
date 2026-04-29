@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, w
 import { homedir } from 'os';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import type { SessionRow, StreamMessage, SessionStatus } from '../types';
 import type { ArtifactRow, DerivedSummaryRow } from '../types';
 import type {
@@ -136,6 +137,11 @@ function normalizeOpenCodePermissionMode(
     : 'defaultPermissions';
 }
 
+function normalizeWorkspaceChannelId(value?: string | null): string {
+  const trimmed = value?.trim();
+  return trimmed || DEFAULT_WORKSPACE_CHANNEL_ID;
+}
+
 // 初始化数据库
 export function initialize(): void {
   const dbPath = join(app.getPath('userData'), 'sessions.db');
@@ -172,6 +178,7 @@ export function initialize(): void {
       external_file_path TEXT,
       external_file_mtime INTEGER,
       hidden_from_threads INTEGER DEFAULT 0,
+      workspace_channel_id TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -248,6 +255,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'external_file_path', 'TEXT');
   ensureColumn('sessions', 'external_file_mtime', 'INTEGER');
   ensureColumn('sessions', 'hidden_from_threads', 'INTEGER DEFAULT 0');
+  ensureColumn('sessions', 'workspace_channel_id', 'TEXT');
   ensureColumn('messages', 'message_type', 'TEXT');
   ensureColumn('messages', 'source_origin', 'TEXT');
   ensureColumn('messages', 'search_text', 'TEXT');
@@ -763,13 +771,14 @@ export function createSession(params: {
   codexFastMode?: boolean;
   opencodePermissionMode?: OpenCodePermissionMode;
   hiddenFromThreads?: boolean;
+  channelId?: string;
 }): SessionRow {
   const now = Date.now();
   const id = uuidv4();
 
   const stmt = getDb().prepare(`
-    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, claude_execution_mode, claude_reasoning_effort, codex_execution_mode, codex_permission_mode, codex_reasoning_effort, codex_fast_mode, opencode_permission_mode, cwd, allowed_tools, last_prompt, todo_state, session_origin, external_file_path, external_file_mtime, hidden_from_threads, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aegis', NULL, NULL, ?, 'idle', ?, ?)
+    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, claude_execution_mode, claude_reasoning_effort, codex_execution_mode, codex_permission_mode, codex_reasoning_effort, codex_fast_mode, opencode_permission_mode, cwd, allowed_tools, last_prompt, todo_state, session_origin, external_file_path, external_file_mtime, hidden_from_threads, workspace_channel_id, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aegis', NULL, NULL, ?, ?, 'idle', ?, ?)
   `);
 
   stmt.run(
@@ -792,6 +801,7 @@ export function createSession(params: {
     params.prompt || null,
     'todo',
     params.hiddenFromThreads ? 1 : 0,
+    normalizeWorkspaceChannelId(params.channelId),
     now,
     now
   );
@@ -1148,6 +1158,15 @@ export function updateSessionFolderPath(sessionId: string, folderPath: string | 
     UPDATE sessions SET folder_path = ?, updated_at = ? WHERE id = ?
   `);
   stmt.run(folderPath, now, sessionId);
+}
+
+// 更新 Session 所属 workspace channel
+export function updateSessionChannelId(sessionId: string, channelId: string | null): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET workspace_channel_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(normalizeWorkspaceChannelId(channelId), now, sessionId);
 }
 
 // 批量更新指定文件夹（及其子文件夹）下的 session 的路径（用于文件夹重命名）

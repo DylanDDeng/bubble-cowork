@@ -89,6 +89,7 @@ export type {
   PromptLibraryExportResult,
   FolderConfig,
   CanonicalToolKind,
+  WorkspaceChannel,
 } from '../shared/types';
 
 // 主题类型
@@ -136,6 +137,7 @@ export interface SessionView {
   pinned?: boolean;
   folderPath?: string | null;
   hiddenFromThreads?: boolean;
+  channelId?: string;
   source?: import('../shared/types').SessionSource;
   readOnly?: boolean;
   isDraft?: boolean;
@@ -155,6 +157,8 @@ export interface SessionView {
 export interface AppState {
   connected: boolean;
   sessions: Record<string, SessionView>;
+  workspaceChannelsByProject: Record<string, WorkspaceChannel[]>;
+  activeChannelByProject: Record<string, string>;
   activeSessionId: string | null;
   activeWorkspace: ActiveWorkspace;
   chatSidebarView: ChatSidebarView;
@@ -226,6 +230,9 @@ export interface AppActions {
   setActiveSession: (sessionId: string | null) => void;
   setActiveWorkspace: (workspace: ActiveWorkspace) => void;
   setChatSidebarView: (view: ChatSidebarView) => void;
+  createWorkspaceChannel: (projectCwd: string, name: string) => string | null;
+  setActiveChannelForProject: (projectCwd: string, channelId: string) => void;
+  setSessionChannel: (sessionId: string, channelId: string) => void;
   setActivePane: (paneId: ChatPaneId) => void;
   setChatLayoutMode: (mode: ChatLayoutMode) => void;
   setSavedSplitVisible: (visible: boolean) => void;
@@ -250,7 +257,7 @@ export interface AppActions {
   applyUiResumeState: (state: import('../shared/types').UiResumeState | null) => void;
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;
-  createDraftSession: (cwd?: string | null) => string;
+  createDraftSession: (cwd?: string | null, channelId?: string | null) => string;
   removeDraftSession: (sessionId: string) => void;
   loadOlderSessionHistory: (sessionId: string) => void;
   removePermissionRequest: (sessionId: string, toolUseId: string) => void;

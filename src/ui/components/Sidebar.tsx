@@ -16,6 +16,7 @@ import type {
   SidebarSearchThread,
 } from './search/SidebarSearchPalette.logic';
 import { FolderTreeView } from './FolderTreeView';
+import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import type { ChatSidebarView } from '../types';
 import { getMessageContentBlocks } from '../utils/message-content';
 
@@ -84,6 +85,7 @@ export function Sidebar() {
     sidebarWidth,
     chatSidebarView,
     projectCwd,
+    activeChannelByProject,
     sessions,
     activeWorkspace,
     setChatLayoutMode,
@@ -91,6 +93,7 @@ export function Sidebar() {
     setSidebarWidth,
     setChatSidebarView,
     setProjectCwd,
+    setActiveChannelForProject,
     setActiveSession,
     setActiveWorkspace,
     setShowNewSession,
@@ -105,6 +108,11 @@ export function Sidebar() {
   const startWidthRef = useRef(sidebarWidth);
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const newThreadCwd = activeSession?.cwd || projectCwd;
+
+  const getActiveChannelIdForProject = (cwd?: string | null) => {
+    const key = cwd?.trim() || '__no_project__';
+    return activeChannelByProject[key] || DEFAULT_WORKSPACE_CHANNEL_ID;
+  };
 
   const finishSidebarResize = () => {
     if (!sidebarResizingRef.current) return;
@@ -156,8 +164,9 @@ export function Sidebar() {
     const selected = await window.electron.selectDirectory();
     if (!selected) return;
     setProjectCwd(selected);
+    setActiveChannelForProject(selected, DEFAULT_WORKSPACE_CHANNEL_ID);
     setShowSettings(false);
-    createDraftSession(selected);
+    createDraftSession(selected, DEFAULT_WORKSPACE_CHANNEL_ID);
   };
 
   const toggleSidebarCollapsed = () => {
@@ -286,7 +295,7 @@ export function Sidebar() {
     switch (actionId) {
       case 'new-thread':
         setShowSettings(false);
-        createDraftSession(newThreadCwd);
+        createDraftSession(newThreadCwd, getActiveChannelIdForProject(newThreadCwd));
         break;
       case 'open-project':
         void handleProjectFolderSelect();
@@ -375,7 +384,7 @@ export function Sidebar() {
                       setShowSettings(false);
                       setActiveWorkspace('chat');
                       setChatSidebarView('threads');
-                      createDraftSession(newThreadCwd);
+                      createDraftSession(newThreadCwd, getActiveChannelIdForProject(newThreadCwd));
                     }}
                   />
                   <SidebarNavRow
@@ -423,11 +432,13 @@ export function Sidebar() {
                       }}
                       onSelectProjectFolder={handleProjectFolderSelect}
                       projectCwd={projectCwd}
-                      onNewSessionForProject={(nextCwd) => {
+                      onNewSessionForProject={(nextCwd, channelId) => {
+                        const nextChannelId = channelId || getActiveChannelIdForProject(nextCwd);
                         setProjectCwd(nextCwd);
+                        setActiveChannelForProject(nextCwd, nextChannelId);
                         setShowSettings(false);
                         setChatSidebarView('threads');
-                        createDraftSession(nextCwd);
+                        createDraftSession(nextCwd, nextChannelId);
                       }}
                     />
                   </div>

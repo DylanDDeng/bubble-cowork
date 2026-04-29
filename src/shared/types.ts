@@ -300,6 +300,17 @@ export interface MemoryWorkspace {
   projectDocument: MemoryDocument | null;
 }
 
+export const DEFAULT_WORKSPACE_CHANNEL_ID = 'all';
+
+export interface WorkspaceChannel {
+  id: string;
+  projectCwd: string;
+  name: string;
+  description?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // Agent 提供商
 export type AgentProvider = 'claude' | 'codex' | 'opencode';
 export type SessionSource =
@@ -496,7 +507,8 @@ export type ClientEvent =
   | { type: 'folder.update'; payload: { path: string; updates: Partial<FolderConfig> } }
   | { type: 'folder.delete'; payload: { path: string } }
   | { type: 'folder.move'; payload: { oldPath: string; newPath: string } }
-  | { type: 'session.setFolder'; payload: { sessionId: string; folderPath: string | null } };
+  | { type: 'session.setFolder'; payload: { sessionId: string; folderPath: string | null } }
+  | { type: 'session.setChannel'; payload: { sessionId: string; channelId: string } };
 
 export interface AppUpdateStatus {
   available: boolean;
@@ -537,7 +549,8 @@ export type ServerEvent =
   // 文件夹事件
   | { type: 'folder.list'; payload: { folders: FolderConfig[] } }
   | { type: 'folder.changed'; payload: { folders: FolderConfig[] } }
-  | { type: 'session.folderChanged'; payload: { sessionId: string; folderPath: string | null } };
+  | { type: 'session.folderChanged'; payload: { sessionId: string; folderPath: string | null } }
+  | { type: 'session.channelChanged'; payload: { sessionId: string; channelId: string } };
 
 // Payload 类型
 export interface SessionStartPayload {
@@ -562,6 +575,7 @@ export interface SessionStartPayload {
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
   hiddenFromThreads?: boolean;
+  channelId?: string;
 }
 
 export interface SessionContinuePayload {
@@ -608,6 +622,7 @@ export interface SessionInfo {
   pinned?: boolean;
   folderPath?: string | null;
   hiddenFromThreads?: boolean;
+  channelId?: string;
   latestClaudeModelUsage?: LatestClaudeModelUsage;
   createdAt: number;
   updatedAt: number;
@@ -636,6 +651,7 @@ export interface SessionStatusPayload {
   codexFastMode?: boolean;
   opencodePermissionMode?: OpenCodePermissionMode;
   hiddenFromThreads?: boolean;
+  channelId?: string;
 }
 
 export interface SessionHistoryPayload {

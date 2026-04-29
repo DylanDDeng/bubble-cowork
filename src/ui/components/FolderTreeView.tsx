@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { FolderClosed, FolderOpen, Pin, SquarePen } from 'lucide-react';
+import { Check, FolderClosed, FolderOpen, Hash, Pin, Plus, SquarePen, X } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
+import { DEFAULT_WORKSPACE_CHANNEL_ID, type WorkspaceChannel } from '../../shared/types';
 import type { AgentProvider, SessionView } from '../types';
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
@@ -12,7 +13,40 @@ type ProjectGroup = {
   label: string;
   fullPath: string | null;
   sessions: SessionView[];
+  channels: ChannelGroup[];
 };
+
+type ChannelGroup = {
+  id: string;
+  name: string;
+  sessions: SessionView[];
+};
+
+function getProjectKey(cwd?: string | null): string {
+  return cwd?.trim() || '__no_project__';
+}
+
+function createDefaultChannel(projectCwd?: string | null): WorkspaceChannel {
+  const now = Date.now();
+  return {
+    id: DEFAULT_WORKSPACE_CHANNEL_ID,
+    projectCwd: projectCwd?.trim() || '',
+    name: 'all',
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function ensureDefaultChannel(
+  channels: WorkspaceChannel[] | undefined,
+  projectCwd?: string | null
+): WorkspaceChannel[] {
+  const existing = channels || [];
+  if (existing.some((channel) => channel.id === DEFAULT_WORKSPACE_CHANNEL_ID)) {
+    return existing;
+  }
+  return [createDefaultChannel(projectCwd), ...existing];
+}
 
 type SplitPairState = {
   primary: SessionView;
@@ -38,7 +72,7 @@ function formatSidebarTime(timestamp: number): string {
 interface ProjectTreeViewProps {
   onSessionClick: (sessionId: string, options?: { preserveSplit?: boolean }) => void;
   onSelectProjectFolder: () => void;
-  onNewSessionForProject: (cwd: string) => void;
+  onNewSessionForProject: (cwd: string, channelId?: string) => void;
   projectCwd: string | null;
 }
 
@@ -82,9 +116,19 @@ export function FolderTreeView({
     setChatLayoutMode,
     chatPanes,
     setActivePane,
+    workspaceChannelsByProject,
+    createWorkspaceChannel,
+    setActiveChannelForProject,
+    setSessionChannel,
+    setProjectCwd,
+    activeChannelByProject,
     sidebarSearchQuery,
   } = useAppStore();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  const [channelDraftProjectKey, setChannelDraftProjectKey] = useState<string | null>(null);
+  const [channelDraftName, setChannelDraftName] = useState('');
+  const activeSession = activeSessionId ? sessions[activeSessionId] : null;
+  const activeProjectKey = activeSession?.cwd?.trim() || projectCwd?.trim() || '__no_project__';
 
   const splitPair = useMemo<SplitPairState | null>(() => {
     if (!savedSplitVisible) {
@@ -145,6 +189,7 @@ export function FolderTreeView({
           label,
           fullPath,
           sessions: [],
+          channels: [],
         });
       }
 
@@ -152,10 +197,45 @@ export function FolderTreeView({
     }
 
     const projectGroups = Array.from(grouped.values())
-      .map((group) => ({
-        ...group,
-        sessions: group.sessions.sort((left, right) => right.updatedAt - left.updatedAt),
-      }))
+      .map((group) => {
+        const sortedSessions = group.sessions.sort((left, right) => right.updatedAt - left.updatedAt);
+        const configuredChannels = ensureDefaultChannel(
+          workspaceChannelsByProject[group.key],
+          group.fullPath
+        );
+        const channels = new Map<string, ChannelGroup>();
+        for (const channel of configuredChannels) {
+          channels.set(channel.id, {
+            id: channel.id,
+            name: channel.name,
+            sessions: [],
+          });
+        }
+
+        for (const session of sortedSessions) {
+          const channelId = session.channelId?.trim() || DEFAULT_WORKSPACE_CHANNEL_ID;
+          if (!channels.has(channelId)) {
+            channels.set(channelId, {
+              id: channelId,
+              name: channelId,
+              sessions: [],
+            });
+          }
+          channels.get(channelId)!.sessions.push(session);
+        }
+
+        return {
+          ...group,
+          sessions: sortedSessions,
+          channels: Array.from(channels.values()).sort((left, right) => {
+            if (left.id === DEFAULT_WORKSPACE_CHANNEL_ID) return -1;
+            if (right.id === DEFAULT_WORKSPACE_CHANNEL_ID) return 1;
+            const leftLatest = left.sessions[0]?.updatedAt || 0;
+            const rightLatest = right.sessions[0]?.updatedAt || 0;
+            return rightLatest - leftLatest;
+          }),
+        };
+      })
       .sort((left, right) => {
         const leftLatest = left.sessions[0]?.updatedAt || 0;
         const rightLatest = right.sessions[0]?.updatedAt || 0;
@@ -163,7 +243,35 @@ export function FolderTreeView({
       });
 
     return { pinnedSessions, projectGroups };
-  }, [sessions, sidebarSearchQuery, splitPair]);
+  }, [sessions, sidebarSearchQuery, splitPair, workspaceChannelsByProject]);
+
+  const startChannelDraft = (group: ProjectGroup) => {
+    setChannelDraftProjectKey(group.key);
+    setChannelDraftName('');
+    if (group.fullPath) {
+      setProjectCwd(group.fullPath);
+    }
+  };
+
+  const cancelChannelDraft = () => {
+    setChannelDraftProjectKey(null);
+    setChannelDraftName('');
+  };
+
+  const submitChannelDraft = (group: ProjectGroup) => {
+    const nextChannelId = createWorkspaceChannel(group.fullPath || '', channelDraftName);
+    if (!nextChannelId) {
+      return;
+    }
+    if (group.fullPath) {
+      setProjectCwd(group.fullPath);
+    }
+    setActiveChannelForProject(group.fullPath || '', nextChannelId);
+    if (group.fullPath) {
+      onNewSessionForProject(group.fullPath, nextChannelId);
+    }
+    cancelChannelDraft();
+  };
 
   const isExpanded = (key: string) => !collapsedGroups.has(key);
 
@@ -244,61 +352,169 @@ export function FolderTreeView({
               </button>
 
               {group.fullPath && (
-                <button
-                  type="button"
-                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-0 transition-all duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] group-hover/project:opacity-100"
-                  title={`Start a new thread in ${group.label}`}
-                  aria-label={`Start a new thread in ${group.label}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onNewSessionForProject(group.fullPath);
-                  }}
-                >
-                  <SquarePen className="h-3.5 w-3.5" strokeWidth={1.9} />
-                </button>
+                <div className="flex flex-shrink-0 items-center opacity-0 transition-opacity duration-150 group-hover/project:opacity-100">
+                  <button
+                    type="button"
+                    className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                    title={`Create channel in ${group.label}`}
+                    aria-label={`Create channel in ${group.label}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      startChannelDraft(group);
+                    }}
+                  >
+                    <Plus className="h-3.5 w-3.5" strokeWidth={1.9} />
+                  </button>
+                  <button
+                    type="button"
+                    className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                    title={`Start a new thread in ${group.label}`}
+                    aria-label={`Start a new thread in ${group.label}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onNewSessionForProject(
+                        group.fullPath,
+                        activeChannelByProject[group.key] || DEFAULT_WORKSPACE_CHANNEL_ID
+                      );
+                    }}
+                  >
+                    <SquarePen className="h-3.5 w-3.5" strokeWidth={1.9} />
+                  </button>
+                </div>
               )}
             </div>
 
-            {expanded &&
-              group.sessions.map((session) => {
-                if (splitPair && session.id === splitPair.primary.id) {
-                  return (
-                    <SplitSessionRow
-                      key={`split:${splitPair.primary.id}:${splitPair.secondary.id}`}
-                      primary={splitPair.primary}
-                      secondary={splitPair.secondary}
-                      activePaneId={activePaneId}
-                      depth={1}
-                      onOpenPrimary={() => {
-                        setChatLayoutMode('split');
-                        setActivePane('primary');
-                      }}
-                      onOpenSecondary={() => {
-                        setChatLayoutMode('split');
-                        setActivePane('secondary');
-                      }}
-                    />
-                  );
-                }
+            {expanded && channelDraftProjectKey === group.key && (
+              <form
+                className="mb-1 ml-4 flex h-8 items-center gap-1 rounded-lg bg-[var(--bg-secondary)] px-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  submitChannelDraft(group);
+                }}
+              >
+                <Hash className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+                <input
+                  autoFocus
+                  value={channelDraftName}
+                  onChange={(event) => setChannelDraftName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.preventDefault();
+                      cancelChannelDraft();
+                    }
+                  }}
+                  className="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+                  placeholder="new-channel"
+                  aria-label="Channel name"
+                />
+                <button
+                  type="submit"
+                  className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                  aria-label="Create channel"
+                  title="Create channel"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelChannelDraft}
+                  className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                  aria-label="Cancel"
+                  title="Cancel"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </form>
+            )}
 
-                const isSessionActive = activeSessionId === session.id;
+            {expanded &&
+              group.channels.map((channel) => {
+                const activeChannelId =
+                  activeChannelByProject[group.key] || DEFAULT_WORKSPACE_CHANNEL_ID;
+                const isChannelActive =
+                  activeChannelId === channel.id && activeProjectKey === group.key;
 
                 return (
-                  <SessionItem
-                    key={session.id}
-                    session={session}
-                    isActive={isSessionActive}
-                    runtimeBadge={
-                      session.runtimeNotice
-                        ? session.runtimeNotice
-                        : !isSessionActive && session.status === 'running'
-                          ? 'running'
-                          : null
-                    }
-                    depth={1}
-                    onClick={() => onSessionClick(session.id)}
-                    onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
-                  />
+                  <div key={`${group.key}:${channel.id}`}>
+                    <ChannelItem
+                      channel={channel}
+                      depth={1}
+                      isActive={isChannelActive}
+                      onNewSession={() => {
+                        if (!group.fullPath) {
+                          return;
+                        }
+                        setActiveChannelForProject(group.fullPath, channel.id);
+                        setProjectCwd(group.fullPath);
+                        onNewSessionForProject(group.fullPath, channel.id);
+                      }}
+                      onDropSession={(sessionId) => {
+                        const draggedSession = sessions[sessionId];
+                        if (!draggedSession || getProjectKey(draggedSession.cwd) !== group.key) {
+                          return;
+                        }
+                        setSessionChannel(sessionId, channel.id);
+                        sendEvent({
+                          type: 'session.setChannel',
+                          payload: { sessionId, channelId: channel.id },
+                        });
+                      }}
+                      onClick={() => {
+                        setActiveChannelForProject(group.fullPath || '', channel.id);
+                        if (group.fullPath) {
+                          setProjectCwd(group.fullPath);
+                        }
+                        const latestSession = channel.sessions[0];
+                        if (latestSession) {
+                          onSessionClick(latestSession.id);
+                        } else if (group.fullPath) {
+                          onNewSessionForProject(group.fullPath, channel.id);
+                        }
+                      }}
+                    />
+
+                    {channel.sessions.map((session) => {
+                      if (splitPair && session.id === splitPair.primary.id) {
+                        return (
+                          <SplitSessionRow
+                            key={`split:${splitPair.primary.id}:${splitPair.secondary.id}`}
+                            primary={splitPair.primary}
+                            secondary={splitPair.secondary}
+                            activePaneId={activePaneId}
+                            depth={2}
+                            onOpenPrimary={() => {
+                              setChatLayoutMode('split');
+                              setActivePane('primary');
+                            }}
+                            onOpenSecondary={() => {
+                              setChatLayoutMode('split');
+                              setActivePane('secondary');
+                            }}
+                          />
+                        );
+                      }
+
+                      const isSessionActive = activeSessionId === session.id;
+
+                      return (
+                        <SessionItem
+                          key={session.id}
+                          session={session}
+                          isActive={isSessionActive}
+                          runtimeBadge={
+                            session.runtimeNotice
+                              ? session.runtimeNotice
+                              : !isSessionActive && session.status === 'running'
+                                ? 'running'
+                                : null
+                          }
+                          depth={2}
+                          onClick={() => onSessionClick(session.id)}
+                          onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
+                        />
+                      );
+                    })}
+                  </div>
                 );
               })}
           </div>
@@ -310,6 +526,84 @@ export function FolderTreeView({
           {sidebarSearchQuery ? 'No matching sessions' : 'No sessions yet'}
         </div>
       )}
+    </div>
+  );
+}
+
+function ChannelItem({
+  channel,
+  depth,
+  isActive,
+  onNewSession,
+  onDropSession,
+  onClick,
+}: {
+  channel: ChannelGroup;
+  depth: number;
+  isActive: boolean;
+  onNewSession: () => void;
+  onDropSession: (sessionId: string) => void;
+  onClick: () => void;
+}) {
+  const runningCount = channel.sessions.filter((session) => session.status === 'running').length;
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  return (
+    <div
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes('application/x-aegis-session-id')) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+          setIsDragOver(true);
+        }
+      }}
+      onDragLeave={() => setIsDragOver(false)}
+      onDrop={(event) => {
+        const sessionId = event.dataTransfer.getData('application/x-aegis-session-id');
+        setIsDragOver(false);
+        if (!sessionId) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        onDropSession(sessionId);
+      }}
+      className={`group/channel mb-1 flex h-7 w-[calc(100%-4px)] min-w-0 items-center gap-1 rounded-lg pr-1 no-drag transition-colors duration-150 ${
+        isDragOver
+          ? 'bg-[var(--sidebar-item-hover)] text-[var(--text-primary)] ring-1 ring-[var(--border)]'
+          : isActive
+          ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+          : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+      }`}
+      style={{ marginLeft: `${depth * 16}px` }}
+      title={`# ${channel.name}`}
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex min-w-0 flex-1 items-center gap-2 px-2 text-left"
+        aria-label={`Open # ${channel.name}`}
+      >
+        <Hash className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{channel.name}</span>
+        {runningCount > 0 && (
+          <span className="rounded-full bg-[var(--accent-light)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">
+            {runningCount}
+          </span>
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onNewSession();
+        }}
+        className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] opacity-0 transition-opacity duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] group-hover/channel:opacity-100 focus:opacity-100"
+        aria-label={`New chat in # ${channel.name}`}
+        title={`New chat in # ${channel.name}`}
+      >
+        <SquarePen className="h-3.5 w-3.5" strokeWidth={1.9} />
+      </button>
     </div>
   );
 }

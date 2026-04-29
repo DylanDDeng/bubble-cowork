@@ -52,6 +52,7 @@ import * as folderConfig from './libs/folder-config';
 import { ipcMainHandle, isDev } from './util';
 import { scheduleExternalClaudeSessionSync } from './libs/external-claude-sessions';
 import { getHistorySourceForSession, toUnifiedSessionRecord } from './libs/history/registry';
+import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../shared/types';
 import type {
   ClientEvent,
   ServerEvent,
@@ -88,6 +89,11 @@ const DIRECT_EDIT_BOOTSTRAP_MAX_TRANSCRIPT_CHARS = 20_000;
 const LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD = 500;
 const LONG_PROMPT_ATTACHMENT_INSTRUCTION =
   'The main request is attached as a text file. Read the attachment first, then respond normally.';
+
+function normalizeWorkspaceChannelId(value?: string | null): string {
+  const trimmed = value?.trim();
+  return trimmed || DEFAULT_WORKSPACE_CHANNEL_ID;
+}
 
 const ATTACHMENT_MIME_TYPES: Record<string, string> = {
   '.txt': 'text/plain',
@@ -4199,6 +4205,10 @@ async function handleClientEvent(
     case 'session.setFolder':
       handleSessionSetFolder(mainWindow, event.payload);
       break;
+
+    case 'session.setChannel':
+      handleSessionSetChannel(mainWindow, event.payload);
+      break;
   }
 }
 
@@ -4230,6 +4240,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     pinned: row.pinned === 1,
     folderPath: row.folder_path || null,
     hiddenFromThreads: row.hidden_from_threads === 1,
+    channelId: normalizeWorkspaceChannelId(row.workspace_channel_id),
     latestClaudeModelUsage: latestClaudeModelUsageBySession[row.id],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -4275,6 +4286,7 @@ async function handleSessionStart(
     codexMentions,
     opencodePermissionMode,
     hiddenFromThreads,
+    channelId,
   } = payload;
   if (!cwd?.trim()) {
     broadcast(mainWindow, {
@@ -4359,6 +4371,7 @@ async function handleSessionStart(
     opencodePermissionMode:
       chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
     hiddenFromThreads: hiddenFromThreads === true,
+    channelId: normalizeWorkspaceChannelId(channelId),
   });
 
   // 更新状态为 running
@@ -4389,6 +4402,7 @@ async function handleSessionStart(
       opencodePermissionMode:
         chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
       hiddenFromThreads: session.hidden_from_threads === 1,
+      channelId: normalizeWorkspaceChannelId(session.workspace_channel_id),
     },
   });
 
@@ -5578,6 +5592,26 @@ function handleSessionSetFolder(
     broadcast(mainWindow, {
       type: 'runner.error',
       payload: { message: `Failed to set session folder: ${String(error)}` },
+    });
+  }
+}
+
+// 设置 session 所属 channel
+function handleSessionSetChannel(
+  mainWindow: BrowserWindow,
+  payload: { sessionId: string; channelId: string }
+): void {
+  try {
+    const channelId = normalizeWorkspaceChannelId(payload.channelId);
+    sessions.updateSessionChannelId(payload.sessionId, channelId);
+    broadcast(mainWindow, {
+      type: 'session.channelChanged',
+      payload: { sessionId: payload.sessionId, channelId },
+    });
+  } catch (error) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: `Failed to set session channel: ${String(error)}` },
     });
   }
 }
