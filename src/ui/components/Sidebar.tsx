@@ -20,7 +20,6 @@ import type {
   SidebarSearchProject,
   SidebarSearchThread,
 } from './search/SidebarSearchPalette.logic';
-import { StatusFilter } from './StatusFilter';
 import { FolderTreeView } from './FolderTreeView';
 import type { ChatSidebarView, SessionView } from '../types';
 import { getMessageContentBlocks } from '../utils/message-content';
@@ -318,7 +317,7 @@ export function Sidebar() {
         />
       )}
 
-      <div className="relative flex h-full min-h-0 flex-shrink-0 self-stretch select-none">
+      <div className="aegis-sidebar relative flex h-full min-h-0 flex-shrink-0 self-stretch select-none">
         {sidebarCollapsed ? (
           <div className="flex h-full w-9 flex-shrink-0 flex-col items-center border-r border-[var(--border)] bg-[var(--bg-tertiary)]">
             <div className="h-8 w-full drag-region flex-shrink-0 border-b border-[var(--border)]" />
@@ -399,7 +398,6 @@ export function Sidebar() {
                         Projects
                       </button>
                       <div className="flex items-center gap-1">
-                        <StatusFilter />
                         <button
                           type="button"
                           onClick={() => {

@@ -18,8 +18,6 @@ import type {
   Attachment,
   SearchFilters,
   SearchMatch,
-  StatusConfig,
-  TodoState,
   SettingsTab,
   FolderConfig,
   Theme,
@@ -274,7 +272,6 @@ function createDraftSessionView(cwd?: string | null): SessionView {
     cwd: cwd || undefined,
     provider: loadPreferredProvider(),
     claudeExecutionMode: 'execute',
-    todoState: 'todo',
     hiddenFromThreads: false,
     messages: [],
     hydrated: true,
@@ -483,9 +480,6 @@ export const useAppStore = create<Store>()(
       },
       promptLibraryInsertRequest: null,
       pendingChatInjection: null,
-      // 状态配置
-      statusConfigs: [],
-      statusFilter: 'all',
       // 文件夹
       folderConfigs: [],
       // 主题
@@ -568,15 +562,6 @@ export const useAppStore = create<Store>()(
           claudeSkillsUserRoot: event.payload.userRoot,
           claudeSkillsProjectRoot: event.payload.projectRoot,
         });
-        break;
-
-      case 'status.list':
-      case 'status.changed':
-        set({ statusConfigs: event.payload.statuses });
-        break;
-
-      case 'session.todoStateChanged':
-        handleTodoStateChanged(event.payload, set, get);
         break;
 
       case 'session.pinned':
@@ -1115,10 +1100,6 @@ export const useAppStore = create<Store>()(
       return { pendingChatInjection: null };
     }),
 
-  // 状态配置 Actions
-  setStatusConfigs: (configs) => set({ statusConfigs: configs }),
-  setStatusFilter: (filter) => set({ statusFilter: filter }),
-
   // 文件夹 Actions
   setFolderConfigs: (configs) => set({ folderConfigs: configs }),
 
@@ -1328,7 +1309,6 @@ function handleSessionList(
       codexReasoningEffort: session.codexReasoningEffort,
       codexFastMode: session.codexFastMode,
       opencodePermissionMode: session.opencodePermissionMode,
-      todoState: session.todoState || 'todo',
       pinned: session.pinned || false,
       folderPath: session.folderPath || null,
       hiddenFromThreads: session.hiddenFromThreads === true,
@@ -1428,7 +1408,6 @@ function handleSessionStatus(
     codexReasoningEffort?: SessionInfo['codexReasoningEffort'];
     codexFastMode?: SessionInfo['codexFastMode'];
     opencodePermissionMode?: SessionInfo['opencodePermissionMode'];
-    todoState?: SessionInfo['todoState'];
     hiddenFromThreads?: boolean;
   },
   set: SetState,
@@ -1449,7 +1428,6 @@ function handleSessionStatus(
     codexReasoningEffort,
     codexFastMode,
     opencodePermissionMode,
-    todoState,
     hiddenFromThreads,
   } = payload;
   const state = get();
@@ -1501,7 +1479,6 @@ function handleSessionStatus(
             opencodePermissionMode !== undefined
               ? opencodePermissionMode
               : session.opencodePermissionMode,
-          todoState: todoState !== undefined ? todoState : session.todoState,
           hiddenFromThreads:
             hiddenFromThreads !== undefined ? hiddenFromThreads : session.hiddenFromThreads,
           latestClaudeModelUsage: session.latestClaudeModelUsage,
@@ -1539,7 +1516,6 @@ function handleSessionStatus(
       codexReasoningEffort,
       codexFastMode,
       opencodePermissionMode,
-      todoState: todoState || 'todo',
       hiddenFromThreads: hiddenFromThreads === true,
       latestClaudeModelUsage: undefined,
       messages: [],
@@ -1869,28 +1845,6 @@ function handlePermissionRequest(
         },
       },
     };
-  });
-}
-
-// 处理 TodoState 变更
-function handleTodoStateChanged(
-  payload: { sessionId: string; todoState: TodoState },
-  set: SetState,
-  get: () => Store
-) {
-  const { sessionId, todoState } = payload;
-  const session = get().sessions[sessionId];
-  if (!session) return;
-
-  set({
-    sessions: {
-      ...get().sessions,
-      [sessionId]: {
-        ...session,
-        todoState,
-        updatedAt: Date.now(),
-      },
-    },
   });
 }
 

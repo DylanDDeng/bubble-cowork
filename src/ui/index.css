@@ -230,6 +230,11 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.aegis-sidebar,
+.aegis-sidebar :is(button, input, textarea, select, div, span, p, h1, h2, h3, label) {
+  font-size: 13px !important;
+}
+
 .no-transitions,
 .no-transitions *,
 .no-transitions *::before,

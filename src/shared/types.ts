@@ -1,45 +1,5 @@
 // 共享类型定义（可导出）
 
-// ===== 状态分类 =====
-export type StatusCategory = 'open' | 'closed';
-
-// ===== 状态配置 =====
-export interface StatusConfig {
-  id: string;              // 唯一标识 slug: 'todo', 'my-status'
-  label: string;           // 显示名称
-  color?: string;          // 颜色 (hex 或 Tailwind class)
-  icon?: string;           // 图标 (emoji 或 SVG 标识)
-  category: StatusCategory;
-  isFixed: boolean;        // 固定状态，不可删除/改分类
-  isDefault: boolean;      // 默认状态，不可删除但可修改
-  order: number;           // 显示顺序
-}
-
-// ===== 状态配置文件结构 =====
-export interface StatusConfigFile {
-  version: number;
-  statuses: StatusConfig[];
-  defaultStatusId: string;
-}
-
-// ===== 会话的工作流状态 =====
-export type TodoState = string;  // 动态引用 StatusConfig.id
-
-// ===== 状态输入类型 =====
-export interface CreateStatusInput {
-  label: string;
-  color?: string;
-  icon?: string;
-  category: StatusCategory;
-}
-
-export interface UpdateStatusInput {
-  label?: string;
-  color?: string;
-  icon?: string;
-  category?: StatusCategory;
-}
-
 // ===== 文件夹配置 =====
 export interface FolderConfig {
   path: string;           // "Work/ProjectA"
@@ -504,7 +464,6 @@ export type ClientEvent =
   | { type: 'session.history'; payload: { sessionId: string } }
   | { type: 'session.stop'; payload: { sessionId: string } }
   | { type: 'session.delete'; payload: { sessionId: string } }
-  | { type: 'session.setTodoState'; payload: { sessionId: string; todoState: TodoState } }
   | { type: 'session.togglePin'; payload: { sessionId: string } }
   | { type: 'permission.response'; payload: PermissionResponsePayload }
   // MCP 事件
@@ -515,15 +474,9 @@ export type ClientEvent =
       projectServers?: Record<string, McpServerConfig>;
       codexGlobalServers?: Record<string, McpServerConfig>;
       projectPath?: string;
-    } }
+  } }
   // Skills 事件
   | { type: 'skills.list'; payload?: { projectPath?: string } }
-  // 状态配置事件
-  | { type: 'status.list' }
-  | { type: 'status.create'; payload: CreateStatusInput }
-  | { type: 'status.update'; payload: { id: string; updates: UpdateStatusInput } }
-  | { type: 'status.delete'; payload: { id: string } }
-  | { type: 'status.reorder'; payload: { orderedIds: string[] } }
   // 文件夹事件
   | { type: 'folder.list' }
   | { type: 'folder.create'; payload: { path: string; displayName?: string } }
@@ -544,7 +497,6 @@ export type ServerEvent =
   | { type: 'session.status'; payload: SessionStatusPayload }
   | { type: 'session.history'; payload: SessionHistoryPayload }
   | { type: 'session.deleted'; payload: { sessionId: string } }
-  | { type: 'session.todoStateChanged'; payload: { sessionId: string; todoState: TodoState } }
   | { type: 'session.pinned'; payload: { sessionId: string; pinned: boolean } }
   | {
       type: 'stream.user_prompt';
@@ -569,9 +521,6 @@ export type ServerEvent =
       userSkills: ClaudeSkillSummary[];
       projectSkills: ClaudeSkillSummary[];
     } }
-  // 状态配置事件
-  | { type: 'status.list'; payload: { statuses: StatusConfig[] } }
-  | { type: 'status.changed'; payload: { statuses: StatusConfig[] } }
   // 文件夹事件
   | { type: 'folder.list'; payload: { folders: FolderConfig[] } }
   | { type: 'folder.changed'; payload: { folders: FolderConfig[] } }
@@ -583,7 +532,6 @@ export interface SessionStartPayload {
   prompt: string;
   effectivePrompt?: string;
   cwd?: string;
-  todoState?: TodoState;
   allowedTools?: string;
   attachments?: Attachment[];
   provider?: AgentProvider;
@@ -638,7 +586,6 @@ export interface SessionInfo {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   opencodePermissionMode?: OpenCodePermissionMode;
-  todoState?: TodoState;
   pinned?: boolean;
   folderPath?: string | null;
   hiddenFromThreads?: boolean;
@@ -652,7 +599,6 @@ export type SessionStatus = 'idle' | 'running' | 'completed' | 'error';
 export interface SessionStatusPayload {
   sessionId: string;
   status: SessionStatus;
-  todoState?: TodoState;
   source?: SessionSource;
   readOnly?: boolean;
   title?: string;

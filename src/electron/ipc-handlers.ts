@@ -48,7 +48,6 @@ import {
   installSkillFromMarket,
   searchSkillMarket,
 } from './libs/skill-market';
-import * as statusConfig from './libs/status-config';
 import * as folderConfig from './libs/folder-config';
 import { ipcMainHandle, isDev } from './util';
 import { scheduleExternalClaudeSessionSync } from './libs/external-claude-sessions';
@@ -69,12 +68,9 @@ import type {
   SessionStatus,
 } from './types';
 import type {
-  CreateStatusInput,
   ClaudeCompatibleProvidersConfig,
   ClaudeCompatibleProviderId,
   ClaudeUsageRangeDays,
-  UpdateStatusInput,
-  TodoState,
   FolderConfig,
   FontSettingsPayload,
   FeishuBridgeConfig,
@@ -4065,32 +4061,8 @@ async function handleClientEvent(
       handleSkillsList(mainWindow, event.payload?.projectPath);
       break;
 
-    case 'session.setTodoState':
-      handleSessionSetTodoState(mainWindow, event.payload);
-      break;
-
     case 'session.togglePin':
       handleSessionTogglePin(mainWindow, event.payload);
-      break;
-
-    case 'status.list':
-      handleStatusList(mainWindow);
-      break;
-
-    case 'status.create':
-      handleStatusCreate(mainWindow, event.payload);
-      break;
-
-    case 'status.update':
-      handleStatusUpdate(mainWindow, event.payload);
-      break;
-
-    case 'status.delete':
-      handleStatusDelete(mainWindow, event.payload);
-      break;
-
-    case 'status.reorder':
-      handleStatusReorder(mainWindow, event.payload);
       break;
 
     case 'folder.list':
@@ -4142,7 +4114,6 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     codexReasoningEffort: normalizeCodexReasoningEffort(row.codex_reasoning_effort),
     codexFastMode: normalizeCodexFastMode(row.codex_fast_mode),
     opencodePermissionMode: normalizeOpenCodePermissionMode(row.opencode_permission_mode),
-    todoState: row.todo_state || 'todo',
     pinned: row.pinned === 1,
     folderPath: row.folder_path || null,
     hiddenFromThreads: row.hidden_from_threads === 1,
@@ -4154,13 +4125,6 @@ function handleSessionList(mainWindow: BrowserWindow): void {
   broadcast(mainWindow, {
     type: 'session.list',
     payload: { sessions: sessionInfos },
-  });
-
-  // 同时发送状态配置列表
-  const statuses = statusConfig.listStatuses();
-  broadcast(mainWindow, {
-    type: 'status.list',
-    payload: { statuses },
   });
 
   // 同时发送文件夹列表
@@ -4181,7 +4145,6 @@ async function handleSessionStart(
     prompt,
     effectivePrompt,
     cwd,
-    todoState,
     allowedTools,
     attachments,
     provider,
@@ -4260,7 +4223,6 @@ async function handleSessionStart(
   const session = sessions.createSession({
     title,
     cwd,
-    todoState,
     allowedTools,
     prompt: outgoingPrompt,
     provider: chosenProvider,
@@ -4288,7 +4250,6 @@ async function handleSessionStart(
     payload: {
       sessionId: session.id,
       status: 'running',
-      todoState: session.todo_state || 'todo',
       title: session.title,
       cwd: session.cwd || undefined,
       provider: chosenProvider,
@@ -4910,26 +4871,11 @@ function startRunner(
         const status: SessionStatus = message.subtype === 'success' ? 'completed' : 'error';
         sessions.updateSessionStatus(session.id, status);
 
-        // Auto-transition: move open-category sessions to "done" on successful completion
-        if (status === 'completed') {
-          const currentTodo = sessions.getSession(session.id)?.todo_state || 'todo';
-          const allStatuses = statusConfig.listStatuses();
-          const currentCfg = allStatuses.find((s) => s.id === currentTodo);
-          if (currentCfg?.category === 'open') {
-            sessions.updateSessionTodoState(session.id, 'done');
-            broadcast(mainWindow, {
-              type: 'session.todoStateChanged',
-              payload: { sessionId: session.id, todoState: 'done' },
-            });
-          }
-        }
-
         broadcast(mainWindow, {
           type: 'session.status',
           payload: {
             sessionId: session.id,
             status,
-            todoState: sessions.getSession(session.id)?.todo_state || 'todo',
             provider,
             model: sessions.getSession(session.id)?.model || modelOverride || undefined,
             compatibleProviderId:
@@ -4988,7 +4934,6 @@ function startRunner(
         payload: {
           sessionId: session.id,
           status: 'error',
-          todoState: sessions.getSession(session.id)?.todo_state || 'todo',
           hiddenFromThreads: session.hidden_from_threads === 1,
         },
       });
@@ -5294,18 +5239,6 @@ function handleSkillsList(mainWindow: BrowserWindow, projectPath?: string): void
   });
 }
 
-// 设置会话 TodoState
-function handleSessionSetTodoState(
-  mainWindow: BrowserWindow,
-  payload: { sessionId: string; todoState: TodoState }
-): void {
-  sessions.updateSessionTodoState(payload.sessionId, payload.todoState);
-  broadcast(mainWindow, {
-    type: 'session.todoStateChanged',
-    payload: { sessionId: payload.sessionId, todoState: payload.todoState },
-  });
-}
-
 // 切换会话置顶状态
 function handleSessionTogglePin(
   mainWindow: BrowserWindow,
@@ -5315,60 +5248,6 @@ function handleSessionTogglePin(
   broadcast(mainWindow, {
     type: 'session.pinned',
     payload: { sessionId: payload.sessionId, pinned: newPinned },
-  });
-}
-
-// 状态列表
-function handleStatusList(mainWindow: BrowserWindow): void {
-  const statuses = statusConfig.listStatuses();
-  broadcast(mainWindow, {
-    type: 'status.list',
-    payload: { statuses },
-  });
-}
-
-// 创建状态
-function handleStatusCreate(
-  mainWindow: BrowserWindow,
-  payload: CreateStatusInput
-): void {
-  statusConfig.createStatus(payload);
-  broadcastStatusChanged(mainWindow);
-}
-
-// 更新状态
-function handleStatusUpdate(
-  mainWindow: BrowserWindow,
-  payload: { id: string; updates: UpdateStatusInput }
-): void {
-  statusConfig.updateStatus(payload.id, payload.updates);
-  broadcastStatusChanged(mainWindow);
-}
-
-// 删除状态
-function handleStatusDelete(
-  mainWindow: BrowserWindow,
-  payload: { id: string }
-): void {
-  statusConfig.deleteStatus(payload.id);
-  broadcastStatusChanged(mainWindow);
-}
-
-// 重排序状态
-function handleStatusReorder(
-  mainWindow: BrowserWindow,
-  payload: { orderedIds: string[] }
-): void {
-  statusConfig.reorderStatuses(payload.orderedIds);
-  broadcastStatusChanged(mainWindow);
-}
-
-// 广播状态变更
-function broadcastStatusChanged(mainWindow: BrowserWindow): void {
-  const statuses = statusConfig.listStatuses();
-  broadcast(mainWindow, {
-    type: 'status.changed',
-    payload: { statuses },
   });
 }
 

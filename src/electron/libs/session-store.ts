@@ -721,7 +721,6 @@ function getDb(): Database.Database {
 export function createSession(params: {
   title: string;
   cwd?: string;
-  todoState?: string;
   allowedTools?: string;
   prompt?: string;
   provider?: 'claude' | 'codex' | 'opencode';
@@ -760,7 +759,7 @@ export function createSession(params: {
     params.cwd || null,
     params.allowedTools || null,
     params.prompt || null,
-    params.todoState || 'todo',
+    'todo',
     params.hiddenFromThreads ? 1 : 0,
     now,
     now
@@ -1073,15 +1072,6 @@ export function updateSessionOpenCodePermissionMode(
     UPDATE sessions SET opencode_permission_mode = ?, updated_at = ? WHERE id = ?
   `);
   stmt.run(mode ? normalizeOpenCodePermissionMode(mode) : null, now, sessionId);
-}
-
-// 更新 Session TodoState
-export function updateSessionTodoState(sessionId: string, todoState: string): void {
-  const now = Date.now();
-  const stmt = getDb().prepare(`
-    UPDATE sessions SET todo_state = ?, updated_at = ? WHERE id = ?
-  `);
-  stmt.run(todoState, now, sessionId);
 }
 
 // 切换 Session Pinned 状态

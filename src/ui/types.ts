@@ -5,7 +5,7 @@ export type SettingsTab = 'mcp' | 'general' | 'providers' | 'usage' | 'bridge' |
 
 import type { ChromeTheme, ThemeFonts, ThemeMode, ThemePack, ThemeState, ThemeVariant } from './theme/theme-types';
 // 从共享类型导入
-import type { AgentProvider, AppUpdateStatus, ProjectTreeNode, TodoState, StatusConfig, FolderConfig } from '../shared/types';
+import type { AgentProvider, AppUpdateStatus, ProjectTreeNode, FolderConfig } from '../shared/types';
 
 export type {
   SessionInfo,
@@ -82,11 +82,6 @@ export type {
   UpsertPromptLibraryItemInput,
   PromptLibraryImportResult,
   PromptLibraryExportResult,
-  TodoState,
-  StatusConfig,
-  StatusCategory,
-  CreateStatusInput,
-  UpdateStatusInput,
   FolderConfig,
   CanonicalToolKind,
 } from '../shared/types';
@@ -131,7 +126,6 @@ export interface SessionView {
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
   codexFastMode?: boolean;
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
-  todoState?: TodoState;
   pinned?: boolean;
   folderPath?: string | null;
   hiddenFromThreads?: boolean;
@@ -209,9 +203,6 @@ export interface AppState {
   updateStatus: AppUpdateStatus;
   promptLibraryInsertRequest: PromptLibraryInsertRequest | null;
   pendingChatInjection: ChatInjectionRequest | null;
-  // 状态配置
-  statusConfigs: StatusConfig[];
-  statusFilter: TodoState | 'all' | 'open' | 'closed';
   // 文件夹
   folderConfigs: FolderConfig[];
   // 主题
@@ -278,9 +269,6 @@ export interface AppActions {
   consumePromptLibraryInsert: (nonce: number) => void;
   requestChatInjection: (request: Omit<ChatInjectionRequest, 'nonce'>) => void;
   consumeChatInjection: (nonce: number) => void;
-  // 状态配置 Actions
-  setStatusConfigs: (configs: StatusConfig[]) => void;
-  setStatusFilter: (filter: TodoState | 'all' | 'open' | 'closed') => void;
   // 文件夹 Actions
   setFolderConfigs: (configs: FolderConfig[]) => void;
   // 主题 Actions

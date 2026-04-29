@@ -3,9 +3,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { FolderClosed, FolderOpen, MoreVertical, Pin, Copy, Trash2, SquarePen } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import { StatusIcon } from './StatusIcon';
-import { StatusMenu } from './StatusMenu';
-import type { AgentProvider, SessionView, StatusConfig } from '../types';
+import type { AgentProvider, SessionView } from '../types';
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
 import { OpenCodeLogo } from './OpenCodeLogo';
@@ -86,8 +84,6 @@ export function FolderTreeView({
     chatPanes,
     setActivePane,
     sidebarSearchQuery,
-    statusFilter,
-    statusConfigs,
   } = useAppStore();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
 
@@ -130,18 +126,6 @@ export function FolderTreeView({
       );
     }
 
-    if (statusFilter !== 'all') {
-      if (statusFilter === 'open') {
-        const openIds = new Set(statusConfigs.filter((s) => s.category === 'open').map((s) => s.id));
-        sessionList = sessionList.filter((s) => openIds.has(s.todoState || 'todo'));
-      } else if (statusFilter === 'closed') {
-        const closedIds = new Set(statusConfigs.filter((s) => s.category === 'closed').map((s) => s.id));
-        sessionList = sessionList.filter((s) => closedIds.has(s.todoState || 'todo'));
-      } else {
-        sessionList = sessionList.filter((s) => (s.todoState || 'todo') === statusFilter);
-      }
-    }
-
     const grouped = new Map<string, ProjectGroup>();
 
     for (const session of sessionList) {
@@ -174,7 +158,7 @@ export function FolderTreeView({
         const rightLatest = right.sessions[0]?.updatedAt || 0;
         return rightLatest - leftLatest;
       });
-  }, [sessions, sidebarSearchQuery, splitPair, statusFilter, statusConfigs]);
+  }, [sessions, sidebarSearchQuery, splitPair]);
 
   const isExpanded = (key: string) => !collapsedGroups.has(key);
 
@@ -233,7 +217,6 @@ export function FolderTreeView({
                       primary={splitPair.primary}
                       secondary={splitPair.secondary}
                       activePaneId={activePaneId}
-                      statusConfigs={statusConfigs}
                       depth={1}
                       onOpenPrimary={() => {
                         setChatLayoutMode('split');
@@ -261,7 +244,6 @@ export function FolderTreeView({
                           ? 'running'
                           : null
                     }
-                    statusConfigs={statusConfigs}
                     depth={1}
                     onClick={() => onSessionClick(session.id)}
                     onDelete={() => onSessionDelete(session.id)}
@@ -287,7 +269,6 @@ function SessionItem({
   session,
   isActive,
   runtimeBadge,
-  statusConfigs,
   depth,
   onClick,
   onDelete,
@@ -297,7 +278,6 @@ function SessionItem({
   session: SessionView;
   isActive: boolean;
   runtimeBadge: 'running' | 'completed' | 'error' | null;
-  statusConfigs: StatusConfig[];
   depth: number;
   onClick: () => void;
   onDelete: () => void;
@@ -305,8 +285,6 @@ function SessionItem({
   onTogglePin: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const currentTodoState = session.todoState || 'todo';
-  const currentStatusConfig = statusConfigs.find((s) => s.id === currentTodoState);
 
   return (
     <div
@@ -330,7 +308,6 @@ function SessionItem({
       onClick={onClick}
     >
       <div className="flex min-h-[22px] items-center gap-2 pr-8">
-        {currentStatusConfig && <StatusIcon status={currentStatusConfig} className="flex-shrink-0" />}
         {session.pinned && (
           <span className="flex-shrink-0 text-[var(--text-muted)]">
             <Pin className="w-3.5 h-3.5" />
@@ -384,17 +361,18 @@ function SessionItem({
             sideOffset={5}
           >
             <DropdownMenu.Item
-              className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150"
+              className="flex items-center gap-2 px-3 py-2 text-[13px] rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150"
               onClick={onTogglePin}
             >
               <Pin className="w-3.5 h-3.5" />
               {session.pinned ? 'Unpin' : 'Pin to Top'}
             </DropdownMenu.Item>
-            <DropdownMenu.Separator className="h-px bg-[var(--border)] my-1" />
-            <StatusMenu sessionId={session.id} currentStatus={currentTodoState} />
+            {(session.claudeSessionId || session.readOnly !== true) && (
+              <DropdownMenu.Separator className="h-px bg-[var(--border)] my-1" />
+            )}
             {session.claudeSessionId && (
               <DropdownMenu.Item
-                className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150"
+                className="flex items-center gap-2 px-3 py-2 text-[13px] rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150"
                 onClick={onCopyResume}
               >
                 <Copy className="w-3.5 h-3.5" />
@@ -403,7 +381,7 @@ function SessionItem({
             )}
             {session.readOnly !== true && (
               <DropdownMenu.Item
-                className="flex items-center gap-2 px-3 py-2 text-sm rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150 text-red-400"
+                className="flex items-center gap-2 px-3 py-2 text-[13px] rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150 text-red-400"
                 onClick={onDelete}
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -421,7 +399,6 @@ function SplitSessionRow({
   primary,
   secondary,
   activePaneId,
-  statusConfigs,
   depth,
   onOpenPrimary,
   onOpenSecondary,
@@ -429,14 +406,10 @@ function SplitSessionRow({
   primary: SessionView;
   secondary: SessionView;
   activePaneId: 'primary' | 'secondary';
-  statusConfigs: StatusConfig[];
   depth: number;
   onOpenPrimary: () => void;
   onOpenSecondary: () => void;
 }) {
-  const primaryStatus = statusConfigs.find((status) => status.id === (primary.todoState || 'todo'));
-  const secondaryStatus = statusConfigs.find((status) => status.id === (secondary.todoState || 'todo'));
-
   const rowBase =
     'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition-colors';
 
@@ -461,7 +434,6 @@ function SplitSessionRow({
           left
         </span>
         <ProviderGlyph provider={primary.provider} />
-        {primaryStatus ? <StatusIcon status={primaryStatus} className="flex-shrink-0" /> : null}
         <span className="min-w-0 flex-1 truncate font-medium">{primary.title}</span>
       </button>
       <button
@@ -477,7 +449,6 @@ function SplitSessionRow({
           right
         </span>
         <ProviderGlyph provider={secondary.provider} />
-        {secondaryStatus ? <StatusIcon status={secondaryStatus} className="flex-shrink-0" /> : null}
         <span className="min-w-0 flex-1 truncate font-medium">{secondary.title}</span>
       </button>
     </div>

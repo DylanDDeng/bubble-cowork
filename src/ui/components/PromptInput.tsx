@@ -642,7 +642,6 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           prompt: outgoingPrompt,
           effectivePrompt: outgoingEffectivePrompt,
           cwd: activeSession.cwd,
-          todoState: activeSession.todoState || 'todo',
           attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
           provider,
           model:
