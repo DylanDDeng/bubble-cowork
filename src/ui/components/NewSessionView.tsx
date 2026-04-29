@@ -22,6 +22,7 @@ import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
+import { SidebarHeaderTrigger } from './Sidebar';
 import { SavePromptButton } from './prompts/SavePromptButton';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
 import { useCompatibleProviderConfig } from '../hooks/useCompatibleProviderConfig';
@@ -86,6 +87,7 @@ export function NewSessionView() {
   const {
     pendingStart,
     projectCwd,
+    sidebarCollapsed,
     sessions,
     setPendingStart,
     setProjectCwd,
@@ -698,7 +700,11 @@ export function NewSessionView() {
   return (
     <div className="flex-1 min-w-0 flex flex-col">
       {/* 顶部拖拽区域 */}
-      <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]" />
+      <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0`}>
+        <div className="flex h-full items-center px-3">
+          {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
+        </div>
+      </div>
 
       {/* 内容区域 */}
       <div className="flex-1 flex justify-center px-8 pb-4 pt-10">

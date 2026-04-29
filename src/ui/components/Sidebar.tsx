@@ -3,8 +3,6 @@ import * as Dialog from '@radix-ui/react-dialog';
 import {
   Bookmark,
   Boxes,
-  ChevronLeft,
-  ChevronRight,
   FolderOpen,
   Search,
   Settings,
@@ -26,6 +24,61 @@ import { getMessageContentBlocks } from '../utils/message-content';
 
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 420;
+const SIDEBAR_TRIGGER_CLASS =
+  'no-drag inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] active:scale-95';
+
+function SidebarToggleIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <line x1="9" y1="3" x2="9" y2="21" />
+    </svg>
+  );
+}
+
+function SidebarToggleButton({
+  collapsed,
+  className = '',
+  onClick,
+}: {
+  collapsed: boolean;
+  className?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${SIDEBAR_TRIGGER_CLASS} ${className}`}
+      aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+    >
+      <SidebarToggleIcon className="h-4 w-4" />
+      <span className="sr-only">Toggle sidebar</span>
+    </button>
+  );
+}
+
+export function SidebarHeaderTrigger({ className = '' }: { className?: string }) {
+  const { sidebarCollapsed, setSidebarCollapsed } = useAppStore();
+
+  return (
+    <SidebarToggleButton
+      collapsed={sidebarCollapsed}
+      className={className}
+      onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+    />
+  );
+}
 
 export function Sidebar() {
   const {
@@ -318,27 +371,27 @@ export function Sidebar() {
       )}
 
       <div className="aegis-sidebar relative flex h-full min-h-0 flex-shrink-0 self-stretch select-none">
-        {sidebarCollapsed ? (
-          <div className="flex h-full w-9 flex-shrink-0 flex-col items-center border-r border-[var(--border)] bg-[var(--bg-tertiary)]">
-            <div className="h-8 w-full drag-region flex-shrink-0 border-b border-[var(--border)]" />
-            <button
-              type="button"
-              onClick={toggleSidebarCollapsed}
-              title="Expand sidebar"
-              aria-label="Expand sidebar"
-              className="mt-2 flex h-8 w-8 items-center justify-center rounded-[var(--radius-lg)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-            >
-              <ChevronRight className="h-[17px] w-[17px]" />
-            </button>
-          </div>
-        ) : (
+        <div
+          className="relative flex h-full min-h-0 flex-shrink-0 self-stretch overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+          style={{ width: sidebarCollapsed ? 0 : sidebarWidth }}
+        >
           <div
-            className="relative flex h-full min-h-0 flex-shrink-0 self-stretch transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]"
-            style={{ width: sidebarWidth }}
+            className={`relative flex h-full min-h-0 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--bg-tertiary)] transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                sidebarCollapsed
+                  ? 'pointer-events-none -translate-x-2 opacity-0'
+                  : 'translate-x-0 opacity-100'
+              }`}
+            style={{ width: sidebarWidth, minWidth: sidebarWidth }}
+            aria-hidden={sidebarCollapsed}
           >
-            <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--bg-tertiary)]">
-              <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]" />
+            <div className="drag-region flex h-12 flex-shrink-0 items-center gap-0.5 pl-[84px] pr-2">
+              <SidebarToggleButton
+                collapsed={sidebarCollapsed}
+                onClick={toggleSidebarCollapsed}
+              />
+            </div>
 
+            <div className="flex min-h-0 flex-1 flex-col">
               <div className="px-2 py-3">
                 <div className="space-y-1">
                   <SidebarNavRow
@@ -436,38 +489,29 @@ export function Sidebar() {
                 </div>
               )}
 
-              <div className="border-t border-[var(--border)] px-2 py-2">
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setShowSettings(true)}
-                    className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                    aria-label="Settings"
-                  >
-                    <Settings className="h-[15px] w-[15px] text-[var(--text-muted)]" />
-                    <span className="truncate text-[13px] font-medium">Settings</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={toggleSidebarCollapsed}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                    aria-label="Collapse sidebar"
-                    title="Collapse sidebar"
-                  >
-                    <ChevronLeft className="h-[15px] w-[15px]" />
-                  </button>
-                </div>
-              </div>
-
-              <div
-                className="group absolute right-0 top-0 bottom-0 w-3 translate-x-1/2 cursor-col-resize no-drag"
-                onMouseDown={handleSidebarResizeStart}
-              >
-                <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
+              <div className="px-2 py-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSettings(true)}
+                  className="flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                  aria-label="Settings"
+                >
+                  <Settings className="h-[15px] w-[15px] text-[var(--text-muted)]" />
+                  <span className="truncate text-[13px] font-medium">Settings</span>
+                </button>
               </div>
             </div>
           </div>
-        )}
+
+          {!sidebarCollapsed ? (
+            <div
+              className="group absolute right-0 top-0 bottom-0 w-3 translate-x-1/2 cursor-col-resize no-drag"
+              onMouseDown={handleSidebarResizeStart}
+            >
+              <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {/* Resume Command Dialog */}

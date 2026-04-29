@@ -4,6 +4,7 @@ import { useAppStore } from '../store/useAppStore';
 /**
  * Global keyboard shortcuts
  * - Cmd/Ctrl + K: Toggle the search palette (threads, projects, actions)
+ * - Cmd/Ctrl + B: Toggle the thread sidebar
  * - Cmd/Ctrl + F: Open in-session search
  * - Escape: Close search panel
  */
@@ -17,6 +18,8 @@ export function useKeyboardShortcuts() {
     toggleSearchPalette,
     searchPaletteOpen,
     setSearchPaletteOpen,
+    sidebarCollapsed,
+    setSidebarCollapsed,
   } = useAppStore();
 
   useEffect(() => {
@@ -27,6 +30,13 @@ export function useKeyboardShortcuts() {
       if (isMod && e.key === 'k') {
         e.preventDefault();
         toggleSearchPalette();
+        return;
+      }
+
+      // Cmd/Ctrl + B: 切换左侧 thread sidebar，和 dpcode 的 sidebar.toggle 行为保持一致
+      if (isMod && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        setSidebarCollapsed(!sidebarCollapsed);
         return;
       }
 
@@ -60,6 +70,8 @@ export function useKeyboardShortcuts() {
     toggleSearchPalette,
     searchPaletteOpen,
     setSearchPaletteOpen,
+    sidebarCollapsed,
+    setSidebarCollapsed,
   ]);
 
   return { sidebarSearchRef };

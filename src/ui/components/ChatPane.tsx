@@ -463,7 +463,7 @@ export function ChatPane({
     <div
       className={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-primary)] transition-colors ${
         isActive
-          ? 'ring-1 ring-[color-mix(in_srgb,var(--accent)_20%,transparent)] shadow-[inset_0_1px_0_color-mix(in_srgb,var(--accent)_10%,transparent)]'
+          ? 'bg-[var(--bg-primary)]'
           : 'bg-[color-mix(in_srgb,var(--bg-primary)_96%,var(--bg-secondary))]'
       }`}
       onMouseDown={() => {

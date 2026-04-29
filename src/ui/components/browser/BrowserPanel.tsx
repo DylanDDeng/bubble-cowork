@@ -574,10 +574,10 @@ export function BrowserPanel({
       )}
 
       {/* Top drag strip */}
-      <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]" />
+      <div className="h-8 drag-region flex-shrink-0" />
 
       {/* Chrome */}
-      <div className="no-drag flex-shrink-0 border-b border-[var(--border)] bg-[var(--bg-secondary)]/60">
+      <div className="no-drag flex-shrink-0 bg-[var(--bg-secondary)]/45">
         <div className="flex items-center gap-1 px-2 py-1.5">
           <button
             type="button"
@@ -739,7 +739,7 @@ export function BrowserPanel({
         </div>
 
         {/* Tab bar */}
-        <div className="flex items-center gap-1 overflow-x-auto border-t border-[var(--border)] px-2 py-1">
+        <div className="flex items-center gap-1 overflow-x-auto px-2 py-1">
           {sessionState.tabs.map((tab) => {
             const isActive = tab.id === sessionState.activeTabId;
             return (

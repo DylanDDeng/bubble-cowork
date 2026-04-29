@@ -919,7 +919,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   return (
     <div className="bg-transparent">
       <div className="mx-auto max-w-4xl">
-        <div className="group relative rounded-[28px] bg-[var(--border)]/45 p-px transition-colors duration-200 focus-within:bg-[var(--border)]/70">
+        <div className="group relative rounded-[28px] bg-transparent transition-shadow duration-200">
           {projectFileMentions.hasMentionQuery ? (
             <div className="absolute inset-x-0 bottom-full z-40">
               <ProjectFileMentionMenu
@@ -943,7 +943,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
               />
             </div>
           )}
-          <div className="rounded-[26px] border border-[var(--border)]/65 bg-[var(--bg-primary)] transition-colors duration-200">
+          <div className="rounded-[26px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)] transition-[border-color,box-shadow] duration-200 focus-within:border-[color-mix(in_srgb,var(--border)_92%,transparent)] focus-within:shadow-[0_20px_52px_rgba(15,23,42,0.12)]">
           {attachments.length > 0 && (
             <div className="px-5 pt-4">
               <AttachmentChips

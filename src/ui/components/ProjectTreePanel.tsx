@@ -1000,7 +1000,7 @@ export function ProjectTreePanel({
             <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
           </div>
         )}
-        <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]" />
+        <div className="h-8 drag-region flex-shrink-0" />
         <div className="px-4 pt-2 pb-2 pr-14">
           <div className="flex items-center justify-between gap-2">
             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">

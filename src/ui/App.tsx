@@ -23,7 +23,7 @@ import {
 import { useAppStore } from './store/useAppStore';
 import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
-import { Sidebar } from './components/Sidebar';
+import { Sidebar, SidebarHeaderTrigger } from './components/Sidebar';
 import { PromptLibraryView } from './components/prompts/PromptLibraryView';
 import { NewSessionView } from './components/NewSessionView';
 import { PromptInput } from './components/PromptInput';
@@ -112,6 +112,7 @@ export function App() {
     chatSplitRatio,
     showNewSession,
     newSessionKey,
+    sidebarCollapsed,
     projectCwd,
     showSettings,
     projectTreeCollapsed,
@@ -699,7 +700,11 @@ export function App() {
         </div>
       ) : activeWorkspace === 'skills' ? (
         <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
-          <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]" />
+          <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0`}>
+            <div className="flex h-full items-center px-3">
+              {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
+            </div>
+          </div>
           <main className="min-w-0 flex-1 overflow-y-auto">
             <div className="mx-auto max-w-[1360px] px-8 py-8">
               <SkillMarketSettingsContent />
@@ -714,60 +719,65 @@ export function App() {
           style={{ paddingRight: 'var(--project-preview-space, 0px)' }}
         >
           {/* Top drag region */}
-          <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]">
-            <div className="flex h-full items-center justify-end px-3">
-              <InlineProjectPanelHeaderActions
-                collapsed={projectTreeCollapsed}
-                activeTab={projectPanelView}
-                changeStats={{
-                  insertions: gitHeaderState.insertions,
-                  deletions: gitHeaderState.deletions,
-                }}
-                onToggle={(view) => {
-                  if (!projectTreeCollapsed && !browserPanelOpen && projectPanelView === view) {
-                    setProjectTreeCollapsed(true);
-                    return;
-                  }
-                  setProjectPanelView(view);
-                  setProjectTreeCollapsed(false);
-                  if (browserPanelOpen) setBrowserPanelOpen(false);
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => setTerminalDrawerOpen(!terminalDrawerOpen)}
-                className={`no-drag inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] font-medium transition-colors ${
-                  terminalDrawerOpen
-                    ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
-                    : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-                }`}
-                title="Terminal"
-                aria-label="Toggle terminal drawer"
-              >
-                <SquareTerminal className="h-[13px] w-[13px] shrink-0" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !browserPanelOpen;
-                  setBrowserPanelOpen(next);
-                  if (next) setProjectTreeCollapsed(true);
-                }}
-                className={`no-drag inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] font-medium transition-colors ${
-                  browserPanelOpen
-                    ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
-                    : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-                }`}
-                title="Browser"
-                aria-label="Toggle browser panel"
-              >
-                <Globe className="h-[13px] w-[13px] shrink-0" />
-              </button>
-              <GitHeaderActions
-                cwd={activeSession?.cwd || projectCwd || null}
-                state={gitHeaderState}
-                onRefreshGitState={loadGitOverview}
-              />
+          <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0`}>
+            <div className="flex h-full items-center justify-between px-3">
+              <div className="flex items-center gap-0.5">
+                {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
+              </div>
+              <div className="flex items-center justify-end">
+                <InlineProjectPanelHeaderActions
+                  collapsed={projectTreeCollapsed}
+                  activeTab={projectPanelView}
+                  changeStats={{
+                    insertions: gitHeaderState.insertions,
+                    deletions: gitHeaderState.deletions,
+                  }}
+                  onToggle={(view) => {
+                    if (!projectTreeCollapsed && !browserPanelOpen && projectPanelView === view) {
+                      setProjectTreeCollapsed(true);
+                      return;
+                    }
+                    setProjectPanelView(view);
+                    setProjectTreeCollapsed(false);
+                    if (browserPanelOpen) setBrowserPanelOpen(false);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setTerminalDrawerOpen(!terminalDrawerOpen)}
+                  className={`no-drag inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] font-medium transition-colors ${
+                    terminalDrawerOpen
+                      ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+                      : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+                  }`}
+                  title="Terminal"
+                  aria-label="Toggle terminal drawer"
+                >
+                  <SquareTerminal className="h-[13px] w-[13px] shrink-0" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !browserPanelOpen;
+                    setBrowserPanelOpen(next);
+                    if (next) setProjectTreeCollapsed(true);
+                  }}
+                  className={`no-drag inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] font-medium transition-colors ${
+                    browserPanelOpen
+                      ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+                      : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+                  }`}
+                  title="Browser"
+                  aria-label="Toggle browser panel"
+                >
+                  <Globe className="h-[13px] w-[13px] shrink-0" />
+                </button>
+                <GitHeaderActions
+                  cwd={activeSession?.cwd || projectCwd || null}
+                  state={gitHeaderState}
+                  onRefreshGitState={loadGitOverview}
+                />
+              </div>
             </div>
           </div>
 

@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { PromptLibraryItem } from '../../types';
+import { useAppStore } from '../../store/useAppStore';
+import { SidebarHeaderTrigger } from '../Sidebar';
 import {
   deletePromptLibraryItem,
   exportPromptLibrary,
@@ -72,6 +74,7 @@ function parseTagsInput(value: string): string[] {
 type RightPanelMode = 'empty' | 'detail' | 'editor';
 
 export function PromptLibraryView() {
+  const sidebarCollapsed = useAppStore((state) => state.sidebarCollapsed);
   const [items, setItems] = useState<PromptLibraryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -200,7 +203,11 @@ export function PromptLibraryView() {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[var(--bg-primary)]">
-      <div className="h-8 drag-region flex-shrink-0 border-b border-[var(--border)]" />
+      <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0`}>
+        <div className="flex h-full items-center px-3">
+          {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
+        </div>
+      </div>
 
       <div className="flex min-h-0 flex-1">
         {/* ===== Left pane: list ===== */}

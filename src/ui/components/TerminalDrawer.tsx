@@ -80,7 +80,7 @@ export function TerminalDrawer({
     <>
       {isResizing ? <div className="fixed inset-0 z-[70] cursor-row-resize no-drag bg-transparent" /> : null}
       <div
-        className={`shrink-0 overflow-hidden border-t border-[var(--border)] bg-[var(--bg-primary)] transition-[height,opacity] duration-200 ${
+        className={`shrink-0 overflow-hidden bg-[var(--bg-primary)] transition-[height,opacity] duration-200 ${
           open ? 'opacity-100' : 'pointer-events-none opacity-0'
         }`}
         style={{ height: open ? height : 0 }}
@@ -89,7 +89,6 @@ export function TerminalDrawer({
           className="group relative h-3 cursor-row-resize no-drag"
           onMouseDown={startResize}
         >
-          <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-[var(--border)]/80" />
           <div className="absolute left-1/2 top-1/2 flex h-3 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--bg-primary)] text-[var(--text-muted)] transition-colors group-hover:text-[var(--text-secondary)]">
             <Minus className="h-3.5 w-3.5" />
           </div>
