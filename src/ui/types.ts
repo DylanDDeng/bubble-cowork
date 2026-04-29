@@ -5,16 +5,7 @@ export type SettingsTab = 'mcp' | 'general' | 'providers' | 'usage' | 'bridge' |
 
 import type { ChromeTheme, ThemeFonts, ThemeMode, ThemePack, ThemeState, ThemeVariant } from './theme/theme-types';
 // 从共享类型导入
-import type {
-  AgentProvider,
-  AgentRun,
-  AppUpdateStatus,
-  BoardTask,
-  ProjectTreeNode,
-  TodoState,
-  StatusConfig,
-  FolderConfig,
-} from '../shared/types';
+import type { AgentProvider, AppUpdateStatus, ProjectTreeNode, TodoState, StatusConfig, FolderConfig } from '../shared/types';
 
 export type {
   SessionInfo,
@@ -163,8 +154,6 @@ export interface SessionView {
 export interface AppState {
   connected: boolean;
   sessions: Record<string, SessionView>;
-  tasks: Record<string, BoardTask>;
-  agentRuns: Record<string, AgentRun>;
   activeSessionId: string | null;
   activeWorkspace: ActiveWorkspace;
   chatSidebarView: ChatSidebarView;

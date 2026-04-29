@@ -368,8 +368,6 @@ export const useAppStore = create<Store>()(
       // 状态
       connected: false,
       sessions: {},
-      tasks: {},
-      agentRuns: {},
       activeSessionId: initialUiResumeState?.activeSessionId ?? null,
       activeWorkspace: 'chat' as ActiveWorkspace,
       chatSidebarView: 'threads' as ChatSidebarView,
@@ -583,42 +581,6 @@ export const useAppStore = create<Store>()(
 
       case 'session.pinned':
         handleSessionPinned(event.payload, set, get);
-        break;
-
-      case 'task.list':
-        set({
-          tasks: Object.fromEntries(event.payload.tasks.map((task) => [task.id, task])),
-          agentRuns: Object.fromEntries(event.payload.runs.map((run) => [run.id, run])),
-        });
-        break;
-
-      case 'task.changed':
-        set((state) => ({
-          tasks: {
-            ...state.tasks,
-            [event.payload.task.id]: event.payload.task,
-          },
-        }));
-        break;
-
-      case 'task.runChanged':
-        set((state) => ({
-          agentRuns: {
-            ...state.agentRuns,
-            [event.payload.run.id]: event.payload.run,
-          },
-        }));
-        break;
-
-      case 'task.deleted':
-        set((state) => {
-          const tasks = { ...state.tasks };
-          delete tasks[event.payload.taskId];
-          const agentRuns = Object.fromEntries(
-            Object.entries(state.agentRuns).filter(([, run]) => run.taskId !== event.payload.taskId)
-          );
-          return { tasks, agentRuns };
-        });
         break;
 
       case 'folder.list':

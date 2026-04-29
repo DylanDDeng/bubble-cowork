@@ -20,14 +20,6 @@ import type {
   ClaudeUsageModelSummary,
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
-  AgentProvider,
-  AgentRun,
-  AgentRunStatus,
-  AgentRunWorkspaceMode,
-  BoardTask,
-  TaskCreatePayload,
-  TaskStatus,
-  TaskUpdatePayload,
   SessionSource,
 } from '../../shared/types';
 
@@ -79,42 +71,6 @@ type MessagePersistenceRecord = {
   artifact?: MessageArtifactPersistenceRecord;
 };
 
-type TaskRow = {
-  id: string;
-  source: string;
-  external_id: string | null;
-  external_url: string | null;
-  title: string;
-  description: string | null;
-  status: string;
-  cwd: string | null;
-  branch: string | null;
-  labels_json: string | null;
-  priority: string | null;
-  accepted_run_id: string | null;
-  created_at: number;
-  updated_at: number;
-};
-
-type AgentRunRow = {
-  id: string;
-  task_id: string;
-  session_id: string;
-  provider: string;
-  model: string | null;
-  workspace_mode: string;
-  workspace_path: string | null;
-  workspace_branch: string | null;
-  status: string;
-  started_at: number;
-  completed_at: number | null;
-  last_event_summary: string | null;
-  changed_files_count: number | null;
-  artifact_count: number | null;
-  test_status: string | null;
-  validation_command: string | null;
-};
-
 function normalizeClaudeAccessMode(
   value?: string | null
 ): ClaudeAccessMode {
@@ -164,7 +120,6 @@ export function initialize(): void {
 
   // 启用 WAL 模式
   db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
 
   // 创建表
   db.exec(`
@@ -194,44 +149,6 @@ export function initialize(): void {
       hidden_from_threads INTEGER DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS tasks (
-      id TEXT PRIMARY KEY,
-      source TEXT NOT NULL DEFAULT 'local',
-      external_id TEXT,
-      external_url TEXT,
-      title TEXT NOT NULL,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'todo',
-      cwd TEXT,
-      branch TEXT,
-      labels_json TEXT NOT NULL DEFAULT '[]',
-      priority TEXT,
-      accepted_run_id TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS agent_runs (
-      id TEXT PRIMARY KEY,
-      task_id TEXT NOT NULL,
-      session_id TEXT NOT NULL,
-      provider TEXT NOT NULL,
-      model TEXT,
-      workspace_mode TEXT NOT NULL DEFAULT 'current_cwd',
-      workspace_path TEXT,
-      workspace_branch TEXT,
-      status TEXT NOT NULL DEFAULT 'queued',
-      started_at INTEGER NOT NULL,
-      completed_at INTEGER,
-      last_event_summary TEXT,
-      changed_files_count INTEGER,
-      artifact_count INTEGER,
-      test_status TEXT,
-      validation_command TEXT,
-      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS messages (
@@ -304,25 +221,6 @@ export function initialize(): void {
   ensureColumn('sessions', 'external_file_path', 'TEXT');
   ensureColumn('sessions', 'external_file_mtime', 'INTEGER');
   ensureColumn('sessions', 'hidden_from_threads', 'INTEGER DEFAULT 0');
-  ensureColumn('tasks', 'source', "TEXT NOT NULL DEFAULT 'local'");
-  ensureColumn('tasks', 'external_id', 'TEXT');
-  ensureColumn('tasks', 'external_url', 'TEXT');
-  ensureColumn('tasks', 'description', 'TEXT');
-  ensureColumn('tasks', 'status', "TEXT NOT NULL DEFAULT 'todo'");
-  ensureColumn('tasks', 'cwd', 'TEXT');
-  ensureColumn('tasks', 'branch', 'TEXT');
-  ensureColumn('tasks', 'labels_json', "TEXT NOT NULL DEFAULT '[]'");
-  ensureColumn('tasks', 'priority', 'TEXT');
-  ensureColumn('tasks', 'accepted_run_id', 'TEXT');
-  ensureColumn('agent_runs', 'model', 'TEXT');
-  ensureColumn('agent_runs', 'workspace_mode', "TEXT NOT NULL DEFAULT 'current_cwd'");
-  ensureColumn('agent_runs', 'workspace_path', 'TEXT');
-  ensureColumn('agent_runs', 'workspace_branch', 'TEXT');
-  ensureColumn('agent_runs', 'last_event_summary', 'TEXT');
-  ensureColumn('agent_runs', 'changed_files_count', 'INTEGER');
-  ensureColumn('agent_runs', 'artifact_count', 'INTEGER');
-  ensureColumn('agent_runs', 'test_status', 'TEXT');
-  ensureColumn('agent_runs', 'validation_command', 'TEXT');
   ensureColumn('messages', 'message_type', 'TEXT');
   ensureColumn('messages', 'source_origin', 'TEXT');
   ensureColumn('messages', 'search_text', 'TEXT');
@@ -330,10 +228,6 @@ export function initialize(): void {
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
-    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-    CREATE INDEX IF NOT EXISTS idx_tasks_updated_at ON tasks(updated_at);
-    CREATE INDEX IF NOT EXISTS idx_agent_runs_task_id ON agent_runs(task_id);
-    CREATE INDEX IF NOT EXISTS idx_agent_runs_session_id ON agent_runs(session_id);
     CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
     CREATE INDEX IF NOT EXISTS idx_messages_sort_key ON messages(sort_key);
     CREATE INDEX IF NOT EXISTS idx_messages_message_type ON messages(message_type);
@@ -889,290 +783,6 @@ export function getSession(sessionId: string): SessionRow | undefined {
 export function listSessions(): SessionRow[] {
   const stmt = getDb().prepare('SELECT * FROM sessions WHERE COALESCE(hidden_from_threads, 0) = 0 ORDER BY updated_at DESC');
   return stmt.all() as SessionRow[];
-}
-
-function parseLabels(value: string | null | undefined): string[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === 'string')
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function toBoardTask(row: TaskRow): BoardTask {
-  return {
-    id: row.id,
-    source: row.source === 'github' || row.source === 'linear' || row.source === 'markdown' ? row.source : 'local',
-    externalId: row.external_id || undefined,
-    externalUrl: row.external_url || undefined,
-    title: row.title,
-    description: row.description || undefined,
-    status: normalizeTaskStatus(row.status),
-    cwd: row.cwd || undefined,
-    branch: row.branch || undefined,
-    labels: parseLabels(row.labels_json),
-    priority:
-      row.priority === 'low' || row.priority === 'medium' || row.priority === 'high' || row.priority === 'urgent'
-        ? row.priority
-        : undefined,
-    acceptedRunId: row.accepted_run_id || undefined,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function toAgentRun(row: AgentRunRow): AgentRun {
-  return {
-    id: row.id,
-    taskId: row.task_id,
-    sessionId: row.session_id,
-    provider: row.provider === 'codex' || row.provider === 'opencode' ? row.provider : 'claude',
-    model: row.model || undefined,
-    workspaceMode: row.workspace_mode === 'isolated' ? 'isolated' : 'current_cwd',
-    workspacePath: row.workspace_path || undefined,
-    workspaceBranch: row.workspace_branch || undefined,
-    status: normalizeAgentRunStatus(row.status),
-    startedAt: row.started_at,
-    completedAt: row.completed_at || undefined,
-    lastEventSummary: row.last_event_summary || undefined,
-    changedFilesCount: row.changed_files_count ?? undefined,
-    artifactCount: row.artifact_count ?? undefined,
-    testStatus:
-      row.test_status === 'passed' || row.test_status === 'failed' || row.test_status === 'unknown'
-        ? row.test_status
-        : undefined,
-    validationCommand: row.validation_command || undefined,
-  };
-}
-
-function normalizeTaskStatus(value?: string | null): TaskStatus {
-  switch (value) {
-    case 'running':
-    case 'needs_review':
-    case 'done':
-    case 'cancelled':
-      return value;
-    default:
-      return 'todo';
-  }
-}
-
-function normalizeAgentRunStatus(value?: string | null): AgentRunStatus {
-  switch (value) {
-    case 'queued':
-    case 'running':
-    case 'waiting_permission':
-    case 'completed':
-    case 'failed':
-    case 'cancelled':
-      return value;
-    default:
-      return 'queued';
-  }
-}
-
-export function listTasks(): BoardTask[] {
-  const stmt = getDb().prepare('SELECT * FROM tasks ORDER BY updated_at DESC');
-  return (stmt.all() as TaskRow[]).map(toBoardTask);
-}
-
-export function listAgentRuns(): AgentRun[] {
-  const stmt = getDb().prepare('SELECT * FROM agent_runs ORDER BY started_at DESC');
-  return (stmt.all() as AgentRunRow[]).map(toAgentRun);
-}
-
-export function getTask(taskId: string): BoardTask | undefined {
-  const stmt = getDb().prepare('SELECT * FROM tasks WHERE id = ?');
-  const row = stmt.get(taskId) as TaskRow | undefined;
-  return row ? toBoardTask(row) : undefined;
-}
-
-export function getAgentRun(runId: string): AgentRun | undefined {
-  const stmt = getDb().prepare('SELECT * FROM agent_runs WHERE id = ?');
-  const row = stmt.get(runId) as AgentRunRow | undefined;
-  return row ? toAgentRun(row) : undefined;
-}
-
-export function getAgentRunBySessionId(sessionId: string): AgentRun | undefined {
-  const stmt = getDb().prepare('SELECT * FROM agent_runs WHERE session_id = ? ORDER BY started_at DESC LIMIT 1');
-  const row = stmt.get(sessionId) as AgentRunRow | undefined;
-  return row ? toAgentRun(row) : undefined;
-}
-
-export function getLatestAgentRunForTask(taskId: string): AgentRun | undefined {
-  const stmt = getDb().prepare('SELECT * FROM agent_runs WHERE task_id = ? ORDER BY started_at DESC LIMIT 1');
-  const row = stmt.get(taskId) as AgentRunRow | undefined;
-  return row ? toAgentRun(row) : undefined;
-}
-
-export function createTask(input: TaskCreatePayload): BoardTask {
-  const now = Date.now();
-  const id = uuidv4();
-  const stmt = getDb().prepare(`
-    INSERT INTO tasks (
-      id, source, external_id, external_url, title, description, status, cwd, branch,
-      labels_json, priority, accepted_run_id, created_at, updated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, 'todo', ?, NULL, ?, ?, NULL, ?, ?)
-  `);
-
-  stmt.run(
-    id,
-    input.source || 'local',
-    input.externalId || null,
-    input.externalUrl || null,
-    input.title.trim() || 'Untitled task',
-    input.description?.trim() || null,
-    input.cwd?.trim() || null,
-    JSON.stringify(input.labels || []),
-    input.priority || null,
-    now,
-    now
-  );
-
-  return getTask(id)!;
-}
-
-export function updateTask(taskId: string, updates: TaskUpdatePayload): BoardTask | undefined {
-  const current = getTask(taskId);
-  if (!current) return undefined;
-
-  const next = {
-    title: updates.title !== undefined ? updates.title.trim() || current.title : current.title,
-    description: updates.description !== undefined ? updates.description?.trim() || null : current.description || null,
-    status: updates.status !== undefined ? normalizeTaskStatus(updates.status) : current.status,
-    cwd: updates.cwd !== undefined ? updates.cwd?.trim() || null : current.cwd || null,
-    branch: updates.branch !== undefined ? updates.branch?.trim() || null : current.branch || null,
-    labels: updates.labels !== undefined ? updates.labels : current.labels,
-    priority: updates.priority !== undefined ? updates.priority : current.priority || null,
-    externalId: updates.externalId !== undefined ? updates.externalId?.trim() || null : current.externalId || null,
-    externalUrl: updates.externalUrl !== undefined ? updates.externalUrl?.trim() || null : current.externalUrl || null,
-  };
-  const now = Date.now();
-
-  getDb().prepare(`
-    UPDATE tasks
-    SET title = ?, description = ?, status = ?, cwd = ?, branch = ?, labels_json = ?,
-        priority = ?, external_id = ?, external_url = ?, updated_at = ?
-    WHERE id = ?
-  `).run(
-    next.title,
-    next.description,
-    next.status,
-    next.cwd,
-    next.branch,
-    JSON.stringify(next.labels),
-    next.priority,
-    next.externalId,
-    next.externalUrl,
-    now,
-    taskId
-  );
-
-  return getTask(taskId);
-}
-
-export function updateTaskStatus(taskId: string, status: TaskStatus, acceptedRunId?: string | null): BoardTask | undefined {
-  const now = Date.now();
-  if (acceptedRunId !== undefined) {
-    getDb().prepare('UPDATE tasks SET status = ?, accepted_run_id = ?, updated_at = ? WHERE id = ?')
-      .run(normalizeTaskStatus(status), acceptedRunId, now, taskId);
-  } else {
-    getDb().prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?')
-      .run(normalizeTaskStatus(status), now, taskId);
-  }
-  return getTask(taskId);
-}
-
-export function createAgentRun(input: {
-  taskId: string;
-  sessionId: string;
-  provider: AgentProvider;
-  model?: string | null;
-  workspaceMode?: AgentRunWorkspaceMode;
-  workspacePath?: string | null;
-  workspaceBranch?: string | null;
-  status?: AgentRunStatus;
-  validationCommand?: string | null;
-}): AgentRun {
-  const now = Date.now();
-  const id = uuidv4();
-  getDb().prepare(`
-    INSERT INTO agent_runs (
-      id, task_id, session_id, provider, model, workspace_mode, workspace_path, workspace_branch, status,
-      started_at, completed_at, last_event_summary, changed_files_count, artifact_count, test_status, validation_command
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, 'unknown', ?)
-  `).run(
-    id,
-    input.taskId,
-    input.sessionId,
-    input.provider,
-    input.model || null,
-    input.workspaceMode || 'current_cwd',
-    input.workspacePath || null,
-    input.workspaceBranch || null,
-    input.status || 'queued',
-    now,
-    input.validationCommand || null
-  );
-  return getAgentRun(id)!;
-}
-
-export function updateAgentRun(
-  runId: string,
-  updates: {
-    status?: AgentRunStatus;
-    model?: string | null;
-    workspacePath?: string | null;
-    workspaceBranch?: string | null;
-    lastEventSummary?: string | null;
-    changedFilesCount?: number | null;
-    artifactCount?: number | null;
-    testStatus?: AgentRun['testStatus'] | null;
-    validationCommand?: string | null;
-    completedAt?: number | null;
-  }
-): AgentRun | undefined {
-  const current = getAgentRun(runId);
-  if (!current) return undefined;
-
-  const status = updates.status !== undefined ? normalizeAgentRunStatus(updates.status) : current.status;
-  const completedAt =
-    updates.completedAt !== undefined
-      ? updates.completedAt
-      : status === 'completed' || status === 'failed' || status === 'cancelled'
-        ? current.completedAt || Date.now()
-        : current.completedAt || null;
-
-  getDb().prepare(`
-    UPDATE agent_runs
-    SET status = ?, model = ?, workspace_path = ?, workspace_branch = ?, completed_at = ?, last_event_summary = ?,
-        changed_files_count = ?, artifact_count = ?, test_status = ?, validation_command = ?
-    WHERE id = ?
-  `).run(
-    status,
-    updates.model !== undefined ? updates.model : current.model || null,
-    updates.workspacePath !== undefined ? updates.workspacePath : current.workspacePath || null,
-    updates.workspaceBranch !== undefined ? updates.workspaceBranch : current.workspaceBranch || null,
-    completedAt || null,
-    updates.lastEventSummary !== undefined ? updates.lastEventSummary : current.lastEventSummary || null,
-    updates.changedFilesCount !== undefined ? updates.changedFilesCount : current.changedFilesCount ?? null,
-    updates.artifactCount !== undefined ? updates.artifactCount : current.artifactCount ?? null,
-    updates.testStatus !== undefined ? updates.testStatus : current.testStatus || 'unknown',
-    updates.validationCommand !== undefined ? updates.validationCommand : current.validationCommand || null,
-    runId
-  );
-
-  const next = getAgentRun(runId);
-  if (next) {
-    getDb().prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(Date.now(), next.taskId);
-  }
-  return next;
 }
 
 export function getExternalSessionSyncInfo(sessionId: string): Pick<
