@@ -12,6 +12,10 @@ import type {
 } from './types';
 import { CodexAppServerManager } from './codex-app-server-manager';
 import { isDev } from '../../util';
+import {
+  AEGIS_BLOCKED_BROWSER_OPEN_MESSAGE,
+  shouldBlockSystemBrowserPreviewOpen,
+} from '../browser-preview-policy';
 import type {
   CodexApprovalKind,
   CodexApprovalPermissionInput,
@@ -365,6 +369,19 @@ export class CodexAdapter implements ProviderAdapter {
     this.manager.on('approval_request', ({ requestId, method, params }) => {
       const threadId = this.inferThreadIdFromParams(params);
       const { toolName, input } = this.buildCodexApprovalInput(method, params);
+
+      if (
+        input.approvalKind === 'command' &&
+        input.command &&
+        shouldBlockSystemBrowserPreviewOpen(input.command)
+      ) {
+        void this.respondToRequest(threadId, requestId, {
+          behavior: 'deny',
+          message: AEGIS_BLOCKED_BROWSER_OPEN_MESSAGE,
+        });
+        return;
+      }
+
       this.emit({
         type: 'permission_request',
         threadId,

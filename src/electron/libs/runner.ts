@@ -18,6 +18,10 @@ import {
 import { getClaudeCodeRuntime } from './claude-runtime';
 import { createAegisMemoryMcpServer, buildMemoryContext, MEMORY_SYSTEM_PROMPT } from './memory-mcp';
 import { shouldExtractMemory, hasMemoryWritesInTurn, extractMemories } from './memory-extractor';
+import {
+  AEGIS_BLOCKED_BROWSER_OPEN_MESSAGE,
+  shouldBlockSystemBrowserPreviewOpen,
+} from './browser-preview-policy';
 
 type ClaudeSettingSource = 'user' | 'project' | 'local';
 const CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local'];
@@ -609,6 +613,16 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
             // Auto-approve Aegis memory MCP tools (in-process, user opted-in)
             if (isMemoryTool) {
               return { behavior: 'allow' as const, updatedInput: input };
+            }
+
+            if (toolName === 'Bash') {
+              const command = input.command as string | undefined;
+              if (command && shouldBlockSystemBrowserPreviewOpen(command)) {
+                return {
+                  behavior: 'deny' as const,
+                  message: AEGIS_BLOCKED_BROWSER_OPEN_MESSAGE,
+                };
+              }
             }
 
             const isFullAccess = currentPermissionMode === 'bypassPermissions';
