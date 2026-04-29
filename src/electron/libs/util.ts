@@ -1,6 +1,10 @@
 import type { AgentProvider, ClaudeCompatibleProviderId } from '../../shared/types';
 import { getClaudeEnv } from './claude-settings';
 import { applyCompatibleProviderEnv } from './compatible-provider-config';
+import {
+  reconcileClaudeDisplayModel,
+  toClaudeCodeRuntimeModel,
+} from './claude-model-selection';
 import { getClaudeCodeRuntime } from './claude-runtime';
 
 type ClaudeSettingSource = 'user' | 'project' | 'local';
@@ -42,6 +46,9 @@ export async function runClaudeOneShot(params: {
   const providerOverride = applyCompatibleProviderEnv(env, params.model, params.compatibleProviderId);
   env = providerOverride.env;
   const forcedModel = providerOverride.forcedModel || params.model;
+  const runtimeModel = providerOverride.matchedProviderId
+    ? forcedModel
+    : toClaudeCodeRuntimeModel(forcedModel, params.betas);
   const { executable, executableArgs, env: runtimeEnv, pathToClaudeCodeExecutable } = getClaudeCodeRuntime();
   Object.assign(env, runtimeEnv);
 
@@ -57,8 +64,8 @@ export async function runClaudeOneShot(params: {
       env,
       cwd: params.cwd || process.cwd(),
       resume: params.resumeSessionId,
-      model: forcedModel,
-      settings: forcedModel ? { model: forcedModel } : undefined,
+      model: runtimeModel,
+      settings: runtimeModel ? { model: runtimeModel } : undefined,
       betas: params.betas as Array<'context-1m-2025-08-07'> | undefined,
       executable: executable as unknown as 'node',
       executableArgs,
@@ -75,7 +82,7 @@ export async function runClaudeOneShot(params: {
     const msg = message as SDKMessage;
     if (msg.type === 'system' && msg.subtype === 'init') {
       sessionId = msg.session_id || sessionId;
-      resolvedModel = msg.model || resolvedModel;
+      resolvedModel = reconcileClaudeDisplayModel(forcedModel, msg.model) || msg.model || resolvedModel;
       continue;
     }
 

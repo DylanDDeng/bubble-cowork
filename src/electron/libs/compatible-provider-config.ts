@@ -219,7 +219,7 @@ export function applyCompatibleProviderEnv(
     nextEnv.ANTHROPIC_API_KEY = config.secret;
   }
 
-  const forcedModel = requestedModel?.trim() || config.model;
+  const forcedModel = config.model;
   nextEnv.ANTHROPIC_MODEL = forcedModel;
   nextEnv.ANTHROPIC_DEFAULT_OPUS_MODEL = forcedModel;
   nextEnv.ANTHROPIC_DEFAULT_SONNET_MODEL = forcedModel;

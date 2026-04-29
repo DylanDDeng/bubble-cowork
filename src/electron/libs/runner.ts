@@ -11,6 +11,10 @@ import type { RunnerOptions, RunnerHandle, StreamMessage, PermissionResult, Atta
 import type { ClaudeModelUsage } from '../../shared/types';
 import { getClaudeEnv, getMcpServers } from './claude-settings';
 import { applyCompatibleProviderEnv } from './compatible-provider-config';
+import {
+  reconcileClaudeDisplayModel,
+  toClaudeCodeRuntimeModel,
+} from './claude-model-selection';
 import { getClaudeCodeRuntime } from './claude-runtime';
 import { createAegisMemoryMcpServer, buildMemoryContext, MEMORY_SYSTEM_PROMPT } from './memory-mcp';
 import { shouldExtractMemory, hasMemoryWritesInTurn, extractMemories } from './memory-extractor';
@@ -303,6 +307,8 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
   let currentSessionId = resumeSessionId || '';
   let enqueueChain: Promise<void> = Promise.resolve();
   let currentModel = typeof model === 'string' && model.trim().length > 0 ? model.trim() : undefined;
+  let currentRuntimeModel = toClaudeCodeRuntimeModel(currentModel, betas);
+  let compatibleProviderMatched = false;
   let activeQuery: ClaudeQuery | null = null;
   const sessionApprovedExternalAccess = new Set<string>();
   let currentPermissionMode: 'default' | 'bypassPermissions' | 'plan' =
@@ -343,8 +349,12 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           return;
         }
         if (activeQuery && normalizedModel !== currentModel) {
-          await activeQuery.setModel(normalizedModel);
+          const nextRuntimeModel = compatibleProviderMatched
+            ? currentRuntimeModel
+            : toClaudeCodeRuntimeModel(normalizedModel, betas);
+          await activeQuery.setModel(nextRuntimeModel);
           currentModel = normalizedModel;
+          currentRuntimeModel = nextRuntimeModel;
         }
         const message = await buildUserMessage(trimmed, currentSessionId, promptAttachments);
         if (abortController.signal.aborted) {
@@ -389,7 +399,11 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         compatibleProviderId || session.compatible_provider_id || null
       );
       env = providerOverride.env;
+      compatibleProviderMatched = Boolean(providerOverride.matchedProviderId);
       currentModel = providerOverride.forcedModel || currentModel;
+      currentRuntimeModel = compatibleProviderMatched
+        ? currentModel
+        : toClaudeCodeRuntimeModel(currentModel, betas);
       const { executable, executableArgs, env: runtimeEnv, pathToClaudeCodeExecutable } = getClaudeCodeRuntime();
       Object.assign(env, runtimeEnv);
 
@@ -403,6 +417,8 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         hasAuthToken: !!env.ANTHROPIC_AUTH_TOKEN,
         baseUrl: env.ANTHROPIC_BASE_URL,
         compatibleProvider: providerOverride.matchedProviderId || null,
+        requestedModel: currentModel,
+        runtimeModel: currentRuntimeModel,
         cwd: session.cwd || process.cwd(),
         PATH: env.PATH?.split(':').slice(0, 5),
         isPackaged: !process.defaultApp,
@@ -432,8 +448,8 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           permissionMode: currentPermissionMode,
           allowDangerouslySkipPermissions: currentPermissionMode === 'bypassPermissions',
           env,
-          model: currentModel,
-          settings: currentModel ? { model: currentModel } : undefined,
+          model: currentRuntimeModel,
+          settings: currentRuntimeModel ? { model: currentRuntimeModel } : undefined,
           executable: executable as unknown as 'node',
           executableArgs,
           pathToClaudeCodeExecutable,
@@ -703,9 +719,13 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
 
           if (streamMessage.type === 'system' && streamMessage.subtype === 'init') {
             currentSessionId = streamMessage.session_id || currentSessionId;
-            if (currentModel && streamMessage.model && streamMessage.model !== currentModel) {
+            const initializedDisplayModel = reconcileClaudeDisplayModel(
+              currentModel,
+              streamMessage.model
+            );
+            if (currentRuntimeModel && streamMessage.model && initializedDisplayModel !== currentModel) {
               try {
-                await result.setModel(currentModel);
+                await result.setModel(currentRuntimeModel);
               } catch (error) {
                 console.warn('Failed to re-apply requested model after init:', error);
               }
