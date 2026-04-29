@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Copy, Check, ExternalLink, FolderSearch } from 'lucide-react';
+import { toast } from 'sonner';
 import type { StreamMessage } from '../types';
 import { MDContent } from '../render/markdown';
 import { HighlightedCode } from './HighlightedCode';
 import { extractArtifactsFromMessages, type ArtifactItem, type ArtifactKind } from '../utils/artifacts';
+import { openHtmlFileInBrowserTab } from '../utils/html-preview';
+import { useAppStore } from '../store/useAppStore';
 
 type ReadTextResult =
   | { ok: true; path: string; size: number; text: string }
@@ -21,6 +24,11 @@ export function ArtifactsPanel({
   messages: StreamMessage[];
 }) {
   const artifacts = useMemo(() => extractArtifactsFromMessages(messages), [messages]);
+  const {
+    activeSessionId,
+    setBrowserPanelOpen,
+    setProjectTreeCollapsed,
+  } = useAppStore();
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const selectedArtifact = useMemo(
@@ -173,8 +181,36 @@ export function ArtifactsPanel({
     }
   };
 
+  const handleOpenHtmlArtifact = async (artifact: ArtifactItem) => {
+    if (!cwd) {
+      toast.error('No working directory for this session.');
+      return;
+    }
+    if (!activeSessionId) {
+      toast.error('No active session for browser preview.');
+      return;
+    }
+
+    try {
+      await openHtmlFileInBrowserTab({
+        cwd,
+        filePath: artifact.filePath,
+        sessionId: activeSessionId,
+      });
+      setSelectedPath(null);
+      setBrowserPanelOpen(true);
+      setProjectTreeCollapsed(true);
+    } catch (error) {
+      toast.error(`Failed to open in browser panel: ${error}`);
+    }
+  };
+
   const handleOpen = async () => {
     if (!selectedArtifact) return;
+    if (selectedArtifact.kind === 'html') {
+      await handleOpenHtmlArtifact(selectedArtifact);
+      return;
+    }
     if (!cwd) return;
     await window.electron.openArtifactPath(cwd, selectedArtifact.filePath);
   };
@@ -200,9 +236,13 @@ export function ArtifactsPanel({
               return (
                 <button
                   key={artifact.filePath}
-                  onClick={() =>
-                    setSelectedPath((prev) => (prev === artifact.filePath ? null : artifact.filePath))
-                  }
+                  onClick={() => {
+                    if (artifact.kind === 'html') {
+                      void handleOpenHtmlArtifact(artifact);
+                      return;
+                    }
+                    setSelectedPath((prev) => (prev === artifact.filePath ? null : artifact.filePath));
+                  }}
                   className={`w-full flex items-center gap-2 py-1.5 px-2 text-sm rounded-md text-left hover:bg-[var(--text-primary)]/5 transition-colors ${
                     isSelected ? 'bg-[var(--text-primary)]/[0.07]' : ''
                   }`}
@@ -469,5 +509,4 @@ function IconSquareButton({
     </button>
   );
 }
-
 

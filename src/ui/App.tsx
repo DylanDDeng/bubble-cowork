@@ -40,6 +40,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { useCodexModelConfig } from './hooks/useCodexModelConfig';
 import { applyThemePreferences } from './theme/themes';
 import { extractLatestSuccessfulHtmlArtifact } from './utils/artifacts';
+import { openHtmlFileInBrowserTab } from './utils/html-preview';
 import { StructuredResponse } from './components/StructuredResponse';
 import {
   getMessageContentBlocks,
@@ -452,34 +453,12 @@ export function App() {
       autoPreviewedArtifactsRef.current.add(previewKey);
 
       const sessionId = session.id;
-      void window.electron
-        .previewArtifactPath(session.cwd, artifact.filePath, { openInBrowser: false })
-        .then(async (result) => {
-          if (!result.ok || !result.url) {
-            autoPreviewedArtifactsRef.current.delete(previewKey);
-            toast.error(result.message || 'Failed to open preview');
-            return;
-          }
-          try {
-            const currentState = await window.electron.browser.getState({ sessionId });
-            if (currentState.tabs.length === 0) {
-              await window.electron.browser.open({
-                sessionId,
-                initialUrl: result.url,
-              });
-            } else {
-              await window.electron.browser.newTab({
-                sessionId,
-                url: result.url,
-                activate: true,
-              });
-            }
-          } catch (error) {
-            autoPreviewedArtifactsRef.current.delete(previewKey);
-            toast.error(`Failed to open in browser panel: ${error}`);
-            return;
-          }
-
+      void openHtmlFileInBrowserTab({
+        cwd: session.cwd,
+        filePath: artifact.filePath,
+        sessionId,
+      })
+        .then(() => {
           if (sessionId === activeSessionId) {
             setBrowserPanelOpen(true);
             setProjectTreeCollapsed(true);
@@ -488,7 +467,7 @@ export function App() {
         })
         .catch((error) => {
           autoPreviewedArtifactsRef.current.delete(previewKey);
-          toast.error(String(error));
+          toast.error(`Failed to open in browser panel: ${error}`);
         });
     }
 

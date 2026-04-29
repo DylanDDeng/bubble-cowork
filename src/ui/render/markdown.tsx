@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { HighlightedCode } from '../components/HighlightedCode';
 import { useAppStore } from '../store/useAppStore';
+import { isHtmlFilePath, openHtmlFileInBrowserTab } from '../utils/html-preview';
 
 interface MDContentProps {
   content: string;
@@ -173,6 +174,27 @@ function MarkdownAnchor({
 
     event.preventDefault();
     event.stopPropagation();
+
+    if (isHtmlFilePath(projectFilePath)) {
+      if (!activeSessionId) {
+        toast.error('No active session for browser preview.');
+        return;
+      }
+
+      openHtmlFileInBrowserTab({
+        cwd,
+        filePath: projectFilePath,
+        sessionId: activeSessionId,
+      })
+        .then(() => {
+          setBrowserPanelOpen(true);
+          setProjectTreeCollapsed(true);
+        })
+        .catch((error) => {
+          toast.error(`Failed to open in browser panel: ${error}`);
+        });
+      return;
+    }
 
     setBrowserPanelOpen(false);
     setProjectPanelView('files');

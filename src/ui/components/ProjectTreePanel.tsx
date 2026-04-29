@@ -6,6 +6,7 @@ import { useAppStore } from '../store/useAppStore';
 import { MDContent } from '../render/markdown';
 import { HighlightedCode } from './HighlightedCode';
 import { FileTypeIcon } from './FileTypeIcon';
+import { isHtmlFilePath, openHtmlFileInBrowserTab } from '../utils/html-preview';
 import {
   applyDiffToChangeRecord,
   applyTextMetaToChangeRecord,
@@ -233,6 +234,8 @@ export function ProjectTreePanel({
     projectTree,
     projectTreeCwd,
     setProjectTree,
+    setBrowserPanelOpen,
+    setProjectTreeCollapsed,
   } = useAppStore();
   const [loading, setLoading] = useState(false);
   const prevCwdRef = useRef<string | null>(null);
@@ -679,6 +682,38 @@ export function ProjectTreePanel({
 
     const name = fileName || filePath.split('/').filter(Boolean).pop() || filePath;
 
+    if (isHtmlFilePath(filePath)) {
+      const requestId = (previewRequestIdRef.current += 1);
+      expandParentsForPath(filePath);
+      setSelectedFilePath(null);
+      setPreviewLoading(false);
+      setSelectedPreview(null);
+      setDraftText('');
+      setSaveState('idle');
+      setSaveError(null);
+      setPptxSlideIndex(0);
+
+      if (!activeSessionId) {
+        toast.error('No active session for browser preview.');
+        return;
+      }
+
+      try {
+        await openHtmlFileInBrowserTab({
+          cwd,
+          filePath,
+          sessionId: activeSessionId,
+        });
+        if (previewRequestIdRef.current !== requestId) return;
+        setBrowserPanelOpen(true);
+        setProjectTreeCollapsed(true);
+      } catch (error) {
+        if (previewRequestIdRef.current !== requestId) return;
+        toast.error(`Failed to open in browser panel: ${error}`);
+      }
+      return;
+    }
+
     setSelectedFilePath(filePath);
     expandParentsForPath(filePath);
     setViewMode('view');
@@ -725,7 +760,14 @@ export function ProjectTreePanel({
         setPreviewLoading(false);
       }
     }
-  }, [cwd, expandParentsForPath, selectedFilePath]);
+  }, [
+    activeSessionId,
+    cwd,
+    expandParentsForPath,
+    selectedFilePath,
+    setBrowserPanelOpen,
+    setProjectTreeCollapsed,
+  ]);
 
   const selectFile = async (node: ProjectTreeNode) => {
     if (node.kind !== 'file') return;
