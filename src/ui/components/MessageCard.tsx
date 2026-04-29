@@ -101,6 +101,9 @@ export function MessageCard({
         />
       );
 
+    case 'proposed_plan':
+      return <ProposedPlanCard planMarkdown={message.planMarkdown} />;
+
     case 'user':
       // user 消息里的 tool_result 已经被工作流批次吸收，单独渲染没意义
       return null;
@@ -143,6 +146,24 @@ function CompactBoundaryCard({
             {message.compactMetadata.preTokens > 0 ? ` · ${formatCompactTokens(message.compactMetadata.preTokens)}` : ''}
           </span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ProposedPlanCard({ planMarkdown }: { planMarkdown: string }) {
+  return (
+    <div className="my-3 flex justify-start">
+      <div className="w-full max-w-[760px] rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] p-4 shadow-sm">
+        <div className="mb-3 flex min-w-0 items-center gap-2">
+          <span className="rounded-md bg-[var(--accent-light)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--accent)]">
+            Plan
+          </span>
+          <span className="min-w-0 truncate text-sm font-medium text-[var(--text-primary)]">
+            Proposed plan
+          </span>
+        </div>
+        <StructuredResponse content={planMarkdown} />
       </div>
     </div>
   );

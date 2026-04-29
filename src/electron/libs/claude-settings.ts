@@ -30,6 +30,11 @@ export interface McpServerConfig {
 // Claude Code 主配置结构
 interface ClaudeJsonConfig {
   mcpServers?: Record<string, McpServerConfig>;
+  hasAvailableSubscription?: boolean;
+  oauthAccount?: {
+    accountUuid?: string;
+    [key: string]: unknown;
+  };
   projects?: Record<string, {
     mcpServers?: Record<string, McpServerConfig>;
     [key: string]: unknown;
@@ -46,9 +51,58 @@ interface ClaudeSettings {
 }
 
 const injectedEnvKeys = new Set<string>();
+const ANTHROPIC_ENV_PREFIX = 'ANTHROPIC_';
+const OFFICIAL_ANTHROPIC_HOSTS = new Set(['api.anthropic.com']);
+
+function isOfficialAnthropicBaseUrl(value?: string): boolean {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    return OFFICIAL_ANTHROPIC_HOSTS.has(parsed.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function hasCustomAnthropicEndpoint(env: Record<string, string | undefined>): boolean {
+  const baseUrl = env.ANTHROPIC_BASE_URL;
+  return Boolean(
+    (baseUrl && !isOfficialAnthropicBaseUrl(baseUrl)) ||
+      env.ANTHROPIC_AUTH_TOKEN ||
+      env.ANTHROPIC_BEDROCK_BASE_URL ||
+      env.ANTHROPIC_VERTEX_PROJECT_ID ||
+      env.ANTHROPIC_VERTEX_REGION
+  );
+}
+
+export function sanitizeOfficialClaudeEnv(
+  env: Record<string, string | undefined>
+): Record<string, string | undefined> {
+  const next = { ...env };
+  const hasOAuthAccount = hasClaudeCodeOAuthAccount();
+  const shouldDropApiKey = hasOAuthAccount || hasCustomAnthropicEndpoint(next);
+
+  for (const key of Object.keys(next)) {
+    if (!key.startsWith(ANTHROPIC_ENV_PREFIX)) {
+      continue;
+    }
+
+    if (key === 'ANTHROPIC_API_KEY' && !shouldDropApiKey) {
+      continue;
+    }
+
+    delete next[key];
+  }
+
+  return next;
+}
 
 // 加载 ~/.claude.json 配置
-function loadClaudeJson(): ClaudeJsonConfig {
+export function loadClaudeJson(): ClaudeJsonConfig {
   try {
     if (existsSync(CLAUDE_JSON_PATH)) {
       const content = readFileSync(CLAUDE_JSON_PATH, 'utf-8');
@@ -59,6 +113,28 @@ function loadClaudeJson(): ClaudeJsonConfig {
     console.warn('Failed to load ~/.claude.json:', error);
     return {};
   }
+}
+
+export function hasClaudeCodeOAuthAccount(): boolean {
+  const config = loadClaudeJson();
+  return Boolean(
+    (typeof config.oauthAccount?.accountUuid === 'string' && config.oauthAccount.accountUuid.trim()) ||
+      config.oauthAccount ||
+      config.hasAvailableSubscription
+  );
+}
+
+function shouldSuppressSettingsApiKey(): boolean {
+  return hasClaudeCodeOAuthAccount() && injectedEnvKeys.has('ANTHROPIC_API_KEY');
+}
+
+function shouldUseSettingsApiKey(): boolean {
+  if (!hasClaudeCodeOAuthAccount()) {
+    return true;
+  }
+
+  // A real shell-provided ANTHROPIC_API_KEY is an explicit external-key choice.
+  return Boolean(process.env.ANTHROPIC_API_KEY && !injectedEnvKeys.has('ANTHROPIC_API_KEY'));
 }
 
 // 加载 Claude Code 配置（旧路径，向后兼容）
@@ -78,11 +154,29 @@ export function loadClaudeSettings(): ClaudeSettings {
   // 注入环境变量（仅当未设置时），且只注入一次避免覆盖运行时更新
   if (parsed?.env) {
     for (const [key, value] of Object.entries(parsed.env)) {
+      if (key.startsWith(ANTHROPIC_ENV_PREFIX) && hasClaudeCodeOAuthAccount() && !process.env[key]) {
+        continue;
+      }
       if (!process.env[key] && !injectedEnvKeys.has(key)) {
         process.env[key] = value;
         injectedEnvKeys.add(key);
       }
     }
+  }
+
+  if (shouldSuppressSettingsApiKey()) {
+    delete process.env.ANTHROPIC_API_KEY;
+    injectedEnvKeys.delete('ANTHROPIC_API_KEY');
+  }
+
+  if (
+    parsed?.apiKey &&
+    shouldUseSettingsApiKey() &&
+    !process.env.ANTHROPIC_API_KEY &&
+    !injectedEnvKeys.has('ANTHROPIC_API_KEY')
+  ) {
+    process.env.ANTHROPIC_API_KEY = parsed.apiKey;
+    injectedEnvKeys.add('ANTHROPIC_API_KEY');
   }
 
   return parsed;
@@ -91,7 +185,17 @@ export function loadClaudeSettings(): ClaudeSettings {
 // 获取 Claude Code 环境变量
 export function getClaudeEnv(): Record<string, string> {
   const s = loadClaudeSettings();
-  return s.env || {};
+  const env = { ...(s.env || {}) };
+  if (process.env.ANTHROPIC_API_KEY && !injectedEnvKeys.has('ANTHROPIC_API_KEY')) {
+    env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+  }
+  if (hasClaudeCodeOAuthAccount() && !process.env.ANTHROPIC_API_KEY) {
+    delete env.ANTHROPIC_API_KEY;
+  }
+  if (!env.ANTHROPIC_API_KEY && s.apiKey && shouldUseSettingsApiKey()) {
+    env.ANTHROPIC_API_KEY = s.apiKey;
+  }
+  return env;
 }
 
 // 获取 Claude 配置（包含 API key）
@@ -99,7 +203,7 @@ export function getClaudeSettings(): { apiKey?: string } | null {
   const s = loadClaudeSettings();
 
   // 优先从环境变量获取 API key
-  const apiKey = process.env.ANTHROPIC_API_KEY || s.apiKey;
+  const apiKey = process.env.ANTHROPIC_API_KEY || (shouldUseSettingsApiKey() ? s.apiKey : undefined);
 
   if (!apiKey) {
     return null;

@@ -12,6 +12,7 @@ import type {
   ClaudeAccessMode,
   ClaudeExecutionMode,
   ClaudeCompatibleProviderId,
+  CodexExecutionMode,
   CodexPermissionMode,
   CodexReasoningEffort,
   OpenCodePermissionMode,
@@ -91,6 +92,12 @@ function normalizeCodexPermissionMode(
     : 'defaultPermissions';
 }
 
+function normalizeCodexExecutionMode(
+  value?: string | null
+): CodexExecutionMode {
+  return value === 'plan' ? 'plan' : 'execute';
+}
+
 function normalizeCodexReasoningEffort(
   value?: string | null
 ): CodexReasoningEffort | null {
@@ -135,6 +142,7 @@ export function initialize(): void {
       betas TEXT,
       claude_access_mode TEXT DEFAULT 'default',
       claude_execution_mode TEXT DEFAULT 'execute',
+      codex_execution_mode TEXT DEFAULT 'execute',
       codex_permission_mode TEXT DEFAULT 'defaultPermissions',
       codex_reasoning_effort TEXT,
       codex_fast_mode INTEGER DEFAULT 0,
@@ -210,6 +218,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'betas', 'TEXT');
   ensureColumn('sessions', 'claude_access_mode', "TEXT DEFAULT 'default'");
   ensureColumn('sessions', 'claude_execution_mode', "TEXT DEFAULT 'execute'");
+  ensureColumn('sessions', 'codex_execution_mode', "TEXT DEFAULT 'execute'");
   ensureColumn('sessions', 'codex_permission_mode', "TEXT DEFAULT 'defaultPermissions'");
   ensureColumn('sessions', 'codex_reasoning_effort', 'TEXT');
   ensureColumn('sessions', 'codex_fast_mode', 'INTEGER DEFAULT 0');
@@ -729,6 +738,7 @@ export function createSession(params: {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   claudeExecutionMode?: ClaudeExecutionMode;
+  codexExecutionMode?: CodexExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort | null;
   codexFastMode?: boolean;
@@ -739,8 +749,8 @@ export function createSession(params: {
   const id = uuidv4();
 
   const stmt = getDb().prepare(`
-    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, claude_execution_mode, codex_permission_mode, codex_reasoning_effort, codex_fast_mode, opencode_permission_mode, cwd, allowed_tools, last_prompt, todo_state, session_origin, external_file_path, external_file_mtime, hidden_from_threads, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aegis', NULL, NULL, ?, 'idle', ?, ?)
+    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, claude_execution_mode, codex_execution_mode, codex_permission_mode, codex_reasoning_effort, codex_fast_mode, opencode_permission_mode, cwd, allowed_tools, last_prompt, todo_state, session_origin, external_file_path, external_file_mtime, hidden_from_threads, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aegis', NULL, NULL, ?, 'idle', ?, ?)
   `);
 
   stmt.run(
@@ -752,6 +762,7 @@ export function createSession(params: {
     params.betas && params.betas.length > 0 ? JSON.stringify(params.betas) : null,
     params.provider === 'claude' ? normalizeClaudeAccessMode(params.claudeAccessMode) : null,
     params.provider === 'claude' ? normalizeClaudeExecutionMode(params.claudeExecutionMode) : null,
+    params.provider === 'codex' ? normalizeCodexExecutionMode(params.codexExecutionMode) : null,
     params.provider === 'codex' ? normalizeCodexPermissionMode(params.codexPermissionMode) : null,
     params.provider === 'codex' ? normalizeCodexReasoningEffort(params.codexReasoningEffort) : null,
     params.provider === 'codex' && params.codexFastMode ? 1 : 0,
@@ -1039,6 +1050,17 @@ export function updateSessionCodexPermissionMode(
     UPDATE sessions SET codex_permission_mode = ?, updated_at = ? WHERE id = ?
   `);
   stmt.run(mode ? normalizeCodexPermissionMode(mode) : null, now, sessionId);
+}
+
+export function updateSessionCodexExecutionMode(
+  sessionId: string,
+  mode: CodexExecutionMode | null
+): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET codex_execution_mode = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(mode ? normalizeCodexExecutionMode(mode) : null, now, sessionId);
 }
 
 export function updateSessionCodexReasoningEffort(

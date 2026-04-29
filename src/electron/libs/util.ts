@@ -1,5 +1,5 @@
 import type { AgentProvider, ClaudeCompatibleProviderId } from '../../shared/types';
-import { getClaudeEnv } from './claude-settings';
+import { getClaudeEnv, sanitizeOfficialClaudeEnv } from './claude-settings';
 import { applyCompatibleProviderEnv } from './compatible-provider-config';
 import {
   reconcileClaudeDisplayModel,
@@ -9,6 +9,7 @@ import { getClaudeCodeRuntime } from './claude-runtime';
 
 type ClaudeSettingSource = 'user' | 'project' | 'local';
 const CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local'];
+const OFFICIAL_CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['project'];
 type ClaudeAgentSdkModule = typeof import('@anthropic-ai/claude-agent-sdk');
 
 async function loadClaudeAgentSdk(): Promise<ClaudeAgentSdkModule> {
@@ -44,7 +45,9 @@ export async function runClaudeOneShot(params: {
     ...getClaudeEnv(),
   };
   const providerOverride = applyCompatibleProviderEnv(env, params.model, params.compatibleProviderId);
-  env = providerOverride.env;
+  env = providerOverride.matchedProviderId
+    ? providerOverride.env
+    : sanitizeOfficialClaudeEnv(providerOverride.env);
   const forcedModel = providerOverride.forcedModel || params.model;
   const runtimeModel = providerOverride.matchedProviderId
     ? forcedModel
@@ -70,7 +73,9 @@ export async function runClaudeOneShot(params: {
       executable: executable as unknown as 'node',
       executableArgs,
       pathToClaudeCodeExecutable,
-      settingSources: CLAUDE_SETTING_SOURCES,
+      settingSources: providerOverride.matchedProviderId
+        ? CLAUDE_SETTING_SOURCES
+        : OFFICIAL_CLAUDE_SETTING_SOURCES,
     },
   });
 

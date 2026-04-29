@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import { sep } from 'path';
 import type { ClaudeRuntimeSource, ClaudeRuntimeStatus } from '../../shared/types';
-import { getClaudeEnv } from './claude-settings';
+import { getClaudeEnv, hasClaudeCodeOAuthAccount, sanitizeOfficialClaudeEnv } from './claude-settings';
 import { normalizeClaudeRequestedModel } from './claude-model-selection';
 import { getClaudeCodeRuntime, type ClaudeCodeRuntime } from './claude-runtime';
 
@@ -59,14 +59,19 @@ function resolveRuntimeSource(cliPath?: string): ClaudeRuntimeSource {
   return 'unknown';
 }
 
-function buildClaudeRuntimeEnv(runtimeEnv: Record<string, string | undefined>): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {
+function buildClaudeRuntimeEnv(
+  runtimeEnv: Record<string, string | undefined>,
+  requestedModel?: string | null
+): NodeJS.ProcessEnv {
+  const baseEnv: NodeJS.ProcessEnv = {
     ...process.env,
     ...getClaudeEnv(),
     ...runtimeEnv,
   };
 
-  return env;
+  return requiresAnthropicAuthForModel(requestedModel)
+    ? sanitizeOfficialClaudeEnv(baseEnv)
+    : baseEnv;
 }
 
 function extractJsonObject(text: string): Record<string, unknown> | null {
@@ -110,7 +115,8 @@ function describeRuntimeLocation(source: ClaudeRuntimeSource): string {
 function execClaudeRuntimeCommand(
   runtime: ClaudeCodeRuntime,
   args: string[],
-  timeoutMs = 5000
+  timeoutMs = 5000,
+  env?: NodeJS.ProcessEnv
 ): Promise<CommandResult> {
   if (!runtime.executable) {
     return Promise.resolve({
@@ -125,14 +131,14 @@ function execClaudeRuntimeCommand(
   const commandArgs = runtime.pathToClaudeCodeExecutable
     ? [...runtime.executableArgs, runtime.pathToClaudeCodeExecutable, ...args]
     : [...runtime.executableArgs, ...args];
-  const env = buildClaudeRuntimeEnv(runtime.env);
+  const commandEnv = env || buildClaudeRuntimeEnv(runtime.env);
 
   return new Promise((resolve) => {
     execFile(
       runtime.executable,
       commandArgs,
       {
-        env,
+        env: commandEnv,
         timeout: timeoutMs,
         maxBuffer: 1024 * 1024,
         windowsHide: true,
@@ -192,7 +198,9 @@ export async function getClaudeRuntimeStatus(model?: string | null): Promise<Cla
   const runtime = getClaudeCodeRuntime();
   const requestedModel = normalizeClaudeRequestedModel(model) || model?.trim() || null;
   const requiresAnthropicAuth = requiresAnthropicAuthForModel(requestedModel);
-  const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
+  const runtimeCommandEnv = buildClaudeRuntimeEnv(runtime.env, requestedModel);
+  const hasClaudeCodeAccount = hasClaudeCodeOAuthAccount();
+  const hasApiKey = Boolean(runtimeCommandEnv.ANTHROPIC_API_KEY);
   const runtimePath = runtime.pathToClaudeCodeExecutable || runtime.executable || null;
 
   if (!runtimePath) {
@@ -202,16 +210,18 @@ export async function getClaudeRuntimeStatus(model?: string | null): Promise<Cla
   const runtimeSource = resolveRuntimeSource(runtimePath);
   const runtimeLabel = describeRuntimeLocation(runtimeSource);
   const [versionResult, authResult] = await Promise.all([
-    execClaudeRuntimeCommand(runtime, ['--version'], 4000),
-    execClaudeRuntimeCommand(runtime, ['auth', 'status'], 5000),
+    execClaudeRuntimeCommand(runtime, ['--version'], 4000, runtimeCommandEnv),
+    execClaudeRuntimeCommand(runtime, ['auth', 'status'], 5000, runtimeCommandEnv),
   ]);
 
   const cliVersion = parseClaudeVersion(versionResult.stdout || versionResult.combined);
   const authPayload = extractJsonObject(authResult.combined) as ClaudeAuthStatusPayload | null;
-  const loggedIn = authPayload?.loggedIn === true;
+  const loggedIn = authPayload?.loggedIn === true || hasClaudeCodeAccount;
   const authMethod =
     hasApiKey && !loggedIn
       ? 'api_key'
+      : hasClaudeCodeAccount
+        ? 'claude_code'
       : typeof authPayload?.authMethod === 'string' && authPayload.authMethod.trim()
         ? authPayload.authMethod.trim()
         : null;
