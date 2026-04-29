@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import * as Dialog from '@radix-ui/react-dialog';
 import {
   Bookmark,
   Boxes,
@@ -8,7 +7,6 @@ import {
   SquarePen,
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import { sendEvent } from '../hooks/useIPC';
 import { SidebarSearchPalette } from './search/SidebarSearchPalette';
 import { PromptLibraryPanel } from './prompts/PromptLibraryPanel';
 import { SidebarSkillLibraryPanel } from './sidebar/SidebarSkillLibraryPanel';
@@ -18,7 +16,7 @@ import type {
   SidebarSearchThread,
 } from './search/SidebarSearchPalette.logic';
 import { FolderTreeView } from './FolderTreeView';
-import type { ChatSidebarView, SessionView } from '../types';
+import type { ChatSidebarView } from '../types';
 import { getMessageContentBlocks } from '../utils/message-content';
 
 const MIN_SIDEBAR_WIDTH = 220;
@@ -98,12 +96,9 @@ export function Sidebar() {
     setShowNewSession,
     setShowSettings,
     createDraftSession,
-    removeDraftSession,
     searchPaletteOpen,
     setSearchPaletteOpen,
   } = useAppStore();
-  const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
-  const [selectedSession, setSelectedSession] = useState<SessionView | null>(null);
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
   const sidebarResizingRef = useRef(false);
   const startXRef = useRef(0);
@@ -156,26 +151,6 @@ export function Sidebar() {
       document.body.style.userSelect = '';
     };
   }, []);
-
-  const handleDelete = (sessionId: string) => {
-    if (sessions[sessionId]?.isDraft) {
-      removeDraftSession(sessionId);
-      return;
-    }
-    sendEvent({ type: 'session.delete', payload: { sessionId } });
-  };
-
-  const handleResumeCommand = (session: SessionView) => {
-    setSelectedSession(session);
-    setResumeDialogOpen(true);
-  };
-
-  const copyResumeCommand = () => {
-    if (selectedSession?.claudeSessionId) {
-      navigator.clipboard.writeText(`claude --teleport ${selectedSession.claudeSessionId}`);
-    }
-    setResumeDialogOpen(false);
-  };
 
   const handleProjectFolderSelect = async () => {
     const selected = await window.electron.selectDirectory();
@@ -446,8 +421,6 @@ export function Sidebar() {
                         setActiveWorkspace('chat');
                         setChatSidebarView('threads');
                       }}
-                      onSessionDelete={handleDelete}
-                      onCopyResume={handleResumeCommand}
                       onSelectProjectFolder={handleProjectFolderSelect}
                       projectCwd={projectCwd}
                       onNewSessionForProject={(nextCwd) => {
@@ -485,40 +458,6 @@ export function Sidebar() {
           ) : null}
         </div>
       </div>
-
-      {/* Resume Command Dialog */}
-      <Dialog.Root open={resumeDialogOpen} onOpenChange={setResumeDialogOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/50" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-[var(--radius-2xl)] p-6 w-[480px] shadow-xl">
-            <Dialog.Title className="text-lg font-semibold mb-4">
-              Resume in Claude Code
-            </Dialog.Title>
-            <Dialog.Description className="text-[var(--text-secondary)] text-sm mb-4">
-              Run this command in your terminal to continue this session in Claude Code:
-            </Dialog.Description>
-
-            <div className="bg-[var(--bg-tertiary)] rounded-[var(--radius-xl)] p-3 font-mono text-sm mb-4 break-all">
-              claude --teleport {selectedSession?.claudeSessionId}
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setResumeDialogOpen(false)}
-                className="px-4 py-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] text-sm transition-colors hover:bg-[var(--bg-tertiary)]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={copyResumeCommand}
-                className="px-4 py-2 rounded-[var(--radius-lg)] text-sm bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] transition-colors"
-              >
-                Copy Command
-              </button>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
 
       <SidebarSearchPalette
         open={searchPaletteOpen}

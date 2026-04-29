@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { FolderClosed, FolderOpen, MoreVertical, Pin, Copy, Trash2, SquarePen } from 'lucide-react';
+import { FolderClosed, FolderOpen, Pin, SquarePen } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import type { AgentProvider, SessionView } from '../types';
@@ -38,8 +37,6 @@ function formatSidebarTime(timestamp: number): string {
 
 interface ProjectTreeViewProps {
   onSessionClick: (sessionId: string, options?: { preserveSplit?: boolean }) => void;
-  onSessionDelete: (sessionId: string) => void;
-  onCopyResume: (session: SessionView) => void;
   onSelectProjectFolder: () => void;
   onNewSessionForProject: (cwd: string) => void;
   projectCwd: string | null;
@@ -73,8 +70,6 @@ function ProviderGlyph({ provider }: { provider?: AgentProvider }) {
 
 export function FolderTreeView({
   onSessionClick,
-  onSessionDelete,
-  onCopyResume,
   onSelectProjectFolder,
   onNewSessionForProject,
   projectCwd,
@@ -208,8 +203,6 @@ export function FolderTreeView({
                 }
                 depth={0}
                 onClick={() => onSessionClick(session.id)}
-                onDelete={() => onSessionDelete(session.id)}
-                onCopyResume={() => onCopyResume(session)}
                 onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
               />
             );
@@ -304,8 +297,6 @@ export function FolderTreeView({
                     }
                     depth={1}
                     onClick={() => onSessionClick(session.id)}
-                    onDelete={() => onSessionDelete(session.id)}
-                    onCopyResume={() => onCopyResume(session)}
                     onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
                   />
                 );
@@ -329,8 +320,6 @@ function SessionItem({
   runtimeBadge,
   depth,
   onClick,
-  onDelete,
-  onCopyResume,
   onTogglePin,
 }: {
   session: SessionView;
@@ -338,21 +327,14 @@ function SessionItem({
   runtimeBadge: 'running' | 'completed' | 'error' | null;
   depth: number;
   onClick: () => void;
-  onDelete: () => void;
-  onCopyResume: () => void;
   onTogglePin: () => void;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const hasMenuActions = !!session.claudeSessionId || session.readOnly !== true;
-
   return (
     <div
       className={`group/session relative cursor-pointer rounded-lg py-1.5 pl-8 pr-3 transition-colors duration-150 ${
         isActive
           ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]'
-          : menuOpen
-            ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+          : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
       }`}
       style={{
         marginLeft: `${depth * 16}px`,
@@ -383,7 +365,7 @@ function SessionItem({
         <Pin className="h-3.5 w-3.5" fill={session.pinned ? 'currentColor' : 'none'} />
       </button>
 
-      <div className="flex min-h-[22px] items-center gap-2 pr-8">
+      <div className="flex min-h-[22px] items-center gap-2">
         <span className="flex-1 truncate text-[13px] font-medium leading-[1.3]">{session.title}</span>
         {session.source === 'claude_code' && (
           <span className="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--text-secondary)]">
@@ -413,50 +395,6 @@ function SessionItem({
           />
         )}
       </div>
-
-      {hasMenuActions && (
-        <DropdownMenu.Root open={menuOpen} onOpenChange={setMenuOpen}>
-          <DropdownMenu.Trigger asChild>
-            <button
-              className={`absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md transition-all duration-150 hover:bg-[var(--bg-tertiary)] ${
-                menuOpen ? 'opacity-100' : 'opacity-0 group-hover/session:opacity-100'
-              }`}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <MoreVertical className="w-4 h-4" />
-            </button>
-          </DropdownMenu.Trigger>
-
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content
-              className="popover-surface z-50 min-w-[160px] p-1.5"
-              sideOffset={5}
-            >
-              {session.claudeSessionId && (
-                <DropdownMenu.Item
-                  className="flex items-center gap-2 px-3 py-2 text-[13px] rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150"
-                  onClick={onCopyResume}
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  Copy Resume Command
-                </DropdownMenu.Item>
-              )}
-              {session.claudeSessionId && session.readOnly !== true && (
-                <DropdownMenu.Separator className="h-px bg-[var(--border)] my-1" />
-              )}
-              {session.readOnly !== true && (
-                <DropdownMenu.Item
-                  className="flex items-center gap-2 px-3 py-2 text-[13px] rounded-md cursor-pointer hover:bg-[var(--text-primary)]/5 outline-none transition-colors duration-150 text-red-400"
-                  onClick={onDelete}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete
-                </DropdownMenu.Item>
-              )}
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
-      )}
     </div>
   );
 }
