@@ -104,6 +104,7 @@ function runCodexViaProviderService(options: RunnerOptions): RunnerHandle {
     attachments: options.attachments,
     model: options.model,
     resumeSessionId: options.resumeSessionId,
+    codexExecutionMode: options.codexExecutionMode,
     codexPermissionMode: options.codexPermissionMode,
     codexReasoningEffort: options.codexReasoningEffort,
     codexFastMode: options.codexFastMode,
@@ -126,24 +127,34 @@ function runCodexViaProviderService(options: RunnerOptions): RunnerHandle {
       });
       service.events.off('event', handleEvent);
     },
-    send: (
-      prompt: string,
-      attachments?: import('../../shared/types').Attachment[],
-      model?: string,
-      codexSkills?: import('../../shared/types').ProviderInputReference[],
-      codexMentions?: import('../../shared/types').ProviderInputReference[]
-    ) => {
-      if (abortController.signal.aborted) return;
+	    send: (
+	      prompt: string,
+	      attachments?: import('../../shared/types').Attachment[],
+	      model?: string,
+	      codexSkills?: import('../../shared/types').ProviderInputReference[],
+	      codexMentions?: import('../../shared/types').ProviderInputReference[],
+	      sendOptions?: {
+	        codexExecutionMode?: import('../../shared/types').CodexExecutionMode;
+	        codexPermissionMode?: import('../../shared/types').CodexPermissionMode;
+	        codexReasoningEffort?: import('../../shared/types').CodexReasoningEffort;
+	        codexFastMode?: boolean;
+	      }
+	    ) => {
+	      if (abortController.signal.aborted) return;
 
-      service
-        .sendTurn({
-          threadId,
-          prompt,
-          attachments,
-          model,
-          codexSkills,
-          codexMentions,
-        })
+	      service
+	        .sendTurn({
+	          threadId,
+	          prompt,
+	          attachments,
+	          model,
+	          codexExecutionMode: sendOptions?.codexExecutionMode ?? options.codexExecutionMode,
+	          codexPermissionMode: sendOptions?.codexPermissionMode ?? options.codexPermissionMode,
+	          codexReasoningEffort: sendOptions?.codexReasoningEffort ?? options.codexReasoningEffort,
+	          codexFastMode: sendOptions?.codexFastMode ?? options.codexFastMode,
+	          codexSkills,
+	          codexMentions,
+	        })
         .catch((error) => {
           if (!abortController.signal.aborted) {
             options.onError?.(error instanceof Error ? error : new Error(String(error)));

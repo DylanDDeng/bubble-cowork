@@ -25,6 +25,7 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { TurnChangesCard } from './TurnChangesCard';
 import { TurnDiffContext, type TurnDiffContextValue } from './TurnDiffContext';
 import { TurnDiffDrawer } from './TurnDiffDrawer';
+import { CodexActivePlanCard } from './CodexActivePlanCard';
 import {
   buildTurnChangeContext,
   type TurnChangeSummary,
@@ -106,6 +107,18 @@ export function ChatPane({
   const historyHighlightTimerRef = useRef<number | null>(null);
   const [highlightedHistoryAnchor, setHighlightedHistoryAnchor] = useState<string | null>(null);
   const [selectedDiffRecord, setSelectedDiffRecord] = useState<ChangeRecord | null>(null);
+  const activePlanMessage = useMemo(() => {
+    if (!session || session.provider !== 'codex' || session.status !== 'running') {
+      return null;
+    }
+    for (let index = session.messages.length - 1; index >= 0; index -= 1) {
+      const message = session.messages[index];
+      if (message?.type === 'plan_update' && message.steps.length > 0) {
+        return message;
+      }
+    }
+    return null;
+  }, [session?.messages, session?.provider, session?.status]);
 
   const { partialMessage, partialThinking, isStreaming: showPartialMessage } = useMemo(() => {
     if (!session) {
@@ -636,6 +649,10 @@ export function ChatPane({
                                           session.provider === 'claude'
                                             ? session.claudeExecutionMode || 'execute'
                                             : undefined,
+                                        codexExecutionMode:
+                                          session.provider === 'codex'
+                                            ? session.codexExecutionMode || 'execute'
+                                            : undefined,
                                         codexPermissionMode:
                                           session.provider === 'codex'
                                             ? session.codexPermissionMode || 'defaultPermissions'
@@ -744,6 +761,12 @@ export function ChatPane({
                     />
                   </div>
                 </div>
+              ) : null}
+              {activePlanMessage ? (
+                <CodexActivePlanCard
+                  explanation={activePlanMessage.explanation}
+                  steps={activePlanMessage.steps}
+                />
               ) : null}
               <PromptInput sessionId={sessionId} />
             </div>

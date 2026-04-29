@@ -8,8 +8,8 @@ import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { Base64ImageSource, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages';
 import type { RunnerOptions, RunnerHandle, StreamMessage, PermissionResult, Attachment } from '../types';
-import type { ClaudeModelUsage } from '../../shared/types';
-import { getClaudeEnv, getMcpServers } from './claude-settings';
+import type { ClaudeModelUsage, ClaudeReasoningEffort } from '../../shared/types';
+import { getClaudeEnv, getMcpServers, sanitizeOfficialClaudeEnv } from './claude-settings';
 import { applyCompatibleProviderEnv } from './compatible-provider-config';
 import {
   reconcileClaudeDisplayModel,
@@ -21,6 +21,7 @@ import { shouldExtractMemory, hasMemoryWritesInTurn, extractMemories } from './m
 
 type ClaudeSettingSource = 'user' | 'project' | 'local';
 const CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local'];
+const OFFICIAL_CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['project'];
 
 // Persistent store for memory extraction messages (survives across runClaude calls)
 const _memoryMessageStore = new Map<string, Array<{ role: string; content: string }>>();
@@ -100,6 +101,7 @@ type StreamEventType =
   | 'content_block_stop';
 
 const DEFAULT_MAX_THINKING_TOKENS = 64000;
+const DEFAULT_CLAUDE_REASONING_EFFORT: ClaudeReasoningEffort = 'high';
 type ClaudeAgentSdkModule = typeof import('@anthropic-ai/claude-agent-sdk');
 
 async function loadClaudeAgentSdk(): Promise<ClaudeAgentSdkModule> {
@@ -120,6 +122,73 @@ function resolveMaxThinkingTokens(): number {
     return DEFAULT_MAX_THINKING_TOKENS;
   }
   return Math.floor(parsed);
+}
+
+function resolveExplicitMaxThinkingTokens(): number | null {
+  const raw = process.env.CLAUDE_CODE_MAX_THINKING_TOKENS;
+  if (!raw) {
+    return null;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+  return Math.floor(parsed);
+}
+
+function normalizeClaudeReasoningEffort(
+  value?: string | null
+): ClaudeReasoningEffort {
+  switch ((value || '').trim().toLowerCase()) {
+    case 'low':
+    case 'medium':
+    case 'high':
+    case 'xhigh':
+    case 'max':
+      return value!.trim().toLowerCase() as ClaudeReasoningEffort;
+    default:
+      return DEFAULT_CLAUDE_REASONING_EFFORT;
+  }
+}
+
+function buildClaudeThinkingOptions(params: {
+  effort?: ClaudeReasoningEffort;
+  compatibleProviderMatched: boolean;
+}): {
+  queryOptions: {
+    thinking?: { type: 'adaptive' | 'enabled'; budgetTokens?: number; display?: 'summarized' };
+    effort?: ClaudeReasoningEffort;
+    maxThinkingTokens?: number;
+  };
+  legacyMaxThinkingTokens?: number;
+} {
+  if (params.compatibleProviderMatched) {
+    const legacyMaxThinkingTokens = resolveMaxThinkingTokens();
+    return {
+      queryOptions: { maxThinkingTokens: legacyMaxThinkingTokens },
+      legacyMaxThinkingTokens,
+    };
+  }
+
+  const explicitMaxThinkingTokens = resolveExplicitMaxThinkingTokens();
+  if (explicitMaxThinkingTokens) {
+    return {
+      queryOptions: {
+        thinking: {
+          type: 'enabled',
+          budgetTokens: explicitMaxThinkingTokens,
+          display: 'summarized',
+        },
+      },
+    };
+  }
+
+  return {
+    queryOptions: {
+      thinking: { type: 'adaptive', display: 'summarized' },
+      effort: normalizeClaudeReasoningEffort(params.effort),
+    },
+  };
 }
 
 function normalizeToolFilePath(cwd: string, filePath: string): { resolved: string; isWithin: boolean } | null {
@@ -296,6 +365,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
     betas,
     claudeAccessMode,
     claudeExecutionMode,
+    claudeReasoningEffort,
     onMessage,
     onPermissionRequest,
     onClaudeExecutionModeChange,
@@ -398,7 +468,9 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         currentModel,
         compatibleProviderId || session.compatible_provider_id || null
       );
-      env = providerOverride.env;
+      env = providerOverride.matchedProviderId
+        ? providerOverride.env
+        : sanitizeOfficialClaudeEnv(providerOverride.env);
       compatibleProviderMatched = Boolean(providerOverride.matchedProviderId);
       currentModel = providerOverride.forcedModel || currentModel;
       currentRuntimeModel = compatibleProviderMatched
@@ -425,7 +497,10 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         resourcesPath: process.resourcesPath,
       });
 
-      const maxThinkingTokens = resolveMaxThinkingTokens();
+      const thinkingOptions = buildClaudeThinkingOptions({
+        effort: claudeReasoningEffort,
+        compatibleProviderMatched,
+      });
 
       // Build memory system prompt (content + instructions) and in-process MCP server
       const sessionCwd = session.cwd || process.cwd();
@@ -443,7 +518,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           resume: resumeSessionId,
           abortController,
           includePartialMessages: true,
-          maxThinkingTokens,
+          ...thinkingOptions.queryOptions,
           betas: betas as Array<'context-1m-2025-08-07'> | undefined,
           permissionMode: currentPermissionMode,
           allowDangerouslySkipPermissions: currentPermissionMode === 'bypassPermissions',
@@ -453,7 +528,9 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           executable: executable as unknown as 'node',
           executableArgs,
           pathToClaudeCodeExecutable,
-          settingSources: CLAUDE_SETTING_SOURCES,
+          settingSources: compatibleProviderMatched
+            ? CLAUDE_SETTING_SOURCES
+            : OFFICIAL_CLAUDE_SETTING_SOURCES,
           mcpServers: {
             ...getMcpServers(session.cwd ?? undefined),
             'aegis-memory': aegisMemoryMcp,
@@ -636,11 +713,12 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       });
       activeQuery = result;
 
-      // 确保运行中也设置 maxThinkingTokens
-      try {
-        await result.setMaxThinkingTokens(maxThinkingTokens);
-      } catch (error) {
-        console.warn('Failed to set maxThinkingTokens:', error);
+      if (typeof thinkingOptions.legacyMaxThinkingTokens === 'number') {
+        try {
+          await result.setMaxThinkingTokens(thinkingOptions.legacyMaxThinkingTokens);
+        } catch (error) {
+          console.warn('Failed to set maxThinkingTokens:', error);
+        }
       }
 
       // Track recent messages and assistant text for memory extraction

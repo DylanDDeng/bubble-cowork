@@ -101,9 +101,22 @@ export interface ClaudeModelConfig {
 
 export type ClaudeAccessMode = 'default' | 'fullAccess';
 export type ClaudeExecutionMode = 'execute' | 'plan';
+export type ClaudeReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type CodexExecutionMode = 'execute' | 'plan';
 export type CodexPermissionMode = 'defaultPermissions' | 'fullAccess';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'fullAccess';
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
+export type PlanStepStatus = 'pending' | 'inProgress' | 'completed';
+
+export interface PlanStep {
+  step: string;
+  status: PlanStepStatus;
+}
+
+export interface ClaudeReasoningLevelOption {
+  effort: ClaudeReasoningEffort;
+  description: string;
+}
 
 export interface CodexReasoningLevelOption {
   effort: CodexReasoningEffort;
@@ -540,6 +553,8 @@ export interface SessionStartPayload {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   claudeExecutionMode?: ClaudeExecutionMode;
+  claudeReasoningEffort?: ClaudeReasoningEffort;
+  codexExecutionMode?: CodexExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
@@ -560,6 +575,8 @@ export interface SessionContinuePayload {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   claudeExecutionMode?: ClaudeExecutionMode;
+  claudeReasoningEffort?: ClaudeReasoningEffort;
+  codexExecutionMode?: CodexExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
@@ -582,6 +599,8 @@ export interface SessionInfo {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   claudeExecutionMode?: ClaudeExecutionMode;
+  claudeReasoningEffort?: ClaudeReasoningEffort;
+  codexExecutionMode?: CodexExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
@@ -610,6 +629,8 @@ export interface SessionStatusPayload {
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
   claudeExecutionMode?: ClaudeExecutionMode;
+  claudeReasoningEffort?: ClaudeReasoningEffort;
+  codexExecutionMode?: CodexExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
@@ -746,6 +767,19 @@ export type StreamMessage =
       total_cost_usd: number;
       usage: Usage;
       modelUsage?: Record<string, ClaudeModelUsage>;
+    })
+  | (StreamMessageBase & {
+      type: 'plan_update';
+      uuid: string;
+      turnId: string;
+      explanation?: string | null;
+      steps: PlanStep[];
+    })
+  | (StreamMessageBase & {
+      type: 'proposed_plan';
+      uuid: string;
+      planMarkdown: string;
+      turnId?: string;
     })
   | (StreamMessageBase & { type: 'stream_event'; event: StreamEvent })
   | (StreamMessageBase & { type: 'mcp_status'; servers: McpServerStatus[] });

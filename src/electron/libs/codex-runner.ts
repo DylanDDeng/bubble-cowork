@@ -11,6 +11,7 @@ import type { RunnerOptions, RunnerHandle, StreamMessage, Attachment } from '../
 import { isDev } from '../util';
 import { buildRuntimeManagedPrompt } from './agent-runtime';
 import type {
+  CodexExecutionMode,
   CodexPermissionMode,
   CodexReasoningEffort,
   OpenCodePermissionMode,
@@ -349,6 +350,7 @@ export async function runCodexOneShot(params: {
   cwd?: string;
   resumeSessionId?: string;
   model?: string;
+  codexExecutionMode?: CodexExecutionMode;
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
@@ -369,6 +371,7 @@ export async function runCodexOneShot(params: {
     prompt: params.prompt,
     model: params.model,
     resumeSessionId: params.resumeSessionId,
+    codexExecutionMode: params.codexExecutionMode,
     codexPermissionMode: params.codexPermissionMode,
     codexReasoningEffort: params.codexReasoningEffort,
     codexFastMode: params.codexFastMode,
