@@ -6,7 +6,6 @@ import {
   ChevronLeft,
   ChevronRight,
   FolderOpen,
-  KanbanSquare,
   MessageSquare,
   Search,
   Settings,
@@ -159,12 +158,6 @@ export function Sidebar() {
         keywords: ['chat', 'sessions'],
       },
       {
-        id: 'switch-board',
-        label: 'Go to Board',
-        description: 'Open the board workspace',
-        keywords: ['kanban', 'tasks'],
-      },
-      {
         id: 'switch-prompts',
         label: 'Go to Prompt Library',
         description: 'Browse saved prompts',
@@ -273,10 +266,6 @@ export function Sidebar() {
         setActiveWorkspace('chat');
         setShowSettings(false);
         break;
-      case 'switch-board':
-        setActiveWorkspace('board');
-        setShowSettings(false);
-        break;
       case 'switch-prompts':
         setActiveWorkspace('prompts');
         setShowSettings(false);
@@ -338,15 +327,6 @@ export function Sidebar() {
                 title="Search  (⌘K)"
                 active={searchPaletteOpen}
                 onClick={() => setSearchPaletteOpen(true)}
-              />
-              <RailIcon
-                icon={<KanbanSquare className="h-[17px] w-[17px]" />}
-                title="Board"
-                active={activeWorkspace === 'board'}
-                onClick={() => {
-                  setActiveWorkspace('board');
-                  setShowSettings(false);
-                }}
               />
               <RailIcon
                 icon={<Bookmark className="h-[17px] w-[17px]" />}

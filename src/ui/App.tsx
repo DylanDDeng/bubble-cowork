@@ -24,7 +24,6 @@ import { useAppStore } from './store/useAppStore';
 import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { Sidebar } from './components/Sidebar';
-import { BoardView } from './components/BoardView';
 import { PromptLibraryView } from './components/prompts/PromptLibraryView';
 import { NewSessionView } from './components/NewSessionView';
 import { PromptInput } from './components/PromptInput';
@@ -707,8 +706,6 @@ export function App() {
             </div>
           </main>
         </div>
-      ) : activeWorkspace === 'board' ? (
-        <BoardView />
       ) : activeWorkspace === 'prompts' ? (
         <PromptLibraryView />
       ) : chatLayoutMode === 'split' || (activeSession && !showNewSession) ? (

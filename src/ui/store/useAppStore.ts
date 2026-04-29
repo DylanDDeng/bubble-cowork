@@ -1250,11 +1250,9 @@ export const useAppStore = create<Store>()(
           activeWorkspace:
             persisted?.activeWorkspace === 'skills'
               ? 'skills'
-              : persisted?.activeWorkspace === 'board'
-                ? 'board'
-                : persisted?.activeWorkspace === 'prompts'
-                  ? 'prompts'
-                  : 'chat',
+              : persisted?.activeWorkspace === 'prompts'
+                ? 'prompts'
+                : 'chat',
           chatSidebarView: persisted?.chatSidebarView === 'threads' ? 'threads' : 'threads',
           chatLayoutMode,
           savedSplitVisible,
