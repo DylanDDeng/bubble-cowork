@@ -384,6 +384,21 @@ function normalizeClaudeExecutionMode(
   return value === 'plan' ? 'plan' : 'execute';
 }
 
+function normalizeClaudeReasoningEffort(
+  value?: string | null
+): import('../shared/types').ClaudeReasoningEffort {
+  switch ((value || '').trim().toLowerCase()) {
+    case 'low':
+    case 'medium':
+    case 'high':
+    case 'xhigh':
+    case 'max':
+      return value!.trim().toLowerCase() as import('../shared/types').ClaudeReasoningEffort;
+    default:
+      return 'high';
+  }
+}
+
 type ProjectFilePreview =
   | {
       kind: 'text' | 'markdown' | 'html';
@@ -1254,6 +1269,7 @@ async function bootstrapClaudeSessionFromHistory(params: {
   model?: string | null;
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
+  claudeReasoningEffort?: import('../shared/types').ClaudeReasoningEffort;
 }): Promise<{ sessionId: string; model?: string | null }> {
   const transcript = buildHistoryTranscript(params.history);
   const canDirectBootstrap =
@@ -1270,6 +1286,7 @@ async function bootstrapClaudeSessionFromHistory(params: {
         model: params.model || undefined,
         compatibleProviderId: params.compatibleProviderId,
         betas: params.betas,
+        claudeReasoningEffort: params.claudeReasoningEffort,
       })
     : await (async () => {
         const summaryResult = await runClaudeOneShot({
@@ -1278,6 +1295,7 @@ async function bootstrapClaudeSessionFromHistory(params: {
           model: params.model || undefined,
           compatibleProviderId: params.compatibleProviderId,
           betas: params.betas,
+          claudeReasoningEffort: params.claudeReasoningEffort,
         });
         const summary = extractSummaryContent(summaryResult.text);
         if (!summary) {
@@ -1294,6 +1312,7 @@ async function bootstrapClaudeSessionFromHistory(params: {
           model: summaryResult.model || params.model || undefined,
           compatibleProviderId: params.compatibleProviderId,
           betas: params.betas,
+          claudeReasoningEffort: params.claudeReasoningEffort,
         });
       })();
 
@@ -1502,6 +1521,7 @@ async function handleEditLatestPrompt(
     betas,
     claudeAccessMode,
     claudeExecutionMode,
+    claudeReasoningEffort,
     codexExecutionMode,
     codexPermissionMode,
     codexReasoningEffort,
@@ -1570,6 +1590,7 @@ async function handleEditLatestPrompt(
   const previousCompatibleProviderId = session.compatible_provider_id || null;
   const previousBetas = parseStoredBetas(session.betas);
   const previousClaudeAccessMode = normalizeClaudeAccessMode(session.claude_access_mode);
+  const previousClaudeReasoningEffort = normalizeClaudeReasoningEffort(session.claude_reasoning_effort);
   let latestUserPromptIndex = -1;
   for (let index = history.length - 1; index >= 0; index -= 1) {
     if (history[index]?.type === 'user_prompt') {
@@ -1602,6 +1623,9 @@ async function handleEditLatestPrompt(
   const nextPrompt = nextPromptText.trim();
   const nextClaudeAccessMode = normalizeClaudeAccessMode(claudeAccessMode);
   const nextClaudeExecutionMode = normalizeClaudeExecutionMode(claudeExecutionMode);
+  const nextClaudeReasoningEffort = normalizeClaudeReasoningEffort(
+    claudeReasoningEffort || previousClaudeReasoningEffort
+  );
   const createdAt = Date.now();
   const editedUserPrompt: StreamMessage = {
     type: 'user_prompt',
@@ -1624,6 +1648,7 @@ async function handleEditLatestPrompt(
   sessions.updateSessionBetas(sessionId, requestedBetas || null);
   sessions.updateSessionClaudeAccessMode(sessionId, nextClaudeAccessMode);
   sessions.updateSessionClaudeExecutionMode(sessionId, nextClaudeExecutionMode);
+  sessions.updateSessionClaudeReasoningEffort(sessionId, nextClaudeReasoningEffort);
 
   broadcast(mainWindow, {
     type: 'session.history',
@@ -1645,6 +1670,7 @@ async function handleEditLatestPrompt(
       betas: requestedBetas,
       claudeAccessMode: nextClaudeAccessMode,
       claudeExecutionMode: nextClaudeExecutionMode,
+      claudeReasoningEffort: nextClaudeReasoningEffort,
       hiddenFromThreads: session.hidden_from_threads === 1,
     },
   });
@@ -1657,6 +1683,7 @@ async function handleEditLatestPrompt(
         model: requestedModel,
         compatibleProviderId: requestedCompatibleProviderId,
         betas: requestedBetas,
+        claudeReasoningEffort: nextClaudeReasoningEffort,
       });
       nextClaudeSessionId = bootstrap.sessionId;
       resolvedModel = normalizeModel(bootstrap.model || requestedModel || undefined);
@@ -1670,6 +1697,7 @@ async function handleEditLatestPrompt(
     sessions.updateSessionCompatibleProviderId(sessionId, previousCompatibleProviderId);
     sessions.updateSessionBetas(sessionId, previousBetas || null);
     sessions.updateSessionClaudeAccessMode(sessionId, previousClaudeAccessMode);
+    sessions.updateSessionClaudeReasoningEffort(sessionId, previousClaudeReasoningEffort);
     sessions.updateSessionClaudeExecutionMode(
       sessionId,
       normalizeClaudeExecutionMode(session.claude_execution_mode)
@@ -1695,6 +1723,7 @@ async function handleEditLatestPrompt(
         betas: previousBetas,
         claudeAccessMode: previousClaudeAccessMode,
         claudeExecutionMode: normalizeClaudeExecutionMode(session.claude_execution_mode),
+        claudeReasoningEffort: previousClaudeReasoningEffort,
         hiddenFromThreads: session.hidden_from_threads === 1,
       },
     });
@@ -1712,6 +1741,7 @@ async function handleEditLatestPrompt(
   sessions.updateSessionBetas(sessionId, requestedBetas || null);
   sessions.updateSessionClaudeAccessMode(sessionId, nextClaudeAccessMode);
   sessions.updateSessionClaudeExecutionMode(sessionId, nextClaudeExecutionMode);
+  sessions.updateSessionClaudeReasoningEffort(sessionId, nextClaudeReasoningEffort);
 
   const refreshedSession = sessions.getSession(sessionId);
   if (!refreshedSession) {
@@ -1733,6 +1763,7 @@ async function handleEditLatestPrompt(
       betas: requestedBetas,
       claudeAccessMode: nextClaudeAccessMode,
       claudeExecutionMode: nextClaudeExecutionMode,
+      claudeReasoningEffort: nextClaudeReasoningEffort,
       hiddenFromThreads: refreshedSession.hidden_from_threads === 1,
     },
   });
@@ -1748,7 +1779,8 @@ async function handleEditLatestPrompt(
     requestedCompatibleProviderId,
     requestedBetas,
     nextClaudeAccessMode,
-    nextClaudeExecutionMode
+    nextClaudeExecutionMode,
+    nextClaudeReasoningEffort
   );
 }
 
@@ -1930,6 +1962,7 @@ async function handleEditLatestOpenCodePrompt(
     attachments,
     'opencode',
     resolvedModel || undefined,
+    undefined,
     undefined,
     undefined,
     undefined,
@@ -2162,6 +2195,7 @@ async function handleEditLatestCodexPrompt(
     attachments,
     'codex',
     resolvedModel || undefined,
+    undefined,
     undefined,
     undefined,
     undefined,
@@ -2413,6 +2447,7 @@ const runnerHandles = new Map<
     compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
     claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
     claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode;
+    claudeReasoningEffort?: import('../shared/types').ClaudeReasoningEffort;
     codexExecutionMode?: import('../shared/types').CodexExecutionMode;
     codexPermissionMode?: import('../shared/types').CodexPermissionMode;
     codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
@@ -4186,6 +4221,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     betas: parseStoredBetas(row.betas),
     claudeAccessMode: normalizeClaudeAccessMode(row.claude_access_mode),
     claudeExecutionMode: normalizeClaudeExecutionMode(row.claude_execution_mode),
+    claudeReasoningEffort: normalizeClaudeReasoningEffort(row.claude_reasoning_effort),
     codexExecutionMode: normalizeCodexExecutionMode(row.codex_execution_mode),
     codexPermissionMode: normalizeCodexPermissionMode(row.codex_permission_mode),
     codexReasoningEffort: normalizeCodexReasoningEffort(row.codex_reasoning_effort),
@@ -4230,6 +4266,7 @@ async function handleSessionStart(
     betas,
     claudeAccessMode,
     claudeExecutionMode,
+    claudeReasoningEffort,
     codexExecutionMode,
     codexPermissionMode,
     codexReasoningEffort,
@@ -4263,6 +4300,8 @@ async function handleSessionStart(
   );
   const selectedModel = normalizeModel(model);
   const selectedBetas = chosenProvider === 'claude' ? normalizeBetas(betas) : undefined;
+  const selectedClaudeReasoningEffort =
+    chosenProvider === 'claude' ? normalizeClaudeReasoningEffort(claudeReasoningEffort) : undefined;
 
   if (chosenProvider === 'claude') {
     const runtimeStatus = await getClaudeRuntimeStatus(selectedModel || null);
@@ -4310,6 +4349,7 @@ async function handleSessionStart(
     claudeAccessMode: chosenProvider === 'claude' ? normalizeClaudeAccessMode(claudeAccessMode) : undefined,
     claudeExecutionMode:
       chosenProvider === 'claude' ? normalizeClaudeExecutionMode(claudeExecutionMode) : undefined,
+    claudeReasoningEffort: selectedClaudeReasoningEffort,
     codexExecutionMode:
       chosenProvider === 'codex' ? normalizeCodexExecutionMode(codexExecutionMode) : undefined,
     codexPermissionMode: chosenProvider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
@@ -4339,6 +4379,7 @@ async function handleSessionStart(
       claudeAccessMode: chosenProvider === 'claude' ? normalizeClaudeAccessMode(claudeAccessMode) : undefined,
       claudeExecutionMode:
         chosenProvider === 'claude' ? normalizeClaudeExecutionMode(claudeExecutionMode) : undefined,
+      claudeReasoningEffort: selectedClaudeReasoningEffort,
       codexExecutionMode:
         chosenProvider === 'codex' ? normalizeCodexExecutionMode(codexExecutionMode) : undefined,
       codexPermissionMode: chosenProvider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
@@ -4358,7 +4399,8 @@ async function handleSessionStart(
     chosenProvider === 'claude' ? selectedModel : undefined,
     chosenProvider === 'claude' ? compatibleProviderId : undefined,
     chosenProvider === 'claude' ? selectedBetas : undefined,
-    chosenProvider
+    chosenProvider,
+    selectedClaudeReasoningEffort
   ).then((newTitle) => {
     const trimmedTitle = newTitle.trim();
     if (!trimmedTitle) {
@@ -4414,6 +4456,7 @@ async function handleSessionStart(
     selectedBetas,
     claudeAccessMode,
     chosenProvider === 'claude' ? normalizeClaudeExecutionMode(claudeExecutionMode) : undefined,
+    selectedClaudeReasoningEffort,
     chosenProvider === 'codex' ? normalizeCodexExecutionMode(codexExecutionMode) : undefined,
     chosenProvider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
     chosenProvider === 'codex' ? normalizeCodexReasoningEffort(codexReasoningEffort) : undefined,
@@ -4441,6 +4484,7 @@ async function handleSessionContinue(
     betas,
     claudeAccessMode,
     claudeExecutionMode,
+    claudeReasoningEffort,
     codexExecutionMode,
     codexPermissionMode,
     codexReasoningEffort,
@@ -4503,6 +4547,11 @@ async function handleSessionContinue(
   const previousClaudeExecutionMode = normalizeClaudeExecutionMode(session.claude_execution_mode);
   const nextClaudeExecutionMode =
     nextProvider === 'claude' ? normalizeClaudeExecutionMode(claudeExecutionMode) : undefined;
+  const previousClaudeReasoningEffort = normalizeClaudeReasoningEffort(session.claude_reasoning_effort);
+  const nextClaudeReasoningEffort =
+    nextProvider === 'claude'
+      ? normalizeClaudeReasoningEffort(claudeReasoningEffort || previousClaudeReasoningEffort)
+      : undefined;
   const previousCodexPermissionMode = normalizeCodexPermissionMode(session.codex_permission_mode);
   const previousCodexExecutionMode = normalizeCodexExecutionMode(session.codex_execution_mode);
   const nextCodexExecutionMode = nextProvider === 'codex'
@@ -4542,6 +4591,11 @@ async function handleSessionContinue(
     normalizeClaudeExecutionMode(
       runnerHandles.get(sessionId)?.claudeExecutionMode || previousClaudeExecutionMode
     ) !== nextClaudeExecutionMode;
+  const claudeReasoningEffortChanged =
+    nextProvider === 'claude' &&
+    normalizeClaudeReasoningEffort(
+      runnerHandles.get(sessionId)?.claudeReasoningEffort || previousClaudeReasoningEffort
+    ) !== nextClaudeReasoningEffort;
   const codexPermissionModeChanged =
     nextProvider === 'codex' &&
     normalizeCodexPermissionMode(runnerHandles.get(sessionId)?.codexPermissionMode || previousCodexPermissionMode) !== nextCodexPermissionMode;
@@ -4602,6 +4656,7 @@ async function handleSessionContinue(
       compatibleProviderChanged,
       betasChanged,
       accessModeChanged,
+      claudeReasoningEffortChanged,
       codexExecutionModeChanged,
       codexPermissionModeChanged,
       codexReasoningEffortChanged,
@@ -4623,6 +4678,7 @@ async function handleSessionContinue(
   if (nextProvider === 'claude') {
     sessions.updateSessionClaudeAccessMode(sessionId, claudeAccessMode || 'default');
     sessions.updateSessionClaudeExecutionMode(sessionId, nextClaudeExecutionMode || 'execute');
+    sessions.updateSessionClaudeReasoningEffort(sessionId, nextClaudeReasoningEffort || 'high');
   }
   if (nextProvider === 'codex') {
     sessions.updateSessionCodexExecutionMode(sessionId, nextCodexExecutionMode || 'execute');
@@ -4654,6 +4710,7 @@ async function handleSessionContinue(
       claudeAccessMode: nextProvider === 'claude' ? normalizeClaudeAccessMode(claudeAccessMode) : undefined,
       claudeExecutionMode:
         nextProvider === 'claude' ? normalizeClaudeExecutionMode(claudeExecutionMode) : undefined,
+      claudeReasoningEffort: nextProvider === 'claude' ? nextClaudeReasoningEffort : undefined,
       codexExecutionMode: nextProvider === 'codex' ? (nextCodexExecutionMode || 'execute') : undefined,
       codexPermissionMode: nextProvider === 'codex' ? (nextCodexPermissionMode || 'defaultPermissions') : undefined,
       codexReasoningEffort: nextProvider === 'codex' ? nextCodexReasoningEffort : undefined,
@@ -4680,14 +4737,21 @@ async function handleSessionContinue(
   });
 
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
-	    if (
-	      ((nextProvider === 'codex' || nextProvider === 'opencode') && modelChanged) ||
-	      (nextProvider === 'codex' && codexPermissionModeChanged) ||
-	      (nextProvider === 'codex' && codexReasoningEffortChanged) ||
-	      (nextProvider === 'codex' && codexFastModeChanged) ||
+    if (
+      ((nextProvider === 'codex' || nextProvider === 'opencode') && modelChanged) ||
+      (nextProvider === 'codex' && codexPermissionModeChanged) ||
+      (nextProvider === 'codex' && codexReasoningEffortChanged) ||
+      (nextProvider === 'codex' && codexFastModeChanged) ||
       (nextProvider === 'opencode' && opencodePermissionModeChanged) ||
       (nextProvider === 'claude' &&
-        (modelChanged || compatibleProviderChanged || betasChanged || accessModeChanged || executionModeChanged))
+        (
+          modelChanged ||
+          compatibleProviderChanged ||
+          betasChanged ||
+          accessModeChanged ||
+          executionModeChanged ||
+          claudeReasoningEffortChanged
+        ))
     ) {
       existingEntry.handle.abort();
       runnerHandles.delete(sessionId);
@@ -4695,27 +4759,27 @@ async function handleSessionContinue(
       existingEntry.handle.send(
         runnerPrompt,
         outgoingAttachments,
-	        nextModel,
-	        nextProvider === 'codex' ? codexSkills : undefined,
-	        nextProvider === 'codex' ? codexMentions : undefined,
-	        nextProvider === 'codex'
-	          ? {
-	              codexExecutionMode: nextCodexExecutionMode,
-	              codexPermissionMode: nextCodexPermissionMode,
-	              codexReasoningEffort: nextCodexReasoningEffort || undefined,
-	              codexFastMode: nextCodexFastMode,
-	            }
-	          : undefined
-	      );
-	      if (nextProvider === 'codex') {
-	        existingEntry.codexExecutionMode = nextCodexExecutionMode;
-	        existingEntry.codexPermissionMode = nextCodexPermissionMode;
-	        existingEntry.codexReasoningEffort = nextCodexReasoningEffort || undefined;
-	        existingEntry.codexFastMode = nextCodexFastMode;
-	      }
-	      return true;
-	    }
-	  }
+        nextModel,
+        nextProvider === 'codex' ? codexSkills : undefined,
+        nextProvider === 'codex' ? codexMentions : undefined,
+        nextProvider === 'codex'
+          ? {
+              codexExecutionMode: nextCodexExecutionMode,
+              codexPermissionMode: nextCodexPermissionMode,
+              codexReasoningEffort: nextCodexReasoningEffort || undefined,
+              codexFastMode: nextCodexFastMode,
+            }
+          : undefined
+      );
+      if (nextProvider === 'codex') {
+        existingEntry.codexExecutionMode = nextCodexExecutionMode;
+        existingEntry.codexPermissionMode = nextCodexPermissionMode;
+        existingEntry.codexReasoningEffort = nextCodexReasoningEffort || undefined;
+        existingEntry.codexFastMode = nextCodexFastMode;
+      }
+      return true;
+    }
+  }
 
   if (existingEntry && providerChanged) {
     existingEntry.handle.abort();
@@ -4748,6 +4812,7 @@ async function handleSessionContinue(
         model: nextModel,
         compatibleProviderId: nextCompatibleProviderId,
         betas: nextBetas,
+        claudeReasoningEffort: nextClaudeReasoningEffort,
       });
       nextResumeSessionId = bootstrap.sessionId;
       startModel = normalizeModel(bootstrap.model || nextModel || undefined);
@@ -4786,6 +4851,7 @@ async function handleSessionContinue(
     nextBetas,
     claudeAccessMode,
     nextClaudeExecutionMode,
+    nextProvider === 'claude' ? nextClaudeReasoningEffort : undefined,
     nextProvider === 'codex' ? (nextCodexExecutionMode || 'execute') : undefined,
     nextProvider === 'codex' ? (nextCodexPermissionMode || 'defaultPermissions') : undefined,
     nextProvider === 'codex' ? nextCodexReasoningEffort : undefined,
@@ -4810,6 +4876,7 @@ function startRunner(
   betasOverride?: string[],
   claudeAccessMode?: import('../shared/types').ClaudeAccessMode,
   claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode,
+  claudeReasoningEffort?: import('../shared/types').ClaudeReasoningEffort,
   codexExecutionMode?: import('../shared/types').CodexExecutionMode,
   codexPermissionMode?: import('../shared/types').CodexPermissionMode,
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort,
@@ -4852,6 +4919,7 @@ function startRunner(
     betas: provider === 'claude' ? betasOverride || parseStoredBetas(session.betas) : undefined,
     claudeAccessMode,
     claudeExecutionMode,
+    claudeReasoningEffort,
     codexExecutionMode,
     codexPermissionMode,
     codexReasoningEffort,
@@ -4910,6 +4978,12 @@ function startRunner(
               provider === 'claude'
                 ? normalizeClaudeExecutionMode(
                     sessions.getSession(session.id)?.claude_execution_mode || claudeExecutionMode
+                  )
+                : undefined,
+            claudeReasoningEffort:
+              provider === 'claude'
+                ? normalizeClaudeReasoningEffort(
+                    sessions.getSession(session.id)?.claude_reasoning_effort || claudeReasoningEffort
                   )
                 : undefined,
             codexExecutionMode:
@@ -5020,6 +5094,12 @@ function startRunner(
                     sessions.getSession(session.id)?.claude_execution_mode || claudeExecutionMode
                   )
                 : undefined,
+            claudeReasoningEffort:
+              provider === 'claude'
+                ? normalizeClaudeReasoningEffort(
+                    sessions.getSession(session.id)?.claude_reasoning_effort || claudeReasoningEffort
+                  )
+                : undefined,
             codexExecutionMode:
               provider === 'codex'
                 ? normalizeCodexExecutionMode(
@@ -5106,6 +5186,10 @@ function startRunner(
               ? normalizeClaudeAccessMode(current?.claude_access_mode || claudeAccessMode)
               : undefined,
           claudeExecutionMode: provider === 'claude' ? mode : undefined,
+          claudeReasoningEffort:
+            provider === 'claude'
+              ? normalizeClaudeReasoningEffort(current?.claude_reasoning_effort || claudeReasoningEffort)
+              : undefined,
           codexExecutionMode:
             provider === 'codex'
               ? normalizeCodexExecutionMode(current?.codex_execution_mode || codexExecutionMode)
@@ -5165,6 +5249,8 @@ function startRunner(
     compatibleProviderId,
     claudeAccessMode: provider === 'claude' ? (claudeAccessMode || 'default') : undefined,
     claudeExecutionMode: provider === 'claude' ? (claudeExecutionMode || 'execute') : undefined,
+    claudeReasoningEffort:
+      provider === 'claude' ? normalizeClaudeReasoningEffort(claudeReasoningEffort) : undefined,
     codexExecutionMode: provider === 'codex' ? normalizeCodexExecutionMode(codexExecutionMode) : undefined,
     codexPermissionMode: provider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
     codexReasoningEffort:

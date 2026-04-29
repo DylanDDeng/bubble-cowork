@@ -33,6 +33,8 @@ export type {
   ClaudeCompatibleProviderId,
   ClaudeAccessMode,
   ClaudeExecutionMode,
+  ClaudeReasoningEffort,
+  ClaudeReasoningLevelOption,
   CodexExecutionMode,
   CodexPermissionMode,
   CodexReasoningEffort,
@@ -125,6 +127,7 @@ export interface SessionView {
   betas?: string[];
   claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
   claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode;
+  claudeReasoningEffort?: import('../shared/types').ClaudeReasoningEffort;
   codexExecutionMode?: import('../shared/types').CodexExecutionMode;
   codexPermissionMode?: import('../shared/types').CodexPermissionMode;
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;

@@ -14,7 +14,7 @@
     "dist": "npm run build && npm run build:electron"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.118",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.123",
     "@anthropic-ai/sdk": "^0.71.2",
     "@jvmr/pptx-to-html": "^1.0.0",
     "@larksuiteoapi/node-sdk": "^1.59.0",

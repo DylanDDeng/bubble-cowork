@@ -22,6 +22,7 @@ import type {
   OpenCodePermissionMode,
   ClaudeAccessMode,
   ClaudeExecutionMode,
+  ClaudeReasoningEffort,
   ClaudeCompatibleProviderId,
   ProviderComposerCapabilities,
   ProviderInputReference,
@@ -77,6 +78,7 @@ export interface ProviderSessionStartInput {
   opencodePermissionMode?: OpenCodePermissionMode;
   claudeAccessMode?: ClaudeAccessMode;
   claudeExecutionMode?: ClaudeExecutionMode;
+  claudeReasoningEffort?: ClaudeReasoningEffort;
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
 }

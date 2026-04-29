@@ -272,6 +272,7 @@ function createDraftSessionView(cwd?: string | null): SessionView {
     cwd: cwd || undefined,
     provider: loadPreferredProvider(),
     claudeExecutionMode: 'execute',
+    claudeReasoningEffort: 'high',
     hiddenFromThreads: false,
     messages: [],
     hydrated: true,
@@ -314,6 +315,22 @@ function normalizeClaudeAccessMode(value: unknown): import('../types').ClaudeAcc
 
 function normalizeClaudeExecutionMode(value: unknown): import('../types').ClaudeExecutionMode {
   return value === 'plan' ? 'plan' : 'execute';
+}
+
+function normalizeClaudeReasoningEffort(value: unknown): import('../types').ClaudeReasoningEffort {
+  if (typeof value !== 'string') {
+    return 'high';
+  }
+  switch (value.trim().toLowerCase()) {
+    case 'low':
+    case 'medium':
+    case 'high':
+    case 'xhigh':
+    case 'max':
+      return value.trim().toLowerCase() as import('../types').ClaudeReasoningEffort;
+    default:
+      return 'high';
+  }
 }
 
 function normalizeCodexExecutionMode(value: unknown): import('../types').CodexExecutionMode {
@@ -1309,6 +1326,7 @@ function handleSessionList(
       betas: session.betas,
       claudeAccessMode: normalizeClaudeAccessMode(session.claudeAccessMode),
       claudeExecutionMode: normalizeClaudeExecutionMode(session.claudeExecutionMode),
+      claudeReasoningEffort: normalizeClaudeReasoningEffort(session.claudeReasoningEffort),
       codexExecutionMode: normalizeCodexExecutionMode(session.codexExecutionMode),
       codexPermissionMode: session.codexPermissionMode,
       codexReasoningEffort: session.codexReasoningEffort,
@@ -1409,6 +1427,7 @@ function handleSessionStatus(
     betas?: SessionInfo['betas'];
     claudeAccessMode?: SessionInfo['claudeAccessMode'];
     claudeExecutionMode?: SessionInfo['claudeExecutionMode'];
+    claudeReasoningEffort?: SessionInfo['claudeReasoningEffort'];
     codexExecutionMode?: SessionInfo['codexExecutionMode'];
     codexPermissionMode?: SessionInfo['codexPermissionMode'];
     codexReasoningEffort?: SessionInfo['codexReasoningEffort'];
@@ -1430,6 +1449,7 @@ function handleSessionStatus(
     betas,
     claudeAccessMode,
     claudeExecutionMode,
+    claudeReasoningEffort,
     codexExecutionMode,
     codexPermissionMode,
     codexReasoningEffort,
@@ -1474,6 +1494,10 @@ function handleSessionStatus(
             claudeExecutionMode !== undefined
               ? normalizeClaudeExecutionMode(claudeExecutionMode)
               : normalizeClaudeExecutionMode(session.claudeExecutionMode),
+          claudeReasoningEffort:
+            claudeReasoningEffort !== undefined
+              ? normalizeClaudeReasoningEffort(claudeReasoningEffort)
+              : normalizeClaudeReasoningEffort(session.claudeReasoningEffort),
           codexExecutionMode:
             codexExecutionMode !== undefined
               ? normalizeCodexExecutionMode(codexExecutionMode)
@@ -1523,6 +1547,7 @@ function handleSessionStatus(
       betas,
       claudeAccessMode: normalizeClaudeAccessMode(claudeAccessMode),
       claudeExecutionMode: normalizeClaudeExecutionMode(claudeExecutionMode),
+      claudeReasoningEffort: normalizeClaudeReasoningEffort(claudeReasoningEffort),
       codexExecutionMode: normalizeCodexExecutionMode(codexExecutionMode),
       codexPermissionMode,
       codexReasoningEffort,
