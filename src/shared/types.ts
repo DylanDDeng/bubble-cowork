@@ -576,6 +576,7 @@ export interface SessionStartPayload {
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
+  routedAgentId?: string | null;
   hiddenFromThreads?: boolean;
   channelId?: string;
 }
@@ -599,6 +600,7 @@ export interface SessionContinuePayload {
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
+  routedAgentId?: string | null;
 }
 
 export type SessionScope = 'project' | 'dm';
@@ -738,6 +740,7 @@ export type PermissionRequestInput =
 // StreamMessage 类型（SDK 消息或内部消息）
 export type StreamMessageBase = {
   createdAt?: number;
+  agentId?: string | null;
 };
 
 export interface CompactMetadata {

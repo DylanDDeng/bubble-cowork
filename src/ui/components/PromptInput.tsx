@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Paperclip, Plus, Square } from 'lucide-react';
+import { Paperclip, Plus, Square, Users, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
@@ -23,21 +23,22 @@ import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { PlanModeBadge, PlanModeMenuItem } from './PlanModeControls';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
+import { ProjectAgentMentionMenu } from './ProjectAgentMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
 import { SavePromptButton } from './prompts/SavePromptButton';
+import { AgentAvatar } from './AgentAvatar';
 import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
 import { useOpencodeModelConfig } from '../hooks/useOpencodeModelConfig';
 import { useCompatibleProviderConfig } from '../hooks/useCompatibleProviderConfig';
 import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
-import { useOpencodeRuntimeStatus } from '../hooks/useOpencodeRuntimeStatus';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
+import { useProjectAgentMentions } from '../hooks/useProjectAgentMentions';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import { getSessionModel } from '../utils/session-model';
 import {
   buildClaudeModelOptions,
-  formatClaudeModelLabel,
   isOfficialClaudeModel,
   loadPreferredClaudeCompatibleProviderId,
   loadPreferredClaudeContext1m,
@@ -54,7 +55,6 @@ import {
 } from '../utils/claude-reasoning';
 import {
   buildCodexModelOptions,
-  formatCodexModelLabel,
   loadPreferredCodexModel,
   resolveCodexModel,
   savePreferredCodexModel,
@@ -83,6 +83,14 @@ import {
   maybeConvertLongPromptToAttachment,
 } from '../utils/long-prompt-attachment';
 import { buildCodexReferencePayload } from '../utils/codex-composer';
+import {
+  getAgentMentionHandle,
+  getAgentMentionHandles,
+  getAgentMentionAliases,
+  getProjectAgentProfiles,
+  insertProjectAgentMention,
+  resolveProjectAgentMentionRoute,
+} from '../utils/agent-mentions';
 
 function isImeComposingEvent(
   event: React.KeyboardEvent,
@@ -95,27 +103,50 @@ function isImeComposingEvent(
   );
 }
 
-function buildDirectAgentEffectivePrompt(
+function buildAgentEffectivePrompt(
   prompt: string,
-  profile: AgentProfile | null | undefined
+  profile: AgentProfile | null | undefined,
+  context?: {
+    mode: 'dm' | 'project';
+    cwd?: string | null;
+    channelId?: string | null;
+    handle?: string | null;
+    assignmentSource?: 'mention' | 'assignment';
+  }
 ): string {
   if (!profile) {
     return prompt;
   }
+
+  const contextLines =
+    context?.mode === 'project'
+      ? [
+          context.handle
+            ? `${context.assignmentSource === 'assignment' ? 'Assigned agent' : 'Mention'}: @${context.handle}`
+            : '',
+          context.channelId ? `Project channel: #${context.channelId}` : '',
+          context.cwd ? `Project directory: ${context.cwd}` : '',
+          context.assignmentSource === 'assignment'
+            ? 'This is a project channel task assignment. Use the project context and answer as the assigned agent.'
+            : 'This is a project channel conversation. Use the project context and answer as the mentioned agent.',
+        ]
+      : [
+          'This is a direct message conversation. Do not assume any project working directory or project context unless the user explicitly provides it.',
+        ];
 
   const lines = [
     `You are ${profile.name.trim() || 'this agent'}.`,
     profile.role.trim() ? `Role: ${profile.role.trim()}` : '',
     profile.description.trim() ? `Profile: ${profile.description.trim()}` : '',
     profile.instructions.trim() ? `Instructions:\n${profile.instructions.trim()}` : '',
-    'This is a direct message conversation. Do not assume any project working directory or project context unless the user explicitly provides it.',
+    ...contextLines,
     `User message:\n${prompt}`,
   ].filter(Boolean);
 
   return lines.join('\n\n');
 }
 
-function getDirectAgentRuntime(profile: AgentProfile | null | undefined) {
+function getAgentRuntime(profile: AgentProfile | null | undefined) {
   if (!profile) {
     return null;
   }
@@ -132,6 +163,12 @@ function getDirectAgentRuntime(profile: AgentProfile | null | undefined) {
     codexPermissionMode: isFullAccess ? 'fullAccess' as const : 'defaultPermissions' as const,
     opencodePermissionMode: isFullAccess ? 'fullAccess' as const : 'defaultPermissions' as const,
   };
+}
+
+function getAgentProviderLabel(provider: AgentProfile['provider']): string {
+  if (provider === 'codex') return 'Codex';
+  if (provider === 'opencode') return 'OpenCode';
+  return 'Claude';
 }
 
 function isVisibleClaudePickerModel(
@@ -151,6 +188,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     activeSessionId,
     sessions,
     agentProfiles,
+    projectAgentRostersByProject,
     activeChannelByProject,
     pendingStart,
     setShowNewSession,
@@ -191,6 +229,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   const [selectedCodexFastMode, setSelectedCodexFastMode] = useState(false);
   const [selectedOpencodePermissionMode, setSelectedOpencodePermissionMode] =
     useState<OpenCodePermissionMode>(loadPreferredOpencodePermissionMode());
+  const [selectedTaskAgentId, setSelectedTaskAgentId] = useState<string | null>(null);
   const [cursorIndex, setCursorIndex] = useState(0);
   const editorRef = useRef<ComposerPromptEditorHandle | null>(null);
   const isComposingRef = useRef(false);
@@ -201,9 +240,50 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     activeSession?.scope === 'dm' && activeSession.agentId
       ? agentProfiles[activeSession.agentId] || null
       : null;
-  const directAgentRuntime = getDirectAgentRuntime(directAgentProfile);
-  const runtimeProvider = directAgentRuntime?.provider || provider;
-  const runtimeLockedByAgent = Boolean(directAgentRuntime);
+  const projectAgentProfiles = useMemo(
+    () =>
+      activeSession?.scope === 'dm'
+        ? []
+        : getProjectAgentProfiles({
+            agentProfiles,
+            projectAgentRostersByProject,
+            cwd: activeSession?.cwd,
+          }),
+    [activeSession?.cwd, activeSession?.scope, agentProfiles, projectAgentRostersByProject]
+  );
+  const projectAgentRoute = useMemo(
+    () =>
+      activeSession?.scope === 'dm'
+        ? null
+        : resolveProjectAgentMentionRoute(prompt, projectAgentProfiles),
+    [activeSession?.scope, projectAgentProfiles, prompt]
+  );
+  const selectedTaskAgentProfile = useMemo(
+    () =>
+      selectedTaskAgentId
+        ? projectAgentProfiles.find((profile) => profile.id === selectedTaskAgentId) || null
+        : null,
+    [projectAgentProfiles, selectedTaskAgentId]
+  );
+  const activeProjectAgentRoute = projectAgentRoute
+    ? {
+        profile: projectAgentRoute.profile,
+        handle: projectAgentRoute.handle,
+        source: 'mention' as const,
+      }
+    : selectedTaskAgentProfile
+      ? {
+          profile: selectedTaskAgentProfile,
+          handle: getAgentMentionHandle(selectedTaskAgentProfile),
+          source: 'assignment' as const,
+        }
+      : null;
+  const runtimeAgentProfile = directAgentProfile || activeProjectAgentRoute?.profile || null;
+  const directAgentRuntime = getAgentRuntime(directAgentProfile);
+  const projectAgentRuntime = getAgentRuntime(activeProjectAgentRoute?.profile || null);
+  const agentRuntime = directAgentRuntime || projectAgentRuntime;
+  const runtimeProvider = agentRuntime?.provider || provider;
+  const runtimeLockedByAgent = Boolean(agentRuntime);
   const isRunning = activeSession?.status === 'running';
   const isBusy = isRunning || pendingStart;
   const claudeModelConfig = useClaudeModelConfig();
@@ -271,25 +351,25 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   }, [activeClaudeModel, activeSession?.model, compatibleOptions]);
   const runtimeClaudeModel =
     runtimeProvider === 'claude'
-      ? directAgentRuntime?.model || selectedClaudeModel
+      ? agentRuntime?.model || selectedClaudeModel
       : selectedClaudeModel;
   const runtimeCodexModel =
     runtimeProvider === 'codex'
-      ? directAgentRuntime?.model || resolvedSelectedCodexModel
+      ? agentRuntime?.model || resolvedSelectedCodexModel
       : resolvedSelectedCodexModel;
   const runtimeOpencodeModel =
     runtimeProvider === 'opencode'
-      ? directAgentRuntime?.model || selectedOpencodeModel || opencodeModelOptions[0] || null
+      ? agentRuntime?.model || selectedOpencodeModel || opencodeModelOptions[0] || null
       : selectedOpencodeModel;
-  const runtimeClaudeAccessMode = directAgentRuntime?.claudeAccessMode || selectedClaudeAccessMode;
+  const runtimeClaudeAccessMode = agentRuntime?.claudeAccessMode || selectedClaudeAccessMode;
   const runtimeClaudeExecutionMode =
-    directAgentRuntime?.claudeExecutionMode || selectedClaudeExecutionMode;
+    agentRuntime?.claudeExecutionMode || selectedClaudeExecutionMode;
   const runtimeCodexExecutionMode =
-    directAgentRuntime?.codexExecutionMode || selectedCodexExecutionMode;
+    agentRuntime?.codexExecutionMode || selectedCodexExecutionMode;
   const runtimeCodexPermissionMode =
-    directAgentRuntime?.codexPermissionMode || selectedCodexPermissionMode;
+    agentRuntime?.codexPermissionMode || selectedCodexPermissionMode;
   const runtimeOpencodePermissionMode =
-    directAgentRuntime?.opencodePermissionMode || selectedOpencodePermissionMode;
+    agentRuntime?.opencodePermissionMode || selectedOpencodePermissionMode;
   const handleAutoSubmitClaudeCommand = (nextPrompt: string) => {
     if (!targetSessionId || !activeSession || activeSession.isDraft) {
       setPrompt(nextPrompt);
@@ -297,11 +377,27 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     }
 
     setMenuOpen(false);
+    const effectivePrompt = buildAgentEffectivePrompt(
+      nextPrompt,
+      runtimeAgentProfile,
+      directAgentProfile
+        ? { mode: 'dm' }
+        : activeProjectAgentRoute
+          ? {
+              mode: 'project',
+              cwd: activeSession.cwd,
+              channelId: activeSession.channelId,
+              handle: activeProjectAgentRoute.handle,
+              assignmentSource: activeProjectAgentRoute.source,
+            }
+          : undefined
+    );
     sendEvent({
       type: 'session.continue',
       payload: {
         sessionId: targetSessionId,
         prompt: nextPrompt,
+        effectivePrompt,
         provider: runtimeProvider,
         model:
           runtimeProvider === 'claude'
@@ -333,10 +429,12 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           runtimeProvider === 'codex' && !runtimeLockedByAgent ? selectedCodexFastMode : undefined,
         opencodePermissionMode:
           runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
+        routedAgentId: runtimeAgentProfile?.id || undefined,
       },
     });
     setPrompt('');
     setAttachments([]);
+    setSelectedTaskAgentId(null);
   };
   const skillAutocomplete = useClaudeSkillAutocomplete({
     enabled: true,
@@ -349,12 +447,48 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     setCursorIndex,
     onAutoSubmitCommand: handleAutoSubmitClaudeCommand,
   });
+  const projectAgentMentions = useProjectAgentMentions({
+    profiles: projectAgentProfiles,
+    prompt: skillAutocomplete.displayPrompt,
+    cursorIndex,
+  });
   const projectFileMentions = useProjectFileMentions({
     cwd: activeSession?.cwd,
     prompt: skillAutocomplete.displayPrompt,
     cursorIndex,
   });
+  const projectAgentMentionHandles = useMemo(
+    () => getAgentMentionHandles(projectAgentProfiles),
+    [projectAgentProfiles]
+  );
+  const projectAgentMentionLabels = useMemo(
+    () =>
+      Object.fromEntries(
+        projectAgentProfiles.flatMap((profile) =>
+          getAgentMentionAliases(profile).map((handle) => [
+            handle,
+            profile.name.trim() || 'Agent',
+          ])
+        )
+      ),
+    [projectAgentProfiles]
+  );
+  const projectAgentMentionActive =
+    projectAgentMentions.hasMentionQuery && projectAgentMentions.suggestions.length > 0;
   const promptLibraryContent = useMemo(() => prompt.trim(), [prompt]);
+
+  useEffect(() => {
+    setSelectedTaskAgentId(null);
+  }, [targetSessionId]);
+
+  useEffect(() => {
+    if (!selectedTaskAgentId) {
+      return;
+    }
+    if (!projectAgentProfiles.some((profile) => profile.id === selectedTaskAgentId)) {
+      setSelectedTaskAgentId(null);
+    }
+  }, [projectAgentProfiles, selectedTaskAgentId]);
 
   useEffect(() => {
     if (!promptLibraryInsertRequest) {
@@ -719,12 +853,14 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       return buildPromptWithProjectFileMentions({
         cwd: activeSession?.cwd || null,
         prompt: expandedPrompt,
+        ignoredMentionPaths: projectAgentMentionHandles,
       });
     }
 
     return buildPromptWithProjectFileMentions({
       cwd: activeSession?.cwd || null,
       prompt: trimmedPrompt,
+      ignoredMentionPaths: projectAgentMentionHandles,
     });
   };
 
@@ -784,9 +920,20 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     const rawOutgoingEffectivePrompt = promptWithAttachment.converted
       ? promptWithAttachment.prompt
       : normalizedPrompt;
-    const outgoingEffectivePrompt = buildDirectAgentEffectivePrompt(
+    const outgoingEffectivePrompt = buildAgentEffectivePrompt(
       rawOutgoingEffectivePrompt,
+      runtimeAgentProfile,
       directAgentProfile
+        ? { mode: 'dm' }
+        : activeProjectAgentRoute
+          ? {
+              mode: 'project',
+              cwd: activeSession?.cwd,
+              channelId: activeSession?.channelId,
+              handle: activeProjectAgentRoute.handle,
+              assignmentSource: activeProjectAgentRoute.source,
+            }
+          : undefined
     );
     const outgoingAttachments = promptWithAttachment.attachments;
     const codexReferences =
@@ -855,10 +1002,12 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           codexMentions: runtimeProvider === 'codex' ? codexReferences.codexMentions : undefined,
           opencodePermissionMode:
             runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
+          routedAgentId: runtimeAgentProfile?.id || undefined,
         },
       });
       setPrompt('');
       setAttachments([]);
+      setSelectedTaskAgentId(null);
     } else if (targetSessionId && activeSession) {
       // 继续现有会话
       sendEvent({
@@ -901,10 +1050,12 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           codexMentions: runtimeProvider === 'codex' ? codexReferences.codexMentions : undefined,
           opencodePermissionMode:
             runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
+          routedAgentId: runtimeAgentProfile?.id || undefined,
         },
       });
       setPrompt('');
       setAttachments([]);
+      setSelectedTaskAgentId(null);
     } else {
       // 没有活动会话，显示新建视图
       setShowNewSession(true);
@@ -937,6 +1088,28 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       return next;
     });
   };
+
+  const handleSelectProjectAgent = useCallback(
+    (suggestion: { profile: AgentProfile }) => {
+      const mention = projectAgentMentions.mention;
+      if (!mention) {
+        return;
+      }
+
+      const next = insertProjectAgentMention(
+        skillAutocomplete.displayPrompt,
+        mention,
+        suggestion.profile
+      );
+      skillAutocomplete.setDisplayPrompt(next.prompt);
+      setCursorIndex(next.cursorIndex);
+      window.requestAnimationFrame(() => {
+        editorRef.current?.focus();
+        editorRef.current?.setCursorIndex(next.cursorIndex);
+      });
+    },
+    [projectAgentMentions.mention, skillAutocomplete]
+  );
 
   const handleSelectProjectFile = useCallback(
     async (file: { path: string; relativePath?: string }) => {
@@ -1049,6 +1222,32 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       return;
     }
 
+    if (projectAgentMentionActive) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        projectAgentMentions.moveSelection(1);
+        return;
+      }
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        projectAgentMentions.moveSelection(-1);
+        return;
+      }
+
+      if (
+        (e.key === 'Enter' || e.key === 'Tab') &&
+        projectAgentMentions.suggestions.length > 0
+      ) {
+        e.preventDefault();
+        const currentSuggestion = projectAgentMentions.getCurrentSuggestion();
+        if (currentSuggestion) {
+          handleSelectProjectAgent(currentSuggestion);
+        }
+        return;
+      }
+    }
+
     if (projectFileMentions.hasMentionQuery) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -1109,7 +1308,15 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     <div className="bg-transparent">
       <div className="mx-auto max-w-4xl">
         <div className="group relative rounded-[28px] bg-transparent transition-shadow duration-200">
-          {projectFileMentions.hasMentionQuery ? (
+          {projectAgentMentionActive ? (
+            <div className="absolute inset-x-0 bottom-full z-40">
+              <ProjectAgentMentionMenu
+                suggestions={projectAgentMentions.suggestions}
+                selectedIndex={projectAgentMentions.selectedIndex}
+                onSelect={handleSelectProjectAgent}
+              />
+            </div>
+          ) : projectFileMentions.hasMentionQuery ? (
             <div className="absolute inset-x-0 bottom-full z-40">
               <ProjectFileMentionMenu
                 suggestions={projectFileMentions.suggestions}
@@ -1149,6 +1356,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
             value={skillAutocomplete.displayPrompt}
             cursorIndex={cursorIndex}
             slashContext={skillAutocomplete.slashContext}
+            agentMentionLabels={projectAgentMentionLabels}
             onChange={(value, nextCursorIndex) => {
               void handlePromptChange(value, nextCursorIndex);
             }}
@@ -1181,6 +1389,28 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
 
           <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
             <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
+              {activeProjectAgentRoute ? (
+                <div
+                  className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg bg-[var(--bg-tertiary)] px-2 text-[12px] text-[var(--text-secondary)]"
+                  title={`${activeProjectAgentRoute.source === 'assignment' ? 'Assigned to' : 'Routed to'} ${activeProjectAgentRoute.profile.name.trim() || 'Agent'}`}
+                >
+                  <AgentAvatar profile={activeProjectAgentRoute.profile} size="sm" decorative />
+                  <span className="max-w-[120px] truncate">
+                    @{activeProjectAgentRoute.handle}
+                  </span>
+                  {activeProjectAgentRoute.source === 'assignment' ? (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTaskAgentId(null)}
+                      className="-mr-1 flex h-5 w-5 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]"
+                      aria-label="Clear assigned agent"
+                      title="Clear assigned agent"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               <AgentModelPicker
               provider={runtimeProvider}
               onProviderChange={(next) => {
@@ -1323,7 +1553,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                       className="fixed inset-0 z-20"
                       onClick={() => setMenuOpen(false)}
                     />
-                    <div className="popover-surface absolute bottom-full mb-2 left-0 z-30 min-w-[220px] p-1.5">
+                    <div className="popover-surface absolute bottom-full mb-2 left-0 z-30 min-w-[260px] p-1.5">
                       <button
                         onClick={async () => {
                           setMenuOpen(false);
@@ -1336,6 +1566,48 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                           <span>Add files or photos</span>
                         </span>
                       </button>
+                      {activeSession?.scope !== 'dm' && projectAgentProfiles.length > 0 ? (
+                        <>
+                          <div className="my-1 h-px bg-[var(--border)]/70" />
+                          <div className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--text-muted)]">
+                            <Users className="h-3.5 w-3.5" />
+                            <span>Assign next message</span>
+                          </div>
+                          <div className="max-h-52 overflow-y-auto">
+                            {projectAgentProfiles.map((profile) => {
+                              const handle = getAgentMentionHandle(profile);
+                              const selected = selectedTaskAgentId === profile.id;
+                              return (
+                                <button
+                                  key={profile.id}
+                                  onClick={() => {
+                                    setSelectedTaskAgentId(selected ? null : profile.id);
+                                    setMenuOpen(false);
+                                  }}
+                                  className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
+                                    selected
+                                      ? 'bg-[var(--accent-light)] text-[var(--text-primary)]'
+                                      : 'text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+                                  }`}
+                                >
+                                  <AgentAvatar profile={profile} size="sm" decorative />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="truncate text-[12px] font-medium">
+                                      @{handle}
+                                    </div>
+                                    <div className="truncate text-[11px] text-[var(--text-muted)]">
+                                      {profile.role.trim() || 'Agent'} · {getAgentProviderLabel(profile.provider)}
+                                    </div>
+                                  </div>
+                                  {selected ? (
+                                    <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
+                                  ) : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </>
+                      ) : null}
                       {!runtimeLockedByAgent && (runtimeProvider === 'claude' || runtimeProvider === 'codex') ? (
                         <>
                           <div className="my-1 h-px bg-[var(--border)]/70" />

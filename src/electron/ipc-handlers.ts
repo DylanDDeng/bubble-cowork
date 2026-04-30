@@ -848,6 +848,17 @@ function shouldPersistProviderMessage(message: StreamMessage): boolean {
   return true;
 }
 
+function withAgentAttribution(message: StreamMessage, agentId?: string | null): StreamMessage {
+  const normalizedAgentId = agentId?.trim();
+  if (!normalizedAgentId || message.type !== 'assistant') {
+    return message;
+  }
+  return {
+    ...message,
+    agentId: normalizedAgentId,
+  };
+}
+
 function buildSessionCostSummary(session: ReturnType<typeof sessions.getSession>): string {
   if (!session) {
     return 'No active session found.';
@@ -2471,6 +2482,7 @@ const runnerHandles = new Map<
     codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
     codexFastMode?: boolean;
     opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
+    activeAgentId?: string | null;
   }
 >();
 
@@ -4301,11 +4313,13 @@ async function handleSessionStart(
     codexSkills,
     codexMentions,
     opencodePermissionMode,
+    routedAgentId,
     hiddenFromThreads,
     channelId,
   } = payload;
   const sessionScope = normalizeSessionScope(scope);
   const sessionAgentId = sessionScope === 'dm' ? agentId?.trim() || null : null;
+  const turnAgentId = routedAgentId?.trim() || sessionAgentId || null;
   const sessionCwd = cwd?.trim() || undefined;
   if (sessionScope !== 'dm' && !sessionCwd) {
     broadcast(mainWindow, {
@@ -4506,7 +4520,8 @@ async function handleSessionStart(
     chosenProvider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
     chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
     chosenProvider === 'codex' ? codexSkills : undefined,
-    chosenProvider === 'codex' ? codexMentions : undefined
+    chosenProvider === 'codex' ? codexMentions : undefined,
+    turnAgentId
   );
   return session.id;
 }
@@ -4535,6 +4550,7 @@ async function handleSessionContinue(
     codexSkills,
     codexMentions,
     opencodePermissionMode,
+    routedAgentId,
   } = payload;
 
   const session = sessions.getSession(sessionId);
@@ -4570,6 +4586,7 @@ async function handleSessionContinue(
   const existingEntry = runnerHandles.get(sessionId);
   const previousProvider = session.provider || 'claude';
   const nextProvider = provider || previousProvider;
+  const turnAgentId = routedAgentId?.trim() || session.agent_id || null;
   const nextModel = normalizeModel(model ?? session.model ?? undefined);
   const previousCompatibleProviderId = session.compatible_provider_id || undefined;
   const nextCompatibleProviderId =
@@ -4801,6 +4818,7 @@ async function handleSessionContinue(
       existingEntry.handle.abort();
       runnerHandles.delete(sessionId);
     } else {
+      existingEntry.activeAgentId = turnAgentId;
       existingEntry.handle.send(
         runnerPrompt,
         outgoingAttachments,
@@ -4903,7 +4921,8 @@ async function handleSessionContinue(
     nextProvider === 'codex' ? nextCodexFastMode : undefined,
     nextProvider === 'opencode' ? (nextOpenCodePermissionMode || 'defaultPermissions') : undefined,
     nextProvider === 'codex' ? codexSkills : undefined,
-    nextProvider === 'codex' ? codexMentions : undefined
+    nextProvider === 'codex' ? codexMentions : undefined,
+    turnAgentId
   );
   return true;
 }
@@ -4928,7 +4947,8 @@ function startRunner(
   codexFastMode?: boolean,
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode,
   codexSkills?: ProviderInputReference[],
-  codexMentions?: ProviderInputReference[]
+  codexMentions?: ProviderInputReference[],
+  activeAgentId?: string | null
 ): void {
   if (!session) return;
 
@@ -5080,19 +5100,25 @@ function startRunner(
       }
 
       if (sanitizedStreamMessage.message) {
-        const shouldPersistMessage = shouldPersistProviderMessage(sanitizedStreamMessage.message);
+        const turnAgentId =
+          runnerHandles.get(session.id)?.activeAgentId ||
+          activeAgentId ||
+          session.agent_id ||
+          null;
+        const attributedMessage = withAgentAttribution(sanitizedStreamMessage.message, turnAgentId);
+        const shouldPersistMessage = shouldPersistProviderMessage(attributedMessage);
         if (shouldPersistMessage) {
           // 保存消息
-          sessions.addMessage(session.id, sanitizedStreamMessage.message);
+          sessions.addMessage(session.id, attributedMessage);
         }
 
         // 广播消息
         broadcast(mainWindow, {
           type: 'stream.message',
-          payload: { sessionId: session.id, message: sanitizedStreamMessage.message },
+          payload: { sessionId: session.id, message: attributedMessage },
         });
         if (shouldPersistMessage) {
-          void feishuBridge.handleSessionMessage(session.id, sanitizedStreamMessage.message);
+          void feishuBridge.handleSessionMessage(session.id, attributedMessage);
         }
       }
 
@@ -5110,7 +5136,10 @@ function startRunner(
             : null;
 
         if (slashFailureMessage) {
-          const assistantMessage = buildLocalAssistantMessage(slashFailureMessage);
+          const assistantMessage = withAgentAttribution(
+            buildLocalAssistantMessage(slashFailureMessage),
+            runnerHandles.get(session.id)?.activeAgentId || activeAgentId || session.agent_id || null
+          );
           sessions.addMessage(session.id, assistantMessage);
           broadcast(mainWindow, {
             type: 'stream.message',
@@ -5315,6 +5344,7 @@ function startRunner(
       provider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
     opencodePermissionMode:
       provider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
+    activeAgentId: activeAgentId?.trim() || session.agent_id || null,
   });
 }
 

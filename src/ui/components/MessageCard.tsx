@@ -7,6 +7,7 @@ import { StructuredResponse } from './StructuredResponse';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { ToolExecutionBatch } from './ToolExecutionBatch';
+import { AgentAvatar } from './AgentAvatar';
 import { getContentBlocks, isAnyToolUseBlockType } from '../utils/message-content';
 import type { ClaudeSlashCommand } from '../utils/claude-slash';
 import { buildProviderSlashCommands, getSessionSlashCommands, parseSelectedSlashCommandPrompt } from '../utils/claude-slash';
@@ -516,6 +517,8 @@ function AssistantCard({
 }) {
   const isStreaming = message.streaming === true;
   const isProgress = presentation === 'progress';
+  const { agentProfiles } = useAppStore();
+  const agentProfile = message.agentId ? agentProfiles[message.agentId] || null : null;
   const blocks = useMemo(
     () => getContentBlocks(message.message.content as unknown),
     [message.message.content]
@@ -553,6 +556,18 @@ function AssistantCard({
           : 'my-3 min-w-0'
       }
     >
+      {!isProgress && agentProfile ? (
+        <div className="mb-2 flex min-w-0 items-center gap-2 text-[12px] text-[var(--text-muted)]">
+          <AgentAvatar profile={agentProfile} size="sm" decorative />
+          <span className="truncate font-medium text-[var(--text-primary)]">
+            {agentProfile.name.trim() || 'Agent'}
+          </span>
+          <span className="shrink-0">·</span>
+          <span className="truncate">
+            {agentProfile.role.trim() || 'Project agent'}
+          </span>
+        </div>
+      ) : null}
       {hasTrace ? (
         <ToolExecutionBatch
           messages={[traceOnlyMessage]}

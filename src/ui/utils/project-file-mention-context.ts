@@ -23,6 +23,10 @@ type ProjectFilePreview =
 const MAX_MENTION_FILES = 6;
 const MAX_FILE_CHARS = 6000;
 
+function normalizeIgnoredMentionPath(value: string): string {
+  return value.trim().replace(/[.,!?;:]+$/g, '').toLowerCase();
+}
+
 function inferCodeFenceLanguage(ext: string): string {
   const normalized = ext.replace(/^\./, '').toLowerCase();
   const map: Record<string, string> = {
@@ -91,6 +95,7 @@ function buildPreviewSection(mentionPath: string, preview: ProjectFilePreview): 
 export async function buildPromptWithProjectFileMentions(params: {
   cwd?: string | null;
   prompt: string;
+  ignoredMentionPaths?: string[];
 }): Promise<string> {
   const cwd = params.cwd?.trim();
   const prompt = params.prompt.trim();
@@ -98,9 +103,13 @@ export async function buildPromptWithProjectFileMentions(params: {
     return prompt;
   }
 
+  const ignoredMentionPaths = new Set(
+    (params.ignoredMentionPaths || []).map(normalizeIgnoredMentionPath).filter(Boolean)
+  );
   const uniqueMentions = Array.from(
     new Map(
       extractProjectFileMentions(prompt)
+        .filter((mention) => !ignoredMentionPaths.has(normalizeIgnoredMentionPath(mention.path)))
         .slice(0, MAX_MENTION_FILES)
         .map((mention) => [mention.path, mention])
     ).values()
