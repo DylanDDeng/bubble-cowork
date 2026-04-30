@@ -10,6 +10,12 @@ import type {
   ChatPaneState,
   ChatSidebarView,
   WorkspaceSurface,
+  AgentProvider,
+  AgentProfile,
+  AgentProfileColor,
+  AgentProfileAvatar,
+  AgentPermissionPolicy,
+  AgentAvatarAssetKey,
   SessionView,
   ServerEvent,
   SessionInfo,
@@ -105,6 +111,225 @@ function resolveActiveChannelIdForProject(
   cwd?: string | null
 ): string {
   return normalizeWorkspaceChannelId(activeChannelByProject[getProjectChannelKey(cwd)]);
+}
+
+const STARTER_AGENT_PROFILES: Array<
+  Omit<AgentProfile, 'createdAt' | 'updatedAt'>
+> = [
+  {
+    id: 'kabi',
+    name: 'Kabi',
+    role: 'Coordinator',
+    description: 'Plans work, clarifies scope, and routes tasks to the right specialist.',
+    instructions: 'Coordinate agent work, ask for missing context, and keep changes scoped.',
+    avatar: { type: 'asset', key: 'notion-avatar-01' },
+    provider: 'claude',
+    permissionPolicy: 'ask',
+    color: 'amber',
+    enabled: true,
+  },
+  {
+    id: 'builder',
+    name: 'Builder',
+    role: 'Implementation',
+    description: 'Implements focused code changes and keeps the working tree coherent.',
+    instructions: 'Make direct, scoped code changes and verify them before handoff.',
+    avatar: { type: 'asset', key: 'notion-avatar-02' },
+    provider: 'claude',
+    permissionPolicy: 'ask',
+    color: 'sky',
+    enabled: true,
+  },
+  {
+    id: 'reviewer',
+    name: 'Reviewer',
+    role: 'Review',
+    description: 'Reviews diffs, calls out risks, and identifies missing validation.',
+    instructions: 'Prioritize bugs, regressions, unclear behavior, and test gaps.',
+    avatar: { type: 'asset', key: 'notion-avatar-03' },
+    provider: 'claude',
+    permissionPolicy: 'readOnly',
+    color: 'emerald',
+    enabled: true,
+  },
+];
+
+function createStarterAgentProfiles(): Record<string, AgentProfile> {
+  const now = Date.now();
+  return Object.fromEntries(
+    STARTER_AGENT_PROFILES.map((profile, index) => [
+      profile.id,
+      {
+        ...profile,
+        createdAt: now + index,
+        updatedAt: now + index,
+      },
+    ])
+  );
+}
+
+function normalizeAgentProfileColor(value: unknown): AgentProfileColor {
+  return value === 'sky' ||
+    value === 'emerald' ||
+    value === 'violet' ||
+    value === 'rose' ||
+    value === 'slate'
+    ? value
+    : 'amber';
+}
+
+function normalizeAgentPermissionPolicy(value: unknown): AgentPermissionPolicy {
+  return value === 'readOnly' || value === 'fullAccess' ? value : 'ask';
+}
+
+function normalizeAgentProvider(value: unknown): AgentProvider {
+  return value === 'codex' || value === 'opencode' ? value : 'claude';
+}
+
+function normalizeAgentAvatarAssetKey(
+  value: unknown,
+  fallback: AgentAvatarAssetKey
+): AgentAvatarAssetKey {
+  return value === 'notion-avatar-01' ||
+    value === 'notion-avatar-02' ||
+    value === 'notion-avatar-03' ||
+    value === 'notion-avatar-04' ||
+    value === 'notion-avatar-05'
+    ? value
+    : fallback;
+}
+
+function inferAgentAvatarAssetKey(profile: Partial<AgentProfile>, id: string): AgentAvatarAssetKey {
+  const searchText = `${id} ${profile.name || ''} ${profile.role || ''}`.toLowerCase();
+  if (searchText.includes('build') || searchText.includes('code') || searchText.includes('implement')) {
+    return 'notion-avatar-02';
+  }
+  if (searchText.includes('review')) {
+    return 'notion-avatar-03';
+  }
+  if (searchText.includes('research') || searchText.includes('search')) {
+    return 'notion-avatar-04';
+  }
+  if (searchText.includes('run') || searchText.includes('test')) {
+    return 'notion-avatar-05';
+  }
+  if (searchText.includes('write') || searchText.includes('doc')) {
+    return 'notion-avatar-05';
+  }
+  if (searchText.includes('architect') || searchText.includes('design')) {
+    return 'notion-avatar-04';
+  }
+  if (searchText.includes('coord') || searchText.includes('kabi')) {
+    return 'notion-avatar-01';
+  }
+  return 'notion-avatar-04';
+}
+
+function mapLegacySketchAvatarKey(value: unknown): AgentAvatarAssetKey | null {
+  switch (value) {
+    case 'coordinator':
+      return 'notion-avatar-01';
+    case 'builder':
+      return 'notion-avatar-02';
+    case 'reviewer':
+      return 'notion-avatar-03';
+    case 'researcher':
+    case 'architect':
+      return 'notion-avatar-04';
+    case 'runner':
+    case 'scribe':
+      return 'notion-avatar-05';
+    case 'operator':
+      return 'notion-avatar-04';
+    default:
+      return null;
+  }
+}
+
+function normalizeAgentProfileAvatar(
+  value: unknown,
+  profile: Partial<AgentProfile>,
+  id: string
+): AgentProfileAvatar {
+  const fallback = inferAgentAvatarAssetKey(profile, id);
+  if (!value || typeof value !== 'object') {
+    return { type: 'asset', key: fallback };
+  }
+  const avatar = value as Partial<AgentProfileAvatar>;
+  const legacyAssetKey = mapLegacySketchAvatarKey(avatar.key);
+  return {
+    type: 'asset',
+    key: legacyAssetKey || normalizeAgentAvatarAssetKey(avatar.key, fallback),
+  };
+}
+
+function normalizeAgentProfiles(value: unknown): Record<string, AgentProfile> {
+  if (!value || typeof value !== 'object') {
+    return createStarterAgentProfiles();
+  }
+
+  const now = Date.now();
+  const entries = Object.entries(value as Record<string, Partial<AgentProfile>>)
+    .map(([id, profile]) => {
+      const normalizedId = profile.id?.trim() || id.trim();
+      const name = profile.name?.trim() || 'Agent';
+      if (!normalizedId) {
+        return null;
+      }
+      return [
+        normalizedId,
+        {
+          id: normalizedId,
+          name,
+          role: profile.role?.trim() || 'Agent',
+          description: profile.description?.trim() || '',
+          instructions: profile.instructions?.trim() || '',
+          avatar: normalizeAgentProfileAvatar(profile.avatar, profile, normalizedId),
+          provider: normalizeAgentProvider(profile.provider),
+          model: profile.model?.trim() || undefined,
+          permissionPolicy: normalizeAgentPermissionPolicy(profile.permissionPolicy),
+          color: normalizeAgentProfileColor(profile.color),
+          enabled: profile.enabled !== false,
+          createdAt: typeof profile.createdAt === 'number' ? profile.createdAt : now,
+          updatedAt: typeof profile.updatedAt === 'number' ? profile.updatedAt : now,
+        } satisfies AgentProfile,
+      ] as const;
+    })
+    .filter((entry): entry is readonly [string, AgentProfile] => Boolean(entry));
+
+  return Object.fromEntries(entries);
+}
+
+function createUniqueAgentProfileId(existing: Record<string, AgentProfile>): string {
+  const base = 'agent';
+  let index = Object.keys(existing).length + 1;
+  let candidate = `${base}-${index}`;
+  while (existing[candidate]) {
+    index += 1;
+    candidate = `${base}-${index}`;
+  }
+  return candidate;
+}
+
+function normalizeProjectAgentRosters(
+  value: unknown,
+  agentProfiles: Record<string, AgentProfile>
+): Record<string, string[]> {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .map(([projectKey, profileIds]) => [
+        projectKey,
+        Array.isArray(profileIds)
+          ? profileIds.filter((profileId): profileId is string => (
+              typeof profileId === 'string' && Boolean(agentProfiles[profileId])
+            ))
+          : [],
+      ])
+      .filter(([, profileIds]) => profileIds.length > 0)
+  );
 }
 
 type AssistantStreamMessage = StreamMessage & { type: 'assistant' };
@@ -438,6 +663,8 @@ export const useAppStore = create<Store>()(
       sessions: {},
       workspaceChannelsByProject: {},
       activeChannelByProject: {},
+      agentProfiles: createStarterAgentProfiles(),
+      projectAgentRostersByProject: {},
       activeSessionId: initialUiResumeState?.activeSessionId ?? null,
       activeWorkspace: 'chat' as ActiveWorkspace,
       chatSidebarView: 'threads' as ChatSidebarView,
@@ -839,6 +1066,108 @@ export const useAppStore = create<Store>()(
           ...state.activeChannelByProject,
           [projectKey]: normalizedChannelId,
         },
+      };
+    }),
+
+  createAgentProfile: () => {
+    const state = get();
+    const now = Date.now();
+    const profileId = createUniqueAgentProfileId(state.agentProfiles);
+    const profile: AgentProfile = {
+      id: profileId,
+      name: 'New Agent',
+      role: 'Agent',
+      description: '',
+      instructions: '',
+      avatar: { type: 'asset', key: 'notion-avatar-04' },
+      provider: loadPreferredProvider(),
+      permissionPolicy: 'ask',
+      color: 'violet',
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    set({
+      agentProfiles: {
+        ...state.agentProfiles,
+        [profileId]: profile,
+      },
+    });
+    return profileId;
+  },
+
+  updateAgentProfile: (profileId, patch) =>
+    set((state) => {
+      const current = state.agentProfiles[profileId];
+      if (!current) {
+        return state;
+      }
+      return {
+        agentProfiles: {
+          ...state.agentProfiles,
+          [profileId]: {
+            ...current,
+            ...patch,
+            id: current.id,
+            name: patch.name !== undefined ? patch.name : current.name,
+            role: patch.role !== undefined ? patch.role : current.role,
+            description:
+              patch.description !== undefined ? patch.description : current.description,
+            instructions:
+              patch.instructions !== undefined ? patch.instructions : current.instructions,
+            avatar:
+              patch.avatar !== undefined
+                ? normalizeAgentProfileAvatar(patch.avatar, current, current.id)
+                : current.avatar,
+            provider:
+              patch.provider !== undefined ? normalizeAgentProvider(patch.provider) : current.provider,
+            model: patch.model !== undefined ? patch.model?.trim() || undefined : current.model,
+            permissionPolicy:
+              patch.permissionPolicy !== undefined
+                ? normalizeAgentPermissionPolicy(patch.permissionPolicy)
+                : current.permissionPolicy,
+            color:
+              patch.color !== undefined ? normalizeAgentProfileColor(patch.color) : current.color,
+            createdAt: current.createdAt,
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }),
+
+  deleteAgentProfile: (profileId) =>
+    set((state) => {
+      if (!state.agentProfiles[profileId]) {
+        return state;
+      }
+      const nextProfiles = { ...state.agentProfiles };
+      delete nextProfiles[profileId];
+      const nextRosters = Object.fromEntries(
+        Object.entries(state.projectAgentRostersByProject)
+          .map(([projectKey, profileIds]) => [
+            projectKey,
+            profileIds.filter((id) => id !== profileId && Boolean(nextProfiles[id])),
+          ])
+          .filter(([, profileIds]) => profileIds.length > 0)
+      );
+      return {
+        agentProfiles: nextProfiles,
+        projectAgentRostersByProject: nextRosters,
+      };
+    }),
+
+  setProjectAgentRoster: (projectCwd, profileIds) =>
+    set((state) => {
+      const projectKey = getProjectChannelKey(projectCwd);
+      const validProfileIds = profileIds.filter((profileId) => Boolean(state.agentProfiles[profileId]));
+      const nextRosters = { ...state.projectAgentRostersByProject };
+      if (validProfileIds.length === 0) {
+        delete nextRosters[projectKey];
+      } else {
+        nextRosters[projectKey] = validProfileIds;
+      }
+      return {
+        projectAgentRostersByProject: nextRosters,
       };
     }),
 
@@ -1341,6 +1670,8 @@ export const useAppStore = create<Store>()(
         activeWorkspace: state.activeWorkspace,
         workspaceChannelsByProject: state.workspaceChannelsByProject,
         activeChannelByProject: state.activeChannelByProject,
+        agentProfiles: state.agentProfiles,
+        projectAgentRostersByProject: state.projectAgentRostersByProject,
         chatSidebarView: state.chatSidebarView,
         chatLayoutMode: state.chatLayoutMode,
         savedSplitVisible: state.savedSplitVisible,
@@ -1366,6 +1697,8 @@ export const useAppStore = create<Store>()(
           activeWorkspace?: ActiveWorkspace;
           workspaceChannelsByProject?: Record<string, WorkspaceChannel[]>;
           activeChannelByProject?: Record<string, string>;
+          agentProfiles?: Record<string, AgentProfile>;
+          projectAgentRostersByProject?: Record<string, string[]>;
           chatSidebarView?: ChatSidebarView;
           chatLayoutMode?: ChatLayoutMode;
           savedSplitVisible?: boolean;
@@ -1385,6 +1718,13 @@ export const useAppStore = create<Store>()(
           draftSessions?: Record<string, SessionView>;
         } | undefined;
         const theme = persisted?.theme || currentState.theme;
+        const agentProfiles = normalizeAgentProfiles(
+          persisted?.agentProfiles || currentState.agentProfiles
+        );
+        const projectAgentRostersByProject = normalizeProjectAgentRosters(
+          persisted?.projectAgentRostersByProject,
+          agentProfiles
+        );
         const themeState = normalizeThemeState(persisted?.themeState || currentState.themeState);
         const uiFontFamily = persisted?.uiFontFamily ?? currentState.uiFontFamily;
         const chatCodeFontFamily = persisted?.chatCodeFontFamily ?? currentState.chatCodeFontFamily;
@@ -1423,6 +1763,8 @@ export const useAppStore = create<Store>()(
           workspaceChannelsByProject:
             persisted?.workspaceChannelsByProject || currentState.workspaceChannelsByProject,
           activeChannelByProject: persisted?.activeChannelByProject || currentState.activeChannelByProject,
+          agentProfiles,
+          projectAgentRostersByProject,
           chatSidebarView: sidebarView,
           chatLayoutMode,
           savedSplitVisible,

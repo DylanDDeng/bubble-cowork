@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Bot, Brain } from 'lucide-react';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Bot, Brain, Users } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
+import { AgentsSettingsContent } from './AgentsSettings';
 import { McpSettingsContent } from './McpSettings';
 import { ProviderPicker } from '../ProviderPicker';
 import { BridgeSettingsContent } from './BridgeSettings';
@@ -19,6 +20,12 @@ const SETTINGS_TABS = {
     title: 'Workspace Preferences',
     description: 'Adjust appearance and core workspace behavior.',
     icon: <SettingsIcon className="w-4 h-4" />,
+  },
+  agents: {
+    label: 'Agents',
+    title: 'Agent Profiles',
+    description: 'Configure global agent profiles used by DMs and project rosters.',
+    icon: <Users className="w-4 h-4" />,
   },
   mcp: {
     label: 'MCP Servers',
@@ -144,6 +151,7 @@ export function Settings() {
               updateStatus={updateStatus}
             />
           )}
+          {activeSettingsTab === 'agents' && <AgentsSettingsContent />}
           {activeSettingsTab === 'mcp' && <McpSettingsContent />}
           {activeSettingsTab === 'providers' && <CompatibleProviderSettingsContent />}
           {activeSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}

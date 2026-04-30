@@ -1,7 +1,7 @@
 // UI 层类型定义
 
 // Settings 标签类型
-export type SettingsTab = 'mcp' | 'general' | 'providers' | 'usage' | 'bridge' | 'memory';
+export type SettingsTab = 'mcp' | 'general' | 'agents' | 'providers' | 'usage' | 'bridge' | 'memory';
 
 import type { ChromeTheme, ThemeFonts, ThemeMode, ThemePack, ThemeState, ThemeVariant } from './theme/theme-types';
 // 从共享类型导入
@@ -114,6 +114,35 @@ export interface SessionStreamingState {
 export type ActiveWorkspace = 'chat' | 'skills' | 'prompts';
 export type ChatSidebarView = 'threads' | 'prompts' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
+export type AgentProfileColor = 'amber' | 'sky' | 'emerald' | 'violet' | 'rose' | 'slate';
+export type AgentPermissionPolicy = 'ask' | 'readOnly' | 'fullAccess';
+export type AgentAvatarAssetKey =
+  | 'notion-avatar-01'
+  | 'notion-avatar-02'
+  | 'notion-avatar-03'
+  | 'notion-avatar-04'
+  | 'notion-avatar-05';
+
+export interface AgentProfileAvatar {
+  type: 'asset';
+  key: AgentAvatarAssetKey;
+}
+
+export interface AgentProfile {
+  id: string;
+  name: string;
+  role: string;
+  description: string;
+  instructions: string;
+  avatar: AgentProfileAvatar;
+  provider: AgentProvider;
+  model?: string;
+  permissionPolicy: AgentPermissionPolicy;
+  color: AgentProfileColor;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
 
 // UI 会话视图状态
 export interface SessionView {
@@ -159,6 +188,8 @@ export interface AppState {
   sessions: Record<string, SessionView>;
   workspaceChannelsByProject: Record<string, WorkspaceChannel[]>;
   activeChannelByProject: Record<string, string>;
+  agentProfiles: Record<string, AgentProfile>;
+  projectAgentRostersByProject: Record<string, string[]>;
   activeSessionId: string | null;
   activeWorkspace: ActiveWorkspace;
   chatSidebarView: ChatSidebarView;
@@ -233,6 +264,10 @@ export interface AppActions {
   createWorkspaceChannel: (projectCwd: string, name: string) => string | null;
   setActiveChannelForProject: (projectCwd: string, channelId: string) => void;
   setSessionChannel: (sessionId: string, channelId: string) => void;
+  createAgentProfile: () => string;
+  updateAgentProfile: (profileId: string, patch: Partial<Omit<AgentProfile, 'id' | 'createdAt'>>) => void;
+  deleteAgentProfile: (profileId: string) => void;
+  setProjectAgentRoster: (projectCwd: string, profileIds: string[]) => void;
   setActivePane: (paneId: ChatPaneId) => void;
   setChatLayoutMode: (mode: ChatLayoutMode) => void;
   setSavedSplitVisible: (visible: boolean) => void;

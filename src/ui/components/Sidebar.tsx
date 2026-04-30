@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   Bookmark,
-  Bot,
   Boxes,
-  Code2,
   FolderOpen,
   MessageCircle,
   Search,
@@ -14,6 +12,7 @@ import { useAppStore } from '../store/useAppStore';
 import { SidebarSearchPalette } from './search/SidebarSearchPalette';
 import { PromptLibraryPanel } from './prompts/PromptLibraryPanel';
 import { SidebarSkillLibraryPanel } from './sidebar/SidebarSkillLibraryPanel';
+import { AgentAvatar } from './AgentAvatar';
 import type {
   SidebarSearchAction,
   SidebarSearchProject,
@@ -21,7 +20,10 @@ import type {
 } from './search/SidebarSearchPalette.logic';
 import { FolderTreeView } from './FolderTreeView';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
-import type { ChatSidebarView } from '../types';
+import type {
+  AgentProfile,
+  ChatSidebarView,
+} from '../types';
 import { getMessageContentBlocks } from '../utils/message-content';
 
 const MIN_SIDEBAR_WIDTH = 220;
@@ -30,37 +32,6 @@ const SIDEBAR_TRIGGER_CLASS =
   'no-drag inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] active:scale-95';
 
 type ThreadSidebarScope = 'projects' | 'dms';
-type DirectAgent = {
-  id: string;
-  name: string;
-  role: string;
-  status: 'idle' | 'running' | 'blocked';
-  accentClass: string;
-};
-
-const DIRECT_MESSAGE_AGENTS: DirectAgent[] = [
-  {
-    id: 'kabi',
-    name: 'Kabi',
-    role: 'Coordinator',
-    status: 'idle',
-    accentClass: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
-  },
-  {
-    id: 'builder',
-    name: 'Builder',
-    role: 'Implementation',
-    status: 'idle',
-    accentClass: 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
-  },
-  {
-    id: 'reviewer',
-    name: 'Reviewer',
-    role: 'Review',
-    status: 'idle',
-    accentClass: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
-  },
-];
 
 function SidebarToggleIcon({ className }: { className?: string }) {
   return (
@@ -123,6 +94,7 @@ export function Sidebar() {
     chatSidebarView,
     projectCwd,
     activeChannelByProject,
+    agentProfiles,
     sessions,
     activeWorkspace,
     setChatLayoutMode,
@@ -147,6 +119,14 @@ export function Sidebar() {
   const startWidthRef = useRef(sidebarWidth);
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const newThreadCwd = activeSession?.cwd || projectCwd;
+  const agentProfileList = useMemo(
+    () => Object.values(agentProfiles).sort((left, right) => left.createdAt - right.createdAt),
+    [agentProfiles]
+  );
+  const directMessageAgents = useMemo(
+    () => agentProfileList.filter((profile) => profile.enabled),
+    [agentProfileList]
+  );
 
   const getActiveChannelIdForProject = (cwd?: string | null) => {
     const key = cwd?.trim() || '__no_project__';
@@ -191,6 +171,15 @@ export function Sidebar() {
       window.removeEventListener('blur', handleWindowBlur);
     };
   }, [isSidebarResizing]);
+
+  useEffect(() => {
+    if (directMessageAgents.length === 0) {
+      return;
+    }
+    if (!directMessageAgents.some((profile) => profile.id === selectedDirectAgentId)) {
+      setSelectedDirectAgentId(directMessageAgents[0].id);
+    }
+  }, [directMessageAgents, selectedDirectAgentId]);
 
   useEffect(() => {
     return () => {
@@ -494,7 +483,7 @@ export function Sidebar() {
                     </div>
                   ) : (
                     <DirectMessagesPanel
-                      agents={DIRECT_MESSAGE_AGENTS}
+                      agents={directMessageAgents}
                       selectedAgentId={selectedDirectAgentId}
                       onSelectAgent={setSelectedDirectAgentId}
                     />
@@ -582,8 +571,8 @@ function ThreadScopeTabs({
   onScopeChange: (scope: ThreadSidebarScope) => void;
 }) {
   return (
-    <div className="px-2 pt-1">
-      <div className="grid grid-cols-2 gap-0.5 rounded-lg bg-[var(--bg-secondary)] p-0.5">
+    <div className="px-3 pb-2.5">
+      <div className="inline-flex w-full items-center gap-0.5 rounded-full bg-[var(--sidebar-segment-bg)] p-[3px]">
         <ThreadScopeTab
           icon={<FolderOpen className="h-3.5 w-3.5" />}
           label="Projects"
@@ -616,14 +605,14 @@ function ThreadScopeTab({
     <button
       type="button"
       onClick={onClick}
-      className={`flex h-7 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-[12px] font-medium transition-colors duration-150 ${
+      className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-medium tracking-tight outline-none transition-[background-color,color,box-shadow,transform] duration-150 ease-[cubic-bezier(0.2,0.8,0.2,1)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]/35 ${
         active
-          ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-[0_1px_2px_rgba(0,0,0,0.04)]'
-          : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+          ? 'bg-[var(--sidebar-segment-active)] text-[var(--text-primary)] shadow-[var(--sidebar-segment-shadow-active)]'
+          : 'text-[var(--text-secondary)] hover:-translate-y-px hover:text-[var(--text-primary)]'
       }`}
       aria-pressed={active}
     >
-      <span className="flex h-3.5 w-3.5 items-center justify-center">{icon}</span>
+      <span className="flex h-3.5 w-3.5 items-center justify-center opacity-85">{icon}</span>
       <span className="truncate">{label}</span>
     </button>
   );
@@ -634,7 +623,7 @@ function DirectMessagesPanel({
   selectedAgentId,
   onSelectAgent,
 }: {
-  agents: DirectAgent[];
+  agents: AgentProfile[];
   selectedAgentId: string;
   onSelectAgent: (agentId: string) => void;
 }) {
@@ -645,14 +634,20 @@ function DirectMessagesPanel({
           Direct Messages
         </div>
         <div className="space-y-1">
-          {agents.map((agent) => (
-            <DirectAgentRow
-              key={agent.id}
-              agent={agent}
-              active={selectedAgentId === agent.id}
-              onClick={() => onSelectAgent(agent.id)}
-            />
-          ))}
+          {agents.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-[var(--border)] px-3 py-4 text-[13px] text-[var(--text-muted)]">
+              No active agents
+            </div>
+          ) : (
+            agents.map((agent) => (
+              <DirectAgentRow
+                key={agent.id}
+                agent={agent}
+                active={selectedAgentId === agent.id}
+                onClick={() => onSelectAgent(agent.id)}
+              />
+            ))
+          )}
         </div>
       </div>
     </div>
@@ -664,18 +659,12 @@ function DirectAgentRow({
   active,
   onClick,
 }: {
-  agent: DirectAgent;
+  agent: AgentProfile;
   active: boolean;
   onClick: () => void;
 }) {
-  const icon =
-    agent.id === 'builder' ? (
-      <Code2 className="h-3.5 w-3.5" />
-    ) : agent.id === 'reviewer' ? (
-      <Search className="h-3.5 w-3.5" />
-    ) : (
-      <Bot className="h-3.5 w-3.5" />
-    );
+  const displayName = agent.name.trim() || 'Untitled agent';
+  const displayRole = agent.role.trim() || 'Agent';
 
   return (
     <button
@@ -684,34 +673,27 @@ function DirectAgentRow({
       className={`flex h-10 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left no-drag transition-colors duration-150 ${
         active
           ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
-          : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+          : agent.enabled
+            ? 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+            : 'text-[var(--text-muted)] opacity-70 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
       }`}
       aria-pressed={active}
-      aria-label={`Open direct message with ${agent.name}`}
-      title={`${agent.name} · ${agent.role}`}
+      aria-label={`Open direct message with ${displayName}`}
+      title={`${displayName} · ${displayRole}`}
     >
-      <span
-        className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md ${agent.accentClass}`}
-        aria-hidden="true"
-      >
-        {icon}
-      </span>
+      <AgentAvatar profile={agent} size="sm" decorative />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium leading-[1.2]">{agent.name}</span>
+        <span className="block truncate text-[13px] font-medium leading-[1.2]">{displayName}</span>
         <span className="block truncate text-[11px] leading-[1.2] text-[var(--text-muted)]">
-          {agent.role}
+          {displayRole}
         </span>
       </span>
       <span
         className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${
-          agent.status === 'running'
-            ? 'bg-blue-500'
-            : agent.status === 'blocked'
-              ? 'bg-amber-500'
-              : 'bg-emerald-500'
+          agent.enabled ? 'bg-emerald-500' : 'bg-[var(--text-muted)]'
         }`}
-        title={agent.status}
-        aria-label={agent.status}
+        title={agent.enabled ? 'Enabled' : 'Disabled'}
+        aria-label={agent.enabled ? 'Enabled' : 'Disabled'}
       />
     </button>
   );

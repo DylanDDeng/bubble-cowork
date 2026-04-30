@@ -25,7 +25,6 @@ type ChannelGroup = {
 };
 
 const CHANNEL_PREVIEW_LIMIT = 5;
-const PROJECT_AGENT_COUNT = 3;
 
 function getProjectLabel(fullPath: string | null): string {
   return fullPath
@@ -145,6 +144,8 @@ export function FolderTreeView({
     setActiveChannelForProject,
     setProjectCwd,
     activeChannelByProject,
+    agentProfiles,
+    projectAgentRostersByProject,
     sidebarSearchQuery,
   } = useAppStore();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
@@ -352,6 +353,15 @@ export function FolderTreeView({
     });
   };
 
+  const getProjectAgentCount = (fullPath: string | null) => {
+    const enabledProfileIds = Object.values(agentProfiles)
+      .filter((profile) => profile.enabled)
+      .map((profile) => profile.id);
+    const rosterIds = fullPath ? projectAgentRostersByProject[fullPath] : undefined;
+    const profileIds = rosterIds && rosterIds.length > 0 ? rosterIds : enabledProfileIds;
+    return profileIds.filter((profileId) => agentProfiles[profileId]?.enabled).length;
+  };
+
   return (
     <div>
       {pinnedSessions.length > 0 && (
@@ -556,7 +566,7 @@ export function FolderTreeView({
                     )}
 
                   {group.fullPath && !sidebarSearchQuery.trim() && (
-                    <ProjectAgentSummary depth={1} count={PROJECT_AGENT_COUNT} />
+                    <ProjectAgentSummary depth={1} count={getProjectAgentCount(group.fullPath)} />
                   )}
                 </>
               );
@@ -575,15 +585,17 @@ export function FolderTreeView({
 }
 
 function ProjectAgentSummary({ depth, count }: { depth: number; count: number }) {
+  const label =
+    count === 0 ? 'No agents active' : `${count} ${count === 1 ? 'agent' : 'agents'} active`;
   return (
     <div
       className="mt-1 flex h-7 w-[calc(100%-4px)] min-w-0 items-center gap-2 rounded-lg px-2 text-[var(--text-muted)]"
       style={{ marginLeft: `${depth * 16}px` }}
-      title={`${count} project agents active`}
+      title={label}
     >
       <Users className="h-3.5 w-3.5 flex-shrink-0" />
       <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
-        {count} agents active
+        {label}
       </span>
     </div>
   );
