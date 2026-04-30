@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Check, FolderClosed, FolderOpen, Hash, Pin, Plus, X } from 'lucide-react';
+import { Check, FolderClosed, FolderOpen, Hash, Pin, Plus, Users, X } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { DEFAULT_WORKSPACE_CHANNEL_ID, type WorkspaceChannel } from '../../shared/types';
@@ -25,6 +25,7 @@ type ChannelGroup = {
 };
 
 const CHANNEL_PREVIEW_LIMIT = 5;
+const PROJECT_AGENT_COUNT = 3;
 
 function getProjectLabel(fullPath: string | null): string {
   return fullPath
@@ -553,6 +554,10 @@ export function FolderTreeView({
                         Show less
                       </button>
                     )}
+
+                  {group.fullPath && !sidebarSearchQuery.trim() && (
+                    <ProjectAgentSummary depth={1} count={PROJECT_AGENT_COUNT} />
+                  )}
                 </>
               );
             })()}
@@ -565,6 +570,21 @@ export function FolderTreeView({
           {sidebarSearchQuery ? 'No matching sessions' : 'No sessions yet'}
         </div>
       )}
+    </div>
+  );
+}
+
+function ProjectAgentSummary({ depth, count }: { depth: number; count: number }) {
+  return (
+    <div
+      className="mt-1 flex h-7 w-[calc(100%-4px)] min-w-0 items-center gap-2 rounded-lg px-2 text-[var(--text-muted)]"
+      style={{ marginLeft: `${depth * 16}px` }}
+      title={`${count} project agents active`}
+    >
+      <Users className="h-3.5 w-3.5 flex-shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
+        {count} agents active
+      </span>
     </div>
   );
 }

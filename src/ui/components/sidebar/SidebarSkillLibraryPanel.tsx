@@ -127,7 +127,7 @@ export function SidebarSkillLibraryPanel({ onShowProjects }: { onShowProjects?: 
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-1">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1 pb-1">
         <SkillSection
           title="User"
           skills={filteredUserSkills}

@@ -169,34 +169,45 @@ Run thread 是具体执行工作的边界。
 
 ### 项目侧边栏
 
-主 sidebar 变成 project-oriented：
+主 sidebar 在 chat 视图下提供 `Projects / DMs` 两个同级 tab。
 
-- 当前 project
-- Search
+`Projects` tab 只处理项目上下文：
+
+- 当前 project server
 - Channels
-- Direct Agents
+- Project agent roster summary
 - Recent activity / pinned threads
+
+`DMs` tab 只处理全局 agent 私聊：
+
+- Kabi
+- Builder
+- Reviewer
+
+DM 不带项目上下文，不默认绑定 cwd，不默认读项目文件。如果用户想让 agent 基于项目做事，应该回到 project channel 里通过 `@agent` 或 run thread 触发。
 
 建议默认结构：
 
 ```text
-PROJECT
+[ Projects | DMs ]
+
+Projects:
   coworker
+    # all
+    # frontend
+    # debug
+    # release
+    3 agents active
 
-CHANNELS
-  # all
-  # frontend
-  # debug
-  # release
-
-DIRECT AGENTS
+DMs:
   Kabi        idle
-  Builder     running 1
+  Builder     idle
   Reviewer    idle
-  Runner      blocked 1
 ```
 
-badge 表示未解决的执行状态，不是社交软件里的 unread message。
+Project 内部的 `3 agents active` 是 roster summary，不是 DM 列表。点击后续可以打开 project agent 配置或 inspector。
+
+agent badge 表示运行/阻塞状态，不是社交软件里的 unread message。
 
 ### 主区域
 
@@ -455,15 +466,19 @@ MVP 不做完全自治的多 agent 规划。第一版使用显式 dispatch：
 范围：
 
 - 新增默认 agent profiles。
-- Sidebar 显示 direct agents。
+- Chat sidebar 增加 `Projects / DMs` tab。
+- `DMs` tab 显示全局 direct agents。
+- Project server 内显示 agent roster summary，例如 `3 agents active`。
 - 右侧 inspector 能显示 agent profile。
 - 加入 DM 模式。
+- DM 不带 project cwd；DM 里的 project/code 请求必须转到 project channel。
 - DM 中的代码修改请求需要转到 project/channel run thread。
 
 验收：
 
 - 用户能看到有哪些 agent，以及它们分别负责什么。
 - 用户能打开某个 agent 的 DM。
+- 用户能区分 project channel 和 global DM。
 - agent identity 和 provider/model 设置不是同一件事。
 
 ### Phase 3：`@agent` Mention

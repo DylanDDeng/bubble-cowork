@@ -236,7 +236,7 @@ export function PromptLibraryPanel({ onShowProjects }: { onShowProjects?: () => 
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-1">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1">
         {loading ? (
           <div className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-8 text-sm text-[var(--text-secondary)]">
             Loading prompts...
