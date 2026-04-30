@@ -149,6 +149,7 @@ export interface AgentProfile {
   model?: string;
   reasoningEffort?: AgentReasoningEffort;
   permissionPolicy: AgentPermissionPolicy;
+  canDelegate?: boolean;
   color: AgentProfileColor;
   enabled: boolean;
   createdAt: number;

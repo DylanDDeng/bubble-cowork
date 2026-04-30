@@ -577,6 +577,8 @@ export interface SessionStartPayload {
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
   routedAgentId?: string | null;
+  routedAgentTurns?: RoutedAgentTurnPayload[];
+  availableAgentTurns?: RoutedAgentRuntimePayload[];
   hiddenFromThreads?: boolean;
   channelId?: string;
 }
@@ -601,9 +603,47 @@ export interface SessionContinuePayload {
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
   routedAgentId?: string | null;
+  routedAgentTurns?: RoutedAgentTurnPayload[];
+  availableAgentTurns?: RoutedAgentRuntimePayload[];
 }
 
 export type SessionScope = 'project' | 'dm';
+
+export interface RoutedAgentPublicProfile {
+  id: string;
+  name: string;
+  role?: string;
+  description?: string;
+  canDelegate?: boolean;
+}
+
+export interface RoutedAgentRuntimePayload {
+  routedAgentId: string;
+  agent?: RoutedAgentPublicProfile;
+  instructions?: string;
+  provider: AgentProvider;
+  model?: string;
+  compatibleProviderId?: ClaudeCompatibleProviderId;
+  betas?: string[];
+  claudeAccessMode?: ClaudeAccessMode;
+  claudeExecutionMode?: ClaudeExecutionMode;
+  claudeReasoningEffort?: ClaudeReasoningEffort;
+  codexExecutionMode?: CodexExecutionMode;
+  codexPermissionMode?: CodexPermissionMode;
+  codexReasoningEffort?: CodexReasoningEffort;
+  codexFastMode?: boolean;
+  codexSkills?: ProviderInputReference[];
+  codexMentions?: ProviderInputReference[];
+  opencodePermissionMode?: OpenCodePermissionMode;
+}
+
+export interface RoutedAgentTurnPayload extends RoutedAgentRuntimePayload {
+  effectivePrompt: string;
+  projectAgents?: RoutedAgentPublicProfile[];
+  availableAgentTurns?: RoutedAgentRuntimePayload[];
+  delegationDepth?: number;
+  delegationKind?: 'user' | 'delegated' | 'summary';
+}
 
 export interface SessionInfo {
   id: string;
@@ -741,6 +781,7 @@ export type PermissionRequestInput =
 export type StreamMessageBase = {
   createdAt?: number;
   agentId?: string | null;
+  agentRunId?: string | null;
 };
 
 export interface CompactMetadata {

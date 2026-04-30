@@ -303,6 +303,7 @@ function normalizeAgentProfiles(value: unknown): Record<string, AgentProfile> {
           model: profile.model?.trim() || undefined,
           reasoningEffort: normalizeAgentReasoningEffort(profile.reasoningEffort),
           permissionPolicy: normalizeAgentPermissionPolicy(profile.permissionPolicy),
+          canDelegate: profile.canDelegate === true,
           color: normalizeAgentProfileColor(profile.color),
           enabled: profile.enabled !== false,
           createdAt: typeof profile.createdAt === 'number' ? profile.createdAt : now,
@@ -1124,6 +1125,7 @@ export const useAppStore = create<Store>()(
       provider: loadPreferredProvider(),
       reasoningEffort: undefined,
       permissionPolicy: 'ask',
+      canDelegate: false,
       color: 'violet',
       enabled: true,
       createdAt: now,
@@ -1168,6 +1170,8 @@ export const useAppStore = create<Store>()(
               patch.permissionPolicy !== undefined
                 ? normalizeAgentPermissionPolicy(patch.permissionPolicy)
                 : current.permissionPolicy,
+            canDelegate:
+              patch.canDelegate !== undefined ? patch.canDelegate === true : current.canDelegate,
             color:
               patch.color !== undefined ? normalizeAgentProfileColor(patch.color) : current.color,
             createdAt: current.createdAt,

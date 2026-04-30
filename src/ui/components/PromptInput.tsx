@@ -16,7 +16,12 @@ import { AgentAvatar } from './AgentAvatar';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
 import { useProjectAgentMentions } from '../hooks/useProjectAgentMentions';
-import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
+import {
+  DEFAULT_WORKSPACE_CHANNEL_ID,
+  type RoutedAgentPublicProfile,
+  type RoutedAgentRuntimePayload,
+  type RoutedAgentTurnPayload,
+} from '../../shared/types';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
 import {
@@ -29,7 +34,7 @@ import {
   getAgentMentionAliases,
   getProjectAgentProfiles,
   insertProjectAgentMention,
-  resolveProjectAgentMentionRoute,
+  resolveProjectAgentMentionRoutes,
 } from '../utils/agent-mentions';
 
 function isImeComposingEvent(
@@ -110,6 +115,55 @@ function getAgentRuntime(profile: AgentProfile | null | undefined) {
   };
 }
 
+function canAgentDelegate(profile: AgentProfile): boolean {
+  const identity = `${profile.name} ${profile.role}`.toLowerCase();
+  return (
+    profile.canDelegate === true ||
+    identity.includes('coordinator') ||
+    identity.includes('协调') ||
+    identity.includes('调度')
+  );
+}
+
+function toPublicAgentProfile(profile: AgentProfile): RoutedAgentPublicProfile {
+  return {
+    id: profile.id,
+    name: profile.name.trim() || 'Agent',
+    role: profile.role.trim() || 'Agent',
+    description: profile.description.trim() || undefined,
+    canDelegate: canAgentDelegate(profile),
+  };
+}
+
+function buildAgentRuntimePayload(
+  profile: AgentProfile,
+  codexReferences: ReturnType<typeof buildCodexReferencePayload>
+): RoutedAgentRuntimePayload | null {
+  const runtime = getAgentRuntime(profile);
+  if (!runtime) {
+    return null;
+  }
+
+  return {
+    routedAgentId: profile.id,
+    agent: toPublicAgentProfile(profile),
+    instructions: profile.instructions.trim() || undefined,
+    provider: runtime.provider,
+    model: runtime.model || undefined,
+    claudeAccessMode: runtime.provider === 'claude' ? runtime.claudeAccessMode : undefined,
+    claudeExecutionMode: runtime.provider === 'claude' ? runtime.claudeExecutionMode : undefined,
+    claudeReasoningEffort:
+      runtime.provider === 'claude' ? runtime.claudeReasoningEffort : undefined,
+    codexExecutionMode: runtime.provider === 'codex' ? runtime.codexExecutionMode : undefined,
+    codexPermissionMode: runtime.provider === 'codex' ? runtime.codexPermissionMode : undefined,
+    codexReasoningEffort: runtime.provider === 'codex' ? runtime.codexReasoningEffort : undefined,
+    codexSkills: runtime.provider === 'codex' ? codexReferences.codexSkills : undefined,
+    codexMentions: runtime.provider === 'codex' ? codexReferences.codexMentions : undefined,
+    opencodePermissionMode:
+      runtime.provider === 'opencode' ? runtime.opencodePermissionMode : undefined,
+  };
+}
+
 export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   const {
     activeSessionId,
@@ -148,25 +202,31 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           }),
     [activeSession?.cwd, activeSession?.scope, agentProfiles, projectAgentRostersByProject]
   );
-  const projectAgentRoute = useMemo(
+  const projectAgentRoutes = useMemo(
     () =>
       activeSession?.scope === 'dm'
         ? null
-        : resolveProjectAgentMentionRoute(prompt, projectAgentProfiles),
+        : resolveProjectAgentMentionRoutes(prompt, projectAgentProfiles),
     [activeSession?.scope, projectAgentProfiles, prompt]
   );
-  const activeProjectAgentRoute = projectAgentRoute
-    ? {
-        profile: projectAgentRoute.profile,
-        handle: projectAgentRoute.handle,
-      }
-    : null;
+  const activeProjectAgentRoutes = useMemo(
+    () =>
+      (projectAgentRoutes || []).map((route) => ({
+        profile: route.profile,
+        handle: route.handle,
+      })),
+    [projectAgentRoutes]
+  );
+  const activeProjectAgentRoute = activeProjectAgentRoutes[0] || null;
   const runtimeAgentProfile = directAgentProfile || activeProjectAgentRoute?.profile || null;
   const directAgentRuntime = getAgentRuntime(directAgentProfile);
   const projectAgentRuntime = getAgentRuntime(activeProjectAgentRoute?.profile || null);
   const agentRuntime = directAgentRuntime || projectAgentRuntime;
   const runtimeProvider = agentRuntime?.provider || 'claude';
-  const activeComposerAgentProfile = directAgentProfile || activeProjectAgentRoute?.profile || null;
+  const activeComposerAgentProfiles = directAgentProfile
+    ? [directAgentProfile]
+    : activeProjectAgentRoutes.map((route) => route.profile);
+  const activeComposerAgentProfile = activeComposerAgentProfiles[0] || null;
   const enabledAgentCount = useMemo(
     () => Object.values(agentProfiles).filter((profile) => profile.enabled).length,
     [agentProfiles]
@@ -349,7 +409,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       };
     }
 
-    if (!activeProjectAgentRoute) {
+    if (activeProjectAgentRoutes.length === 0) {
       return {
         title: 'Mention an agent to send',
         description: 'Use @agent in this channel so the message has a clear recipient.',
@@ -358,7 +418,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
 
     return null;
   }, [
-    activeProjectAgentRoute,
+    activeProjectAgentRoutes.length,
     activeSession,
     directAgentProfile,
     enabledAgentCount,
@@ -486,10 +546,46 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           : undefined
     );
     const outgoingAttachments = promptWithAttachment.attachments;
-    const codexReferences =
-      runtimeProvider === 'codex'
-        ? buildCodexReferencePayload(skillAutocomplete.selectedSkill)
-        : {};
+    const codexReferences = buildCodexReferencePayload(skillAutocomplete.selectedSkill);
+    const projectAgentRuntimePayloads =
+      !directAgentProfile
+        ? projectAgentProfiles
+            .map((profile) => buildAgentRuntimePayload(profile, codexReferences))
+            .filter((turn): turn is RoutedAgentRuntimePayload => Boolean(turn))
+        : undefined;
+    const projectPublicAgents =
+      !directAgentProfile ? projectAgentProfiles.map(toPublicAgentProfile) : undefined;
+    const projectRoutedAgentTurns: RoutedAgentTurnPayload[] | undefined =
+      !directAgentProfile && activeProjectAgentRoutes.length > 0
+        ? activeProjectAgentRoutes
+            .map((route): RoutedAgentTurnPayload | null => {
+              const routeRuntime = buildAgentRuntimePayload(route.profile, codexReferences);
+              if (!routeRuntime) {
+                return null;
+              }
+
+              const routeEffectivePrompt = buildAgentEffectivePrompt(
+                rawOutgoingEffectivePrompt,
+                route.profile,
+                {
+                  mode: 'project',
+                  cwd: activeSession?.cwd,
+                  channelId: activeSession?.channelId,
+                  handle: route.handle,
+                  assignmentSource: 'mention',
+                }
+              );
+
+              return {
+                ...routeRuntime,
+                effectivePrompt: routeEffectivePrompt,
+                projectAgents: projectPublicAgents,
+                availableAgentTurns: projectAgentRuntimePayloads,
+                delegationKind: 'user',
+              };
+            })
+            .filter((turn): turn is RoutedAgentTurnPayload => Boolean(turn))
+        : undefined;
     if (promptWithAttachment.reason === 'attachment_create_failed') {
       toast.error('Failed to convert the long message into an attachment. Sending inline instead.');
     }
@@ -539,6 +635,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           opencodePermissionMode:
             runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
           routedAgentId: runtimeAgentProfile?.id || undefined,
+          routedAgentTurns: projectRoutedAgentTurns,
+          availableAgentTurns: projectAgentRuntimePayloads,
         },
       });
       setPrompt('');
@@ -572,6 +670,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           opencodePermissionMode:
             runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
           routedAgentId: runtimeAgentProfile?.id || undefined,
+          routedAgentTurns: projectRoutedAgentTurns,
+          availableAgentTurns: projectAgentRuntimePayloads,
         },
       });
       setPrompt('');
@@ -909,12 +1009,19 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
               {activeComposerAgentProfile ? (
                 <div
                   className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg bg-[var(--bg-tertiary)] px-2 text-[12px] text-[var(--text-secondary)]"
-                  title={activeComposerAgentProfile.name.trim() || 'Agent'}
+                  title={activeComposerAgentProfiles
+                    .map((profile) => profile.name.trim() || 'Agent')
+                    .join(', ')}
                 >
                   <AgentAvatar profile={activeComposerAgentProfile} size="sm" decorative />
                   <span className="max-w-[140px] truncate">
                     {activeComposerAgentProfile.name.trim() || 'Agent'}
                   </span>
+                  {activeComposerAgentProfiles.length > 1 ? (
+                    <span className="text-[11px] text-[var(--text-muted)]">
+                      +{activeComposerAgentProfiles.length - 1}
+                    </span>
+                  ) : null}
                 </div>
               ) : null}
               <button

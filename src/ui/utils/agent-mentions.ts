@@ -208,6 +208,13 @@ export function resolveProjectAgentMentionRoute(
   prompt: string,
   profiles: AgentProfile[]
 ): ProjectAgentMentionMatch | null {
+  return resolveProjectAgentMentionRoutes(prompt, profiles)[0] || null;
+}
+
+export function resolveProjectAgentMentionRoutes(
+  prompt: string,
+  profiles: AgentProfile[]
+): ProjectAgentMentionMatch[] {
   const uniqueMatches = new Map<string, ProjectAgentMentionMatch>();
   for (const mention of extractProjectAgentMentions(prompt, profiles)) {
     if (!uniqueMatches.has(mention.profile.id)) {
@@ -215,7 +222,7 @@ export function resolveProjectAgentMentionRoute(
     }
   }
 
-  return Array.from(uniqueMatches.values()).sort((left, right) => left.start - right.start)[0] || null;
+  return Array.from(uniqueMatches.values()).sort((left, right) => left.start - right.start);
 }
 
 export function getAgentMentionHandles(profiles: AgentProfile[]): string[] {

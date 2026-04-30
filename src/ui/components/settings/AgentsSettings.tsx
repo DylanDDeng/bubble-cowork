@@ -308,6 +308,19 @@ function AgentProfileForm({
             <option value="fullAccess">Full access</option>
           </select>
         </ProfileField>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3">
+          <div className="min-w-0">
+            <div className="text-[13px] font-medium text-[var(--text-primary)]">Can delegate</div>
+            <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">
+              Allows this agent to assign one visible round of work to other project agents.
+            </div>
+          </div>
+          <SettingsToggle
+            checked={profile.canDelegate === true}
+            onChange={(canDelegate) => onUpdate({ canDelegate })}
+            ariaLabel="Allow agent delegation"
+          />
+        </div>
         <ProfileField label="Color">
           <select
             value={profile.color}

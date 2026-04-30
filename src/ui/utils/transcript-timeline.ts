@@ -6,6 +6,7 @@ import {
 } from './message-content';
 
 type AssistantMessage = StreamMessage & { type: 'assistant' };
+const UNATTRIBUTED_ASSISTANT_RUN_KEY = 'assistant:unattributed';
 
 export type AssistantTimelinePresentation = 'answer' | 'progress';
 
@@ -76,12 +77,49 @@ function createWorkGroup(
   };
 }
 
+function getAssistantRunBoundaryKey(message: AssistantMessage): string {
+  const agentRunId = typeof message.agentRunId === 'string' ? message.agentRunId.trim() : '';
+  if (agentRunId) {
+    return `run:${agentRunId}`;
+  }
+
+  const agentId = typeof message.agentId === 'string' ? message.agentId.trim() : '';
+  if (agentId) {
+    return `agent:${agentId}`;
+  }
+
+  return UNATTRIBUTED_ASSISTANT_RUN_KEY;
+}
+
+function getWorkGroupRunBoundaryKey(group: TimelineWorkGroup): string | null {
+  const keys = new Set(group.messages.map(getAssistantRunBoundaryKey));
+  if (keys.size !== 1) {
+    return null;
+  }
+  return keys.values().next().value || null;
+}
+
+function getTimelineItemRunBoundaryKey(item: TranscriptTimelineItem): string | undefined {
+  if (item.type === 'work') {
+    return getWorkGroupRunBoundaryKey(item.group) || 'assistant:mixed';
+  }
+
+  if (item.type === 'message' && item.message.type === 'assistant') {
+    return getAssistantRunBoundaryKey(item.message);
+  }
+
+  return undefined;
+}
+
 function attachWorkToPreviousAssistant(
   items: TranscriptTimelineItem[],
   group: TimelineWorkGroup
 ): boolean {
   const previous = items[items.length - 1];
   if (!previous || previous.type !== 'message' || previous.message.type !== 'assistant') {
+    return false;
+  }
+  if (getAssistantRunBoundaryKey(previous.message) !== getWorkGroupRunBoundaryKey(group)) {
     return false;
   }
 
@@ -111,6 +149,7 @@ function markAssistantMessagePresentation(items: TranscriptTimelineItem[]): void
     });
     currentTurnAssistantItems = [];
   };
+  let currentRunBoundaryKey: string | null = null;
 
   for (const item of items) {
     if (item.type !== 'message') {
@@ -119,10 +158,18 @@ function markAssistantMessagePresentation(items: TranscriptTimelineItem[]): void
 
     if (item.message.type === 'user_prompt') {
       flushTurn();
+      currentRunBoundaryKey = null;
       continue;
     }
 
     if (item.message.type === 'assistant') {
+      const nextRunBoundaryKey = getAssistantRunBoundaryKey(item.message);
+      if (currentTurnAssistantItems.length > 0 && currentRunBoundaryKey !== nextRunBoundaryKey) {
+        flushTurn();
+      }
+      if (currentTurnAssistantItems.length === 0) {
+        currentRunBoundaryKey = nextRunBoundaryKey;
+      }
       currentTurnAssistantItems.push(
         item as Extract<TranscriptTimelineItem, { type: 'message' }> & {
           message: AssistantMessage;
@@ -258,11 +305,29 @@ function collapseWorkBeforeTerminalAnswers(
     currentTurnItems = [];
   };
 
+  let currentRunBoundaryKey: string | null = null;
+  let hasAssistantRunBoundary = false;
+
   for (const item of items) {
     if (item.type === 'message' && item.message.type === 'user_prompt') {
       flushTurn();
+      currentRunBoundaryKey = null;
+      hasAssistantRunBoundary = false;
       result.push(item);
       continue;
+    }
+
+    const itemRunBoundaryKey = getTimelineItemRunBoundaryKey(item);
+    if (itemRunBoundaryKey !== undefined) {
+      if (hasAssistantRunBoundary && currentRunBoundaryKey !== itemRunBoundaryKey) {
+        flushTurn();
+        currentRunBoundaryKey = null;
+        hasAssistantRunBoundary = false;
+      }
+      if (!hasAssistantRunBoundary) {
+        currentRunBoundaryKey = itemRunBoundaryKey;
+        hasAssistantRunBoundary = true;
+      }
     }
 
     currentTurnItems.push(item);
@@ -311,9 +376,14 @@ export function deriveTranscriptTimelineItems(
   const pushMessage = (message: StreamMessage, originalIndex: number) => {
     const item: TranscriptTimelineItem = { type: 'message', message, originalIndex };
     if (message.type === 'assistant' && pendingWorkMessages.length > 0) {
-      item.inlineWorkGroup = createWorkGroup(pendingWorkMessages, pendingWorkOriginalIndices);
-      pendingWorkMessages = [];
-      pendingWorkOriginalIndices = [];
+      const group = createWorkGroup(pendingWorkMessages, pendingWorkOriginalIndices);
+      if (getAssistantRunBoundaryKey(message) === getWorkGroupRunBoundaryKey(group)) {
+        item.inlineWorkGroup = group;
+        pendingWorkMessages = [];
+        pendingWorkOriginalIndices = [];
+      } else {
+        flushPendingWork();
+      }
     } else {
       flushPendingWork();
     }
