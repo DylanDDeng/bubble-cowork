@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Check, FolderClosed, FolderOpen, Hash, Pin, Plus, SquarePen, X } from 'lucide-react';
+import { Check, FolderClosed, FolderOpen, Hash, Pin, Plus, X } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { DEFAULT_WORKSPACE_CHANNEL_ID, type WorkspaceChannel } from '../../shared/types';
@@ -17,13 +17,19 @@ type ProjectGroup = {
 };
 
 type ChannelGroup = {
+  key: string;
   id: string;
   name: string;
-  sessions: SessionView[];
+  session: SessionView | null;
+  updatedAt: number;
 };
 
-function getProjectKey(cwd?: string | null): string {
-  return cwd?.trim() || '__no_project__';
+const CHANNEL_PREVIEW_LIMIT = 5;
+
+function getProjectLabel(fullPath: string | null): string {
+  return fullPath
+    ? fullPath.split('/').filter(Boolean).pop() || fullPath
+    : 'No Project';
 }
 
 function createDefaultChannel(projectCwd?: string | null): WorkspaceChannel {
@@ -46,6 +52,23 @@ function ensureDefaultChannel(
     return existing;
   }
   return [createDefaultChannel(projectCwd), ...existing];
+}
+
+function getSessionChannelId(session: SessionView): string {
+  return session.channelId?.trim() || DEFAULT_WORKSPACE_CHANNEL_ID;
+}
+
+function getChannelNameForSession(
+  session: SessionView,
+  configuredChannels: Map<string, WorkspaceChannel>,
+  duplicateChannelIds: Set<string>
+): string {
+  const channelId = getSessionChannelId(session);
+  const configuredChannel = configuredChannels.get(channelId);
+  if (configuredChannel && channelId !== DEFAULT_WORKSPACE_CHANNEL_ID && !duplicateChannelIds.has(channelId)) {
+    return configuredChannel.name || channelId;
+  }
+  return session.title || configuredChannel?.name || channelId;
 }
 
 type SplitPairState = {
@@ -119,12 +142,12 @@ export function FolderTreeView({
     workspaceChannelsByProject,
     createWorkspaceChannel,
     setActiveChannelForProject,
-    setSessionChannel,
     setProjectCwd,
     activeChannelByProject,
     sidebarSearchQuery,
   } = useAppStore();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  const [expandedChannelGroups, setExpandedChannelGroups] = useState<Set<string>>(() => new Set());
   const [channelDraftProjectKey, setChannelDraftProjectKey] = useState<string | null>(null);
   const [channelDraftName, setChannelDraftName] = useState('');
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
@@ -180,13 +203,9 @@ export function FolderTreeView({
       const key = fullPath || '__no_project__';
 
       if (!grouped.has(key)) {
-        const label = fullPath
-          ? fullPath.split('/').filter(Boolean).pop() || fullPath
-          : 'No Project';
-
         grouped.set(key, {
           key,
-          label,
+          label: getProjectLabel(fullPath),
           fullPath,
           sessions: [],
           channels: [],
@@ -196,6 +215,17 @@ export function FolderTreeView({
       grouped.get(key)!.sessions.push(session);
     }
 
+    const selectedProjectPath = projectCwd?.trim() || null;
+    if (selectedProjectPath && !sidebarSearchQuery.trim() && !grouped.has(selectedProjectPath)) {
+      grouped.set(selectedProjectPath, {
+        key: selectedProjectPath,
+        label: getProjectLabel(selectedProjectPath),
+        fullPath: selectedProjectPath,
+        sessions: [],
+        channels: [],
+      });
+    }
+
     const projectGroups = Array.from(grouped.values())
       .map((group) => {
         const sortedSessions = group.sessions.sort((left, right) => right.updatedAt - left.updatedAt);
@@ -203,36 +233,53 @@ export function FolderTreeView({
           workspaceChannelsByProject[group.key],
           group.fullPath
         );
-        const channels = new Map<string, ChannelGroup>();
-        for (const channel of configuredChannels) {
-          channels.set(channel.id, {
+        const configuredChannelMap = new Map<string, WorkspaceChannel>(
+          configuredChannels.map((channel) => [channel.id, channel])
+        );
+        const channelIdCounts = new Map<string, number>();
+        for (const session of sortedSessions) {
+          const channelId = getSessionChannelId(session);
+          channelIdCounts.set(channelId, (channelIdCounts.get(channelId) || 0) + 1);
+        }
+        const duplicateChannelIds = new Set(
+          Array.from(channelIdCounts.entries())
+            .filter(([, count]) => count > 1)
+            .map(([channelId]) => channelId)
+        );
+        const representedChannelIds = new Set<string>();
+        const sessionChannels: ChannelGroup[] = sortedSessions.map((session) => {
+          const channelId = getSessionChannelId(session);
+          representedChannelIds.add(channelId);
+          return {
+            key: `session:${session.id}`,
+            id: channelId,
+            name: getChannelNameForSession(session, configuredChannelMap, duplicateChannelIds),
+            session,
+            updatedAt: session.updatedAt,
+          };
+        });
+        const emptyChannels = configuredChannels
+          .filter((channel) => {
+            if (representedChannelIds.has(channel.id)) {
+              return false;
+            }
+            return channel.id !== DEFAULT_WORKSPACE_CHANNEL_ID || sessionChannels.length === 0;
+          })
+          .map((channel) => ({
+            key: `channel:${channel.id}`,
             id: channel.id,
             name: channel.name,
-            sessions: [],
-          });
-        }
-
-        for (const session of sortedSessions) {
-          const channelId = session.channelId?.trim() || DEFAULT_WORKSPACE_CHANNEL_ID;
-          if (!channels.has(channelId)) {
-            channels.set(channelId, {
-              id: channelId,
-              name: channelId,
-              sessions: [],
-            });
-          }
-          channels.get(channelId)!.sessions.push(session);
-        }
+            session: null,
+            updatedAt: channel.updatedAt,
+          }));
 
         return {
           ...group,
           sessions: sortedSessions,
-          channels: Array.from(channels.values()).sort((left, right) => {
+          channels: [...sessionChannels, ...emptyChannels].sort((left, right) => {
             if (left.id === DEFAULT_WORKSPACE_CHANNEL_ID) return -1;
             if (right.id === DEFAULT_WORKSPACE_CHANNEL_ID) return 1;
-            const leftLatest = left.sessions[0]?.updatedAt || 0;
-            const rightLatest = right.sessions[0]?.updatedAt || 0;
-            return rightLatest - leftLatest;
+            return right.updatedAt - left.updatedAt;
           }),
         };
       })
@@ -243,7 +290,7 @@ export function FolderTreeView({
       });
 
     return { pinnedSessions, projectGroups };
-  }, [sessions, sidebarSearchQuery, splitPair, workspaceChannelsByProject]);
+  }, [projectCwd, sessions, sidebarSearchQuery, splitPair, workspaceChannelsByProject]);
 
   const startChannelDraft = (group: ProjectGroup) => {
     setChannelDraftProjectKey(group.key);
@@ -263,11 +310,16 @@ export function FolderTreeView({
     if (!nextChannelId) {
       return;
     }
+    const existingChannelSession = group.channels.find(
+      (channel) => channel.id === nextChannelId && channel.session
+    )?.session;
     if (group.fullPath) {
       setProjectCwd(group.fullPath);
     }
     setActiveChannelForProject(group.fullPath || '', nextChannelId);
-    if (group.fullPath) {
+    if (existingChannelSession) {
+      onSessionClick(existingChannelSession.id);
+    } else if (group.fullPath) {
       onNewSessionForProject(group.fullPath, nextChannelId);
     }
     cancelChannelDraft();
@@ -277,6 +329,18 @@ export function FolderTreeView({
 
   const toggleGroupExpanded = (key: string) => {
     setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  const toggleChannelListExpanded = (key: string) => {
+    setExpandedChannelGroups((current) => {
       const next = new Set(current);
       if (next.has(key)) {
         next.delete(key);
@@ -410,96 +474,88 @@ export function FolderTreeView({
               </form>
             )}
 
-            {expanded &&
-              group.channels.map((channel) => {
-                const activeChannelId =
-                  activeChannelByProject[group.key] || DEFAULT_WORKSPACE_CHANNEL_ID;
-                const isChannelActive =
-                  activeChannelId === channel.id && activeProjectKey === group.key;
+            {expanded && (() => {
+              const listExpanded =
+                expandedChannelGroups.has(group.key) || sidebarSearchQuery.trim().length > 0;
+              const visibleChannels = listExpanded
+                ? group.channels
+                : group.channels.slice(0, CHANNEL_PREVIEW_LIMIT);
+              const hiddenChannelCount = group.channels.length - visibleChannels.length;
 
-                return (
-                  <div key={`${group.key}:${channel.id}`}>
-                    <ChannelItem
-                      channel={channel}
-                      depth={1}
-                      isActive={isChannelActive}
-                      onNewSession={() => {
-                        if (!group.fullPath) {
-                          return;
-                        }
-                        setActiveChannelForProject(group.fullPath, channel.id);
-                        setProjectCwd(group.fullPath);
-                        onNewSessionForProject(group.fullPath, channel.id);
-                      }}
-                      onDropSession={(sessionId) => {
-                        const draggedSession = sessions[sessionId];
-                        if (!draggedSession || getProjectKey(draggedSession.cwd) !== group.key) {
-                          return;
-                        }
-                        setSessionChannel(sessionId, channel.id);
-                        sendEvent({
-                          type: 'session.setChannel',
-                          payload: { sessionId, channelId: channel.id },
-                        });
-                      }}
-                      onClick={() => {
-                        setActiveChannelForProject(group.fullPath || '', channel.id);
-                        if (group.fullPath) {
-                          setProjectCwd(group.fullPath);
-                        }
-                        const latestSession = channel.sessions[0];
-                        if (latestSession) {
-                          onSessionClick(latestSession.id);
-                        } else if (group.fullPath) {
-                          onNewSessionForProject(group.fullPath, channel.id);
-                        }
-                      }}
-                    />
+              return (
+                <>
+                  {visibleChannels.map((channel) => {
+                    const activeChannelId =
+                      activeChannelByProject[group.key] || DEFAULT_WORKSPACE_CHANNEL_ID;
+                    const isChannelActive = channel.session
+                      ? activeSessionId === channel.session.id
+                      : activeChannelId === channel.id && activeProjectKey === group.key;
 
-                    {channel.sessions.map((session) => {
-                      if (splitPair && session.id === splitPair.primary.id) {
-                        return (
-                          <SplitSessionRow
-                            key={`split:${splitPair.primary.id}:${splitPair.secondary.id}`}
-                            primary={splitPair.primary}
-                            secondary={splitPair.secondary}
-                            activePaneId={activePaneId}
-                            depth={2}
-                            onOpenPrimary={() => {
-                              setChatLayoutMode('split');
-                              setActivePane('primary');
-                            }}
-                            onOpenSecondary={() => {
-                              setChatLayoutMode('split');
-                              setActivePane('secondary');
-                            }}
-                          />
-                        );
-                      }
-
-                      const isSessionActive = activeSessionId === session.id;
-
+                    if (splitPair && channel.session?.id === splitPair.primary.id) {
                       return (
-                        <SessionItem
-                          key={session.id}
-                          session={session}
-                          isActive={isSessionActive}
-                          runtimeBadge={
-                            session.runtimeNotice
-                              ? session.runtimeNotice
-                              : !isSessionActive && session.status === 'running'
-                                ? 'running'
-                                : null
-                          }
-                          depth={2}
-                          onClick={() => onSessionClick(session.id)}
-                          onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
+                        <SplitSessionRow
+                          key={`split:${splitPair.primary.id}:${splitPair.secondary.id}`}
+                          primary={splitPair.primary}
+                          secondary={splitPair.secondary}
+                          activePaneId={activePaneId}
+                          depth={1}
+                          onOpenPrimary={() => {
+                            setChatLayoutMode('split');
+                            setActivePane('primary');
+                          }}
+                          onOpenSecondary={() => {
+                            setChatLayoutMode('split');
+                            setActivePane('secondary');
+                          }}
                         />
                       );
-                    })}
-                  </div>
-                );
-              })}
+                    }
+
+                    return (
+                      <ChannelItem
+                        key={`${group.key}:${channel.key}`}
+                        channel={channel}
+                        depth={1}
+                        isActive={isChannelActive}
+                        onClick={() => {
+                          setActiveChannelForProject(group.fullPath || '', channel.id);
+                          if (group.fullPath) {
+                            setProjectCwd(group.fullPath);
+                          }
+                          if (channel.session) {
+                            onSessionClick(channel.session.id);
+                          } else if (group.fullPath) {
+                            onNewSessionForProject(group.fullPath, channel.id);
+                          }
+                        }}
+                      />
+                    );
+                  })}
+
+                  {hiddenChannelCount > 0 && (
+                    <button
+                      type="button"
+                      className="ml-4 flex h-7 w-[calc(100%-20px)] items-center rounded-lg px-2 text-left text-[12px] font-medium text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                      onClick={() => toggleChannelListExpanded(group.key)}
+                    >
+                      Show {hiddenChannelCount} more
+                    </button>
+                  )}
+
+                  {expandedChannelGroups.has(group.key) &&
+                    sidebarSearchQuery.trim().length === 0 &&
+                    group.channels.length > CHANNEL_PREVIEW_LIMIT && (
+                      <button
+                        type="button"
+                        className="ml-4 flex h-7 w-[calc(100%-20px)] items-center rounded-lg px-2 text-left text-[12px] font-medium text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                        onClick={() => toggleChannelListExpanded(group.key)}
+                      >
+                        Show less
+                      </button>
+                    )}
+                </>
+              );
+            })()}
           </div>
         );
       })}
@@ -517,77 +573,59 @@ function ChannelItem({
   channel,
   depth,
   isActive,
-  onNewSession,
-  onDropSession,
   onClick,
 }: {
   channel: ChannelGroup;
   depth: number;
   isActive: boolean;
-  onNewSession: () => void;
-  onDropSession: (sessionId: string) => void;
   onClick: () => void;
 }) {
-  const runningCount = channel.sessions.filter((session) => session.status === 'running').length;
-  const [isDragOver, setIsDragOver] = useState(false);
+  const runtimeBadge = channel.session?.runtimeNotice
+    ? channel.session.runtimeNotice
+    : !isActive && channel.session?.status === 'running'
+      ? 'running'
+      : null;
 
   return (
-    <div
-      onDragOver={(event) => {
-        if (event.dataTransfer.types.includes('application/x-aegis-session-id')) {
-          event.preventDefault();
-          event.dataTransfer.dropEffect = 'move';
-          setIsDragOver(true);
-        }
-      }}
-      onDragLeave={() => setIsDragOver(false)}
-      onDrop={(event) => {
-        const sessionId = event.dataTransfer.getData('application/x-aegis-session-id');
-        setIsDragOver(false);
-        if (!sessionId) {
-          return;
-        }
-        event.preventDefault();
-        event.stopPropagation();
-        onDropSession(sessionId);
-      }}
-      className={`group/channel mb-1 flex h-7 w-[calc(100%-4px)] min-w-0 items-center gap-1 rounded-lg pr-1 no-drag transition-colors duration-150 ${
-        isDragOver
-          ? 'bg-[var(--sidebar-item-hover)] text-[var(--text-primary)] ring-1 ring-[var(--border)]'
-          : isActive
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group/channel mb-1 flex h-7 w-[calc(100%-4px)] min-w-0 items-center gap-2 rounded-lg px-2 text-left no-drag transition-colors duration-150 ${
+        isActive
           ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
           : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
       }`}
       style={{ marginLeft: `${depth * 16}px` }}
       title={`# ${channel.name}`}
+      aria-label={`Open # ${channel.name}`}
     >
-      <button
-        type="button"
-        onClick={onClick}
-        className="flex min-w-0 flex-1 items-center gap-2 px-2 text-left"
-        aria-label={`Open # ${channel.name}`}
-      >
-        <Hash className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{channel.name}</span>
-        {runningCount > 0 && (
-          <span className="rounded-full bg-[var(--accent-light)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">
-            {runningCount}
-          </span>
-        )}
-      </button>
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          onNewSession();
-        }}
-        className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] opacity-0 transition-opacity duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] group-hover/channel:opacity-100 focus:opacity-100"
-        aria-label={`New chat in # ${channel.name}`}
-        title={`New chat in # ${channel.name}`}
-      >
-        <SquarePen className="h-3.5 w-3.5" strokeWidth={1.9} />
-      </button>
-    </div>
+      <Hash className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+      <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{channel.name}</span>
+      {channel.session && (
+        <span className="flex-shrink-0 text-[12px] text-[var(--text-muted)]">
+          {formatSidebarTime(channel.updatedAt)}
+        </span>
+      )}
+      {runtimeBadge && (
+        <span
+          className={`status-dot ${runtimeBadge} flex-shrink-0`}
+          title={
+            runtimeBadge === 'running'
+              ? 'Session is running'
+              : runtimeBadge === 'completed'
+                ? 'Session completed'
+                : 'Session failed'
+          }
+          aria-label={
+            runtimeBadge === 'running'
+              ? 'Session is running'
+              : runtimeBadge === 'completed'
+                ? 'Session completed'
+                : 'Session failed'
+          }
+        />
+      )}
+    </button>
   );
 }
 
