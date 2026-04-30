@@ -558,6 +558,8 @@ export interface SessionStartPayload {
   prompt: string;
   effectivePrompt?: string;
   cwd?: string;
+  scope?: SessionScope;
+  agentId?: string | null;
   allowedTools?: string;
   attachments?: Attachment[];
   provider?: AgentProvider;
@@ -599,10 +601,14 @@ export interface SessionContinuePayload {
   opencodePermissionMode?: OpenCodePermissionMode;
 }
 
+export type SessionScope = 'project' | 'dm';
+
 export interface SessionInfo {
   id: string;
   title: string;
   status: SessionStatus;
+  scope?: SessionScope;
+  agentId?: string | null;
   source?: SessionSource;
   readOnly?: boolean;
   cwd?: string;
@@ -633,6 +639,8 @@ export type SessionStatus = 'idle' | 'running' | 'completed' | 'error';
 export interface SessionStatusPayload {
   sessionId: string;
   status: SessionStatus;
+  scope?: SessionScope;
+  agentId?: string | null;
   source?: SessionSource;
   readOnly?: boolean;
   title?: string;

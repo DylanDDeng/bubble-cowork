@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'http';
-import { chmodSync, existsSync, readFileSync, statSync, watch, type FSWatcher, promises as fsPromises } from 'fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, watch, type FSWatcher, promises as fsPromises } from 'fs';
 import { execFile } from 'child_process';
 import type { AddressInfo } from 'net';
 import { spawn as spawnPty, type IPty } from 'node-pty';
@@ -93,6 +93,18 @@ const LONG_PROMPT_ATTACHMENT_INSTRUCTION =
 function normalizeWorkspaceChannelId(value?: string | null): string {
   const trimmed = value?.trim();
   return trimmed || DEFAULT_WORKSPACE_CHANNEL_ID;
+}
+
+function normalizeSessionScope(value?: string | null): SessionInfo['scope'] {
+  return value === 'dm' ? 'dm' : 'project';
+}
+
+function getDirectMessageRuntimeCwd(): string {
+  const runtimeCwd = join(app.getPath('userData'), 'direct-message-runtime');
+  if (!existsSync(runtimeCwd)) {
+    mkdirSync(runtimeCwd, { recursive: true });
+  }
+  return runtimeCwd;
 }
 
 const ATTACHMENT_MIME_TYPES: Record<string, string> = {
@@ -4221,6 +4233,8 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     id: row.id,
     title: row.title,
     status: row.status as SessionInfo['status'],
+    scope: normalizeSessionScope(row.conversation_scope),
+    agentId: row.agent_id || null,
     source: row.session_origin || 'aegis',
     readOnly: row.session_origin === 'claude_code' || row.session_origin === 'claude_remote',
     cwd: row.cwd || undefined,
@@ -4269,6 +4283,8 @@ async function handleSessionStart(
     prompt,
     effectivePrompt,
     cwd,
+    scope,
+    agentId,
     allowedTools,
     attachments,
     provider,
@@ -4288,7 +4304,10 @@ async function handleSessionStart(
     hiddenFromThreads,
     channelId,
   } = payload;
-  if (!cwd?.trim()) {
+  const sessionScope = normalizeSessionScope(scope);
+  const sessionAgentId = sessionScope === 'dm' ? agentId?.trim() || null : null;
+  const sessionCwd = cwd?.trim() || undefined;
+  if (sessionScope !== 'dm' && !sessionCwd) {
     broadcast(mainWindow, {
       type: 'runner.error',
       payload: { message: 'Select a project folder before starting a task.' },
@@ -4298,7 +4317,7 @@ async function handleSessionStart(
   const chosenProvider = provider || 'claude';
   const sourcePrompt = prompt.trim();
   const longPromptAttachment = await maybeConvertLongPromptToAttachment({
-    cwd,
+    cwd: sessionCwd,
     prompt: sourcePrompt,
     attachments,
   });
@@ -4308,7 +4327,7 @@ async function handleSessionStart(
     ? outgoingPrompt
     : (effectivePrompt ?? sourcePrompt).trim();
   const runnerPrompt = augmentPromptForLiveWidgetProtocol(
-    await buildRunnerPromptWithMemory(chosenProvider, effectiveRunnerPrompt, cwd),
+    await buildRunnerPromptWithMemory(chosenProvider, effectiveRunnerPrompt, sessionCwd),
   );
   const selectedModel = normalizeModel(model);
   const selectedBetas = chosenProvider === 'claude' ? normalizeBetas(betas) : undefined;
@@ -4344,14 +4363,18 @@ async function handleSessionStart(
       provider: chosenProvider,
       model: selectedModel,
       compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
-      cwd: cwd || undefined,
+      scope: sessionScope,
+      agentId: sessionAgentId || undefined,
+      cwd: sessionCwd,
     });
   }
 
   // 创建会话（用临时标题）
   const session = sessions.createSession({
     title,
-    cwd,
+    cwd: sessionCwd,
+    scope: sessionScope,
+    agentId: sessionAgentId,
     allowedTools,
     prompt: outgoingPrompt,
     provider: chosenProvider,
@@ -4384,6 +4407,8 @@ async function handleSessionStart(
       sessionId: session.id,
       status: 'running',
       title: session.title,
+      scope: normalizeSessionScope(session.conversation_scope),
+      agentId: session.agent_id || null,
       cwd: session.cwd || undefined,
       provider: chosenProvider,
       model: selectedModel,
@@ -4407,35 +4432,39 @@ async function handleSessionStart(
   });
 
   // 异步生成更好的标题（不阻塞）
-  generateSessionTitle(
-    sourcePrompt,
-    cwd,
-    chosenProvider === 'claude' ? selectedModel : undefined,
-    chosenProvider === 'claude' ? compatibleProviderId : undefined,
-    chosenProvider === 'claude' ? selectedBetas : undefined,
-    chosenProvider,
-    selectedClaudeReasoningEffort
-  ).then((newTitle) => {
-    const trimmedTitle = newTitle.trim();
-    if (!trimmedTitle) {
-      return;
-    }
+  if (sessionScope !== 'dm') {
+    generateSessionTitle(
+      sourcePrompt,
+      sessionCwd,
+      chosenProvider === 'claude' ? selectedModel : undefined,
+      chosenProvider === 'claude' ? compatibleProviderId : undefined,
+      chosenProvider === 'claude' ? selectedBetas : undefined,
+      chosenProvider,
+      selectedClaudeReasoningEffort
+    ).then((newTitle) => {
+      const trimmedTitle = newTitle.trim();
+      if (!trimmedTitle) {
+        return;
+      }
 
-    sessions.updateSessionTitle(session.id, trimmedTitle);
-    const latest = sessions.getSession(session.id);
-    const currentStatus = latest?.status || session.status || 'running';
-    broadcast(mainWindow, {
-      type: 'session.status',
-      payload: {
-        sessionId: session.id,
-        status: currentStatus as SessionStatus,
-        title: trimmedTitle,
-        hiddenFromThreads: latest?.hidden_from_threads === 1,
-      },
+      sessions.updateSessionTitle(session.id, trimmedTitle);
+      const latest = sessions.getSession(session.id);
+      const currentStatus = latest?.status || session.status || 'running';
+      broadcast(mainWindow, {
+        type: 'session.status',
+        payload: {
+          sessionId: session.id,
+          status: currentStatus as SessionStatus,
+          title: trimmedTitle,
+          scope: normalizeSessionScope(latest?.conversation_scope),
+          agentId: latest?.agent_id || null,
+          hiddenFromThreads: latest?.hidden_from_threads === 1,
+        },
+      });
+    }).catch((err) => {
+      console.error('Failed to generate title:', err);
     });
-  }).catch((err) => {
-    console.error('Failed to generate title:', err);
-  });
+  }
 
   // 广播用户 prompt
   const createdAt = Date.now();
@@ -4717,6 +4746,8 @@ async function handleSessionContinue(
     payload: {
       sessionId,
       status: 'running',
+      scope: normalizeSessionScope(session.conversation_scope),
+      agentId: session.agent_id || null,
       provider: nextProvider,
       model: nextModel ?? '',
       compatibleProviderId: nextProvider === 'claude' ? nextCompatibleProviderId : undefined,
@@ -4901,6 +4932,10 @@ function startRunner(
 ): void {
   if (!session) return;
 
+  const runnerSession =
+    session.conversation_scope === 'dm' && !session.cwd
+      ? { ...session, cwd: getDirectMessageRuntimeCwd() }
+      : session;
   const sessionState = getSessionState(session.id);
   const provider = providerOverride || session.provider || 'claude';
   const compatibleProviderId =
@@ -4915,7 +4950,8 @@ function startRunner(
       runner: provider === 'claude' ? 'claude-agent-sdk' : provider === 'codex' ? 'codex-app-server' : 'opencode acp',
       model: modelOverride,
       compatibleProviderId,
-      cwd: session.cwd || process.cwd(),
+      cwd: runnerSession.cwd || process.cwd(),
+      scope: normalizeSessionScope(session.conversation_scope),
       hasResume: !!resumeSessionId,
     });
   }
@@ -4926,7 +4962,7 @@ function startRunner(
   const handle = runAgentLoop({
     prompt,
     attachments,
-    session,
+    session: runnerSession,
     resumeSessionId,
     model: modelOverride,
     compatibleProviderId,
@@ -4971,6 +5007,8 @@ function startRunner(
           payload: {
             sessionId: session.id,
             status: (sessions.getSession(session.id)?.status || 'running') as SessionStatus,
+            scope: normalizeSessionScope(sessions.getSession(session.id)?.conversation_scope),
+            agentId: sessions.getSession(session.id)?.agent_id || null,
             provider,
             model:
               provider === 'claude'
@@ -5088,6 +5126,8 @@ function startRunner(
           payload: {
             sessionId: session.id,
             status,
+            scope: normalizeSessionScope(sessions.getSession(session.id)?.conversation_scope),
+            agentId: sessions.getSession(session.id)?.agent_id || null,
             provider,
             model: sessions.getSession(session.id)?.model || modelOverride || undefined,
             compatibleProviderId:
@@ -5158,6 +5198,8 @@ function startRunner(
         payload: {
           sessionId: session.id,
           status: 'error',
+          scope: normalizeSessionScope(session.conversation_scope),
+          agentId: session.agent_id || null,
           hiddenFromThreads: session.hidden_from_threads === 1,
         },
       });

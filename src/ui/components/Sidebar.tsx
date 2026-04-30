@@ -108,16 +108,17 @@ export function Sidebar() {
     setShowNewSession,
     setShowSettings,
     createDraftSession,
+    openAgentDirectMessage,
     searchPaletteOpen,
     setSearchPaletteOpen,
   } = useAppStore();
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
   const [threadSidebarScope, setThreadSidebarScope] = useState<ThreadSidebarScope>('projects');
-  const [selectedDirectAgentId, setSelectedDirectAgentId] = useState<string>('kabi');
   const sidebarResizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(sidebarWidth);
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
+  const activeDirectAgentId = activeSession?.scope === 'dm' ? activeSession.agentId || '' : '';
   const newThreadCwd = activeSession?.cwd || projectCwd;
   const agentProfileList = useMemo(
     () => Object.values(agentProfiles).sort((left, right) => left.createdAt - right.createdAt),
@@ -171,15 +172,6 @@ export function Sidebar() {
       window.removeEventListener('blur', handleWindowBlur);
     };
   }, [isSidebarResizing]);
-
-  useEffect(() => {
-    if (directMessageAgents.length === 0) {
-      return;
-    }
-    if (!directMessageAgents.some((profile) => profile.id === selectedDirectAgentId)) {
-      setSelectedDirectAgentId(directMessageAgents[0].id);
-    }
-  }, [directMessageAgents, selectedDirectAgentId]);
 
   useEffect(() => {
     return () => {
@@ -248,7 +240,10 @@ export function Sidebar() {
   const visibleSessions = useMemo(
     () =>
       Object.values(sessions).filter(
-        (session) => !session.hiddenFromThreads && session.source !== 'claude_code'
+        (session) =>
+          !session.hiddenFromThreads &&
+          session.scope !== 'dm' &&
+          session.source !== 'claude_code'
       ),
     [sessions]
   );
@@ -484,8 +479,12 @@ export function Sidebar() {
                   ) : (
                     <DirectMessagesPanel
                       agents={directMessageAgents}
-                      selectedAgentId={selectedDirectAgentId}
-                      onSelectAgent={setSelectedDirectAgentId}
+                      selectedAgentId={activeDirectAgentId}
+                      onSelectAgent={(agentId) => {
+                        setShowSettings(false);
+                        setChatLayoutMode('single');
+                        openAgentDirectMessage(agentId);
+                      }}
                     />
                   )}
                 </div>
@@ -571,8 +570,14 @@ function ThreadScopeTabs({
   onScopeChange: (scope: ThreadSidebarScope) => void;
 }) {
   return (
-    <div className="px-3 pb-2.5">
-      <div className="inline-flex w-full items-center gap-0.5 rounded-full bg-[var(--sidebar-segment-bg)] p-[3px]">
+    <div className="px-3 pb-2">
+      <div className="relative grid h-6 w-full grid-cols-2 overflow-hidden rounded-full bg-[var(--sidebar-segment-bg)]">
+        <span
+          aria-hidden="true"
+          className={`absolute inset-y-0 left-0 w-1/2 rounded-full bg-[var(--sidebar-segment-active)] shadow-[var(--sidebar-segment-shadow-active)] transition-transform duration-180 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            activeScope === 'dms' ? 'translate-x-full' : 'translate-x-0'
+          }`}
+        />
         <ThreadScopeTab
           icon={<FolderOpen className="h-3.5 w-3.5" />}
           label="Projects"
@@ -605,14 +610,14 @@ function ThreadScopeTab({
     <button
       type="button"
       onClick={onClick}
-      className={`flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-medium tracking-tight outline-none transition-[background-color,color,box-shadow,transform] duration-150 ease-[cubic-bezier(0.2,0.8,0.2,1)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]/35 ${
+      className={`relative z-10 flex min-w-0 items-center justify-center gap-1 px-2 text-[11px] font-medium outline-none transition-colors duration-150 ease-[cubic-bezier(0.2,0.8,0.2,1)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]/35 ${
         active
-          ? 'bg-[var(--sidebar-segment-active)] text-[var(--text-primary)] shadow-[var(--sidebar-segment-shadow-active)]'
-          : 'text-[var(--text-secondary)] hover:-translate-y-px hover:text-[var(--text-primary)]'
+          ? 'text-[var(--text-primary)]'
+          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
       }`}
       aria-pressed={active}
     >
-      <span className="flex h-3.5 w-3.5 items-center justify-center opacity-85">{icon}</span>
+      <span className="flex h-3 w-3 items-center justify-center opacity-85 [&>svg]:h-3 [&>svg]:w-3">{icon}</span>
       <span className="truncate">{label}</span>
     </button>
   );

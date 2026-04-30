@@ -12,6 +12,7 @@ import type {
   CodexExecutionMode,
   CodexPermissionMode,
   CodexReasoningEffort,
+  AgentProfile,
   OpenCodePermissionMode,
 } from '../types';
 import { AgentModelPicker } from './AgentModelPicker';
@@ -94,6 +95,45 @@ function isImeComposingEvent(
   );
 }
 
+function buildDirectAgentEffectivePrompt(
+  prompt: string,
+  profile: AgentProfile | null | undefined
+): string {
+  if (!profile) {
+    return prompt;
+  }
+
+  const lines = [
+    `You are ${profile.name.trim() || 'this agent'}.`,
+    profile.role.trim() ? `Role: ${profile.role.trim()}` : '',
+    profile.description.trim() ? `Profile: ${profile.description.trim()}` : '',
+    profile.instructions.trim() ? `Instructions:\n${profile.instructions.trim()}` : '',
+    'This is a direct message conversation. Do not assume any project working directory or project context unless the user explicitly provides it.',
+    `User message:\n${prompt}`,
+  ].filter(Boolean);
+
+  return lines.join('\n\n');
+}
+
+function getDirectAgentRuntime(profile: AgentProfile | null | undefined) {
+  if (!profile) {
+    return null;
+  }
+
+  const isReadOnly = profile.permissionPolicy === 'readOnly';
+  const isFullAccess = profile.permissionPolicy === 'fullAccess';
+
+  return {
+    provider: profile.provider,
+    model: profile.model?.trim() || null,
+    claudeAccessMode: isFullAccess ? 'fullAccess' as const : 'default' as const,
+    claudeExecutionMode: isReadOnly ? 'plan' as const : 'execute' as const,
+    codexExecutionMode: isReadOnly ? 'plan' as const : 'execute' as const,
+    codexPermissionMode: isFullAccess ? 'fullAccess' as const : 'defaultPermissions' as const,
+    opencodePermissionMode: isFullAccess ? 'fullAccess' as const : 'defaultPermissions' as const,
+  };
+}
+
 function isVisibleClaudePickerModel(
   model: string | null | undefined,
   compatibleOptions: Array<{ model: string }>
@@ -110,6 +150,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   const {
     activeSessionId,
     sessions,
+    agentProfiles,
     activeChannelByProject,
     pendingStart,
     setShowNewSession,
@@ -156,6 +197,13 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   const targetSessionId = sessionId ?? activeSessionId;
 
   const activeSession = targetSessionId ? sessions[targetSessionId] : null;
+  const directAgentProfile =
+    activeSession?.scope === 'dm' && activeSession.agentId
+      ? agentProfiles[activeSession.agentId] || null
+      : null;
+  const directAgentRuntime = getDirectAgentRuntime(directAgentProfile);
+  const runtimeProvider = directAgentRuntime?.provider || provider;
+  const runtimeLockedByAgent = Boolean(directAgentRuntime);
   const isRunning = activeSession?.status === 'running';
   const isBusy = isRunning || pendingStart;
   const claudeModelConfig = useClaudeModelConfig();
@@ -211,8 +259,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     [opencodeModelConfig]
   );
   const activeClaudeModel = useMemo(
-    () => (provider === 'claude' ? activeSession?.model || getSessionModel(activeSession?.messages) : null),
-    [provider, activeSession?.messages, activeSession?.model]
+    () => (runtimeProvider === 'claude' ? activeSession?.model || getSessionModel(activeSession?.messages) : null),
+    [runtimeProvider, activeSession?.messages, activeSession?.model]
   );
   const visibleActiveClaudeModel = useMemo(() => {
     if (!isVisibleClaudePickerModel(activeSession?.model, compatibleOptions)) {
@@ -221,6 +269,27 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
 
     return activeSession.model.trim();
   }, [activeClaudeModel, activeSession?.model, compatibleOptions]);
+  const runtimeClaudeModel =
+    runtimeProvider === 'claude'
+      ? directAgentRuntime?.model || selectedClaudeModel
+      : selectedClaudeModel;
+  const runtimeCodexModel =
+    runtimeProvider === 'codex'
+      ? directAgentRuntime?.model || resolvedSelectedCodexModel
+      : resolvedSelectedCodexModel;
+  const runtimeOpencodeModel =
+    runtimeProvider === 'opencode'
+      ? directAgentRuntime?.model || selectedOpencodeModel || opencodeModelOptions[0] || null
+      : selectedOpencodeModel;
+  const runtimeClaudeAccessMode = directAgentRuntime?.claudeAccessMode || selectedClaudeAccessMode;
+  const runtimeClaudeExecutionMode =
+    directAgentRuntime?.claudeExecutionMode || selectedClaudeExecutionMode;
+  const runtimeCodexExecutionMode =
+    directAgentRuntime?.codexExecutionMode || selectedCodexExecutionMode;
+  const runtimeCodexPermissionMode =
+    directAgentRuntime?.codexPermissionMode || selectedCodexPermissionMode;
+  const runtimeOpencodePermissionMode =
+    directAgentRuntime?.opencodePermissionMode || selectedOpencodePermissionMode;
   const handleAutoSubmitClaudeCommand = (nextPrompt: string) => {
     if (!targetSessionId || !activeSession || activeSession.isDraft) {
       setPrompt(nextPrompt);
@@ -233,34 +302,37 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       payload: {
         sessionId: targetSessionId,
         prompt: nextPrompt,
-        provider,
+        provider: runtimeProvider,
         model:
-          provider === 'claude'
-            ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
-            : provider === 'codex'
-              ? resolvedSelectedCodexModel || undefined
-              : provider === 'opencode'
-                ? selectedOpencodeModel || opencodeModelOptions[0] || undefined
+          runtimeProvider === 'claude'
+            ? runtimeClaudeModel || claudeModelConfig.defaultModel || undefined
+            : runtimeProvider === 'codex'
+              ? runtimeCodexModel || undefined
+              : runtimeProvider === 'opencode'
+                ? runtimeOpencodeModel || undefined
                 : undefined,
         compatibleProviderId:
-          provider === 'claude' ? selectedClaudeCompatibleProviderId || undefined : undefined,
+          runtimeProvider === 'claude' && !runtimeLockedByAgent
+            ? selectedClaudeCompatibleProviderId || undefined
+            : undefined,
         betas:
-          provider === 'claude' &&
-          supportsClaude1mContext(selectedClaudeModel || claudeModelConfig.defaultModel || null) &&
+          runtimeProvider === 'claude' &&
+          !runtimeLockedByAgent &&
+          supportsClaude1mContext(runtimeClaudeModel || claudeModelConfig.defaultModel || null) &&
           selectedClaudeContext1m
             ? ['context-1m-2025-08-07']
             : undefined,
-        claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
-        claudeExecutionMode: provider === 'claude' ? selectedClaudeExecutionMode : undefined,
-        claudeReasoningEffort: provider === 'claude' ? selectedClaudeReasoningEffort : undefined,
-        codexExecutionMode: provider === 'codex' ? selectedCodexExecutionMode : undefined,
-        codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
+        claudeAccessMode: runtimeProvider === 'claude' ? runtimeClaudeAccessMode : undefined,
+        claudeExecutionMode: runtimeProvider === 'claude' ? runtimeClaudeExecutionMode : undefined,
+        claudeReasoningEffort: runtimeProvider === 'claude' ? selectedClaudeReasoningEffort : undefined,
+        codexExecutionMode: runtimeProvider === 'codex' ? runtimeCodexExecutionMode : undefined,
+        codexPermissionMode: runtimeProvider === 'codex' ? runtimeCodexPermissionMode : undefined,
         codexReasoningEffort:
-          provider === 'codex' ? selectedCodexReasoningEffort : undefined,
+          runtimeProvider === 'codex' ? selectedCodexReasoningEffort : undefined,
         codexFastMode:
-          provider === 'codex' ? selectedCodexFastMode : undefined,
+          runtimeProvider === 'codex' && !runtimeLockedByAgent ? selectedCodexFastMode : undefined,
         opencodePermissionMode:
-          provider === 'opencode' ? selectedOpencodePermissionMode : undefined,
+          runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
       },
     });
     setPrompt('');
@@ -269,7 +341,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   const skillAutocomplete = useClaudeSkillAutocomplete({
     enabled: true,
     enableSkills: true,
-    provider,
+    provider: runtimeProvider,
     prompt,
     projectPath: activeSession?.cwd,
     sessionMessages: activeSession?.messages || [],
@@ -333,6 +405,26 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       savePreferredProvider(activeSession.provider);
     }
   }, [targetSessionId, activeSession?.provider]);
+
+  useEffect(() => {
+    if (directAgentRuntime) {
+      setProvider(directAgentRuntime.provider);
+    }
+  }, [directAgentRuntime?.provider]);
+
+  useEffect(() => {
+    if (activeSession?.scope !== 'dm' || !activeSession.model) {
+      return;
+    }
+
+    if (activeSession.provider === 'claude') {
+      setSelectedClaudeModel(activeSession.model);
+    } else if (activeSession.provider === 'codex') {
+      setSelectedCodexModel(activeSession.model);
+    } else if (activeSession.provider === 'opencode') {
+      setSelectedOpencodeModel(activeSession.model);
+    }
+  }, [activeSession?.model, activeSession?.provider, activeSession?.scope, targetSessionId]);
 
   useEffect(() => {
     if (activeSession?.provider === 'claude') {
@@ -601,9 +693,9 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
 
     if (skillAutocomplete.selectedSkill) {
       const expandedPrompt =
-        provider === 'codex'
+        runtimeProvider === 'codex'
           ? skillAutocomplete.selectedSkillRemainder.trim()
-          : provider === 'claude'
+          : runtimeProvider === 'claude'
             ? trimmedPrompt
             : await (async () => {
                 const result = await window.electron.expandClaudeSkillPrompt(
@@ -689,12 +781,16 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       attachments,
     });
     const outgoingPrompt = promptWithAttachment.converted ? promptWithAttachment.prompt : displayPrompt;
-    const outgoingEffectivePrompt = promptWithAttachment.converted
+    const rawOutgoingEffectivePrompt = promptWithAttachment.converted
       ? promptWithAttachment.prompt
       : normalizedPrompt;
+    const outgoingEffectivePrompt = buildDirectAgentEffectivePrompt(
+      rawOutgoingEffectivePrompt,
+      directAgentProfile
+    );
     const outgoingAttachments = promptWithAttachment.attachments;
     const codexReferences =
-      provider === 'codex'
+      runtimeProvider === 'codex'
         ? buildCodexReferencePayload(skillAutocomplete.selectedSkill)
         : {};
     if (promptWithAttachment.reason === 'attachment_create_failed') {
@@ -702,14 +798,15 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     }
 
     if (targetSessionId && activeSession?.isDraft) {
-      if (!activeSession.cwd?.trim()) {
+      const isDirectMessageDraft = activeSession.scope === 'dm';
+      if (!isDirectMessageDraft && !activeSession.cwd?.trim()) {
         toast.error('Select a project folder before starting a task.');
         return;
       }
 
       setPendingStart(true);
       useAppStore.setState({ pendingDraftSessionId: targetSessionId });
-      const projectKey = (activeSession.cwd || '').trim() || '__no_project__';
+      const projectKey = isDirectMessageDraft ? '__dm__' : (activeSession.cwd || '').trim() || '__no_project__';
       const channelId =
         activeSession.channelId ||
         activeChannelByProject[projectKey] ||
@@ -720,39 +817,44 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           title: activeSession.title || 'New Chat',
           prompt: outgoingPrompt,
           effectivePrompt: outgoingEffectivePrompt,
-          cwd: activeSession.cwd,
-          channelId,
+          cwd: isDirectMessageDraft ? undefined : activeSession.cwd,
+          scope: isDirectMessageDraft ? 'dm' : 'project',
+          agentId: isDirectMessageDraft ? activeSession.agentId || undefined : undefined,
+          channelId: isDirectMessageDraft ? DEFAULT_WORKSPACE_CHANNEL_ID : channelId,
           attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
-          provider,
+          provider: runtimeProvider,
           model:
-            provider === 'claude'
-              ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
-              : provider === 'codex'
-                ? resolvedSelectedCodexModel || undefined
-                : provider === 'opencode'
-                  ? selectedOpencodeModel || opencodeModelOptions[0] || undefined
+            runtimeProvider === 'claude'
+              ? runtimeClaudeModel || claudeModelConfig.defaultModel || undefined
+              : runtimeProvider === 'codex'
+                ? runtimeCodexModel || undefined
+                : runtimeProvider === 'opencode'
+                  ? runtimeOpencodeModel || undefined
                   : undefined,
           compatibleProviderId:
-            provider === 'claude' ? selectedClaudeCompatibleProviderId || undefined : undefined,
+            runtimeProvider === 'claude' && !runtimeLockedByAgent
+              ? selectedClaudeCompatibleProviderId || undefined
+              : undefined,
           betas:
-            provider === 'claude' &&
-            supportsClaude1mContext(selectedClaudeModel || claudeModelConfig.defaultModel || null) &&
+            runtimeProvider === 'claude' &&
+            !runtimeLockedByAgent &&
+            supportsClaude1mContext(runtimeClaudeModel || claudeModelConfig.defaultModel || null) &&
             selectedClaudeContext1m
               ? ['context-1m-2025-08-07']
               : undefined,
-          claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
-          claudeExecutionMode: provider === 'claude' ? selectedClaudeExecutionMode : undefined,
-          claudeReasoningEffort: provider === 'claude' ? selectedClaudeReasoningEffort : undefined,
-          codexExecutionMode: provider === 'codex' ? selectedCodexExecutionMode : undefined,
-          codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
+          claudeAccessMode: runtimeProvider === 'claude' ? runtimeClaudeAccessMode : undefined,
+          claudeExecutionMode: runtimeProvider === 'claude' ? runtimeClaudeExecutionMode : undefined,
+          claudeReasoningEffort: runtimeProvider === 'claude' ? selectedClaudeReasoningEffort : undefined,
+          codexExecutionMode: runtimeProvider === 'codex' ? runtimeCodexExecutionMode : undefined,
+          codexPermissionMode: runtimeProvider === 'codex' ? runtimeCodexPermissionMode : undefined,
           codexReasoningEffort:
-            provider === 'codex' ? selectedCodexReasoningEffort : undefined,
+            runtimeProvider === 'codex' ? selectedCodexReasoningEffort : undefined,
           codexFastMode:
-            provider === 'codex' ? selectedCodexFastMode : undefined,
-          codexSkills: provider === 'codex' ? codexReferences.codexSkills : undefined,
-          codexMentions: provider === 'codex' ? codexReferences.codexMentions : undefined,
+            runtimeProvider === 'codex' && !runtimeLockedByAgent ? selectedCodexFastMode : undefined,
+          codexSkills: runtimeProvider === 'codex' ? codexReferences.codexSkills : undefined,
+          codexMentions: runtimeProvider === 'codex' ? codexReferences.codexMentions : undefined,
           opencodePermissionMode:
-            provider === 'opencode' ? selectedOpencodePermissionMode : undefined,
+            runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
         },
       });
       setPrompt('');
@@ -766,36 +868,39 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           prompt: outgoingPrompt,
           effectivePrompt: outgoingEffectivePrompt,
           attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
-          provider,
+          provider: runtimeProvider,
           model:
-            provider === 'claude'
-              ? selectedClaudeModel || claudeModelConfig.defaultModel || undefined
-              : provider === 'codex'
-                ? selectedCodexModel || codexModelOptions[0] || undefined
-                : provider === 'opencode'
-                  ? selectedOpencodeModel || opencodeModelOptions[0] || undefined
+            runtimeProvider === 'claude'
+              ? runtimeClaudeModel || claudeModelConfig.defaultModel || undefined
+              : runtimeProvider === 'codex'
+                ? runtimeCodexModel || undefined
+                : runtimeProvider === 'opencode'
+                  ? runtimeOpencodeModel || undefined
                   : undefined,
           compatibleProviderId:
-            provider === 'claude' ? selectedClaudeCompatibleProviderId || undefined : undefined,
+            runtimeProvider === 'claude' && !runtimeLockedByAgent
+              ? selectedClaudeCompatibleProviderId || undefined
+              : undefined,
           betas:
-            provider === 'claude' &&
-            supportsClaude1mContext(selectedClaudeModel || claudeModelConfig.defaultModel || null) &&
+            runtimeProvider === 'claude' &&
+            !runtimeLockedByAgent &&
+            supportsClaude1mContext(runtimeClaudeModel || claudeModelConfig.defaultModel || null) &&
             selectedClaudeContext1m
               ? ['context-1m-2025-08-07']
               : undefined,
-          claudeAccessMode: provider === 'claude' ? selectedClaudeAccessMode : undefined,
-          claudeExecutionMode: provider === 'claude' ? selectedClaudeExecutionMode : undefined,
-          claudeReasoningEffort: provider === 'claude' ? selectedClaudeReasoningEffort : undefined,
-          codexExecutionMode: provider === 'codex' ? selectedCodexExecutionMode : undefined,
-          codexPermissionMode: provider === 'codex' ? selectedCodexPermissionMode : undefined,
+          claudeAccessMode: runtimeProvider === 'claude' ? runtimeClaudeAccessMode : undefined,
+          claudeExecutionMode: runtimeProvider === 'claude' ? runtimeClaudeExecutionMode : undefined,
+          claudeReasoningEffort: runtimeProvider === 'claude' ? selectedClaudeReasoningEffort : undefined,
+          codexExecutionMode: runtimeProvider === 'codex' ? runtimeCodexExecutionMode : undefined,
+          codexPermissionMode: runtimeProvider === 'codex' ? runtimeCodexPermissionMode : undefined,
           codexReasoningEffort:
-            provider === 'codex' ? selectedCodexReasoningEffort : undefined,
+            runtimeProvider === 'codex' ? selectedCodexReasoningEffort : undefined,
           codexFastMode:
-            provider === 'codex' ? selectedCodexFastMode : undefined,
-          codexSkills: provider === 'codex' ? codexReferences.codexSkills : undefined,
-          codexMentions: provider === 'codex' ? codexReferences.codexMentions : undefined,
+            runtimeProvider === 'codex' && !runtimeLockedByAgent ? selectedCodexFastMode : undefined,
+          codexSkills: runtimeProvider === 'codex' ? codexReferences.codexSkills : undefined,
+          codexMentions: runtimeProvider === 'codex' ? codexReferences.codexMentions : undefined,
           opencodePermissionMode:
-            provider === 'opencode' ? selectedOpencodePermissionMode : undefined,
+            runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
         },
       });
       setPrompt('');
@@ -1077,14 +1182,17 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
             <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
               <AgentModelPicker
-              provider={provider}
+              provider={runtimeProvider}
               onProviderChange={(next) => {
+                if (runtimeLockedByAgent) {
+                  return;
+                }
                 setProvider(next);
                 savePreferredProvider(next);
               }}
-              disabled={isBusy}
+              disabled={isBusy || runtimeLockedByAgent}
               claudeModel={{
-                value: selectedClaudeModel,
+                value: runtimeProvider === 'claude' ? runtimeClaudeModel : selectedClaudeModel,
                 compatibleProviderId: selectedClaudeCompatibleProviderId,
                 config: claudeModelConfig,
                 runtimeModel: visibleActiveClaudeModel,
@@ -1093,10 +1201,16 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                 context1m: selectedClaudeContext1m,
                 compatibleOptions,
                 onToggleContext1m: (enabled) => {
+                  if (runtimeLockedByAgent) {
+                    return;
+                  }
                   setSelectedClaudeContext1m(enabled);
                   savePreferredClaudeContext1m(enabled);
                 },
                 onChange: (model, compatibleProviderId) => {
+                  if (runtimeLockedByAgent) {
+                    return;
+                  }
                   setSelectedClaudeModel(model);
                   setSelectedClaudeCompatibleProviderId(compatibleProviderId || null);
                   if (!supportsClaude1mContext(model)) {
@@ -1108,29 +1222,35 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                 },
               }}
               codexModel={{
-                value: selectedCodexModel,
+                value: runtimeProvider === 'codex' ? runtimeCodexModel : selectedCodexModel,
                 options: codexModelOptions,
                 runtimeModel:
                   activeSession?.provider === 'codex'
                     ? resolveCodexModel(activeSession.model || selectedCodexModel, codexModelConfig)
                     : null,
                 onChange: (model) => {
+                  if (runtimeLockedByAgent) {
+                    return;
+                  }
                   setSelectedCodexModel(model);
                   savePreferredCodexModel(model);
                 },
               }}
               opencodeModel={{
-                value: selectedOpencodeModel,
+                value: runtimeProvider === 'opencode' ? runtimeOpencodeModel : selectedOpencodeModel,
                 options: opencodeModelOptions,
                 runtimeModel: activeSession?.provider === 'opencode' ? activeSession.model || selectedOpencodeModel : null,
                 onChange: (model) => {
+                  if (runtimeLockedByAgent) {
+                    return;
+                  }
                   setSelectedOpencodeModel(model);
                   savePreferredOpencodeModel(model);
                 },
               }}
             />
 
-              {provider === 'claude' && (
+              {runtimeProvider === 'claude' && (
                 <ReasoningTraitsPicker
                   value={selectedClaudeReasoningEffort}
                   options={claudeReasoningOptions}
@@ -1139,11 +1259,11 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                     setSelectedClaudeReasoningEffort(effort);
                     savePreferredClaudeReasoningEffort(resolvedSelectedClaudeModel, effort);
                   }}
-                  disabled={isBusy}
+                  disabled={isBusy || runtimeLockedByAgent}
                 />
               )}
 
-              {provider === 'codex' && (
+              {runtimeProvider === 'codex' && (
                 <ReasoningTraitsPicker
                   value={selectedCodexReasoningEffort}
                   options={codexReasoningOptions}
@@ -1163,24 +1283,24 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                         }
                       : undefined
                   }
-                  disabled={isBusy}
+                  disabled={isBusy || runtimeLockedByAgent}
                 />
               )}
 
-              {provider === 'claude' && selectedClaudeExecutionMode === 'plan' ? (
+              {runtimeProvider === 'claude' && runtimeClaudeExecutionMode === 'plan' ? (
                 <PlanModeBadge
                   onDisable={() => setSelectedClaudeExecutionMode('execute')}
-                  disabled={isBusy}
+                  disabled={isBusy || runtimeLockedByAgent}
                 />
               ) : null}
 
-              {provider === 'codex' && selectedCodexExecutionMode === 'plan' ? (
+              {runtimeProvider === 'codex' && runtimeCodexExecutionMode === 'plan' ? (
                 <PlanModeBadge
                   onDisable={() => {
                     setSelectedCodexExecutionMode('execute');
                     savePreferredCodexExecutionMode('execute');
                   }}
-                  disabled={isBusy}
+                  disabled={isBusy || runtimeLockedByAgent}
                 />
               ) : null}
 
@@ -1216,18 +1336,18 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                           <span>Add files or photos</span>
                         </span>
                       </button>
-                      {provider === 'claude' || provider === 'codex' ? (
+                      {!runtimeLockedByAgent && (runtimeProvider === 'claude' || runtimeProvider === 'codex') ? (
                         <>
                           <div className="my-1 h-px bg-[var(--border)]/70" />
                           <PlanModeMenuItem
-                            providerLabel={provider === 'codex' ? 'Codex' : 'Claude'}
+                            providerLabel={runtimeProvider === 'codex' ? 'Codex' : 'Claude'}
                             active={
-                              provider === 'codex'
+                              runtimeProvider === 'codex'
                                 ? selectedCodexExecutionMode === 'plan'
                                 : selectedClaudeExecutionMode === 'plan'
                             }
                             onChange={(active) => {
-                              if (provider === 'codex') {
+                              if (runtimeProvider === 'codex') {
                                 const nextMode = active ? 'plan' : 'execute';
                                 setSelectedCodexExecutionMode(nextMode);
                                 savePreferredCodexExecutionMode(nextMode);
@@ -1270,35 +1390,46 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           </div>
           </div>
         </div>
-        {(provider === 'claude' || provider === 'codex' || provider === 'opencode') && (
+        {(runtimeProvider === 'claude' || runtimeProvider === 'codex' || runtimeProvider === 'opencode') && (
           <div className="flex items-center justify-start px-4 pt-2 text-[12px]">
-            {provider === 'claude' ? (
+            {runtimeProvider === 'claude' ? (
               <div className="flex items-center gap-4">
                 <ClaudeAccessModePicker
-                  value={selectedClaudeAccessMode}
-                  onChange={setSelectedClaudeAccessMode}
-                  disabled={isBusy}
+                  value={runtimeClaudeAccessMode}
+                  onChange={(mode) => {
+                    if (runtimeLockedByAgent) {
+                      return;
+                    }
+                    setSelectedClaudeAccessMode(mode);
+                  }}
+                  disabled={isBusy || runtimeLockedByAgent}
                 />
               </div>
-            ) : provider === 'codex' ? (
+            ) : runtimeProvider === 'codex' ? (
               <div className="flex items-center gap-4">
                 <CodexPermissionModePicker
-                  value={selectedCodexPermissionMode}
+                  value={runtimeCodexPermissionMode}
                   onChange={(mode) => {
+                    if (runtimeLockedByAgent) {
+                      return;
+                    }
                     setSelectedCodexPermissionMode(mode);
                     savePreferredCodexPermissionMode(mode);
                   }}
-                  disabled={isBusy}
+                  disabled={isBusy || runtimeLockedByAgent}
                 />
               </div>
             ) : (
               <CodexPermissionModePicker
-                value={selectedOpencodePermissionMode}
+                value={runtimeOpencodePermissionMode}
                 onChange={(mode) => {
+                  if (runtimeLockedByAgent) {
+                    return;
+                  }
                   setSelectedOpencodePermissionMode(mode);
                   savePreferredOpencodePermissionMode(mode);
                 }}
-                disabled={isBusy}
+                disabled={isBusy || runtimeLockedByAgent}
               />
             )}
           </div>

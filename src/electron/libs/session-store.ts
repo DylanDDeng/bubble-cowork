@@ -24,6 +24,7 @@ import type {
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
   SessionSource,
+  SessionScope,
 } from '../../shared/types';
 
 let db: Database.Database | null = null;
@@ -142,6 +143,10 @@ function normalizeWorkspaceChannelId(value?: string | null): string {
   return trimmed || DEFAULT_WORKSPACE_CHANNEL_ID;
 }
 
+function normalizeSessionScope(value?: string | null): SessionScope {
+  return value === 'dm' ? 'dm' : 'project';
+}
+
 // 初始化数据库
 export function initialize(): void {
   const dbPath = join(app.getPath('userData'), 'sessions.db');
@@ -160,6 +165,8 @@ export function initialize(): void {
       opencode_session_id TEXT,
       provider TEXT NOT NULL DEFAULT 'claude',
       model TEXT,
+      conversation_scope TEXT DEFAULT 'project',
+      agent_id TEXT,
       compatible_provider_id TEXT,
       betas TEXT,
       claude_access_mode TEXT DEFAULT 'default',
@@ -238,6 +245,8 @@ export function initialize(): void {
   ensureColumn('sessions', 'opencode_session_id', 'TEXT');
   ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
   ensureColumn('sessions', 'model', 'TEXT');
+  ensureColumn('sessions', 'conversation_scope', "TEXT DEFAULT 'project'");
+  ensureColumn('sessions', 'agent_id', 'TEXT');
   ensureColumn('sessions', 'compatible_provider_id', 'TEXT');
   ensureColumn('sessions', 'betas', 'TEXT');
   ensureColumn('sessions', 'claude_access_mode', "TEXT DEFAULT 'default'");
@@ -760,6 +769,8 @@ export function createSession(params: {
   prompt?: string;
   provider?: 'claude' | 'codex' | 'opencode';
   model?: string;
+  scope?: SessionScope;
+  agentId?: string | null;
   compatibleProviderId?: ClaudeCompatibleProviderId;
   betas?: string[];
   claudeAccessMode?: ClaudeAccessMode;
@@ -777,8 +788,8 @@ export function createSession(params: {
   const id = uuidv4();
 
   const stmt = getDb().prepare(`
-    INSERT INTO sessions (id, title, provider, model, compatible_provider_id, betas, claude_access_mode, claude_execution_mode, claude_reasoning_effort, codex_execution_mode, codex_permission_mode, codex_reasoning_effort, codex_fast_mode, opencode_permission_mode, cwd, allowed_tools, last_prompt, todo_state, session_origin, external_file_path, external_file_mtime, hidden_from_threads, workspace_channel_id, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aegis', NULL, NULL, ?, ?, 'idle', ?, ?)
+    INSERT INTO sessions (id, title, provider, model, conversation_scope, agent_id, compatible_provider_id, betas, claude_access_mode, claude_execution_mode, claude_reasoning_effort, codex_execution_mode, codex_permission_mode, codex_reasoning_effort, codex_fast_mode, opencode_permission_mode, cwd, allowed_tools, last_prompt, todo_state, session_origin, external_file_path, external_file_mtime, hidden_from_threads, workspace_channel_id, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aegis', NULL, NULL, ?, ?, 'idle', ?, ?)
   `);
 
   stmt.run(
@@ -786,6 +797,8 @@ export function createSession(params: {
     params.title,
     params.provider || 'claude',
     params.model || null,
+    normalizeSessionScope(params.scope),
+    normalizeSessionScope(params.scope) === 'dm' ? params.agentId?.trim() || null : null,
     params.provider === 'claude' ? params.compatibleProviderId || null : null,
     params.betas && params.betas.length > 0 ? JSON.stringify(params.betas) : null,
     params.provider === 'claude' ? normalizeClaudeAccessMode(params.claudeAccessMode) : null,

@@ -113,6 +113,20 @@ function resolveActiveChannelIdForProject(
   return normalizeWorkspaceChannelId(activeChannelByProject[getProjectChannelKey(cwd)]);
 }
 
+function applyActiveProjectChannel(
+  activeChannelByProject: Record<string, string>,
+  session?: Pick<SessionView, 'scope' | 'cwd' | 'channelId'> | null
+): Record<string, string> {
+  if (!session || session.scope === 'dm') {
+    return activeChannelByProject;
+  }
+
+  return {
+    ...activeChannelByProject,
+    [getProjectChannelKey(session.cwd)]: normalizeWorkspaceChannelId(session.channelId),
+  };
+}
+
 const STARTER_AGENT_PROFILES: Array<
   Omit<AgentProfile, 'createdAt' | 'updatedAt'>
 > = [
@@ -166,6 +180,24 @@ function createStarterAgentProfiles(): Record<string, AgentProfile> {
       },
     ])
   );
+}
+
+function createDirectMessageDraftOptions(profile: AgentProfile): Parameters<typeof createDraftSessionView>[2] {
+  const isReadOnly = profile.permissionPolicy === 'readOnly';
+  const isFullAccess = profile.permissionPolicy === 'fullAccess';
+
+  return {
+    title: profile.name.trim() || 'Direct Message',
+    scope: 'dm',
+    agentId: profile.id,
+    provider: profile.provider,
+    model: profile.model,
+    claudeAccessMode: isFullAccess ? 'fullAccess' : 'default',
+    claudeExecutionMode: isReadOnly ? 'plan' : 'execute',
+    codexExecutionMode: isReadOnly ? 'plan' : 'execute',
+    codexPermissionMode: isFullAccess ? 'fullAccess' : 'defaultPermissions',
+    opencodePermissionMode: isFullAccess ? 'fullAccess' : 'defaultPermissions',
+  };
 }
 
 function normalizeAgentProfileColor(value: unknown): AgentProfileColor {
@@ -328,7 +360,7 @@ function normalizeProjectAgentRosters(
             ))
           : [],
       ])
-      .filter(([, profileIds]) => profileIds.length > 0)
+      .filter(([projectKey]) => Boolean(projectKey.trim()))
   );
 }
 
@@ -532,22 +564,45 @@ function createEmptyStreamingState() {
   };
 }
 
-function createDraftSessionView(cwd?: string | null, channelId?: string | null): SessionView {
+function createDraftSessionView(
+  cwd?: string | null,
+  channelId?: string | null,
+  options?: Partial<Pick<
+    SessionView,
+    | 'title'
+    | 'scope'
+    | 'agentId'
+    | 'provider'
+    | 'model'
+    | 'claudeAccessMode'
+    | 'claudeExecutionMode'
+    | 'codexExecutionMode'
+    | 'codexPermissionMode'
+    | 'opencodePermissionMode'
+  >>
+): SessionView {
   const now = Date.now();
   const id = `draft-${now}-${Math.random().toString(36).slice(2, 8)}`;
 
   return {
     id,
-    title: 'New Chat',
+    title: options?.title || 'New Chat',
     status: 'idle',
+    scope: options?.scope || 'project',
+    agentId: options?.agentId || null,
     source: 'aegis',
     readOnly: false,
     isDraft: true,
     cwd: cwd || undefined,
     channelId: normalizeWorkspaceChannelId(channelId),
-    provider: loadPreferredProvider(),
-    claudeExecutionMode: 'execute',
+    provider: options?.provider || loadPreferredProvider(),
+    model: options?.model,
+    claudeAccessMode: options?.claudeAccessMode,
+    claudeExecutionMode: options?.claudeExecutionMode || 'execute',
     claudeReasoningEffort: 'high',
+    codexExecutionMode: options?.codexExecutionMode,
+    codexPermissionMode: options?.codexPermissionMode,
+    opencodePermissionMode: options?.opencodePermissionMode,
     hiddenFromThreads: false,
     messages: [],
     hydrated: true,
@@ -903,10 +958,7 @@ export const useAppStore = create<Store>()(
 
         return {
           activeSessionId: sessionId,
-          activeChannelByProject: {
-            ...state.activeChannelByProject,
-            [getProjectChannelKey(session.cwd)]: normalizeWorkspaceChannelId(session.channelId),
-          },
+          activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, session),
           activeWorkspace: 'chat',
           showNewSession: false,
         };
@@ -939,10 +991,7 @@ export const useAppStore = create<Store>()(
 
       return {
         activeSessionId: sessionId,
-        activeChannelByProject: {
-          ...state.activeChannelByProject,
-          [getProjectChannelKey(session.cwd)]: normalizeWorkspaceChannelId(session.channelId),
-        },
+        activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, session),
         chatPanes: nextPanes,
         activeWorkspace: 'chat',
         showNewSession: false,
@@ -971,11 +1020,7 @@ export const useAppStore = create<Store>()(
         activeWorkspace,
         activeSessionId: nextActiveSessionId,
         activeChannelByProject: nextActiveSessionId && state.sessions[nextActiveSessionId]
-          ? {
-              ...state.activeChannelByProject,
-              [getProjectChannelKey(state.sessions[nextActiveSessionId].cwd)]:
-                normalizeWorkspaceChannelId(state.sessions[nextActiveSessionId].channelId),
-            }
+          ? applyActiveProjectChannel(state.activeChannelByProject, state.sessions[nextActiveSessionId])
           : state.activeChannelByProject,
         chatPanes: {
           ...state.chatPanes,
@@ -1052,6 +1097,19 @@ export const useAppStore = create<Store>()(
       }
 
       const normalizedChannelId = normalizeWorkspaceChannelId(channelId);
+      if (session.scope === 'dm') {
+        return {
+          sessions: {
+            ...state.sessions,
+            [sessionId]: {
+              ...session,
+              channelId: normalizedChannelId,
+              updatedAt: Date.now(),
+            },
+          },
+        };
+      }
+
       const projectKey = getProjectChannelKey(session.cwd);
       return {
         sessions: {
@@ -1161,15 +1219,62 @@ export const useAppStore = create<Store>()(
       const projectKey = getProjectChannelKey(projectCwd);
       const validProfileIds = profileIds.filter((profileId) => Boolean(state.agentProfiles[profileId]));
       const nextRosters = { ...state.projectAgentRostersByProject };
-      if (validProfileIds.length === 0) {
-        delete nextRosters[projectKey];
-      } else {
-        nextRosters[projectKey] = validProfileIds;
-      }
+      nextRosters[projectKey] = validProfileIds;
       return {
         projectAgentRostersByProject: nextRosters,
       };
     }),
+
+  resetProjectAgentRoster: (projectCwd) =>
+    set((state) => {
+      const projectKey = getProjectChannelKey(projectCwd);
+      const nextRosters = { ...state.projectAgentRostersByProject };
+      delete nextRosters[projectKey];
+      return {
+        projectAgentRostersByProject: nextRosters,
+      };
+    }),
+
+  openAgentDirectMessage: (profileId) => {
+    const state = get();
+    const profile = state.agentProfiles[profileId];
+    if (!profile || !profile.enabled) {
+      return null;
+    }
+
+    const existing = Object.values(state.sessions)
+      .filter((session) => session.scope === 'dm' && session.agentId === profileId)
+      .sort((left, right) => right.updatedAt - left.updatedAt)[0];
+    const nextSession = existing || createDraftSessionView(
+      null,
+      DEFAULT_WORKSPACE_CHANNEL_ID,
+      createDirectMessageDraftOptions(profile)
+    );
+    const sessionId = nextSession.id;
+
+    set((current) => ({
+      sessions: existing
+        ? current.sessions
+        : {
+            ...current.sessions,
+            [nextSession.id]: nextSession,
+          },
+      activeSessionId: sessionId,
+      chatPanes: {
+        ...current.chatPanes,
+        [current.activePaneId]: {
+          ...current.chatPanes[current.activePaneId],
+          sessionId,
+          surface: 'chat',
+        },
+      },
+      activeWorkspace: 'chat',
+      chatSidebarView: 'threads',
+      showNewSession: false,
+    }));
+    persistUiResumeStateSnapshot(get());
+    return sessionId;
+  },
 
   setActivePane: (activePaneId) =>
     {
@@ -1821,33 +1926,38 @@ function handleSessionList(
   for (const session of sessions) {
     const existing = get().sessions[session.id];
     const channelId = normalizeWorkspaceChannelId(session.channelId);
-    const projectKey = getProjectChannelKey(session.cwd);
-    const projectChannels = ensureDefaultWorkspaceChannel(
-      nextWorkspaceChannelsByProject[projectKey],
-      session.cwd
-    );
-    if (!projectChannels.some((channel) => channel.id === channelId)) {
-      const now = Date.now();
-      nextWorkspaceChannelsByProject[projectKey] = [
-        ...projectChannels,
-        {
-          id: channelId,
-          projectCwd: session.cwd || '',
-          name: channelId,
-          createdAt: now,
-          updatedAt: now,
-        },
-      ];
-    } else {
-      nextWorkspaceChannelsByProject[projectKey] = projectChannels;
-    }
-    if (!nextActiveChannelByProject[projectKey]) {
-      nextActiveChannelByProject[projectKey] = channelId;
+    const sessionScope = session.scope || 'project';
+    if (sessionScope !== 'dm') {
+      const projectKey = getProjectChannelKey(session.cwd);
+      const projectChannels = ensureDefaultWorkspaceChannel(
+        nextWorkspaceChannelsByProject[projectKey],
+        session.cwd
+      );
+      if (!projectChannels.some((channel) => channel.id === channelId)) {
+        const now = Date.now();
+        nextWorkspaceChannelsByProject[projectKey] = [
+          ...projectChannels,
+          {
+            id: channelId,
+            projectCwd: session.cwd || '',
+            name: channelId,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ];
+      } else {
+        nextWorkspaceChannelsByProject[projectKey] = projectChannels;
+      }
+      if (!nextActiveChannelByProject[projectKey]) {
+        nextActiveChannelByProject[projectKey] = channelId;
+      }
     }
     sessionsMap[session.id] = {
       id: session.id,
       title: session.title,
       status: session.status,
+      scope: sessionScope,
+      agentId: session.agentId || null,
       source: session.source || 'aegis',
       readOnly: session.readOnly === true,
       cwd: session.cwd,
@@ -1955,6 +2065,8 @@ function handleSessionStatus(
     sessionId: string;
     status: SessionInfo['status'];
     title?: string;
+    scope?: SessionInfo['scope'];
+    agentId?: SessionInfo['agentId'];
     cwd?: string;
     provider?: SessionInfo['provider'];
     model?: SessionInfo['model'];
@@ -1978,6 +2090,8 @@ function handleSessionStatus(
     sessionId,
     status,
     title,
+    scope,
+    agentId,
     cwd,
     provider,
     model,
@@ -2017,6 +2131,11 @@ function handleSessionStatus(
           ...session,
           status,
           title: title || session.title,
+          scope: scope || session.scope || 'project',
+          agentId:
+            agentId !== undefined
+              ? agentId || null
+              : session.agentId ?? null,
           cwd: cwd || session.cwd,
           provider: provider || session.provider,
           model: model !== undefined ? (model || undefined) : session.model,
@@ -2079,6 +2198,8 @@ function handleSessionStatus(
       id: sessionId,
       title: title || 'New Session',
       status,
+      scope: scope || 'project',
+      agentId: agentId || null,
       source: 'aegis',
       readOnly: false,
       cwd,
@@ -2115,10 +2236,7 @@ function handleSessionStatus(
         ...nextSessions,
         [sessionId]: newSession,
       },
-      activeChannelByProject: {
-        ...state.activeChannelByProject,
-        [getProjectChannelKey(cwd)]: normalizeWorkspaceChannelId(channelId),
-      },
+      activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, newSession),
       activeSessionId: shouldFocusNewSession ? sessionId : state.activeSessionId,
       chatPanes: shouldFocusNewSession
         ? {

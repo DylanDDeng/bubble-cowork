@@ -1,12 +1,24 @@
 import { useMemo, useState } from 'react';
-import { Check, FolderClosed, FolderOpen, Hash, Pin, Plus, Users, X } from 'lucide-react';
+import {
+  Check,
+  FolderClosed,
+  FolderOpen,
+  Hash,
+  Pin,
+  Plus,
+  RotateCcw,
+  SlidersHorizontal,
+  Users,
+  X,
+} from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { DEFAULT_WORKSPACE_CHANNEL_ID, type WorkspaceChannel } from '../../shared/types';
-import type { AgentProvider, SessionView } from '../types';
+import type { AgentProfile, AgentProvider, SessionView } from '../types';
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
 import { OpenCodeLogo } from './OpenCodeLogo';
+import { AgentAvatar } from './AgentAvatar';
 
 type ProjectGroup = {
   key: string;
@@ -143,6 +155,8 @@ export function FolderTreeView({
     createWorkspaceChannel,
     setActiveChannelForProject,
     setProjectCwd,
+    setProjectAgentRoster,
+    resetProjectAgentRoster,
     activeChannelByProject,
     agentProfiles,
     projectAgentRostersByProject,
@@ -152,6 +166,7 @@ export function FolderTreeView({
   const [expandedChannelGroups, setExpandedChannelGroups] = useState<Set<string>>(() => new Set());
   const [channelDraftProjectKey, setChannelDraftProjectKey] = useState<string | null>(null);
   const [channelDraftName, setChannelDraftName] = useState('');
+  const [agentRosterEditorProjectKey, setAgentRosterEditorProjectKey] = useState<string | null>(null);
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const activeProjectKey = activeSession?.cwd?.trim() || projectCwd?.trim() || '__no_project__';
 
@@ -168,7 +183,14 @@ export function FolderTreeView({
 
     const primary = sessions[primarySessionId];
     const secondary = sessions[secondarySessionId];
-    if (!primary || !secondary || primary.hiddenFromThreads || secondary.hiddenFromThreads) {
+    if (
+      !primary ||
+      !secondary ||
+      primary.hiddenFromThreads ||
+      secondary.hiddenFromThreads ||
+      primary.scope === 'dm' ||
+      secondary.scope === 'dm'
+    ) {
       return null;
     }
 
@@ -177,7 +199,10 @@ export function FolderTreeView({
 
   const { pinnedSessions, projectGroups } = useMemo(() => {
     let sessionList = Object.values(sessions).filter(
-      (session) => !session.hiddenFromThreads && session.source !== 'claude_code'
+      (session) =>
+        !session.hiddenFromThreads &&
+        session.scope !== 'dm' &&
+        session.source !== 'claude_code'
     );
 
     if (splitPair) {
@@ -353,13 +378,33 @@ export function FolderTreeView({
     });
   };
 
-  const getProjectAgentCount = (fullPath: string | null) => {
-    const enabledProfileIds = Object.values(agentProfiles)
+  const enabledAgentProfiles = () =>
+    Object.values(agentProfiles)
       .filter((profile) => profile.enabled)
-      .map((profile) => profile.id);
-    const rosterIds = fullPath ? projectAgentRostersByProject[fullPath] : undefined;
-    const profileIds = rosterIds && rosterIds.length > 0 ? rosterIds : enabledProfileIds;
-    return profileIds.filter((profileId) => agentProfiles[profileId]?.enabled).length;
+      .sort((left, right) => left.createdAt - right.createdAt);
+
+  const getProjectRosterIds = (fullPath: string | null) => {
+    const enabledIds = enabledAgentProfiles().map((profile) => profile.id);
+    if (!fullPath || !Object.prototype.hasOwnProperty.call(projectAgentRostersByProject, fullPath)) {
+      return enabledIds;
+    }
+    return projectAgentRostersByProject[fullPath].filter((profileId) => agentProfiles[profileId]?.enabled);
+  };
+
+  const getProjectAgentProfiles = (fullPath: string | null) =>
+    getProjectRosterIds(fullPath)
+      .map((profileId) => agentProfiles[profileId])
+      .filter((profile): profile is AgentProfile => Boolean(profile?.enabled));
+
+  const hasCustomProjectRoster = (fullPath: string | null) =>
+    Boolean(fullPath && Object.prototype.hasOwnProperty.call(projectAgentRostersByProject, fullPath));
+
+  const toggleProjectAgent = (projectPath: string, profileId: string) => {
+    const selectedIds = getProjectRosterIds(projectPath);
+    const nextIds = selectedIds.includes(profileId)
+      ? selectedIds.filter((id) => id !== profileId)
+      : [...selectedIds, profileId];
+    setProjectAgentRoster(projectPath, nextIds);
   };
 
   return (
@@ -566,7 +611,29 @@ export function FolderTreeView({
                     )}
 
                   {group.fullPath && !sidebarSearchQuery.trim() && (
-                    <ProjectAgentSummary depth={1} count={getProjectAgentCount(group.fullPath)} />
+                    <>
+                      <ProjectAgentSummary
+                        depth={1}
+                        profiles={getProjectAgentProfiles(group.fullPath)}
+                        custom={hasCustomProjectRoster(group.fullPath)}
+                        editorOpen={agentRosterEditorProjectKey === group.key}
+                        onToggleEditor={() =>
+                          setAgentRosterEditorProjectKey((current) =>
+                            current === group.key ? null : group.key
+                          )
+                        }
+                      />
+                      {agentRosterEditorProjectKey === group.key && (
+                        <ProjectAgentRosterEditor
+                          depth={1}
+                          profiles={enabledAgentProfiles()}
+                          selectedIds={getProjectRosterIds(group.fullPath)}
+                          custom={hasCustomProjectRoster(group.fullPath)}
+                          onToggleProfile={(profileId) => toggleProjectAgent(group.fullPath!, profileId)}
+                          onReset={() => resetProjectAgentRoster(group.fullPath!)}
+                        />
+                      )}
+                    </>
                   )}
                 </>
               );
@@ -584,19 +651,137 @@ export function FolderTreeView({
   );
 }
 
-function ProjectAgentSummary({ depth, count }: { depth: number; count: number }) {
+function ProjectAgentSummary({
+  depth,
+  profiles,
+  custom,
+  editorOpen,
+  onToggleEditor,
+}: {
+  depth: number;
+  profiles: AgentProfile[];
+  custom: boolean;
+  editorOpen: boolean;
+  onToggleEditor: () => void;
+}) {
+  const count = profiles.length;
   const label =
     count === 0 ? 'No agents active' : `${count} ${count === 1 ? 'agent' : 'agents'} active`;
+  const title = count > 0 ? profiles.map((profile) => profile.name).join(', ') : label;
   return (
-    <div
-      className="mt-1 flex h-7 w-[calc(100%-4px)] min-w-0 items-center gap-2 rounded-lg px-2 text-[var(--text-muted)]"
+    <button
+      type="button"
+      onClick={onToggleEditor}
+      className={`group/agents mt-1 flex h-8 w-[calc(100%-4px)] min-w-0 items-center gap-2 rounded-lg px-2 text-left transition-colors duration-150 ${
+        editorOpen
+          ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+          : 'text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+      }`}
       style={{ marginLeft: `${depth * 16}px` }}
-      title={label}
+      title={title}
+      aria-expanded={editorOpen}
+      aria-label="Configure project agents"
     >
       <Users className="h-3.5 w-3.5 flex-shrink-0" />
       <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
         {label}
       </span>
+      <span className="flex flex-shrink-0 items-center -space-x-1">
+        {profiles.slice(0, 3).map((profile) => (
+          <AgentAvatar
+            key={profile.id}
+            profile={profile}
+            size="sm"
+            decorative
+            className="h-5 w-5 rounded-[5px] ring-1 ring-[var(--bg-tertiary)]"
+          />
+        ))}
+      </span>
+      {custom ? (
+        <span className="flex-shrink-0 rounded-full bg-[var(--accent-light)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">
+          custom
+        </span>
+      ) : null}
+      <SlidersHorizontal className="h-3.5 w-3.5 flex-shrink-0 opacity-0 transition-opacity duration-150 group-hover/agents:opacity-100" />
+    </button>
+  );
+}
+
+function ProjectAgentRosterEditor({
+  depth,
+  profiles,
+  selectedIds,
+  custom,
+  onToggleProfile,
+  onReset,
+}: {
+  depth: number;
+  profiles: AgentProfile[];
+  selectedIds: string[];
+  custom: boolean;
+  onToggleProfile: (profileId: string) => void;
+  onReset: () => void;
+}) {
+  const selectedSet = new Set(selectedIds);
+
+  return (
+    <div
+      className="mb-1 mt-1 w-[calc(100%-4px)] rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-1"
+      style={{ marginLeft: `${depth * 16}px` }}
+    >
+      <div className="mb-1 flex h-7 items-center justify-between px-2">
+        <span className="truncate text-[12px] font-medium text-[var(--text-secondary)]">
+          Project agents
+        </span>
+        {custom ? (
+          <button
+            type="button"
+            onClick={onReset}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+            aria-label="Use default roster"
+            title="Use default roster"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+      </div>
+
+      {profiles.length === 0 ? (
+        <div className="px-2 py-2 text-[12px] text-[var(--text-muted)]">No enabled agents</div>
+      ) : (
+        profiles.map((profile) => {
+          const selected = selectedSet.has(profile.id);
+          return (
+            <button
+              key={profile.id}
+              type="button"
+              onClick={() => onToggleProfile(profile.id)}
+              className="flex h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+              aria-pressed={selected}
+            >
+              <span
+                className={`flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded border ${
+                  selected
+                    ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
+                    : 'border-[var(--border)] bg-[var(--bg-primary)] text-transparent'
+                }`}
+              >
+                <Check className="h-3 w-3" strokeWidth={2.2} />
+              </span>
+              <AgentAvatar profile={profile} size="sm" decorative />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12px] font-medium text-[var(--text-primary)]">
+                  {profile.name.trim() || 'Untitled agent'}
+                </span>
+                <span className="block truncate text-[11px] text-[var(--text-muted)]">
+                  {profile.role.trim() || 'Agent'}
+                </span>
+              </span>
+              <ProviderGlyph provider={profile.provider} />
+            </button>
+          );
+        })
+      )}
     </div>
   );
 }

@@ -5,7 +5,7 @@ export type SettingsTab = 'mcp' | 'general' | 'agents' | 'providers' | 'usage' |
 
 import type { ChromeTheme, ThemeFonts, ThemeMode, ThemePack, ThemeState, ThemeVariant } from './theme/theme-types';
 // 从共享类型导入
-import type { AgentProvider, AppUpdateStatus, ProjectTreeNode, FolderConfig } from '../shared/types';
+import type { AgentProvider, AppUpdateStatus, ProjectTreeNode, FolderConfig, SessionScope } from '../shared/types';
 
 export type {
   SessionInfo,
@@ -83,6 +83,7 @@ export type {
   ProviderInputReference,
   ProviderSkillDescriptor,
   SessionSource,
+  SessionScope,
   PromptLibraryItem,
   UpsertPromptLibraryItemInput,
   PromptLibraryImportResult,
@@ -149,6 +150,8 @@ export interface SessionView {
   id: string;
   title: string;
   status: import('../shared/types').SessionStatus;
+  scope?: SessionScope;
+  agentId?: string | null;
   cwd?: string;
   claudeSessionId?: string;
   provider?: AgentProvider;
@@ -268,6 +271,8 @@ export interface AppActions {
   updateAgentProfile: (profileId: string, patch: Partial<Omit<AgentProfile, 'id' | 'createdAt'>>) => void;
   deleteAgentProfile: (profileId: string) => void;
   setProjectAgentRoster: (projectCwd: string, profileIds: string[]) => void;
+  resetProjectAgentRoster: (projectCwd: string) => void;
+  openAgentDirectMessage: (profileId: string) => string | null;
   setActivePane: (paneId: ChatPaneId) => void;
   setChatLayoutMode: (mode: ChatLayoutMode) => void;
   setSavedSplitVisible: (visible: boolean) => void;

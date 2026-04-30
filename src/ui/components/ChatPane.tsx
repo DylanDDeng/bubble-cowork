@@ -22,6 +22,7 @@ import { CodexApprovalPermissionDialog } from './CodexApprovalPermissionDialog';
 import { DecisionPanel } from './DecisionPanel';
 import { ExternalFilePermissionDialog } from './ExternalFilePermissionDialog';
 import { ErrorBoundary } from './ErrorBoundary';
+import { AgentAvatar } from './AgentAvatar';
 import { TurnChangesCard } from './TurnChangesCard';
 import { TurnDiffContext, type TurnDiffContextValue } from './TurnDiffContext';
 import { TurnDiffDrawer } from './TurnDiffDrawer';
@@ -93,12 +94,17 @@ export function ChatPane({
 }) {
   const {
     sessions,
+    agentProfiles,
     historyNavigationTarget,
     loadOlderSessionHistory,
     setHistoryNavigationTarget,
     removePermissionRequest,
   } = useAppStore();
   const session = sessionId ? sessions[sessionId] : null;
+  const directAgent =
+    session?.scope === 'dm' && session.agentId
+      ? agentProfiles[session.agentId] || null
+      : null;
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const historyRequested = useRef(new Set<string>());
@@ -510,9 +516,22 @@ export function ChatPane({
         <>
           <div className="flex h-9 items-center justify-between bg-[var(--bg-primary)] px-3">
             <div className="flex min-w-0 items-center gap-2 text-[12px] text-[var(--text-secondary)]">
-              <span className="truncate font-medium text-[var(--text-primary)]">
-                {session.title || 'Chat'}
-              </span>
+              {directAgent ? (
+                <>
+                  <AgentAvatar profile={directAgent} size="sm" decorative />
+                  <span className="truncate font-medium text-[var(--text-primary)]">
+                    {directAgent.name.trim() || session.title || 'Direct Message'}
+                  </span>
+                  <span className="shrink-0 text-[var(--text-muted)]">·</span>
+                  <span className="truncate text-[var(--text-muted)]">
+                    {directAgent.role.trim() || 'Direct message'} · No project context
+                  </span>
+                </>
+              ) : (
+                <span className="truncate font-medium text-[var(--text-primary)]">
+                  {session.title || 'Chat'}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-1">
               {headerActions}

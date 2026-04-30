@@ -28,6 +28,8 @@ export interface SessionRow {
   opencode_session_id: string | null;
   provider: 'claude' | 'codex' | 'opencode';
   model: string | null;
+  conversation_scope: import('../shared/types').SessionScope | null;
+  agent_id: string | null;
   compatible_provider_id: import('../shared/types').ClaudeCompatibleProviderId | null;
   betas: string | null;
   claude_access_mode: import('../shared/types').ClaudeAccessMode | null;
