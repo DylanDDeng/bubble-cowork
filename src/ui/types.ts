@@ -5,7 +5,15 @@ export type SettingsTab = 'mcp' | 'general' | 'agents' | 'providers' | 'usage' |
 
 import type { ChromeTheme, ThemeFonts, ThemeMode, ThemePack, ThemeState, ThemeVariant } from './theme/theme-types';
 // 从共享类型导入
-import type { AgentProvider, AppUpdateStatus, ProjectTreeNode, FolderConfig, SessionScope } from '../shared/types';
+import type {
+  AgentProvider,
+  AppUpdateStatus,
+  ClaudeReasoningEffort,
+  CodexReasoningEffort,
+  ProjectTreeNode,
+  FolderConfig,
+  SessionScope,
+} from '../shared/types';
 
 export type {
   SessionInfo,
@@ -117,6 +125,7 @@ export type ChatSidebarView = 'threads' | 'prompts' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
 export type AgentProfileColor = 'amber' | 'sky' | 'emerald' | 'violet' | 'rose' | 'slate';
 export type AgentPermissionPolicy = 'ask' | 'readOnly' | 'fullAccess';
+export type AgentReasoningEffort = ClaudeReasoningEffort | CodexReasoningEffort;
 export type AgentAvatarAssetKey =
   | 'notion-avatar-01'
   | 'notion-avatar-02'
@@ -138,6 +147,7 @@ export interface AgentProfile {
   avatar: AgentProfileAvatar;
   provider: AgentProvider;
   model?: string;
+  reasoningEffort?: AgentReasoningEffort;
   permissionPolicy: AgentPermissionPolicy;
   color: AgentProfileColor;
   enabled: boolean;

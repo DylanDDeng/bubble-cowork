@@ -129,44 +129,7 @@ function applyActiveProjectChannel(
 
 const STARTER_AGENT_PROFILES: Array<
   Omit<AgentProfile, 'createdAt' | 'updatedAt'>
-> = [
-  {
-    id: 'kabi',
-    name: 'Kabi',
-    role: 'Coordinator',
-    description: 'Plans work, clarifies scope, and routes tasks to the right specialist.',
-    instructions: 'Coordinate agent work, ask for missing context, and keep changes scoped.',
-    avatar: { type: 'asset', key: 'notion-avatar-01' },
-    provider: 'claude',
-    permissionPolicy: 'ask',
-    color: 'amber',
-    enabled: true,
-  },
-  {
-    id: 'builder',
-    name: 'Builder',
-    role: 'Implementation',
-    description: 'Implements focused code changes and keeps the working tree coherent.',
-    instructions: 'Make direct, scoped code changes and verify them before handoff.',
-    avatar: { type: 'asset', key: 'notion-avatar-02' },
-    provider: 'claude',
-    permissionPolicy: 'ask',
-    color: 'sky',
-    enabled: true,
-  },
-  {
-    id: 'reviewer',
-    name: 'Reviewer',
-    role: 'Review',
-    description: 'Reviews diffs, calls out risks, and identifies missing validation.',
-    instructions: 'Prioritize bugs, regressions, unclear behavior, and test gaps.',
-    avatar: { type: 'asset', key: 'notion-avatar-03' },
-    provider: 'claude',
-    permissionPolicy: 'readOnly',
-    color: 'emerald',
-    enabled: true,
-  },
-];
+> = [];
 
 function createStarterAgentProfiles(): Record<string, AgentProfile> {
   const now = Date.now();
@@ -192,6 +155,11 @@ function createDirectMessageDraftOptions(profile: AgentProfile): Parameters<type
     agentId: profile.id,
     provider: profile.provider,
     model: profile.model,
+    claudeReasoningEffort: profile.provider === 'claude' ? profile.reasoningEffort : undefined,
+    codexReasoningEffort:
+      profile.provider === 'codex' && profile.reasoningEffort !== 'max'
+        ? profile.reasoningEffort
+        : undefined,
     claudeAccessMode: isFullAccess ? 'fullAccess' : 'default',
     claudeExecutionMode: isReadOnly ? 'plan' : 'execute',
     codexExecutionMode: isReadOnly ? 'plan' : 'execute',
@@ -216,6 +184,20 @@ function normalizeAgentPermissionPolicy(value: unknown): AgentPermissionPolicy {
 
 function normalizeAgentProvider(value: unknown): AgentProvider {
   return value === 'codex' || value === 'opencode' ? value : 'claude';
+}
+
+function normalizeAgentReasoningEffort(value: unknown): AgentProfile['reasoningEffort'] {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'low' ||
+    normalized === 'medium' ||
+    normalized === 'high' ||
+    normalized === 'xhigh' ||
+    normalized === 'max'
+    ? normalized
+    : undefined;
 }
 
 function normalizeAgentAvatarAssetKey(
@@ -319,6 +301,7 @@ function normalizeAgentProfiles(value: unknown): Record<string, AgentProfile> {
           avatar: normalizeAgentProfileAvatar(profile.avatar, profile, normalizedId),
           provider: normalizeAgentProvider(profile.provider),
           model: profile.model?.trim() || undefined,
+          reasoningEffort: normalizeAgentReasoningEffort(profile.reasoningEffort),
           permissionPolicy: normalizeAgentPermissionPolicy(profile.permissionPolicy),
           color: normalizeAgentProfileColor(profile.color),
           enabled: profile.enabled !== false,
@@ -1139,6 +1122,7 @@ export const useAppStore = create<Store>()(
       instructions: '',
       avatar: { type: 'asset', key: 'notion-avatar-04' },
       provider: loadPreferredProvider(),
+      reasoningEffort: undefined,
       permissionPolicy: 'ask',
       color: 'violet',
       enabled: true,

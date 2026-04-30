@@ -1,81 +1,22 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Paperclip, Plus, Square, Users, X } from 'lucide-react';
+import { Plus, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import type {
   Attachment,
-  ClaudeAccessMode,
-  ClaudeExecutionMode,
-  ClaudeReasoningEffort,
-  ClaudeCompatibleProviderId,
-  CodexExecutionMode,
-  CodexPermissionMode,
-  CodexReasoningEffort,
   AgentProfile,
-  OpenCodePermissionMode,
 } from '../types';
-import { AgentModelPicker } from './AgentModelPicker';
 import { AttachmentChips } from './AttachmentChips';
-import { ClaudeAccessModePicker } from './ClaudeAccessModePicker';
-import { ReasoningTraitsPicker } from './ReasoningTraitsPicker';
-import { CodexPermissionModePicker } from './CodexPermissionModePicker';
-import { PlanModeBadge, PlanModeMenuItem } from './PlanModeControls';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ProjectAgentMentionMenu } from './ProjectAgentMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
-import { SavePromptButton } from './prompts/SavePromptButton';
 import { AgentAvatar } from './AgentAvatar';
-import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
-import { useOpencodeModelConfig } from '../hooks/useOpencodeModelConfig';
-import { useCompatibleProviderConfig } from '../hooks/useCompatibleProviderConfig';
-import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
 import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
 import { useProjectAgentMentions } from '../hooks/useProjectAgentMentions';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
-import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
-import { getSessionModel } from '../utils/session-model';
-import {
-  buildClaudeModelOptions,
-  isOfficialClaudeModel,
-  loadPreferredClaudeCompatibleProviderId,
-  loadPreferredClaudeContext1m,
-  loadPreferredClaudeModel,
-  savePreferredClaudeCompatibleProviderId,
-  savePreferredClaudeContext1m,
-  savePreferredClaudeModel,
-  supportsClaude1mContext,
-} from '../utils/claude-model';
-import {
-  getClaudeReasoningOptions,
-  getDefaultClaudeReasoningEffort,
-  savePreferredClaudeReasoningEffort,
-} from '../utils/claude-reasoning';
-import {
-  buildCodexModelOptions,
-  loadPreferredCodexModel,
-  resolveCodexModel,
-  savePreferredCodexModel,
-} from '../utils/codex-model';
-import { loadPreferredCodexExecutionMode, savePreferredCodexExecutionMode } from '../utils/codex-execution';
-import { loadPreferredCodexPermissionMode, savePreferredCodexPermissionMode } from '../utils/codex-permission';
-import {
-  getCodexReasoningOptions,
-  getDefaultCodexReasoningEffort,
-  savePreferredCodexReasoningEffort,
-} from '../utils/codex-reasoning';
-import {
-  loadPreferredCodexFastMode,
-  savePreferredCodexFastMode,
-  supportsCodexFastMode,
-} from '../utils/codex-fast';
-import { buildOpencodeModelOptions, loadPreferredOpencodeModel, savePreferredOpencodeModel } from '../utils/opencode-model';
-import {
-  loadPreferredOpencodePermissionMode,
-  savePreferredOpencodePermissionMode,
-} from '../utils/opencode-permission';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
 import {
@@ -84,7 +25,6 @@ import {
 } from '../utils/long-prompt-attachment';
 import { buildCodexReferencePayload } from '../utils/codex-composer';
 import {
-  getAgentMentionHandle,
   getAgentMentionHandles,
   getAgentMentionAliases,
   getProjectAgentProfiles,
@@ -157,30 +97,17 @@ function getAgentRuntime(profile: AgentProfile | null | undefined) {
   return {
     provider: profile.provider,
     model: profile.model?.trim() || null,
+    claudeReasoningEffort: profile.provider === 'claude' ? profile.reasoningEffort : undefined,
+    codexReasoningEffort:
+      profile.provider === 'codex' && profile.reasoningEffort !== 'max'
+        ? profile.reasoningEffort
+        : undefined,
     claudeAccessMode: isFullAccess ? 'fullAccess' as const : 'default' as const,
     claudeExecutionMode: isReadOnly ? 'plan' as const : 'execute' as const,
     codexExecutionMode: isReadOnly ? 'plan' as const : 'execute' as const,
     codexPermissionMode: isFullAccess ? 'fullAccess' as const : 'defaultPermissions' as const,
     opencodePermissionMode: isFullAccess ? 'fullAccess' as const : 'defaultPermissions' as const,
   };
-}
-
-function getAgentProviderLabel(provider: AgentProfile['provider']): string {
-  if (provider === 'codex') return 'Codex';
-  if (provider === 'opencode') return 'OpenCode';
-  return 'Claude';
-}
-
-function isVisibleClaudePickerModel(
-  model: string | null | undefined,
-  compatibleOptions: Array<{ model: string }>
-): model is string {
-  const normalized = model?.trim();
-  if (!normalized) {
-    return false;
-  }
-
-  return isOfficialClaudeModel(normalized) || compatibleOptions.some((option) => option.model === normalized);
 }
 
 export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
@@ -200,36 +127,6 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [provider, setProvider] = useState(loadPreferredProvider());
-  const [selectedClaudeModel, setSelectedClaudeModel] = useState<string | null>(
-    loadPreferredClaudeModel()
-  );
-  const [selectedClaudeCompatibleProviderId, setSelectedClaudeCompatibleProviderId] =
-    useState<ClaudeCompatibleProviderId | null>(loadPreferredClaudeCompatibleProviderId());
-  const [selectedClaudeContext1m, setSelectedClaudeContext1m] = useState(loadPreferredClaudeContext1m());
-  const [selectedCodexModel, setSelectedCodexModel] = useState<string | null>(
-    loadPreferredCodexModel()
-  );
-  const [selectedOpencodeModel, setSelectedOpencodeModel] = useState<string | null>(
-    loadPreferredOpencodeModel()
-  );
-  const [selectedClaudeAccessMode, setSelectedClaudeAccessMode] = useState<ClaudeAccessMode>('default');
-  const [selectedClaudeExecutionMode, setSelectedClaudeExecutionMode] = useState<ClaudeExecutionMode>('execute');
-  const [selectedClaudeReasoningEffort, setSelectedClaudeReasoningEffort] =
-    useState<ClaudeReasoningEffort>('high');
-  const [selectedCodexExecutionMode, setSelectedCodexExecutionMode] = useState<CodexExecutionMode>(
-    loadPreferredCodexExecutionMode()
-  );
-  const [selectedCodexPermissionMode, setSelectedCodexPermissionMode] = useState<CodexPermissionMode>(
-    loadPreferredCodexPermissionMode()
-  );
-  const [selectedCodexReasoningEffort, setSelectedCodexReasoningEffort] =
-    useState<CodexReasoningEffort>('medium');
-  const [selectedCodexFastMode, setSelectedCodexFastMode] = useState(false);
-  const [selectedOpencodePermissionMode, setSelectedOpencodePermissionMode] =
-    useState<OpenCodePermissionMode>(loadPreferredOpencodePermissionMode());
-  const [selectedTaskAgentId, setSelectedTaskAgentId] = useState<string | null>(null);
   const [cursorIndex, setCursorIndex] = useState(0);
   const editorRef = useRef<ComposerPromptEditorHandle | null>(null);
   const isComposingRef = useRef(false);
@@ -258,125 +155,44 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
         : resolveProjectAgentMentionRoute(prompt, projectAgentProfiles),
     [activeSession?.scope, projectAgentProfiles, prompt]
   );
-  const selectedTaskAgentProfile = useMemo(
-    () =>
-      selectedTaskAgentId
-        ? projectAgentProfiles.find((profile) => profile.id === selectedTaskAgentId) || null
-        : null,
-    [projectAgentProfiles, selectedTaskAgentId]
-  );
   const activeProjectAgentRoute = projectAgentRoute
     ? {
         profile: projectAgentRoute.profile,
         handle: projectAgentRoute.handle,
-        source: 'mention' as const,
       }
-    : selectedTaskAgentProfile
-      ? {
-          profile: selectedTaskAgentProfile,
-          handle: getAgentMentionHandle(selectedTaskAgentProfile),
-          source: 'assignment' as const,
-        }
-      : null;
+    : null;
   const runtimeAgentProfile = directAgentProfile || activeProjectAgentRoute?.profile || null;
   const directAgentRuntime = getAgentRuntime(directAgentProfile);
   const projectAgentRuntime = getAgentRuntime(activeProjectAgentRoute?.profile || null);
   const agentRuntime = directAgentRuntime || projectAgentRuntime;
-  const runtimeProvider = agentRuntime?.provider || provider;
-  const runtimeLockedByAgent = Boolean(agentRuntime);
+  const runtimeProvider = agentRuntime?.provider || 'claude';
+  const activeComposerAgentProfile = directAgentProfile || activeProjectAgentRoute?.profile || null;
+  const enabledAgentCount = useMemo(
+    () => Object.values(agentProfiles).filter((profile) => profile.enabled).length,
+    [agentProfiles]
+  );
   const isRunning = activeSession?.status === 'running';
   const isBusy = isRunning || pendingStart;
-  const claudeModelConfig = useClaudeModelConfig();
-  const { compatibleOptions } = useCompatibleProviderConfig();
-  const availableClaudeModels = useMemo(
-    () =>
-      buildClaudeModelOptions(
-        claudeModelConfig,
-        compatibleOptions.map((option) => option.model)
-      ),
-    [claudeModelConfig, compatibleOptions]
-  );
-  const resolvedSelectedClaudeModel = useMemo(
-    () => selectedClaudeModel || claudeModelConfig.defaultModel || availableClaudeModels[0] || null,
-    [availableClaudeModels, claudeModelConfig.defaultModel, selectedClaudeModel]
-  );
-  const claudeReasoningOptions = useMemo(
-    () =>
-      selectedClaudeCompatibleProviderId
-        ? []
-        : getClaudeReasoningOptions(resolvedSelectedClaudeModel),
-    [resolvedSelectedClaudeModel, selectedClaudeCompatibleProviderId]
-  );
-  const codexModelConfig = useCodexModelConfig();
-  const codexModelOptions = useMemo(
-    () => buildCodexModelOptions(codexModelConfig),
-    [codexModelConfig]
-  );
-  const resolvedSelectedCodexModel = useMemo(
-    () => resolveCodexModel(selectedCodexModel, codexModelConfig),
-    [codexModelConfig, selectedCodexModel]
-  );
-  const codexReasoningOptions = useMemo(
-    () => getCodexReasoningOptions(codexModelConfig, resolvedSelectedCodexModel),
-    [codexModelConfig, resolvedSelectedCodexModel]
-  );
-  const codexDefaultReasoningEffort = useMemo(() => {
-    const matched = codexModelConfig.availableModels.find((entry) => entry.name === resolvedSelectedCodexModel);
-    return (
-      matched?.defaultReasoningEffort ||
-      codexModelConfig.defaultReasoningEffort ||
-      codexReasoningOptions[0]?.effort ||
-      'medium'
-    );
-  }, [codexModelConfig, codexReasoningOptions, resolvedSelectedCodexModel]);
-  const codexFastModeSupported = useMemo(
-    () => supportsCodexFastMode(codexModelConfig, resolvedSelectedCodexModel),
-    [codexModelConfig, resolvedSelectedCodexModel]
-  );
-  const opencodeModelConfig = useOpencodeModelConfig();
-  const opencodeModelOptions = useMemo(
-    () => buildOpencodeModelOptions(opencodeModelConfig),
-    [opencodeModelConfig]
-  );
-  const activeClaudeModel = useMemo(
-    () => (runtimeProvider === 'claude' ? activeSession?.model || getSessionModel(activeSession?.messages) : null),
-    [runtimeProvider, activeSession?.messages, activeSession?.model]
-  );
-  const visibleActiveClaudeModel = useMemo(() => {
-    if (!isVisibleClaudePickerModel(activeSession?.model, compatibleOptions)) {
-      return isVisibleClaudePickerModel(activeClaudeModel, compatibleOptions) ? activeClaudeModel.trim() : null;
-    }
-
-    return activeSession.model.trim();
-  }, [activeClaudeModel, activeSession?.model, compatibleOptions]);
-  const runtimeClaudeModel =
-    runtimeProvider === 'claude'
-      ? agentRuntime?.model || selectedClaudeModel
-      : selectedClaudeModel;
-  const runtimeCodexModel =
-    runtimeProvider === 'codex'
-      ? agentRuntime?.model || resolvedSelectedCodexModel
-      : resolvedSelectedCodexModel;
-  const runtimeOpencodeModel =
-    runtimeProvider === 'opencode'
-      ? agentRuntime?.model || selectedOpencodeModel || opencodeModelOptions[0] || null
-      : selectedOpencodeModel;
-  const runtimeClaudeAccessMode = agentRuntime?.claudeAccessMode || selectedClaudeAccessMode;
-  const runtimeClaudeExecutionMode =
-    agentRuntime?.claudeExecutionMode || selectedClaudeExecutionMode;
-  const runtimeCodexExecutionMode =
-    agentRuntime?.codexExecutionMode || selectedCodexExecutionMode;
-  const runtimeCodexPermissionMode =
-    agentRuntime?.codexPermissionMode || selectedCodexPermissionMode;
-  const runtimeOpencodePermissionMode =
-    agentRuntime?.opencodePermissionMode || selectedOpencodePermissionMode;
+  const runtimeClaudeModel = runtimeProvider === 'claude' ? agentRuntime?.model || null : null;
+  const runtimeCodexModel = runtimeProvider === 'codex' ? agentRuntime?.model || null : null;
+  const runtimeOpencodeModel = runtimeProvider === 'opencode' ? agentRuntime?.model || null : null;
+  const runtimeClaudeAccessMode = agentRuntime?.claudeAccessMode;
+  const runtimeClaudeExecutionMode = agentRuntime?.claudeExecutionMode;
+  const runtimeClaudeReasoningEffort = agentRuntime?.claudeReasoningEffort;
+  const runtimeCodexExecutionMode = agentRuntime?.codexExecutionMode;
+  const runtimeCodexPermissionMode = agentRuntime?.codexPermissionMode;
+  const runtimeCodexReasoningEffort = agentRuntime?.codexReasoningEffort;
+  const runtimeOpencodePermissionMode = agentRuntime?.opencodePermissionMode;
   const handleAutoSubmitClaudeCommand = (nextPrompt: string) => {
+    if (!runtimeAgentProfile || !agentRuntime) {
+      setPrompt(nextPrompt);
+      return;
+    }
     if (!targetSessionId || !activeSession || activeSession.isDraft) {
       setPrompt(nextPrompt);
       return;
     }
 
-    setMenuOpen(false);
     const effectivePrompt = buildAgentEffectivePrompt(
       nextPrompt,
       runtimeAgentProfile,
@@ -388,7 +204,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
               cwd: activeSession.cwd,
               channelId: activeSession.channelId,
               handle: activeProjectAgentRoute.handle,
-              assignmentSource: activeProjectAgentRoute.source,
+              assignmentSource: 'mention',
             }
           : undefined
     );
@@ -401,32 +217,18 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
         provider: runtimeProvider,
         model:
           runtimeProvider === 'claude'
-            ? runtimeClaudeModel || claudeModelConfig.defaultModel || undefined
+            ? runtimeClaudeModel || undefined
             : runtimeProvider === 'codex'
               ? runtimeCodexModel || undefined
               : runtimeProvider === 'opencode'
                 ? runtimeOpencodeModel || undefined
                 : undefined,
-        compatibleProviderId:
-          runtimeProvider === 'claude' && !runtimeLockedByAgent
-            ? selectedClaudeCompatibleProviderId || undefined
-            : undefined,
-        betas:
-          runtimeProvider === 'claude' &&
-          !runtimeLockedByAgent &&
-          supportsClaude1mContext(runtimeClaudeModel || claudeModelConfig.defaultModel || null) &&
-          selectedClaudeContext1m
-            ? ['context-1m-2025-08-07']
-            : undefined,
         claudeAccessMode: runtimeProvider === 'claude' ? runtimeClaudeAccessMode : undefined,
         claudeExecutionMode: runtimeProvider === 'claude' ? runtimeClaudeExecutionMode : undefined,
-        claudeReasoningEffort: runtimeProvider === 'claude' ? selectedClaudeReasoningEffort : undefined,
+        claudeReasoningEffort: runtimeProvider === 'claude' ? runtimeClaudeReasoningEffort : undefined,
         codexExecutionMode: runtimeProvider === 'codex' ? runtimeCodexExecutionMode : undefined,
         codexPermissionMode: runtimeProvider === 'codex' ? runtimeCodexPermissionMode : undefined,
-        codexReasoningEffort:
-          runtimeProvider === 'codex' ? selectedCodexReasoningEffort : undefined,
-        codexFastMode:
-          runtimeProvider === 'codex' && !runtimeLockedByAgent ? selectedCodexFastMode : undefined,
+        codexReasoningEffort: runtimeProvider === 'codex' ? runtimeCodexReasoningEffort : undefined,
         opencodePermissionMode:
           runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
         routedAgentId: runtimeAgentProfile?.id || undefined,
@@ -434,10 +236,9 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     });
     setPrompt('');
     setAttachments([]);
-    setSelectedTaskAgentId(null);
   };
   const skillAutocomplete = useClaudeSkillAutocomplete({
-    enabled: true,
+    enabled: Boolean(runtimeAgentProfile),
     enableSkills: true,
     provider: runtimeProvider,
     prompt,
@@ -475,20 +276,6 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   );
   const projectAgentMentionActive =
     projectAgentMentions.hasMentionQuery && projectAgentMentions.suggestions.length > 0;
-  const promptLibraryContent = useMemo(() => prompt.trim(), [prompt]);
-
-  useEffect(() => {
-    setSelectedTaskAgentId(null);
-  }, [targetSessionId]);
-
-  useEffect(() => {
-    if (!selectedTaskAgentId) {
-      return;
-    }
-    if (!projectAgentProfiles.some((profile) => profile.id === selectedTaskAgentId)) {
-      setSelectedTaskAgentId(null);
-    }
-  }, [projectAgentProfiles, selectedTaskAgentId]);
 
   useEffect(() => {
     if (!promptLibraryInsertRequest) {
@@ -533,293 +320,49 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     consumeChatInjection(injection.nonce);
   }, [consumeChatInjection, pendingChatInjection, targetSessionId]);
 
-  useEffect(() => {
-    if (activeSession?.provider) {
-      setProvider(activeSession.provider);
-      savePreferredProvider(activeSession.provider);
-    }
-  }, [targetSessionId, activeSession?.provider]);
-
-  useEffect(() => {
-    if (directAgentRuntime) {
-      setProvider(directAgentRuntime.provider);
-    }
-  }, [directAgentRuntime?.provider]);
-
-  useEffect(() => {
-    if (activeSession?.scope !== 'dm' || !activeSession.model) {
-      return;
+  const composerBlocker = useMemo(() => {
+    if (!activeSession) {
+      return null;
     }
 
-    if (activeSession.provider === 'claude') {
-      setSelectedClaudeModel(activeSession.model);
-    } else if (activeSession.provider === 'codex') {
-      setSelectedCodexModel(activeSession.model);
-    } else if (activeSession.provider === 'opencode') {
-      setSelectedOpencodeModel(activeSession.model);
-    }
-  }, [activeSession?.model, activeSession?.provider, activeSession?.scope, targetSessionId]);
-
-  useEffect(() => {
-    if (activeSession?.provider === 'claude') {
-      setSelectedClaudeAccessMode(activeSession.claudeAccessMode || 'default');
-      setSelectedClaudeExecutionMode(activeSession.claudeExecutionMode || 'execute');
-      setSelectedClaudeReasoningEffort(
-        activeSession.claudeReasoningEffort ||
-        getDefaultClaudeReasoningEffort(activeSession.model || resolvedSelectedClaudeModel)
-      );
-      return;
+    if (enabledAgentCount === 0) {
+      return {
+        title: 'No agents configured',
+        description: 'Open Settings > Agents to create an agent profile before sending messages.',
+      };
     }
 
-    if (!targetSessionId) {
-      setSelectedClaudeAccessMode('default');
-      setSelectedClaudeExecutionMode('execute');
-      setSelectedClaudeReasoningEffort(getDefaultClaudeReasoningEffort(resolvedSelectedClaudeModel));
-    }
-  }, [
-    activeSession?.claudeAccessMode,
-    activeSession?.claudeExecutionMode,
-    activeSession?.claudeReasoningEffort,
-    activeSession?.model,
-    activeSession?.provider,
-    resolvedSelectedClaudeModel,
-    targetSessionId,
-  ]);
-
-  useEffect(() => {
-    if (activeSession?.provider === 'codex') {
-      setSelectedCodexExecutionMode(activeSession.codexExecutionMode || 'execute');
-      setSelectedCodexPermissionMode(activeSession.codexPermissionMode || 'defaultPermissions');
-      setSelectedCodexReasoningEffort(
-        activeSession.codexReasoningEffort ||
-          getDefaultCodexReasoningEffort(
-            codexModelConfig,
-            resolveCodexModel(activeSession.model || selectedCodexModel, codexModelConfig)
-          )
-      );
-      setSelectedCodexFastMode(activeSession.codexFastMode === true);
-      return;
-    }
-
-    if (!targetSessionId) {
-      setSelectedCodexExecutionMode(loadPreferredCodexExecutionMode());
-      setSelectedCodexPermissionMode(loadPreferredCodexPermissionMode());
-    }
-  }, [
-    activeSession?.codexExecutionMode,
-    activeSession?.codexPermissionMode,
-    activeSession?.codexReasoningEffort,
-    activeSession?.codexFastMode,
-    activeSession?.model,
-    activeSession?.provider,
-    targetSessionId,
-    codexModelConfig,
-    selectedCodexModel,
-  ]);
-
-  useEffect(() => {
-    if (activeSession?.provider === 'opencode') {
-      setSelectedOpencodePermissionMode(activeSession.opencodePermissionMode || 'defaultPermissions');
-      return;
-    }
-
-    if (!targetSessionId) {
-      setSelectedOpencodePermissionMode(loadPreferredOpencodePermissionMode());
-    }
-  }, [activeSession?.opencodePermissionMode, activeSession?.provider, targetSessionId]);
-
-  useEffect(() => {
-    if (activeSession?.provider !== 'claude') {
-      return;
-    }
-
-    // Intentionally skip syncing selectedClaudeModel from session here: the
-    // picker reflects the user's explicit choice and should not be overwritten
-    // by the CLI-resolved version that the backend writes into session.model
-    // after a request completes.
-    setSelectedClaudeCompatibleProviderId(
-      activeSession.compatibleProviderId || loadPreferredClaudeCompatibleProviderId()
-    );
-    setSelectedClaudeContext1m(
-      !!activeSession?.betas?.includes('context-1m-2025-08-07') || loadPreferredClaudeContext1m()
-    );
-  }, [
-    targetSessionId,
-    activeSession?.provider,
-    activeSession?.compatibleProviderId,
-    activeSession?.betas,
-  ]);
-
-  useEffect(() => {
-    if (provider !== 'claude') {
-      return;
-    }
-
-    const fallbackModel =
-      claudeModelConfig.defaultModel ||
-      availableClaudeModels[0] ||
-      null;
-
-    if (!fallbackModel) {
-      return;
-    }
-
-    if (!selectedClaudeModel || !availableClaudeModels.includes(selectedClaudeModel)) {
-      setSelectedClaudeModel(fallbackModel);
-      savePreferredClaudeModel(fallbackModel);
-    }
-  }, [availableClaudeModels, claudeModelConfig.defaultModel, provider, selectedClaudeModel]);
-
-  useEffect(() => {
-    if (provider !== 'claude') {
-      return;
-    }
-
-    if (claudeReasoningOptions.some((option) => option.effort === selectedClaudeReasoningEffort)) {
-      return;
-    }
-
-    const nextEffort = getDefaultClaudeReasoningEffort(resolvedSelectedClaudeModel);
-    setSelectedClaudeReasoningEffort(
-      claudeReasoningOptions.some((option) => option.effort === nextEffort)
-        ? nextEffort
-        : 'high'
-    );
-  }, [
-    claudeReasoningOptions,
-    provider,
-    resolvedSelectedClaudeModel,
-    selectedClaudeReasoningEffort,
-  ]);
-
-  useEffect(() => {
-    if (!selectedClaudeModel) {
-      if (selectedClaudeCompatibleProviderId) {
-        setSelectedClaudeCompatibleProviderId(null);
-        savePreferredClaudeCompatibleProviderId(null);
+    if (activeSession.scope === 'dm') {
+      if (!directAgentProfile) {
+        return {
+          title: 'Agent unavailable',
+          description: 'Open Settings > Agents to check this direct message agent profile.',
+        };
       }
-      return;
+      return null;
     }
 
-    const matchingOptions = compatibleOptions.filter((option) => option.model === selectedClaudeModel);
-    if (matchingOptions.length === 0) {
-      if (selectedClaudeCompatibleProviderId) {
-        setSelectedClaudeCompatibleProviderId(null);
-        savePreferredClaudeCompatibleProviderId(null);
-      }
-      return;
+    if (projectAgentProfiles.length === 0) {
+      return {
+        title: 'No agents assigned to this project',
+        description: 'Add agents from the project agent row in the sidebar before sending tasks.',
+      };
     }
 
-    if (
-      selectedClaudeCompatibleProviderId &&
-      matchingOptions.some((option) => option.id === selectedClaudeCompatibleProviderId)
-    ) {
-      return;
+    if (!activeProjectAgentRoute) {
+      return {
+        title: 'Mention an agent to send',
+        description: 'Use @agent in this channel so the message has a clear recipient.',
+      };
     }
 
-    const nextCompatibleProviderId = matchingOptions.length === 1 ? matchingOptions[0].id : null;
-    if (nextCompatibleProviderId !== selectedClaudeCompatibleProviderId) {
-      setSelectedClaudeCompatibleProviderId(nextCompatibleProviderId);
-      savePreferredClaudeCompatibleProviderId(nextCompatibleProviderId);
-    }
-  }, [compatibleOptions, selectedClaudeCompatibleProviderId, selectedClaudeModel]);
-
-  useEffect(() => {
-    if (activeSession?.provider !== 'codex') {
-      if (!codexModelOptions.length) {
-        if (selectedCodexModel) {
-          setSelectedCodexModel(null);
-          savePreferredCodexModel(null);
-        }
-        return;
-      }
-
-      if (selectedCodexModel && codexModelOptions.includes(selectedCodexModel)) {
-        return;
-      }
-
-      setSelectedCodexModel(codexModelOptions[0] || null);
-      savePreferredCodexModel(codexModelOptions[0] || null);
-      return;
-    }
-
-    const nextModel = resolveCodexModel(
-      activeSession.model ||
-        loadPreferredCodexModel() ||
-        codexModelOptions[0],
-      codexModelConfig
-    );
-    if ((nextModel || null) !== selectedCodexModel) {
-      setSelectedCodexModel(nextModel || null);
-    }
+    return null;
   }, [
-    targetSessionId,
-    activeSession?.provider,
-    activeSession?.model,
-    codexModelConfig,
-    codexModelOptions,
-  ]);
-
-  useEffect(() => {
-    if (!resolvedSelectedCodexModel) {
-      return;
-    }
-
-    if (
-      activeSession?.provider === 'codex' &&
-      activeSession.model &&
-      resolvedSelectedCodexModel === activeSession.model
-    ) {
-      return;
-    }
-
-    const nextEffort = getDefaultCodexReasoningEffort(codexModelConfig, resolvedSelectedCodexModel);
-    if (nextEffort !== selectedCodexReasoningEffort) {
-      setSelectedCodexReasoningEffort(nextEffort);
-    }
-    const nextFastMode = loadPreferredCodexFastMode(codexModelConfig, resolvedSelectedCodexModel);
-    if (nextFastMode !== selectedCodexFastMode) {
-      setSelectedCodexFastMode(nextFastMode);
-    }
-  }, [
-    activeSession?.provider,
-    codexModelConfig,
-    resolvedSelectedCodexModel,
-    selectedCodexReasoningEffort,
-    selectedCodexFastMode,
-  ]);
-
-  useEffect(() => {
-    if (activeSession?.provider !== 'opencode') {
-      if (!opencodeModelOptions.length) {
-        if (selectedOpencodeModel) {
-          setSelectedOpencodeModel(null);
-          savePreferredOpencodeModel(null);
-        }
-        return;
-      }
-
-      if (selectedOpencodeModel && opencodeModelOptions.includes(selectedOpencodeModel)) {
-        return;
-      }
-
-      setSelectedOpencodeModel(opencodeModelOptions[0] || null);
-      savePreferredOpencodeModel(opencodeModelOptions[0] || null);
-      return;
-    }
-
-    const nextModel =
-      activeSession.model ||
-      loadPreferredOpencodeModel() ||
-      opencodeModelOptions[0];
-    if ((nextModel || null) !== selectedOpencodeModel) {
-      setSelectedOpencodeModel(nextModel || null);
-    }
-  }, [
-    targetSessionId,
-    activeSession?.provider,
-    activeSession?.model,
-    opencodeModelOptions,
+    activeProjectAgentRoute,
+    activeSession,
+    directAgentProfile,
+    enabledAgentCount,
+    projectAgentProfiles.length,
   ]);
 
   const buildDispatchPrompt = async (): Promise<string | null> => {
@@ -904,7 +447,14 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
 
   const handleSend = async () => {
     if (!prompt.trim() && attachments.length === 0) return;
-    setMenuOpen(false);
+    if (composerBlocker || !runtimeAgentProfile || !agentRuntime) {
+      toast.error(
+        composerBlocker
+          ? `${composerBlocker.title}: ${composerBlocker.description}`
+          : 'Select an agent before sending.'
+      );
+      return;
+    }
 
     const displayPrompt = prompt.trim();
     const normalizedPrompt = await buildDispatchPrompt();
@@ -931,7 +481,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
               cwd: activeSession?.cwd,
               channelId: activeSession?.channelId,
               handle: activeProjectAgentRoute.handle,
-              assignmentSource: activeProjectAgentRoute.source,
+              assignmentSource: 'mention',
             }
           : undefined
     );
@@ -972,32 +522,18 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           provider: runtimeProvider,
           model:
             runtimeProvider === 'claude'
-              ? runtimeClaudeModel || claudeModelConfig.defaultModel || undefined
+              ? runtimeClaudeModel || undefined
               : runtimeProvider === 'codex'
                 ? runtimeCodexModel || undefined
                 : runtimeProvider === 'opencode'
                   ? runtimeOpencodeModel || undefined
                   : undefined,
-          compatibleProviderId:
-            runtimeProvider === 'claude' && !runtimeLockedByAgent
-              ? selectedClaudeCompatibleProviderId || undefined
-              : undefined,
-          betas:
-            runtimeProvider === 'claude' &&
-            !runtimeLockedByAgent &&
-            supportsClaude1mContext(runtimeClaudeModel || claudeModelConfig.defaultModel || null) &&
-            selectedClaudeContext1m
-              ? ['context-1m-2025-08-07']
-              : undefined,
           claudeAccessMode: runtimeProvider === 'claude' ? runtimeClaudeAccessMode : undefined,
           claudeExecutionMode: runtimeProvider === 'claude' ? runtimeClaudeExecutionMode : undefined,
-          claudeReasoningEffort: runtimeProvider === 'claude' ? selectedClaudeReasoningEffort : undefined,
+          claudeReasoningEffort: runtimeProvider === 'claude' ? runtimeClaudeReasoningEffort : undefined,
           codexExecutionMode: runtimeProvider === 'codex' ? runtimeCodexExecutionMode : undefined,
           codexPermissionMode: runtimeProvider === 'codex' ? runtimeCodexPermissionMode : undefined,
-          codexReasoningEffort:
-            runtimeProvider === 'codex' ? selectedCodexReasoningEffort : undefined,
-          codexFastMode:
-            runtimeProvider === 'codex' && !runtimeLockedByAgent ? selectedCodexFastMode : undefined,
+          codexReasoningEffort: runtimeProvider === 'codex' ? runtimeCodexReasoningEffort : undefined,
           codexSkills: runtimeProvider === 'codex' ? codexReferences.codexSkills : undefined,
           codexMentions: runtimeProvider === 'codex' ? codexReferences.codexMentions : undefined,
           opencodePermissionMode:
@@ -1007,7 +543,6 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       });
       setPrompt('');
       setAttachments([]);
-      setSelectedTaskAgentId(null);
     } else if (targetSessionId && activeSession) {
       // 继续现有会话
       sendEvent({
@@ -1020,32 +555,18 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           provider: runtimeProvider,
           model:
             runtimeProvider === 'claude'
-              ? runtimeClaudeModel || claudeModelConfig.defaultModel || undefined
+              ? runtimeClaudeModel || undefined
               : runtimeProvider === 'codex'
                 ? runtimeCodexModel || undefined
                 : runtimeProvider === 'opencode'
                   ? runtimeOpencodeModel || undefined
                   : undefined,
-          compatibleProviderId:
-            runtimeProvider === 'claude' && !runtimeLockedByAgent
-              ? selectedClaudeCompatibleProviderId || undefined
-              : undefined,
-          betas:
-            runtimeProvider === 'claude' &&
-            !runtimeLockedByAgent &&
-            supportsClaude1mContext(runtimeClaudeModel || claudeModelConfig.defaultModel || null) &&
-            selectedClaudeContext1m
-              ? ['context-1m-2025-08-07']
-              : undefined,
           claudeAccessMode: runtimeProvider === 'claude' ? runtimeClaudeAccessMode : undefined,
           claudeExecutionMode: runtimeProvider === 'claude' ? runtimeClaudeExecutionMode : undefined,
-          claudeReasoningEffort: runtimeProvider === 'claude' ? selectedClaudeReasoningEffort : undefined,
+          claudeReasoningEffort: runtimeProvider === 'claude' ? runtimeClaudeReasoningEffort : undefined,
           codexExecutionMode: runtimeProvider === 'codex' ? runtimeCodexExecutionMode : undefined,
           codexPermissionMode: runtimeProvider === 'codex' ? runtimeCodexPermissionMode : undefined,
-          codexReasoningEffort:
-            runtimeProvider === 'codex' ? selectedCodexReasoningEffort : undefined,
-          codexFastMode:
-            runtimeProvider === 'codex' && !runtimeLockedByAgent ? selectedCodexFastMode : undefined,
+          codexReasoningEffort: runtimeProvider === 'codex' ? runtimeCodexReasoningEffort : undefined,
           codexSkills: runtimeProvider === 'codex' ? codexReferences.codexSkills : undefined,
           codexMentions: runtimeProvider === 'codex' ? codexReferences.codexMentions : undefined,
           opencodePermissionMode:
@@ -1055,7 +576,6 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       });
       setPrompt('');
       setAttachments([]);
-      setSelectedTaskAgentId(null);
     } else {
       // 没有活动会话，显示新建视图
       setShowNewSession(true);
@@ -1063,7 +583,6 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   };
 
   const handleStop = () => {
-    setMenuOpen(false);
     if (targetSessionId) {
       sendEvent({
         type: 'session.stop',
@@ -1378,9 +897,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                 ? 'Press Enter to stop...'
                 : pendingStart
                 ? 'Starting session...'
-                : targetSessionId
-                ? 'Continue the conversation...'
-                : 'Start a new session...'
+                : 'Sending to the agent...'
             }
             disabled={isBusy}
             className="w-full bg-transparent px-4 pt-3 pb-1 text-[14px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50"
@@ -1389,252 +906,29 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
 
           <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
             <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
-              {activeProjectAgentRoute ? (
+              {activeComposerAgentProfile ? (
                 <div
                   className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg bg-[var(--bg-tertiary)] px-2 text-[12px] text-[var(--text-secondary)]"
-                  title={`${activeProjectAgentRoute.source === 'assignment' ? 'Assigned to' : 'Routed to'} ${activeProjectAgentRoute.profile.name.trim() || 'Agent'}`}
+                  title={activeComposerAgentProfile.name.trim() || 'Agent'}
                 >
-                  <AgentAvatar profile={activeProjectAgentRoute.profile} size="sm" decorative />
-                  <span className="max-w-[120px] truncate">
-                    @{activeProjectAgentRoute.handle}
+                  <AgentAvatar profile={activeComposerAgentProfile} size="sm" decorative />
+                  <span className="max-w-[140px] truncate">
+                    {activeComposerAgentProfile.name.trim() || 'Agent'}
                   </span>
-                  {activeProjectAgentRoute.source === 'assignment' ? (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedTaskAgentId(null)}
-                      className="-mr-1 flex h-5 w-5 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]"
-                      aria-label="Clear assigned agent"
-                      title="Clear assigned agent"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  ) : null}
                 </div>
               ) : null}
-              <AgentModelPicker
-              provider={runtimeProvider}
-              onProviderChange={(next) => {
-                if (runtimeLockedByAgent) {
-                  return;
-                }
-                setProvider(next);
-                savePreferredProvider(next);
-              }}
-              disabled={isBusy || runtimeLockedByAgent}
-              claudeModel={{
-                value: runtimeProvider === 'claude' ? runtimeClaudeModel : selectedClaudeModel,
-                compatibleProviderId: selectedClaudeCompatibleProviderId,
-                config: claudeModelConfig,
-                runtimeModel: visibleActiveClaudeModel,
-                runtimeCompatibleProviderId:
-                  activeSession?.provider === 'claude' ? activeSession.compatibleProviderId || null : null,
-                context1m: selectedClaudeContext1m,
-                compatibleOptions,
-                onToggleContext1m: (enabled) => {
-                  if (runtimeLockedByAgent) {
-                    return;
-                  }
-                  setSelectedClaudeContext1m(enabled);
-                  savePreferredClaudeContext1m(enabled);
-                },
-                onChange: (model, compatibleProviderId) => {
-                  if (runtimeLockedByAgent) {
-                    return;
-                  }
-                  setSelectedClaudeModel(model);
-                  setSelectedClaudeCompatibleProviderId(compatibleProviderId || null);
-                  if (!supportsClaude1mContext(model)) {
-                    setSelectedClaudeContext1m(false);
-                    savePreferredClaudeContext1m(false);
-                  }
-                  savePreferredClaudeModel(model);
-                  savePreferredClaudeCompatibleProviderId(compatibleProviderId || null);
-                },
-              }}
-              codexModel={{
-                value: runtimeProvider === 'codex' ? runtimeCodexModel : selectedCodexModel,
-                options: codexModelOptions,
-                runtimeModel:
-                  activeSession?.provider === 'codex'
-                    ? resolveCodexModel(activeSession.model || selectedCodexModel, codexModelConfig)
-                    : null,
-                onChange: (model) => {
-                  if (runtimeLockedByAgent) {
-                    return;
-                  }
-                  setSelectedCodexModel(model);
-                  savePreferredCodexModel(model);
-                },
-              }}
-              opencodeModel={{
-                value: runtimeProvider === 'opencode' ? runtimeOpencodeModel : selectedOpencodeModel,
-                options: opencodeModelOptions,
-                runtimeModel: activeSession?.provider === 'opencode' ? activeSession.model || selectedOpencodeModel : null,
-                onChange: (model) => {
-                  if (runtimeLockedByAgent) {
-                    return;
-                  }
-                  setSelectedOpencodeModel(model);
-                  savePreferredOpencodeModel(model);
-                },
-              }}
-            />
-
-              {runtimeProvider === 'claude' && (
-                <ReasoningTraitsPicker
-                  value={selectedClaudeReasoningEffort}
-                  options={claudeReasoningOptions}
-                  defaultEffort="high"
-                  onEffortChange={(effort) => {
-                    setSelectedClaudeReasoningEffort(effort);
-                    savePreferredClaudeReasoningEffort(resolvedSelectedClaudeModel, effort);
-                  }}
-                  disabled={isBusy || runtimeLockedByAgent}
-                />
-              )}
-
-              {runtimeProvider === 'codex' && (
-                <ReasoningTraitsPicker
-                  value={selectedCodexReasoningEffort}
-                  options={codexReasoningOptions}
-                  defaultEffort={codexDefaultReasoningEffort}
-                  onEffortChange={(effort) => {
-                    setSelectedCodexReasoningEffort(effort);
-                    savePreferredCodexReasoningEffort(resolvedSelectedCodexModel, effort);
-                  }}
-                  fastMode={
-                    codexFastModeSupported
-                      ? {
-                          enabled: selectedCodexFastMode,
-                          onToggle: (enabled) => {
-                            setSelectedCodexFastMode(enabled);
-                            savePreferredCodexFastMode(codexModelConfig, resolvedSelectedCodexModel, enabled);
-                          },
-                        }
-                      : undefined
-                  }
-                  disabled={isBusy || runtimeLockedByAgent}
-                />
-              )}
-
-              {runtimeProvider === 'claude' && runtimeClaudeExecutionMode === 'plan' ? (
-                <PlanModeBadge
-                  onDisable={() => setSelectedClaudeExecutionMode('execute')}
-                  disabled={isBusy || runtimeLockedByAgent}
-                />
-              ) : null}
-
-              {runtimeProvider === 'codex' && runtimeCodexExecutionMode === 'plan' ? (
-                <PlanModeBadge
-                  onDisable={() => {
-                    setSelectedCodexExecutionMode('execute');
-                    savePreferredCodexExecutionMode('execute');
-                  }}
-                  disabled={isBusy || runtimeLockedByAgent}
-                />
-              ) : null}
-
-              <SavePromptButton content={promptLibraryContent} disabled={isBusy} />
-
-              <div className="relative">
-                <button
-                onClick={() => setMenuOpen((v) => !v)}
+              <button
+                type="button"
+                onClick={() => {
+                  void handleAddAttachments();
+                }}
                 disabled={isBusy}
                 className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-all duration-150 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
-                title="Add"
-                aria-label="Add"
+                title="Add files or photos"
+                aria-label="Add files or photos"
               >
-                  <Plus className="h-4 w-4" />
-                </button>
-
-                {menuOpen && !isBusy && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-20"
-                      onClick={() => setMenuOpen(false)}
-                    />
-                    <div className="popover-surface absolute bottom-full mb-2 left-0 z-30 min-w-[260px] p-1.5">
-                      <button
-                        onClick={async () => {
-                          setMenuOpen(false);
-                          await handleAddAttachments();
-                        }}
-                        className="w-full rounded-lg px-3 py-2 text-left text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
-                      >
-                        <span className="flex items-center gap-3">
-                          <Paperclip className="h-4 w-4" />
-                          <span>Add files or photos</span>
-                        </span>
-                      </button>
-                      {activeSession?.scope !== 'dm' && projectAgentProfiles.length > 0 ? (
-                        <>
-                          <div className="my-1 h-px bg-[var(--border)]/70" />
-                          <div className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--text-muted)]">
-                            <Users className="h-3.5 w-3.5" />
-                            <span>Assign next message</span>
-                          </div>
-                          <div className="max-h-52 overflow-y-auto">
-                            {projectAgentProfiles.map((profile) => {
-                              const handle = getAgentMentionHandle(profile);
-                              const selected = selectedTaskAgentId === profile.id;
-                              return (
-                                <button
-                                  key={profile.id}
-                                  onClick={() => {
-                                    setSelectedTaskAgentId(selected ? null : profile.id);
-                                    setMenuOpen(false);
-                                  }}
-                                  className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
-                                    selected
-                                      ? 'bg-[var(--accent-light)] text-[var(--text-primary)]'
-                                      : 'text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-                                  }`}
-                                >
-                                  <AgentAvatar profile={profile} size="sm" decorative />
-                                  <div className="min-w-0 flex-1">
-                                    <div className="truncate text-[12px] font-medium">
-                                      @{handle}
-                                    </div>
-                                    <div className="truncate text-[11px] text-[var(--text-muted)]">
-                                      {profile.role.trim() || 'Agent'} · {getAgentProviderLabel(profile.provider)}
-                                    </div>
-                                  </div>
-                                  {selected ? (
-                                    <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
-                                  ) : null}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </>
-                      ) : null}
-                      {!runtimeLockedByAgent && (runtimeProvider === 'claude' || runtimeProvider === 'codex') ? (
-                        <>
-                          <div className="my-1 h-px bg-[var(--border)]/70" />
-                          <PlanModeMenuItem
-                            providerLabel={runtimeProvider === 'codex' ? 'Codex' : 'Claude'}
-                            active={
-                              runtimeProvider === 'codex'
-                                ? selectedCodexExecutionMode === 'plan'
-                                : selectedClaudeExecutionMode === 'plan'
-                            }
-                            onChange={(active) => {
-                              if (runtimeProvider === 'codex') {
-                                const nextMode = active ? 'plan' : 'execute';
-                                setSelectedCodexExecutionMode(nextMode);
-                                savePreferredCodexExecutionMode(nextMode);
-                              } else {
-                                setSelectedClaudeExecutionMode(active ? 'plan' : 'execute');
-                              }
-                              setMenuOpen(false);
-                            }}
-                          />
-                        </>
-                      ) : null}
-                    </div>
-                  </>
-                )}
-              </div>
+                <Plus className="h-4 w-4" />
+              </button>
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
@@ -1650,9 +944,12 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
               ) : (
               <button
                 onClick={handleSend}
-                disabled={(!prompt.trim() && attachments.length === 0) || isBusy}
+                disabled={
+                  (!prompt.trim() && attachments.length === 0) ||
+                  isBusy
+                }
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-20 disabled:hover:scale-100"
-                title="Send"
+                title={composerBlocker ? composerBlocker.description : 'Send'}
                 aria-label="Send"
               >
                   <ArrowUpIcon />
@@ -1662,50 +959,6 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           </div>
           </div>
         </div>
-        {(runtimeProvider === 'claude' || runtimeProvider === 'codex' || runtimeProvider === 'opencode') && (
-          <div className="flex items-center justify-start px-4 pt-2 text-[12px]">
-            {runtimeProvider === 'claude' ? (
-              <div className="flex items-center gap-4">
-                <ClaudeAccessModePicker
-                  value={runtimeClaudeAccessMode}
-                  onChange={(mode) => {
-                    if (runtimeLockedByAgent) {
-                      return;
-                    }
-                    setSelectedClaudeAccessMode(mode);
-                  }}
-                  disabled={isBusy || runtimeLockedByAgent}
-                />
-              </div>
-            ) : runtimeProvider === 'codex' ? (
-              <div className="flex items-center gap-4">
-                <CodexPermissionModePicker
-                  value={runtimeCodexPermissionMode}
-                  onChange={(mode) => {
-                    if (runtimeLockedByAgent) {
-                      return;
-                    }
-                    setSelectedCodexPermissionMode(mode);
-                    savePreferredCodexPermissionMode(mode);
-                  }}
-                  disabled={isBusy || runtimeLockedByAgent}
-                />
-              </div>
-            ) : (
-              <CodexPermissionModePicker
-                value={runtimeOpencodePermissionMode}
-                onChange={(mode) => {
-                  if (runtimeLockedByAgent) {
-                    return;
-                  }
-                  setSelectedOpencodePermissionMode(mode);
-                  savePreferredOpencodePermissionMode(mode);
-                }}
-                disabled={isBusy || runtimeLockedByAgent}
-              />
-            )}
-          </div>
-        )}
       </div>
     </div>
   );

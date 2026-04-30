@@ -7,6 +7,7 @@ import type {
   AgentProfile,
   AgentProfileColor,
   AgentAvatarAssetKey,
+  AgentReasoningEffort,
 } from '../../types';
 import { SettingsGroup, SettingsToggle } from './SettingsPrimitives';
 
@@ -23,6 +24,21 @@ const FIELD_CONTROL_CLASS =
   'w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1.5 text-[13px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/15';
 
 const TEXTAREA_CONTROL_CLASS = `${FIELD_CONTROL_CLASS} min-h-[76px] resize-y leading-5`;
+
+const CLAUDE_REASONING_OPTIONS: Array<{ value: AgentReasoningEffort; label: string }> = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'xhigh', label: 'Extra high' },
+  { value: 'max', label: 'Max' },
+];
+
+const CODEX_REASONING_OPTIONS: Array<{ value: AgentReasoningEffort; label: string }> = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'xhigh', label: 'Extra high' },
+];
 
 function displayName(profile: AgentProfile): string {
   return profile.name.trim() || 'Untitled agent';
@@ -236,7 +252,16 @@ function AgentProfileForm({
         <ProfileField label="Provider">
           <select
             value={profile.provider}
-            onChange={(event) => onUpdate({ provider: event.target.value as AgentProfile['provider'] })}
+            onChange={(event) => {
+              const provider = event.target.value as AgentProfile['provider'];
+              onUpdate({
+                provider,
+                reasoningEffort:
+                  provider === 'opencode' || (provider === 'codex' && profile.reasoningEffort === 'max')
+                    ? undefined
+                    : profile.reasoningEffort,
+              });
+            }}
             className={FIELD_CONTROL_CLASS}
           >
             <option value="claude">Claude</option>
@@ -252,6 +277,24 @@ function AgentProfileForm({
             className={FIELD_CONTROL_CLASS}
           />
         </ProfileField>
+        {profile.provider !== 'opencode' ? (
+          <ProfileField label="Reasoning">
+            <select
+              value={profile.reasoningEffort || ''}
+              onChange={(event) => (
+                onUpdate({ reasoningEffort: event.target.value ? event.target.value as AgentReasoningEffort : undefined })
+              )}
+              className={FIELD_CONTROL_CLASS}
+            >
+              <option value="">Default</option>
+              {(profile.provider === 'codex' ? CODEX_REASONING_OPTIONS : CLAUDE_REASONING_OPTIONS).map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </ProfileField>
+        ) : null}
         <ProfileField label="Permission policy">
           <select
             value={profile.permissionPolicy}
