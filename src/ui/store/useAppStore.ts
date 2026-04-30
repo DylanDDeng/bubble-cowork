@@ -1225,16 +1225,6 @@ export const useAppStore = create<Store>()(
       };
     }),
 
-  resetProjectAgentRoster: (projectCwd) =>
-    set((state) => {
-      const projectKey = getProjectChannelKey(projectCwd);
-      const nextRosters = { ...state.projectAgentRostersByProject };
-      delete nextRosters[projectKey];
-      return {
-        projectAgentRostersByProject: nextRosters,
-      };
-    }),
-
   openAgentDirectMessage: (profileId) => {
     const state = get();
     const profile = state.agentProfiles[profileId];

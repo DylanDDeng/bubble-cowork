@@ -6,7 +6,6 @@ import {
   Hash,
   Pin,
   Plus,
-  RotateCcw,
   SlidersHorizontal,
   Users,
   X,
@@ -156,7 +155,6 @@ export function FolderTreeView({
     setActiveChannelForProject,
     setProjectCwd,
     setProjectAgentRoster,
-    resetProjectAgentRoster,
     activeChannelByProject,
     agentProfiles,
     projectAgentRostersByProject,
@@ -303,11 +301,9 @@ export function FolderTreeView({
         return {
           ...group,
           sessions: sortedSessions,
-          channels: [...sessionChannels, ...emptyChannels].sort((left, right) => {
-            if (left.id === DEFAULT_WORKSPACE_CHANNEL_ID) return -1;
-            if (right.id === DEFAULT_WORKSPACE_CHANNEL_ID) return 1;
-            return right.updatedAt - left.updatedAt;
-          }),
+          channels: [...sessionChannels, ...emptyChannels].sort(
+            (left, right) => right.updatedAt - left.updatedAt
+          ),
         };
       })
       .sort((left, right) => {
@@ -384,9 +380,8 @@ export function FolderTreeView({
       .sort((left, right) => left.createdAt - right.createdAt);
 
   const getProjectRosterIds = (fullPath: string | null) => {
-    const enabledIds = enabledAgentProfiles().map((profile) => profile.id);
     if (!fullPath || !Object.prototype.hasOwnProperty.call(projectAgentRostersByProject, fullPath)) {
-      return enabledIds;
+      return [];
     }
     return projectAgentRostersByProject[fullPath].filter((profileId) => agentProfiles[profileId]?.enabled);
   };
@@ -395,9 +390,6 @@ export function FolderTreeView({
     getProjectRosterIds(fullPath)
       .map((profileId) => agentProfiles[profileId])
       .filter((profile): profile is AgentProfile => Boolean(profile?.enabled));
-
-  const hasCustomProjectRoster = (fullPath: string | null) =>
-    Boolean(fullPath && Object.prototype.hasOwnProperty.call(projectAgentRostersByProject, fullPath));
 
   const toggleProjectAgent = (projectPath: string, profileId: string) => {
     const selectedIds = getProjectRosterIds(projectPath);
@@ -615,7 +607,6 @@ export function FolderTreeView({
                       <ProjectAgentSummary
                         depth={1}
                         profiles={getProjectAgentProfiles(group.fullPath)}
-                        custom={hasCustomProjectRoster(group.fullPath)}
                         editorOpen={agentRosterEditorProjectKey === group.key}
                         onToggleEditor={() =>
                           setAgentRosterEditorProjectKey((current) =>
@@ -628,9 +619,7 @@ export function FolderTreeView({
                           depth={1}
                           profiles={enabledAgentProfiles()}
                           selectedIds={getProjectRosterIds(group.fullPath)}
-                          custom={hasCustomProjectRoster(group.fullPath)}
                           onToggleProfile={(profileId) => toggleProjectAgent(group.fullPath!, profileId)}
-                          onReset={() => resetProjectAgentRoster(group.fullPath!)}
                         />
                       )}
                     </>
@@ -654,13 +643,11 @@ export function FolderTreeView({
 function ProjectAgentSummary({
   depth,
   profiles,
-  custom,
   editorOpen,
   onToggleEditor,
 }: {
   depth: number;
   profiles: AgentProfile[];
-  custom: boolean;
   editorOpen: boolean;
   onToggleEditor: () => void;
 }) {
@@ -697,11 +684,6 @@ function ProjectAgentSummary({
           />
         ))}
       </span>
-      {custom ? (
-        <span className="flex-shrink-0 rounded-full bg-[var(--accent-light)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">
-          custom
-        </span>
-      ) : null}
       <SlidersHorizontal className="h-3.5 w-3.5 flex-shrink-0 opacity-0 transition-opacity duration-150 group-hover/agents:opacity-100" />
     </button>
   );
@@ -711,16 +693,12 @@ function ProjectAgentRosterEditor({
   depth,
   profiles,
   selectedIds,
-  custom,
   onToggleProfile,
-  onReset,
 }: {
   depth: number;
   profiles: AgentProfile[];
   selectedIds: string[];
-  custom: boolean;
   onToggleProfile: (profileId: string) => void;
-  onReset: () => void;
 }) {
   const selectedSet = new Set(selectedIds);
 
@@ -733,17 +711,6 @@ function ProjectAgentRosterEditor({
         <span className="truncate text-[12px] font-medium text-[var(--text-secondary)]">
           Project agents
         </span>
-        {custom ? (
-          <button
-            type="button"
-            onClick={onReset}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-            aria-label="Use default roster"
-            title="Use default roster"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-          </button>
-        ) : null}
       </div>
 
       {profiles.length === 0 ? (

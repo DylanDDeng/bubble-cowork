@@ -54,12 +54,8 @@ export function getProjectAgentProfiles(params: {
   cwd?: string | null;
 }): AgentProfile[] {
   const projectKey = params.cwd?.trim();
-  const enabledProfiles = Object.values(params.agentProfiles)
-    .filter((profile) => profile.enabled)
-    .sort((left, right) => left.createdAt - right.createdAt);
-
   if (!projectKey || !Object.prototype.hasOwnProperty.call(params.projectAgentRostersByProject, projectKey)) {
-    return enabledProfiles;
+    return [];
   }
 
   return params.projectAgentRostersByProject[projectKey]

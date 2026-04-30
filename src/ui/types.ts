@@ -271,7 +271,6 @@ export interface AppActions {
   updateAgentProfile: (profileId: string, patch: Partial<Omit<AgentProfile, 'id' | 'createdAt'>>) => void;
   deleteAgentProfile: (profileId: string) => void;
   setProjectAgentRoster: (projectCwd: string, profileIds: string[]) => void;
-  resetProjectAgentRoster: (projectCwd: string) => void;
   openAgentDirectMessage: (profileId: string) => string | null;
   setActivePane: (paneId: ChatPaneId) => void;
   setChatLayoutMode: (mode: ChatLayoutMode) => void;
