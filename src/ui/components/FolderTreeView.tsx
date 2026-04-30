@@ -352,35 +352,18 @@ export function FolderTreeView({
               </button>
 
               {group.fullPath && (
-                <div className="flex flex-shrink-0 items-center opacity-0 transition-opacity duration-150 group-hover/project:opacity-100">
-                  <button
-                    type="button"
-                    className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                    title={`Create channel in ${group.label}`}
-                    aria-label={`Create channel in ${group.label}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      startChannelDraft(group);
-                    }}
-                  >
-                    <Plus className="h-3.5 w-3.5" strokeWidth={1.9} />
-                  </button>
-                  <button
-                    type="button"
-                    className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                    title={`Start a new thread in ${group.label}`}
-                    aria-label={`Start a new thread in ${group.label}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onNewSessionForProject(
-                        group.fullPath,
-                        activeChannelByProject[group.key] || DEFAULT_WORKSPACE_CHANNEL_ID
-                      );
-                    }}
-                  >
-                    <SquarePen className="h-3.5 w-3.5" strokeWidth={1.9} />
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-0 transition-all duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] group-hover/project:opacity-100"
+                  title={`Create channel in ${group.label}`}
+                  aria-label={`Create channel in ${group.label}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    startChannelDraft(group);
+                  }}
+                >
+                  <Plus className="h-3.5 w-3.5" strokeWidth={1.9} />
+                </button>
               )}
             </div>
 
