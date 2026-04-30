@@ -146,8 +146,13 @@ function createStarterAgentProfiles(): Record<string, AgentProfile> {
 }
 
 function createDirectMessageDraftOptions(profile: AgentProfile): Parameters<typeof createDraftSessionView>[2] {
-  const isReadOnly = profile.permissionPolicy === 'readOnly';
-  const isFullAccess = profile.permissionPolicy === 'fullAccess';
+  const effectivePermissionPolicy = normalizeAgentPermissionPolicyForProfile(
+    profile.permissionPolicy,
+    profile,
+    profile.id
+  );
+  const isReadOnly = effectivePermissionPolicy === 'readOnly';
+  const isFullAccess = effectivePermissionPolicy === 'fullAccess';
 
   return {
     title: profile.name.trim() || 'Direct Message',
@@ -180,6 +185,29 @@ function normalizeAgentProfileColor(value: unknown): AgentProfileColor {
 
 function normalizeAgentPermissionPolicy(value: unknown): AgentPermissionPolicy {
   return value === 'readOnly' || value === 'fullAccess' ? value : 'ask';
+}
+
+function isReviewerAgentProfile(profile: Partial<AgentProfile>, id?: string): boolean {
+  const searchText = `${id || ''} ${profile.name || ''} ${profile.role || ''}`.toLowerCase();
+  return (
+    searchText.includes('reviewer') ||
+    searchText.includes('review') ||
+    searchText.includes('评审') ||
+    searchText.includes('审查') ||
+    searchText.includes('审阅')
+  );
+}
+
+function normalizeAgentPermissionPolicyForProfile(
+  value: unknown,
+  profile: Partial<AgentProfile>,
+  id?: string
+): AgentPermissionPolicy {
+  const policy = normalizeAgentPermissionPolicy(value);
+  if (policy === 'readOnly' && isReviewerAgentProfile(profile, id)) {
+    return 'ask';
+  }
+  return policy;
 }
 
 function normalizeAgentProvider(value: unknown): AgentProvider {
@@ -302,7 +330,11 @@ function normalizeAgentProfiles(value: unknown): Record<string, AgentProfile> {
           provider: normalizeAgentProvider(profile.provider),
           model: profile.model?.trim() || undefined,
           reasoningEffort: normalizeAgentReasoningEffort(profile.reasoningEffort),
-          permissionPolicy: normalizeAgentPermissionPolicy(profile.permissionPolicy),
+          permissionPolicy: normalizeAgentPermissionPolicyForProfile(
+            profile.permissionPolicy,
+            profile,
+            normalizedId
+          ),
           canDelegate: profile.canDelegate === true,
           color: normalizeAgentProfileColor(profile.color),
           enabled: profile.enabled !== false,
@@ -1168,8 +1200,16 @@ export const useAppStore = create<Store>()(
             model: patch.model !== undefined ? patch.model?.trim() || undefined : current.model,
             permissionPolicy:
               patch.permissionPolicy !== undefined
-                ? normalizeAgentPermissionPolicy(patch.permissionPolicy)
-                : current.permissionPolicy,
+                ? normalizeAgentPermissionPolicyForProfile(
+                    patch.permissionPolicy,
+                    { ...current, ...patch },
+                    current.id
+                  )
+                : normalizeAgentPermissionPolicyForProfile(
+                    current.permissionPolicy,
+                    { ...current, ...patch },
+                    current.id
+                  ),
             canDelegate:
               patch.canDelegate !== undefined ? patch.canDelegate === true : current.canDelegate,
             color:

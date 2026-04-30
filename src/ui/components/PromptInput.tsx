@@ -96,8 +96,17 @@ function getAgentRuntime(profile: AgentProfile | null | undefined) {
     return null;
   }
 
-  const isReadOnly = profile.permissionPolicy === 'readOnly';
-  const isFullAccess = profile.permissionPolicy === 'fullAccess';
+  const identity = `${profile.id} ${profile.name} ${profile.role}`.toLowerCase();
+  const isReviewer =
+    identity.includes('reviewer') ||
+    identity.includes('review') ||
+    identity.includes('评审') ||
+    identity.includes('审查') ||
+    identity.includes('审阅');
+  const effectivePermissionPolicy =
+    profile.permissionPolicy === 'readOnly' && isReviewer ? 'ask' : profile.permissionPolicy;
+  const isReadOnly = effectivePermissionPolicy === 'readOnly';
+  const isFullAccess = effectivePermissionPolicy === 'fullAccess';
 
   return {
     provider: profile.provider,
