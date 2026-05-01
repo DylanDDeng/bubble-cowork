@@ -165,12 +165,6 @@ export function CodexPluginLibraryContent() {
   };
 
   const loadSkills = async (forceReload = false) => {
-    if (!discoveryCwd) {
-      setSkillsResult(EMPTY_SKILLS_RESULT);
-      setSkillsError('Open a project or Codex session first to resolve workspace skills.');
-      return;
-    }
-
     setLoadingSkills(true);
     setSkillsError(null);
     try {

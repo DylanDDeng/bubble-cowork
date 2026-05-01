@@ -208,13 +208,7 @@ export function useComposerCapabilityMenu({
       };
     }
 
-    const cwd = projectPath?.trim();
-    if (!cwd) {
-      setCodexSlashSkills([]);
-      return () => {
-        cancelled = true;
-      };
-    }
+    const cwd = projectPath?.trim() || undefined;
 
     void Promise.all([
       window.electron.listCodexSkills({ cwd }),

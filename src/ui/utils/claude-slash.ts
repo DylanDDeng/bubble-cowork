@@ -1,4 +1,5 @@
 import type { AgentProvider, AvailableCommand, ClaudeSkillSummary, PromptLibraryItem, StreamMessage } from '../types';
+import { parseComposerCapabilityToken } from './composer-capability-token';
 
 export interface ClaudeSlashCommand {
   name: string;
@@ -158,30 +159,17 @@ export function parseSelectedSlashCommandPrompt(
   prompt: string,
   commands: ClaudeSlashCommand[]
 ): { command: ClaudeSlashCommand; remainder: string } | null {
-  const trimmed = prompt.trimStart();
-  if (!trimmed.startsWith('/')) {
+  const token = parseComposerCapabilityToken(prompt, ['/']);
+  if (!token) {
     return null;
   }
 
-  const firstWhitespaceIndex = trimmed.search(/\s/);
-  const commandName =
-    firstWhitespaceIndex === -1
-      ? trimmed.slice(1)
-      : trimmed.slice(1, firstWhitespaceIndex);
-
-  if (!commandName) {
-    return null;
-  }
-
-  const command = commands.find((item) => item.name === commandName);
+  const command = commands.find((item) => item.name === token.name);
   if (!command) {
     return null;
   }
 
-  const remainder =
-    firstWhitespaceIndex === -1 ? '' : trimmed.slice(firstWhitespaceIndex).replace(/^\s+/, '');
-
-  return { command, remainder };
+  return { command, remainder: token.remainder };
 }
 
 export function buildPromptWithSlashCommand(commandName: string, remainder: string): string {

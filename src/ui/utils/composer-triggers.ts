@@ -1,3 +1,5 @@
+import { isComposerCapabilityStart } from './composer-capability-token';
+
 export type ComposerTriggerKind = 'slash-command' | 'slash-model' | 'skill';
 
 export interface ComposerTrigger {
@@ -12,13 +14,9 @@ function clampCursor(text: string, cursorInput: number): number {
   return Math.max(0, Math.min(text.length, Math.floor(cursorInput)));
 }
 
-function isWhitespace(value: string | undefined): boolean {
-  return value === undefined || /\s/.test(value);
-}
-
 function tokenStartForCursor(text: string, cursor: number): number {
   let index = cursor - 1;
-  while (index >= 0 && !isWhitespace(text[index])) {
+  while (index >= 0 && !/\s/.test(text[index] || '')) {
     index -= 1;
   }
   return index + 1;
@@ -29,12 +27,14 @@ export function detectComposerTrigger(
   cursorInput: number
 ): ComposerTrigger | null {
   const cursor = clampCursor(text, cursorInput);
-  const lineStart = text.lastIndexOf('\n', Math.max(0, cursor - 1)) + 1;
-  const linePrefix = text.slice(lineStart, cursor);
-  const beforeLine = text.slice(0, lineStart);
+  const tokenStart = tokenStartForCursor(text, cursor);
+  if (!isComposerCapabilityStart(text, tokenStart)) {
+    return null;
+  }
 
-  if (beforeLine.trim().length === 0 && linePrefix.startsWith('/')) {
-    const commandMatch = /^\/(\S*)$/.exec(linePrefix);
+  const token = text.slice(tokenStart, cursor);
+  if (token.startsWith('/')) {
+    const commandMatch = /^\/(\S*)$/.exec(token);
     if (!commandMatch) {
       return null;
     }
@@ -43,18 +43,11 @@ export function detectComposerTrigger(
     return {
       kind: query === 'model' ? 'slash-model' : 'slash-command',
       query,
-      rangeStart: lineStart,
+      rangeStart: tokenStart,
       rangeEnd: cursor,
     };
   }
 
-  const tokenStart = tokenStartForCursor(text, cursor);
-  const beforeToken = text.slice(0, tokenStart);
-  if (beforeToken.trim().length > 0) {
-    return null;
-  }
-
-  const token = text.slice(tokenStart, cursor);
   if (!token.startsWith('$')) {
     return null;
   }

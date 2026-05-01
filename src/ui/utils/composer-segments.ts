@@ -1,7 +1,5 @@
-import {
-  splitPromptIntoProjectFileSegments,
-  type ProjectFilePromptSegment,
-} from './project-file-mentions';
+import { splitPromptIntoProjectFileSegments } from './project-file-mentions';
+import { parseComposerCapabilityToken } from './composer-capability-token';
 
 export type SlashSegmentKind = 'skill' | 'command' | 'plugin';
 
@@ -34,7 +32,7 @@ export type PromptSegment =
     };
 
 function normalizeSlashName(value: string): string {
-  return value.replace(/^\//, '').trim().toLowerCase();
+  return value.replace(/^[/$]/, '').trim().toLowerCase();
 }
 
 export function createSlashTokenContext(
@@ -65,23 +63,14 @@ export function extractLeadingSlashToken(
   prompt: string,
   context: SlashTokenContext
 ): SlashTokenInfo | null {
-  const leadingWhitespaceLength = prompt.match(/^\s*/)?.[0].length ?? 0;
-  const afterWhitespace = prompt.slice(leadingWhitespaceLength);
-  const prefix = afterWhitespace[0];
-  if (prefix !== '/' && prefix !== '$') {
+  const token = parseComposerCapabilityToken(prompt);
+  if (!token) {
     return null;
   }
 
-  const spaceIndex = afterWhitespace.search(/\s/);
-  const rawName =
-    spaceIndex === -1 ? afterWhitespace.slice(1) : afterWhitespace.slice(1, spaceIndex);
-  if (!rawName) {
-    return null;
-  }
-
-  const normalized = rawName.toLowerCase();
+  const normalized = token.name.toLowerCase();
   let kind: SlashSegmentKind | null = null;
-  if (prefix === '$') {
+  if (token.prefix === '$') {
     if (context.pluginNames.has(normalized)) {
       kind = 'plugin';
     } else if (context.skillNames.has(normalized)) {
@@ -101,16 +90,35 @@ export function extractLeadingSlashToken(
     return null;
   }
 
-  const start = leadingWhitespaceLength;
-  const end = start + 1 + rawName.length;
   return {
     kind,
-    name: rawName,
-    prefix,
-    start,
-    end,
-    text: `${prefix}${rawName}`,
+    name: token.name,
+    prefix: token.prefix,
+    start: token.start,
+    end: token.end,
+    text: token.text,
   };
+}
+
+function appendProjectFileSegments(
+  target: PromptSegment[],
+  text: string,
+  offset: number
+): void {
+  for (const segment of splitPromptIntoProjectFileSegments(text)) {
+    if (segment.type === 'text') {
+      target.push({ type: 'text', text: segment.text });
+      continue;
+    }
+
+    target.push({
+      type: 'mention',
+      path: segment.path,
+      text: segment.text,
+      start: segment.start + offset,
+      end: segment.end + offset,
+    });
+  }
 }
 
 export function splitPromptIntoComposerSegments(
@@ -124,7 +132,7 @@ export function splitPromptIntoComposerSegments(
 
   const segments: PromptSegment[] = [];
   if (slashToken.start > 0) {
-    segments.push({ type: 'text', text: prompt.slice(0, slashToken.start) });
+    appendProjectFileSegments(segments, prompt.slice(0, slashToken.start), 0);
   }
 
   segments.push({
@@ -143,22 +151,7 @@ export function splitPromptIntoComposerSegments(
     return segments;
   }
 
-  const remainderSegments: ProjectFilePromptSegment[] =
-    splitPromptIntoProjectFileSegments(remainder);
-  for (const segment of remainderSegments) {
-    if (segment.type === 'text') {
-      segments.push({ type: 'text', text: segment.text });
-      continue;
-    }
-
-    segments.push({
-      type: 'mention',
-      path: segment.path,
-      text: segment.text,
-      start: segment.start + remainderStart,
-      end: segment.end + remainderStart,
-    });
-  }
+  appendProjectFileSegments(segments, remainder, remainderStart);
 
   return segments;
 }

@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { EventEmitter } from 'events';
+import { homedir } from 'os';
 import * as readline from 'readline';
 import { v4 as uuidv4 } from 'uuid';
 import type {
@@ -85,6 +86,11 @@ interface CodexRunOptions {
 const INITIALIZE_TIMEOUT_MS = 20_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 const TURN_TIMEOUT_MS = 300_000;
+
+function resolveSkillsDiscoveryCwd(cwd: string | undefined): string {
+  const trimmed = cwd?.trim();
+  return trimmed || homedir();
+}
 
 // Codex app-server emits these as housekeeping signal — we don't act on them yet,
 // so swallow them silently instead of cluttering dev logs as "unhandled".
@@ -230,14 +236,11 @@ export class CodexAppServerManager extends EventEmitter {
   // ── Discovery ───────────────────────────────────────────────────────────────
 
   async listSkills(input: {
-    cwd: string;
+    cwd?: string;
     threadId?: string;
     forceReload?: boolean;
   }): Promise<ProviderListSkillsResult> {
-    const cwd = input.cwd.trim();
-    if (!cwd) {
-      return { skills: [], source: 'codex-app-server', cached: false };
-    }
+    const cwd = resolveSkillsDiscoveryCwd(input.cwd);
 
     const cacheKey = JSON.stringify({ cwd, threadId: input.threadId?.trim() || null });
     if (!input.forceReload) {

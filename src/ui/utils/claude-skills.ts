@@ -1,7 +1,11 @@
 import type { ClaudeSkillSummary, StreamMessage } from '../types';
+import {
+  parseComposerCapabilityToken,
+  type ComposerCapabilityPrefix,
+} from './composer-capability-token';
 
 function normalizeSkillToken(value: string): string {
-  return value.replace(/^\//, '').trim().toLowerCase();
+  return value.replace(/^[/$]/, '').trim().toLowerCase();
 }
 
 export function getSlashSkillQuery(prompt: string): string | null {
@@ -23,34 +27,20 @@ export function buildPromptWithSkill(skillName: string, remainder: string): stri
 export function parseSelectedSkillPrompt(
   prompt: string,
   skills: ClaudeSkillSummary[],
-  prefixes: ReadonlyArray<'/' | '$'> = ['/']
-): { skill: ClaudeSkillSummary; remainder: string; prefix: '/' | '$' } | null {
-  const trimmed = prompt.trimStart();
-  const prefix = trimmed[0] as '/' | '$' | undefined;
-  if (!prefix || !prefixes.includes(prefix)) {
+  prefixes: ReadonlyArray<ComposerCapabilityPrefix> = ['/']
+): { skill: ClaudeSkillSummary; remainder: string; prefix: ComposerCapabilityPrefix } | null {
+  const token = parseComposerCapabilityToken(prompt, prefixes);
+  if (!token) {
     return null;
   }
 
-  const firstWhitespaceIndex = trimmed.search(/\s/);
-  const skillName =
-    firstWhitespaceIndex === -1
-      ? trimmed.slice(1)
-      : trimmed.slice(1, firstWhitespaceIndex);
-
-  if (!skillName) {
-    return null;
-  }
-
-  const normalizedSkillName = normalizeSkillToken(skillName);
+  const normalizedSkillName = normalizeSkillToken(token.name);
   const skill = skills.find((item) => normalizeSkillToken(item.name) === normalizedSkillName);
   if (!skill) {
     return null;
   }
 
-  const remainder =
-    firstWhitespaceIndex === -1 ? '' : trimmed.slice(firstWhitespaceIndex).replace(/^\s+/, '');
-
-  return { skill, remainder, prefix };
+  return { skill, remainder: token.remainder, prefix: token.prefix };
 }
 
 export function getSessionSkillNames(messages: StreamMessage[]): Set<string> {

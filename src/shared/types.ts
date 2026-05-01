@@ -354,7 +354,7 @@ export interface ProviderInputReference {
 
 export interface ProviderListSkillsInput {
   provider: AgentProvider;
-  cwd: string;
+  cwd?: string;
   threadId?: string;
   forceReload?: boolean;
 }

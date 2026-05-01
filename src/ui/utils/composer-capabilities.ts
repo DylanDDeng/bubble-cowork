@@ -76,8 +76,9 @@ export function buildComposerCapabilitySuggestions(input: {
   const commandSuggestions = includeCommands
     ? filterClaudeSlashCommands(input.availableCommands, input.query)
     : [];
+  const skillLimit = input.triggerKind === 'skill' ? 80 : 8;
   const skillSuggestions = includeSkills
-    ? filterClaudeSkills(input.availableSkills, input.query)
+    ? filterClaudeSkills(input.availableSkills, input.query, skillLimit)
     : [];
   const promptSuggestions = includePrompts
     ? filterPromptLibraryItems(input.promptLibraryItems, input.query)

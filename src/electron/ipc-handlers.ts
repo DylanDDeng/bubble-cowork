@@ -3062,13 +3062,13 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return getProviderService().getComposerCapabilities('codex');
   });
 
-  ipcMainHandle('codex-list-skills', async (_event, input: Omit<ProviderListSkillsInput, 'provider'>) => {
+  ipcMainHandle('codex-list-skills', async (_event, input?: Omit<ProviderListSkillsInput, 'provider'>) => {
     ensureProviderService();
     return getProviderService().listSkills({
       provider: 'codex',
-      cwd: input.cwd,
-      threadId: input.threadId,
-      forceReload: input.forceReload,
+      cwd: input?.cwd,
+      threadId: input?.threadId,
+      forceReload: input?.forceReload,
     });
   });
 
