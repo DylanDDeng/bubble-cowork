@@ -316,6 +316,14 @@ export function FolderTreeView({
   }, [projectCwd, sessions, sidebarSearchQuery, splitPair, workspaceChannelsByProject]);
 
   const startChannelDraft = (group: ProjectGroup) => {
+    setCollapsedGroups((current) => {
+      if (!current.has(group.key)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(group.key);
+      return next;
+    });
     setChannelDraftProjectKey(group.key);
     setChannelDraftName('');
     if (group.fullPath) {
