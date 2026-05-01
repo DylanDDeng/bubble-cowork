@@ -13,7 +13,7 @@ import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ProjectAgentMentionMenu } from './ProjectAgentMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
 import { AgentAvatar } from './AgentAvatar';
-import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
+import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
 import { useProjectAgentMentions } from '../hooks/useProjectAgentMentions';
 import {
@@ -306,11 +306,12 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     setPrompt('');
     setAttachments([]);
   };
-  const skillAutocomplete = useClaudeSkillAutocomplete({
-    enabled: Boolean(runtimeAgentProfile),
+  const skillAutocomplete = useComposerCapabilityMenu({
+    enabled: Boolean(activeSession),
     enableSkills: true,
     provider: runtimeProvider,
     prompt,
+    cursorIndex,
     projectPath: activeSession?.cwd,
     sessionMessages: activeSession?.messages || [],
     setPrompt,
@@ -437,21 +438,23 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   const buildDispatchPrompt = async (): Promise<string | null> => {
     const trimmedPrompt = prompt.trim();
 
-    if (skillAutocomplete.selectedSkill) {
+    const selectedSkill = skillAutocomplete.selectedSkill;
+    if (selectedSkill) {
+      const selectedSkillRemainder = skillAutocomplete.selectedSkillRemainder;
       const expandedPrompt =
         runtimeProvider === 'codex'
-          ? skillAutocomplete.selectedSkillRemainder.trim()
+          ? selectedSkillRemainder.trim()
           : runtimeProvider === 'claude'
             ? trimmedPrompt
             : await (async () => {
                 const result = await window.electron.expandClaudeSkillPrompt(
-                  skillAutocomplete.selectedSkill.path,
-                  skillAutocomplete.selectedSkill.name,
-                  skillAutocomplete.selectedSkillRemainder
+                  selectedSkill.path,
+                  selectedSkill.name,
+                  selectedSkillRemainder
                 );
 
                 if (!result.ok || !result.prompt) {
-                  toast.error(result.message || `Failed to expand /${skillAutocomplete.selectedSkill.name}.`);
+                  toast.error(result.message || `Failed to expand /${selectedSkill.name}.`);
                   return null;
                 }
 
@@ -961,9 +964,10 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                 suggestions={skillAutocomplete.suggestions}
                 selectedIndex={skillAutocomplete.selectedIndex}
                 empty={skillAutocomplete.suggestions.length === 0}
-                title="Commands & Skills"
-                emptyMessage="No matching commands or skills."
+                title={skillAutocomplete.menuTitle}
+                emptyMessage={skillAutocomplete.emptyMessage}
                 onSelect={skillAutocomplete.selectSuggestion}
+                onHighlight={skillAutocomplete.setSelectedIndex}
               />
             </div>
           )}

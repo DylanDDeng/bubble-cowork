@@ -29,7 +29,7 @@ import { useClaudeModelConfig } from '../hooks/useClaudeModelConfig';
 import { useCompatibleProviderConfig } from '../hooks/useCompatibleProviderConfig';
 import { useCodexModelConfig } from '../hooks/useCodexModelConfig';
 import { useOpencodeModelConfig } from '../hooks/useOpencodeModelConfig';
-import { useClaudeSkillAutocomplete } from '../hooks/useClaudeSkillAutocomplete';
+import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
@@ -190,11 +190,12 @@ export function NewSessionView() {
     const next = [cwd, ...recentCwds.filter((dir) => dir !== cwd)];
     return next.slice(0, 6);
   }, [cwd, recentCwds]);
-  const skillAutocomplete = useClaudeSkillAutocomplete({
+  const skillAutocomplete = useComposerCapabilityMenu({
     enabled: true,
     enableSkills: true,
     provider,
     prompt,
+    cursorIndex,
     projectPath: cwd || undefined,
     setPrompt,
     setCursorIndex,
@@ -247,21 +248,23 @@ export function NewSessionView() {
   const buildDispatchPrompt = async (): Promise<string | null> => {
     const trimmedPrompt = prompt.trim();
 
-    if (skillAutocomplete.selectedSkill) {
+    const selectedSkill = skillAutocomplete.selectedSkill;
+    if (selectedSkill) {
+      const selectedSkillRemainder = skillAutocomplete.selectedSkillRemainder;
       const expandedPrompt =
         provider === 'codex'
-          ? skillAutocomplete.selectedSkillRemainder.trim()
+          ? selectedSkillRemainder.trim()
           : provider === 'claude'
             ? trimmedPrompt
             : await (async () => {
                 const result = await window.electron.expandClaudeSkillPrompt(
-                  skillAutocomplete.selectedSkill.path,
-                  skillAutocomplete.selectedSkill.name,
-                  skillAutocomplete.selectedSkillRemainder
+                  selectedSkill.path,
+                  selectedSkill.name,
+                  selectedSkillRemainder
                 );
 
                 if (!result.ok || !result.prompt) {
-                  toast.error(result.message || `Failed to expand /${skillAutocomplete.selectedSkill.name}.`);
+                  toast.error(result.message || `Failed to expand /${selectedSkill.name}.`);
                   return null;
                 }
 
@@ -793,9 +796,10 @@ export function NewSessionView() {
                     suggestions={skillAutocomplete.suggestions}
                     selectedIndex={skillAutocomplete.selectedIndex}
                     empty={skillAutocomplete.suggestions.length === 0}
-                    title="Commands & Skills"
-                    emptyMessage="No matching commands or skills."
+                    title={skillAutocomplete.menuTitle}
+                    emptyMessage={skillAutocomplete.emptyMessage}
                     onSelect={skillAutocomplete.selectSuggestion}
+                    onHighlight={skillAutocomplete.setSelectedIndex}
                   />
                 </div>
               )}

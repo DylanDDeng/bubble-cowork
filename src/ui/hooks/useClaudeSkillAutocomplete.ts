@@ -1,25 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
 import { sendEvent } from './useIPC';
 import { useAppStore } from '../store/useAppStore';
-import type { ClaudeSkillSummary, StreamMessage } from '../types';
+import type { ClaudeSkillSummary, PromptLibraryItem, StreamMessage } from '../types';
 import type { ClaudeSlashSuggestion } from '../utils/claude-slash';
 import {
-  filterClaudeSkills,
   parseSelectedSkillPrompt,
   getSessionSkillNames,
-  getSlashSkillQuery,
-  insertSlashSkill,
   mergeClaudeSkills,
 } from '../utils/claude-skills';
 import {
   buildProviderSlashCommands,
-  filterClaudeSlashCommands,
   getSessionSlashCommands,
   parseSelectedSlashCommandPrompt,
   shouldAutoSubmitSlashCommand,
 } from '../utils/claude-slash';
 import { createSlashTokenContext, type SlashTokenContext } from '../utils/composer-segments';
+import { buildComposerCapabilitySuggestions } from '../utils/composer-capabilities';
+import {
+  detectComposerTrigger,
+  replaceComposerTriggerText,
+  type ComposerTrigger,
+} from '../utils/composer-triggers';
 import { CODEX_PLUGIN_SLASH_PREFIX } from '../utils/codex-composer';
+import { getPromptLibraryItems } from '../utils/prompt-library-api';
 import type {
   AgentProvider,
   ProviderListPluginsResult,
@@ -98,11 +101,42 @@ function flattenCodexPluginSlashSkills(result: ProviderListPluginsResult): Claud
   );
 }
 
-export function useClaudeSkillAutocomplete({
+function skillMentionPrefix(provider: AgentProvider): '/' | '$' {
+  return provider === 'claude' ? '/' : '$';
+}
+
+function selectedSkillPrefixes(provider: AgentProvider): ReadonlyArray<'/' | '$'> {
+  if (provider === 'claude') {
+    return ['/'];
+  }
+  return ['$', '/'];
+}
+
+function replaceComposerTriggerOrLeadingToken(input: {
+  prompt: string;
+  trigger: ComposerTrigger | null;
+  fallbackPrefix: '/' | '$';
+  name: string;
+}): { prompt: string; cursorIndex: number } {
+  const replacement = `${input.fallbackPrefix}${input.name.replace(/^[/$\s]+/, '')} `;
+  if (input.trigger) {
+    return replaceComposerTriggerText(input.prompt, input.trigger, replacement);
+  }
+
+  const leadingWhitespace = input.prompt.match(/^\s*/)?.[0] || '';
+  const nextPrompt = `${leadingWhitespace}${replacement}`;
+  return {
+    prompt: nextPrompt,
+    cursorIndex: nextPrompt.length,
+  };
+}
+
+export function useComposerCapabilityMenu({
   enabled,
   enableSkills = true,
   provider = 'claude',
   prompt,
+  cursorIndex,
   projectPath,
   sessionMessages = [],
   setPrompt,
@@ -113,6 +147,7 @@ export function useClaudeSkillAutocomplete({
   enableSkills?: boolean;
   provider?: AgentProvider;
   prompt: string;
+  cursorIndex?: number;
   projectPath?: string;
   sessionMessages?: StreamMessage[];
   setPrompt: (prompt: string) => void;
@@ -121,10 +156,11 @@ export function useClaudeSkillAutocomplete({
 }) {
   const { claudeUserSkills, claudeProjectSkills } = useAppStore();
   const [codexSlashSkills, setCodexSlashSkills] = useState<ClaudeSkillSummary[]>([]);
+  const [promptLibraryItems, setPromptLibraryItems] = useState<PromptLibraryItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useEffect(() => {
-    if (!enabled || !enableSkills || provider === 'codex') {
+    if (!enabled || !enableSkills || provider !== 'claude') {
       return;
     }
 
@@ -133,6 +169,34 @@ export function useClaudeSkillAutocomplete({
       payload: { projectPath },
     });
   }, [enableSkills, enabled, projectPath, provider]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!enabled) {
+      setPromptLibraryItems([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void getPromptLibraryItems()
+      .then((items) => {
+        if (!cancelled) {
+          setPromptLibraryItems(items);
+        }
+      })
+      .catch((error) => {
+        console.warn('[Composer] Failed to load prompt library:', error);
+        if (!cancelled) {
+          setPromptLibraryItems([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -177,7 +241,12 @@ export function useClaudeSkillAutocomplete({
     };
   }, [enableSkills, enabled, projectPath, provider]);
 
-  const query = useMemo(() => getSlashSkillQuery(prompt), [prompt]);
+  const composerTrigger = useMemo(
+    () => (enabled ? detectComposerTrigger(prompt, cursorIndex ?? prompt.length) : null),
+    [cursorIndex, enabled, prompt]
+  );
+  const query = composerTrigger?.query ?? null;
+  const triggerKind = composerTrigger?.kind ?? null;
   const sessionSkillNames = useMemo(
     () => (enableSkills && provider !== 'codex' ? getSessionSkillNames(sessionMessages) : new Set<string>()),
     [enableSkills, provider, sessionMessages]
@@ -192,7 +261,10 @@ export function useClaudeSkillAutocomplete({
       if (provider === 'codex') {
         return codexSlashSkills;
       }
-      return mergeClaudeSkills(claudeUserSkills, claudeProjectSkills, sessionSkillNames);
+      if (provider === 'claude') {
+        return mergeClaudeSkills(claudeUserSkills, claudeProjectSkills, sessionSkillNames);
+      }
+      return [];
     },
     [claudeUserSkills, claudeProjectSkills, codexSlashSkills, enableSkills, provider, sessionSkillNames]
   );
@@ -202,25 +274,12 @@ export function useClaudeSkillAutocomplete({
     [provider, sessionSlashCommands]
   );
 
-  const skillSuggestions = useMemo(() => {
-    if (!enabled || query === null) {
-      return [] as ClaudeSkillSummary[];
-    }
-
-    return filterClaudeSkills(availableSkills, query);
-  }, [availableSkills, enabled, query]);
-
-  const commandSuggestions = useMemo(() => {
-    if (!enabled || query === null) {
-      return [] as ReturnType<typeof filterClaudeSlashCommands>;
-    }
-
-    return filterClaudeSlashCommands(availableCommands, query);
-  }, [availableCommands, enabled, query]);
-
   const selectedSkillState = useMemo(
-    () => (enabled && enableSkills ? parseSelectedSkillPrompt(prompt, availableSkills) : null),
-    [availableSkills, enableSkills, enabled, prompt]
+    () =>
+      enabled && enableSkills
+        ? parseSelectedSkillPrompt(prompt, availableSkills, selectedSkillPrefixes(provider))
+        : null,
+    [availableSkills, enableSkills, enabled, prompt, provider]
   );
 
   const selectedCommandState = useMemo(
@@ -228,29 +287,23 @@ export function useClaudeSkillAutocomplete({
     [availableCommands, enabled, prompt]
   );
 
-  // Claude CLI exposes every skill as a slash command too, so drop commands
-  // whose names collide with a known skill to avoid duplicate entries.
   const suggestions = useMemo(() => {
-    if (!enabled || query === null) {
-      return [] as ClaudeSlashSuggestion[];
-    }
-
-    const skillNameSet = new Set(
-      availableSkills.map((skill) => skill.name.replace(/^\//, '').toLowerCase())
-    );
-    const dedupedCommands = commandSuggestions.filter(
-      (command) => !skillNameSet.has(command.name.toLowerCase())
-    );
-
-    return [
-      ...dedupedCommands.map((command) => ({ kind: 'command', command }) as ClaudeSlashSuggestion),
-      ...skillSuggestions.map((skill) => ({ kind: 'skill', skill }) as ClaudeSlashSuggestion),
-    ];
-  }, [availableSkills, commandSuggestions, enabled, query, skillSuggestions]);
+    return buildComposerCapabilitySuggestions({
+      enabled,
+      query,
+      triggerKind,
+      availableCommands,
+      availableSkills,
+      promptLibraryItems,
+      includeCommands: triggerKind !== 'skill',
+      includeSkills: triggerKind === 'skill' || (triggerKind === 'slash-command' && provider === 'claude'),
+      includePrompts: triggerKind === 'slash-command',
+    });
+  }, [availableCommands, availableSkills, enabled, promptLibraryItems, provider, query, triggerKind]);
 
   useEffect(() => {
     setSelectedIndex(0);
-  }, [query]);
+  }, [query, triggerKind]);
 
   useEffect(() => {
     if (selectedIndex < suggestions.length) {
@@ -259,25 +312,41 @@ export function useClaudeSkillAutocomplete({
     setSelectedIndex(0);
   }, [selectedIndex, suggestions.length]);
 
-  // Hide the picker once a skill/command has been selected, even though the
-  // canonicalised prompt (e.g. "/agent-browser") still matches the slash query
-  // regex — the chip already represents the selection.
-  const hasSlashQuery = enabled && query !== null && !selectedSkillState && !selectedCommandState;
+  // Hide the picker once a skill/command has been selected; the chip already
+  // represents the leading capability token.
+  const hasSlashQuery = enabled && composerTrigger !== null && !selectedSkillState && !selectedCommandState;
 
   const selectSkill = (skill: ClaudeSkillSummary) => {
-    const nextPrompt = insertSlashSkill(prompt, skill.name);
-    setPrompt(nextPrompt);
-    setCursorIndex?.(nextPrompt.length);
+    const next = replaceComposerTriggerOrLeadingToken({
+      prompt,
+      trigger: composerTrigger,
+      fallbackPrefix: skillMentionPrefix(provider),
+      name: skill.name,
+    });
+    setPrompt(next.prompt);
+    setCursorIndex?.(next.cursorIndex);
   };
 
   const selectSuggestion = (suggestion: ClaudeSlashSuggestion) => {
     if (suggestion.kind === 'command') {
-      const nextPrompt = insertSlashSkill(prompt, suggestion.command.name);
+      const next = replaceComposerTriggerOrLeadingToken({
+        prompt,
+        trigger: composerTrigger,
+        fallbackPrefix: '/',
+        name: suggestion.command.name,
+      });
       if (shouldAutoSubmitSlashCommand(suggestion.command) && onAutoSubmitCommand) {
-        onAutoSubmitCommand(nextPrompt.trim());
+        onAutoSubmitCommand(next.prompt.trim());
         return;
       }
 
+      setPrompt(next.prompt);
+      setCursorIndex?.(next.cursorIndex);
+      return;
+    }
+
+    if (suggestion.kind === 'prompt') {
+      const nextPrompt = suggestion.prompt.content;
       setPrompt(nextPrompt);
       setCursorIndex?.(nextPrompt.length);
       return;
@@ -290,13 +359,36 @@ export function useClaudeSkillAutocomplete({
     () =>
       createSlashTokenContext(
         enabled && enableSkills ? availableSkills.map((skill) => skill.name) : [],
-        enabled ? availableCommands.map((command) => command.name) : []
+        enabled ? availableCommands.map((command) => command.name) : [],
+        enabled && enableSkills
+          ? availableSkills
+              .filter((skill) => skill.source === 'plugin')
+              .map((skill) => skill.name)
+          : []
       ),
     [availableCommands, availableSkills, enableSkills, enabled]
   );
 
   return {
     hasSlashQuery,
+    composerTrigger,
+    composerTriggerKind: triggerKind,
+    menuTitle:
+      triggerKind === 'skill'
+        ? 'Skills'
+        : triggerKind === 'slash-model'
+          ? 'Models'
+          : provider === 'claude'
+            ? 'Commands, Skills & Prompts'
+            : 'Commands & Prompts',
+    emptyMessage:
+      triggerKind === 'skill'
+        ? 'No matching skills.'
+        : triggerKind === 'slash-model'
+          ? 'No matching models.'
+          : provider === 'claude'
+            ? 'No matching commands, skills, or prompts.'
+            : 'No matching commands or prompts.',
     suggestions,
     availableSkills,
     availableCommands,
@@ -345,3 +437,5 @@ export function useClaudeSkillAutocomplete({
     selectSuggestion,
   };
 }
+
+export const useClaudeSkillAutocomplete = useComposerCapabilityMenu;

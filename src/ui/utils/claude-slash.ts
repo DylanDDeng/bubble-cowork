@@ -1,4 +1,4 @@
-import type { AgentProvider, AvailableCommand, ClaudeSkillSummary, StreamMessage } from '../types';
+import type { AgentProvider, AvailableCommand, ClaudeSkillSummary, PromptLibraryItem, StreamMessage } from '../types';
 
 export interface ClaudeSlashCommand {
   name: string;
@@ -11,9 +11,13 @@ export interface ClaudeSlashCommand {
 
 export type ClaudeSlashSuggestion =
   | { kind: 'command'; command: ClaudeSlashCommand }
-  | { kind: 'skill'; skill: ClaudeSkillSummary };
+  | { kind: 'skill'; skill: ClaudeSkillSummary }
+  | { kind: 'prompt'; prompt: PromptLibraryItem };
 
-const DEFAULT_COMMAND_DEFINITIONS: Record<string, { title: string; description: string }> = {
+const DEFAULT_COMMAND_DEFINITIONS: Record<
+  string,
+  { title: string; description: string; submitOnSelect?: boolean }
+> = {
   cost: {
     title: '/cost',
     description: 'Show current token and cost usage',

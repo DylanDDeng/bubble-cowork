@@ -291,20 +291,27 @@ function createSlashNode(kind: SlashSegmentKind, name: string, rawText: string):
   chip.title = rawText;
   chip.className =
     'mx-[1px] inline-flex max-w-[240px] select-none items-center gap-1 rounded-md border px-1.5 py-0.5 align-baseline text-[12px] leading-none';
+  const isSkillLike = kind === 'skill' || kind === 'plugin';
   chip.style.borderColor =
-    kind === 'skill' ? 'var(--composer-skill-chip-border)' : 'var(--composer-chip-border)';
+    isSkillLike ? 'var(--composer-skill-chip-border)' : 'var(--composer-chip-border)';
   chip.style.backgroundColor =
-    kind === 'skill' ? 'var(--composer-skill-chip-bg)' : 'var(--composer-chip-bg)';
+    isSkillLike ? 'var(--composer-skill-chip-bg)' : 'var(--composer-chip-bg)';
   chip.style.color =
-    kind === 'skill' ? 'var(--composer-skill-chip-text)' : 'var(--composer-chip-text)';
+    isSkillLike ? 'var(--composer-skill-chip-text)' : 'var(--composer-chip-text)';
 
   const iconBox = document.createElement('span');
   iconBox.className = 'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center';
   iconBox.setAttribute('aria-hidden', 'true');
-  iconBox.innerHTML =
-    kind === 'skill'
-      ? '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/></svg>'
-      : '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>';
+  if (kind === 'plugin') {
+    iconBox.innerHTML =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a6 6 0 0 1-12 0V8Z"/></svg>';
+  } else if (kind === 'skill') {
+    iconBox.innerHTML =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/></svg>';
+  } else {
+    iconBox.innerHTML =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>';
+  }
 
   const label = document.createElement('span');
   label.className = 'truncate font-mono text-[11px]';

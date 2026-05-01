@@ -22,10 +22,12 @@ export function buildPromptWithSkill(skillName: string, remainder: string): stri
 
 export function parseSelectedSkillPrompt(
   prompt: string,
-  skills: ClaudeSkillSummary[]
-): { skill: ClaudeSkillSummary; remainder: string } | null {
+  skills: ClaudeSkillSummary[],
+  prefixes: ReadonlyArray<'/' | '$'> = ['/']
+): { skill: ClaudeSkillSummary; remainder: string; prefix: '/' | '$' } | null {
   const trimmed = prompt.trimStart();
-  if (!trimmed.startsWith('/')) {
+  const prefix = trimmed[0] as '/' | '$' | undefined;
+  if (!prefix || !prefixes.includes(prefix)) {
     return null;
   }
 
@@ -48,7 +50,7 @@ export function parseSelectedSkillPrompt(
   const remainder =
     firstWhitespaceIndex === -1 ? '' : trimmed.slice(firstWhitespaceIndex).replace(/^\s+/, '');
 
-  return { skill, remainder };
+  return { skill, remainder, prefix };
 }
 
 export function getSessionSkillNames(messages: StreamMessage[]): Set<string> {

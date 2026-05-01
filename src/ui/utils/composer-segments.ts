@@ -3,11 +3,12 @@ import {
   type ProjectFilePromptSegment,
 } from './project-file-mentions';
 
-export type SlashSegmentKind = 'skill' | 'command';
+export type SlashSegmentKind = 'skill' | 'command' | 'plugin';
 
 export interface SlashTokenInfo {
   kind: SlashSegmentKind;
   name: string;
+  prefix: '/' | '$';
   start: number;
   end: number;
   text: string;
@@ -16,6 +17,7 @@ export interface SlashTokenInfo {
 export interface SlashTokenContext {
   skillNames: Set<string>;
   commandNames: Set<string>;
+  pluginNames: Set<string>;
 }
 
 export type PromptSegment =
@@ -25,6 +27,7 @@ export type PromptSegment =
       type: 'slash';
       kind: SlashSegmentKind;
       name: string;
+      prefix: '/' | '$';
       text: string;
       start: number;
       end: number;
@@ -36,7 +39,8 @@ function normalizeSlashName(value: string): string {
 
 export function createSlashTokenContext(
   skillNames: Iterable<string> | undefined,
-  commandNames: Iterable<string> | undefined
+  commandNames: Iterable<string> | undefined,
+  pluginNames?: Iterable<string> | undefined
 ): SlashTokenContext {
   const toSet = (values: Iterable<string> | undefined): Set<string> => {
     const result = new Set<string>();
@@ -53,6 +57,7 @@ export function createSlashTokenContext(
   return {
     skillNames: toSet(skillNames),
     commandNames: toSet(commandNames),
+    pluginNames: toSet(pluginNames),
   };
 }
 
@@ -62,7 +67,8 @@ export function extractLeadingSlashToken(
 ): SlashTokenInfo | null {
   const leadingWhitespaceLength = prompt.match(/^\s*/)?.[0].length ?? 0;
   const afterWhitespace = prompt.slice(leadingWhitespaceLength);
-  if (!afterWhitespace.startsWith('/')) {
+  const prefix = afterWhitespace[0];
+  if (prefix !== '/' && prefix !== '$') {
     return null;
   }
 
@@ -75,10 +81,20 @@ export function extractLeadingSlashToken(
 
   const normalized = rawName.toLowerCase();
   let kind: SlashSegmentKind | null = null;
-  if (context.skillNames.has(normalized)) {
-    kind = 'skill';
-  } else if (context.commandNames.has(normalized)) {
-    kind = 'command';
+  if (prefix === '$') {
+    if (context.pluginNames.has(normalized)) {
+      kind = 'plugin';
+    } else if (context.skillNames.has(normalized)) {
+      kind = 'skill';
+    }
+  } else {
+    if (context.pluginNames.has(normalized)) {
+      kind = 'plugin';
+    } else if (context.skillNames.has(normalized)) {
+      kind = 'skill';
+    } else if (context.commandNames.has(normalized)) {
+      kind = 'command';
+    }
   }
 
   if (!kind) {
@@ -90,9 +106,10 @@ export function extractLeadingSlashToken(
   return {
     kind,
     name: rawName,
+    prefix,
     start,
     end,
-    text: `/${rawName}`,
+    text: `${prefix}${rawName}`,
   };
 }
 
@@ -114,6 +131,7 @@ export function splitPromptIntoComposerSegments(
     type: 'slash',
     kind: slashToken.kind,
     name: slashToken.name,
+    prefix: slashToken.prefix,
     text: slashToken.text,
     start: slashToken.start,
     end: slashToken.end,
