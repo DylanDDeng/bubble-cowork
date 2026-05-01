@@ -694,7 +694,7 @@ function buildThemeVariables(
     normalizeFontFamily(chatCodeFontFamily) ||
     normalizeFontFamily(pack.theme.fonts.code) ||
     BASE_MONO_FONT;
-  const skillColor = parseHexColor(pack.theme.semanticColors.skill);
+  const skillChipColor = parseHexColor(pack.theme.accent);
   const commandChipBackground = variant === 'light'
     ? formatRgba(parseHexColor(pack.theme.accent), 0.1)
     : formatRgba(theme.ink, 0.06 + theme.contrast * 0.03);
@@ -708,14 +708,14 @@ function buildThemeVariables(
     ? formatRgba(parseHexColor(pack.theme.accent), 0.12)
     : formatRgba(parseHexColor(pack.theme.accent), 0.2);
   const skillChipBackground = variant === 'light'
-    ? formatRgba(skillColor, 0.1)
-    : formatRgba(skillColor, 0.16);
+    ? formatRgba(skillChipColor, 0.1)
+    : formatRgba(skillChipColor, 0.16);
   const skillChipBorder = variant === 'light'
-    ? formatRgba(skillColor, 0.16)
-    : formatRgba(skillColor, 0.22);
+    ? formatRgba(skillChipColor, 0.16)
+    : formatRgba(skillChipColor, 0.22);
   const skillChipText = variant === 'light'
-    ? mixHex(pack.theme.semanticColors.skill, pack.theme.ink, 0.28)
-    : mixHex(pack.theme.semanticColors.skill, '#ffffff', 0.16);
+    ? mixHex(pack.theme.accent, pack.theme.ink, 0.28)
+    : mixHex(pack.theme.accent, '#ffffff', 0.16);
 
   return {
     '--bg-primary': surfaceUnder,
