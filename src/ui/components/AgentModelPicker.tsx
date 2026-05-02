@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronLeft, Search } from 'lucide-react';
 import type { AgentProvider, ClaudeCompatibleProviderId, ClaudeModelConfig } from '../types';
 import { PROVIDERS } from '../utils/provider';
@@ -27,6 +27,9 @@ interface AgentModelPickerProps {
   provider: AgentProvider;
   onProviderChange: (provider: AgentProvider) => void;
   disabled?: boolean;
+  menuPlacement?: 'top' | 'bottom';
+  menuStrategy?: 'absolute' | 'fixed';
+  triggerClassName?: string;
   claudeModel?: {
     value: string | null;
     compatibleProviderId?: ClaudeCompatibleProviderId | null;
@@ -102,13 +105,18 @@ export function AgentModelPicker({
   provider,
   onProviderChange,
   disabled,
+  menuPlacement = 'top',
+  menuStrategy = 'absolute',
+  triggerClassName,
   claudeModel,
   codexModel,
   opencodeModel,
 }: AgentModelPickerProps) {
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<PickerMode>('provider');
   const [modelSearchQuery, setModelSearchQuery] = useState('');
+  const [fixedMenuStyle, setFixedMenuStyle] = useState<CSSProperties | null>(null);
   const currentProvider = PROVIDERS.find((item) => item.id === provider) || PROVIDERS[0];
   const compatibleOptions = claudeModel?.compatibleOptions || [];
   const claudeExtraModels = useMemo(
@@ -148,11 +156,65 @@ export function AgentModelPicker({
 
   const openMode = mode === 'model' && hasModelOptions ? 'model' : 'provider';
 
+  const updateFixedMenuPosition = useCallback(() => {
+    if (menuStrategy !== 'fixed') {
+      setFixedMenuStyle(null);
+      return;
+    }
+
+    const trigger = triggerRef.current;
+    if (!trigger) {
+      return;
+    }
+
+    const rect = trigger.getBoundingClientRect();
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    const gutter = 12;
+    const menuWidth = Math.max(240, Math.min(360, Math.round(rect.width)));
+    const left = Math.max(gutter, Math.min(rect.left, viewportWidth - menuWidth - gutter));
+
+    if (menuPlacement === 'bottom') {
+      const top = Math.min(rect.bottom + 8, viewportHeight - 120);
+      setFixedMenuStyle({
+        left,
+        top,
+        width: menuWidth,
+        maxHeight: Math.max(160, viewportHeight - top - gutter),
+      });
+      return;
+    }
+
+    const maxHeight = Math.max(160, rect.top - gutter - 8);
+    setFixedMenuStyle({
+      left,
+      bottom: viewportHeight - rect.top + 8,
+      width: menuWidth,
+      maxHeight,
+    });
+  }, [menuPlacement, menuStrategy]);
+
   useEffect(() => {
     if (!open || openMode !== 'model') {
       setModelSearchQuery('');
     }
   }, [open, openMode, provider]);
+
+  useEffect(() => {
+    if (!open || menuStrategy !== 'fixed') {
+      setFixedMenuStyle(null);
+      return;
+    }
+
+    updateFixedMenuPosition();
+    window.addEventListener('resize', updateFixedMenuPosition);
+    window.addEventListener('scroll', updateFixedMenuPosition, true);
+
+    return () => {
+      window.removeEventListener('resize', updateFixedMenuPosition);
+      window.removeEventListener('scroll', updateFixedMenuPosition, true);
+    };
+  }, [menuStrategy, open, updateFixedMenuPosition]);
 
   const resolvedClaudeValue = useMemo(() => {
     if (!claudeModel) {
@@ -247,6 +309,12 @@ export function AgentModelPicker({
   };
 
   const normalizedModelSearchQuery = modelSearchQuery.trim().toLowerCase();
+  const menuPlacementClass = menuPlacement === 'bottom' ? 'top-full mt-2' : 'bottom-full mb-2';
+  const menuStrategyClass =
+    menuStrategy === 'fixed' ? 'fixed' : `absolute left-0 ${menuPlacementClass}`;
+  const triggerClasses = triggerClassName
+    ? `flex items-center gap-1.5 text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${triggerClassName}`
+    : 'flex items-center gap-1.5 rounded-lg border border-transparent bg-transparent px-3 py-1.5 text-[12px] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50';
 
   const renderModelItems = () => {
     if (provider === 'claude' && claudeModel) {
@@ -427,9 +495,10 @@ export function AgentModelPicker({
   return (
     <div className="relative no-drag">
       <button
+        ref={triggerRef}
         onClick={handleTriggerClick}
         disabled={disabled}
-        className="flex items-center gap-1.5 rounded-lg border border-transparent bg-transparent px-3 py-1.5 text-[12px] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50"
+        className={triggerClasses}
       >
         {currentCompatibleOption ? (
           <CompatibleProviderIcon providerId={currentCompatibleOption.id} />
@@ -445,7 +514,15 @@ export function AgentModelPicker({
       {open && !disabled && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="popover-surface popover-surface--lg absolute bottom-full left-0 z-20 mb-2 min-w-[240px] max-h-[min(70vh,560px)] overflow-y-auto p-1.5">
+          <div
+            className={`popover-surface popover-surface--lg z-20 ${menuStrategyClass} min-w-[240px] overflow-y-auto overscroll-contain p-1.5`}
+            style={
+              menuStrategy === 'fixed'
+                ? fixedMenuStyle || { visibility: 'hidden' }
+                : { maxHeight: 'min(70vh, 560px)' }
+            }
+            onWheel={(event) => event.stopPropagation()}
+          >
             {openMode === 'provider' ? (
               <>
                 {PROVIDERS.map((item) => (

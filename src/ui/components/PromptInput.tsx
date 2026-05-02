@@ -111,6 +111,7 @@ function getAgentRuntime(profile: AgentProfile | null | undefined) {
   return {
     provider: profile.provider,
     model: profile.model?.trim() || null,
+    compatibleProviderId: profile.provider === 'claude' ? profile.compatibleProviderId : undefined,
     claudeReasoningEffort: profile.provider === 'claude' ? profile.reasoningEffort : undefined,
     codexReasoningEffort:
       profile.provider === 'codex' && profile.reasoningEffort !== 'max'
@@ -159,6 +160,8 @@ function buildAgentRuntimePayload(
     instructions: profile.instructions.trim() || undefined,
     provider: runtime.provider,
     model: runtime.model || undefined,
+    compatibleProviderId:
+      runtime.provider === 'claude' ? runtime.compatibleProviderId : undefined,
     claudeAccessMode: runtime.provider === 'claude' ? runtime.claudeAccessMode : undefined,
     claudeExecutionMode: runtime.provider === 'claude' ? runtime.claudeExecutionMode : undefined,
     claudeReasoningEffort:
@@ -243,6 +246,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   const isRunning = activeSession?.status === 'running';
   const isBusy = isRunning || pendingStart;
   const runtimeClaudeModel = runtimeProvider === 'claude' ? agentRuntime?.model || null : null;
+  const runtimeClaudeCompatibleProviderId =
+    runtimeProvider === 'claude' ? agentRuntime?.compatibleProviderId : undefined;
   const runtimeCodexModel = runtimeProvider === 'codex' ? agentRuntime?.model || null : null;
   const runtimeOpencodeModel = runtimeProvider === 'opencode' ? agentRuntime?.model || null : null;
   const runtimeClaudeAccessMode = agentRuntime?.claudeAccessMode;
@@ -292,6 +297,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
               : runtimeProvider === 'opencode'
                 ? runtimeOpencodeModel || undefined
                 : undefined,
+        compatibleProviderId:
+          runtimeProvider === 'claude' ? runtimeClaudeCompatibleProviderId : undefined,
         claudeAccessMode: runtimeProvider === 'claude' ? runtimeClaudeAccessMode : undefined,
         claudeExecutionMode: runtimeProvider === 'claude' ? runtimeClaudeExecutionMode : undefined,
         claudeReasoningEffort: runtimeProvider === 'claude' ? runtimeClaudeReasoningEffort : undefined,
@@ -636,6 +643,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                 : runtimeProvider === 'opencode'
                   ? runtimeOpencodeModel || undefined
                   : undefined,
+          compatibleProviderId:
+            runtimeProvider === 'claude' ? runtimeClaudeCompatibleProviderId : undefined,
           claudeAccessMode: runtimeProvider === 'claude' ? runtimeClaudeAccessMode : undefined,
           claudeExecutionMode: runtimeProvider === 'claude' ? runtimeClaudeExecutionMode : undefined,
           claudeReasoningEffort: runtimeProvider === 'claude' ? runtimeClaudeReasoningEffort : undefined,
@@ -671,6 +680,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                 : runtimeProvider === 'opencode'
                   ? runtimeOpencodeModel || undefined
                   : undefined,
+          compatibleProviderId:
+            runtimeProvider === 'claude' ? runtimeClaudeCompatibleProviderId : undefined,
           claudeAccessMode: runtimeProvider === 'claude' ? runtimeClaudeAccessMode : undefined,
           claudeExecutionMode: runtimeProvider === 'claude' ? runtimeClaudeExecutionMode : undefined,
           claudeReasoningEffort: runtimeProvider === 'claude' ? runtimeClaudeReasoningEffort : undefined,

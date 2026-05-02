@@ -8,6 +8,7 @@ import type { ChromeTheme, ThemeFonts, ThemeMode, ThemePack, ThemeState, ThemeVa
 import type {
   AgentProvider,
   AppUpdateStatus,
+  ClaudeCompatibleProviderId,
   ClaudeReasoningEffort,
   CodexReasoningEffort,
   ProjectTreeNode,
@@ -147,6 +148,7 @@ export interface AgentProfile {
   avatar: AgentProfileAvatar;
   provider: AgentProvider;
   model?: string;
+  compatibleProviderId?: ClaudeCompatibleProviderId;
   reasoningEffort?: AgentReasoningEffort;
   permissionPolicy: AgentPermissionPolicy;
   canDelegate?: boolean;

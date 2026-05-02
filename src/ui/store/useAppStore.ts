@@ -12,6 +12,7 @@ import type {
   WorkspaceSurface,
   AgentProvider,
   AgentProfile,
+  ClaudeCompatibleProviderId,
   AgentProfileColor,
   AgentProfileAvatar,
   AgentPermissionPolicy,
@@ -160,6 +161,7 @@ function createDirectMessageDraftOptions(profile: AgentProfile): Parameters<type
     agentId: profile.id,
     provider: profile.provider,
     model: profile.model,
+    compatibleProviderId: profile.provider === 'claude' ? profile.compatibleProviderId : undefined,
     claudeReasoningEffort: profile.provider === 'claude' ? profile.reasoningEffort : undefined,
     codexReasoningEffort:
       profile.provider === 'codex' && profile.reasoningEffort !== 'max'
@@ -212,6 +214,17 @@ function normalizeAgentPermissionPolicyForProfile(
 
 function normalizeAgentProvider(value: unknown): AgentProvider {
   return value === 'codex' || value === 'opencode' ? value : 'claude';
+}
+
+function normalizeClaudeCompatibleProviderId(value: unknown): ClaudeCompatibleProviderId | undefined {
+  return value === 'minimaxCn' ||
+    value === 'minimax' ||
+    value === 'mimo' ||
+    value === 'zhipu' ||
+    value === 'moonshot' ||
+    value === 'deepseek'
+    ? value
+    : undefined;
 }
 
 function normalizeAgentReasoningEffort(value: unknown): AgentProfile['reasoningEffort'] {
@@ -315,6 +328,7 @@ function normalizeAgentProfiles(value: unknown): Record<string, AgentProfile> {
     .map(([id, profile]) => {
       const normalizedId = profile.id?.trim() || id.trim();
       const name = profile.name?.trim() || 'Agent';
+      const provider = normalizeAgentProvider(profile.provider);
       if (!normalizedId) {
         return null;
       }
@@ -327,8 +341,12 @@ function normalizeAgentProfiles(value: unknown): Record<string, AgentProfile> {
           description: profile.description?.trim() || '',
           instructions: profile.instructions?.trim() || '',
           avatar: normalizeAgentProfileAvatar(profile.avatar, profile, normalizedId),
-          provider: normalizeAgentProvider(profile.provider),
+          provider,
           model: profile.model?.trim() || undefined,
+          compatibleProviderId:
+            provider === 'claude'
+              ? normalizeClaudeCompatibleProviderId(profile.compatibleProviderId)
+              : undefined,
           reasoningEffort: normalizeAgentReasoningEffort(profile.reasoningEffort),
           permissionPolicy: normalizeAgentPermissionPolicyForProfile(
             profile.permissionPolicy,
@@ -590,10 +608,14 @@ function createDraftSessionView(
     | 'agentId'
     | 'provider'
     | 'model'
+    | 'compatibleProviderId'
     | 'claudeAccessMode'
     | 'claudeExecutionMode'
+    | 'claudeReasoningEffort'
     | 'codexExecutionMode'
     | 'codexPermissionMode'
+    | 'codexReasoningEffort'
+    | 'codexFastMode'
     | 'opencodePermissionMode'
   >>
 ): SessionView {
@@ -613,11 +635,14 @@ function createDraftSessionView(
     channelId: normalizeWorkspaceChannelId(channelId),
     provider: options?.provider || loadPreferredProvider(),
     model: options?.model,
+    compatibleProviderId: options?.compatibleProviderId,
     claudeAccessMode: options?.claudeAccessMode,
     claudeExecutionMode: options?.claudeExecutionMode || 'execute',
-    claudeReasoningEffort: 'high',
+    claudeReasoningEffort: options?.claudeReasoningEffort || 'high',
     codexExecutionMode: options?.codexExecutionMode,
     codexPermissionMode: options?.codexPermissionMode,
+    codexReasoningEffort: options?.codexReasoningEffort,
+    codexFastMode: options?.codexFastMode,
     opencodePermissionMode: options?.opencodePermissionMode,
     hiddenFromThreads: false,
     messages: [],
@@ -1178,6 +1203,13 @@ export const useAppStore = create<Store>()(
       if (!current) {
         return state;
       }
+      const nextProvider =
+        patch.provider !== undefined ? normalizeAgentProvider(patch.provider) : current.provider;
+      const hasModelPatch = Object.prototype.hasOwnProperty.call(patch, 'model');
+      const hasCompatibleProviderPatch = Object.prototype.hasOwnProperty.call(
+        patch,
+        'compatibleProviderId'
+      );
       return {
         agentProfiles: {
           ...state.agentProfiles,
@@ -1195,9 +1227,14 @@ export const useAppStore = create<Store>()(
               patch.avatar !== undefined
                 ? normalizeAgentProfileAvatar(patch.avatar, current, current.id)
                 : current.avatar,
-            provider:
-              patch.provider !== undefined ? normalizeAgentProvider(patch.provider) : current.provider,
-            model: patch.model !== undefined ? patch.model?.trim() || undefined : current.model,
+            provider: nextProvider,
+            model: hasModelPatch ? patch.model?.trim() || undefined : current.model,
+            compatibleProviderId:
+              nextProvider === 'claude'
+                ? hasCompatibleProviderPatch
+                  ? normalizeClaudeCompatibleProviderId(patch.compatibleProviderId)
+                  : current.compatibleProviderId
+                : undefined,
             permissionPolicy:
               patch.permissionPolicy !== undefined
                 ? normalizeAgentPermissionPolicyForProfile(

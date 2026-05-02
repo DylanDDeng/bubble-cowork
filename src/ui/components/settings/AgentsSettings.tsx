@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
+import { AgentModelPicker } from '../AgentModelPicker';
 import { AgentAvatar, AGENT_AVATAR_OPTIONS } from '../AgentAvatar';
 import { useAppStore } from '../../store/useAppStore';
 import type {
@@ -7,8 +8,20 @@ import type {
   AgentProfile,
   AgentProfileColor,
   AgentAvatarAssetKey,
+  ClaudeCompatibleProviderId,
   AgentReasoningEffort,
 } from '../../types';
+import { useClaudeModelConfig } from '../../hooks/useClaudeModelConfig';
+import { useCodexModelConfig } from '../../hooks/useCodexModelConfig';
+import { useCompatibleProviderConfig } from '../../hooks/useCompatibleProviderConfig';
+import { useOpencodeModelConfig } from '../../hooks/useOpencodeModelConfig';
+import {
+  buildClaudeModelOptions,
+  canonicalizeClaudeModel,
+  isOfficialClaudeModel,
+} from '../../utils/claude-model';
+import { buildCodexModelOptions, resolveCodexModel } from '../../utils/codex-model';
+import { buildOpencodeModelOptions } from '../../utils/opencode-model';
 import { SettingsGroup, SettingsToggle } from './SettingsPrimitives';
 
 const AGENT_COLORS: Array<{ value: AgentProfileColor; label: string }> = [
@@ -185,6 +198,31 @@ function AgentProfileListItem({
   );
 }
 
+function resolveCompatibleProviderId(
+  model: string | null | undefined,
+  compatibleProviderId: ClaudeCompatibleProviderId | null | undefined,
+  compatibleOptions: Array<{ id: ClaudeCompatibleProviderId; model: string }>
+): ClaudeCompatibleProviderId | undefined {
+  const normalizedModel = model?.trim();
+  if (!normalizedModel) {
+    return undefined;
+  }
+
+  const matchingOptions = compatibleOptions.filter((option) => option.model === normalizedModel);
+  if (matchingOptions.length === 0) {
+    return undefined;
+  }
+
+  if (compatibleProviderId) {
+    const exactMatch = matchingOptions.find((option) => option.id === compatibleProviderId);
+    if (exactMatch) {
+      return exactMatch.id;
+    }
+  }
+
+  return matchingOptions[0]?.id;
+}
+
 function AgentProfileForm({
   profile,
   onUpdate,
@@ -194,6 +232,123 @@ function AgentProfileForm({
   onUpdate: (patch: Partial<Omit<AgentProfile, 'id' | 'createdAt'>>) => void;
   onDelete: () => void;
 }) {
+  const claudeModelConfig = useClaudeModelConfig();
+  const { compatibleOptions } = useCompatibleProviderConfig();
+  const codexModelConfig = useCodexModelConfig();
+  const codexModelOptions = useMemo(
+    () => buildCodexModelOptions(codexModelConfig),
+    [codexModelConfig]
+  );
+  const opencodeModelConfig = useOpencodeModelConfig();
+  const opencodeModelOptions = useMemo(
+    () => buildOpencodeModelOptions(opencodeModelConfig),
+    [opencodeModelConfig]
+  );
+  const claudeModelOptions = useMemo(
+    () => buildClaudeModelOptions(claudeModelConfig),
+    [claudeModelConfig]
+  );
+
+  const resolveProfileModelSelection = (
+    provider: AgentProfile['provider'],
+    preferredModel?: string | null,
+    preferredCompatibleProviderId?: ClaudeCompatibleProviderId | null
+  ): { model?: string; compatibleProviderId?: ClaudeCompatibleProviderId } => {
+    const normalizedModel = preferredModel?.trim() || undefined;
+
+    if (provider === 'claude') {
+      const normalizedClaudeModel = canonicalizeClaudeModel(normalizedModel);
+      if (normalizedClaudeModel) {
+        const compatibleProviderId = resolveCompatibleProviderId(
+          normalizedClaudeModel,
+          preferredCompatibleProviderId,
+          compatibleOptions
+        );
+        if (compatibleProviderId) {
+          return { model: normalizedClaudeModel, compatibleProviderId };
+        }
+        if (isOfficialClaudeModel(normalizedClaudeModel)) {
+          return { model: normalizedClaudeModel };
+        }
+      }
+
+      const defaultModel = canonicalizeClaudeModel(claudeModelConfig.defaultModel);
+      return { model: defaultModel || claudeModelOptions[0] || undefined };
+    }
+
+    if (provider === 'codex') {
+      const model = normalizedModel
+        ? resolveCodexModel(normalizedModel, codexModelConfig)
+        : resolveCodexModel(null, codexModelConfig);
+      return { model: model || undefined };
+    }
+
+    if (normalizedModel && (opencodeModelOptions.length === 0 || opencodeModelOptions.includes(normalizedModel))) {
+      return { model: normalizedModel };
+    }
+
+    return { model: opencodeModelOptions[0] || undefined };
+  };
+
+  const selectedModel = useMemo(
+    () =>
+      resolveProfileModelSelection(
+        profile.provider,
+        profile.model,
+        profile.compatibleProviderId
+      ),
+    [
+      claudeModelConfig,
+      claudeModelOptions,
+      codexModelConfig,
+      compatibleOptions,
+      opencodeModelOptions,
+      profile.compatibleProviderId,
+      profile.model,
+      profile.provider,
+    ]
+  );
+
+  useEffect(() => {
+    const currentModel = profile.model?.trim() || undefined;
+    const patch: Partial<Omit<AgentProfile, 'id' | 'createdAt'>> = {};
+    if (selectedModel.model && selectedModel.model !== currentModel) {
+      patch.model = selectedModel.model;
+    }
+    if (profile.provider === 'claude') {
+      if (selectedModel.compatibleProviderId !== profile.compatibleProviderId) {
+        patch.compatibleProviderId = selectedModel.compatibleProviderId;
+      }
+    } else if (profile.compatibleProviderId) {
+      patch.compatibleProviderId = undefined;
+    }
+
+    if (Object.keys(patch).length > 0) {
+      onUpdate(patch);
+    }
+  }, [
+    onUpdate,
+    profile.compatibleProviderId,
+    profile.model,
+    profile.provider,
+    selectedModel.compatibleProviderId,
+    selectedModel.model,
+  ]);
+
+  const handleProviderChange = (provider: AgentProfile['provider']) => {
+    const nextSelection = resolveProfileModelSelection(provider);
+    onUpdate({
+      provider,
+      model: nextSelection.model,
+      compatibleProviderId:
+        provider === 'claude' ? nextSelection.compatibleProviderId : undefined,
+      reasoningEffort:
+        provider === 'opencode' || (provider === 'codex' && profile.reasoningEffort === 'max')
+          ? undefined
+          : profile.reasoningEffort,
+    });
+  };
+
   return (
     <div className="space-y-4">
       <SettingsGroup title="Identity">
@@ -252,16 +407,7 @@ function AgentProfileForm({
         <ProfileField label="Provider">
           <select
             value={profile.provider}
-            onChange={(event) => {
-              const provider = event.target.value as AgentProfile['provider'];
-              onUpdate({
-                provider,
-                reasoningEffort:
-                  provider === 'opencode' || (provider === 'codex' && profile.reasoningEffort === 'max')
-                    ? undefined
-                    : profile.reasoningEffort,
-              });
-            }}
+            onChange={(event) => handleProviderChange(event.target.value as AgentProfile['provider'])}
             className={FIELD_CONTROL_CLASS}
           >
             <option value="claude">Claude</option>
@@ -270,11 +416,34 @@ function AgentProfileForm({
           </select>
         </ProfileField>
         <ProfileField label="Model">
-          <input
-            value={profile.model || ''}
-            onChange={(event) => onUpdate({ model: event.target.value })}
-            placeholder="default"
-            className={FIELD_CONTROL_CLASS}
+          <AgentModelPicker
+            provider={profile.provider}
+            onProviderChange={handleProviderChange}
+            menuPlacement="bottom"
+            menuStrategy="fixed"
+            triggerClassName="w-full justify-between rounded-[var(--radius-md)] border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1.5 hover:bg-[var(--bg-tertiary)]"
+            claudeModel={{
+              value: selectedModel.model || null,
+              compatibleProviderId: selectedModel.compatibleProviderId || null,
+              config: claudeModelConfig,
+              compatibleOptions,
+              onChange: (model, compatibleProviderId) => {
+                onUpdate({
+                  model,
+                  compatibleProviderId: compatibleProviderId || undefined,
+                });
+              },
+            }}
+            codexModel={{
+              value: selectedModel.model || null,
+              options: codexModelOptions,
+              onChange: (model) => onUpdate({ model }),
+            }}
+            opencodeModel={{
+              value: selectedModel.model || null,
+              options: opencodeModelOptions,
+              onChange: (model) => onUpdate({ model }),
+            }}
           />
         </ProfileField>
         {profile.provider !== 'opencode' ? (
