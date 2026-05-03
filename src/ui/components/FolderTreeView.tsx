@@ -411,7 +411,7 @@ export function FolderTreeView({
     <div>
       {pinnedSessions.length > 0 && (
         <section className="mb-4">
-          <div className="mb-1 px-2 text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">
+          <div className="mb-1 px-2 text-[11px] font-normal uppercase tracking-[0.08em] text-[var(--text-muted)]">
             Pinned
           </div>
           {pinnedSessions.map((session) => {
@@ -468,7 +468,7 @@ export function FolderTreeView({
                 aria-expanded={expanded}
               >
                 {expanded ? <FolderOpen className="w-3.5 h-3.5" /> : <FolderClosed className="w-3.5 h-3.5" />}
-                <span className="text-[13px] font-medium truncate flex-1">{group.label}</span>
+                <span className="text-[13px] font-normal truncate flex-1">{group.label}</span>
               </button>
 
               {group.fullPath && (
@@ -591,7 +591,7 @@ export function FolderTreeView({
                   {hiddenChannelCount > 0 && (
                     <button
                       type="button"
-                      className="ml-4 flex h-7 w-[calc(100%-20px)] items-center rounded-lg px-2 text-left text-[12px] font-medium text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                      className="ml-4 flex h-7 w-[calc(100%-20px)] items-center rounded-lg px-2 text-left text-[12px] font-normal text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
                       onClick={() => toggleChannelListExpanded(group.key)}
                     >
                       Show {hiddenChannelCount} more
@@ -603,7 +603,7 @@ export function FolderTreeView({
                     group.channels.length > CHANNEL_PREVIEW_LIMIT && (
                       <button
                         type="button"
-                        className="ml-4 flex h-7 w-[calc(100%-20px)] items-center rounded-lg px-2 text-left text-[12px] font-medium text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                        className="ml-4 flex h-7 w-[calc(100%-20px)] items-center rounded-lg px-2 text-left text-[12px] font-normal text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
                         onClick={() => toggleChannelListExpanded(group.key)}
                       >
                         Show less
@@ -678,7 +678,7 @@ function ProjectAgentSummary({
       aria-label="Configure project agents"
     >
       <Users className="h-3.5 w-3.5 flex-shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
+      <span className="min-w-0 flex-1 truncate text-[12px] font-normal">
         {label}
       </span>
       <span className="flex flex-shrink-0 items-center -space-x-1">
@@ -716,7 +716,7 @@ function ProjectAgentRosterEditor({
       style={{ marginLeft: `${depth * 16}px` }}
     >
       <div className="mb-1 flex h-7 items-center justify-between px-2">
-        <span className="truncate text-[12px] font-medium text-[var(--text-secondary)]">
+        <span className="truncate text-[12px] font-normal text-[var(--text-secondary)]">
           Project agents
         </span>
       </div>
@@ -745,7 +745,7 @@ function ProjectAgentRosterEditor({
               </span>
               <AgentAvatar profile={profile} size="sm" decorative />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[12px] font-medium text-[var(--text-primary)]">
+                <span className="block truncate text-[12px] font-normal text-[var(--text-primary)]">
                   {profile.name.trim() || 'Untitled agent'}
                 </span>
                 <span className="block truncate text-[11px] text-[var(--text-muted)]">
@@ -792,7 +792,7 @@ function ChannelItem({
       aria-label={`Open # ${channel.name}`}
     >
       <Hash className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
-      <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{channel.name}</span>
+      <span className="min-w-0 flex-1 truncate text-[13px] font-normal">{channel.name}</span>
       {channel.session && (
         <span className="flex-shrink-0 text-[12px] text-[var(--text-muted)]">
           {formatSidebarTime(channel.updatedAt)}
@@ -873,7 +873,7 @@ function SessionItem({
       </button>
 
       <div className="flex min-h-[22px] items-center gap-2">
-        <span className="flex-1 truncate text-[13px] font-medium leading-[1.3]">{session.title}</span>
+        <span className="flex-1 truncate text-[13px] font-normal leading-[1.3]">{session.title}</span>
         {session.source === 'claude_code' && (
           <span className="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--text-secondary)]">
             Claude Code
@@ -945,7 +945,7 @@ function SplitSessionRow({
           left
         </span>
         <ProviderGlyph provider={primary.provider} />
-        <span className="min-w-0 flex-1 truncate font-medium">{primary.title}</span>
+        <span className="min-w-0 flex-1 truncate font-normal">{primary.title}</span>
       </button>
       <button
         type="button"
@@ -960,7 +960,7 @@ function SplitSessionRow({
           right
         </span>
         <ProviderGlyph provider={secondary.provider} />
-        <span className="min-w-0 flex-1 truncate font-medium">{secondary.title}</span>
+        <span className="min-w-0 flex-1 truncate font-normal">{secondary.title}</span>
       </button>
     </div>
   );

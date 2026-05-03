@@ -498,7 +498,7 @@ export function Sidebar() {
                   aria-label="Settings"
                 >
                   <Settings className="h-[15px] w-[15px] text-[var(--text-muted)]" />
-                  <span className="truncate text-[13px] font-medium">Settings</span>
+                  <span className="truncate text-[13px] font-normal">Settings</span>
                 </button>
               </div>
             </div>
@@ -557,7 +557,7 @@ function SidebarNavRow({
       <span className="flex h-4 w-4 items-center justify-center text-[var(--text-muted)]">
         {icon}
       </span>
-      <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{label}</span>
+      <span className="min-w-0 flex-1 truncate text-[13px] font-normal">{label}</span>
     </button>
   );
 }
@@ -688,7 +688,7 @@ function DirectAgentRow({
     >
       <AgentAvatar profile={agent} size="sm" decorative />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium leading-[1.2]">{displayName}</span>
+        <span className="block truncate text-[13px] font-normal leading-[1.2]">{displayName}</span>
         <span className="block truncate text-[11px] leading-[1.2] text-[var(--text-muted)]">
           {displayRole}
         </span>

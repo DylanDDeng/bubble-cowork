@@ -85,13 +85,13 @@ export function SidebarSkillLibraryPanel({ onShowProjects }: { onShowProjects?: 
             className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
           >
             <FolderOpen className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-            <span className="text-[13px] font-medium">Projects</span>
+            <span className="text-[13px] font-normal">Projects</span>
           </button>
         </div>
       ) : null}
 
       <div className="flex items-center justify-between gap-2 px-1 pb-3 pt-4">
-        <div className="text-base font-semibold text-[var(--text-primary)]">Skill Library</div>
+        <div className="text-base font-medium text-[var(--text-primary)]">Skill Library</div>
         <div className="flex items-center gap-1">
           <IconButton title="Refresh skills" onClick={refreshSkills} disabled={refreshing}>
             {refreshing ? (
@@ -180,7 +180,7 @@ function SkillSection({
   return (
     <section className="mb-5">
       <div className="mb-2 flex items-center justify-between gap-3 px-1">
-        <div className="text-[12px] font-medium text-[var(--text-secondary)]">{title}</div>
+        <div className="text-[12px] font-normal text-[var(--text-secondary)]">{title}</div>
         <div className="text-[11px] text-[var(--text-muted)]">{skills.length}</div>
       </div>
 
@@ -220,7 +220,7 @@ function SkillListItem({
           <Boxes className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-[var(--text-primary)]">
+          <div className="truncate text-sm font-normal text-[var(--text-primary)]">
             {skill.title || skill.name}
           </div>
           <div className="truncate text-[11px] text-[var(--text-muted)]">{skill.name}</div>

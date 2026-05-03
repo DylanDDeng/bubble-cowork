@@ -168,13 +168,13 @@ export function PromptLibraryPanel({ onShowProjects }: { onShowProjects?: () => 
             className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
           >
             <FolderOpen className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-            <span className="text-[13px] font-medium">Projects</span>
+            <span className="text-[13px] font-normal">Projects</span>
           </button>
         </div>
       ) : null}
 
       <div className="flex items-center justify-between gap-2 px-1 pb-3 pt-4">
-        <div className="text-base font-semibold text-[var(--text-primary)]">Prompt Library</div>
+        <div className="text-base font-medium text-[var(--text-primary)]">Prompt Library</div>
 
         <div className="flex items-center gap-1">
           <IconActionButton title="Import prompts" onClick={() => void handleImport()}>
@@ -279,7 +279,7 @@ export function PromptLibraryPanel({ onShowProjects }: { onShowProjects?: () => 
 
                 <div className="p-4">
                   <div className="flex items-center gap-2">
-                    <div className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--text-primary)]">
+                    <div className="min-w-0 flex-1 truncate text-sm font-normal text-[var(--text-primary)]">
                       {item.title}
                     </div>
                     <span className="flex-shrink-0 text-[11px] text-[var(--text-muted)]">

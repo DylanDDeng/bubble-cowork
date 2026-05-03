@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aegis Sidebar Tab Color Lab</title>
+    <style>
+      :root {
+        --page-bg: #f4f4f2;
+        --surface: #fbfaf8;
+        --surface-2: #efeee9;
+        --text: #171717;
+        --text-2: #5d5f63;
+        --muted: #87898d;
+        --border: rgba(24, 24, 24, 0.1);
+        --accent: #4f46e5;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.74), transparent 260px),
+          var(--page-bg);
+        color: var(--text);
+      }
+
+      button {
+        font: inherit;
+      }
+
+      .page {
+        max-width: 1220px;
+        margin: 0 auto;
+        padding: 32px 28px 44px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 22px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 22px;
+        line-height: 1.18;
+        letter-spacing: 0;
+      }
+
+      .subtitle {
+        max-width: 760px;
+        margin: 7px 0 0;
+        color: var(--text-2);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+
+      .mode-button {
+        height: 28px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+        color: var(--text-2);
+        cursor: pointer;
+        padding: 0 10px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .mode-button.active {
+        color: var(--text);
+        border-color: rgba(79, 70, 229, 0.24);
+        background: rgba(79, 70, 229, 0.08);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .card {
+        min-width: 0;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--surface) 94%, white);
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
+      }
+
+      .card.selected {
+        border-color: rgba(79, 70, 229, 0.42);
+        box-shadow:
+          0 0 0 2px rgba(79, 70, 229, 0.1),
+          0 1px 0 rgba(255, 255, 255, 0.7) inset;
+      }
+
+      .card-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 12px 10px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .title {
+        min-width: 0;
+      }
+
+      .title strong {
+        display: block;
+        font-size: 13px;
+        line-height: 1.25;
+      }
+
+      .title span {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.25;
+      }
+
+      .choose {
+        height: 26px;
+        flex-shrink: 0;
+        border: 0;
+        border-radius: 7px;
+        background: var(--surface-2);
+        color: var(--text-2);
+        cursor: pointer;
+        padding: 0 9px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .card.selected .choose {
+        background: rgba(79, 70, 229, 0.12);
+        color: var(--accent);
+      }
+
+      .previews {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        padding: 12px;
+      }
+
+      .sidebar {
+        min-width: 0;
+        border-radius: 9px;
+        padding: 10px 8px;
+      }
+
+      .sidebar.light {
+        --sidebar-bg: #f5f5f7;
+        --sidebar-primary: #ffffff;
+        --sidebar-secondary: #f9f9fb;
+        --sidebar-hover: #eeeeee;
+        --sidebar-active: rgba(79, 70, 229, 0.08);
+        --sidebar-text: #111111;
+        --sidebar-secondary-text: #62646a;
+        --sidebar-muted: #8e9196;
+        --sidebar-border: #e5e7eb;
+        --seg-bg: var(--light-bg);
+        --seg-active: var(--light-active);
+        --seg-shadow: var(--light-shadow);
+        background: var(--sidebar-bg);
+      }
+
+      .sidebar.dark {
+        --sidebar-bg: #22242a;
+        --sidebar-primary: #111214;
+        --sidebar-secondary: #17181b;
+        --sidebar-hover: rgba(255, 255, 255, 0.08);
+        --sidebar-active: rgba(129, 140, 248, 0.14);
+        --sidebar-text: #f5f5f5;
+        --sidebar-secondary-text: #b2b5bb;
+        --sidebar-muted: #80838a;
+        --sidebar-border: rgba(255, 255, 255, 0.12);
+        --seg-bg: var(--dark-bg);
+        --seg-active: var(--dark-active);
+        --seg-shadow: var(--dark-shadow);
+        background: var(--sidebar-bg);
+      }
+
+      .sidebar-label {
+        margin-bottom: 8px;
+        padding: 0 3px;
+        color: var(--sidebar-muted);
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .mini-tab {
+        position: relative;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        height: 24px;
+        overflow: hidden;
+        border-radius: var(--radius);
+        background: var(--seg-bg);
+      }
+
+      .mini-tab + .mini-tab {
+        margin-top: 7px;
+      }
+
+      .thumb {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 50%;
+        border-radius: var(--radius);
+        background: var(--seg-active);
+        box-shadow: var(--seg-shadow);
+        transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      .mini-tab.dms .thumb {
+        transform: translateX(100%);
+      }
+
+      .mini-tab button {
+        position: relative;
+        z-index: 1;
+        min-width: 0;
+        border: 0;
+        background: transparent;
+        color: var(--sidebar-muted);
+        cursor: default;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        padding: 0 6px;
+        font-size: 10.5px;
+        font-weight: 650;
+        line-height: 1;
+      }
+
+      .mini-tab.projects button:first-of-type,
+      .mini-tab.dms button:last-of-type {
+        color: var(--sidebar-text);
+      }
+
+      .icon {
+        width: 11px;
+        height: 11px;
+        color: currentColor;
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        height: 26px;
+        margin-top: 8px;
+        border-radius: 7px;
+        padding: 0 7px;
+        color: var(--sidebar-secondary-text);
+        background: transparent;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .row.active {
+        color: var(--sidebar-text);
+        background: var(--sidebar-active);
+      }
+
+      .swatches {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        padding: 0 12px 12px;
+      }
+
+      .swatch {
+        min-width: 0;
+        border-radius: 7px;
+        background: var(--surface-2);
+        padding: 7px;
+      }
+
+      .swatch span {
+        display: block;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .chip-row {
+        display: flex;
+        gap: 5px;
+        margin-top: 6px;
+      }
+
+      .chip {
+        height: 18px;
+        flex: 1;
+        min-width: 0;
+        border-radius: 5px;
+      }
+
+      code {
+        display: block;
+        margin: 0 12px 12px;
+        overflow: hidden;
+        border-radius: 8px;
+        background: #16181d;
+        color: #d7dbe2;
+        padding: 8px;
+        white-space: pre-wrap;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 10px;
+        line-height: 1.45;
+      }
+
+      @media (max-width: 980px) {
+        .grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 660px) {
+        .page {
+          padding: 24px 16px 36px;
+        }
+
+        .topbar {
+          display: block;
+        }
+
+        .toolbar {
+          margin-top: 14px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="topbar">
+        <div>
+          <h1>Sidebar Tab Color Lab</h1>
+          <p class="subtitle">
+            Focused options for the borderless Projects / DMs switch. The sidebar preview uses the real Aegis light/dark sidebar tokens; each card only changes the track and active thumb colors.
+          </p>
+        </div>
+        <div class="toolbar" aria-label="Preview density">
+          <button class="mode-button active" type="button" data-density="normal">Normal</button>
+          <button class="mode-button" type="button" data-density="compact">Compact</button>
+        </div>
+      </header>
+
+      <section class="grid" id="grid" aria-label="Color options"></section>
+    </main>
+
+    <script>
+      const variants = [
+        {
+          id: '00',
+          name: 'Current App',
+          note: 'current implementation reference',
+          radius: '8px',
+          lightBg: '#e4e6eb',
+          lightActive: '#eff1f5',
+          lightShadow: '0 1px 4px rgba(20, 20, 20, 0.10)',
+          darkBg: '#383c45',
+          darkActive: '#434850',
+          darkShadow: '0 1px 4px rgba(0, 0, 0, 0.26)',
+        },
+        {
+          id: '01',
+          name: 'Balanced Slate',
+          note: 'clear gray track, light thumb',
+          radius: '8px',
+          lightBg: '#d9dce2',
+          lightActive: '#f0f2f5',
+          lightShadow: '0 1px 4px rgba(20, 20, 20, 0.10)',
+          darkBg: '#343943',
+          darkActive: '#4a515d',
+          darkShadow: '0 1px 4px rgba(0, 0, 0, 0.26)',
+        },
+        {
+          id: '02',
+          name: 'Soft Zinc',
+          note: 'neutral, less blue',
+          radius: '8px',
+          lightBg: '#dedfdf',
+          lightActive: '#f2f2f1',
+          lightShadow: '0 1px 4px rgba(20, 20, 20, 0.09)',
+          darkBg: '#35383d',
+          darkActive: '#4a4d53',
+          darkShadow: '0 1px 4px rgba(0, 0, 0, 0.25)',
+        },
+        {
+          id: '03',
+          name: 'Graphite Mist',
+          note: 'stronger sidebar separation',
+          radius: '8px',
+          lightBg: '#d0d4da',
+          lightActive: '#ebeef2',
+          lightShadow: '0 1px 5px rgba(20, 20, 20, 0.12)',
+          darkBg: '#303641',
+          darkActive: '#596170',
+          darkShadow: '0 1px 5px rgba(0, 0, 0, 0.28)',
+        },
+        {
+          id: '04',
+          name: 'Low Contrast Capsule',
+          note: 'quiet but still visible',
+          radius: '999px',
+          lightBg: '#e0e2e5',
+          lightActive: '#f3f4f6',
+          lightShadow: '0 1px 3px rgba(20, 20, 20, 0.08)',
+          darkBg: '#30343b',
+          darkActive: '#454b55',
+          darkShadow: '0 1px 3px rgba(0, 0, 0, 0.24)',
+        },
+        {
+          id: '05',
+          name: 'Dense Neutral',
+          note: 'most obvious light track',
+          radius: '8px',
+          lightBg: '#c8cdd5',
+          lightActive: '#e7ebf0',
+          lightShadow: '0 1px 5px rgba(20, 20, 20, 0.14)',
+          darkBg: '#3c424d',
+          darkActive: '#68717f',
+          darkShadow: '0 1px 5px rgba(0, 0, 0, 0.30)',
+        },
+        {
+          id: '06',
+          name: 'Warm Paper Gray',
+          note: 'warmer, less system-blue',
+          radius: '8px',
+          lightBg: '#ddd9d2',
+          lightActive: '#f1eee9',
+          lightShadow: '0 1px 4px rgba(38, 32, 24, 0.10)',
+          darkBg: '#393734',
+          darkActive: '#55514b',
+          darkShadow: '0 1px 4px rgba(0, 0, 0, 0.26)',
+        },
+        {
+          id: '07',
+          name: 'Blue Gray',
+          note: 'cooler agent workspace feel',
+          radius: '8px',
+          lightBg: '#d5dce6',
+          lightActive: '#edf2f8',
+          lightShadow: '0 1px 4px rgba(16, 28, 44, 0.10)',
+          darkBg: '#2f3745',
+          darkActive: '#4b596b',
+          darkShadow: '0 1px 4px rgba(0, 0, 0, 0.27)',
+        },
+        {
+          id: '08',
+          name: 'Flat Thumb',
+          note: 'no shadow, cleaner shape',
+          radius: '8px',
+          lightBg: '#d2d6dd',
+          lightActive: '#e9edf3',
+          lightShadow: 'none',
+          darkBg: '#363c46',
+          darkActive: '#56606d',
+          darkShadow: 'none',
+        },
+        {
+          id: '09',
+          name: 'Inset Gray',
+          note: 'thumb appears carved in',
+          radius: '8px',
+          lightBg: '#d6d9df',
+          lightActive: '#eef0f3',
+          lightShadow: 'inset 0 0 0 1px rgba(255,255,255,0.52), 0 1px 3px rgba(20,20,20,0.10)',
+          darkBg: '#343a45',
+          darkActive: '#4f5764',
+          darkShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08), 0 1px 4px rgba(0,0,0,0.26)',
+        },
+      ];
+
+      const folderIcon = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9Z"/></svg>';
+      const dmIcon = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"/></svg>';
+
+      function miniTabs(active) {
+        return `
+          <div class="mini-tab ${active}">
+            <span class="thumb"></span>
+            <button type="button">${folderIcon}<span>Projects</span></button>
+            <button type="button">${dmIcon}<span>DMs</span></button>
+          </div>
+        `;
+      }
+
+      function sidebar(theme) {
+        return `
+          <div class="sidebar ${theme}">
+            <div class="sidebar-label">${theme}</div>
+            ${miniTabs('projects')}
+            ${miniTabs('dms')}
+            <div class="row active">${folderIcon}<span># frontend</span></div>
+            <div class="row">${dmIcon}<span>Builder</span></div>
+          </div>
+        `;
+      }
+
+      function cssBlock(v) {
+        return `--sidebar-segment-bg: ${v.lightBg};
+--sidebar-segment-active: ${v.lightActive};
+--sidebar-segment-shadow-active: ${v.lightShadow};`;
+      }
+
+      function card(v) {
+        return `
+          <article class="card" style="
+            --light-bg:${v.lightBg};
+            --light-active:${v.lightActive};
+            --light-shadow:${v.lightShadow};
+            --dark-bg:${v.darkBg};
+            --dark-active:${v.darkActive};
+            --dark-shadow:${v.darkShadow};
+            --radius:${v.radius};
+          ">
+            <div class="card-head">
+              <div class="title">
+                <strong>${v.id} ${v.name}</strong>
+                <span>${v.note}</span>
+              </div>
+              <button class="choose" type="button" data-select="${v.id}">Pick</button>
+            </div>
+            <div class="previews">
+              ${sidebar('light')}
+              ${sidebar('dark')}
+            </div>
+            <div class="swatches">
+              <div class="swatch">
+                <span>Light</span>
+                <div class="chip-row">
+                  <div class="chip" style="background:${v.lightBg}"></div>
+                  <div class="chip" style="background:${v.lightActive}"></div>
+                </div>
+              </div>
+              <div class="swatch">
+                <span>Dark</span>
+                <div class="chip-row">
+                  <div class="chip" style="background:${v.darkBg}"></div>
+                  <div class="chip" style="background:${v.darkActive}"></div>
+                </div>
+              </div>
+            </div>
+            <code>${cssBlock(v)}</code>
+          </article>
+        `;
+      }
+
+      const grid = document.getElementById('grid');
+      grid.innerHTML = variants.map(card).join('');
+
+      grid.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-select]');
+        if (!button) return;
+        document.querySelectorAll('.card').forEach((item) => item.classList.remove('selected'));
+        button.closest('.card').classList.add('selected');
+        button.textContent = 'Picked';
+        document.querySelectorAll('.choose').forEach((item) => {
+          if (item !== button) item.textContent = 'Pick';
+        });
+      });
+
+      document.querySelectorAll('[data-density]').forEach((button) => {
+        button.addEventListener('click', () => {
+          document.querySelectorAll('[data-density]').forEach((item) => item.classList.remove('active'));
+          button.classList.add('active');
+          const compact = button.dataset.density === 'compact';
+          document.documentElement.style.setProperty('--tab-height', compact ? '22px' : '24px');
+          document.querySelectorAll('.mini-tab').forEach((tab) => {
+            tab.style.height = compact ? '22px' : '24px';
+          });
+        });
+      });
+    </script>
+  </body>
+</html>
