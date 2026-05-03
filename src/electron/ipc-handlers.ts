@@ -20,6 +20,10 @@ import {
   saveCompatibleProviderConfig,
 } from './libs/compatible-provider-config';
 import {
+  loadAegisBuiltInAgentConfig,
+  saveAegisBuiltInAgentConfig,
+} from './libs/aegis-built-in-config';
+import {
   deleteImportedFont,
   getFontSettings,
   importFontFile,
@@ -71,6 +75,7 @@ import type {
 import type {
   ClaudeCompatibleProvidersConfig,
   ClaudeCompatibleProviderId,
+  AegisBuiltInAgentConfig,
   ClaudeUsageRangeDays,
   FolderConfig,
   FontSettingsPayload,
@@ -388,6 +393,15 @@ function normalizeCodexFastMode(value: unknown): boolean {
 function normalizeOpenCodePermissionMode(
   value?: string | null
 ): import('../shared/types').OpenCodePermissionMode {
+  return value === 'fullAccess' || value === 'fullAuto'
+    ? 'fullAccess'
+    : 'defaultPermissions';
+}
+
+function normalizeAegisPermissionMode(
+  value?: string | null
+): import('../shared/types').AegisPermissionMode {
+  if (value === 'readOnly') return 'readOnly';
   return value === 'fullAccess' || value === 'fullAuto'
     ? 'fullAccess'
     : 'defaultPermissions';
@@ -826,6 +840,7 @@ function formatInteger(value: number): string {
 }
 
 function formatProviderLabel(provider: SessionInfo['provider']): string {
+  if (provider === 'aegis') return 'Aegis Built-in';
   if (provider === 'codex') return 'Codex';
   if (provider === 'opencode') return 'OpenCode';
   return 'Claude Code';
@@ -2491,7 +2506,7 @@ const runnerHandles = new Map<
   string,
   {
     handle: RunnerHandle;
-    provider: 'claude' | 'codex' | 'opencode';
+    provider: 'aegis' | 'claude' | 'codex' | 'opencode';
     compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
     claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
     claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode;
@@ -2501,6 +2516,7 @@ const runnerHandles = new Map<
     codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
     codexFastMode?: boolean;
     opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
+    aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
     activeAgentId?: string | null;
     activeAgentRunId?: string | null;
     onTurnDone?: (status: SessionStatus) => void;
@@ -2972,6 +2988,16 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   ipcMainHandle('save-claude-compatible-provider-config', async (_, config: ClaudeCompatibleProvidersConfig) => {
     saveCompatibleProviderConfig(config);
     return loadCompatibleProviderConfig();
+  });
+
+  // RPC: 获取 Aegis Built-in Agent 配置
+  ipcMainHandle('get-aegis-built-in-agent-config', async () => {
+    return loadAegisBuiltInAgentConfig();
+  });
+
+  // RPC: 保存 Aegis Built-in Agent 配置
+  ipcMainHandle('save-aegis-built-in-agent-config', async (_, config: AegisBuiltInAgentConfig) => {
+    return saveAegisBuiltInAgentConfig(config);
   });
 
   // RPC: 获取 Claude usage 报表
@@ -4286,6 +4312,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     codexReasoningEffort: normalizeCodexReasoningEffort(row.codex_reasoning_effort),
     codexFastMode: normalizeCodexFastMode(row.codex_fast_mode),
     opencodePermissionMode: normalizeOpenCodePermissionMode(row.opencode_permission_mode),
+    aegisPermissionMode: row.provider === 'aegis' ? 'defaultPermissions' : undefined,
     pinned: row.pinned === 1,
     folderPath: row.folder_path || null,
     hiddenFromThreads: row.hidden_from_threads === 1,
@@ -4337,7 +4364,10 @@ function normalizeRoutedAgentRuntimePayload(
   }
 
   const provider =
-    turn?.provider === 'codex' || turn?.provider === 'opencode' || turn?.provider === 'claude'
+    turn?.provider === 'aegis' ||
+    turn?.provider === 'codex' ||
+    turn?.provider === 'opencode' ||
+    turn?.provider === 'claude'
       ? turn.provider
       : 'claude';
 
@@ -4429,6 +4459,8 @@ function applyRoutedAgentTurnRuntime(sessionId: string, turn: RoutedAgentTurnPay
     provider === 'codex' ? normalizeCodexFastMode(turn.codexFastMode) : undefined;
   const selectedOpenCodePermissionMode =
     provider === 'opencode' ? normalizeOpenCodePermissionMode(turn.opencodePermissionMode) : undefined;
+  const selectedAegisPermissionMode =
+    provider === 'aegis' ? normalizeAegisPermissionMode(turn.aegisPermissionMode) : undefined;
 
   sessions.updateSessionProvider(sessionId, provider);
   sessions.updateSessionModel(sessionId, selectedModel || null);
@@ -4467,6 +4499,7 @@ function applyRoutedAgentTurnRuntime(sessionId: string, turn: RoutedAgentTurnPay
     selectedCodexReasoningEffort,
     selectedCodexFastMode,
     selectedOpenCodePermissionMode,
+    selectedAegisPermissionMode,
   };
 }
 
@@ -5093,6 +5126,10 @@ async function runRoutedAgentTurn(
         runtime.provider === 'opencode'
           ? (runtime.selectedOpenCodePermissionMode || 'defaultPermissions')
           : undefined,
+      aegisPermissionMode:
+        runtime.provider === 'aegis'
+          ? (runtime.selectedAegisPermissionMode || 'defaultPermissions')
+          : undefined,
       hiddenFromThreads: session.hidden_from_threads === 1,
     },
   });
@@ -5102,8 +5139,10 @@ async function runRoutedAgentTurn(
     runtime.provider === 'claude'
       ? sessions.getSession(sessionId)?.claude_session_id ?? undefined
       : runtime.provider === 'codex'
-      ? sessions.getSession(sessionId)?.codex_session_id ?? undefined
-      : sessions.getSession(sessionId)?.opencode_session_id ?? undefined;
+        ? sessions.getSession(sessionId)?.codex_session_id ?? undefined
+        : runtime.provider === 'opencode'
+          ? sessions.getSession(sessionId)?.opencode_session_id ?? undefined
+          : undefined;
 
   if (runtime.provider === 'claude' && !resumeSessionId && historyBeforeTurn.length > 0) {
     try {
@@ -5163,6 +5202,9 @@ async function runRoutedAgentTurn(
       runtime.provider === 'opencode'
         ? (runtime.selectedOpenCodePermissionMode || 'defaultPermissions')
         : undefined,
+      runtime.provider === 'aegis'
+        ? (runtime.selectedAegisPermissionMode || 'defaultPermissions')
+        : undefined,
       runtime.provider === 'codex' ? turn.codexSkills : undefined,
       runtime.provider === 'codex' ? turn.codexMentions : undefined,
       turn.routedAgentId,
@@ -5200,6 +5242,7 @@ async function handleSessionStart(
     codexSkills,
     codexMentions,
     opencodePermissionMode,
+    aegisPermissionMode,
     routedAgentId,
     routedAgentTurns,
     availableAgentTurns,
@@ -5334,6 +5377,8 @@ async function handleSessionStart(
       codexFastMode: chosenProvider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
       opencodePermissionMode:
         chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
+      aegisPermissionMode:
+        chosenProvider === 'aegis' ? normalizeAegisPermissionMode(aegisPermissionMode) : undefined,
       hiddenFromThreads: session.hidden_from_threads === 1,
       channelId: normalizeWorkspaceChannelId(session.workspace_channel_id),
     },
@@ -5425,6 +5470,7 @@ async function handleSessionStart(
     chosenProvider === 'codex' ? normalizeCodexReasoningEffort(codexReasoningEffort) : undefined,
     chosenProvider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
     chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
+    chosenProvider === 'aegis' ? normalizeAegisPermissionMode(aegisPermissionMode) : undefined,
     chosenProvider === 'codex' ? codexSkills : undefined,
     chosenProvider === 'codex' ? codexMentions : undefined,
     turnAgentId
@@ -5456,6 +5502,7 @@ async function handleSessionContinue(
     codexSkills,
     codexMentions,
     opencodePermissionMode,
+    aegisPermissionMode,
     routedAgentId,
     routedAgentTurns,
     availableAgentTurns,
@@ -5592,6 +5639,9 @@ async function handleSessionContinue(
   const nextOpenCodePermissionMode = nextProvider === 'opencode'
     ? normalizeOpenCodePermissionMode(opencodePermissionMode || previousOpenCodePermissionMode)
     : undefined;
+  const nextAegisPermissionMode = nextProvider === 'aegis'
+    ? normalizeAegisPermissionMode(aegisPermissionMode)
+    : undefined;
   const accessModeChanged =
     nextProvider === 'claude' &&
     (runnerHandles.get(sessionId)?.claudeAccessMode || 'default') !== nextClaudeAccessMode;
@@ -5625,6 +5675,9 @@ async function handleSessionContinue(
     normalizeOpenCodePermissionMode(
       runnerHandles.get(sessionId)?.opencodePermissionMode || previousOpenCodePermissionMode
     ) !== nextOpenCodePermissionMode;
+  const aegisPermissionModeChanged =
+    nextProvider === 'aegis' &&
+    normalizeAegisPermissionMode(runnerHandles.get(sessionId)?.aegisPermissionMode) !== nextAegisPermissionMode;
 
   if (nextProvider === 'claude') {
     const runtimeStatus = await getClaudeRuntimeStatus(nextModel || null);
@@ -5671,6 +5724,7 @@ async function handleSessionContinue(
       codexReasoningEffortChanged,
       codexFastModeChanged,
       opencodePermissionModeChanged,
+      aegisPermissionModeChanged,
       hasExistingRunner: !!existingEntry,
     });
   }
@@ -5728,6 +5782,8 @@ async function handleSessionContinue(
       codexFastMode: nextProvider === 'codex' ? nextCodexFastMode : undefined,
       opencodePermissionMode:
         nextProvider === 'opencode' ? (nextOpenCodePermissionMode || 'defaultPermissions') : undefined,
+      aegisPermissionMode:
+        nextProvider === 'aegis' ? (nextAegisPermissionMode || 'defaultPermissions') : undefined,
       hiddenFromThreads: session.hidden_from_threads === 1,
     },
   });
@@ -5754,6 +5810,7 @@ async function handleSessionContinue(
       (nextProvider === 'codex' && codexReasoningEffortChanged) ||
       (nextProvider === 'codex' && codexFastModeChanged) ||
       (nextProvider === 'opencode' && opencodePermissionModeChanged) ||
+      (nextProvider === 'aegis' && aegisPermissionModeChanged) ||
       (nextProvider === 'claude' &&
         (
           modelChanged ||
@@ -5769,12 +5826,7 @@ async function handleSessionContinue(
     } else {
       existingEntry.activeAgentId = turnAgentId;
       existingEntry.activeAgentRunId = createAgentRunId(turnAgentId, 'continue');
-      existingEntry.handle.send(
-        runnerPrompt,
-        outgoingAttachments,
-        nextModel,
-        nextProvider === 'codex' ? codexSkills : undefined,
-        nextProvider === 'codex' ? codexMentions : undefined,
+      const sendOptions =
         nextProvider === 'codex'
           ? {
               codexExecutionMode: nextCodexExecutionMode,
@@ -5782,13 +5834,25 @@ async function handleSessionContinue(
               codexReasoningEffort: nextCodexReasoningEffort || undefined,
               codexFastMode: nextCodexFastMode,
             }
-          : undefined
+          : nextProvider === 'aegis'
+          ? { aegisPermissionMode: nextAegisPermissionMode || 'defaultPermissions' }
+          : undefined;
+      existingEntry.handle.send(
+        runnerPrompt,
+        outgoingAttachments,
+        nextModel,
+        nextProvider === 'codex' ? codexSkills : undefined,
+        nextProvider === 'codex' ? codexMentions : undefined,
+        sendOptions
       );
       if (nextProvider === 'codex') {
         existingEntry.codexExecutionMode = nextCodexExecutionMode;
         existingEntry.codexPermissionMode = nextCodexPermissionMode;
         existingEntry.codexReasoningEffort = nextCodexReasoningEffort || undefined;
         existingEntry.codexFastMode = nextCodexFastMode;
+      }
+      if (nextProvider === 'aegis') {
+        existingEntry.aegisPermissionMode = nextAegisPermissionMode || 'defaultPermissions';
       }
       return true;
     }
@@ -5808,8 +5872,10 @@ async function handleSessionContinue(
       : nextProvider === 'claude'
         ? sessions.getSession(sessionId)?.claude_session_id ?? undefined
         : nextProvider === 'codex'
-        ? session.codex_session_id ?? undefined
-        : session.opencode_session_id ?? undefined;
+          ? session.codex_session_id ?? undefined
+          : nextProvider === 'opencode'
+            ? session.opencode_session_id ?? undefined
+            : undefined;
   let nextResumeSessionId = resumeSessionId;
 
   if (
@@ -5870,6 +5936,7 @@ async function handleSessionContinue(
     nextProvider === 'codex' ? nextCodexReasoningEffort : undefined,
     nextProvider === 'codex' ? nextCodexFastMode : undefined,
     nextProvider === 'opencode' ? (nextOpenCodePermissionMode || 'defaultPermissions') : undefined,
+    nextProvider === 'aegis' ? (nextAegisPermissionMode || 'defaultPermissions') : undefined,
     nextProvider === 'codex' ? codexSkills : undefined,
     nextProvider === 'codex' ? codexMentions : undefined,
     turnAgentId
@@ -5884,7 +5951,7 @@ function startRunner(
   prompt: string,
   resumeSessionId?: string,
   attachments?: Attachment[],
-  providerOverride?: 'claude' | 'codex' | 'opencode',
+  providerOverride?: 'aegis' | 'claude' | 'codex' | 'opencode',
   modelOverride?: string,
   compatibleProviderOverride?: import('../shared/types').ClaudeCompatibleProviderId,
   betasOverride?: string[],
@@ -5896,6 +5963,7 @@ function startRunner(
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort,
   codexFastMode?: boolean,
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode,
+  aegisPermissionMode?: import('../shared/types').AegisPermissionMode,
   codexSkills?: ProviderInputReference[],
   codexMentions?: ProviderInputReference[],
   activeAgentId?: string | null,
@@ -5922,7 +5990,14 @@ function startRunner(
     console.log('[Runner Select]', {
       sessionId: session.id,
       provider,
-      runner: provider === 'claude' ? 'claude-agent-sdk' : provider === 'codex' ? 'codex-app-server' : 'opencode acp',
+      runner:
+        provider === 'aegis'
+          ? 'aegis built-in'
+          : provider === 'claude'
+          ? 'claude-agent-sdk'
+          : provider === 'codex'
+          ? 'codex-app-server'
+          : 'opencode acp',
       model: modelOverride,
       compatibleProviderId,
       cwd: runnerSession.cwd || process.cwd(),
@@ -5952,6 +6027,7 @@ function startRunner(
     codexSkills: provider === 'codex' ? codexSkills : undefined,
     codexMentions: provider === 'codex' ? codexMentions : undefined,
     opencodePermissionMode,
+    aegisPermissionMode,
     onMessage: (message) => {
       // 提取并保存 claude session id
       if (message.type === 'system' && message.subtype === 'init') {
@@ -5963,6 +6039,10 @@ function startRunner(
           }
         } else if (provider === 'opencode') {
           sessions.updateOpencodeSessionId(session.id, message.session_id);
+          if (message.model) {
+            sessions.updateSessionModel(session.id, message.model);
+          }
+        } else if (provider === 'aegis') {
           if (message.model) {
             sessions.updateSessionModel(session.id, message.model);
           }
@@ -6039,6 +6119,8 @@ function startRunner(
                     sessions.getSession(session.id)?.opencode_permission_mode || opencodePermissionMode
                   )
                 : undefined,
+            aegisPermissionMode:
+              provider === 'aegis' ? normalizeAegisPermissionMode(aegisPermissionMode) : undefined,
             hiddenFromThreads: sessions.getSession(session.id)?.hidden_from_threads === 1,
           },
         });
@@ -6175,6 +6257,8 @@ function startRunner(
                     sessions.getSession(session.id)?.opencode_permission_mode || opencodePermissionMode
                   )
                 : undefined,
+            aegisPermissionMode:
+              provider === 'aegis' ? normalizeAegisPermissionMode(aegisPermissionMode) : undefined,
             hiddenFromThreads: sessions.getSession(session.id)?.hidden_from_threads === 1,
           },
         });
@@ -6277,6 +6361,8 @@ function startRunner(
                   current?.opencode_permission_mode || opencodePermissionMode
                 )
               : undefined,
+          aegisPermissionMode:
+            provider === 'aegis' ? normalizeAegisPermissionMode(aegisPermissionMode) : undefined,
           hiddenFromThreads: current?.hidden_from_threads === 1,
         },
       });
@@ -6322,6 +6408,8 @@ function startRunner(
       provider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
     opencodePermissionMode:
       provider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
+    aegisPermissionMode:
+      provider === 'aegis' ? normalizeAegisPermissionMode(aegisPermissionMode) : undefined,
     activeAgentId: normalizedActiveAgentId,
     activeAgentRunId: normalizedActiveAgentRunId,
     onTurnDone,

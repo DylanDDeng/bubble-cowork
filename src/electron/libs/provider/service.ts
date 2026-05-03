@@ -22,6 +22,10 @@ import type {
   ProviderReadPluginResult,
 } from '../../../shared/types';
 
+function isProviderKind(provider: string): provider is ProviderKind {
+  return provider === 'claude' || provider === 'codex' || provider === 'opencode';
+}
+
 class ProviderServiceImpl implements ProviderService {
   readonly events = new EventEmitter();
   readonly directory: ProviderSessionDirectory = providerSessionDirectory;
@@ -153,6 +157,9 @@ class ProviderServiceImpl implements ProviderService {
   }
 
   async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {
+    if (!isProviderKind(input.provider)) {
+      return { skills: [], source: 'unsupported', cached: false };
+    }
     const adapter = registry.getAdapter(input.provider);
     if (!adapter?.listSkills) {
       return { skills: [], source: 'unsupported', cached: false };
@@ -162,6 +169,16 @@ class ProviderServiceImpl implements ProviderService {
   }
 
   async listPlugins(input: ProviderListPluginsInput): Promise<ProviderListPluginsResult> {
+    if (!isProviderKind(input.provider)) {
+      return {
+        marketplaces: [],
+        marketplaceLoadErrors: [],
+        remoteSyncError: null,
+        featuredPluginIds: [],
+        source: 'unsupported',
+        cached: false,
+      };
+    }
     const adapter = registry.getAdapter(input.provider);
     if (!adapter?.listPlugins) {
       return {
@@ -178,6 +195,9 @@ class ProviderServiceImpl implements ProviderService {
   }
 
   async readPlugin(input: ProviderReadPluginInput): Promise<ProviderReadPluginResult> {
+    if (!isProviderKind(input.provider)) {
+      throw new Error(`Provider "${input.provider}" does not support plugin detail discovery.`);
+    }
     const adapter = registry.getAdapter(input.provider);
     if (!adapter?.readPlugin) {
       throw new Error(`Provider "${input.provider}" does not support plugin detail discovery.`);

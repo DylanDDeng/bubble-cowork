@@ -232,7 +232,7 @@ export function NewSessionView() {
   }, []);
 
   useEffect(() => {
-    if (provider === 'codex') {
+    if (provider === 'codex' || provider === 'aegis') {
       return;
     }
 
@@ -259,7 +259,8 @@ export function NewSessionView() {
           ? selectedSkillRemainder.trim()
           : provider === 'claude'
             ? trimmedPrompt
-            : await (async () => {
+            : provider === 'opencode'
+              ? await (async () => {
                 const result = await window.electron.expandClaudeSkillPrompt(
                   selectedSkill.path,
                   selectedSkill.name,
@@ -272,7 +273,8 @@ export function NewSessionView() {
                 }
 
                 return result.prompt.trim();
-              })();
+              })()
+              : trimmedPrompt;
 
       if (expandedPrompt === null) {
         return null;
@@ -513,6 +515,8 @@ export function NewSessionView() {
         codexMentions: provider === 'codex' ? codexReferences.codexMentions : undefined,
         opencodePermissionMode:
           provider === 'opencode' ? selectedOpencodePermissionMode : undefined,
+        aegisPermissionMode:
+          provider === 'aegis' ? 'defaultPermissions' : undefined,
       },
     });
 

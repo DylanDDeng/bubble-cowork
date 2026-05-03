@@ -79,6 +79,7 @@ export type {
   MemoryDocument,
   MemoryWorkspace,
   AgentProvider,
+  AegisBuiltInAgentConfig,
   ProviderComposerCapabilities,
   ProviderListPluginsInput,
   ProviderListPluginsResult,
@@ -179,6 +180,7 @@ export interface SessionView {
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
   codexFastMode?: boolean;
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
+  aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
   pinned?: boolean;
   folderPath?: string | null;
   hiddenFromThreads?: boolean;

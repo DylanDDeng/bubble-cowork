@@ -172,6 +172,7 @@ function createDirectMessageDraftOptions(profile: AgentProfile): Parameters<type
     codexExecutionMode: isReadOnly ? 'plan' : 'execute',
     codexPermissionMode: isFullAccess ? 'fullAccess' : 'defaultPermissions',
     opencodePermissionMode: isFullAccess ? 'fullAccess' : 'defaultPermissions',
+    aegisPermissionMode: isReadOnly ? 'readOnly' : isFullAccess ? 'fullAccess' : 'defaultPermissions',
   };
 }
 
@@ -213,7 +214,7 @@ function normalizeAgentPermissionPolicyForProfile(
 }
 
 function normalizeAgentProvider(value: unknown): AgentProvider {
-  return value === 'codex' || value === 'opencode' ? value : 'claude';
+  return value === 'aegis' || value === 'codex' || value === 'opencode' ? value : 'claude';
 }
 
 function normalizeClaudeCompatibleProviderId(value: unknown): ClaudeCompatibleProviderId | undefined {
@@ -617,6 +618,7 @@ function createDraftSessionView(
     | 'codexReasoningEffort'
     | 'codexFastMode'
     | 'opencodePermissionMode'
+    | 'aegisPermissionMode'
   >>
 ): SessionView {
   const now = Date.now();
@@ -644,6 +646,7 @@ function createDraftSessionView(
     codexReasoningEffort: options?.codexReasoningEffort,
     codexFastMode: options?.codexFastMode,
     opencodePermissionMode: options?.opencodePermissionMode,
+    aegisPermissionMode: options?.aegisPermissionMode,
     hiddenFromThreads: false,
     messages: [],
     hydrated: true,
@@ -2050,6 +2053,7 @@ function handleSessionList(
       codexReasoningEffort: session.codexReasoningEffort,
       codexFastMode: session.codexFastMode,
       opencodePermissionMode: session.opencodePermissionMode,
+      aegisPermissionMode: session.aegisPermissionMode,
       pinned: session.pinned || false,
       folderPath: session.folderPath || null,
       hiddenFromThreads: session.hiddenFromThreads === true,
@@ -2156,6 +2160,7 @@ function handleSessionStatus(
     codexReasoningEffort?: SessionInfo['codexReasoningEffort'];
     codexFastMode?: SessionInfo['codexFastMode'];
     opencodePermissionMode?: SessionInfo['opencodePermissionMode'];
+    aegisPermissionMode?: SessionInfo['aegisPermissionMode'];
     hiddenFromThreads?: boolean;
     channelId?: string;
   },
@@ -2181,6 +2186,7 @@ function handleSessionStatus(
     codexReasoningEffort,
     codexFastMode,
     opencodePermissionMode,
+    aegisPermissionMode,
     hiddenFromThreads,
     channelId,
   } = payload;
@@ -2246,6 +2252,10 @@ function handleSessionStatus(
             opencodePermissionMode !== undefined
               ? opencodePermissionMode
               : session.opencodePermissionMode,
+          aegisPermissionMode:
+            aegisPermissionMode !== undefined
+              ? aegisPermissionMode
+              : session.aegisPermissionMode,
           hiddenFromThreads:
             hiddenFromThreads !== undefined ? hiddenFromThreads : session.hiddenFromThreads,
           channelId:

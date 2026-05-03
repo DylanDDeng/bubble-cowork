@@ -1,5 +1,5 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronLeft, Search } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronLeft, Search } from 'lucide-react';
 import type { AgentProvider, ClaudeCompatibleProviderId, ClaudeModelConfig } from '../types';
 import { PROVIDERS } from '../utils/provider';
 import {
@@ -72,6 +72,10 @@ function isVisibleClaudePickerModel(
 }
 
 function ProviderIcon({ provider }: { provider: AgentProvider }) {
+  if (provider === 'aegis') {
+    return <Bot className="h-4 w-4 flex-shrink-0 text-[var(--accent)]" aria-hidden="true" />;
+  }
+
   if (provider === 'claude') {
     return <img src={claudeLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
   }

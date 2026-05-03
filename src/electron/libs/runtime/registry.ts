@@ -29,6 +29,9 @@ function getConfiguredRuntimeMode(): RuntimeMode {
 }
 
 function resolveProviderRuntimeId(provider: AgentProvider | undefined): AgentRuntimeId {
+  if (provider === 'aegis') {
+    return 'aegis';
+  }
   // Codex is now handled by ProviderService, not RuntimeRegistry
   return provider === 'opencode'
     ? 'opencode'

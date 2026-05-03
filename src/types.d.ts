@@ -2,6 +2,7 @@
 // 实际类型定义在 src/shared/types.ts
 
 import type {
+  AegisBuiltInAgentConfig,
   ClientEvent,
   ClaudeCompatibleProvidersConfig,
   ServerEvent,
@@ -83,6 +84,8 @@ declare global {
     getClaudeModelConfig: () => Promise<ClaudeModelConfig>;
     getClaudeCompatibleProviderConfig: () => Promise<ClaudeCompatibleProvidersConfig>;
     saveClaudeCompatibleProviderConfig: (config: ClaudeCompatibleProvidersConfig) => Promise<ClaudeCompatibleProvidersConfig>;
+    getAegisBuiltInAgentConfig: () => Promise<AegisBuiltInAgentConfig>;
+    saveAegisBuiltInAgentConfig: (config: AegisBuiltInAgentConfig) => Promise<AegisBuiltInAgentConfig>;
     getClaudeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getCodexUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getOpencodeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;

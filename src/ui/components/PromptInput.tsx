@@ -122,6 +122,11 @@ function getAgentRuntime(profile: AgentProfile | null | undefined) {
     codexExecutionMode: isReadOnly ? 'plan' as const : 'execute' as const,
     codexPermissionMode: isFullAccess ? 'fullAccess' as const : 'defaultPermissions' as const,
     opencodePermissionMode: isFullAccess ? 'fullAccess' as const : 'defaultPermissions' as const,
+    aegisPermissionMode: isReadOnly
+      ? 'readOnly' as const
+      : isFullAccess
+        ? 'fullAccess' as const
+        : 'defaultPermissions' as const,
   };
 }
 
@@ -173,6 +178,8 @@ function buildAgentRuntimePayload(
     codexMentions: runtime.provider === 'codex' ? codexReferences.codexMentions : undefined,
     opencodePermissionMode:
       runtime.provider === 'opencode' ? runtime.opencodePermissionMode : undefined,
+    aegisPermissionMode:
+      runtime.provider === 'aegis' ? runtime.aegisPermissionMode : undefined,
   };
 }
 
@@ -250,6 +257,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     runtimeProvider === 'claude' ? agentRuntime?.compatibleProviderId : undefined;
   const runtimeCodexModel = runtimeProvider === 'codex' ? agentRuntime?.model || null : null;
   const runtimeOpencodeModel = runtimeProvider === 'opencode' ? agentRuntime?.model || null : null;
+  const runtimeAegisModel = runtimeProvider === 'aegis' ? agentRuntime?.model || null : null;
   const runtimeClaudeAccessMode = agentRuntime?.claudeAccessMode;
   const runtimeClaudeExecutionMode = agentRuntime?.claudeExecutionMode;
   const runtimeClaudeReasoningEffort = agentRuntime?.claudeReasoningEffort;
@@ -257,6 +265,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   const runtimeCodexPermissionMode = agentRuntime?.codexPermissionMode;
   const runtimeCodexReasoningEffort = agentRuntime?.codexReasoningEffort;
   const runtimeOpencodePermissionMode = agentRuntime?.opencodePermissionMode;
+  const runtimeAegisPermissionMode = agentRuntime?.aegisPermissionMode;
   const handleAutoSubmitClaudeCommand = (nextPrompt: string) => {
     if (!runtimeAgentProfile || !agentRuntime) {
       setPrompt(nextPrompt);
@@ -296,6 +305,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
               ? runtimeCodexModel || undefined
               : runtimeProvider === 'opencode'
                 ? runtimeOpencodeModel || undefined
+                : runtimeProvider === 'aegis'
+                  ? runtimeAegisModel || undefined
                 : undefined,
         compatibleProviderId:
           runtimeProvider === 'claude' ? runtimeClaudeCompatibleProviderId : undefined,
@@ -307,6 +318,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
         codexReasoningEffort: runtimeProvider === 'codex' ? runtimeCodexReasoningEffort : undefined,
         opencodePermissionMode:
           runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
+        aegisPermissionMode:
+          runtimeProvider === 'aegis' ? runtimeAegisPermissionMode : undefined,
         routedAgentId: runtimeAgentProfile?.id || undefined,
       },
     });
@@ -642,6 +655,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                 ? runtimeCodexModel || undefined
                 : runtimeProvider === 'opencode'
                   ? runtimeOpencodeModel || undefined
+                  : runtimeProvider === 'aegis'
+                    ? runtimeAegisModel || undefined
                   : undefined,
           compatibleProviderId:
             runtimeProvider === 'claude' ? runtimeClaudeCompatibleProviderId : undefined,
@@ -655,6 +670,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           codexMentions: runtimeProvider === 'codex' ? codexReferences.codexMentions : undefined,
           opencodePermissionMode:
             runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
+          aegisPermissionMode:
+            runtimeProvider === 'aegis' ? runtimeAegisPermissionMode : undefined,
           routedAgentId: runtimeAgentProfile?.id || undefined,
           routedAgentTurns: projectRoutedAgentTurns,
           availableAgentTurns: projectAgentRuntimePayloads,
@@ -679,6 +696,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                 ? runtimeCodexModel || undefined
                 : runtimeProvider === 'opencode'
                   ? runtimeOpencodeModel || undefined
+                  : runtimeProvider === 'aegis'
+                    ? runtimeAegisModel || undefined
                   : undefined,
           compatibleProviderId:
             runtimeProvider === 'claude' ? runtimeClaudeCompatibleProviderId : undefined,
@@ -692,6 +711,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           codexMentions: runtimeProvider === 'codex' ? codexReferences.codexMentions : undefined,
           opencodePermissionMode:
             runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
+          aegisPermissionMode:
+            runtimeProvider === 'aegis' ? runtimeAegisPermissionMode : undefined,
           routedAgentId: runtimeAgentProfile?.id || undefined,
           routedAgentTurns: projectRoutedAgentTurns,
           availableAgentTurns: projectAgentRuntimePayloads,

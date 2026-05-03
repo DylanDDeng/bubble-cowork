@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { AlertTriangle, CheckCircle2, ChevronDown, CircleDashed, Plus, RefreshCw, Settings, X } from 'lucide-react';
+import { AlertTriangle, Bot, CheckCircle2, ChevronDown, CircleDashed, Eye, EyeOff, Plus, RefreshCw, Settings, X } from 'lucide-react';
 import { toast } from 'sonner';
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
@@ -8,6 +8,7 @@ import { OpenCodeLogo } from './OpenCodeLogo';
 import { AgentAvatar, AGENT_AVATAR_OPTIONS } from './AgentAvatar';
 import { useAppStore } from '../store/useAppStore';
 import type {
+  AegisBuiltInAgentConfig,
   AgentPermissionPolicy,
   AgentProfile,
   AgentProfileColor,
@@ -33,6 +34,13 @@ import {
   resolveCodexModel,
 } from '../utils/codex-model';
 import { loadPreferredOpencodeModel } from '../utils/opencode-model';
+import {
+  AEGIS_BUILT_IN_PROVIDERS,
+  getAegisBuiltInModel,
+  getAegisBuiltInProvider,
+  listAegisBuiltInModels,
+  resolveAegisBuiltInModel,
+} from '../../shared/aegis-built-in-catalog';
 
 const FIELD_CONTROL_CLASS =
   'h-8 w-full rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 text-[12.5px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--text-muted)]';
@@ -149,6 +157,7 @@ export function AgentSetupDialog() {
     () =>
       profileDraft
         ? getModelOptionsForProvider(profileDraft.provider, profileDraft.model, {
+            aegis: [],
             claude: claudeModelOptions,
             codex: codexModelConfig.options,
             opencode: opencodeModelConfig.options,
@@ -481,8 +490,36 @@ function AgentProfileSetupForm({
   onToggleCollapsed: () => void;
   onChange: (patch: Partial<AgentSetupDraft>) => void;
 }) {
+  const [aegisConfig, setAegisConfig] = useState<AegisBuiltInAgentConfig | null>(null);
+  const [aegisApiKeyDraft, setAegisApiKeyDraft] = useState('');
+  const [showAegisApiKey, setShowAegisApiKey] = useState(false);
+  const [savingAegisApiKey, setSavingAegisApiKey] = useState(false);
+
+  useEffect(() => {
+    if (draft.provider !== 'aegis') {
+      return;
+    }
+    let cancelled = false;
+    window.electron
+      .getAegisBuiltInAgentConfig()
+      .then((config) => {
+        if (cancelled) return;
+        setAegisConfig(config);
+        setAegisApiKeyDraft(config.apiKey || '');
+      })
+      .catch((error) => {
+        console.error('Failed to load Aegis Built-in Agent config:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [draft.provider]);
+
   const handleModelChange = (model: string) => {
-    const nextModel = model.trim() || undefined;
+    const nextModel =
+      draft.provider === 'aegis'
+        ? resolveAegisBuiltInModel(model).encoded
+        : model.trim() || undefined;
     const compatibleProviderId =
       draft.provider === 'claude'
         ? findCompatibleProviderIdForModel(nextModel, compatibleOptions)
@@ -492,6 +529,35 @@ function AgentProfileSetupForm({
       compatibleProviderId,
     });
   };
+
+  const handleSaveAegisApiKey = async () => {
+    if (draft.provider !== 'aegis') {
+      return;
+    }
+    setSavingAegisApiKey(true);
+    try {
+      const currentConfig = aegisConfig || (await window.electron.getAegisBuiltInAgentConfig());
+      const selection = resolveAegisBuiltInModel(draft.model || currentConfig.model, currentConfig.providerId);
+      const provider = getAegisBuiltInProvider(selection.providerId);
+      const saved = await window.electron.saveAegisBuiltInAgentConfig({
+        ...currentConfig,
+        providerId: selection.providerId,
+        baseUrl: provider?.baseUrl || currentConfig.baseUrl,
+        model: selection.encoded,
+        apiKey: aegisApiKeyDraft.trim(),
+      });
+      setAegisConfig(saved);
+      setAegisApiKeyDraft(saved.apiKey || '');
+      window.dispatchEvent(new CustomEvent('aegis-built-in-agent-config-updated'));
+      toast.success('Aegis Built-in API key saved.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save Aegis Built-in API key.');
+    } finally {
+      setSavingAegisApiKey(false);
+    }
+  };
+
+  const aegisApiKeyDirty = draft.provider === 'aegis' && aegisApiKeyDraft !== (aegisConfig?.apiKey || '');
 
   return (
     <div className="space-y-4">
@@ -597,7 +663,29 @@ function AgentProfileSetupForm({
 
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <FormField label="Model">
-          {modelOptions.length > 0 ? (
+          {draft.provider === 'aegis' ? (
+            <select
+              value={resolveAegisBuiltInModel(draft.model).encoded}
+              onChange={(event) => handleModelChange(event.target.value)}
+              className={FIELD_CONTROL_CLASS}
+            >
+              {AEGIS_BUILT_IN_PROVIDERS.map((provider) => {
+                const models = listAegisBuiltInModels(provider.id);
+                if (models.length === 0) {
+                  return null;
+                }
+                return (
+                  <optgroup key={provider.id} label={provider.name}>
+                    {models.map((model) => (
+                      <option key={`${provider.id}:${model.id}`} value={`${provider.id}:${model.id}`}>
+                        {model.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                );
+              })}
+            </select>
+          ) : modelOptions.length > 0 ? (
             <select
               value={draft.model || ''}
               onChange={(event) => handleModelChange(event.target.value)}
@@ -620,6 +708,39 @@ function AgentProfileSetupForm({
           )}
         </FormField>
 
+        {draft.provider === 'aegis' ? (
+          <FormField label="API key">
+            <div className="flex gap-2">
+              <div className="relative min-w-0 flex-1">
+                <input
+                  type={showAegisApiKey ? 'text' : 'password'}
+                  value={aegisApiKeyDraft}
+                  onChange={(event) => setAegisApiKeyDraft(event.target.value)}
+                  className={`${FIELD_CONTROL_CLASS} pr-8`}
+                  placeholder="Provider API key"
+                  disabled={savingAegisApiKey}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAegisApiKey((current) => !current)}
+                  className="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+                  aria-label={showAegisApiKey ? 'Hide API key' : 'Show API key'}
+                  disabled={savingAegisApiKey}
+                >
+                  {showAegisApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleSaveAegisApiKey()}
+                disabled={savingAegisApiKey || !aegisApiKeyDirty}
+                className="inline-flex h-8 flex-shrink-0 items-center rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12.5px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingAegisApiKey ? 'Saving...' : 'Save key'}
+              </button>
+            </div>
+          </FormField>
+        ) : (
         <FormField label="Permission policy">
           <select
             value={draft.permissionPolicy}
@@ -631,10 +752,27 @@ function AgentProfileSetupForm({
             <option value="fullAccess">Full access</option>
           </select>
         </FormField>
+        )}
       </div>
 
+      {draft.provider === 'aegis' ? (
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <FormField label="Permission policy">
+            <select
+              value={draft.permissionPolicy}
+              onChange={(event) => onChange({ permissionPolicy: event.target.value as AgentPermissionPolicy })}
+              className={FIELD_CONTROL_CLASS}
+            >
+              <option value="ask">Ask</option>
+              <option value="readOnly">Read only</option>
+              <option value="fullAccess">Full access</option>
+            </select>
+          </FormField>
+        </div>
+      ) : null}
+
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        {draft.provider !== 'opencode' ? (
+        {draft.provider === 'claude' || draft.provider === 'codex' ? (
           <FormField label="Reasoning">
             <select
               value={draft.reasoningEffort || ''}
@@ -695,6 +833,10 @@ function AgentProfileSetupForm({
 }
 
 function CollapsedAgentProfileSummary({ draft }: { draft: AgentSetupDraft }) {
+  const modelLabel = draft.provider === 'aegis'
+    ? formatAegisBuiltInModel(draft.model)
+    : draft.model || 'Runtime default';
+
   return (
     <div className="grid gap-3 rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-[12.5px] md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
       <div className="min-w-0">
@@ -703,7 +845,7 @@ function CollapsedAgentProfileSummary({ draft }: { draft: AgentSetupDraft }) {
       </div>
       <div className="min-w-0">
         <div className="text-[11.5px] font-medium text-[var(--text-muted)]">Model</div>
-        <div className="truncate text-[var(--text-primary)]">{draft.model || 'Runtime default'}</div>
+        <div className="truncate text-[var(--text-primary)]">{modelLabel}</div>
       </div>
       <div className="flex flex-wrap items-end gap-1.5">
         <span className="rounded-full border border-[var(--border)] bg-[var(--bg-primary)] px-2 py-0.5 text-[11px] text-[var(--text-muted)]">
@@ -717,6 +859,13 @@ function CollapsedAgentProfileSummary({ draft }: { draft: AgentSetupDraft }) {
       </div>
     </div>
   );
+}
+
+function formatAegisBuiltInModel(value?: string | null): string {
+  const selection = resolveAegisBuiltInModel(value);
+  const provider = getAegisBuiltInProvider(selection.providerId);
+  const model = getAegisBuiltInModel(selection.providerId, selection.modelId);
+  return `${provider?.name || selection.providerId} · ${model?.name || selection.modelId}`;
 }
 
 function FormField({
@@ -755,7 +904,9 @@ function buildDefaultAgentDraft({
       ? claudeModel
       : provider === 'codex'
         ? codexModel
-        : opencodeModel;
+        : provider === 'opencode'
+          ? opencodeModel
+          : resolveAegisBuiltInModel(null).encoded;
 
   return {
     name: preview.name,
@@ -791,7 +942,8 @@ function buildAgentProfilePatch(
     model: draft.model?.trim() || undefined,
     compatibleProviderId:
       draft.provider === 'claude' ? draft.compatibleProviderId || undefined : undefined,
-    reasoningEffort: draft.provider === 'opencode' ? undefined : draft.reasoningEffort,
+    reasoningEffort:
+      draft.provider === 'claude' || draft.provider === 'codex' ? draft.reasoningEffort : undefined,
     permissionPolicy: draft.permissionPolicy,
     canDelegate: draft.canDelegate,
     color: draft.color,
@@ -806,10 +958,14 @@ function normalizeDraftPatch(
   compatibleOptions: CompatibleProviderOption[]
 ): AgentSetupDraft {
   const nextProvider = patch.provider || current.provider;
-  const model =
+  const rawModel =
     Object.prototype.hasOwnProperty.call(patch, 'model')
       ? patch.model?.trim() || undefined
       : current.model;
+  const model =
+    nextProvider === 'aegis'
+      ? resolveAegisBuiltInModel(rawModel).encoded
+      : rawModel;
   const compatibleProviderId =
     nextProvider === 'claude'
       ? Object.prototype.hasOwnProperty.call(patch, 'compatibleProviderId')
@@ -824,7 +980,7 @@ function normalizeDraftPatch(
     model,
     compatibleProviderId,
     reasoningEffort:
-      nextProvider === 'opencode'
+      nextProvider === 'opencode' || nextProvider === 'aegis'
         ? undefined
         : patch.reasoningEffort !== undefined
           ? patch.reasoningEffort
@@ -870,6 +1026,15 @@ function buildPreviewProfile(provider: AgentProvider): AgentProfile {
       provider: 'claude',
       color: 'sky',
     },
+    aegis: {
+      name: 'Aegis Agent',
+      role: 'Built-in Coding Agent',
+      description: 'Uses the built-in Aegis runtime for customizable project work.',
+      instructions: 'Inspect the project first, keep changes focused, and ask before risky edits.',
+      avatar: { type: 'asset', key: 'notion-avatar-02' },
+      provider: 'aegis',
+      color: 'amber',
+    },
     codex: {
       name: 'Codex Agent',
       role: 'Coding Agent',
@@ -902,6 +1067,10 @@ function buildPreviewProfile(provider: AgentProvider): AgentProfile {
 }
 
 function getProviderIcon(provider: AgentProvider): ReactNode {
+  if (provider === 'aegis') {
+    return <Bot className="h-5 w-5 text-[var(--text-secondary)]" aria-hidden="true" />;
+  }
+
   if (provider === 'claude') {
     return <img src={claudeLogo} alt="" className="h-5 w-5" aria-hidden="true" />;
   }

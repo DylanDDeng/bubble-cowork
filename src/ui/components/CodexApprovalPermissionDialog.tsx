@@ -14,6 +14,9 @@ export function CodexApprovalPermissionDialog({
       : input.approvalKind === 'file-change'
         ? FilePenLine
         : ShieldAlert;
+  const requester = input.method?.startsWith('aegis.builtin.')
+    ? 'Aegis Built-in Agent'
+    : 'Codex';
 
   const primaryDetailRows = [
     input.command ? { label: 'Command', value: input.command, mono: true } : null,
@@ -35,13 +38,13 @@ export function CodexApprovalPermissionDialog({
           </div>
           <div className="min-w-0 flex-1">
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-              Codex Permission
+              {requester} Permission
             </div>
             <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
               {input.question}
             </div>
             <div className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-              Codex is requesting permission to use{' '}
+              {requester} is requesting permission to use{' '}
               <span className="font-semibold text-[var(--text-primary)]">{input.toolName}</span>
               {input.approvalKind === 'permissions' ? ' with expanded access.' : '.'}
             </div>
@@ -106,7 +109,7 @@ export function CodexApprovalPermissionDialog({
             onClick={() =>
               onSubmit({
                 behavior: 'deny',
-                message: 'User denied Codex permission request',
+                message: `User denied ${requester} permission request`,
               })
             }
             className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"

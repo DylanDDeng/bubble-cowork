@@ -60,6 +60,7 @@ export function useAgentReadiness(
 
   const entries = useMemo(
     () => [
+      buildAegisEntry(),
       buildClaudeEntry(claudeStatus, claudeChecking),
       buildCodexEntry(codexStatus, codexChecking),
       buildOpencodeEntry(opencodeStatus, opencodeChecking),
@@ -84,6 +85,16 @@ export function useAgentReadiness(
       refreshCodex();
       refreshOpencode();
     },
+  };
+}
+
+function buildAegisEntry(): AgentReadinessEntry {
+  return {
+    provider: 'aegis',
+    label: 'Aegis Built-in',
+    state: 'ready',
+    summary: 'Ready',
+    detail: 'Runs through the built-in Aegis coding agent runtime.',
   };
 }
 

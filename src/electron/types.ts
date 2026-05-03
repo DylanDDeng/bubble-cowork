@@ -26,7 +26,7 @@ export interface SessionRow {
   claude_session_id: string | null;
   codex_session_id: string | null;
   opencode_session_id: string | null;
-  provider: 'claude' | 'codex' | 'opencode';
+  provider: 'aegis' | 'claude' | 'codex' | 'opencode';
   model: string | null;
   conversation_scope: import('../shared/types').SessionScope | null;
   agent_id: string | null;
@@ -110,6 +110,7 @@ export interface RunnerOptions {
   codexSkills?: import('../shared/types').ProviderInputReference[];
   codexMentions?: import('../shared/types').ProviderInputReference[];
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
+  aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
   onMessage: (message: import('../shared/types').StreamMessage) => void;
   onError?: (error: Error) => void;
   onPermissionRequest: (
@@ -125,20 +126,21 @@ export interface RunnerOptions {
 
 export interface RunnerHandle {
   abort: () => void;
-	  send: (
-	    prompt: string,
-	    attachments?: import('../shared/types').Attachment[],
-	    model?: string,
-	    codexSkills?: import('../shared/types').ProviderInputReference[],
-	    codexMentions?: import('../shared/types').ProviderInputReference[],
-	    options?: {
-	      codexExecutionMode?: import('../shared/types').CodexExecutionMode;
-	      codexPermissionMode?: import('../shared/types').CodexPermissionMode;
-	      codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
-	      codexFastMode?: boolean;
-	    }
-	  ) => void;
-	}
+  send: (
+    prompt: string,
+    attachments?: import('../shared/types').Attachment[],
+    model?: string,
+    codexSkills?: import('../shared/types').ProviderInputReference[],
+    codexMentions?: import('../shared/types').ProviderInputReference[],
+    options?: {
+      codexExecutionMode?: import('../shared/types').CodexExecutionMode;
+      codexPermissionMode?: import('../shared/types').CodexPermissionMode;
+      codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
+      codexFastMode?: boolean;
+      aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
+    }
+  ) => void;
+}
 
 // 内部会话状态
 export interface SessionState {

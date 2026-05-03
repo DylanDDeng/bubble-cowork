@@ -111,7 +111,7 @@ export function MemorySettingsContent() {
               Memory Workspace
             </div>
             <div className="mt-1 text-[13px] leading-6 text-[var(--text-muted)]">
-              Aegis stores long-term memory in three editable markdown files: assistant memory, user memory, and project memory. Future prompts automatically read these files.
+              Reserved for Aegis Built-in Agent memory. Claude Code, Codex, and OpenCode keep their native memory and configuration behavior.
             </div>
             <div className="mt-3 text-[12px] text-[var(--text-muted)]">
               Root: {workspace.rootPath}

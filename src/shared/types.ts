@@ -105,6 +105,7 @@ export type ClaudeReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type CodexExecutionMode = 'execute' | 'plan';
 export type CodexPermissionMode = 'defaultPermissions' | 'fullAccess';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'fullAccess';
+export type AegisPermissionMode = 'defaultPermissions' | 'readOnly' | 'fullAccess';
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
 export type PlanStepStatus = 'pending' | 'inProgress' | 'completed';
 
@@ -261,6 +262,15 @@ export interface ClaudeCompatibleProvidersConfig {
   providers: Record<ClaudeCompatibleProviderId, ClaudeCompatibleProviderConfig>;
 }
 
+export interface AegisBuiltInAgentConfig {
+  providerId: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  temperature: number;
+  maxOutputTokens?: number;
+}
+
 // 附件类型（文件/图片）
 export type AttachmentKind = 'file' | 'image';
 
@@ -311,8 +321,8 @@ export interface WorkspaceChannel {
   updatedAt: number;
 }
 
-// Agent 提供商
-export type AgentProvider = 'claude' | 'codex' | 'opencode';
+// Agent 提供商 / runtime
+export type AgentProvider = 'aegis' | 'claude' | 'codex' | 'opencode';
 export type SessionSource =
   | 'aegis'
   | 'claude_code'
@@ -576,6 +586,7 @@ export interface SessionStartPayload {
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
+  aegisPermissionMode?: AegisPermissionMode;
   routedAgentId?: string | null;
   routedAgentTurns?: RoutedAgentTurnPayload[];
   availableAgentTurns?: RoutedAgentRuntimePayload[];
@@ -602,6 +613,7 @@ export interface SessionContinuePayload {
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
+  aegisPermissionMode?: AegisPermissionMode;
   routedAgentId?: string | null;
   routedAgentTurns?: RoutedAgentTurnPayload[];
   availableAgentTurns?: RoutedAgentRuntimePayload[];
@@ -635,6 +647,7 @@ export interface RoutedAgentRuntimePayload {
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
+  aegisPermissionMode?: AegisPermissionMode;
 }
 
 export interface RoutedAgentTurnPayload extends RoutedAgentRuntimePayload {
@@ -667,6 +680,7 @@ export interface SessionInfo {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   opencodePermissionMode?: OpenCodePermissionMode;
+  aegisPermissionMode?: AegisPermissionMode;
   pinned?: boolean;
   folderPath?: string | null;
   hiddenFromThreads?: boolean;
@@ -700,6 +714,7 @@ export interface SessionStatusPayload {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   opencodePermissionMode?: OpenCodePermissionMode;
+  aegisPermissionMode?: AegisPermissionMode;
   hiddenFromThreads?: boolean;
   channelId?: string;
 }

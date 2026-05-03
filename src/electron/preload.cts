@@ -1,5 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 import type {
+  AegisBuiltInAgentConfig,
   ClaudeCompatibleProvidersConfig,
   ClaudeUsageRangeDays,
   FeishuBridgeConfig,
@@ -186,6 +187,14 @@ contextBridge.exposeInMainWorld('electron', {
   // 保存 Claude-compatible provider 配置
   saveClaudeCompatibleProviderConfig: (config: ClaudeCompatibleProvidersConfig) => {
     return ipcRenderer.invoke('save-claude-compatible-provider-config', config);
+  },
+
+  getAegisBuiltInAgentConfig: () => {
+    return ipcRenderer.invoke('get-aegis-built-in-agent-config');
+  },
+
+  saveAegisBuiltInAgentConfig: (config: AegisBuiltInAgentConfig) => {
+    return ipcRenderer.invoke('save-aegis-built-in-agent-config', config);
   },
 
   // 获取 Claude usage 报表

@@ -767,7 +767,7 @@ export function createSession(params: {
   cwd?: string;
   allowedTools?: string;
   prompt?: string;
-  provider?: 'claude' | 'codex' | 'opencode';
+  provider?: 'aegis' | 'claude' | 'codex' | 'opencode';
   model?: string;
   scope?: SessionScope;
   agentId?: string | null;
@@ -1025,7 +1025,7 @@ export function setOpencodeSessionId(sessionId: string, opencodeSessionId: strin
 }
 
 // 更新 Session Provider
-export function updateSessionProvider(sessionId: string, provider: 'claude' | 'codex' | 'opencode'): void {
+export function updateSessionProvider(sessionId: string, provider: 'aegis' | 'claude' | 'codex' | 'opencode'): void {
   const now = Date.now();
   const stmt = getDb().prepare(`
     UPDATE sessions SET provider = ?, updated_at = ? WHERE id = ?

@@ -1,4 +1,4 @@
-import { ChevronDown, Eye, EyeOff } from 'lucide-react';
+import { Bot, ChevronDown, Eye, EyeOff } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import claudeLogo from '../../assets/claude-color.svg';
@@ -19,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import type {
+  AegisBuiltInAgentConfig,
   ClaudeCompatibleProviderConfig,
   ClaudeCompatibleProviderId,
   ClaudeCompatibleProvidersConfig,
@@ -26,10 +27,27 @@ import type {
   CodexRuntimeStatus,
   OpenCodeRuntimeStatus,
 } from '../../types';
+import {
+  AEGIS_BUILT_IN_DEFAULT_MODEL,
+  AEGIS_BUILT_IN_DEFAULT_PROVIDER_ID,
+  AEGIS_BUILT_IN_PROVIDERS,
+  getAegisBuiltInModel,
+  getAegisBuiltInProvider,
+  listAegisBuiltInModels,
+  resolveAegisBuiltInModel,
+} from '../../../shared/aegis-built-in-catalog';
 import { normalizeCompatibleProvidersConfig } from '../../hooks/useCompatibleProviderConfig';
 import { SettingsGroup, SettingsToggle } from './SettingsPrimitives';
 
 const DEFAULT_CONFIG = normalizeCompatibleProvidersConfig(undefined);
+const DEFAULT_AEGIS_PROVIDER = getAegisBuiltInProvider(AEGIS_BUILT_IN_DEFAULT_PROVIDER_ID);
+const DEFAULT_AEGIS_BUILT_IN_CONFIG: AegisBuiltInAgentConfig = {
+  providerId: AEGIS_BUILT_IN_DEFAULT_PROVIDER_ID,
+  baseUrl: DEFAULT_AEGIS_PROVIDER?.baseUrl || 'https://api.openai.com/v1',
+  apiKey: '',
+  model: AEGIS_BUILT_IN_DEFAULT_MODEL,
+  temperature: 0.2,
+};
 const PROVIDER_IDS = ['minimaxCn', 'minimax', 'mimo', 'zhipu', 'moonshot', 'deepseek'] as ClaudeCompatibleProviderId[];
 
 const PROVIDER_META: Record<
@@ -119,6 +137,36 @@ function saveProviderModelHistory(nextHistory: ProviderModelHistory): void {
   window.localStorage.setItem(MODEL_HISTORY_STORAGE_KEY, JSON.stringify(nextHistory));
 }
 
+function normalizeAegisBuiltInAgentConfig(raw: unknown): AegisBuiltInAgentConfig {
+  const input = raw && typeof raw === 'object' ? raw as Partial<AegisBuiltInAgentConfig> : {};
+  const selection = resolveAegisBuiltInModel(input.model, input.providerId);
+  const provider = getAegisBuiltInProvider(selection.providerId) || DEFAULT_AEGIS_PROVIDER;
+  const temperature =
+    typeof input.temperature === 'number' && Number.isFinite(input.temperature)
+      ? Math.max(0, Math.min(2, input.temperature))
+      : DEFAULT_AEGIS_BUILT_IN_CONFIG.temperature;
+  const maxOutputTokens =
+    typeof input.maxOutputTokens === 'number' && Number.isFinite(input.maxOutputTokens)
+      ? Math.max(1, Math.trunc(input.maxOutputTokens))
+      : undefined;
+
+  return {
+    providerId: selection.providerId,
+    baseUrl: provider?.baseUrl || input.baseUrl?.trim() || DEFAULT_AEGIS_BUILT_IN_CONFIG.baseUrl,
+    apiKey: input.apiKey?.trim() || '',
+    model: selection.encoded,
+    temperature,
+    ...(maxOutputTokens ? { maxOutputTokens } : {}),
+  };
+}
+
+function formatAegisBuiltInModel(value: string): string {
+  const selection = resolveAegisBuiltInModel(value);
+  const provider = getAegisBuiltInProvider(selection.providerId);
+  const model = getAegisBuiltInModel(selection.providerId, selection.modelId);
+  return `${provider?.name || selection.providerId} · ${model?.name || selection.modelId}`;
+}
+
 function rememberProviderModelValue(
   providerId: ClaudeCompatibleProviderId,
   field: 'model' | 'smallFastModel',
@@ -162,7 +210,12 @@ function getProviderModelSuggestions(
 
 export function CompatibleProviderSettingsContent() {
   const [config, setConfig] = useState<ClaudeCompatibleProvidersConfig>(DEFAULT_CONFIG);
+  const [aegisConfig, setAegisConfig] = useState<AegisBuiltInAgentConfig>(DEFAULT_AEGIS_BUILT_IN_CONFIG);
   const [loading, setLoading] = useState(true);
+  const [aegisExpanded, setAegisExpanded] = useState(false);
+  const [aegisDraft, setAegisDraft] = useState<AegisBuiltInAgentConfig | null>(null);
+  const [showAegisSecret, setShowAegisSecret] = useState(false);
+  const [savingAegis, setSavingAegis] = useState(false);
   const [expandedProviderId, setExpandedProviderId] = useState<ClaudeCompatibleProviderId | null>(null);
   const [draftProvider, setDraftProvider] = useState<ClaudeCompatibleProviderConfig | null>(null);
   const [showSecret, setShowSecret] = useState(false);
@@ -170,6 +223,7 @@ export function CompatibleProviderSettingsContent() {
   const [savingProvider, setSavingProvider] = useState<ClaudeCompatibleProviderId | null>(null);
   const [message, setMessage] = useState<{ providerId: ClaudeCompatibleProviderId; text: string; tone: 'default' | 'error' } | null>(null);
   const [errors, setErrors] = useState<Partial<Record<'baseUrl' | 'model' | 'secret', string>>>({});
+  const [aegisErrors, setAegisErrors] = useState<Partial<Record<'model' | 'apiKey', string>>>({});
 
   const { status: claudeRuntimeStatus, loading: claudeRuntimeLoading } = useClaudeRuntimeStatus();
   const { status: codexRuntimeStatus, loading: codexRuntimeLoading } = useCodexRuntimeStatus();
@@ -178,12 +232,20 @@ export function CompatibleProviderSettingsContent() {
   useEffect(() => {
     let cancelled = false;
 
-    window.electron
-      .getClaudeCompatibleProviderConfig()
-      .then((nextConfig) => {
+    Promise.all([
+      window.electron.getClaudeCompatibleProviderConfig().then((nextConfig) => {
         if (!cancelled) {
           setConfig(normalizeCompatibleProvidersConfig(nextConfig));
         }
+      }),
+      window.electron.getAegisBuiltInAgentConfig().then((nextConfig) => {
+        if (!cancelled) {
+          setAegisConfig(normalizeAegisBuiltInAgentConfig(nextConfig));
+        }
+      }),
+    ])
+      .catch((error) => {
+        console.error('Failed to load provider config:', error);
       })
       .finally(() => {
         if (!cancelled) {
@@ -235,6 +297,63 @@ export function CompatibleProviderSettingsContent() {
     updater: (current: ClaudeCompatibleProviderConfig) => ClaudeCompatibleProviderConfig
   ) => {
     setDraftProvider((current) => (current ? updater(current) : current));
+  };
+
+  const openAegisEditor = () => {
+    if (savingAegis) {
+      return;
+    }
+    if (aegisExpanded) {
+      setAegisExpanded(false);
+      setAegisDraft(null);
+      setShowAegisSecret(false);
+      setAegisErrors({});
+      return;
+    }
+    setAegisExpanded(true);
+    setAegisDraft({ ...aegisConfig });
+    setShowAegisSecret(false);
+    setAegisErrors({});
+  };
+
+  const updateAegisDraft = (
+    updater: (current: AegisBuiltInAgentConfig) => AegisBuiltInAgentConfig
+  ) => {
+    setAegisDraft((current) => (current ? updater(current) : current));
+  };
+
+  const validateAegisDraft = () => {
+    if (!aegisDraft) {
+      return false;
+    }
+    const nextErrors: Partial<Record<'model' | 'apiKey', string>> = {};
+    if (!aegisDraft.model.trim()) {
+      nextErrors.model = 'Choose the default model.';
+    }
+    setAegisErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  };
+
+  const handleSaveAegisConfig = async () => {
+    if (!aegisDraft || !validateAegisDraft()) {
+      return;
+    }
+    setSavingAegis(true);
+    try {
+      const saved = await window.electron.saveAegisBuiltInAgentConfig(
+        normalizeAegisBuiltInAgentConfig(aegisDraft)
+      );
+      setAegisConfig(normalizeAegisBuiltInAgentConfig(saved));
+      window.dispatchEvent(new CustomEvent('aegis-built-in-agent-config-updated'));
+      toast.success('Aegis Built-in Agent saved. Restart running built-in sessions to apply.');
+      setAegisExpanded(false);
+      setAegisDraft(null);
+      setShowAegisSecret(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save Aegis Built-in Agent.');
+    } finally {
+      setSavingAegis(false);
+    }
   };
 
   const validateDraftProvider = () => {
@@ -331,10 +450,22 @@ export function CompatibleProviderSettingsContent() {
   };
 
   const activeProviderMessage = message && expandedProviderId && message.providerId === expandedProviderId ? message : null;
+  const aegisConfigured = Boolean(aegisConfig.providerId.trim() && aegisConfig.model.trim());
+  const aegisNeedsKey = aegisConfig.apiKey.trim().length === 0;
 
   return (
     <div className="space-y-6 pb-8">
       <SettingsGroup title="Runtime Health">
+        <RuntimeStatusRow
+          title="Aegis Built-in"
+          logo={<Bot className="h-5 w-5 text-[var(--accent)]" aria-hidden="true" />}
+          detail={aegisNeedsKey ? 'Add a key below, or provide a matching provider key in the app environment.' : undefined}
+          status={
+            aegisConfigured
+              ? { label: 'Configured', tone: 'text-emerald-700', dot: 'bg-emerald-500' }
+              : { label: 'Setup', tone: 'text-amber-700', dot: 'bg-amber-500' }
+          }
+        />
         <RuntimeStatusRow
           title="Claude Code"
           logo={<img src={claudeLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
@@ -353,6 +484,140 @@ export function CompatibleProviderSettingsContent() {
           detail={!opencodeRuntimeLoading && !opencodeRuntimeStatus.ready ? buildOpencodeSummary(opencodeRuntimeStatus, opencodeRuntimeLoading) : undefined}
           status={buildOpencodeRailStatus(opencodeRuntimeStatus, opencodeRuntimeLoading)}
         />
+      </SettingsGroup>
+
+      <SettingsGroup title="Aegis Built-in Agent">
+        <div>
+          <div
+            role="button"
+            tabIndex={0}
+            aria-expanded={aegisExpanded}
+            onClick={openAegisEditor}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openAegisEditor();
+              }
+            }}
+            className="grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 transition-colors hover:bg-[var(--bg-secondary)]/60"
+          >
+            <span className="flex h-5 w-5 items-center justify-center">
+              <Bot className="h-5 w-5 text-[var(--accent)]" aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-[13px] font-medium text-[var(--text-primary)]">
+                  OpenAI-compatible runtime
+                </span>
+                {aegisNeedsKey ? (
+                  <span className="text-[11px] text-[var(--text-muted)]">Needs key</span>
+                ) : null}
+              </div>
+              <div className="mt-0.5 truncate text-[11.5px] leading-4 text-[var(--text-muted)]">
+                {formatAegisBuiltInModel(aegisConfig.model)}
+              </div>
+            </div>
+            <ChevronDown
+              className={`h-4 w-4 text-[var(--text-muted)] transition-transform ${aegisExpanded ? 'rotate-180' : ''}`}
+              aria-hidden="true"
+            />
+          </div>
+
+          {aegisExpanded && aegisDraft ? (
+            <div className="border-t border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4">
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void handleSaveAegisConfig();
+                }}
+                className="space-y-4"
+              >
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <FormField label="Model" error={aegisErrors.model}>
+                    <select
+                      value={aegisDraft.model}
+                      onChange={(event) => {
+                        const selection = resolveAegisBuiltInModel(event.target.value);
+                        const provider = getAegisBuiltInProvider(selection.providerId);
+                        setAegisErrors((current) => ({ ...current, model: undefined }));
+                        updateAegisDraft((current) => ({
+                          ...current,
+                          providerId: selection.providerId,
+                          baseUrl: provider?.baseUrl || current.baseUrl,
+                          model: selection.encoded,
+                        }));
+                      }}
+                      className={getInputClassName(Boolean(aegisErrors.model))}
+                      disabled={savingAegis}
+                    >
+                      {AEGIS_BUILT_IN_PROVIDERS.map((provider) => {
+                        const models = listAegisBuiltInModels(provider.id);
+                        if (models.length === 0) {
+                          return null;
+                        }
+                        return (
+                          <optgroup key={provider.id} label={provider.name}>
+                            {models.map((model) => (
+                              <option key={`${provider.id}:${model.id}`} value={`${provider.id}:${model.id}`}>
+                                {model.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
+                    </select>
+                  </FormField>
+
+                  <FormField label="API key" error={aegisErrors.apiKey}>
+                    <div className="relative">
+                      <input
+                        type={showAegisSecret ? 'text' : 'password'}
+                        value={aegisDraft.apiKey}
+                        onChange={(event) => {
+                          setAegisErrors((current) => ({ ...current, apiKey: undefined }));
+                          updateAegisDraft((current) => ({
+                            ...current,
+                            apiKey: event.target.value,
+                          }));
+                        }}
+                        placeholder="Uses matching env key when empty"
+                        className={getInputClassName(Boolean(aegisErrors.apiKey), true)}
+                        disabled={savingAegis}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowAegisSecret((current) => !current)}
+                        className="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+                        aria-label={showAegisSecret ? 'Hide API key' : 'Show API key'}
+                        disabled={savingAegis}
+                      >
+                        {showAegisSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      </button>
+                    </div>
+                  </FormField>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={openAegisEditor}
+                    disabled={savingAegis}
+                    className="inline-flex h-8 items-center rounded-md px-3 text-[12.5px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingAegis}
+                    className="inline-flex h-8 items-center rounded-md bg-[var(--accent)] px-3 text-[12.5px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-50"
+                  >
+                    {savingAegis ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          ) : null}
+        </div>
       </SettingsGroup>
 
       <SettingsGroup title="Claude-Compatible Providers">

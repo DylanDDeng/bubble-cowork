@@ -3,6 +3,7 @@ import type { ProjectAgentMentionSuggestion } from '../utils/agent-mentions';
 import { AgentAvatar } from './AgentAvatar';
 
 function providerLabel(provider: ProjectAgentMentionSuggestion['profile']['provider']): string {
+  if (provider === 'aegis') return 'Aegis';
   if (provider === 'codex') return 'Codex';
   if (provider === 'opencode') return 'OpenCode';
   return 'Claude';

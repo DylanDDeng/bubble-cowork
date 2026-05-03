@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, PlugZap, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, Eye, EyeOff, PlugZap, Plus, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { AgentModelPicker } from '../AgentModelPicker';
 import { AgentAvatar, AGENT_AVATAR_OPTIONS } from '../AgentAvatar';
 import { useAppStore } from '../../store/useAppStore';
 import type {
+  AegisBuiltInAgentConfig,
   AgentPermissionPolicy,
   AgentProfile,
   AgentProfileColor,
@@ -22,6 +24,12 @@ import {
 } from '../../utils/claude-model';
 import { buildCodexModelOptions, resolveCodexModel } from '../../utils/codex-model';
 import { buildOpencodeModelOptions } from '../../utils/opencode-model';
+import {
+  AEGIS_BUILT_IN_PROVIDERS,
+  getAegisBuiltInProvider,
+  listAegisBuiltInModels,
+  resolveAegisBuiltInModel,
+} from '../../../shared/aegis-built-in-catalog';
 import { SettingsGroup, SettingsToggle } from './SettingsPrimitives';
 
 const AGENT_COLORS: Array<{ value: AgentProfileColor; label: string }> = [
@@ -297,6 +305,10 @@ function AgentProfileForm({
     () => buildClaudeModelOptions(claudeModelConfig),
     [claudeModelConfig]
   );
+  const [aegisConfig, setAegisConfig] = useState<AegisBuiltInAgentConfig | null>(null);
+  const [aegisApiKeyDraft, setAegisApiKeyDraft] = useState('');
+  const [showAegisApiKey, setShowAegisApiKey] = useState(false);
+  const [savingAegisApiKey, setSavingAegisApiKey] = useState(false);
 
   const resolveProfileModelSelection = (
     provider: AgentProfile['provider'],
@@ -332,6 +344,10 @@ function AgentProfileForm({
       return { model: model || undefined };
     }
 
+    if (provider === 'aegis') {
+      return { model: resolveAegisBuiltInModel(normalizedModel).encoded };
+    }
+
     if (normalizedModel && (opencodeModelOptions.length === 0 || opencodeModelOptions.includes(normalizedModel))) {
       return { model: normalizedModel };
     }
@@ -357,6 +373,55 @@ function AgentProfileForm({
       profile.provider,
     ]
   );
+
+  useEffect(() => {
+    if (profile.provider !== 'aegis') {
+      return;
+    }
+    let cancelled = false;
+    window.electron
+      .getAegisBuiltInAgentConfig()
+      .then((config) => {
+        if (cancelled) return;
+        setAegisConfig(config);
+        setAegisApiKeyDraft(config.apiKey || '');
+      })
+      .catch((error) => {
+        console.error('Failed to load Aegis Built-in Agent config:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [profile.provider]);
+
+  const handleSaveAegisApiKey = async () => {
+    if (profile.provider !== 'aegis') {
+      return;
+    }
+    setSavingAegisApiKey(true);
+    try {
+      const currentConfig = aegisConfig || (await window.electron.getAegisBuiltInAgentConfig());
+      const selection = resolveAegisBuiltInModel(selectedModel.model || currentConfig.model, currentConfig.providerId);
+      const provider = getAegisBuiltInProvider(selection.providerId);
+      const saved = await window.electron.saveAegisBuiltInAgentConfig({
+        ...currentConfig,
+        providerId: selection.providerId,
+        baseUrl: provider?.baseUrl || currentConfig.baseUrl,
+        model: selection.encoded,
+        apiKey: aegisApiKeyDraft.trim(),
+      });
+      setAegisConfig(saved);
+      setAegisApiKeyDraft(saved.apiKey || '');
+      window.dispatchEvent(new CustomEvent('aegis-built-in-agent-config-updated'));
+      toast.success('Aegis Built-in API key saved.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save Aegis Built-in API key.');
+    } finally {
+      setSavingAegisApiKey(false);
+    }
+  };
+
+  const aegisApiKeyDirty = profile.provider === 'aegis' && aegisApiKeyDraft !== (aegisConfig?.apiKey || '');
 
   useEffect(() => {
     const currentModel = profile.model?.trim() || undefined;
@@ -392,7 +457,7 @@ function AgentProfileForm({
       compatibleProviderId:
         provider === 'claude' ? nextSelection.compatibleProviderId : undefined,
       reasoningEffort:
-        provider === 'opencode' || (provider === 'codex' && profile.reasoningEffort === 'max')
+        provider === 'aegis' || provider === 'opencode' || (provider === 'codex' && profile.reasoningEffort === 'max')
           ? undefined
           : profile.reasoningEffort,
     });
@@ -451,46 +516,105 @@ function AgentProfileForm({
               onChange={(event) => handleProviderChange(event.target.value as AgentProfile['provider'])}
               className={FIELD_CONTROL_CLASS}
             >
+              <option value="aegis">Aegis Built-in</option>
               <option value="claude">Claude</option>
               <option value="codex">Codex</option>
               <option value="opencode">OpenCode</option>
             </select>
           </FormField>
           <FormField label="Model">
-            <AgentModelPicker
-              provider={profile.provider}
-              onProviderChange={handleProviderChange}
-              menuPlacement="bottom"
-              menuStrategy="fixed"
-              triggerClassName="h-8 w-full justify-between rounded-md border-[var(--border)] bg-[var(--bg-primary)] px-2.5 hover:bg-[var(--bg-tertiary)]"
-              claudeModel={{
-                value: selectedModel.model || null,
-                compatibleProviderId: selectedModel.compatibleProviderId || null,
-                config: claudeModelConfig,
-                compatibleOptions,
-                onChange: (model, compatibleProviderId) => {
-                  onUpdate({
-                    model,
-                    compatibleProviderId: compatibleProviderId || undefined,
-                  });
-                },
-              }}
-              codexModel={{
-                value: selectedModel.model || null,
-                options: codexModelOptions,
-                onChange: (model) => onUpdate({ model }),
-              }}
-              opencodeModel={{
-                value: selectedModel.model || null,
-                options: opencodeModelOptions,
-                onChange: (model) => onUpdate({ model }),
-              }}
-            />
+            {profile.provider === 'aegis' ? (
+              <select
+                value={selectedModel.model || ''}
+                onChange={(event) => onUpdate({ model: resolveAegisBuiltInModel(event.target.value).encoded })}
+                className={FIELD_CONTROL_CLASS}
+              >
+                {AEGIS_BUILT_IN_PROVIDERS.map((provider) => {
+                  const models = listAegisBuiltInModels(provider.id);
+                  if (models.length === 0) {
+                    return null;
+                  }
+                  return (
+                    <optgroup key={provider.id} label={provider.name}>
+                      {models.map((model) => (
+                        <option key={`${provider.id}:${model.id}`} value={`${provider.id}:${model.id}`}>
+                          {model.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
+              </select>
+            ) : (
+              <AgentModelPicker
+                provider={profile.provider}
+                onProviderChange={handleProviderChange}
+                menuPlacement="bottom"
+                menuStrategy="fixed"
+                triggerClassName="h-8 w-full justify-between rounded-md border-[var(--border)] bg-[var(--bg-primary)] px-2.5 hover:bg-[var(--bg-tertiary)]"
+                claudeModel={{
+                  value: selectedModel.model || null,
+                  compatibleProviderId: selectedModel.compatibleProviderId || null,
+                  config: claudeModelConfig,
+                  compatibleOptions,
+                  onChange: (model, compatibleProviderId) => {
+                    onUpdate({
+                      model,
+                      compatibleProviderId: compatibleProviderId || undefined,
+                    });
+                  },
+                }}
+                codexModel={{
+                  value: selectedModel.model || null,
+                  options: codexModelOptions,
+                  onChange: (model) => onUpdate({ model }),
+                }}
+                opencodeModel={{
+                  value: selectedModel.model || null,
+                  options: opencodeModelOptions,
+                  onChange: (model) => onUpdate({ model }),
+                }}
+              />
+            )}
           </FormField>
         </div>
 
+        {profile.provider === 'aegis' ? (
+          <FormField label="API key">
+            <div className="flex gap-2">
+              <div className="relative min-w-0 flex-1">
+                <input
+                  type={showAegisApiKey ? 'text' : 'password'}
+                  value={aegisApiKeyDraft}
+                  onChange={(event) => setAegisApiKeyDraft(event.target.value)}
+                  placeholder="Provider API key"
+                  className={`${FIELD_CONTROL_CLASS} pr-8`}
+                  disabled={savingAegisApiKey}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAegisApiKey((current) => !current)}
+                  className="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+                  aria-label={showAegisApiKey ? 'Hide API key' : 'Show API key'}
+                  disabled={savingAegisApiKey}
+                >
+                  {showAegisApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleSaveAegisApiKey()}
+                disabled={savingAegisApiKey || !aegisApiKeyDirty}
+                className="inline-flex h-8 flex-shrink-0 items-center rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12.5px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingAegisApiKey ? 'Saving...' : 'Save key'}
+              </button>
+            </div>
+          </FormField>
+        ) : null}
+
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          {profile.provider !== 'opencode' ? (
+          {profile.provider === 'claude' || profile.provider === 'codex' ? (
             <FormField label="Reasoning">
               <select
                 value={profile.reasoningEffort || ''}

@@ -26,6 +26,7 @@ import {
 type ClaudeSettingSource = 'user' | 'project' | 'local';
 const CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local'];
 const OFFICIAL_CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['project'];
+const ENABLE_AEGIS_MEMORY_FOR_NATIVE_PROVIDERS = false;
 
 // Persistent store for memory extraction messages (survives across runClaude calls)
 const _memoryMessageStore = new Map<string, Array<{ role: string; content: string }>>();
@@ -506,11 +507,17 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         compatibleProviderMatched,
       });
 
-      // Build memory system prompt (content + instructions) and in-process MCP server
       const sessionCwd = session.cwd || process.cwd();
-      const memoryContext = await buildMemoryContext(session.cwd ?? undefined);
-      const memoryAppend = [memoryContext, MEMORY_SYSTEM_PROMPT].filter(Boolean).join('\n\n');
-      const aegisMemoryMcp = await createAegisMemoryMcpServer(session.cwd ?? undefined);
+      const memoryAppend = ENABLE_AEGIS_MEMORY_FOR_NATIVE_PROVIDERS
+        ? [await buildMemoryContext(session.cwd ?? undefined), MEMORY_SYSTEM_PROMPT].filter(Boolean).join('\n\n')
+        : '';
+      const providerMcpServers = getMcpServers(session.cwd ?? undefined);
+      const mcpServers = ENABLE_AEGIS_MEMORY_FOR_NATIVE_PROVIDERS
+        ? {
+            ...providerMcpServers,
+            'aegis-memory': await createAegisMemoryMcpServer(session.cwd ?? undefined),
+          }
+        : providerMcpServers;
 
       const result = sdk.query({
         prompt: inputQueue,
@@ -535,10 +542,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           settingSources: compatibleProviderMatched
             ? CLAUDE_SETTING_SOURCES
             : OFFICIAL_CLAUDE_SETTING_SOURCES,
-          mcpServers: {
-            ...getMcpServers(session.cwd ?? undefined),
-            'aegis-memory': aegisMemoryMcp,
-          } as Record<string, SDKMcpServerConfig>,
+          mcpServers: mcpServers as Record<string, SDKMcpServerConfig>,
           // 自定义工具权限处理
           canUseTool: async (toolName: string, input: Record<string, unknown>) => {
             const memoryTools = ['remember_search', 'remember_get', 'remember_write', 'remember_recent'];
@@ -603,15 +607,23 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
               };
             }
 
-            if (currentPermissionMode === 'plan' && (planBlockedTools.has(toolName) || toolName === 'remember_write' || toolName.endsWith('__remember_write'))) {
+            if (
+              currentPermissionMode === 'plan' &&
+              (
+                planBlockedTools.has(toolName) ||
+                (
+                  ENABLE_AEGIS_MEMORY_FOR_NATIVE_PROVIDERS &&
+                  (toolName === 'remember_write' || toolName.endsWith('__remember_write'))
+                )
+              )
+            ) {
               return {
                 behavior: 'deny' as const,
                 message: 'This session is in plan mode, so Claude cannot execute edits or commands.',
               };
             }
 
-            // Auto-approve Aegis memory MCP tools (in-process, user opted-in)
-            if (isMemoryTool) {
+            if (ENABLE_AEGIS_MEMORY_FOR_NATIVE_PROVIDERS && isMemoryTool) {
               return { behavior: 'allow' as const, updatedInput: input };
             }
 
@@ -824,7 +836,11 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
             }
           }
 
-          if (streamMessage.type === 'assistant' && streamMessage.message?.content) {
+          if (
+            ENABLE_AEGIS_MEMORY_FOR_NATIVE_PROVIDERS &&
+            streamMessage.type === 'assistant' &&
+            streamMessage.message?.content
+          ) {
             const textParts = (streamMessage.message.content as ContentBlock[])
               .filter(b => b.type === 'text' && b.text)
               .map(b => b.text!);
@@ -834,7 +850,11 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           }
 
           // Track if remember_write was called in this turn
-          if (streamMessage.type === 'assistant' && streamMessage.message?.content) {
+          if (
+            ENABLE_AEGIS_MEMORY_FOR_NATIVE_PROVIDERS &&
+            streamMessage.type === 'assistant' &&
+            streamMessage.message?.content
+          ) {
             const raw = JSON.stringify(streamMessage.message.content);
             if (hasMemoryWritesInTurn(raw)) {
               currentTurnHasMemoryWrite = true;
@@ -842,7 +862,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           }
 
           // On result (turn complete), trigger memory extraction
-          if (streamMessage.type === 'result') {
+          if (ENABLE_AEGIS_MEMORY_FOR_NATIVE_PROVIDERS && streamMessage.type === 'result') {
             if (currentAssistantText) {
               recentMessages.push({ role: 'assistant', content: currentAssistantText });
               // Cap at last 10 messages to avoid unbounded growth

@@ -66,9 +66,8 @@ function getProviderRunner(options: RunnerOptions): typeof runClaude {
 }
 
 function shouldUseRuntimeMemoryLoop(options: RunnerOptions): boolean {
-  const provider = options.session.provider || 'claude';
-  // Only OpenCode uses native runtime memory loop; Codex uses ProviderService
-  return provider === 'opencode';
+  void options;
+  return false;
 }
 
 export const nativeRuntime: AgentRuntime = {

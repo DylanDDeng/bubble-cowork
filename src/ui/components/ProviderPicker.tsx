@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { Bot, ChevronDown } from 'lucide-react';
 import type { AgentProvider } from '../types';
 import { PROVIDERS } from '../utils/provider';
 import claudeLogo from '../assets/claude-color.svg';
@@ -7,6 +7,10 @@ import openaiLogo from '../assets/openai.svg';
 import { OpenCodeLogo } from './OpenCodeLogo';
 
 function ProviderIcon({ provider }: { provider: AgentProvider }) {
+  if (provider === 'aegis') {
+    return <Bot className="h-4 w-4 flex-shrink-0 text-[var(--accent)]" aria-hidden="true" />;
+  }
+
   if (provider === 'claude') {
     return <img src={claudeLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
   }

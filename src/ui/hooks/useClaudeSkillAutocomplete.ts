@@ -109,6 +109,9 @@ function selectedSkillPrefixes(provider: AgentProvider): ReadonlyArray<'/' | '$'
   if (provider === 'claude') {
     return ['/'];
   }
+  if (provider === 'aegis') {
+    return [];
+  }
   return ['$', '/'];
 }
 
