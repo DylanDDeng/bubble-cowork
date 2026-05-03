@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Bot, Brain, Users } from 'lucide-react';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Bot, Users } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
@@ -7,7 +7,6 @@ import { AgentsSettingsContent } from './AgentsSettings';
 import { McpSettingsContent } from './McpSettings';
 import { ProviderPicker } from '../ProviderPicker';
 import { BridgeSettingsContent } from './BridgeSettings';
-import { MemorySettingsContent } from './MemorySettings';
 import { ThemePackEditor } from './ThemePackEditor';
 import { SettingsGroup, SettingsRow } from './SettingsPrimitives';
 import type { AppUpdateStatus, ChromeTheme, Theme, ThemeFonts, ThemeState, ThemeVariant } from '../../types';
@@ -51,12 +50,6 @@ const SETTINGS_TABS = {
     description: 'Connect remote chat channels to this desktop workspace.',
     icon: <Bot className="w-4 h-4" />,
   },
-  memory: {
-    label: 'Memory',
-    title: 'Memory Workspace',
-    description: 'Edit the long-term assistant, user, and project memory files used across providers.',
-    icon: <Brain className="w-4 h-4" />,
-  },
 } as const;
 
 // Settings 面板
@@ -83,7 +76,10 @@ export function Settings() {
 
   if (!showSettings) return null;
 
-  const activeMeta = SETTINGS_TABS[activeSettingsTab];
+  const resolvedActiveSettingsTab = activeSettingsTab in SETTINGS_TABS
+    ? activeSettingsTab
+    : 'general';
+  const activeMeta = SETTINGS_TABS[resolvedActiveSettingsTab];
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-primary)]">
       <div className="flex h-8 flex-shrink-0">
@@ -114,7 +110,7 @@ export function Settings() {
                 key={key}
                 label={tab.label}
                 icon={tab.icon}
-                active={activeSettingsTab === key}
+                active={resolvedActiveSettingsTab === key}
                 onClick={() => setActiveSettingsTab(key as keyof typeof SETTINGS_TABS)}
               />
             ))}
@@ -134,7 +130,7 @@ export function Settings() {
             </p>
           </header>
 
-          {activeSettingsTab === 'general' && (
+          {resolvedActiveSettingsTab === 'general' && (
             <GeneralSettingsContent
               theme={theme}
               setTheme={setTheme}
@@ -151,12 +147,11 @@ export function Settings() {
               updateStatus={updateStatus}
             />
           )}
-          {activeSettingsTab === 'agents' && <AgentsSettingsContent />}
-          {activeSettingsTab === 'mcp' && <McpSettingsContent />}
-          {activeSettingsTab === 'providers' && <CompatibleProviderSettingsContent />}
-          {activeSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}
-          {activeSettingsTab === 'bridge' && <BridgeSettingsContent />}
-          {activeSettingsTab === 'memory' && <MemorySettingsContent />}
+          {resolvedActiveSettingsTab === 'agents' && <AgentsSettingsContent />}
+          {resolvedActiveSettingsTab === 'mcp' && <McpSettingsContent />}
+          {resolvedActiveSettingsTab === 'providers' && <CompatibleProviderSettingsContent />}
+          {resolvedActiveSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}
+          {resolvedActiveSettingsTab === 'bridge' && <BridgeSettingsContent />}
         </div>
       </main>
       </div>

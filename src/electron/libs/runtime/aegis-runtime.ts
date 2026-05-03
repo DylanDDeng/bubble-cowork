@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'child_process';
 import { createHash, randomUUID } from 'crypto';
 import { existsSync } from 'fs';
-import { access, appendFile, mkdir, readFile, readdir, writeFile } from 'fs/promises';
+import { access, mkdir, readFile, readdir, writeFile } from 'fs/promises';
 import { constants } from 'fs';
 import { dirname, join, relative, resolve, sep } from 'path';
 import type {
@@ -21,6 +21,16 @@ import {
 import type { RunnerOptions } from '../../types';
 import { loadAegisBuiltInAgentConfig } from '../aegis-built-in-config';
 import { getAegisMemoryHome } from '../memory-paths';
+import {
+  beginBuiltinMemoryRollout,
+  completeBuiltinMemoryConsolidation,
+  completeBuiltinMemoryExtraction,
+  enqueueBuiltinMemoryRollout,
+  failBuiltinMemoryConsolidation,
+  failBuiltinMemoryRollout,
+  getSessionHistory,
+  listUnconsolidatedBuiltinMemoryCandidates,
+} from '../session-store';
 import type { AgentRuntime } from './types';
 
 type ChatRole = 'system' | 'user' | 'assistant' | 'tool';
@@ -76,6 +86,25 @@ interface ModelTurn {
   usage?: Usage;
 }
 
+interface AutoMemoryCandidate {
+  text: string;
+  reason?: string;
+  confidence?: string;
+}
+
+interface AutoMemoryOutput {
+  memories?: AutoMemoryCandidate[];
+  rolloutSummary?: string;
+  rolloutSlug?: string;
+  summary?: string;
+}
+
+interface MemoryConsolidationOutput {
+  memoryMd?: string;
+  summaryMd?: string;
+  summary?: string;
+}
+
 interface BuiltinModelSelection {
   providerId: string;
   modelId: string;
@@ -87,12 +116,15 @@ interface BuiltinModelSelection {
 }
 
 const DEFAULT_MODEL = AEGIS_BUILT_IN_DEFAULT_MODEL;
-const MAX_TOOL_TURNS = 24;
 const MAX_OUTPUT_CHARS = 48_000;
 const MAX_READ_CHARS = 40_000;
 const MAX_GLOB_RESULTS = 400;
 const MAX_GREP_RESULTS = 120;
 const MAX_MEMORY_SECTION_CHARS = 8_000;
+const AUTO_MEMORY_TRANSCRIPT_CHARS = 18_000;
+const AUTO_MEMORY_SUMMARY_CHARS = 5_000;
+const AUTO_MEMORY_TIMEOUT_MS = 45_000;
+const AUTO_MEMORY_CONSOLIDATION_CANDIDATES = 24;
 const MEMORY_SEARCH_LIMIT = 16;
 const RESIDENT_HISTORY_MESSAGE_LIMIT = 160;
 const RESIDENT_HISTORY_CHAR_LIMIT = 512 * 1024;
@@ -221,7 +253,8 @@ function buildSystemPrompt(input: {
     'Use edit for existing files and write for new files. Use todo_write for complex multi-step implementation work.',
     'Use ask_user only when a user decision or missing requirement blocks meaningful progress.',
     'When permission mode is readOnly, destructive tools are unavailable. Investigate, then call exit_plan_mode with a concrete plan for approval.',
-    'Use built-in memory tools only for this built-in agent. Do not touch Claude Code, Codex, or OpenCode native memory/config.',
+    'Built-in memory is read-only from this conversation. A background memory worker may update this built-in agent profile after turns complete.',
+    'Do not touch Claude Code, Codex, or OpenCode native memory/config.',
     '',
     `Current date: ${today}`,
     `Working directory: ${input.cwd}`,
@@ -458,7 +491,7 @@ async function buildAgentMemoryPrompt(memoryRoot: string): Promise<string> {
     '',
     'Memory rules:',
     '- Search or read memory when the task mentions prior work, stable preferences, recurring workflows, or this agent profile.',
-    '- Write memory only when the user explicitly asks you to remember something or when a durable preference/decision is clearly worth preserving.',
+    '- Do not write memory from the conversation. A background worker extracts durable memories after completed turns.',
     '- Keep this memory scoped to this built-in agent profile.',
   ].join('\n');
 }
@@ -483,6 +516,420 @@ async function searchAgentMemory(memoryRoot: string, query: string, limit = MEMO
   return matches.length > 0
     ? [`Memory search results for "${query}":`, ...matches].join('\n')
     : `No built-in agent memory matches for "${query}".`;
+}
+
+function isAutomaticMemoryEnabled(): boolean {
+  const value = (process.env.AEGIS_BUILTIN_MEMORY_AUTO || '').trim().toLowerCase();
+  return value !== '0' && value !== 'false' && value !== 'off' && value !== 'no';
+}
+
+function redactMemorySecrets(value: string): string {
+  return value
+    .replace(/\b(sk|sk-proj|sk-ant|xai|ghp|github_pat)_[A-Za-z0-9_-]{12,}\b/g, '[REDACTED_SECRET]')
+    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '[REDACTED_EMAIL]')
+    .replace(/(api[_-]?key|token|secret|password)\s*[:=]\s*["']?[^"'\s]+/gi, '$1=[REDACTED_SECRET]');
+}
+
+function truncateMiddle(value: string, maxChars: number): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= maxChars) return trimmed;
+  const head = Math.floor(maxChars * 0.45);
+  const tail = maxChars - head - 80;
+  return `${trimmed.slice(0, head).trimEnd()}\n\n...[${trimmed.length - head - tail} chars omitted for automatic memory extraction]...\n\n${trimmed.slice(-tail).trimStart()}`;
+}
+
+function extractJsonObject(raw: string): unknown | null {
+  const trimmed = raw.trim();
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced?.[1]?.trim() || trimmed;
+  const start = candidate.indexOf('{');
+  const end = candidate.lastIndexOf('}');
+  if (start === -1 || end <= start) return null;
+  try {
+    return JSON.parse(candidate.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+function parseAutoMemoryOutput(raw: string): AutoMemoryOutput {
+  const parsed = extractJsonObject(raw);
+  if (!parsed || typeof parsed !== 'object') {
+    return {};
+  }
+  const record = parsed as Record<string, unknown>;
+  const memories: AutoMemoryCandidate[] = [];
+  const rawMemories = Array.isArray(record.memories)
+    ? record.memories
+    : Array.isArray(record.raw_memories)
+      ? record.raw_memories
+      : [];
+  if (Array.isArray(rawMemories)) {
+    for (const item of rawMemories) {
+      if (!item || typeof item !== 'object') continue;
+      const candidate = item as Record<string, unknown>;
+      const text = asString(candidate.text || candidate.memory).trim();
+      if (!text) continue;
+      memories.push({
+        text,
+        reason: asString(candidate.reason).trim(),
+        confidence: asString(candidate.confidence).trim().toLowerCase(),
+      });
+    }
+  }
+  return {
+    memories,
+    rolloutSummary: asString(record.rolloutSummary || record.rollout_summary || record.summary).trim(),
+    rolloutSlug: asString(record.rolloutSlug || record.rollout_slug || record.slug).trim(),
+    summary: asString(record.summary).trim(),
+  };
+}
+
+function parseMemoryConsolidationOutput(raw: string): MemoryConsolidationOutput {
+  const parsed = extractJsonObject(raw);
+  if (!parsed || typeof parsed !== 'object') {
+    return {};
+  }
+  const record = parsed as Record<string, unknown>;
+  return {
+    memoryMd: asString(record.memoryMd || record.memory_md || record.memory).trim(),
+    summaryMd: asString(record.summaryMd || record.summary_md || record.memorySummary || record.memory_summary).trim(),
+    summary: asString(record.summary).trim(),
+  };
+}
+
+function normalizeMemorySummary(summary: string): string {
+  const redacted = redactMemorySecrets(summary).trim();
+  if (!redacted) return '';
+  return redacted.startsWith('#')
+    ? `${redacted}\n`
+    : `# Aegis Built-in Agent Memory Summary\n\n${redacted}\n`;
+}
+
+function normalizeMemoryCandidate(candidate: AutoMemoryCandidate): AutoMemoryCandidate | null {
+  const text = redactMemorySecrets(candidate.text || '').replace(/\s+/g, ' ').trim();
+  if (text.length < 16) return null;
+  const confidence = (candidate.confidence || 'medium').toLowerCase();
+  if (confidence === 'low') return null;
+  return {
+    text: text.slice(0, 800),
+    reason: redactMemorySecrets(candidate.reason || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+    confidence: confidence === 'high' ? 'high' : 'medium',
+  };
+}
+
+function memoryAlreadyExists(existing: string, text: string): boolean {
+  const normalizedExisting = existing.toLowerCase();
+  const normalizedText = text.toLowerCase();
+  if (normalizedExisting.includes(normalizedText)) return true;
+  return normalizedExisting.includes(normalizedText.slice(0, Math.min(140, normalizedText.length)));
+}
+
+function normalizeMemoryDocument(memoryMd: string): string {
+  const redacted = redactMemorySecrets(memoryMd).trim();
+  if (!redacted) return '';
+  return redacted.startsWith('#')
+    ? `${redacted}\n`
+    : `# Aegis Built-in Agent Memory\n\n${redacted}\n`;
+}
+
+function contentBlocksToMemoryText(blocks: ContentBlock[]): string {
+  return blocks
+    .map((block) => {
+      if (block.type === 'text') {
+        return block.text;
+      }
+      if (block.type === 'tool_use') {
+        let input = '';
+        try {
+          input = JSON.stringify(block.input);
+        } catch {
+          input = '';
+        }
+        return `Tool use: ${block.name}${input ? ` ${truncateMiddle(input, 900)}` : ''}`;
+      }
+      if (block.type === 'tool_result') {
+        return `Tool result (${block.is_error ? 'error' : 'ok'}): ${truncateMiddle(block.content, 1600)}`;
+      }
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+function streamMessageToMemoryText(message: StreamMessage): string {
+  if (message.type === 'stream_event') {
+    return '';
+  }
+  if (message.type === 'user_prompt') {
+    return `User prompt:\n${message.prompt || ''}`.trim();
+  }
+  if (message.type === 'user') {
+    return `User:\n${contentBlocksToMemoryText(message.message.content)}`.trim();
+  }
+  if (message.type === 'assistant') {
+    return `Assistant:\n${contentBlocksToMemoryText(message.message.content)}`.trim();
+  }
+  if (message.type === 'system') {
+    if (message.subtype === 'init') {
+      return `Session init: model=${message.model || ''} cwd=${message.cwd || ''}`;
+    }
+    if (message.subtype === 'compact_boundary') {
+      return 'System: conversation compacted';
+    }
+    return '';
+  }
+  if (message.type === 'result') {
+    return `Result: ${message.subtype || 'unknown'}`;
+  }
+  return '';
+}
+
+function buildMemoryRolloutTranscript(input: {
+  sessionId: string;
+  agentId: string;
+  cwd: string;
+  history: StreamMessage[];
+}): string {
+  const body = input.history
+    .map(streamMessageToMemoryText)
+    .filter(Boolean)
+    .join('\n\n---\n\n');
+  return truncateMiddle(
+    redactMemorySecrets([
+      `session_id: ${input.sessionId}`,
+      `agent_id: ${input.agentId}`,
+      `cwd: ${input.cwd}`,
+      '',
+      body || '(empty session history)',
+    ].join('\n')),
+    AUTO_MEMORY_TRANSCRIPT_CHARS
+  );
+}
+
+async function extractBuiltinMemoryCandidates(input: {
+  sessionId: string;
+  agentId: string;
+  cwd: string;
+  selection: BuiltinModelSelection;
+}): Promise<AutoMemoryOutput> {
+  const history = getSessionHistory(input.sessionId);
+  if (history.length === 0) {
+    return { memories: [], rolloutSummary: '', rolloutSlug: '' };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AUTO_MEMORY_TIMEOUT_MS);
+  try {
+    const transcript = buildMemoryRolloutTranscript({
+      sessionId: input.sessionId,
+      agentId: input.agentId,
+      cwd: input.cwd,
+      history,
+    });
+    const raw = await completeChatText({
+      selection: input.selection,
+      signal: controller.signal,
+      maxOutputTokens: 1400,
+      temperature: 0,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You are stage one of Aegis Built-in Agent memory, modeled after Codex memory extraction.',
+            'Read one completed rollout/session transcript and extract raw durable memory candidates only.',
+            'The main agent cannot write memory. This background worker may only return candidates for later consolidation.',
+            'Memory is scoped to the built-in agent profile, not to a project directory. If a fact only applies to one repository or path, include that repository/path explicitly in the memory text.',
+            'Keep stable user preferences, durable product decisions, recurring workflows, repo-specific lessons, and bug/root-cause findings that will likely help a future session.',
+            'Drop transient chatter, generic summaries, command output, secrets, tokens, passwords, API keys, and private personal data.',
+            'Return strict JSON only: {"memories":[{"text":"...","reason":"...","confidence":"high|medium|low"}],"rolloutSummary":"one concise sentence or empty","rolloutSlug":"short-kebab-slug-or-empty"}.',
+            'Use at most 8 memories. If nothing is worth remembering, return {"memories":[],"rolloutSummary":"","rolloutSlug":""}.',
+          ].join('\n'),
+        },
+        {
+          role: 'user',
+          content: transcript,
+        },
+      ],
+    });
+    return parseAutoMemoryOutput(raw);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function consolidateBuiltinMemory(input: {
+  memoryRoot: string;
+  agentId: string;
+  selection: BuiltinModelSelection;
+}): Promise<void> {
+  await ensureAgentMemoryFiles(input.memoryRoot);
+  const memoryPath = join(input.memoryRoot, 'memory.md');
+  const summaryPath = join(input.memoryRoot, 'memory_summary.md');
+  const currentMemory = await readOptionalText(memoryPath);
+  const currentSummary = await readOptionalText(summaryPath);
+  const allCandidates = listUnconsolidatedBuiltinMemoryCandidates(
+    input.agentId,
+    AUTO_MEMORY_CONSOLIDATION_CANDIDATES
+  );
+  if (allCandidates.length === 0) return;
+
+  const existingCorpus = `${currentSummary}\n\n${currentMemory}`;
+  const candidates = allCandidates.filter((candidate) => !memoryAlreadyExists(existingCorpus, candidate.text));
+  if (candidates.length === 0) {
+    completeBuiltinMemoryConsolidation({
+      agentId: input.agentId,
+      candidateIds: allCandidates.map((candidate) => candidate.id),
+      sessionIds: allCandidates.map((candidate) => candidate.session_id),
+    });
+    return;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AUTO_MEMORY_TIMEOUT_MS);
+  try {
+    const raw = await completeChatText({
+      selection: input.selection,
+      signal: controller.signal,
+      maxOutputTokens: 3600,
+      temperature: 0,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You are stage two of Aegis Built-in Agent memory, modeled after Codex memory consolidation.',
+            'Merge raw memory candidates into the existing memory files for one built-in agent profile.',
+            'The memory is agent-profile scoped, not project-scoped. Preserve project-specific qualifiers in the memory text instead of creating separate project memory.',
+            'Return complete replacement contents for both files. Preserve useful existing memories, remove duplicates, fold new candidates into the right section, and keep the result concise.',
+            'Do not store secrets, tokens, API keys, passwords, private personal data, generic one-off facts, or transient command output.',
+            'Return strict JSON only: {"memoryMd":"complete memory.md markdown","summaryMd":"complete memory_summary.md markdown"}.',
+          ].join('\n'),
+        },
+        {
+          role: 'user',
+          content: [
+            `Memory root: ${input.memoryRoot}`,
+            `Agent id: ${input.agentId}`,
+            '',
+            'Current memory summary:',
+            trimMemorySection(currentSummary, AUTO_MEMORY_SUMMARY_CHARS) || '(empty)',
+            '',
+            'Current memory document:',
+            trimMemorySection(currentMemory, AUTO_MEMORY_SUMMARY_CHARS * 2) || '(empty)',
+            '',
+            'Unconsolidated raw memory candidates:',
+            candidates.map((candidate, index) => [
+              `${index + 1}. id=${candidate.id}`,
+              `   text=${candidate.text}`,
+              candidate.reason ? `   reason=${candidate.reason}` : '',
+              candidate.confidence ? `   confidence=${candidate.confidence}` : '',
+            ].filter(Boolean).join('\n')).join('\n\n'),
+          ].join('\n'),
+        },
+      ],
+    });
+
+    const output = parseMemoryConsolidationOutput(raw);
+    const nextMemory = normalizeMemoryDocument(output.memoryMd || '');
+    const nextSummary = normalizeMemorySummary(output.summaryMd || output.summary || '');
+    if (!nextMemory || !nextSummary) {
+      throw new Error('Memory consolidation worker returned incomplete JSON.');
+    }
+    if (nextMemory.trim() !== currentMemory.trim()) {
+      await writeFile(memoryPath, nextMemory, 'utf-8');
+    }
+    if (nextSummary && nextSummary.trim() !== currentSummary.trim()) {
+      await writeFile(summaryPath, nextSummary, 'utf-8');
+    }
+    completeBuiltinMemoryConsolidation({
+      agentId: input.agentId,
+      candidateIds: allCandidates.map((candidate) => candidate.id),
+      sessionIds: allCandidates.map((candidate) => candidate.session_id),
+    });
+  } catch (error) {
+    if (!(error instanceof Error && error.name === 'AbortError')) {
+      const message = error instanceof Error ? error.message : String(error);
+      failBuiltinMemoryConsolidation({ agentId: input.agentId, error: message });
+      console.warn('Aegis Built-in Agent memory consolidation failed:', error);
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function runBuiltinMemoryPipelineForSession(input: {
+  sessionId: string;
+  agentId: string;
+  memoryRoot: string;
+  cwd: string;
+  selection: BuiltinModelSelection;
+}): Promise<void> {
+  if (!isAutomaticMemoryEnabled()) return;
+  const rollout = beginBuiltinMemoryRollout(input.sessionId);
+  if (!rollout) return;
+
+  try {
+    const output = await extractBuiltinMemoryCandidates(input);
+    const candidates = (output.memories || [])
+      .map(normalizeMemoryCandidate)
+      .filter((candidate): candidate is AutoMemoryCandidate => Boolean(candidate));
+    completeBuiltinMemoryExtraction({
+      sessionId: input.sessionId,
+      agentId: input.agentId,
+      rolloutSummary: output.rolloutSummary || output.summary || '',
+      rolloutSlug: output.rolloutSlug || '',
+      candidates,
+    });
+    await consolidateBuiltinMemory({
+      memoryRoot: input.memoryRoot,
+      agentId: input.agentId,
+      selection: input.selection,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    failBuiltinMemoryRollout(input.sessionId, message);
+    if (!(error instanceof Error && error.name === 'AbortError')) {
+      console.warn('Aegis Built-in Agent memory extraction failed:', error);
+    }
+  }
+}
+
+const activeMemoryPipelines = new Map<string, Promise<void>>();
+
+function scheduleBuiltinMemoryPipeline(input: {
+  sessionId: string;
+  agentId: string;
+  memoryRoot: string;
+  cwd: string;
+  selection: BuiltinModelSelection;
+}): void {
+  if (!isAutomaticMemoryEnabled()) return;
+  try {
+    enqueueBuiltinMemoryRollout({
+      sessionId: input.sessionId,
+      agentId: input.agentId,
+      model: input.selection.encodedModel,
+    });
+  } catch (error) {
+    console.warn('Aegis Built-in Agent memory enqueue failed:', error);
+    return;
+  }
+
+  const previous = activeMemoryPipelines.get(input.agentId) || Promise.resolve();
+  let pipeline: Promise<void>;
+  pipeline = previous
+    .catch(() => undefined)
+    .then(async () => {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 350));
+      await runBuiltinMemoryPipelineForSession(input);
+    })
+    .finally(() => {
+      if (activeMemoryPipelines.get(input.agentId) === pipeline) {
+        activeMemoryPipelines.delete(input.agentId);
+      }
+    });
+  activeMemoryPipelines.set(input.agentId, pipeline);
 }
 
 async function streamChatCompletion(input: {
@@ -634,6 +1081,57 @@ async function streamChatCompletion(input: {
   };
 }
 
+async function completeChatText(input: {
+  messages: ChatMessage[];
+  selection: BuiltinModelSelection;
+  signal: AbortSignal;
+  temperature?: number;
+  maxOutputTokens?: number;
+}): Promise<string> {
+  const apiKey = input.selection.apiKey;
+  if (!apiKey && input.selection.providerId !== 'local') {
+    throw new Error('Aegis Built-in Agent memory worker requires an API key.');
+  }
+  const providerExtras = buildProviderRequestExtras(input.selection);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+  const body: Record<string, unknown> = {
+    model: input.selection.modelId,
+    messages: input.messages,
+    stream: false,
+    max_tokens: input.maxOutputTokens || 900,
+  };
+  if (!providerExtras.omitTemperature) {
+    body.temperature = input.temperature ?? 0.1;
+  }
+  if (providerExtras.extraBody) {
+    Object.assign(body, providerExtras.extraBody);
+  }
+
+  const response = await fetch(`${input.selection.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    signal: input.signal,
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`Memory worker request failed with ${response.status}${detail ? `: ${detail.slice(0, 800)}` : ''}`);
+  }
+  const parsed = await response.json() as {
+    choices?: Array<{
+      message?: { content?: string | null };
+      text?: string | null;
+    }>;
+  };
+  const choice = parsed.choices?.[0];
+  return (choice?.message?.content || choice?.text || '').trim();
+}
+
 function createTools(input: {
   cwd: string;
   onPermissionRequest: RunnerOptions['onPermissionRequest'];
@@ -677,31 +1175,6 @@ function createTools(input: {
       cwd: input.cwd,
       filePath: params.filePath,
       files: [params.filePath],
-      permissionSummary: params.summary,
-      canAllowForSession: false,
-    });
-    if (decision.behavior === 'allow') return null;
-    return {
-      content: decision.message || `${params.toolName} was denied by the user.`,
-      isError: true,
-    };
-  };
-
-  const requireMemoryWritePermission = async (params: {
-    id: string;
-    toolName: string;
-    summary: string[];
-  }): Promise<ToolResult | null> => {
-    const decision = await ask(params.id, params.toolName, {
-      kind: 'codex-approval',
-      approvalKind: 'file-change',
-      method: `aegis.builtin.${params.toolName}`,
-      title: 'Write built-in agent memory',
-      question: 'Allow Aegis Built-in Agent to update its own memory?',
-      toolName: params.toolName,
-      cwd: input.cwd,
-      filePath: join(input.memoryRoot, 'memory.md'),
-      files: [join(input.memoryRoot, 'memory.md')],
       permissionSummary: params.summary,
       canAllowForSession: false,
     });
@@ -936,47 +1409,6 @@ function createTools(input: {
         if (!query) return { content: 'Error: query is required', isError: true };
         const limit = Math.max(1, Math.min(50, Math.floor(asNumber(args.limit, MEMORY_SEARCH_LIMIT))));
         return { content: await searchAgentMemory(input.memoryRoot, query, limit) };
-      },
-    },
-    {
-      definition: {
-        type: 'function',
-        function: {
-          name: 'memory_write',
-          description: 'Append a durable memory for this specific Aegis built-in agent profile. Use only for stable preferences, decisions, workflows, or facts worth remembering.',
-          parameters: {
-            type: 'object',
-            properties: {
-              text: { type: 'string', description: 'Concise durable memory to append.' },
-              reason: { type: 'string', description: 'Why this is worth remembering.' },
-            },
-            required: ['text'],
-            additionalProperties: false,
-          },
-        },
-      },
-      execute: async (args) => {
-        const text = asString(args.text).trim();
-        const reason = asString(args.reason).trim();
-        if (!text) return { content: 'Error: text is required', isError: true };
-        const denied = await requireMemoryWritePermission({
-          id: `aegis-memory-${randomUUID()}`,
-          toolName: 'memory_write',
-          summary: [text.slice(0, 240), reason ? `Reason: ${reason.slice(0, 180)}` : 'Append built-in agent memory'],
-        });
-        if (denied) return denied;
-        await ensureAgentMemoryFiles(input.memoryRoot);
-        const memoryPath = join(input.memoryRoot, 'memory.md');
-        const entry = [
-          '',
-          `## ${new Date().toISOString()}`,
-          ...(reason ? ['', `Reason: ${reason}`] : []),
-          '',
-          text,
-          '',
-        ].join('\n');
-        await appendFile(memoryPath, entry, 'utf-8');
-        return { content: `Memory appended to ${memoryPath}.` };
       },
     },
     {
@@ -1346,13 +1778,31 @@ async function collectFiles(root: string, cwd: string, limit: number): Promise<s
 }
 
 function globToRegExp(pattern: string): RegExp {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*\*/g, '\u0000')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\?/g, '[^/]')
-    .replace(/\u0000/g, '.*');
-  return new RegExp(`^${escaped}$`);
+  const normalized = pattern.replace(/\\/g, '/');
+  let source = '';
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index];
+    if (char === '*') {
+      if (normalized[index + 1] === '*') {
+        if (normalized[index + 2] === '/') {
+          source += '(?:.*/)?';
+          index += 2;
+        } else {
+          source += '.*';
+          index += 1;
+        }
+      } else {
+        source += '[^/]*';
+      }
+      continue;
+    }
+    if (char === '?') {
+      source += '[^/]';
+      continue;
+    }
+    source += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${source}$`);
 }
 
 class AegisBuiltinAgentSession {
@@ -1360,6 +1810,7 @@ class AegisBuiltinAgentSession {
   private children = new Set<ChildProcess>();
   private permissionMode: AegisPermissionMode;
   private readonly memoryRoot: string;
+  private readonly memoryAgentId: string;
   private todos: TodoItem[] = [];
 
   constructor(private readonly options: RunnerOptions, private readonly abortController: AbortController) {
@@ -1367,6 +1818,7 @@ class AegisBuiltinAgentSession {
     const selection = resolveBuiltinSelection(options.model || options.session.model);
     this.permissionMode = normalizePermissionMode(options.aegisPermissionMode);
     this.memoryRoot = getAgentMemoryRoot(options.session);
+    this.memoryAgentId = options.session.agent_id?.trim() || 'default';
     this.messages = [
       {
         role: 'system',
@@ -1421,6 +1873,22 @@ class AegisBuiltinAgentSession {
       getTodos: this.getTodos,
       setTodos: this.setTodos,
       onTodosUpdate: (todos) => this.emitTodos(todos),
+    });
+  }
+
+  private scheduleAutomaticMemoryUpdate(input: {
+    cwd: string;
+    selection: BuiltinModelSelection;
+  }): void {
+    if (this.abortController.signal.aborted) {
+      return;
+    }
+    scheduleBuiltinMemoryPipeline({
+      sessionId: this.options.session.id,
+      agentId: this.memoryAgentId,
+      memoryRoot: this.memoryRoot,
+      cwd: input.cwd,
+      selection: input.selection,
     });
   }
 
@@ -1479,7 +1947,7 @@ class AegisBuiltinAgentSession {
     });
 
     let usage: Usage | undefined;
-    for (let turn = 0; turn < MAX_TOOL_TURNS; turn += 1) {
+    while (!this.abortController.signal.aborted) {
       const tools = this.buildTools(cwd);
       this.messages[0] = {
         role: 'system',
@@ -1532,6 +2000,10 @@ class AegisBuiltinAgentSession {
             cache_read_input_tokens: 0,
           },
         });
+        this.scheduleAutomaticMemoryUpdate({
+          cwd,
+          selection,
+        });
         return;
       }
 
@@ -1572,8 +2044,6 @@ class AegisBuiltinAgentSession {
       }
       this.compactResidentHistory();
     }
-
-    throw new Error(`Aegis Built-in Agent stopped after ${MAX_TOOL_TURNS} tool turns without a final response.`);
   }
 }
 

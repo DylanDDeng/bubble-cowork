@@ -75,6 +75,48 @@ type MessagePersistenceRecord = {
   artifact?: MessageArtifactPersistenceRecord;
 };
 
+export type BuiltinMemoryRolloutStatus =
+  | 'pending'
+  | 'processing'
+  | 'extracted'
+  | 'skipped'
+  | 'consolidated'
+  | 'failed';
+
+export interface BuiltinMemoryRolloutRow {
+  session_id: string;
+  agent_id: string;
+  status: BuiltinMemoryRolloutStatus;
+  model: string | null;
+  attempts: number;
+  last_error: string | null;
+  rollout_summary: string | null;
+  rollout_slug: string | null;
+  created_at: number;
+  updated_at: number;
+  claimed_at: number | null;
+  extracted_at: number | null;
+  consolidated_at: number | null;
+}
+
+export interface BuiltinMemoryCandidateInput {
+  text: string;
+  reason?: string | null;
+  confidence?: string | null;
+}
+
+export interface BuiltinMemoryCandidateRow {
+  id: string;
+  session_id: string;
+  agent_id: string;
+  text: string;
+  reason: string | null;
+  confidence: string | null;
+  dedupe_key: string;
+  created_at: number;
+  consolidated_at: number | null;
+}
+
 function normalizeClaudeAccessMode(
   value?: string | null
 ): ClaudeAccessMode {
@@ -239,6 +281,46 @@ export function initialize(): void {
       FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS builtin_memory_rollouts (
+      session_id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      model TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      rollout_summary TEXT,
+      rollout_slug TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      claimed_at INTEGER,
+      extracted_at INTEGER,
+      consolidated_at INTEGER,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS builtin_memory_candidates (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      text TEXT NOT NULL,
+      reason TEXT,
+      confidence TEXT,
+      dedupe_key TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      consolidated_at INTEGER,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS builtin_memory_consolidations (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      candidate_count INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
 
   ensureColumn('sessions', 'codex_session_id', 'TEXT');
@@ -278,6 +360,10 @@ export function initialize(): void {
     CREATE INDEX IF NOT EXISTS idx_artifacts_session_id ON artifacts(session_id);
     CREATE INDEX IF NOT EXISTS idx_derived_summaries_session_id ON derived_summaries(session_id);
     CREATE INDEX IF NOT EXISTS idx_search_index_session_id ON search_index(session_id);
+    CREATE INDEX IF NOT EXISTS idx_builtin_memory_rollouts_agent_status ON builtin_memory_rollouts(agent_id, status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_builtin_memory_candidates_agent_pending ON builtin_memory_candidates(agent_id, consolidated_at, created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_builtin_memory_candidates_dedupe ON builtin_memory_candidates(agent_id, dedupe_key);
+    CREATE INDEX IF NOT EXISTS idx_builtin_memory_consolidations_agent ON builtin_memory_consolidations(agent_id, created_at);
   `);
 
   const backfilledCount = backfillClaudeSessionModelsFromInitMessages();
@@ -1385,6 +1471,258 @@ export function getSessionHistory(sessionId: string): StreamMessage[] {
       );
     }
   });
+}
+
+function normalizeBuiltinMemoryAgentId(agentId?: string | null): string {
+  return agentId?.trim() || 'default';
+}
+
+function buildBuiltinMemoryDedupeKey(text: string): string {
+  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+  return createHash('sha256').update(normalized).digest('hex');
+}
+
+export function enqueueBuiltinMemoryRollout(params: {
+  sessionId: string;
+  agentId?: string | null;
+  model?: string | null;
+}): void {
+  const now = Date.now();
+  const agentId = normalizeBuiltinMemoryAgentId(params.agentId);
+  getDb().prepare(`
+    INSERT INTO builtin_memory_rollouts (
+      session_id,
+      agent_id,
+      status,
+      model,
+      attempts,
+      last_error,
+      created_at,
+      updated_at
+    )
+    VALUES (?, ?, 'pending', ?, 0, NULL, ?, ?)
+    ON CONFLICT(session_id) DO UPDATE SET
+      agent_id = excluded.agent_id,
+      status = CASE
+        WHEN builtin_memory_rollouts.status = 'processing' THEN builtin_memory_rollouts.status
+        ELSE 'pending'
+      END,
+      model = excluded.model,
+      attempts = CASE
+        WHEN builtin_memory_rollouts.status = 'processing' THEN builtin_memory_rollouts.attempts
+        ELSE 0
+      END,
+      last_error = NULL,
+      updated_at = excluded.updated_at,
+      claimed_at = CASE
+        WHEN builtin_memory_rollouts.status = 'processing' THEN builtin_memory_rollouts.claimed_at
+        ELSE NULL
+      END,
+      extracted_at = CASE
+        WHEN builtin_memory_rollouts.status = 'processing' THEN builtin_memory_rollouts.extracted_at
+        ELSE NULL
+      END,
+      consolidated_at = NULL
+  `).run(
+    params.sessionId,
+    agentId,
+    params.model || null,
+    now,
+    now
+  );
+}
+
+export function beginBuiltinMemoryRollout(sessionId: string): BuiltinMemoryRolloutRow | null {
+  const now = Date.now();
+  const result = getDb().prepare(`
+    UPDATE builtin_memory_rollouts
+    SET
+      status = 'processing',
+      attempts = attempts + 1,
+      last_error = NULL,
+      claimed_at = ?,
+      updated_at = ?
+    WHERE session_id = ?
+      AND (
+        status = 'pending'
+        OR (status = 'failed' AND attempts < 3)
+      )
+  `).run(now, now, sessionId);
+
+  if (!result.changes) {
+    return null;
+  }
+
+  return getDb().prepare(`
+    SELECT *
+    FROM builtin_memory_rollouts
+    WHERE session_id = ?
+  `).get(sessionId) as BuiltinMemoryRolloutRow | null;
+}
+
+export function completeBuiltinMemoryExtraction(params: {
+  sessionId: string;
+  agentId?: string | null;
+  rolloutSummary?: string | null;
+  rolloutSlug?: string | null;
+  candidates: BuiltinMemoryCandidateInput[];
+}): void {
+  const now = Date.now();
+  const agentId = normalizeBuiltinMemoryAgentId(params.agentId);
+  const insertCandidate = getDb().prepare(`
+    INSERT OR IGNORE INTO builtin_memory_candidates (
+      id,
+      session_id,
+      agent_id,
+      text,
+      reason,
+      confidence,
+      dedupe_key,
+      created_at,
+      consolidated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+  `);
+  const updateRollout = getDb().prepare(`
+    UPDATE builtin_memory_rollouts
+    SET
+      status = ?,
+      rollout_summary = ?,
+      rollout_slug = ?,
+      extracted_at = ?,
+      updated_at = ?
+    WHERE session_id = ?
+  `);
+
+  const transaction = getDb().transaction(() => {
+    for (const candidate of params.candidates) {
+      const text = candidate.text.trim();
+      if (!text) continue;
+      insertCandidate.run(
+        uuidv4(),
+        params.sessionId,
+        agentId,
+        text,
+        candidate.reason?.trim() || null,
+        candidate.confidence?.trim() || null,
+        buildBuiltinMemoryDedupeKey(text),
+        now
+      );
+    }
+
+    updateRollout.run(
+      params.candidates.length > 0 ? 'extracted' : 'skipped',
+      params.rolloutSummary?.trim() || null,
+      params.rolloutSlug?.trim() || null,
+      now,
+      now,
+      params.sessionId
+    );
+  });
+
+  transaction();
+}
+
+export function failBuiltinMemoryRollout(sessionId: string, error: string): void {
+  const now = Date.now();
+  getDb().prepare(`
+    UPDATE builtin_memory_rollouts
+    SET
+      status = 'failed',
+      last_error = ?,
+      updated_at = ?
+    WHERE session_id = ?
+  `).run(error.slice(0, 2000), now, sessionId);
+}
+
+export function listUnconsolidatedBuiltinMemoryCandidates(
+  agentId?: string | null,
+  limit = 24
+): BuiltinMemoryCandidateRow[] {
+  const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+  return getDb().prepare(`
+    SELECT *
+    FROM builtin_memory_candidates
+    WHERE agent_id = ?
+      AND consolidated_at IS NULL
+    ORDER BY created_at ASC
+    LIMIT ?
+  `).all(normalizeBuiltinMemoryAgentId(agentId), safeLimit) as BuiltinMemoryCandidateRow[];
+}
+
+export function completeBuiltinMemoryConsolidation(params: {
+  agentId?: string | null;
+  candidateIds: string[];
+  sessionIds: string[];
+}): void {
+  const now = Date.now();
+  const candidateIds = Array.from(new Set(params.candidateIds.filter(Boolean)));
+  const sessionIds = Array.from(new Set(params.sessionIds.filter(Boolean)));
+  const agentId = normalizeBuiltinMemoryAgentId(params.agentId);
+  const insertConsolidation = getDb().prepare(`
+    INSERT INTO builtin_memory_consolidations (
+      id,
+      agent_id,
+      status,
+      candidate_count,
+      error,
+      created_at,
+      updated_at
+    )
+    VALUES (?, ?, 'completed', ?, NULL, ?, ?)
+  `);
+
+  const transaction = getDb().transaction(() => {
+    insertConsolidation.run(uuidv4(), agentId, candidateIds.length, now, now);
+
+    if (candidateIds.length > 0) {
+      const placeholders = candidateIds.map(() => '?').join(', ');
+      getDb().prepare(`
+        UPDATE builtin_memory_candidates
+        SET consolidated_at = ?
+        WHERE id IN (${placeholders})
+      `).run(now, ...candidateIds);
+    }
+
+    if (sessionIds.length > 0) {
+      const placeholders = sessionIds.map(() => '?').join(', ');
+      getDb().prepare(`
+        UPDATE builtin_memory_rollouts
+        SET
+          status = 'consolidated',
+          consolidated_at = ?,
+          updated_at = ?
+        WHERE session_id IN (${placeholders})
+      `).run(now, now, ...sessionIds);
+    }
+  });
+
+  transaction();
+}
+
+export function failBuiltinMemoryConsolidation(params: {
+  agentId?: string | null;
+  error: string;
+}): void {
+  const now = Date.now();
+  getDb().prepare(`
+    INSERT INTO builtin_memory_consolidations (
+      id,
+      agent_id,
+      status,
+      candidate_count,
+      error,
+      created_at,
+      updated_at
+    )
+    VALUES (?, ?, 'failed', 0, ?, ?, ?)
+  `).run(
+    uuidv4(),
+    normalizeBuiltinMemoryAgentId(params.agentId),
+    params.error.slice(0, 2000),
+    now,
+    now
+  );
 }
 
 export function addArtifact(params: {
