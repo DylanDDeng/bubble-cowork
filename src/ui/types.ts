@@ -258,6 +258,9 @@ export interface AppState {
   // Settings 状态
   showSettings: boolean;
   activeSettingsTab: SettingsTab;
+  agentSetupOpen: boolean;
+  agentSetupDismissedAt: number | null;
+  agentSetupCompletedAt: number | null;
   updateStatus: AppUpdateStatus;
   promptLibraryInsertRequest: PromptLibraryInsertRequest | null;
   pendingChatInjection: ChatInjectionRequest | null;
@@ -331,6 +334,9 @@ export interface AppActions {
   // Settings Actions
   setShowSettings: (show: boolean) => void;
   setActiveSettingsTab: (tab: SettingsTab) => void;
+  setAgentSetupOpen: (open: boolean) => void;
+  dismissAgentSetup: () => void;
+  completeAgentSetup: () => void;
   requestPromptLibraryInsert: (content: string, mode?: PromptLibraryInsertMode) => void;
   consumePromptLibraryInsert: (nonce: number) => void;
   requestChatInjection: (request: Omit<ChatInjectionRequest, 'nonce'>) => void;

@@ -405,7 +405,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     if (enabledAgentCount === 0) {
       return {
         title: 'No agents configured',
-        description: 'Open Settings > Agents to create an agent profile before sending messages.',
+        description: 'Set up a local agent profile before sending messages.',
       };
     }
 
@@ -413,7 +413,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       if (!directAgentProfile) {
         return {
           title: 'Agent unavailable',
-          description: 'Open Settings > Agents to check this direct message agent profile.',
+          description: 'Set up a local agent profile before sending messages.',
         };
       }
       return null;
@@ -422,7 +422,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     if (projectAgentProfiles.length === 0) {
       return {
         title: 'No agents assigned to this project',
-        description: 'Add agents from the project agent row in the sidebar before sending tasks.',
+        description: 'Create an agent profile or add one to this project.',
       };
     }
 
@@ -1021,7 +1021,9 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                 ? 'Press Enter to stop...'
                 : pendingStart
                 ? 'Starting session...'
-                : 'Sending to the agent...'
+                : composerBlocker
+                  ? `${composerBlocker.title}. ${composerBlocker.description}`
+                  : 'Sending to the agent...'
             }
             disabled={isBusy}
             className="w-full bg-transparent px-4 pt-3 pb-1 text-[14px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50"

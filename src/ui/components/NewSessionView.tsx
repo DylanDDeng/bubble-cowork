@@ -93,6 +93,8 @@ export function NewSessionView() {
     activeChannelByProject,
     sidebarCollapsed,
     sessions,
+    agentProfiles,
+    setAgentSetupOpen,
     setPendingStart,
     setProjectCwd,
     promptLibraryInsertRequest,
@@ -134,6 +136,7 @@ export function NewSessionView() {
   const isComposingRef = useRef(false);
   const cwd = projectCwd || '';
   const hasSelectedCwd = cwd.trim().length > 0;
+  const agentProfileCount = Object.keys(agentProfiles).length;
   const claudeModelConfig = useClaudeModelConfig();
   const { compatibleOptions } = useCompatibleProviderConfig();
   const availableClaudeModels = useMemo(
@@ -760,6 +763,18 @@ export function NewSessionView() {
                   </span>
                 </div>
               )}
+
+              {agentProfileCount === 0 ? (
+                <div className="mt-5 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setAgentSetupOpen(true)}
+                    className="inline-flex h-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12.5px] font-medium text-[var(--text-primary)] shadow-sm transition-colors hover:bg-[var(--bg-tertiary)]"
+                  >
+                    Set up agents
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
 

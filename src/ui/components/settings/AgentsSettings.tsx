@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, PlugZap, Plus, Trash2 } from 'lucide-react';
 import { AgentModelPicker } from '../AgentModelPicker';
 import { AgentAvatar, AGENT_AVATAR_OPTIONS } from '../AgentAvatar';
 import { useAppStore } from '../../store/useAppStore';
@@ -34,9 +34,10 @@ const AGENT_COLORS: Array<{ value: AgentProfileColor; label: string }> = [
 ];
 
 const FIELD_CONTROL_CLASS =
-  'w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1.5 text-[13px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/15';
+  'h-8 w-full rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 text-[12.5px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--text-muted)]';
 
-const TEXTAREA_CONTROL_CLASS = `${FIELD_CONTROL_CLASS} min-h-[76px] resize-y leading-5`;
+const TEXTAREA_CONTROL_CLASS =
+  'w-full rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-2 text-[12.5px] leading-5 text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--text-muted)] min-h-[76px] resize-y';
 
 const CLAUDE_REASONING_OPTIONS: Array<{ value: AgentReasoningEffort; label: string }> = [
   { value: 'low', label: 'Low' },
@@ -67,13 +68,14 @@ export function AgentsSettingsContent() {
     createAgentProfile,
     updateAgentProfile,
     deleteAgentProfile,
+    setAgentSetupOpen,
   } = useAppStore();
   const profiles = useMemo(
     () => Object.values(agentProfiles).sort((left, right) => left.createdAt - right.createdAt),
     [agentProfiles]
   );
-  const [selectedProfileId, setSelectedProfileId] = useState(profiles[0]?.id || '');
-  const selectedProfile = agentProfiles[selectedProfileId] || profiles[0] || null;
+  const [selectedProfileId, setSelectedProfileId] = useState('');
+  const selectedProfile = selectedProfileId ? agentProfiles[selectedProfileId] || null : null;
 
   useEffect(() => {
     if (profiles.length === 0) {
@@ -82,7 +84,7 @@ export function AgentsSettingsContent() {
       }
       return;
     }
-    if (!agentProfiles[selectedProfileId]) {
+    if (selectedProfileId && !agentProfiles[selectedProfileId]) {
       setSelectedProfileId(profiles[0].id);
     }
   }, [agentProfiles, profiles, selectedProfileId]);
@@ -103,98 +105,145 @@ export function AgentsSettingsContent() {
   };
 
   return (
-    <div className="grid grid-cols-[220px_minmax(0,1fr)] gap-4 pb-8">
-      <section className="min-w-0">
-        <div className="mb-2 flex items-center justify-between gap-2 px-1">
-          <div className="text-[12px] font-medium text-[var(--text-muted)]">Profiles</div>
+    <div className="space-y-6 pb-8">
+      <SettingsGroup
+        title="Agent Profiles"
+        description="Reusable agent identities for direct messages and project rosters."
+      >
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[13px] font-medium text-[var(--text-primary)]">
+              <PlugZap className="h-3.5 w-3.5 text-[var(--text-muted)]" aria-hidden="true" />
+              <span>Setup agents</span>
+            </div>
+            <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">
+              Check local runtimes and create a profile.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAgentSetupOpen(true)}
+            className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[12.5px] font-medium transition-colors ${
+              profiles.length === 0
+                ? 'bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-90'
+                : 'border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+            }`}
+          >
+            Run setup
+          </button>
+        </div>
+
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3">
+          <div className="min-w-0">
+            <div className="text-[13px] font-medium text-[var(--text-primary)]">Profiles</div>
+            <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">
+              {profiles.length === 1 ? '1 profile configured.' : `${profiles.length} profiles configured.`}
+            </div>
+          </div>
           <button
             type="button"
             onClick={handleCreateProfile}
-            className="inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-2 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12.5px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
           >
             <Plus className="h-3.5 w-3.5" />
             New
           </button>
         </div>
 
-        <div className="overflow-hidden rounded-[12px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-          {profiles.length === 0 ? (
-            <button
-              type="button"
-              onClick={handleCreateProfile}
-              className="w-full px-3 py-5 text-left text-[13px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-            >
-              Create an agent profile
-            </button>
-          ) : (
-            <div className="divide-y divide-[var(--border)]">
-              {profiles.map((profile) => (
-                <AgentProfileListItem
-                  key={profile.id}
-                  profile={profile}
-                  active={selectedProfile?.id === profile.id}
-                  onClick={() => setSelectedProfileId(profile.id)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-
-      <section className="min-w-0">
-        {selectedProfile ? (
-          <AgentProfileForm
-            profile={selectedProfile}
-            onUpdate={(patch) => updateAgentProfile(selectedProfile.id, patch)}
-            onDelete={() => handleDeleteProfile(selectedProfile.id)}
-          />
+        {profiles.length === 0 ? (
+          <button
+            type="button"
+            onClick={handleCreateProfile}
+            className="w-full px-4 py-5 text-left text-[13px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+          >
+            Create an agent profile.
+          </button>
         ) : (
-          <SettingsGroup title="Agent profile">
-            <div className="px-4 py-8 text-[13px] text-[var(--text-muted)]">
-              No agent profile selected.
-            </div>
-          </SettingsGroup>
+          profiles.map((profile) => (
+            <AgentProfileRow
+              key={profile.id}
+              profile={profile}
+              expanded={selectedProfile?.id === profile.id}
+              onToggleExpand={() =>
+                setSelectedProfileId((current) => current === profile.id ? '' : profile.id)
+              }
+              onUpdate={(patch) => updateAgentProfile(profile.id, patch)}
+              onDelete={() => handleDeleteProfile(profile.id)}
+            />
+          ))
         )}
-      </section>
+      </SettingsGroup>
     </div>
   );
 }
 
-function AgentProfileListItem({
+function AgentProfileRow({
   profile,
-  active,
-  onClick,
+  expanded,
+  onToggleExpand,
+  onUpdate,
+  onDelete,
 }: {
   profile: AgentProfile;
-  active: boolean;
-  onClick: () => void;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onUpdate: (patch: Partial<Omit<AgentProfile, 'id' | 'createdAt'>>) => void;
+  onDelete: () => void;
 }) {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onToggleExpand();
+    }
+  };
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors ${
-        active
-          ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
-          : 'text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
-      }`}
-    >
-      <AgentAvatar profile={profile} size="md" decorative />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium leading-[1.25]">
-          {displayName(profile)}
-        </span>
-        <span className="block truncate text-[11px] leading-[1.3] text-[var(--text-muted)]">
-          {displayRole(profile)}
-        </span>
-      </span>
-      <span
-        className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${
-          profile.enabled ? 'bg-emerald-500' : 'bg-[var(--text-muted)]'
-        }`}
-        title={profile.enabled ? 'Enabled' : 'Disabled'}
-      />
-    </button>
+    <div>
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={onToggleExpand}
+        onKeyDown={handleKeyDown}
+        className="grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 transition-colors hover:bg-[var(--bg-secondary)]/60"
+      >
+        <AgentAvatar profile={profile} size="md" decorative />
+        <div className="min-w-0 flex items-center gap-2">
+          <span className="truncate text-[13px] font-medium text-[var(--text-primary)]">
+            {displayName(profile)}
+          </span>
+          <span className="truncate text-[11.5px] text-[var(--text-muted)]">
+            {displayRole(profile)}
+          </span>
+        </div>
+        <div
+          className="flex items-center gap-2"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+          role="presentation"
+        >
+          <SettingsToggle
+            checked={profile.enabled}
+            onChange={(enabled) => onUpdate({ enabled })}
+            ariaLabel={profile.enabled ? `Disable ${displayName(profile)}` : `Enable ${displayName(profile)}`}
+          />
+          <ChevronDown
+            className={`h-4 w-4 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`}
+            aria-hidden="true"
+          />
+        </div>
+      </div>
+
+      {expanded ? (
+        <div className="border-t border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4">
+          <AgentProfileForm
+            profile={profile}
+            onUpdate={onUpdate}
+            onDelete={onDelete}
+          />
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -350,169 +399,198 @@ function AgentProfileForm({
   };
 
   return (
-    <div className="space-y-4">
-      <SettingsGroup title="Identity">
-        <ProfileField label="Avatar" align="start">
+    <div className="space-y-5">
+      <FormSection title="Identity">
+        <FormField label="Avatar">
           <AvatarPicker
             profile={profile}
             onChange={(key) => onUpdate({ avatar: { type: 'asset', key } })}
           />
-        </ProfileField>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3">
-          <div className="min-w-0">
-            <div className="text-[13px] font-medium text-[var(--text-primary)]">Enabled</div>
-            <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">
-              Controls whether this agent appears in DMs and project rosters.
-            </div>
-          </div>
-          <SettingsToggle
-            checked={profile.enabled}
-            onChange={(enabled) => onUpdate({ enabled })}
-            ariaLabel="Enable agent profile"
-          />
+        </FormField>
+
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <FormField label="Name">
+            <input
+              value={profile.name}
+              onChange={(event) => onUpdate({ name: event.target.value })}
+              className={FIELD_CONTROL_CLASS}
+            />
+          </FormField>
+          <FormField label="Role">
+            <input
+              value={profile.role}
+              onChange={(event) => onUpdate({ role: event.target.value })}
+              className={FIELD_CONTROL_CLASS}
+            />
+          </FormField>
         </div>
-        <ProfileField label="Name">
-          <input
-            value={profile.name}
-            onChange={(event) => onUpdate({ name: event.target.value })}
-            className={FIELD_CONTROL_CLASS}
-          />
-        </ProfileField>
-        <ProfileField label="Role">
-          <input
-            value={profile.role}
-            onChange={(event) => onUpdate({ role: event.target.value })}
-            className={FIELD_CONTROL_CLASS}
-          />
-        </ProfileField>
-        <ProfileField label="Description" align="start">
+
+        <FormField label="Description">
           <textarea
             value={profile.description}
             onChange={(event) => onUpdate({ description: event.target.value })}
             rows={3}
             className={TEXTAREA_CONTROL_CLASS}
           />
-        </ProfileField>
-        <ProfileField label="Instructions" align="start">
+        </FormField>
+        <FormField label="Instructions">
           <textarea
             value={profile.instructions}
             onChange={(event) => onUpdate({ instructions: event.target.value })}
             rows={5}
             className={TEXTAREA_CONTROL_CLASS}
           />
-        </ProfileField>
-      </SettingsGroup>
+        </FormField>
+      </FormSection>
 
-      <SettingsGroup title="Runtime">
-        <ProfileField label="Provider">
-          <select
-            value={profile.provider}
-            onChange={(event) => handleProviderChange(event.target.value as AgentProfile['provider'])}
-            className={FIELD_CONTROL_CLASS}
-          >
-            <option value="claude">Claude</option>
-            <option value="codex">Codex</option>
-            <option value="opencode">OpenCode</option>
-          </select>
-        </ProfileField>
-        <ProfileField label="Model">
-          <AgentModelPicker
-            provider={profile.provider}
-            onProviderChange={handleProviderChange}
-            menuPlacement="bottom"
-            menuStrategy="fixed"
-            triggerClassName="w-full justify-between rounded-[var(--radius-md)] border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1.5 hover:bg-[var(--bg-tertiary)]"
-            claudeModel={{
-              value: selectedModel.model || null,
-              compatibleProviderId: selectedModel.compatibleProviderId || null,
-              config: claudeModelConfig,
-              compatibleOptions,
-              onChange: (model, compatibleProviderId) => {
-                onUpdate({
-                  model,
-                  compatibleProviderId: compatibleProviderId || undefined,
-                });
-              },
-            }}
-            codexModel={{
-              value: selectedModel.model || null,
-              options: codexModelOptions,
-              onChange: (model) => onUpdate({ model }),
-            }}
-            opencodeModel={{
-              value: selectedModel.model || null,
-              options: opencodeModelOptions,
-              onChange: (model) => onUpdate({ model }),
-            }}
-          />
-        </ProfileField>
-        {profile.provider !== 'opencode' ? (
-          <ProfileField label="Reasoning">
+      <FormSection title="Runtime">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <FormField label="Provider">
             <select
-              value={profile.reasoningEffort || ''}
+              value={profile.provider}
+              onChange={(event) => handleProviderChange(event.target.value as AgentProfile['provider'])}
+              className={FIELD_CONTROL_CLASS}
+            >
+              <option value="claude">Claude</option>
+              <option value="codex">Codex</option>
+              <option value="opencode">OpenCode</option>
+            </select>
+          </FormField>
+          <FormField label="Model">
+            <AgentModelPicker
+              provider={profile.provider}
+              onProviderChange={handleProviderChange}
+              menuPlacement="bottom"
+              menuStrategy="fixed"
+              triggerClassName="h-8 w-full justify-between rounded-md border-[var(--border)] bg-[var(--bg-primary)] px-2.5 hover:bg-[var(--bg-tertiary)]"
+              claudeModel={{
+                value: selectedModel.model || null,
+                compatibleProviderId: selectedModel.compatibleProviderId || null,
+                config: claudeModelConfig,
+                compatibleOptions,
+                onChange: (model, compatibleProviderId) => {
+                  onUpdate({
+                    model,
+                    compatibleProviderId: compatibleProviderId || undefined,
+                  });
+                },
+              }}
+              codexModel={{
+                value: selectedModel.model || null,
+                options: codexModelOptions,
+                onChange: (model) => onUpdate({ model }),
+              }}
+              opencodeModel={{
+                value: selectedModel.model || null,
+                options: opencodeModelOptions,
+                onChange: (model) => onUpdate({ model }),
+              }}
+            />
+          </FormField>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          {profile.provider !== 'opencode' ? (
+            <FormField label="Reasoning">
+              <select
+                value={profile.reasoningEffort || ''}
+                onChange={(event) => (
+                  onUpdate({ reasoningEffort: event.target.value ? event.target.value as AgentReasoningEffort : undefined })
+                )}
+                className={FIELD_CONTROL_CLASS}
+              >
+                <option value="">Default</option>
+                {(profile.provider === 'codex' ? CODEX_REASONING_OPTIONS : CLAUDE_REASONING_OPTIONS).map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+          ) : null}
+          <FormField label="Permission policy">
+            <select
+              value={profile.permissionPolicy}
               onChange={(event) => (
-                onUpdate({ reasoningEffort: event.target.value ? event.target.value as AgentReasoningEffort : undefined })
+                onUpdate({ permissionPolicy: event.target.value as AgentPermissionPolicy })
               )}
               className={FIELD_CONTROL_CLASS}
             >
-              <option value="">Default</option>
-              {(profile.provider === 'codex' ? CODEX_REASONING_OPTIONS : CLAUDE_REASONING_OPTIONS).map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
+              <option value="ask">Ask</option>
+              <option value="readOnly">Read only</option>
+              <option value="fullAccess">Full access</option>
+            </select>
+          </FormField>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <FormField label="Color">
+            <select
+              value={profile.color}
+              onChange={(event) => onUpdate({ color: event.target.value as AgentProfileColor })}
+              className={FIELD_CONTROL_CLASS}
+            >
+              {AGENT_COLORS.map((color) => (
+                <option key={color.value} value={color.value}>
+                  {color.label}
                 </option>
               ))}
             </select>
-          </ProfileField>
-        ) : null}
-        <ProfileField label="Permission policy">
-          <select
-            value={profile.permissionPolicy}
-            onChange={(event) => (
-              onUpdate({ permissionPolicy: event.target.value as AgentPermissionPolicy })
-            )}
-            className={FIELD_CONTROL_CLASS}
-          >
-            <option value="ask">Ask</option>
-            <option value="readOnly">Read only</option>
-            <option value="fullAccess">Full access</option>
-          </select>
-        </ProfileField>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3">
-          <div className="min-w-0">
-            <div className="text-[13px] font-medium text-[var(--text-primary)]">Can delegate</div>
-            <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">
-              Allows this agent to assign one visible round of work to other project agents.
+          </FormField>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2">
+            <div className="min-w-0">
+              <div className="text-[12.5px] font-medium text-[var(--text-primary)]">Can delegate</div>
+              <div className="mt-0.5 text-[11.5px] leading-4 text-[var(--text-muted)]">
+                Allow one visible round of work to other project agents.
+              </div>
             </div>
+            <SettingsToggle
+              checked={profile.canDelegate === true}
+              onChange={(canDelegate) => onUpdate({ canDelegate })}
+              ariaLabel="Allow agent delegation"
+            />
           </div>
-          <SettingsToggle
-            checked={profile.canDelegate === true}
-            onChange={(canDelegate) => onUpdate({ canDelegate })}
-            ariaLabel="Allow agent delegation"
-          />
         </div>
-        <ProfileField label="Color">
-          <select
-            value={profile.color}
-            onChange={(event) => onUpdate({ color: event.target.value as AgentProfileColor })}
-            className={FIELD_CONTROL_CLASS}
-          >
-            {AGENT_COLORS.map((color) => (
-              <option key={color.value} value={color.value}>
-                {color.label}
-              </option>
-            ))}
-          </select>
-        </ProfileField>
-      </SettingsGroup>
+      </FormSection>
 
       <button
         type="button"
         onClick={onDelete}
-        className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] px-3 text-[12px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[12.5px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
       >
         <Trash2 className="h-3.5 w-3.5" />
         Delete profile
       </button>
+    </div>
+  );
+}
+
+function FormSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="mb-2 text-[12px] font-medium text-[var(--text-muted)]">{title}</div>
+      <div className="space-y-3">{children}</div>
+    </div>
+  );
+}
+
+function FormField({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="mb-1 text-[12px] font-medium text-[var(--text-muted)]">{label}</div>
+      {children}
     </div>
   );
 }
@@ -550,27 +628,6 @@ function AvatarPicker({
           </button>
         );
       })}
-    </div>
-  );
-}
-
-function ProfileField({
-  label,
-  align = 'center',
-  children,
-}: {
-  label: string;
-  align?: 'center' | 'start';
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className={`grid grid-cols-[minmax(0,1fr)_minmax(220px,320px)] gap-4 px-4 py-3 ${
-        align === 'start' ? 'items-start' : 'items-center'
-      }`}
-    >
-      <div className="text-[13px] font-medium text-[var(--text-primary)]">{label}</div>
-      <div className="min-w-0">{children}</div>
     </div>
   );
 }

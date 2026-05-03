@@ -36,6 +36,7 @@ import { TerminalDrawer } from './components/TerminalDrawer';
 import { WorkspaceHost } from './components/WorkspaceHost';
 import { DecisionPanel } from './components/DecisionPanel';
 import { ExternalFilePermissionDialog } from './components/ExternalFilePermissionDialog';
+import { AgentSetupDialog } from './components/AgentSetupDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useCodexModelConfig } from './hooks/useCodexModelConfig';
 import { applyThemePreferences } from './theme/themes';
@@ -102,6 +103,11 @@ export function App() {
   const {
     connected,
     sessions,
+    agentProfiles,
+    agentSetupOpen,
+    agentSetupDismissedAt,
+    agentSetupCompletedAt,
+    setAgentSetupOpen,
     activeSessionId,
     historyNavigationTarget,
     loadOlderSessionHistory,
@@ -148,6 +154,30 @@ export function App() {
   const pendingAutoPreviewSessionsRef = useRef(new Set<string>());
   const autoPreviewedArtifactsRef = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
+  const agentProfileCount = Object.keys(agentProfiles).length;
+
+  useEffect(() => {
+    if (
+      !electronAvailable ||
+      !sessionsLoaded ||
+      agentProfileCount > 0 ||
+      agentSetupOpen ||
+      agentSetupDismissedAt ||
+      agentSetupCompletedAt
+    ) {
+      return;
+    }
+
+    setAgentSetupOpen(true);
+  }, [
+    agentProfileCount,
+    agentSetupCompletedAt,
+    agentSetupDismissedAt,
+    agentSetupOpen,
+    electronAvailable,
+    sessionsLoaded,
+    setAgentSetupOpen,
+  ]);
 
   if (!electronAvailable) {
     return (
@@ -803,6 +833,8 @@ export function App() {
           }
         />
       )}
+
+      <AgentSetupDialog />
 
       {/* Toast notifications */}
       <Toaster

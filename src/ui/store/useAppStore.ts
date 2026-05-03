@@ -869,6 +869,9 @@ export const useAppStore = create<Store>()(
       // Settings 状态
       showSettings: false,
       activeSettingsTab: 'general' as SettingsTab,
+      agentSetupOpen: false,
+      agentSetupDismissedAt: null,
+      agentSetupCompletedAt: null,
       updateStatus: {
         available: false,
         version: null,
@@ -1730,6 +1733,17 @@ export const useAppStore = create<Store>()(
   // Settings Actions
   setShowSettings: (show) => set({ showSettings: show }),
   setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
+  setAgentSetupOpen: (open) => set({ agentSetupOpen: open }),
+  dismissAgentSetup: () =>
+    set({
+      agentSetupOpen: false,
+      agentSetupDismissedAt: Date.now(),
+    }),
+  completeAgentSetup: () =>
+    set({
+      agentSetupOpen: false,
+      agentSetupCompletedAt: Date.now(),
+    }),
   requestPromptLibraryInsert: (content, mode: PromptLibraryInsertMode = 'append') =>
     set({
       promptLibraryInsertRequest: {
@@ -1832,6 +1846,8 @@ export const useAppStore = create<Store>()(
         activeChannelByProject: state.activeChannelByProject,
         agentProfiles: state.agentProfiles,
         projectAgentRostersByProject: state.projectAgentRostersByProject,
+        agentSetupDismissedAt: state.agentSetupDismissedAt,
+        agentSetupCompletedAt: state.agentSetupCompletedAt,
         chatSidebarView: state.chatSidebarView,
         chatLayoutMode: state.chatLayoutMode,
         savedSplitVisible: state.savedSplitVisible,
@@ -1859,6 +1875,8 @@ export const useAppStore = create<Store>()(
           activeChannelByProject?: Record<string, string>;
           agentProfiles?: Record<string, AgentProfile>;
           projectAgentRostersByProject?: Record<string, string[]>;
+          agentSetupDismissedAt?: number | null;
+          agentSetupCompletedAt?: number | null;
           chatSidebarView?: ChatSidebarView;
           chatLayoutMode?: ChatLayoutMode;
           savedSplitVisible?: boolean;
@@ -1925,6 +1943,9 @@ export const useAppStore = create<Store>()(
           activeChannelByProject: persisted?.activeChannelByProject || currentState.activeChannelByProject,
           agentProfiles,
           projectAgentRostersByProject,
+          agentSetupOpen: false,
+          agentSetupDismissedAt: persisted?.agentSetupDismissedAt ?? currentState.agentSetupDismissedAt,
+          agentSetupCompletedAt: persisted?.agentSetupCompletedAt ?? currentState.agentSetupCompletedAt,
           chatSidebarView: sidebarView,
           chatLayoutMode,
           savedSplitVisible,
