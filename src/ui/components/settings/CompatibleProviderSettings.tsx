@@ -45,6 +45,7 @@ const DEFAULT_AEGIS_BUILT_IN_CONFIG: AegisBuiltInAgentConfig = {
   providerId: AEGIS_BUILT_IN_DEFAULT_PROVIDER_ID,
   baseUrl: DEFAULT_AEGIS_PROVIDER?.baseUrl || 'https://api.openai.com/v1',
   apiKey: '',
+  providerApiKeys: {},
   model: AEGIS_BUILT_IN_DEFAULT_MODEL,
   temperature: 0.2,
 };
@@ -141,6 +142,11 @@ function normalizeAegisBuiltInAgentConfig(raw: unknown): AegisBuiltInAgentConfig
   const input = raw && typeof raw === 'object' ? raw as Partial<AegisBuiltInAgentConfig> : {};
   const selection = resolveAegisBuiltInModel(input.model, input.providerId);
   const provider = getAegisBuiltInProvider(selection.providerId) || DEFAULT_AEGIS_PROVIDER;
+  const providerApiKeys = normalizeAegisProviderApiKeys(input.providerApiKeys);
+  const legacyApiKey = input.apiKey?.trim() || '';
+  if (legacyApiKey && !providerApiKeys[selection.providerId]) {
+    providerApiKeys[selection.providerId] = legacyApiKey;
+  }
   const temperature =
     typeof input.temperature === 'number' && Number.isFinite(input.temperature)
       ? Math.max(0, Math.min(2, input.temperature))
@@ -153,10 +159,46 @@ function normalizeAegisBuiltInAgentConfig(raw: unknown): AegisBuiltInAgentConfig
   return {
     providerId: selection.providerId,
     baseUrl: provider?.baseUrl || input.baseUrl?.trim() || DEFAULT_AEGIS_BUILT_IN_CONFIG.baseUrl,
-    apiKey: input.apiKey?.trim() || '',
+    apiKey: providerApiKeys[selection.providerId] || '',
+    providerApiKeys,
     model: selection.encoded,
     temperature,
     ...(maxOutputTokens ? { maxOutputTokens } : {}),
+  };
+}
+
+function normalizeAegisProviderApiKeys(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([providerId, apiKey]) => [providerId.trim(), typeof apiKey === 'string' ? apiKey.trim() : ''] as const)
+      .filter(([providerId, apiKey]) => providerId && apiKey)
+  );
+}
+
+function getAegisProviderApiKey(config: AegisBuiltInAgentConfig, providerId: string): string {
+  return config.providerApiKeys?.[providerId] || (config.providerId === providerId ? config.apiKey : '');
+}
+
+function setAegisProviderApiKey(
+  config: AegisBuiltInAgentConfig,
+  providerId: string,
+  apiKey: string
+): AegisBuiltInAgentConfig {
+  const providerApiKeys = { ...(config.providerApiKeys || {}) };
+  const normalizedApiKey = apiKey.trim();
+  if (normalizedApiKey) {
+    providerApiKeys[providerId] = normalizedApiKey;
+  } else {
+    delete providerApiKeys[providerId];
+  }
+  return {
+    ...config,
+    apiKey,
+    providerApiKeys,
   };
 }
 
@@ -545,6 +587,7 @@ export function CompatibleProviderSettingsContent() {
                           providerId: selection.providerId,
                           baseUrl: provider?.baseUrl || current.baseUrl,
                           model: selection.encoded,
+                          apiKey: getAegisProviderApiKey(current, selection.providerId),
                         }));
                       }}
                       className={getInputClassName(Boolean(aegisErrors.model))}
@@ -575,10 +618,11 @@ export function CompatibleProviderSettingsContent() {
                         value={aegisDraft.apiKey}
                         onChange={(event) => {
                           setAegisErrors((current) => ({ ...current, apiKey: undefined }));
-                          updateAegisDraft((current) => ({
-                            ...current,
-                            apiKey: event.target.value,
-                          }));
+                          updateAegisDraft((current) => setAegisProviderApiKey(
+                            current,
+                            current.providerId,
+                            event.target.value
+                          ));
                         }}
                         placeholder="Uses matching env key when empty"
                         className={getInputClassName(Boolean(aegisErrors.apiKey), true)}

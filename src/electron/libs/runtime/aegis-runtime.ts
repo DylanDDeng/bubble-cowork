@@ -179,7 +179,9 @@ function getBuiltinApiKey(providerId: string): string {
     ...(PROVIDER_API_KEY_ENV[providerId] || []),
     'AEGIS_BUILTIN_API_KEY',
   ]);
-  return (config.apiKey || envKey).trim();
+  const storedKey = config.providerApiKeys?.[providerId]
+    || (config.providerId === providerId ? config.apiKey : '');
+  return (storedKey || envKey).trim();
 }
 
 function buildProviderRequestExtras(selection: BuiltinModelSelection): {

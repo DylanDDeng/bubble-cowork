@@ -16,6 +16,7 @@ const DEFAULT_CONFIG: AegisBuiltInAgentConfig = {
   providerId: AEGIS_BUILT_IN_DEFAULT_PROVIDER_ID,
   baseUrl: DEFAULT_PROVIDER?.baseUrl || 'https://api.openai.com/v1',
   apiKey: '',
+  providerApiKeys: {},
   model: AEGIS_BUILT_IN_DEFAULT_MODEL,
   temperature: 0.2,
 };
@@ -38,16 +39,34 @@ function normalizeMaxOutputTokens(value: unknown): number | undefined {
   return Math.max(1, Math.trunc(value));
 }
 
+function normalizeProviderApiKeys(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([providerId, apiKey]) => [providerId.trim(), asString(apiKey).trim()] as const)
+      .filter(([providerId, apiKey]) => providerId && apiKey)
+  );
+}
+
 export function normalizeAegisBuiltInAgentConfig(input?: Partial<AegisBuiltInAgentConfig> | null): AegisBuiltInAgentConfig {
   const maxOutputTokens = normalizeMaxOutputTokens(input?.maxOutputTokens);
   const selection = resolveAegisBuiltInModel(input?.model, input?.providerId);
   const provider = getAegisBuiltInProvider(selection.providerId);
+  const providerApiKeys = normalizeProviderApiKeys(input?.providerApiKeys);
+  const legacyApiKey = asString(input?.apiKey).trim();
+  if (legacyApiKey && !providerApiKeys[selection.providerId]) {
+    providerApiKeys[selection.providerId] = legacyApiKey;
+  }
   return {
     providerId: selection.providerId,
     baseUrl: provider?.baseUrl
       || asString(input?.baseUrl).trim()
       || DEFAULT_CONFIG.baseUrl,
-    apiKey: asString(input?.apiKey).trim(),
+    apiKey: providerApiKeys[selection.providerId] || '',
+    providerApiKeys,
     model: selection.encoded,
     temperature: normalizeTemperature(input?.temperature),
     ...(maxOutputTokens ? { maxOutputTokens } : {}),

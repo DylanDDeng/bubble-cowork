@@ -266,6 +266,7 @@ export interface AegisBuiltInAgentConfig {
   providerId: string;
   baseUrl: string;
   apiKey: string;
+  providerApiKeys?: Record<string, string>;
   model: string;
   temperature: number;
   maxOutputTokens?: number;

@@ -70,6 +70,51 @@ function displayRole(profile: AgentProfile): string {
   return profile.role.trim() || 'Agent';
 }
 
+function getAegisProviderApiKey(config: AegisBuiltInAgentConfig, providerId: string): string {
+  return config.providerApiKeys?.[providerId] || (config.providerId === providerId ? config.apiKey : '');
+}
+
+function setAegisProviderApiKey(
+  config: AegisBuiltInAgentConfig,
+  providerId: string,
+  apiKey: string
+): AegisBuiltInAgentConfig {
+  const providerApiKeys = { ...(config.providerApiKeys || {}) };
+  const normalizedApiKey = apiKey.trim();
+  if (normalizedApiKey) {
+    providerApiKeys[providerId] = normalizedApiKey;
+  } else {
+    delete providerApiKeys[providerId];
+  }
+  return {
+    ...config,
+    apiKey,
+    providerApiKeys,
+  };
+}
+
+function buildAegisApiKeyDrafts(config: AegisBuiltInAgentConfig): Record<string, string> {
+  const providerApiKeys = { ...(config.providerApiKeys || {}) };
+  if (config.apiKey && !providerApiKeys[config.providerId]) {
+    providerApiKeys[config.providerId] = config.apiKey;
+  }
+  return providerApiKeys;
+}
+
+function readAegisApiKeyDraft(
+  drafts: Record<string, string>,
+  config: AegisBuiltInAgentConfig | null,
+  providerId: string | null
+): string {
+  if (!providerId) {
+    return '';
+  }
+  if (Object.prototype.hasOwnProperty.call(drafts, providerId)) {
+    return drafts[providerId];
+  }
+  return config ? getAegisProviderApiKey(config, providerId) : '';
+}
+
 export function AgentsSettingsContent() {
   const {
     agentProfiles,
@@ -306,7 +351,7 @@ function AgentProfileForm({
     [claudeModelConfig]
   );
   const [aegisConfig, setAegisConfig] = useState<AegisBuiltInAgentConfig | null>(null);
-  const [aegisApiKeyDraft, setAegisApiKeyDraft] = useState('');
+  const [aegisApiKeyDrafts, setAegisApiKeyDrafts] = useState<Record<string, string>>({});
   const [showAegisApiKey, setShowAegisApiKey] = useState(false);
   const [savingAegisApiKey, setSavingAegisApiKey] = useState(false);
 
@@ -384,7 +429,7 @@ function AgentProfileForm({
       .then((config) => {
         if (cancelled) return;
         setAegisConfig(config);
-        setAegisApiKeyDraft(config.apiKey || '');
+        setAegisApiKeyDrafts(buildAegisApiKeyDrafts(config));
       })
       .catch((error) => {
         console.error('Failed to load Aegis Built-in Agent config:', error);
@@ -393,6 +438,11 @@ function AgentProfileForm({
       cancelled = true;
     };
   }, [profile.provider]);
+
+  const selectedAegisProviderId = profile.provider === 'aegis'
+    ? resolveAegisBuiltInModel(selectedModel.model || aegisConfig?.model, aegisConfig?.providerId).providerId
+    : null;
+  const aegisApiKeyDraft = readAegisApiKeyDraft(aegisApiKeyDrafts, aegisConfig, selectedAegisProviderId);
 
   const handleSaveAegisApiKey = async () => {
     if (profile.provider !== 'aegis') {
@@ -409,9 +459,14 @@ function AgentProfileForm({
         baseUrl: provider?.baseUrl || currentConfig.baseUrl,
         model: selection.encoded,
         apiKey: aegisApiKeyDraft.trim(),
+        providerApiKeys: setAegisProviderApiKey(currentConfig, selection.providerId, aegisApiKeyDraft).providerApiKeys,
       });
       setAegisConfig(saved);
-      setAegisApiKeyDraft(saved.apiKey || '');
+      setAegisApiKeyDrafts((current) => ({
+        ...buildAegisApiKeyDrafts(saved),
+        ...current,
+        [selection.providerId]: getAegisProviderApiKey(saved, selection.providerId),
+      }));
       window.dispatchEvent(new CustomEvent('aegis-built-in-agent-config-updated'));
       toast.success('Aegis Built-in API key saved.');
     } catch (error) {
@@ -421,7 +476,11 @@ function AgentProfileForm({
     }
   };
 
-  const aegisApiKeyDirty = profile.provider === 'aegis' && aegisApiKeyDraft !== (aegisConfig?.apiKey || '');
+  const aegisApiKeyDirty = profile.provider === 'aegis' && aegisApiKeyDraft !== (
+    selectedAegisProviderId && aegisConfig
+      ? getAegisProviderApiKey(aegisConfig, selectedAegisProviderId)
+      : ''
+  );
 
   useEffect(() => {
     const currentModel = profile.model?.trim() || undefined;
@@ -586,7 +645,16 @@ function AgentProfileForm({
                 <input
                   type={showAegisApiKey ? 'text' : 'password'}
                   value={aegisApiKeyDraft}
-                  onChange={(event) => setAegisApiKeyDraft(event.target.value)}
+                  onChange={(event) => {
+                    if (!selectedAegisProviderId) {
+                      return;
+                    }
+                    const nextValue = event.target.value;
+                    setAegisApiKeyDrafts((current) => ({
+                      ...current,
+                      [selectedAegisProviderId]: nextValue,
+                    }));
+                  }}
                   placeholder="Provider API key"
                   className={`${FIELD_CONTROL_CLASS} pr-8`}
                   disabled={savingAegisApiKey}
