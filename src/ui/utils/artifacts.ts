@@ -174,3 +174,21 @@ export function extractLatestSuccessfulHtmlArtifact(messages: StreamMessage[]): 
 
   return latest;
 }
+
+export function extractLatestSuccessfulHtmlArtifactFromLatestTurn(
+  messages: StreamMessage[]
+): ArtifactItem | null {
+  let latestPromptIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.type === 'user_prompt') {
+      latestPromptIndex = i;
+      break;
+    }
+  }
+
+  if (latestPromptIndex < 0) {
+    return null;
+  }
+
+  return extractLatestSuccessfulHtmlArtifact(messages.slice(latestPromptIndex));
+}

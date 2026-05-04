@@ -40,7 +40,7 @@ import { AgentSetupDialog } from './components/AgentSetupDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useCodexModelConfig } from './hooks/useCodexModelConfig';
 import { applyThemePreferences } from './theme/themes';
-import { extractLatestSuccessfulHtmlArtifact } from './utils/artifacts';
+import { extractLatestSuccessfulHtmlArtifactFromLatestTurn } from './utils/artifacts';
 import { openHtmlFileInBrowserTab } from './utils/html-preview';
 import { StructuredResponse } from './components/StructuredResponse';
 import {
@@ -470,7 +470,7 @@ export function App() {
         continue;
       }
 
-      const artifact = extractLatestSuccessfulHtmlArtifact(session.messages);
+      const artifact = extractLatestSuccessfulHtmlArtifactFromLatestTurn(session.messages);
       if (!artifact) {
         continue;
       }
