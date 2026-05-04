@@ -7,7 +7,7 @@ export { createLspTool } from './lsp';
 export { createMemoryReadSummaryTool, createMemorySearchTool } from './memory';
 export { createQuestionTool } from './question';
 export { createReadTool } from './read';
-export { createSkillTool } from './skill';
+export { createSkillReadResourceTool, createSkillReadTool, createSkillTool } from './skill';
 export { createTaskTool } from './task';
 export { createTodoTool } from './todo';
 export { createToolSearchTool } from './tool-search';
@@ -36,7 +36,7 @@ import { createLspTool } from './lsp';
 import { createMemoryReadSummaryTool, createMemorySearchTool } from './memory';
 import { createQuestionTool } from './question';
 import { createReadTool } from './read';
-import { createSkillTool } from './skill';
+import { createSkillReadResourceTool, createSkillReadTool, createSkillTool } from './skill';
 import { createTaskTool } from './task';
 import { createTodoTool } from './todo';
 import { createToolSearchTool } from './tool-search';
@@ -59,6 +59,8 @@ export interface CreateAllBuiltinToolsOptions {
 export function createAllTools(cwd: string, options: CreateAllBuiltinToolsOptions): BuiltinToolRegistryEntry[] {
   const skillTool = createSkillTool(options.skillAdapter);
   skillTool.deferred = true;
+  const skillReadTool = createSkillReadTool(options.skillAdapter);
+  const skillReadResourceTool = createSkillReadResourceTool(options.skillAdapter);
 
   return [
     createReadTool(cwd),
@@ -77,6 +79,8 @@ export function createAllTools(cwd: string, options: CreateAllBuiltinToolsOption
     createTodoTool(options.todoStore),
     createExitPlanModeTool(options.planController),
     createToolSearchTool(options.toolSearchController),
+    skillReadTool,
+    skillReadResourceTool,
     skillTool,
   ];
 }

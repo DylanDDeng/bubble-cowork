@@ -74,6 +74,7 @@ import {
   maybeConvertLongPromptToAttachment,
 } from '../utils/long-prompt-attachment';
 import { buildCodexReferencePayload } from '../utils/codex-composer';
+import { buildAegisReferencePayload } from '../utils/aegis-composer';
 
 function isImeComposingEvent(
   event: React.KeyboardEvent,
@@ -466,6 +467,10 @@ export function NewSessionView() {
       provider === 'codex'
         ? buildCodexReferencePayload(skillAutocomplete.selectedSkill)
         : {};
+    const aegisReferences =
+      provider === 'aegis'
+        ? buildAegisReferencePayload(skillAutocomplete.selectedSkill)
+        : {};
     if (promptWithAttachment.reason === 'attachment_create_failed') {
       toast.error('Failed to convert the long message into an attachment. Sending inline instead.');
     }
@@ -513,6 +518,8 @@ export function NewSessionView() {
           provider === 'codex' ? selectedCodexFastMode : undefined,
         codexSkills: provider === 'codex' ? codexReferences.codexSkills : undefined,
         codexMentions: provider === 'codex' ? codexReferences.codexMentions : undefined,
+        aegisSkills: provider === 'aegis' ? aegisReferences.aegisSkills : undefined,
+        aegisMentions: provider === 'aegis' ? aegisReferences.aegisMentions : undefined,
         opencodePermissionMode:
           provider === 'opencode' ? selectedOpencodePermissionMode : undefined,
         aegisPermissionMode:

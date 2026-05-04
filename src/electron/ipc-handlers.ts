@@ -45,6 +45,7 @@ import { expandClaudeSkillPrompt, listClaudeSkills } from './libs/claude-skills'
 import { loadFeishuBridgeConfig, saveFeishuBridgeConfig } from './libs/feishu-bridge-config';
 import { feishuBridge } from './libs/feishu-bridge';
 import { getMemoryWorkspace, saveMemoryDocument } from './libs/memory-store';
+import { listAegisSkillsForProvider } from './libs/builtin-agent/skills/manager';
 import { formatClaudeRuntimeBlockingMessage, getClaudeRuntimeStatus } from './libs/claude-runtime-status';
 import {
   getSkillMarketDetail,
@@ -3105,6 +3106,13 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     });
   });
 
+  ipcMainHandle('aegis-list-skills', async (_event, input?: Omit<ProviderListSkillsInput, 'provider'>) => {
+    return listAegisSkillsForProvider({
+      cwd: input?.cwd,
+      forceReload: input?.forceReload,
+    });
+  });
+
   ipcMainHandle('codex-list-plugins', async (_event, input?: Omit<ProviderListPluginsInput, 'provider'>) => {
     ensureProviderService();
     return getProviderService().listPlugins({
@@ -5218,6 +5226,8 @@ async function runRoutedAgentTurn(
       runtime.provider === 'aegis' ? runtime.selectedAegisReasoningEffort : undefined,
       runtime.provider === 'codex' ? turn.codexSkills : undefined,
       runtime.provider === 'codex' ? turn.codexMentions : undefined,
+      runtime.provider === 'aegis' ? turn.aegisSkills : undefined,
+      runtime.provider === 'aegis' ? turn.aegisMentions : undefined,
       turn.routedAgentId,
       resolveTurn,
       agentRunId
@@ -5252,6 +5262,8 @@ async function handleSessionStart(
     codexFastMode,
     codexSkills,
     codexMentions,
+    aegisSkills,
+    aegisMentions,
     opencodePermissionMode,
     aegisPermissionMode,
     aegisReasoningEffort,
@@ -5489,6 +5501,8 @@ async function handleSessionStart(
     chosenProvider === 'aegis' ? selectedAegisReasoningEffort : undefined,
     chosenProvider === 'codex' ? codexSkills : undefined,
     chosenProvider === 'codex' ? codexMentions : undefined,
+    chosenProvider === 'aegis' ? aegisSkills : undefined,
+    chosenProvider === 'aegis' ? aegisMentions : undefined,
     turnAgentId
   );
   return session.id;
@@ -5517,6 +5531,8 @@ async function handleSessionContinue(
     codexFastMode,
     codexSkills,
     codexMentions,
+    aegisSkills,
+    aegisMentions,
     opencodePermissionMode,
     aegisPermissionMode,
     aegisReasoningEffort,
@@ -5872,6 +5888,8 @@ async function handleSessionContinue(
         nextModel,
         nextProvider === 'codex' ? codexSkills : undefined,
         nextProvider === 'codex' ? codexMentions : undefined,
+        nextProvider === 'aegis' ? aegisSkills : undefined,
+        nextProvider === 'aegis' ? aegisMentions : undefined,
         sendOptions
       );
       if (nextProvider === 'codex') {
@@ -5970,6 +5988,8 @@ async function handleSessionContinue(
     nextProvider === 'aegis' ? nextAegisReasoningEffort : undefined,
     nextProvider === 'codex' ? codexSkills : undefined,
     nextProvider === 'codex' ? codexMentions : undefined,
+    nextProvider === 'aegis' ? aegisSkills : undefined,
+    nextProvider === 'aegis' ? aegisMentions : undefined,
     turnAgentId
   );
   return true;
@@ -5998,6 +6018,8 @@ function startRunner(
   aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort,
   codexSkills?: ProviderInputReference[],
   codexMentions?: ProviderInputReference[],
+  aegisSkills?: ProviderInputReference[],
+  aegisMentions?: ProviderInputReference[],
   activeAgentId?: string | null,
   onTurnDone?: (status: SessionStatus) => void,
   activeAgentRunId?: string | null
@@ -6058,6 +6080,8 @@ function startRunner(
     codexFastMode,
     codexSkills: provider === 'codex' ? codexSkills : undefined,
     codexMentions: provider === 'codex' ? codexMentions : undefined,
+    aegisSkills: provider === 'aegis' ? aegisSkills : undefined,
+    aegisMentions: provider === 'aegis' ? aegisMentions : undefined,
     opencodePermissionMode,
     aegisPermissionMode,
     aegisReasoningEffort,

@@ -105,14 +105,26 @@ function skillMentionPrefix(provider: AgentProvider): '/' | '$' {
   return provider === 'claude' ? '/' : '$';
 }
 
-function selectedSkillPrefixes(provider: AgentProvider): ReadonlyArray<'/' | '$'> {
-  if (provider === 'claude') {
-    return ['/'];
+function normalizeCapabilityName(value: string): string {
+  return value.replace(/^[/$]/, '').trim().toLowerCase();
+}
+
+function mergeSlashCommands(
+  commands: ClaudeSlashSuggestion['command'][]
+): ClaudeSlashSuggestion['command'][] {
+  const seen = new Set<string>();
+  const result: ClaudeSlashSuggestion['command'][] = [];
+
+  for (const command of commands) {
+    const key = normalizeCapabilityName(command.name);
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(command);
   }
-  if (provider === 'aegis') {
-    return [];
-  }
-  return ['$', '/'];
+
+  return result.sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function replaceComposerTriggerOrLeadingToken(input: {
@@ -204,7 +216,7 @@ export function useComposerCapabilityMenu({
   useEffect(() => {
     let cancelled = false;
 
-    if (!enabled || !enableSkills || provider !== 'codex') {
+    if (!enabled || !enableSkills || (provider !== 'codex' && provider !== 'aegis')) {
       setCodexSlashSkills([]);
       return () => {
         cancelled = true;
@@ -212,10 +224,18 @@ export function useComposerCapabilityMenu({
     }
 
     const cwd = projectPath?.trim() || undefined;
+    const skillsPromise =
+      provider === 'aegis'
+        ? window.electron.listAegisSkills({ cwd })
+        : window.electron.listCodexSkills({ cwd });
+    const pluginsPromise =
+      provider === 'codex'
+        ? window.electron.listCodexPlugins({ cwd })
+        : Promise.resolve({ marketplaces: [] });
 
     void Promise.all([
-      window.electron.listCodexSkills({ cwd }),
-      window.electron.listCodexPlugins({ cwd }),
+      skillsPromise,
+      pluginsPromise,
     ])
       .then(([skillsResult, pluginsResult]) => {
         if (cancelled) return;
@@ -248,6 +268,10 @@ export function useComposerCapabilityMenu({
     () => (enableSkills && provider !== 'codex' ? getSessionSkillNames(sessionMessages) : new Set<string>()),
     [enableSkills, provider, sessionMessages]
   );
+  const claudeRecognitionSkillNames = useMemo(
+    () => (enableSkills ? getSessionSkillNames(sessionMessages) : new Set<string>()),
+    [enableSkills, sessionMessages]
+  );
   const sessionSlashCommands = useMemo(() => getSessionSlashCommands(sessionMessages), [sessionMessages]);
 
   const availableSkills = useMemo(
@@ -255,7 +279,7 @@ export function useComposerCapabilityMenu({
       if (!enableSkills) {
         return [];
       }
-      if (provider === 'codex') {
+      if (provider === 'codex' || provider === 'aegis') {
         return codexSlashSkills;
       }
       if (provider === 'claude') {
@@ -271,17 +295,48 @@ export function useComposerCapabilityMenu({
     [provider, sessionSlashCommands]
   );
 
+  const recognitionSkills = useMemo(
+    () => {
+      if (!enableSkills) {
+        return [];
+      }
+      const claudeSkills = mergeClaudeSkills(
+        claudeUserSkills,
+        claudeProjectSkills,
+        claudeRecognitionSkillNames
+      );
+      return mergeClaudeSkills(availableSkills, claudeSkills);
+    },
+    [
+      availableSkills,
+      claudeProjectSkills,
+      claudeRecognitionSkillNames,
+      claudeUserSkills,
+      enableSkills,
+    ]
+  );
+
+  const recognitionCommands = useMemo(
+    () =>
+      mergeSlashCommands([
+        ...availableCommands,
+        ...buildProviderSlashCommands('claude', sessionSlashCommands),
+        ...buildProviderSlashCommands('opencode', sessionSlashCommands),
+      ]),
+    [availableCommands, sessionSlashCommands]
+  );
+
   const selectedSkillState = useMemo(
     () =>
       enabled && enableSkills
-        ? parseSelectedSkillPrompt(prompt, availableSkills, selectedSkillPrefixes(provider))
+        ? parseSelectedSkillPrompt(prompt, recognitionSkills, provider === 'claude' ? ['/', '$'] : ['$'])
         : null,
-    [availableSkills, enableSkills, enabled, prompt, provider]
+    [enableSkills, enabled, prompt, provider, recognitionSkills]
   );
 
   const selectedCommandState = useMemo(
-    () => (enabled ? parseSelectedSlashCommandPrompt(prompt, availableCommands) : null),
-    [availableCommands, enabled, prompt]
+    () => (enabled ? parseSelectedSlashCommandPrompt(prompt, recognitionCommands) : null),
+    [enabled, prompt, recognitionCommands]
   );
 
   const suggestions = useMemo(() => {
@@ -355,15 +410,15 @@ export function useComposerCapabilityMenu({
   const slashContext = useMemo<SlashTokenContext>(
     () =>
       createSlashTokenContext(
-        enabled && enableSkills ? availableSkills.map((skill) => skill.name) : [],
-        enabled ? availableCommands.map((command) => command.name) : [],
+        enabled && enableSkills ? recognitionSkills.map((skill) => skill.name) : [],
+        enabled ? recognitionCommands.map((command) => command.name) : [],
         enabled && enableSkills
-          ? availableSkills
+          ? recognitionSkills
               .filter((skill) => skill.source === 'plugin')
               .map((skill) => skill.name)
           : []
       ),
-    [availableCommands, availableSkills, enableSkills, enabled]
+    [enableSkills, enabled, recognitionCommands, recognitionSkills]
   );
 
   return {

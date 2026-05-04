@@ -133,6 +133,8 @@ function runCodexViaProviderService(options: RunnerOptions): RunnerHandle {
 	      model?: string,
 	      codexSkills?: import('../../shared/types').ProviderInputReference[],
 	      codexMentions?: import('../../shared/types').ProviderInputReference[],
+	      _aegisSkills?: import('../../shared/types').ProviderInputReference[],
+	      _aegisMentions?: import('../../shared/types').ProviderInputReference[],
 	      sendOptions?: {
 	        codexExecutionMode?: import('../../shared/types').CodexExecutionMode;
 	        codexPermissionMode?: import('../../shared/types').CodexPermissionMode;

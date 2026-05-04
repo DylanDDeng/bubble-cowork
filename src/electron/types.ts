@@ -109,6 +109,8 @@ export interface RunnerOptions {
   codexFastMode?: boolean;
   codexSkills?: import('../shared/types').ProviderInputReference[];
   codexMentions?: import('../shared/types').ProviderInputReference[];
+  aegisSkills?: import('../shared/types').ProviderInputReference[];
+  aegisMentions?: import('../shared/types').ProviderInputReference[];
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
   aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort;
@@ -133,6 +135,8 @@ export interface RunnerHandle {
     model?: string,
     codexSkills?: import('../shared/types').ProviderInputReference[],
     codexMentions?: import('../shared/types').ProviderInputReference[],
+    aegisSkills?: import('../shared/types').ProviderInputReference[],
+    aegisMentions?: import('../shared/types').ProviderInputReference[],
     options?: {
       codexExecutionMode?: import('../shared/types').CodexExecutionMode;
       codexPermissionMode?: import('../shared/types').CodexPermissionMode;

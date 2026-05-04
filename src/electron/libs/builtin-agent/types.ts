@@ -136,9 +136,19 @@ export interface BuiltinMemoryAdapter {
   search: (query: string, limit?: number) => Promise<string>;
 }
 
+export interface BuiltinSkillSummary {
+  name: string;
+  title?: string;
+  description?: string;
+  path: string;
+  root?: string;
+  scope?: string;
+}
+
 export interface BuiltinSkillAdapter {
-  list: () => Array<{ name: string; title?: string; description?: string; path: string }>;
-  load: (name: string) => Promise<string | null>;
+  list: () => BuiltinSkillSummary[];
+  load: (input: { name?: string; path?: string }) => Promise<string | null>;
+  readResource?: (input: { name?: string; path?: string; resourcePath: string }) => Promise<string | null>;
 }
 
 export interface BuiltinLspAdapter {
@@ -162,7 +172,12 @@ export interface BuiltinAgentCallbacks {
   onReasoning?: (text: string) => void;
   onStreamStop: () => void;
   onAssistantMessage: (blocks: ContentBlock[]) => void;
-  onToolResult: (toolCallId: string, content: string, isError?: boolean) => void;
+  onToolResult: (
+    toolCallId: string,
+    content: string,
+    isError?: boolean,
+    metadata?: BuiltinToolResultMetadata
+  ) => void;
 }
 
 export type BuiltinModelComplete = (input: {

@@ -17,7 +17,7 @@ export interface BuiltinSubtaskPolicy {
 const POLICY_MAP: Record<BuiltinSubtaskType, BuiltinSubtaskPolicy> = {
   search: {
     type: 'search',
-    allowedTools: ['read', 'glob', 'grep', 'lsp', 'web_search', 'web_fetch', 'skill', 'todo_write', 'tool_search'],
+    allowedTools: ['read', 'glob', 'grep', 'lsp', 'web_search', 'web_fetch', 'skill', 'skill_read', 'skill_read_resource', 'todo_write', 'tool_search'],
     reminder: [
       'Subtask policy: search',
       '- Focus on locating relevant files, symbols, and evidence quickly.',
@@ -29,7 +29,7 @@ const POLICY_MAP: Record<BuiltinSubtaskType, BuiltinSubtaskPolicy> = {
   },
   security_investigation: {
     type: 'security_investigation',
-    allowedTools: ['read', 'glob', 'grep', 'lsp', 'web_search', 'web_fetch', 'skill', 'todo_write', 'tool_search'],
+    allowedTools: ['read', 'glob', 'grep', 'lsp', 'web_search', 'web_fetch', 'skill', 'skill_read', 'skill_read_resource', 'todo_write', 'tool_search'],
     reminder: [
       'Subtask policy: security_investigation',
       '- Investigate only in read-only mode.',
@@ -41,7 +41,7 @@ const POLICY_MAP: Record<BuiltinSubtaskType, BuiltinSubtaskPolicy> = {
   },
   evidence_correlation: {
     type: 'evidence_correlation',
-    allowedTools: ['read', 'lsp', 'skill', 'todo_write', 'tool_search'],
+    allowedTools: ['read', 'lsp', 'skill', 'skill_read', 'skill_read_resource', 'todo_write', 'tool_search'],
     reminder: [
       'Subtask policy: evidence_correlation',
       '- Correlate evidence already discovered.',
@@ -53,7 +53,7 @@ const POLICY_MAP: Record<BuiltinSubtaskType, BuiltinSubtaskPolicy> = {
   },
   general_readonly: {
     type: 'general_readonly',
-    allowedTools: ['read', 'glob', 'grep', 'lsp', 'web_search', 'web_fetch', 'skill', 'todo_write', 'tool_search'],
+    allowedTools: ['read', 'glob', 'grep', 'lsp', 'web_search', 'web_fetch', 'skill', 'skill_read', 'skill_read_resource', 'todo_write', 'tool_search'],
     reminder: [
       'Subtask policy: general_readonly',
       '- Stay in read-only mode.',

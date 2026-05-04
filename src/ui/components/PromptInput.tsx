@@ -29,6 +29,7 @@ import {
   maybeConvertLongPromptToAttachment,
 } from '../utils/long-prompt-attachment';
 import { buildCodexReferencePayload } from '../utils/codex-composer';
+import { buildAegisReferencePayload } from '../utils/aegis-composer';
 import {
   getAgentMentionHandles,
   getAgentMentionAliases,
@@ -156,7 +157,8 @@ function toPublicAgentProfile(profile: AgentProfile): RoutedAgentPublicProfile {
 
 function buildAgentRuntimePayload(
   profile: AgentProfile,
-  codexReferences: ReturnType<typeof buildCodexReferencePayload>
+  codexReferences: ReturnType<typeof buildCodexReferencePayload>,
+  aegisReferences: ReturnType<typeof buildAegisReferencePayload>
 ): RoutedAgentRuntimePayload | null {
   const runtime = getAgentRuntime(profile);
   if (!runtime) {
@@ -180,6 +182,8 @@ function buildAgentRuntimePayload(
     codexReasoningEffort: runtime.provider === 'codex' ? runtime.codexReasoningEffort : undefined,
     codexSkills: runtime.provider === 'codex' ? codexReferences.codexSkills : undefined,
     codexMentions: runtime.provider === 'codex' ? codexReferences.codexMentions : undefined,
+    aegisSkills: runtime.provider === 'aegis' ? aegisReferences.aegisSkills : undefined,
+    aegisMentions: runtime.provider === 'aegis' ? aegisReferences.aegisMentions : undefined,
     opencodePermissionMode:
       runtime.provider === 'opencode' ? runtime.opencodePermissionMode : undefined,
     aegisPermissionMode:
@@ -587,10 +591,11 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     );
     const outgoingAttachments = promptWithAttachment.attachments;
     const codexReferences = buildCodexReferencePayload(skillAutocomplete.selectedSkill);
+    const aegisReferences = buildAegisReferencePayload(skillAutocomplete.selectedSkill);
     const projectAgentRuntimePayloads =
       !directAgentProfile
         ? projectAgentProfiles
-            .map((profile) => buildAgentRuntimePayload(profile, codexReferences))
+            .map((profile) => buildAgentRuntimePayload(profile, codexReferences, aegisReferences))
             .filter((turn): turn is RoutedAgentRuntimePayload => Boolean(turn))
         : undefined;
     const projectPublicAgents =
@@ -599,7 +604,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       !directAgentProfile && activeProjectAgentRoutes.length > 0
         ? activeProjectAgentRoutes
             .map((route): RoutedAgentTurnPayload | null => {
-              const routeRuntime = buildAgentRuntimePayload(route.profile, codexReferences);
+              const routeRuntime = buildAgentRuntimePayload(route.profile, codexReferences, aegisReferences);
               if (!routeRuntime) {
                 return null;
               }
@@ -676,6 +681,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           codexReasoningEffort: runtimeProvider === 'codex' ? runtimeCodexReasoningEffort : undefined,
           codexSkills: runtimeProvider === 'codex' ? codexReferences.codexSkills : undefined,
           codexMentions: runtimeProvider === 'codex' ? codexReferences.codexMentions : undefined,
+          aegisSkills: runtimeProvider === 'aegis' ? aegisReferences.aegisSkills : undefined,
+          aegisMentions: runtimeProvider === 'aegis' ? aegisReferences.aegisMentions : undefined,
           opencodePermissionMode:
             runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
           aegisPermissionMode:
@@ -719,6 +726,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           codexReasoningEffort: runtimeProvider === 'codex' ? runtimeCodexReasoningEffort : undefined,
           codexSkills: runtimeProvider === 'codex' ? codexReferences.codexSkills : undefined,
           codexMentions: runtimeProvider === 'codex' ? codexReferences.codexMentions : undefined,
+          aegisSkills: runtimeProvider === 'aegis' ? aegisReferences.aegisSkills : undefined,
+          aegisMentions: runtimeProvider === 'aegis' ? aegisReferences.aegisMentions : undefined,
           opencodePermissionMode:
             runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
           aegisPermissionMode:

@@ -100,6 +100,7 @@ declare global {
     getCodexRuntimeStatus: () => Promise<CodexRuntimeStatus>;
     getCodexComposerCapabilities: () => Promise<ProviderComposerCapabilities>;
     listCodexSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
+    listAegisSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
     listCodexPlugins: (input?: Omit<ProviderListPluginsInput, 'provider'>) => Promise<ProviderListPluginsResult>;
     readCodexPlugin: (input: Omit<ProviderReadPluginInput, 'provider'>) => Promise<ProviderReadPluginResult>;
     getOpencodeModelConfig: () => Promise<OpenCodeModelConfig>;

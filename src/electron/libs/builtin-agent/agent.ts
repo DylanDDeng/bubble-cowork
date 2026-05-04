@@ -142,7 +142,7 @@ export class AegisBuiltinAgentCore {
           tool_call_id: call.id,
           content: result.content,
         });
-        this.options.callbacks.onToolResult(call.id, result.content, result.isError);
+        this.options.callbacks.onToolResult(call.id, result.content, result.isError, result.metadata);
       }
       this.messages = compactResidentHistory(this.messages);
     }

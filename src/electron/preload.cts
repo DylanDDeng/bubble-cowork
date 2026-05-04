@@ -250,6 +250,11 @@ contextBridge.exposeInMainWorld('electron', {
   ): Promise<ProviderListSkillsResult> => {
     return ipcRenderer.invoke('codex-list-skills', input);
   },
+  listAegisSkills: (
+    input: Omit<ProviderListSkillsInput, 'provider'>
+  ): Promise<ProviderListSkillsResult> => {
+    return ipcRenderer.invoke('aegis-list-skills', input);
+  },
   listCodexPlugins: (
     input?: Omit<ProviderListPluginsInput, 'provider'>
   ): Promise<ProviderListPluginsResult> => {

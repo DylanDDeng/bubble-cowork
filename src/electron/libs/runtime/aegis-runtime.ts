@@ -8,6 +8,7 @@ import type {
   Attachment,
   ContentBlock,
   PermissionResult,
+  ProviderInputReference,
   StreamEvent,
   StreamMessage,
   Usage,
@@ -22,6 +23,9 @@ import { loadAegisBuiltInAgentConfig } from '../aegis-built-in-config';
 import { AegisBuiltinAgentCore } from '../builtin-agent/agent';
 import { createStaticLspAdapter } from '../builtin-agent/integrations/static-lsp';
 import { createAegisSkillAdapter } from '../builtin-agent/integrations/skills';
+import { buildSkillInjections, collectImplicitSkillReferences } from '../builtin-agent/skills/injection';
+import { getAegisSkills } from '../builtin-agent/skills/manager';
+import { renderAvailableSkills } from '../builtin-agent/skills/render';
 import { createAllTools as createBuiltinTools } from '../builtin-agent/tools';
 import type {
   BuiltinAgentCallbacks,
@@ -32,6 +36,7 @@ import type {
   BuiltinQuestionController,
   BuiltinTodoItem,
   BuiltinToolDefinition,
+  BuiltinToolResultMetadata,
   BuiltinToolRegistryEntry,
 } from '../builtin-agent/types';
 import { getAegisMemoryHome } from '../memory-paths';
@@ -274,6 +279,7 @@ function buildSystemPrompt(input: {
   permissionMode: AegisPermissionMode;
   toolNames: string[];
   memoryPrompt?: string;
+  skillsPrompt?: string;
   todos?: BuiltinTodoItem[];
 }): string {
   const today = new Date().toISOString().slice(0, 10);
@@ -284,7 +290,7 @@ function buildSystemPrompt(input: {
     'Prefer glob for file discovery, grep for content search, lsp for code navigation, and read for exact file inspection before using bash.',
     'Use web_search and web_fetch when the task depends on current external information or a referenced URL.',
     'Use edit for existing files and write for new files. Use todo_write for complex multi-step implementation work.',
-    'Use task for bounded read-only sub-investigations. Use tool_search before calling deferred tools such as skill.',
+    'Use task for bounded read-only sub-investigations. Use skill_read and skill_read_resource for progressive skill loading. Use tool_search before calling deferred tools such as the legacy skill wrapper.',
     'Use question only when a user decision or missing requirement blocks meaningful progress.',
     'When permission mode is readOnly, destructive tools are unavailable. Investigate, then call exit_plan_mode with a concrete plan for approval.',
     'Built-in memory is read-only from this conversation. A background memory worker may update this built-in agent profile after turns complete.',
@@ -302,6 +308,7 @@ function buildSystemPrompt(input: {
           ...input.todos.map((todo) => `- [${todo.status}] ${todo.content} (${todo.activeForm})`),
         ].join('\n')
       : '',
+    input.skillsPrompt ? `\n${input.skillsPrompt}` : '',
     input.memoryPrompt ? `\n${input.memoryPrompt}` : '',
   ].join('\n');
 }
@@ -342,12 +349,54 @@ function buildAssistantMessage(content: ContentBlock[], streaming = false): Stre
   };
 }
 
-function buildUserToolResult(toolCallId: string, content: string, isError?: boolean): StreamMessage {
+function serializeToolResultContent(
+  content: string,
+  metadata?: BuiltinToolResultMetadata
+): string {
+  if (!metadata || Object.keys(metadata).length === 0) {
+    return content;
+  }
+
+  return JSON.stringify({
+    output: content,
+    metadata,
+  });
+}
+
+function getSerializedToolResultOutput(content: string): string {
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      typeof (parsed as { output?: unknown }).output === 'string'
+    ) {
+      return (parsed as { output: string }).output;
+    }
+  } catch {
+    // Plain text tool results are the common path.
+  }
+
+  return content;
+}
+
+function buildUserToolResult(
+  toolCallId: string,
+  content: string,
+  isError?: boolean,
+  metadata?: BuiltinToolResultMetadata
+): StreamMessage {
   return {
     type: 'user',
     uuid: randomUUID(),
     message: {
-      content: [{ type: 'tool_result', tool_use_id: toolCallId, content, is_error: isError || undefined }],
+      content: [{
+        type: 'tool_result',
+        tool_use_id: toolCallId,
+        content: serializeToolResultContent(content, metadata),
+        is_error: isError || undefined,
+      }],
     },
   };
 }
@@ -661,7 +710,8 @@ function contentBlocksToMemoryText(blocks: ContentBlock[]): string {
         return `Tool use: ${block.name}${input ? ` ${truncateMiddle(input, 900)}` : ''}`;
       }
       if (block.type === 'tool_result') {
-        return `Tool result (${block.is_error ? 'error' : 'ok'}): ${truncateMiddle(block.content, 1600)}`;
+        const output = getSerializedToolResultOutput(block.content);
+        return `Tool result (${block.is_error ? 'error' : 'ok'}): ${truncateMiddle(output, 1600)}`;
       }
       return '';
     })
@@ -1155,9 +1205,11 @@ class AegisBuiltinAgentSession {
   private tools: BuiltinToolRegistryEntry[] = [];
   private currentSelection: BuiltinModelSelection;
   private currentMemoryPrompt = '';
+  private currentSkillsPrompt = '';
   private currentCwd: string;
   private lastUsage: Usage | undefined;
   private allowForSession = false;
+  private dependencyEnv = new Map<string, string>();
 
   constructor(private readonly options: RunnerOptions, private readonly abortController: AbortController) {
     this.currentCwd = options.session.cwd || process.cwd();
@@ -1328,6 +1380,49 @@ class AegisBuiltinAgentSession {
     };
   }
 
+  private async resolveSkillDependencies(
+    skillOutcome: ReturnType<typeof getAegisSkills>['outcome'],
+    selectedSkills?: ProviderInputReference[]
+  ): Promise<string> {
+    if (!selectedSkills?.length) return '';
+    const missing: Array<{ skillName: string; name: string; description?: string }> = [];
+    for (const reference of selectedSkills) {
+      const skill = skillOutcome.skills.find((item) => item.path === reference.path || item.name === reference.name);
+      if (!skill) continue;
+      for (const dependency of skill.dependencies?.tools || []) {
+        if (dependency.type !== 'env') continue;
+        if (process.env[dependency.value] || this.dependencyEnv.has(dependency.value)) continue;
+        missing.push({ skillName: skill.name, name: dependency.value, description: dependency.description });
+      }
+    }
+    if (missing.length === 0) return '';
+
+    const questions = missing.map((dependency) => ({
+      header: 'Skill dependency',
+      question: `The skill "${dependency.skillName}" requires environment variable "${dependency.name}"${dependency.description ? ` (${dependency.description})` : ''}. Enter a session-only value or cancel to continue without it.`,
+      options: [],
+    }));
+    const result = await this.options.onPermissionRequest(`aegis-skill-deps-${randomUUID()}`, 'question', { questions });
+    if (result.behavior !== 'allow') {
+      return [
+        '## Skill Dependencies',
+        'The user declined to provide one or more skill dependencies. Continue without assuming those credentials are available.',
+      ].join('\n');
+    }
+    const answers = (result.updatedInput as { answers?: Record<string, string> } | undefined)?.answers || {};
+    for (const dependency of missing) {
+      const question = questions.find((item) => item.question.includes(`"${dependency.name}"`));
+      const answer = question ? answers[question.question]?.trim() : '';
+      if (answer) this.dependencyEnv.set(dependency.name, answer);
+    }
+    const available = missing
+      .filter((dependency) => process.env[dependency.name] || this.dependencyEnv.has(dependency.name))
+      .map((dependency) => `- ${dependency.name}`);
+    return available.length > 0
+      ? ['## Skill Dependencies', 'The following skill dependency values are available for this session only:', ...available].join('\n')
+      : '';
+  }
+
   private createAgentCore(cwd: string): { core: AegisBuiltinAgentCore; tools: BuiltinToolRegistryEntry[] } {
     let tools: BuiltinToolRegistryEntry[] = [];
     const toolSearchController = {
@@ -1354,7 +1449,8 @@ class AegisBuiltinAgentSession {
       onReasoning: (text) => this.options.onMessage(buildReasoningDelta(text)),
       onStreamStop: () => this.options.onMessage(buildStreamStop()),
       onAssistantMessage: (blocks) => this.options.onMessage(buildAssistantMessage(blocks)),
-      onToolResult: (toolCallId, content, isError) => this.options.onMessage(buildUserToolResult(toolCallId, content, isError)),
+      onToolResult: (toolCallId, content, isError, metadata) =>
+        this.options.onMessage(buildUserToolResult(toolCallId, content, isError, metadata)),
     };
 
     const core = new AegisBuiltinAgentCore({
@@ -1369,6 +1465,7 @@ class AegisBuiltinAgentSession {
         permissionMode: this.permissionMode,
         toolNames,
         memoryPrompt: this.currentMemoryPrompt,
+        skillsPrompt: this.currentSkillsPrompt,
         todos: this.getTodos(),
       }),
       complete: async (input) => {
@@ -1394,6 +1491,7 @@ class AegisBuiltinAgentSession {
     prompt: string,
     attachments?: Attachment[],
     modelOverride?: string,
+    selectedSkills?: ProviderInputReference[],
     permissionModeOverride?: AegisPermissionMode,
     reasoningEffortOverride?: 'high' | 'max'
   ): Promise<void> {
@@ -1411,6 +1509,15 @@ class AegisBuiltinAgentSession {
     this.permissionMode = normalizePermissionMode(permissionModeOverride || this.options.aegisPermissionMode || this.permissionMode);
     const userContent = `${prompt}${attachmentText(attachments)}`;
     this.currentMemoryPrompt = await buildAgentMemoryPrompt(this.memoryRoot);
+    const skillOutcome = getAegisSkills(cwd).outcome;
+    const renderedSkills = renderAvailableSkills(skillOutcome);
+    const effectiveSelectedSkills = [
+      ...(selectedSkills || []),
+      ...collectImplicitSkillReferences(skillOutcome, userContent),
+    ];
+    const skillInjections = buildSkillInjections(skillOutcome, effectiveSelectedSkills);
+    const skillDependencyPrompt = await this.resolveSkillDependencies(skillOutcome, effectiveSelectedSkills);
+    this.currentSkillsPrompt = renderedSkills?.prompt || '';
     if (!this.core || this.coreCwd !== cwd) {
       this.createAgentCore(cwd);
     }
@@ -1430,7 +1537,17 @@ class AegisBuiltinAgentSession {
       tools: visibleTools.map((tool) => tool.name),
     });
 
-    await core.runTurn(userContent);
+    const skillWarnings = [
+      renderedSkills?.warning ? `Skills warning: ${renderedSkills.warning}` : '',
+      ...skillInjections.warnings.map((warning) => `Skills warning: ${warning}`),
+    ].filter(Boolean);
+    const effectiveUserContent = [
+      userContent,
+      skillWarnings.length > 0 ? skillWarnings.join('\n') : '',
+      skillDependencyPrompt,
+      skillInjections.prompt,
+    ].filter((part) => part.trim()).join('\n\n');
+    await core.runTurn(effectiveUserContent);
     this.options.onMessage({
       type: 'result',
       subtype: 'success',
@@ -1461,6 +1578,7 @@ export const aegisRuntime: AgentRuntime = {
       options.prompt,
       options.attachments,
       options.model,
+      options.aegisSkills,
       options.aegisPermissionMode,
       options.aegisReasoningEffort
     ).catch((error) => {
@@ -1471,12 +1589,13 @@ export const aegisRuntime: AgentRuntime = {
 
     return {
       abort: () => session.abort(),
-      send: (prompt, attachments, model, _codexSkills, _codexMentions, sendOptions) => {
+      send: (prompt, attachments, model, _codexSkills, _codexMentions, aegisSkills, _aegisMentions, sendOptions) => {
         if (abortController.signal.aborted) return;
         session.runTurn(
           prompt,
           attachments,
           model,
+          aegisSkills,
           sendOptions?.aegisPermissionMode,
           sendOptions?.aegisReasoningEffort
         ).catch((error) => {

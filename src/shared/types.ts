@@ -587,6 +587,8 @@ export interface SessionStartPayload {
   codexFastMode?: boolean;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
+  aegisSkills?: ProviderInputReference[];
+  aegisMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
   aegisPermissionMode?: AegisPermissionMode;
   aegisReasoningEffort?: AegisBuiltInReasoningEffort;
@@ -615,6 +617,8 @@ export interface SessionContinuePayload {
   codexFastMode?: boolean;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
+  aegisSkills?: ProviderInputReference[];
+  aegisMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
   aegisPermissionMode?: AegisPermissionMode;
   aegisReasoningEffort?: AegisBuiltInReasoningEffort;
@@ -650,6 +654,8 @@ export interface RoutedAgentRuntimePayload {
   codexFastMode?: boolean;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
+  aegisSkills?: ProviderInputReference[];
+  aegisMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
   aegisPermissionMode?: AegisPermissionMode;
   aegisReasoningEffort?: AegisBuiltInReasoningEffort;
