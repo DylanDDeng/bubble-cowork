@@ -386,34 +386,19 @@ body {
 }
 
 .markdown-content .md-code-block {
-  --code-block-bg: #F7F6F3;
-  --code-block-header-bg: #F7F6F3;
-  --code-block-border: rgba(55, 53, 47, 0.09);
-  --code-block-text: #37352F;
-  --code-token-comment: rgba(55, 53, 47, 0.46);
-  --md-code-meta-color: rgba(55, 53, 47, 0.55);
-  --md-code-copy-color: rgba(55, 53, 47, 0.48);
-  --md-code-copy-hover-bg: rgba(55, 53, 47, 0.08);
-  --md-code-copy-hover-color: rgba(55, 53, 47, 0.82);
-
+  --md-code-surface: color-mix(in srgb, var(--code-block-bg) 88%, var(--accent-light));
+  --md-code-header-surface: color-mix(in srgb, var(--code-block-header-bg) 82%, var(--accent-light));
+  --md-code-border-color: color-mix(in srgb, var(--code-block-border) 82%, var(--accent) 18%);
+  --md-code-meta-color: color-mix(in srgb, var(--text-muted) 82%, var(--code-block-text));
+  --md-code-copy-color: color-mix(in srgb, var(--text-muted) 78%, var(--code-block-text));
+  --md-code-copy-hover-bg: var(--code-copy-hover);
+  --md-code-copy-hover-color: color-mix(in srgb, var(--text-secondary) 70%, var(--code-block-text));
   margin: 0.75rem 0;
   border-radius: 6px;
   overflow: hidden;
-  border: 1px solid var(--code-block-border);
-  background: var(--code-block-bg);
+  border: 1px solid var(--md-code-border-color);
+  background: var(--md-code-surface);
   box-shadow: none;
-}
-
-.dark .markdown-content .md-code-block {
-  --code-block-bg: #202124;
-  --code-block-header-bg: #202124;
-  --code-block-border: rgba(255, 255, 255, 0.08);
-  --code-block-text: rgba(255, 255, 255, 0.86);
-  --code-token-comment: rgba(255, 255, 255, 0.36);
-  --md-code-meta-color: rgba(255, 255, 255, 0.48);
-  --md-code-copy-color: rgba(255, 255, 255, 0.42);
-  --md-code-copy-hover-bg: rgba(255, 255, 255, 0.08);
-  --md-code-copy-hover-color: rgba(255, 255, 255, 0.82);
 }
 
 /* header inherits code-block bg; HighlightedCode renders the body */
@@ -428,7 +413,7 @@ body {
   gap: 0.5rem;
   min-height: 34px;
   padding: 7px 9px 3px 12px;
-  background: var(--code-block-header-bg);
+  background: var(--md-code-header-surface);
 }
 
 .markdown-content .md-code-meta {
@@ -491,7 +476,7 @@ body {
 }
 
 .highlighted-code-block {
-  background: var(--code-block-bg);
+  background: var(--md-code-surface, var(--code-block-bg));
   color: var(--code-block-text);
   font-size: 13px;
   line-height: 1.65;
