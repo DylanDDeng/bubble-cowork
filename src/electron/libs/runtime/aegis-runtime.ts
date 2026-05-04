@@ -7,6 +7,7 @@ import type {
   AegisPermissionMode,
   Attachment,
   ContentBlock,
+  PermissionResult,
   StreamEvent,
   StreamMessage,
   Usage,
@@ -1113,6 +1114,7 @@ class AegisBuiltinAgentSession {
   private currentMemoryPrompt = '';
   private currentCwd: string;
   private lastUsage: Usage | undefined;
+  private allowForSession = false;
 
   constructor(private readonly options: RunnerOptions, private readonly abortController: AbortController) {
     this.currentCwd = options.session.cwd || process.cwd();
@@ -1130,7 +1132,7 @@ class AegisBuiltinAgentSession {
 
   private getBuiltinPermissionMode = (): BuiltinPermissionMode => {
     if (this.permissionMode === 'readOnly') return 'plan';
-    if (this.permissionMode === 'fullAccess') return 'bypassPermissions';
+    if (this.permissionMode === 'fullAccess' || this.allowForSession) return 'bypassPermissions';
     return 'default';
   };
 
@@ -1141,6 +1143,13 @@ class AegisBuiltinAgentSession {
         : mode === 'bypassPermissions'
           ? 'fullAccess'
           : 'defaultPermissions';
+  };
+
+  private recordPermissionDecision = (result: PermissionResult): PermissionResult => {
+    if (result.behavior === 'allow' && result.scope === 'session') {
+      this.allowForSession = true;
+    }
+    return result;
   };
 
   private getTodos = (): BuiltinTodoItem[] => this.todos.map((todo) => ({ ...todo }));
@@ -1211,7 +1220,7 @@ class AegisBuiltinAgentSession {
         const mode = this.getBuiltinPermissionMode();
         if (mode === 'bypassPermissions') return { behavior: 'allow' };
         if (mode === 'plan') return { behavior: 'deny', message: 'Aegis Built-in Agent is in read-only mode.' };
-        return this.options.onPermissionRequest(id, 'bash', {
+        const result = await this.options.onPermissionRequest(id, 'bash', {
           kind: 'codex-approval',
           approvalKind: 'command',
           method: 'aegis.builtin.bash',
@@ -1222,12 +1231,13 @@ class AegisBuiltinAgentSession {
           cwd,
           canAllowForSession: true,
         });
+        return this.recordPermissionDecision(result);
       },
       requestFileChange: async ({ id, toolName, title, question, filePath, summary }) => {
         const mode = this.getBuiltinPermissionMode();
         if (mode === 'bypassPermissions') return { behavior: 'allow' };
         if (mode === 'plan') return { behavior: 'deny', message: 'Aegis Built-in Agent is in read-only mode.' };
-        return this.options.onPermissionRequest(id, toolName, {
+        const result = await this.options.onPermissionRequest(id, toolName, {
           kind: 'codex-approval',
           approvalKind: 'file-change',
           method: `aegis.builtin.${toolName}`,
@@ -1238,8 +1248,9 @@ class AegisBuiltinAgentSession {
           filePath,
           files: [filePath],
           permissionSummary: summary,
-          canAllowForSession: false,
+          canAllowForSession: true,
         });
+        return this.recordPermissionDecision(result);
       },
     };
   }
@@ -1248,17 +1259,20 @@ class AegisBuiltinAgentSession {
     return {
       getMode: this.getBuiltinPermissionMode,
       setMode: this.setBuiltinPermissionMode,
-      approvePlan: async (plan) => this.options.onPermissionRequest(`aegis-plan-${randomUUID()}`, 'exit_plan_mode', {
-        kind: 'codex-approval',
-        approvalKind: 'permissions',
-        method: 'aegis.builtin.exit_plan_mode',
-        title: 'Approve plan',
-        question: 'Approve this plan and let Aegis Built-in Agent execute it?',
-        toolName: 'exit_plan_mode',
-        cwd: this.currentCwd,
-        permissionSummary: plan.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 12),
-        canAllowForSession: false,
-      }),
+      approvePlan: async (plan) => {
+        const result = await this.options.onPermissionRequest(`aegis-plan-${randomUUID()}`, 'exit_plan_mode', {
+          kind: 'codex-approval',
+          approvalKind: 'permissions',
+          method: 'aegis.builtin.exit_plan_mode',
+          title: 'Approve plan',
+          question: 'Approve this plan and let Aegis Built-in Agent execute it?',
+          toolName: 'exit_plan_mode',
+          cwd: this.currentCwd,
+          permissionSummary: plan.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 12),
+          canAllowForSession: true,
+        });
+        return this.recordPermissionDecision(result);
+      },
     };
   }
 
@@ -1336,6 +1350,9 @@ class AegisBuiltinAgentSession {
     const selection = resolveBuiltinSelection(modelOverride || this.options.model || this.options.session.model);
     this.currentCwd = cwd;
     this.currentSelection = selection;
+    if (permissionModeOverride) {
+      this.allowForSession = false;
+    }
     this.permissionMode = normalizePermissionMode(permissionModeOverride || this.options.aegisPermissionMode || this.permissionMode);
     const userContent = `${prompt}${attachmentText(attachments)}`;
     this.currentMemoryPrompt = await buildAgentMemoryPrompt(this.memoryRoot);
