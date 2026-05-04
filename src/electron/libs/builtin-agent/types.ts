@@ -16,6 +16,7 @@ export interface BuiltinChatMessage {
   content?: string | null;
   tool_call_id?: string;
   tool_calls?: BuiltinToolCall[];
+  reasoning_content?: string;
 }
 
 export interface BuiltinModelTurn {
@@ -171,4 +172,3 @@ export type BuiltinModelComplete = (input: {
   onText: (text: string) => void;
   onReasoning?: (text: string) => void;
 }) => Promise<BuiltinModelTurn>;
-

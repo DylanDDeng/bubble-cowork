@@ -63,6 +63,7 @@ interface ChatMessage {
   content?: string | null;
   tool_call_id?: string;
   tool_calls?: ChatToolCall[];
+  reasoning_content?: string;
 }
 
 interface ToolDefinition {
@@ -188,6 +189,17 @@ function buildProviderRequestExtras(selection: BuiltinModelSelection): {
   extraBody?: Record<string, unknown>;
   omitTemperature?: boolean;
 } {
+  if (
+    selection.providerId === 'deepseek' &&
+    (selection.modelId === 'deepseek-v4-flash' || selection.modelId === 'deepseek-v4-pro')
+  ) {
+    return {
+      extraBody: {
+        thinking: { type: 'enabled' },
+        reasoning_effort: 'high',
+      },
+    };
+  }
   if (MOONSHOT_PROVIDER_IDS.has(selection.providerId)) {
     if (KIMI_K25_FAMILY.has(selection.modelId)) {
       return {
@@ -200,6 +212,30 @@ function buildProviderRequestExtras(selection: BuiltinModelSelection): {
     }
   }
   return {};
+}
+
+function serializeMessagesForProvider(
+  messages: ChatMessage[],
+  selection: BuiltinModelSelection
+): ChatMessage[] {
+  const echoDeepSeekReasoning =
+    selection.providerId === 'deepseek' &&
+    (selection.modelId === 'deepseek-v4-flash' || selection.modelId === 'deepseek-v4-pro');
+  return messages.map((message) => {
+    if (message.role !== 'assistant') {
+      return { ...message };
+    }
+    const serialized: ChatMessage = {
+      role: 'assistant',
+      content: message.content ?? null,
+      ...(message.tool_calls ? { tool_calls: message.tool_calls } : {}),
+    };
+    if (echoDeepSeekReasoning) {
+      serialized.reasoning_content =
+        typeof message.reasoning_content === 'string' ? message.reasoning_content : '';
+    }
+    return serialized;
+  });
 }
 
 function resolveBuiltinSelection(model?: string | null): BuiltinModelSelection {
@@ -926,7 +962,7 @@ async function streamChatCompletion(input: {
   }
   const body: Record<string, unknown> = {
     model: input.selection.modelId,
-    messages: input.messages,
+    messages: serializeMessagesForProvider(input.messages, input.selection),
     tools: input.tools.length > 0 ? input.tools : undefined,
     tool_choice: input.tools.length > 0 ? 'auto' : undefined,
     stream: true,
@@ -1072,7 +1108,7 @@ async function completeChatText(input: {
   }
   const body: Record<string, unknown> = {
     model: input.selection.modelId,
-    messages: input.messages,
+    messages: serializeMessagesForProvider(input.messages, input.selection),
     stream: false,
     max_tokens: input.maxOutputTokens || 900,
   };

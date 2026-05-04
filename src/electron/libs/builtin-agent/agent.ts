@@ -113,7 +113,11 @@ export class AegisBuiltinAgentCore {
       this.options.callbacks.onStreamStop();
 
       if (modelTurn.toolCalls.length === 0) {
-        this.messages.push({ role: 'assistant', content: modelTurn.content || '' });
+        this.messages.push({
+          role: 'assistant',
+          content: modelTurn.content || '',
+          reasoning_content: modelTurn.reasoning,
+        });
         const blocks = buildAssistantBlocks(modelTurn);
         if (blocks.length > 0) {
           this.options.callbacks.onAssistantMessage(blocks);
@@ -126,6 +130,7 @@ export class AegisBuiltinAgentCore {
         role: 'assistant',
         content: modelTurn.content || null,
         tool_calls: modelTurn.toolCalls,
+        reasoning_content: modelTurn.reasoning,
       });
       this.options.callbacks.onAssistantMessage(buildAssistantToolBlocks(modelTurn));
 
