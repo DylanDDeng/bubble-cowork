@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Plus, Square } from 'lucide-react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { Check, ChevronDown, Plus, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
@@ -31,6 +32,7 @@ import {
 import { buildCodexReferencePayload } from '../utils/codex-composer';
 import { buildAegisReferencePayload } from '../utils/aegis-composer';
 import {
+  getAgentMentionHandle,
   getAgentMentionHandles,
   getAgentMentionAliases,
   getProjectAgentProfiles,
@@ -193,12 +195,90 @@ function buildAgentRuntimePayload(
   };
 }
 
+function providerLabel(provider: AgentProfile['provider']): string {
+  if (provider === 'aegis') return 'Aegis';
+  if (provider === 'codex') return 'Codex';
+  if (provider === 'opencode') return 'OpenCode';
+  return 'Claude';
+}
+
+function ProjectAgentPicker({
+  profiles,
+  selectedProfile,
+  disabled,
+  onSelect,
+}: {
+  profiles: AgentProfile[];
+  selectedProfile: AgentProfile | null;
+  disabled: boolean;
+  onSelect: (profileId: string) => void;
+}) {
+  if (profiles.length === 0) {
+    return null;
+  }
+
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          className="flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-lg bg-[var(--bg-tertiary)] px-2 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[color-mix(in_srgb,var(--bg-tertiary)_76%,var(--accent)_24%)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+          title={selectedProfile ? `Send with ${selectedProfile.name.trim() || 'Agent'}` : 'Select agent'}
+          aria-label="Select project agent"
+        >
+          {selectedProfile ? (
+            <AgentAvatar profile={selectedProfile} size="sm" decorative />
+          ) : null}
+          <span className="min-w-0 truncate">
+            {selectedProfile?.name.trim() || 'Select agent'}
+          </span>
+          <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+        </button>
+      </DropdownMenu.Trigger>
+
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="start"
+          side="top"
+          sideOffset={8}
+          className="z-50 w-[280px] overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_18px_44px_rgba(15,23,42,0.14)]"
+        >
+          {profiles.map((profile) => {
+            const selected = selectedProfile?.id === profile.id;
+            return (
+              <DropdownMenu.Item
+                key={profile.id}
+                onSelect={() => onSelect(profile.id)}
+                className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
+              >
+                <AgentAvatar profile={profile} size="sm" decorative />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[12px] font-medium text-[var(--text-primary)]">
+                    {profile.name.trim() || 'Agent'}
+                  </div>
+                  <div className="truncate text-[11px] text-[var(--text-muted)]">
+                    @{getAgentMentionHandle(profile)} · {profile.role.trim() || 'Agent'} · {providerLabel(profile.provider)}
+                  </div>
+                </div>
+                {selected ? <Check className="h-4 w-4 text-[var(--accent)]" /> : null}
+              </DropdownMenu.Item>
+            );
+          })}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+
 export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   const {
     activeSessionId,
     sessions,
     agentProfiles,
     projectAgentRostersByProject,
+    selectedProjectAgentByProject,
+    setSelectedProjectAgentForProject,
     activeChannelByProject,
     pendingStart,
     setShowNewSession,
@@ -216,6 +296,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   const targetSessionId = sessionId ?? activeSessionId;
 
   const activeSession = targetSessionId ? sessions[targetSessionId] : null;
+  const activeProjectKey =
+    activeSession?.scope === 'dm' ? null : activeSession?.cwd?.trim() || null;
   const directAgentProfile =
     activeSession?.scope === 'dm' && activeSession.agentId
       ? agentProfiles[activeSession.agentId] || null
@@ -243,10 +325,40 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       (projectAgentRoutes || []).map((route) => ({
         profile: route.profile,
         handle: route.handle,
+        assignmentSource: 'mention' as const,
       })),
     [projectAgentRoutes]
   );
-  const activeProjectAgentRoute = activeProjectAgentRoutes[0] || null;
+  const selectedProjectAgentProfile = useMemo(() => {
+    if (!activeProjectKey || projectAgentProfiles.length === 0) {
+      return null;
+    }
+
+    const persistedProfileId = selectedProjectAgentByProject[activeProjectKey];
+    return (
+      projectAgentProfiles.find((profile) => profile.id === persistedProfileId) ||
+      projectAgentProfiles[0] ||
+      null
+    );
+  }, [activeProjectKey, projectAgentProfiles, selectedProjectAgentByProject]);
+  const selectedProjectAgentRoute = useMemo(
+    () =>
+      selectedProjectAgentProfile
+        ? {
+            profile: selectedProjectAgentProfile,
+            handle: getAgentMentionHandle(selectedProjectAgentProfile),
+            assignmentSource: 'assignment' as const,
+          }
+        : null,
+    [selectedProjectAgentProfile]
+  );
+  const effectiveProjectAgentRoutes =
+    activeProjectAgentRoutes.length > 0
+      ? activeProjectAgentRoutes
+      : selectedProjectAgentRoute
+        ? [selectedProjectAgentRoute]
+        : [];
+  const activeProjectAgentRoute = effectiveProjectAgentRoutes[0] || null;
   const runtimeAgentProfile = directAgentProfile || activeProjectAgentRoute?.profile || null;
   const directAgentRuntime = getAgentRuntime(directAgentProfile);
   const projectAgentRuntime = getAgentRuntime(activeProjectAgentRoute?.profile || null);
@@ -254,7 +366,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   const runtimeProvider = agentRuntime?.provider || 'claude';
   const activeComposerAgentProfiles = directAgentProfile
     ? [directAgentProfile]
-    : activeProjectAgentRoutes.map((route) => route.profile);
+    : effectiveProjectAgentRoutes.map((route) => route.profile);
   const activeComposerAgentProfile = activeComposerAgentProfiles[0] || null;
   const enabledAgentCount = useMemo(
     () => Object.values(agentProfiles).filter((profile) => profile.enabled).length,
@@ -306,7 +418,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
               cwd: activeSession.cwd,
               channelId: activeSession.channelId,
               handle: activeProjectAgentRoute.handle,
-              assignmentSource: 'mention',
+              assignmentSource: activeProjectAgentRoute.assignmentSource,
             }
           : undefined
     );
@@ -459,16 +571,16 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
       };
     }
 
-    if (activeProjectAgentRoutes.length === 0) {
+    if (effectiveProjectAgentRoutes.length === 0) {
       return {
-        title: 'Mention an agent to send',
-        description: 'Use @agent in this channel so the message has a clear recipient.',
+        title: 'Select an agent to send',
+        description: 'Pick a project agent before sending in this channel.',
       };
     }
 
     return null;
   }, [
-    activeProjectAgentRoutes.length,
+    effectiveProjectAgentRoutes.length,
     activeSession,
     directAgentProfile,
     enabledAgentCount,
@@ -593,7 +705,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
               cwd: activeSession?.cwd,
               channelId: activeSession?.channelId,
               handle: activeProjectAgentRoute.handle,
-              assignmentSource: 'mention',
+              assignmentSource: activeProjectAgentRoute.assignmentSource,
             }
           : undefined
     );
@@ -609,8 +721,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     const projectPublicAgents =
       !directAgentProfile ? projectAgentProfiles.map(toPublicAgentProfile) : undefined;
     const projectRoutedAgentTurns: RoutedAgentTurnPayload[] | undefined =
-      !directAgentProfile && activeProjectAgentRoutes.length > 0
-        ? activeProjectAgentRoutes
+      !directAgentProfile && effectiveProjectAgentRoutes.length > 0
+        ? effectiveProjectAgentRoutes
             .map((route): RoutedAgentTurnPayload | null => {
               const routeRuntime = buildAgentRuntimePayload(route.profile, codexReferences, aegisReferences);
               if (!routeRuntime) {
@@ -625,7 +737,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                   cwd: activeSession?.cwd,
                   channelId: activeSession?.channelId,
                   handle: route.handle,
-                  assignmentSource: 'mention',
+                  assignmentSource: route.assignmentSource,
                 }
               );
 
@@ -1080,7 +1192,18 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
 
           <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
             <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
-              {activeComposerAgentProfile ? (
+              {!directAgentProfile && activeProjectAgentRoutes.length === 0 ? (
+                <ProjectAgentPicker
+                  profiles={projectAgentProfiles}
+                  selectedProfile={selectedProjectAgentProfile}
+                  disabled={isBusy}
+                  onSelect={(profileId) => {
+                    if (activeProjectKey) {
+                      setSelectedProjectAgentForProject(activeProjectKey, profileId);
+                    }
+                  }}
+                />
+              ) : activeComposerAgentProfile ? (
                 <div
                   className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg bg-[var(--bg-tertiary)] px-2 text-[12px] text-[var(--text-secondary)]"
                   title={activeComposerAgentProfiles

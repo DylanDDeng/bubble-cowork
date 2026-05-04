@@ -770,6 +770,7 @@ export const useAppStore = create<Store>()(
       activeChannelByProject: {},
       agentProfiles: createStarterAgentProfiles(),
       projectAgentRostersByProject: {},
+      selectedProjectAgentByProject: {},
       activeSessionId: initialUiResumeState?.activeSessionId ?? null,
       activeWorkspace: 'chat' as ActiveWorkspace,
       chatSidebarView: 'threads' as ChatSidebarView,
@@ -1285,9 +1286,16 @@ export const useAppStore = create<Store>()(
           ])
           .filter(([, profileIds]) => profileIds.length > 0)
       );
+      const nextSelectedProjectAgents = Object.fromEntries(
+        Object.entries(state.selectedProjectAgentByProject).filter(
+          ([projectKey, selectedProfileId]) =>
+            selectedProfileId !== profileId && nextRosters[projectKey]?.includes(selectedProfileId)
+        )
+      );
       return {
         agentProfiles: nextProfiles,
         projectAgentRostersByProject: nextRosters,
+        selectedProjectAgentByProject: nextSelectedProjectAgents,
       };
     }),
 
@@ -1297,8 +1305,33 @@ export const useAppStore = create<Store>()(
       const validProfileIds = profileIds.filter((profileId) => Boolean(state.agentProfiles[profileId]));
       const nextRosters = { ...state.projectAgentRostersByProject };
       nextRosters[projectKey] = validProfileIds;
+      const nextSelectedProjectAgents = { ...state.selectedProjectAgentByProject };
+      if (!validProfileIds.includes(nextSelectedProjectAgents[projectKey])) {
+        delete nextSelectedProjectAgents[projectKey];
+      }
       return {
         projectAgentRostersByProject: nextRosters,
+        selectedProjectAgentByProject: nextSelectedProjectAgents,
+      };
+    }),
+
+  setSelectedProjectAgentForProject: (projectCwd, profileId) =>
+    set((state) => {
+      const projectKey = getProjectChannelKey(projectCwd);
+      if (!projectKey) {
+        return state;
+      }
+
+      const projectRoster = state.projectAgentRostersByProject[projectKey] || [];
+      const nextSelectedProjectAgents = { ...state.selectedProjectAgentByProject };
+      if (profileId && projectRoster.includes(profileId) && state.agentProfiles[profileId]?.enabled) {
+        nextSelectedProjectAgents[projectKey] = profileId;
+      } else {
+        delete nextSelectedProjectAgents[projectKey];
+      }
+
+      return {
+        selectedProjectAgentByProject: nextSelectedProjectAgents,
       };
     }),
 
@@ -1855,6 +1888,7 @@ export const useAppStore = create<Store>()(
         activeChannelByProject: state.activeChannelByProject,
         agentProfiles: state.agentProfiles,
         projectAgentRostersByProject: state.projectAgentRostersByProject,
+        selectedProjectAgentByProject: state.selectedProjectAgentByProject,
         agentSetupDismissedAt: state.agentSetupDismissedAt,
         agentSetupCompletedAt: state.agentSetupCompletedAt,
         chatSidebarView: state.chatSidebarView,
@@ -1884,6 +1918,7 @@ export const useAppStore = create<Store>()(
           activeChannelByProject?: Record<string, string>;
           agentProfiles?: Record<string, AgentProfile>;
           projectAgentRostersByProject?: Record<string, string[]>;
+          selectedProjectAgentByProject?: Record<string, string>;
           agentSetupDismissedAt?: number | null;
           agentSetupCompletedAt?: number | null;
           chatSidebarView?: ChatSidebarView;
@@ -1911,6 +1946,15 @@ export const useAppStore = create<Store>()(
         const projectAgentRostersByProject = normalizeProjectAgentRosters(
           persisted?.projectAgentRostersByProject,
           agentProfiles
+        );
+        const selectedProjectAgentByProject = Object.fromEntries(
+          Object.entries(persisted?.selectedProjectAgentByProject || {}).filter(
+            ([projectKey, profileId]) =>
+              typeof projectKey === 'string' &&
+              typeof profileId === 'string' &&
+              Boolean(agentProfiles[profileId]) &&
+              (projectAgentRostersByProject[projectKey] || []).includes(profileId)
+          )
         );
         const themeState = normalizeThemeState(persisted?.themeState || currentState.themeState);
         const uiFontFamily = persisted?.uiFontFamily ?? currentState.uiFontFamily;
@@ -1952,6 +1996,7 @@ export const useAppStore = create<Store>()(
           activeChannelByProject: persisted?.activeChannelByProject || currentState.activeChannelByProject,
           agentProfiles,
           projectAgentRostersByProject,
+          selectedProjectAgentByProject,
           agentSetupOpen: false,
           agentSetupDismissedAt: persisted?.agentSetupDismissedAt ?? currentState.agentSetupDismissedAt,
           agentSetupCompletedAt: persisted?.agentSetupCompletedAt ?? currentState.agentSetupCompletedAt,

@@ -211,6 +211,7 @@ export interface AppState {
   activeChannelByProject: Record<string, string>;
   agentProfiles: Record<string, AgentProfile>;
   projectAgentRostersByProject: Record<string, string[]>;
+  selectedProjectAgentByProject: Record<string, string>;
   activeSessionId: string | null;
   activeWorkspace: ActiveWorkspace;
   chatSidebarView: ChatSidebarView;
@@ -292,6 +293,7 @@ export interface AppActions {
   updateAgentProfile: (profileId: string, patch: Partial<Omit<AgentProfile, 'id' | 'createdAt'>>) => void;
   deleteAgentProfile: (profileId: string) => void;
   setProjectAgentRoster: (projectCwd: string, profileIds: string[]) => void;
+  setSelectedProjectAgentForProject: (projectCwd: string, profileId: string | null) => void;
   openAgentDirectMessage: (profileId: string) => string | null;
   setActivePane: (paneId: ChatPaneId) => void;
   setChatLayoutMode: (mode: ChatLayoutMode) => void;
