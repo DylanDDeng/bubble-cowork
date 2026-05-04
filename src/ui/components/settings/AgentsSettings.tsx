@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Eye, EyeOff, PlugZap, Plus, Trash2 } from 'lucide-react';
+import {
+  ChevronDown,
+  Code2,
+  Eye,
+  EyeOff,
+  Palette,
+  PlugZap,
+  Plus,
+  Trash2,
+  User,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { AgentModelPicker } from '../AgentModelPicker';
 import { AgentAvatar, AGENT_AVATAR_OPTIONS } from '../AgentAvatar';
@@ -81,6 +91,30 @@ function displayName(profile: AgentProfile): string {
 
 function displayRole(profile: AgentProfile): string {
   return profile.role.trim() || 'Agent';
+}
+
+function displayProvider(profile: AgentProfile): string {
+  if (profile.provider === 'aegis') return 'Aegis Built-in';
+  if (profile.provider === 'claude') return 'Claude';
+  if (profile.provider === 'codex') return 'Codex';
+  return 'OpenCode';
+}
+
+function displayModel(profile: AgentProfile): string {
+  const model = profile.model?.trim();
+  if (!model) return 'Default';
+  if (profile.provider !== 'aegis') return model;
+  const selection = resolveAegisBuiltInModel(model);
+  const resolved = listAegisBuiltInModels(selection.providerId).find(
+    (candidate) => candidate.id === selection.modelId
+  );
+  return resolved?.name || selection.modelId;
+}
+
+function displayPermissionPolicy(policy: AgentPermissionPolicy): string {
+  if (policy === 'readOnly') return 'Read only';
+  if (policy === 'fullAccess') return 'Full access';
+  return 'Ask';
 }
 
 function getAegisProviderApiKey(config: AegisBuiltInAgentConfig, providerId: string): string {
@@ -199,8 +233,11 @@ export function AgentsSettingsContent() {
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3">
           <div className="min-w-0">
             <div className="text-[13px] font-medium text-[var(--text-primary)]">Profiles</div>
-            <div className="mt-0.5 text-[12px] leading-5 text-[var(--text-muted)]">
-              {profiles.length === 1 ? '1 profile configured.' : `${profiles.length} profiles configured.`}
+            <div className="mt-0.5 flex items-center gap-2 text-[12px] leading-5 text-[var(--text-muted)]">
+              <span>Reusable agents for DMs and project rosters.</span>
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--bg-secondary)] px-1.5 text-[11px] font-medium text-[var(--text-secondary)]">
+                {profiles.length}
+              </span>
             </div>
           </div>
           <button
@@ -217,23 +254,54 @@ export function AgentsSettingsContent() {
           <button
             type="button"
             onClick={handleCreateProfile}
-            className="w-full px-4 py-5 text-left text-[13px] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+            className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
           >
-            Create an agent profile.
+            <span className="flex h-8 w-8 items-center justify-center rounded-md border border-dashed border-[var(--border)] text-[var(--text-muted)]">
+              <Plus className="h-3.5 w-3.5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium text-[var(--text-primary)]">New agent profile</span>
+              <span className="mt-0.5 block text-[12px] leading-5 text-[var(--text-muted)]">
+                Choose identity, runtime, model, and permissions.
+              </span>
+            </span>
+            <span className="inline-flex h-8 items-center rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12.5px] font-medium text-[var(--text-primary)]">
+              Create
+            </span>
           </button>
         ) : (
-          profiles.map((profile) => (
-            <AgentProfileRow
-              key={profile.id}
-              profile={profile}
-              expanded={selectedProfile?.id === profile.id}
-              onToggleExpand={() =>
-                setSelectedProfileId((current) => current === profile.id ? '' : profile.id)
-              }
-              onUpdate={(patch) => updateAgentProfile(profile.id, patch)}
-              onDelete={() => handleDeleteProfile(profile.id)}
-            />
-          ))
+          <>
+            <button
+              type="button"
+              onClick={handleCreateProfile}
+              className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+            >
+              <span className="flex h-8 w-8 items-center justify-center rounded-md border border-dashed border-[var(--border)] text-[var(--text-muted)]">
+                <Plus className="h-3.5 w-3.5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[13px] font-medium text-[var(--text-primary)]">New agent profile</span>
+                <span className="mt-0.5 block text-[12px] leading-5 text-[var(--text-muted)]">
+                  Choose identity, runtime, model, and permissions.
+                </span>
+              </span>
+              <span className="inline-flex h-8 items-center rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12.5px] font-medium text-[var(--text-primary)]">
+                Create
+              </span>
+            </button>
+            {profiles.map((profile) => (
+              <AgentProfileRow
+                key={profile.id}
+                profile={profile}
+                expanded={selectedProfile?.id === profile.id}
+                onToggleExpand={() =>
+                  setSelectedProfileId((current) => current === profile.id ? '' : profile.id)
+                }
+                onUpdate={(patch) => updateAgentProfile(profile.id, patch)}
+                onDelete={() => handleDeleteProfile(profile.id)}
+              />
+            ))}
+          </>
         )}
       </SettingsGroup>
     </div>
@@ -268,28 +336,39 @@ function AgentProfileRow({
         aria-expanded={expanded}
         onClick={onToggleExpand}
         onKeyDown={handleKeyDown}
-        className="grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 transition-colors hover:bg-[var(--bg-secondary)]/60"
+        className="grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--bg-secondary)]/60"
       >
         <AgentAvatar profile={profile} size="md" decorative />
-        <div className="min-w-0 flex items-center gap-2">
-          <span className="truncate text-[13px] font-medium text-[var(--text-primary)]">
+        <div className="min-w-0 flex items-center gap-2.5">
+          <span className="truncate text-[13px] font-semibold text-[var(--text-primary)]">
             {displayName(profile)}
           </span>
-          <span className="truncate text-[11.5px] text-[var(--text-muted)]">
-            {displayRole(profile)}
-          </span>
+          <span className="truncate text-[12px] text-[var(--text-muted)]">{displayRole(profile)}</span>
+          {expanded ? (
+            <span className="inline-flex h-5 flex-shrink-0 items-center rounded-md bg-emerald-500/10 px-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+              Active
+            </span>
+          ) : null}
         </div>
-        <div
-          className="flex items-center gap-2"
-          onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
-          role="presentation"
-        >
-          <SettingsToggle
-            checked={profile.enabled}
-            onChange={(enabled) => onUpdate({ enabled })}
-            ariaLabel={profile.enabled ? `Disable ${displayName(profile)}` : `Enable ${displayName(profile)}`}
-          />
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="hidden min-w-0 items-center gap-2 lg:flex">
+            <SummaryChip>{displayProvider(profile)}</SummaryChip>
+            <SummaryChip className="max-w-[136px]">{displayModel(profile)}</SummaryChip>
+            <SummaryChip>{displayPermissionPolicy(profile.permissionPolicy)}</SummaryChip>
+          </div>
+          <div
+            className="flex items-center gap-2"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            role="presentation"
+          >
+            <span className="hidden text-[12px] text-[var(--text-muted)] xl:inline">Enabled</span>
+            <SettingsToggle
+              checked={profile.enabled}
+              onChange={(enabled) => onUpdate({ enabled })}
+              ariaLabel={profile.enabled ? `Disable ${displayName(profile)}` : `Enable ${displayName(profile)}`}
+            />
+          </div>
           <ChevronDown
             className={`h-4 w-4 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`}
             aria-hidden="true"
@@ -298,7 +377,7 @@ function AgentProfileRow({
       </div>
 
       {expanded ? (
-        <div className="border-t border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4">
+        <div className="border-t border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-3">
           <AgentProfileForm
             profile={profile}
             onUpdate={onUpdate}
@@ -307,6 +386,23 @@ function AgentProfileRow({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function SummaryChip({
+  children,
+  className = '',
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <span
+      className={`inline-flex h-7 min-w-[76px] items-center justify-center truncate rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 text-[12px] text-[var(--text-secondary)] ${className}`}
+      title={typeof children === 'string' ? children : undefined}
+    >
+      {children}
+    </span>
   );
 }
 
@@ -537,16 +633,16 @@ function AgentProfileForm({
   };
 
   return (
-    <div className="space-y-5">
-      <FormSection title="Identity">
-        <FormField label="Avatar">
-          <AvatarPicker
-            profile={profile}
-            onChange={(key) => onUpdate({ avatar: { type: 'asset', key } })}
-          />
-        </FormField>
+    <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-primary)]">
+      <div className="grid min-h-[300px] lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+        <FormSection title="Identity" icon={<User className="h-3.5 w-3.5" />}>
+          <FormField label="Avatar">
+            <AvatarPicker
+              profile={profile}
+              onChange={(key) => onUpdate({ avatar: { type: 'asset', key } })}
+            />
+          </FormField>
 
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <FormField label="Name">
             <input
               value={profile.name}
@@ -561,28 +657,31 @@ function AgentProfileForm({
               className={FIELD_CONTROL_CLASS}
             />
           </FormField>
-        </div>
 
-        <FormField label="Description">
-          <textarea
-            value={profile.description}
-            onChange={(event) => onUpdate({ description: event.target.value })}
-            rows={3}
-            className={TEXTAREA_CONTROL_CLASS}
-          />
-        </FormField>
-        <FormField label="Instructions">
-          <textarea
-            value={profile.instructions}
-            onChange={(event) => onUpdate({ instructions: event.target.value })}
-            rows={5}
-            className={TEXTAREA_CONTROL_CLASS}
-          />
-        </FormField>
-      </FormSection>
+          <FormField label="Description">
+            <textarea
+              value={profile.description}
+              onChange={(event) => onUpdate({ description: event.target.value })}
+              rows={3}
+              className={TEXTAREA_CONTROL_CLASS}
+            />
+          </FormField>
+          <FormField label="Instructions">
+            <textarea
+              value={profile.instructions}
+              onChange={(event) => onUpdate({ instructions: event.target.value })}
+              rows={5}
+              className={TEXTAREA_CONTROL_CLASS}
+            />
+          </FormField>
+        </FormSection>
 
-      <FormSection title="Runtime">
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <FormSection
+          title="Runtime"
+          icon={<Code2 className="h-3.5 w-3.5" />}
+          className="border-t border-[var(--border)] lg:border-l lg:border-t-0"
+        >
+        <div className="space-y-3">
           <FormField label="Provider">
             <select
               value={profile.provider}
@@ -703,51 +802,49 @@ function AgentProfileForm({
           </FormField>
         ) : null}
 
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          {profile.provider === 'claude' || profile.provider === 'codex' || (profile.provider === 'aegis' && isAegisDeepSeekV4Model(selectedModel.model)) ? (
-            <FormField label="Reasoning">
-              <select
-                value={profile.provider === 'aegis' ? profile.reasoningEffort || 'high' : profile.reasoningEffort || ''}
-                onChange={(event) => (
-                  onUpdate({ reasoningEffort: event.target.value ? event.target.value as AgentReasoningEffort : undefined })
-                )}
-                className={FIELD_CONTROL_CLASS}
-              >
-                {profile.provider === 'aegis' ? null : <option value="">Default</option>}
-                {(profile.provider === 'aegis'
-                  ? AEGIS_REASONING_OPTIONS
-                  : profile.provider === 'codex'
-                    ? CODEX_REASONING_OPTIONS
-                    : CLAUDE_REASONING_OPTIONS
-                ).map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-          ) : null}
-          <FormField label="Permission policy">
+        {profile.provider === 'claude' || profile.provider === 'codex' || (profile.provider === 'aegis' && isAegisDeepSeekV4Model(selectedModel.model)) ? (
+          <FormField label="Reasoning">
             <select
-              value={profile.permissionPolicy}
+              value={profile.provider === 'aegis' ? profile.reasoningEffort || 'high' : profile.reasoningEffort || ''}
               onChange={(event) => (
-                onUpdate({ permissionPolicy: event.target.value as AgentPermissionPolicy })
+                onUpdate({ reasoningEffort: event.target.value ? event.target.value as AgentReasoningEffort : undefined })
               )}
               className={FIELD_CONTROL_CLASS}
             >
-              <option value="ask">Ask</option>
-              <option value="readOnly">Read only</option>
-              <option value="fullAccess">Full access</option>
+              {profile.provider === 'aegis' ? null : <option value="">Default</option>}
+              {(profile.provider === 'aegis'
+                ? AEGIS_REASONING_OPTIONS
+                : profile.provider === 'codex'
+                  ? CODEX_REASONING_OPTIONS
+                  : CLAUDE_REASONING_OPTIONS
+              ).map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </FormField>
-        </div>
+        ) : null}
+        <FormField label="Permission policy">
+          <select
+            value={profile.permissionPolicy}
+            onChange={(event) => (
+              onUpdate({ permissionPolicy: event.target.value as AgentPermissionPolicy })
+            )}
+            className={FIELD_CONTROL_CLASS}
+          >
+            <option value="ask">Ask</option>
+            <option value="readOnly">Read only</option>
+            <option value="fullAccess">Full access</option>
+          </select>
+        </FormField>
 
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <FormField label="Color">
+        <FormField label="Color">
+          <div className="relative">
             <select
               value={profile.color}
               onChange={(event) => onUpdate({ color: event.target.value as AgentProfileColor })}
-              className={FIELD_CONTROL_CLASS}
+              className={`${FIELD_CONTROL_CLASS} pl-8`}
             >
               {AGENT_COLORS.map((color) => (
                 <option key={color.value} value={color.value}>
@@ -755,47 +852,57 @@ function AgentProfileForm({
                 </option>
               ))}
             </select>
-          </FormField>
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2">
-            <div className="min-w-0">
-              <div className="text-[12.5px] font-medium text-[var(--text-primary)]">Can delegate</div>
-              <div className="mt-0.5 text-[11.5px] leading-4 text-[var(--text-muted)]">
-                Allow one visible round of work to other project agents.
-              </div>
-            </div>
+            <Palette className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
+          </div>
+        </FormField>
+        <FormField label="Can delegate">
+          <div className="grid min-h-8 grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
             <SettingsToggle
               checked={profile.canDelegate === true}
               onChange={(canDelegate) => onUpdate({ canDelegate })}
               ariaLabel="Allow agent delegation"
             />
+            <div className="text-[11.5px] leading-4 text-[var(--text-muted)]">
+              Allow this agent to delegate work to others.
+            </div>
           </div>
-        </div>
-      </FormSection>
+        </FormField>
+        </FormSection>
+      </div>
 
-      <button
-        type="button"
-        onClick={onDelete}
-        className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[12.5px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-        Delete profile
-      </button>
+      <div className="border-t border-[var(--border)] px-4 py-3">
+        <button
+          type="button"
+          onClick={onDelete}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[12.5px] font-medium text-red-600 transition-colors hover:bg-red-500/10 dark:text-red-400"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Delete profile
+        </button>
+      </div>
     </div>
   );
 }
 
 function FormSection({
   title,
+  icon,
   children,
+  className = '',
 }: {
   title: string;
+  icon?: React.ReactNode;
   children: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <div>
-      <div className="mb-2 text-[12px] font-medium text-[var(--text-muted)]">{title}</div>
+    <section className={`p-4 ${className}`}>
+      <div className="mb-3 flex items-center gap-2 text-[13px] font-semibold text-[var(--text-primary)]">
+        {icon ? <span className="text-[var(--text-muted)]">{icon}</span> : null}
+        <span>{title}</span>
+      </div>
       <div className="space-y-3">{children}</div>
-    </div>
+    </section>
   );
 }
 
@@ -807,9 +914,9 @@ function FormField({
   children: React.ReactNode;
 }) {
   return (
-    <div>
-      <div className="mb-1 text-[12px] font-medium text-[var(--text-muted)]">{label}</div>
-      {children}
+    <div className="grid gap-2 sm:grid-cols-[96px_minmax(0,1fr)] sm:items-start">
+      <div className="pt-1.5 text-[12px] font-medium text-[var(--text-secondary)]">{label}</div>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }

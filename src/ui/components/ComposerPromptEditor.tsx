@@ -1,11 +1,13 @@
 import {
   type ClipboardEvent,
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from 'react';
 import { getFileTypeIconUrl } from './FileTypeIcon';
 import { extractProjectFileMentions } from '../utils/project-file-mentions';
@@ -407,11 +409,87 @@ export const ComposerPromptEditor = forwardRef<
     agentMentionLabels?: Record<string, string>;
   }
 >(function ComposerPromptEditor(props, ref) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const caretFrameRef = useRef<number | null>(null);
+  const isComposingRef = useRef(false);
   const isApplyingSelectionRef = useRef(false);
   const lastRenderedSlashContextRef = useRef<SlashTokenContext | undefined>(undefined);
   const lastRenderedAgentMentionLabelsRef = useRef<Record<string, string> | undefined>(undefined);
   const displayHasValue = useMemo(() => props.value.length > 0, [props.value]);
+  const [fakeCaret, setFakeCaret] = useState({
+    visible: false,
+    x: 0,
+    y: 0,
+    height: 18,
+    composing: false,
+  });
+
+  const syncFakeCaret = useCallback(() => {
+    if (caretFrameRef.current !== null) {
+      cancelAnimationFrame(caretFrameRef.current);
+    }
+
+    caretFrameRef.current = requestAnimationFrame(() => {
+      caretFrameRef.current = null;
+
+      const editor = editorRef.current;
+      const container = containerRef.current;
+      const selection = window.getSelection();
+
+      if (
+        props.disabled ||
+        !editor ||
+        !container ||
+        document.activeElement !== editor ||
+        !selection ||
+        selection.rangeCount === 0 ||
+        !selection.isCollapsed
+      ) {
+        setFakeCaret((current) =>
+          current.visible ? { ...current, visible: false, composing: false } : current
+        );
+        return;
+      }
+
+      const range = selection.getRangeAt(0);
+      if (!editor.contains(range.startContainer)) {
+        setFakeCaret((current) =>
+          current.visible ? { ...current, visible: false, composing: false } : current
+        );
+        return;
+      }
+
+      const editorStyles = window.getComputedStyle(editor);
+      const containerRect = container.getBoundingClientRect();
+      const editorRect = editor.getBoundingClientRect();
+      const rangeRect = range.getBoundingClientRect();
+      const lineHeight = Number.parseFloat(editorStyles.lineHeight);
+      const fontSize = Number.parseFloat(editorStyles.fontSize);
+      const paddingLeft = Number.parseFloat(editorStyles.paddingLeft);
+      const paddingTop = Number.parseFloat(editorStyles.paddingTop);
+      const fallbackHeight = Number.isFinite(lineHeight) ? lineHeight : fontSize * 1.35;
+      const hasRangeRect = rangeRect.width > 0 || rangeRect.height > 0;
+
+      const x = hasRangeRect
+        ? rangeRect.left - containerRect.left
+        : editorRect.left - containerRect.left + paddingLeft;
+      const y = hasRangeRect
+        ? rangeRect.top - containerRect.top
+        : editorRect.top - containerRect.top + paddingTop;
+      const height = hasRangeRect
+        ? Math.max(rangeRect.height, fallbackHeight * 0.85)
+        : fallbackHeight;
+
+      setFakeCaret({
+        visible: true,
+        x,
+        y,
+        height,
+        composing: isComposingRef.current,
+      });
+    });
+  }, [props.disabled]);
 
   useImperativeHandle(
     ref,
@@ -422,18 +500,20 @@ export const ComposerPromptEditor = forwardRef<
       setCursorIndex: (index: number) => {
         if (editorRef.current) {
           setCursorIndex(editorRef.current, index);
+          syncFakeCaret();
         }
       },
     }),
-    []
+    [syncFakeCaret]
   );
 
   useEffect(() => {
     if (props.autoFocus && editorRef.current) {
       editorRef.current.focus();
       setCursorIndex(editorRef.current, props.cursorIndex);
+      syncFakeCaret();
     }
-  }, [props.autoFocus, props.cursorIndex]);
+  }, [props.autoFocus, props.cursorIndex, syncFakeCaret]);
 
   useLayoutEffect(() => {
     if (!editorRef.current) {
@@ -461,8 +541,29 @@ export const ComposerPromptEditor = forwardRef<
     setCursorIndex(editorRef.current, props.cursorIndex);
     queueMicrotask(() => {
       isApplyingSelectionRef.current = false;
+      syncFakeCaret();
     });
-  }, [props.agentMentionLabels, props.cursorIndex, props.value, props.slashContext]);
+  }, [props.agentMentionLabels, props.cursorIndex, props.value, props.slashContext, syncFakeCaret]);
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      syncFakeCaret();
+    };
+    const handleResize = () => {
+      syncFakeCaret();
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      window.removeEventListener('resize', handleResize);
+      if (caretFrameRef.current !== null) {
+        cancelAnimationFrame(caretFrameRef.current);
+      }
+    };
+  }, [syncFakeCaret]);
 
   const handleInput = () => {
     if (!editorRef.current || isApplyingSelectionRef.current) {
@@ -472,6 +573,7 @@ export const ComposerPromptEditor = forwardRef<
     const nextValue = serializeEditorValue(editorRef.current);
     const nextCursor = getCursorIndex(editorRef.current);
     props.onChange(nextValue, nextCursor);
+    syncFakeCaret();
   };
 
   const handleSelect = () => {
@@ -483,11 +585,13 @@ export const ComposerPromptEditor = forwardRef<
     if (nextCursor !== props.cursorIndex) {
       props.onChange(props.value, nextCursor);
     }
+    syncFakeCaret();
   };
 
   const insertTextAtCursor = (text: string) => {
     const next = replaceRange(props.value, props.cursorIndex, props.cursorIndex, text);
     props.onChange(next.value, next.cursorIndex);
+    syncFakeCaret();
   };
 
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
@@ -551,12 +655,24 @@ export const ComposerPromptEditor = forwardRef<
   };
 
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       {!displayHasValue && props.placeholder ? (
         <div className="pointer-events-none absolute inset-x-5 top-4 text-[14px] text-[var(--text-muted)]">
           {props.placeholder}
         </div>
       ) : null}
+      <div
+        aria-hidden="true"
+        className={[
+          'composer-fake-caret',
+          fakeCaret.visible ? 'composer-fake-caret--visible' : '',
+          fakeCaret.composing ? 'composer-fake-caret--composing' : '',
+        ].join(' ')}
+        style={{
+          transform: `translate3d(${fakeCaret.x}px, ${fakeCaret.y}px, 0)`,
+          height: `${fakeCaret.height}px`,
+        }}
+      />
       <div
         ref={editorRef}
         contentEditable={!props.disabled}
@@ -564,13 +680,14 @@ export const ComposerPromptEditor = forwardRef<
         role="textbox"
         aria-multiline="true"
         spellCheck={false}
-        className={`${props.className ?? ''} whitespace-pre-wrap break-words [overflow-wrap:anywhere]`}
+        className={`${props.className ?? ''} whitespace-pre-wrap break-words caret-transparent [overflow-wrap:anywhere]`}
         onInput={handleInput}
         onPaste={handlePaste}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && event.shiftKey) {
             event.preventDefault();
             insertTextAtCursor('\n');
+            syncFakeCaret();
             return;
           }
 
@@ -585,6 +702,7 @@ export const ComposerPromptEditor = forwardRef<
             if (mentionRemoval) {
               event.preventDefault();
               props.onChange(mentionRemoval.value, mentionRemoval.cursorIndex);
+              syncFakeCaret();
               return;
             }
 
@@ -598,26 +716,38 @@ export const ComposerPromptEditor = forwardRef<
               if (slashRemoval) {
                 event.preventDefault();
                 props.onChange(slashRemoval.value, slashRemoval.cursorIndex);
+                syncFakeCaret();
                 return;
               }
             }
           }
 
           props.onKeyDown?.(event);
+          syncFakeCaret();
         }}
         onMouseUp={handleSelect}
         onKeyUp={handleSelect}
         onFocus={() => {
           if (editorRef.current) {
             setCursorIndex(editorRef.current, props.cursorIndex);
+            syncFakeCaret();
           }
         }}
+        onBlur={() => {
+          setFakeCaret((current) =>
+            current.visible ? { ...current, visible: false, composing: false } : current
+          );
+        }}
         onCompositionStart={() => {
+          isComposingRef.current = true;
           props.onCompositionStart?.();
+          syncFakeCaret();
         }}
         onCompositionEnd={() => {
+          isComposingRef.current = false;
           props.onCompositionEnd?.();
           handleInput();
+          syncFakeCaret();
         }}
       />
     </div>

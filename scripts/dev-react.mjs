@@ -16,49 +16,6 @@ function spawnVite(args, extraEnv = {}) {
   return child;
 }
 
-function runCommand(command, args) {
-  return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk) => {
-      stdout += String(chunk);
-    });
-    child.stderr.on('data', (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on('error', () => resolve({ ok: false, stdout: '', stderr: '' }));
-    child.on('close', (code) => {
-      resolve({ ok: code === 0, stdout, stderr });
-    });
-  });
-}
-
-async function killPortOwner(port) {
-  const lookup = await runCommand('lsof', ['-ti', `tcp:${port}`]);
-  if (!lookup.ok) {
-    return false;
-  }
-
-  const pids = lookup.stdout
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((pid) => pid !== String(process.pid));
-
-  if (pids.length === 0) {
-    return false;
-  }
-
-  const killResult = await runCommand('kill', ['-9', ...pids]);
-  if (!killResult.ok) {
-    return false;
-  }
-
-  console.warn(`[dev:react] Freed occupied port ${port} by terminating PID(s): ${pids.join(', ')}`);
-  return true;
-}
-
 function startBuildWatch() {
   console.warn(
     `\n[dev:react] Falling back to \`vite build --watch\` (dev server port bind blocked).`
@@ -73,7 +30,6 @@ function startBuildWatch() {
 
 let sawListenPermissionError = false;
 let sawAddressInUseError = false;
-let retriedAfterAddressInUse = false;
 
 function runDevServer() {
   sawListenPermissionError = false;
@@ -101,13 +57,10 @@ function runDevServer() {
       return;
     }
 
-    if (sawAddressInUseError && !retriedAfterAddressInUse) {
-      retriedAfterAddressInUse = true;
-      const cleared = await killPortOwner(DEV_SERVER_PORT);
-      if (cleared) {
-        runDevServer();
-        return;
-      }
+    if (sawAddressInUseError) {
+      console.error(
+        `[dev:react] Port ${DEV_SERVER_PORT} is already in use. Reuse the existing server or stop it explicitly before starting a new one.`
+      );
     }
 
     process.exit(code ?? 1);

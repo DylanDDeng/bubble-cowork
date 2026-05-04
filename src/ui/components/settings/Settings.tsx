@@ -120,7 +120,11 @@ export function Settings() {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-10 py-8">
+        <div
+          className={`mx-auto px-10 py-8 ${
+            resolvedActiveSettingsTab === 'agents' ? 'max-w-[1180px]' : 'max-w-3xl'
+          }`}
+        >
           <header className="mb-6">
             <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
               {activeMeta.title}

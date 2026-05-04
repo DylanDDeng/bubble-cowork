@@ -259,11 +259,7 @@ function createEntryFromTrace(
   const display = deriveReadableToolDisplay(block.name, block.input, status);
   const summary = formatReadableToolSummary(display) || block.name;
   const kind = classifyToolUse(block.name, block.input);
-  const detail = result?.is_error
-    ? typeof result.content === 'string'
-      ? result.content
-      : safeJsonStringify(result.content)
-    : undefined;
+  const detail = result?.is_error ? getToolResultOutputContent(result) : undefined;
 
   if (block.name === 'AskUserQuestion') {
     return {
@@ -582,6 +578,19 @@ export function getToolResultDiffContent(result: ToolResultBlock | undefined): s
   const payload = parseToolResultPayload(result);
   const metadata = isRecord(payload?.metadata) ? payload.metadata : null;
   return getString(metadata?.diff);
+}
+
+export function getToolResultOutputContent(result: ToolResultBlock | undefined): string {
+  if (!result) {
+    return '';
+  }
+
+  const rawContent =
+    typeof result.content === 'string'
+      ? result.content
+      : safeJsonStringify(result.content);
+  const payload = parseToolResultPayload(result);
+  return getString(payload?.output) || rawContent;
 }
 
 export function getToolInputFilePath(input: Record<string, unknown>): string | null {

@@ -1,7 +1,27 @@
 import { constants } from 'fs';
 import { access, readFile, writeFile } from 'fs/promises';
+import { createUnifiedDiffHunks, formatUnifiedDiffHunks } from '../../../../shared/unified-diff';
 import type { BuiltinApprovalController, BuiltinToolRegistryEntry } from '../types';
 import { asString, resolveInsideCwd } from './common';
+
+function normalizeDiffPath(filePath: string): string {
+  return filePath.replaceAll('\\', '/');
+}
+
+function createEditUnifiedDiff(filePath: string, oldText: string, newText: string): string {
+  const hunks = createUnifiedDiffHunks(oldText, newText, { contextLines: 3 });
+  const body = formatUnifiedDiffHunks(hunks);
+  if (!body.trim()) {
+    return '';
+  }
+
+  const normalized = normalizeDiffPath(filePath);
+  return [
+    `--- a/${normalized}`,
+    `+++ b/${normalized}`,
+    body,
+  ].join('\n');
+}
 
 export function createEditTool(cwd: string, approval?: BuiltinApprovalController): BuiltinToolRegistryEntry {
   return {
@@ -68,9 +88,17 @@ export function createEditTool(cwd: string, approval?: BuiltinApprovalController
       if (decision && decision.behavior !== 'allow') {
         return { content: decision.message || 'File edit was denied by the user.', isError: true, status: 'blocked' };
       }
+      const diff = createEditUnifiedDiff(file.rel, original, next);
       await writeFile(file.path, next, 'utf-8');
-      return { content: `Edited ${file.rel} with ${edits.length} replacement(s).`, status: 'success', metadata: { kind: 'edit', path: file.path } };
+      return {
+        content: `Edited ${file.rel} with ${edits.length} replacement(s).`,
+        status: 'success',
+        metadata: {
+          kind: 'edit',
+          path: file.path,
+          ...(diff ? { diff } : {}),
+        },
+      };
     },
   };
 }
-

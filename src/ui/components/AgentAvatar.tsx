@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import notionAvatar01 from '../assets/agent-avatars/notion-avatar-01.svg';
 import notionAvatar02 from '../assets/agent-avatars/notion-avatar-02.svg';
 import notionAvatar03 from '../assets/agent-avatars/notion-avatar-03.svg';
@@ -57,6 +58,11 @@ export function AgentAvatar({
   const resolvedAvatarKey = avatarKey || avatar?.key || profile?.avatar.key || 'notion-avatar-04';
   const resolvedLabel = label || profile?.name || 'Agent avatar';
   const src = AGENT_AVATAR_ASSETS[resolvedAvatarKey] || notionAvatar04;
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [src]);
 
   return (
     <span
@@ -66,10 +72,11 @@ export function AgentAvatar({
       className={`inline-flex flex-shrink-0 items-center justify-center overflow-hidden rounded-md border border-[var(--border)] bg-[var(--bg-primary)] ${AGENT_AVATAR_SIZE_CLASSES[size]} ${className}`}
     >
       <img
-        src={src}
+        src={imageFailed ? notionAvatar04 : src}
         alt=""
         className="h-full w-full object-cover"
         draggable={false}
+        onError={() => setImageFailed(true)}
       />
     </span>
   );

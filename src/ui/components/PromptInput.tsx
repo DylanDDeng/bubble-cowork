@@ -276,6 +276,15 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
   const runtimeCodexReasoningEffort = agentRuntime?.codexReasoningEffort;
   const runtimeOpencodePermissionMode = agentRuntime?.opencodePermissionMode;
   const runtimeAegisPermissionMode = agentRuntime?.aegisPermissionMode;
+  const resetComposer = useCallback(() => {
+    setPrompt('');
+    setCursorIndex(0);
+    setAttachments([]);
+    window.requestAnimationFrame(() => {
+      editorRef.current?.setCursorIndex(0);
+    });
+  }, []);
+
   const handleAutoSubmitClaudeCommand = (nextPrompt: string) => {
     if (!runtimeAgentProfile || !agentRuntime) {
       setPrompt(nextPrompt);
@@ -335,8 +344,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
         routedAgentId: runtimeAgentProfile?.id || undefined,
       },
     });
-    setPrompt('');
-    setAttachments([]);
+    resetComposer();
   };
   const skillAutocomplete = useComposerCapabilityMenu({
     enabled: Boolean(activeSession),
@@ -694,8 +702,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           availableAgentTurns: projectAgentRuntimePayloads,
         },
       });
-      setPrompt('');
-      setAttachments([]);
+      resetComposer();
     } else if (targetSessionId && activeSession) {
       // 继续现有会话
       sendEvent({
@@ -739,8 +746,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           availableAgentTurns: projectAgentRuntimePayloads,
         },
       });
-      setPrompt('');
-      setAttachments([]);
+      resetComposer();
     } else {
       // 没有活动会话，显示新建视图
       setShowNewSession(true);

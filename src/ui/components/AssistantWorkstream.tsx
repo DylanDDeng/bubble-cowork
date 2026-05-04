@@ -15,6 +15,7 @@ import {
   getToolInputNewText,
   getToolInputOldText,
   getToolResultDiffContent,
+  getToolResultOutputContent,
   safeJsonStringify,
 } from '../utils/workstream';
 import {
@@ -376,12 +377,7 @@ function ToolEntryDetail({
   const [showOutput, setShowOutput] = useState(false);
   const inputRecord = isRecord(entry.block.input) ? getPublicToolInput(entry.block.input) : {};
   const hasArgs = Object.keys(inputRecord).length > 0;
-  const contentStr =
-    entry.result?.content != null
-      ? typeof entry.result.content === 'string'
-        ? entry.result.content
-        : safeJsonStringify(entry.result.content)
-      : '';
+  const contentStr = getToolResultOutputContent(entry.result);
   const hasOutput = contentStr.length > 0;
   const outputLines = hasOutput ? contentStr.split('\n').length : 0;
   const displayContentStr = truncateWithNotice(contentStr, MAX_TOOL_OUTPUT_CHARS);
