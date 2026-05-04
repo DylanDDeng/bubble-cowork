@@ -737,10 +737,11 @@ export function ChatPane({
               )}
 
               {/* Single source of "Working for Xs..." footer during streaming.
-                  If the active timeline row is work, that row already renders
-                  its own footer, so we suppress this one. */}
+                  If the active timeline row or live streaming workstream is
+                  present, that surface already renders its own footer. */}
               {(() => {
                 if (session.status !== 'running') return null;
+                if (streamingWorkstreamModel) return null;
                 const last = timelineItems[timelineItems.length - 1];
                 if (last && last.type === 'work' && last.active) return null;
                 if (turnPhase === 'complete') return null;
