@@ -176,11 +176,11 @@ function SettingsNavItem({
         onClick={onClick}
         className={`group flex w-full items-center gap-2.5 rounded-[var(--radius-lg)] px-3 py-2 text-left text-[13px] transition-colors ${
           active
-            ? 'bg-[var(--sidebar-item-active)] text-[var(--accent)]'
+            ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
         }`}
       >
-        <span className={`flex h-4 w-4 flex-shrink-0 items-center justify-center ${active ? 'text-[var(--accent)]' : 'text-[var(--text-muted)] group-hover:text-[var(--text-primary)]'}`}>
+        <span className={`flex h-4 w-4 flex-shrink-0 items-center justify-center ${active ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)] group-hover:text-[var(--text-primary)]'}`}>
           {icon}
         </span>
         <span className="font-medium">{label}</span>

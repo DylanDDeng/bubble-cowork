@@ -164,7 +164,7 @@ export function SegmentedControlItem({
   );
 }
 
-// iOS-style pill toggle. Green when on, neutral when off.
+// iOS-style pill toggle. Accent when on, neutral when off.
 export function SettingsToggle({
   checked,
   onChange,
@@ -185,7 +185,7 @@ export function SettingsToggle({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-[22px] w-[38px] flex-shrink-0 items-center rounded-full border border-transparent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40 disabled:opacity-50 ${
-        checked ? 'bg-[var(--success)]' : 'bg-[var(--border)]'
+        checked ? 'bg-[var(--accent)]' : 'bg-[var(--border)]'
       }`}
     >
       <span

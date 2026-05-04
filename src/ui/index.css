@@ -67,7 +67,7 @@
 
   /* Sidebar interaction */
   --sidebar-item-hover: #EEEEEE;
-  --sidebar-item-active: rgba(79, 70, 229, 0.08);
+  --sidebar-item-active: rgba(17, 24, 39, 0.08);
   --sidebar-item-border: rgba(17, 24, 39, 0.08);
   --sidebar-segment-bg: #E0E2E5;
   --sidebar-segment-active: #F3F4F6;
@@ -163,7 +163,7 @@
 
   /* Sidebar interaction */
   --sidebar-item-hover: rgba(255, 255, 255, 0.08);
-  --sidebar-item-active: rgba(129, 140, 248, 0.14);
+  --sidebar-item-active: rgba(255, 255, 255, 0.13);
   --sidebar-item-border: rgba(255, 255, 255, 0.12);
   --sidebar-segment-bg: #30343B;
   --sidebar-segment-active: #454B55;

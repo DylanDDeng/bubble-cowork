@@ -840,7 +840,7 @@ function SessionItem({
     <div
       className={`group/session relative cursor-pointer rounded-lg py-1.5 pl-8 pr-3 transition-colors duration-150 ${
         isActive
-          ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]'
+          ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
           : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
       }`}
       style={{

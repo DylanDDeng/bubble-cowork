@@ -777,7 +777,7 @@ function buildThemeVariables(
     '--tree-file-neutral-fg': textSecondary,
     '--preview-surface': panel,
     '--sidebar-item-hover': variant === 'light' ? 'rgba(17, 24, 39, 0.05)' : 'rgba(255, 255, 255, 0.08)',
-    '--sidebar-item-active': accentLight,
+    '--sidebar-item-active': variant === 'light' ? 'rgba(17, 24, 39, 0.08)' : 'rgba(255, 255, 255, 0.13)',
     '--sidebar-item-border': borderLight,
     '--popover-bg': popoverBackground,
     '--popover-border': borderLight,
