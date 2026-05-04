@@ -425,6 +425,64 @@ export const ComposerPromptEditor = forwardRef<
     composing: false,
   });
 
+  const updateFakeCaret = useCallback(() => {
+    const editor = editorRef.current;
+    const container = containerRef.current;
+    const selection = window.getSelection();
+
+    if (
+      props.disabled ||
+      !editor ||
+      !container ||
+      document.activeElement !== editor ||
+      !selection ||
+      selection.rangeCount === 0 ||
+      !selection.isCollapsed
+    ) {
+      setFakeCaret((current) =>
+        current.visible ? { ...current, visible: false, composing: false } : current
+      );
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    if (!editor.contains(range.startContainer)) {
+      setFakeCaret((current) =>
+        current.visible ? { ...current, visible: false, composing: false } : current
+      );
+      return;
+    }
+
+    const editorStyles = window.getComputedStyle(editor);
+    const containerRect = container.getBoundingClientRect();
+    const editorRect = editor.getBoundingClientRect();
+    const rangeRect = range.getBoundingClientRect();
+    const lineHeight = Number.parseFloat(editorStyles.lineHeight);
+    const fontSize = Number.parseFloat(editorStyles.fontSize);
+    const paddingLeft = Number.parseFloat(editorStyles.paddingLeft);
+    const paddingTop = Number.parseFloat(editorStyles.paddingTop);
+    const fallbackHeight = Number.isFinite(lineHeight) ? lineHeight : fontSize * 1.35;
+    const hasRangeRect = rangeRect.width > 0 || rangeRect.height > 0;
+
+    const x = hasRangeRect
+      ? rangeRect.left - containerRect.left
+      : editorRect.left - containerRect.left + paddingLeft;
+    const y = hasRangeRect
+      ? rangeRect.top - containerRect.top
+      : editorRect.top - containerRect.top + paddingTop;
+    const height = hasRangeRect
+      ? Math.max(rangeRect.height, fallbackHeight * 0.85)
+      : fallbackHeight;
+
+    setFakeCaret({
+      visible: true,
+      x,
+      y,
+      height,
+      composing: isComposingRef.current,
+    });
+  }, [props.disabled]);
+
   const syncFakeCaret = useCallback(() => {
     if (caretFrameRef.current !== null) {
       cancelAnimationFrame(caretFrameRef.current);
@@ -432,64 +490,17 @@ export const ComposerPromptEditor = forwardRef<
 
     caretFrameRef.current = requestAnimationFrame(() => {
       caretFrameRef.current = null;
-
-      const editor = editorRef.current;
-      const container = containerRef.current;
-      const selection = window.getSelection();
-
-      if (
-        props.disabled ||
-        !editor ||
-        !container ||
-        document.activeElement !== editor ||
-        !selection ||
-        selection.rangeCount === 0 ||
-        !selection.isCollapsed
-      ) {
-        setFakeCaret((current) =>
-          current.visible ? { ...current, visible: false, composing: false } : current
-        );
-        return;
-      }
-
-      const range = selection.getRangeAt(0);
-      if (!editor.contains(range.startContainer)) {
-        setFakeCaret((current) =>
-          current.visible ? { ...current, visible: false, composing: false } : current
-        );
-        return;
-      }
-
-      const editorStyles = window.getComputedStyle(editor);
-      const containerRect = container.getBoundingClientRect();
-      const editorRect = editor.getBoundingClientRect();
-      const rangeRect = range.getBoundingClientRect();
-      const lineHeight = Number.parseFloat(editorStyles.lineHeight);
-      const fontSize = Number.parseFloat(editorStyles.fontSize);
-      const paddingLeft = Number.parseFloat(editorStyles.paddingLeft);
-      const paddingTop = Number.parseFloat(editorStyles.paddingTop);
-      const fallbackHeight = Number.isFinite(lineHeight) ? lineHeight : fontSize * 1.35;
-      const hasRangeRect = rangeRect.width > 0 || rangeRect.height > 0;
-
-      const x = hasRangeRect
-        ? rangeRect.left - containerRect.left
-        : editorRect.left - containerRect.left + paddingLeft;
-      const y = hasRangeRect
-        ? rangeRect.top - containerRect.top
-        : editorRect.top - containerRect.top + paddingTop;
-      const height = hasRangeRect
-        ? Math.max(rangeRect.height, fallbackHeight * 0.85)
-        : fallbackHeight;
-
-      setFakeCaret({
-        visible: true,
-        x,
-        y,
-        height,
-        composing: isComposingRef.current,
-      });
+      updateFakeCaret();
     });
-  }, [props.disabled]);
+  }, [updateFakeCaret]);
+
+  const syncFakeCaretNow = useCallback(() => {
+    if (caretFrameRef.current !== null) {
+      cancelAnimationFrame(caretFrameRef.current);
+      caretFrameRef.current = null;
+    }
+    updateFakeCaret();
+  }, [updateFakeCaret]);
 
   useImperativeHandle(
     ref,
@@ -500,11 +511,11 @@ export const ComposerPromptEditor = forwardRef<
       setCursorIndex: (index: number) => {
         if (editorRef.current) {
           setCursorIndex(editorRef.current, index);
-          syncFakeCaret();
+          syncFakeCaretNow();
         }
       },
     }),
-    [syncFakeCaret]
+    [syncFakeCaretNow]
   );
 
   useEffect(() => {

@@ -393,6 +393,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     setCursorIndex(0);
     setAttachments([]);
     window.requestAnimationFrame(() => {
+      editorRef.current?.focus();
       editorRef.current?.setCursorIndex(0);
     });
   }, []);
@@ -1185,7 +1186,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                   ? `${composerBlocker.title}. ${composerBlocker.description}`
                   : 'Sending to the agent...'
             }
-            disabled={isBusy}
+            disabled={pendingStart}
             className="w-full bg-transparent px-4 pt-3 pb-1 text-[14px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50"
             autoFocus={false}
           />

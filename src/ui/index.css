@@ -255,7 +255,6 @@ body {
   opacity: 0;
   pointer-events: none;
   transition:
-    transform 120ms cubic-bezier(0.2, 0.8, 0.2, 1),
     height 120ms cubic-bezier(0.2, 0.8, 0.2, 1),
     opacity 90ms ease;
 }
