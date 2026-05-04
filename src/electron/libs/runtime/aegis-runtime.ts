@@ -108,6 +108,7 @@ interface BuiltinModelSelection {
   baseUrl: string;
   apiKey: string;
   temperature: number;
+  reasoningEffort?: 'high' | 'max';
   maxOutputTokens?: number;
 }
 
@@ -196,7 +197,7 @@ function buildProviderRequestExtras(selection: BuiltinModelSelection): {
     return {
       extraBody: {
         thinking: { type: 'enabled' },
-        reasoning_effort: 'high',
+        reasoning_effort: selection.reasoningEffort || 'high',
       },
     };
   }
@@ -238,7 +239,10 @@ function serializeMessagesForProvider(
   });
 }
 
-function resolveBuiltinSelection(model?: string | null): BuiltinModelSelection {
+function resolveBuiltinSelection(
+  model?: string | null,
+  reasoningEffort?: 'high' | 'max'
+): BuiltinModelSelection {
   const config = loadAegisBuiltInAgentConfig();
   const selection = resolveAegisBuiltInModel(
     model?.trim() ||
@@ -255,6 +259,7 @@ function resolveBuiltinSelection(model?: string | null): BuiltinModelSelection {
     baseUrl: getBuiltinBaseUrl(selection.providerId),
     apiKey: getBuiltinApiKey(selection.providerId),
     temperature: config.temperature,
+    reasoningEffort: reasoningEffort || 'high',
     maxOutputTokens: config.maxOutputTokens,
   };
 }
@@ -1156,7 +1161,10 @@ class AegisBuiltinAgentSession {
 
   constructor(private readonly options: RunnerOptions, private readonly abortController: AbortController) {
     this.currentCwd = options.session.cwd || process.cwd();
-    this.currentSelection = resolveBuiltinSelection(options.model || options.session.model);
+    this.currentSelection = resolveBuiltinSelection(
+      options.model || options.session.model,
+      options.aegisReasoningEffort
+    );
     this.permissionMode = normalizePermissionMode(options.aegisPermissionMode);
     this.memoryRoot = getAgentMemoryRoot(options.session);
     this.memoryAgentId = options.session.agent_id?.trim() || 'default';
@@ -1382,10 +1390,19 @@ class AegisBuiltinAgentSession {
     return { core, tools };
   }
 
-  async runTurn(prompt: string, attachments?: Attachment[], modelOverride?: string, permissionModeOverride?: AegisPermissionMode): Promise<void> {
+  async runTurn(
+    prompt: string,
+    attachments?: Attachment[],
+    modelOverride?: string,
+    permissionModeOverride?: AegisPermissionMode,
+    reasoningEffortOverride?: 'high' | 'max'
+  ): Promise<void> {
     const startedAt = Date.now();
     const cwd = this.options.session.cwd || process.cwd();
-    const selection = resolveBuiltinSelection(modelOverride || this.options.model || this.options.session.model);
+    const selection = resolveBuiltinSelection(
+      modelOverride || this.options.model || this.options.session.model,
+      reasoningEffortOverride || this.options.aegisReasoningEffort
+    );
     this.currentCwd = cwd;
     this.currentSelection = selection;
     if (permissionModeOverride) {
@@ -1440,7 +1457,13 @@ export const aegisRuntime: AgentRuntime = {
     const abortController = new AbortController();
     const session = new AegisBuiltinAgentSession(options, abortController);
 
-    session.runTurn(options.prompt, options.attachments, options.model, options.aegisPermissionMode).catch((error) => {
+    session.runTurn(
+      options.prompt,
+      options.attachments,
+      options.model,
+      options.aegisPermissionMode,
+      options.aegisReasoningEffort
+    ).catch((error) => {
       if (!abortController.signal.aborted) {
         options.onError?.(error instanceof Error ? error : new Error(String(error)));
       }
@@ -1450,7 +1473,13 @@ export const aegisRuntime: AgentRuntime = {
       abort: () => session.abort(),
       send: (prompt, attachments, model, _codexSkills, _codexMentions, sendOptions) => {
         if (abortController.signal.aborted) return;
-        session.runTurn(prompt, attachments, model, sendOptions?.aegisPermissionMode).catch((error) => {
+        session.runTurn(
+          prompt,
+          attachments,
+          model,
+          sendOptions?.aegisPermissionMode,
+          sendOptions?.aegisReasoningEffort
+        ).catch((error) => {
           if (!abortController.signal.aborted) {
             options.onError?.(error instanceof Error ? error : new Error(String(error)));
           }

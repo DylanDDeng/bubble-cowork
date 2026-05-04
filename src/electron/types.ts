@@ -111,6 +111,7 @@ export interface RunnerOptions {
   codexMentions?: import('../shared/types').ProviderInputReference[];
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
+  aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort;
   onMessage: (message: import('../shared/types').StreamMessage) => void;
   onError?: (error: Error) => void;
   onPermissionRequest: (
@@ -138,6 +139,7 @@ export interface RunnerHandle {
       codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
       codexFastMode?: boolean;
       aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
+      aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort;
     }
   ) => void;
 }

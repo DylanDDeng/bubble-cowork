@@ -167,6 +167,10 @@ function createDirectMessageDraftOptions(profile: AgentProfile): Parameters<type
       profile.provider === 'codex' && profile.reasoningEffort !== 'max'
         ? profile.reasoningEffort
         : undefined,
+    aegisReasoningEffort:
+      profile.provider === 'aegis' && (profile.reasoningEffort === 'high' || profile.reasoningEffort === 'max')
+        ? profile.reasoningEffort
+        : undefined,
     claudeAccessMode: isFullAccess ? 'fullAccess' : 'default',
     claudeExecutionMode: isReadOnly ? 'plan' : 'execute',
     codexExecutionMode: isReadOnly ? 'plan' : 'execute',
@@ -619,6 +623,7 @@ function createDraftSessionView(
     | 'codexFastMode'
     | 'opencodePermissionMode'
     | 'aegisPermissionMode'
+    | 'aegisReasoningEffort'
   >>
 ): SessionView {
   const now = Date.now();
@@ -647,6 +652,7 @@ function createDraftSessionView(
     codexFastMode: options?.codexFastMode,
     opencodePermissionMode: options?.opencodePermissionMode,
     aegisPermissionMode: options?.aegisPermissionMode,
+    aegisReasoningEffort: options?.aegisReasoningEffort,
     hiddenFromThreads: false,
     messages: [],
     hydrated: true,
@@ -2054,6 +2060,7 @@ function handleSessionList(
       codexFastMode: session.codexFastMode,
       opencodePermissionMode: session.opencodePermissionMode,
       aegisPermissionMode: session.aegisPermissionMode,
+      aegisReasoningEffort: session.aegisReasoningEffort,
       pinned: session.pinned || false,
       folderPath: session.folderPath || null,
       hiddenFromThreads: session.hiddenFromThreads === true,
@@ -2187,6 +2194,7 @@ function handleSessionStatus(
     codexFastMode,
     opencodePermissionMode,
     aegisPermissionMode,
+    aegisReasoningEffort,
     hiddenFromThreads,
     channelId,
   } = payload;
@@ -2256,6 +2264,10 @@ function handleSessionStatus(
             aegisPermissionMode !== undefined
               ? aegisPermissionMode
               : session.aegisPermissionMode,
+          aegisReasoningEffort:
+            aegisReasoningEffort !== undefined
+              ? aegisReasoningEffort
+              : session.aegisReasoningEffort,
           hiddenFromThreads:
             hiddenFromThreads !== undefined ? hiddenFromThreads : session.hiddenFromThreads,
           channelId:

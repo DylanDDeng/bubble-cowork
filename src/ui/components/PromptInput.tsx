@@ -127,6 +127,10 @@ function getAgentRuntime(profile: AgentProfile | null | undefined) {
       : isFullAccess
         ? 'fullAccess' as const
         : 'defaultPermissions' as const,
+    aegisReasoningEffort:
+      profile.provider === 'aegis' && (profile.reasoningEffort === 'high' || profile.reasoningEffort === 'max')
+        ? profile.reasoningEffort
+        : undefined,
   };
 }
 
@@ -180,6 +184,8 @@ function buildAgentRuntimePayload(
       runtime.provider === 'opencode' ? runtime.opencodePermissionMode : undefined,
     aegisPermissionMode:
       runtime.provider === 'aegis' ? runtime.aegisPermissionMode : undefined,
+    aegisReasoningEffort:
+      runtime.provider === 'aegis' ? runtime.aegisReasoningEffort : undefined,
   };
 }
 
@@ -320,6 +326,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
           runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
         aegisPermissionMode:
           runtimeProvider === 'aegis' ? runtimeAegisPermissionMode : undefined,
+        aegisReasoningEffort:
+          runtimeProvider === 'aegis' ? agentRuntime?.aegisReasoningEffort : undefined,
         routedAgentId: runtimeAgentProfile?.id || undefined,
       },
     });
@@ -672,6 +680,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
             runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
           aegisPermissionMode:
             runtimeProvider === 'aegis' ? runtimeAegisPermissionMode : undefined,
+          aegisReasoningEffort:
+            runtimeProvider === 'aegis' ? agentRuntime?.aegisReasoningEffort : undefined,
           routedAgentId: runtimeAgentProfile?.id || undefined,
           routedAgentTurns: projectRoutedAgentTurns,
           availableAgentTurns: projectAgentRuntimePayloads,
@@ -713,6 +723,8 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
             runtimeProvider === 'opencode' ? runtimeOpencodePermissionMode : undefined,
           aegisPermissionMode:
             runtimeProvider === 'aegis' ? runtimeAegisPermissionMode : undefined,
+          aegisReasoningEffort:
+            runtimeProvider === 'aegis' ? agentRuntime?.aegisReasoningEffort : undefined,
           routedAgentId: runtimeAgentProfile?.id || undefined,
           routedAgentTurns: projectRoutedAgentTurns,
           availableAgentTurns: projectAgentRuntimePayloads,

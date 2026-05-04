@@ -107,6 +107,7 @@ export type CodexPermissionMode = 'defaultPermissions' | 'fullAccess';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'fullAccess';
 export type AegisPermissionMode = 'defaultPermissions' | 'readOnly' | 'fullAccess';
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
+export type AegisBuiltInReasoningEffort = 'high' | 'max';
 export type PlanStepStatus = 'pending' | 'inProgress' | 'completed';
 
 export interface PlanStep {
@@ -588,6 +589,7 @@ export interface SessionStartPayload {
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
   aegisPermissionMode?: AegisPermissionMode;
+  aegisReasoningEffort?: AegisBuiltInReasoningEffort;
   routedAgentId?: string | null;
   routedAgentTurns?: RoutedAgentTurnPayload[];
   availableAgentTurns?: RoutedAgentRuntimePayload[];
@@ -615,6 +617,7 @@ export interface SessionContinuePayload {
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
   aegisPermissionMode?: AegisPermissionMode;
+  aegisReasoningEffort?: AegisBuiltInReasoningEffort;
   routedAgentId?: string | null;
   routedAgentTurns?: RoutedAgentTurnPayload[];
   availableAgentTurns?: RoutedAgentRuntimePayload[];
@@ -649,6 +652,7 @@ export interface RoutedAgentRuntimePayload {
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
   aegisPermissionMode?: AegisPermissionMode;
+  aegisReasoningEffort?: AegisBuiltInReasoningEffort;
 }
 
 export interface RoutedAgentTurnPayload extends RoutedAgentRuntimePayload {
@@ -682,6 +686,7 @@ export interface SessionInfo {
   codexFastMode?: boolean;
   opencodePermissionMode?: OpenCodePermissionMode;
   aegisPermissionMode?: AegisPermissionMode;
+  aegisReasoningEffort?: AegisBuiltInReasoningEffort;
   pinned?: boolean;
   folderPath?: string | null;
   hiddenFromThreads?: boolean;
@@ -716,6 +721,7 @@ export interface SessionStatusPayload {
   codexFastMode?: boolean;
   opencodePermissionMode?: OpenCodePermissionMode;
   aegisPermissionMode?: AegisPermissionMode;
+  aegisReasoningEffort?: AegisBuiltInReasoningEffort;
   hiddenFromThreads?: boolean;
   channelId?: string;
 }

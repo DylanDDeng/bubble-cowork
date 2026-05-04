@@ -65,6 +65,19 @@ const CLAUDE_REASONING_OPTIONS: Array<{ effort: AgentReasoningEffort; descriptio
   { effort: 'max', description: 'Maximum reasoning' },
 ];
 
+const AEGIS_REASONING_OPTIONS: Array<{ effort: AgentReasoningEffort; description: string }> = [
+  { effort: 'high', description: 'DeepSeek thinking default' },
+  { effort: 'max', description: 'Maximum DeepSeek reasoning' },
+];
+
+function isAegisDeepSeekV4Model(model?: string | null): boolean {
+  const selection = resolveAegisBuiltInModel(model);
+  return (
+    selection.providerId === 'deepseek' &&
+    (selection.modelId === 'deepseek-v4-flash' || selection.modelId === 'deepseek-v4-pro')
+  );
+}
+
 function getAegisProviderApiKey(config: AegisBuiltInAgentConfig, providerId: string): string {
   return config.providerApiKeys?.[providerId] || (config.providerId === providerId ? config.apiKey : '');
 }
@@ -617,6 +630,12 @@ function AgentProfileSetupForm({
       ? getAegisProviderApiKey(aegisConfig, selectedAegisProviderId)
       : ''
   );
+  const visibleReasoningOptions =
+    draft.provider === 'aegis' && isAegisDeepSeekV4Model(draft.model)
+      ? AEGIS_REASONING_OPTIONS
+      : draft.provider === 'claude' || draft.provider === 'codex'
+        ? reasoningOptions
+        : [];
 
   return (
     <div className="space-y-4">
@@ -840,10 +859,10 @@ function AgentProfileSetupForm({
       ) : null}
 
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        {draft.provider === 'claude' || draft.provider === 'codex' ? (
+        {visibleReasoningOptions.length > 0 ? (
           <FormField label="Reasoning">
             <select
-              value={draft.reasoningEffort || ''}
+              value={draft.provider === 'aegis' ? draft.reasoningEffort || 'high' : draft.reasoningEffort || ''}
               onChange={(event) =>
                 onChange({
                   reasoningEffort: event.target.value
@@ -853,8 +872,8 @@ function AgentProfileSetupForm({
               }
               className={FIELD_CONTROL_CLASS}
             >
-              <option value="">Default</option>
-              {reasoningOptions.map((option) => (
+              {draft.provider === 'aegis' ? null : <option value="">Default</option>}
+              {visibleReasoningOptions.map((option) => (
                 <option key={option.effort} value={option.effort}>
                   {option.effort} · {option.description}
                 </option>
@@ -990,6 +1009,8 @@ function buildDefaultAgentDraft({
         ? 'medium'
         : provider === 'codex'
           ? codexReasoningEffort || 'medium'
+          : provider === 'aegis'
+            ? isAegisDeepSeekV4Model(model) ? 'high' : undefined
           : undefined,
     permissionPolicy: 'ask',
     canDelegate: false,
@@ -1011,7 +1032,11 @@ function buildAgentProfilePatch(
     compatibleProviderId:
       draft.provider === 'claude' ? draft.compatibleProviderId || undefined : undefined,
     reasoningEffort:
-      draft.provider === 'claude' || draft.provider === 'codex' ? draft.reasoningEffort : undefined,
+      draft.provider === 'aegis'
+        ? isAegisDeepSeekV4Model(draft.model) ? draft.reasoningEffort || 'high' : undefined
+        : draft.provider === 'claude' || draft.provider === 'codex'
+        ? draft.reasoningEffort
+        : undefined,
     permissionPolicy: draft.permissionPolicy,
     canDelegate: draft.canDelegate,
     color: draft.color,
@@ -1048,8 +1073,12 @@ function normalizeDraftPatch(
     model,
     compatibleProviderId,
     reasoningEffort:
-      nextProvider === 'opencode' || nextProvider === 'aegis'
+      nextProvider === 'opencode'
         ? undefined
+        : nextProvider === 'aegis'
+          ? isAegisDeepSeekV4Model(model)
+            ? patch.reasoningEffort === 'max' || current.reasoningEffort === 'max' ? 'max' : 'high'
+            : undefined
         : patch.reasoningEffort !== undefined
           ? patch.reasoningEffort
           : current.reasoningEffort,

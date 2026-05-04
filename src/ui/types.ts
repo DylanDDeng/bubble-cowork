@@ -7,6 +7,7 @@ import type { ChromeTheme, ThemeFonts, ThemeMode, ThemePack, ThemeState, ThemeVa
 // 从共享类型导入
 import type {
   AgentProvider,
+  AegisBuiltInReasoningEffort,
   AppUpdateStatus,
   ClaudeCompatibleProviderId,
   ClaudeReasoningEffort,
@@ -80,6 +81,7 @@ export type {
   MemoryWorkspace,
   AgentProvider,
   AegisBuiltInAgentConfig,
+  AegisBuiltInReasoningEffort,
   ProviderComposerCapabilities,
   ProviderListPluginsInput,
   ProviderListPluginsResult,
@@ -127,7 +129,7 @@ export type ChatSidebarView = 'threads' | 'prompts' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
 export type AgentProfileColor = 'amber' | 'sky' | 'emerald' | 'violet' | 'rose' | 'slate';
 export type AgentPermissionPolicy = 'ask' | 'readOnly' | 'fullAccess';
-export type AgentReasoningEffort = ClaudeReasoningEffort | CodexReasoningEffort;
+export type AgentReasoningEffort = ClaudeReasoningEffort | CodexReasoningEffort | AegisBuiltInReasoningEffort;
 export type AgentAvatarAssetKey =
   | 'notion-avatar-01'
   | 'notion-avatar-02'
@@ -181,6 +183,7 @@ export interface SessionView {
   codexFastMode?: boolean;
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
+  aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort;
   pinned?: boolean;
   folderPath?: string | null;
   hiddenFromThreads?: boolean;

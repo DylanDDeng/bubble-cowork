@@ -62,6 +62,19 @@ const CODEX_REASONING_OPTIONS: Array<{ value: AgentReasoningEffort; label: strin
   { value: 'xhigh', label: 'Extra high' },
 ];
 
+const AEGIS_REASONING_OPTIONS: Array<{ value: AgentReasoningEffort; label: string }> = [
+  { value: 'high', label: 'High' },
+  { value: 'max', label: 'Max' },
+];
+
+function isAegisDeepSeekV4Model(model?: string | null): boolean {
+  const selection = resolveAegisBuiltInModel(model);
+  return (
+    selection.providerId === 'deepseek' &&
+    (selection.modelId === 'deepseek-v4-flash' || selection.modelId === 'deepseek-v4-pro')
+  );
+}
+
 function displayName(profile: AgentProfile): string {
   return profile.name.trim() || 'Untitled agent';
 }
@@ -516,8 +529,12 @@ function AgentProfileForm({
       compatibleProviderId:
         provider === 'claude' ? nextSelection.compatibleProviderId : undefined,
       reasoningEffort:
-        provider === 'aegis' || provider === 'opencode' || (provider === 'codex' && profile.reasoningEffort === 'max')
+        provider === 'opencode' || (provider === 'codex' && profile.reasoningEffort === 'max')
           ? undefined
+          : provider === 'aegis'
+            ? isAegisDeepSeekV4Model(nextSelection.model)
+              ? profile.reasoningEffort === 'max' ? 'max' : 'high'
+              : undefined
           : profile.reasoningEffort,
     });
   };
@@ -585,7 +602,15 @@ function AgentProfileForm({
             {profile.provider === 'aegis' ? (
               <select
                 value={selectedModel.model || ''}
-                onChange={(event) => onUpdate({ model: resolveAegisBuiltInModel(event.target.value).encoded })}
+                onChange={(event) => {
+                  const model = resolveAegisBuiltInModel(event.target.value).encoded;
+                  onUpdate({
+                    model,
+                    reasoningEffort: isAegisDeepSeekV4Model(model)
+                      ? profile.reasoningEffort === 'max' ? 'max' : 'high'
+                      : undefined,
+                  });
+                }}
                 className={FIELD_CONTROL_CLASS}
               >
                 {AEGIS_BUILT_IN_PROVIDERS.map((provider) => {
@@ -682,17 +707,22 @@ function AgentProfileForm({
         ) : null}
 
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          {profile.provider === 'claude' || profile.provider === 'codex' ? (
+          {profile.provider === 'claude' || profile.provider === 'codex' || (profile.provider === 'aegis' && isAegisDeepSeekV4Model(selectedModel.model)) ? (
             <FormField label="Reasoning">
               <select
-                value={profile.reasoningEffort || ''}
+                value={profile.provider === 'aegis' ? profile.reasoningEffort || 'high' : profile.reasoningEffort || ''}
                 onChange={(event) => (
                   onUpdate({ reasoningEffort: event.target.value ? event.target.value as AgentReasoningEffort : undefined })
                 )}
                 className={FIELD_CONTROL_CLASS}
               >
-                <option value="">Default</option>
-                {(profile.provider === 'codex' ? CODEX_REASONING_OPTIONS : CLAUDE_REASONING_OPTIONS).map((option) => (
+                {profile.provider === 'aegis' ? null : <option value="">Default</option>}
+                {(profile.provider === 'aegis'
+                  ? AEGIS_REASONING_OPTIONS
+                  : profile.provider === 'codex'
+                    ? CODEX_REASONING_OPTIONS
+                    : CLAUDE_REASONING_OPTIONS
+                ).map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
