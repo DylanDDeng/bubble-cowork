@@ -361,6 +361,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('create-project-attachment', cwd, filePath);
   },
 
+  selectMarkdownImageAsset: (cwd: string, markdownFilePath: string) => {
+    return ipcRenderer.invoke('select-markdown-image-asset', cwd, markdownFilePath);
+  },
+
   createInlineTextAttachment: (cwd: string, text: string) => {
     return ipcRenderer.invoke('create-inline-text-attachment', cwd, text);
   },

@@ -3337,6 +3337,90 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return toProjectAttachment(cwd, filePath);
   });
 
+  ipcMainHandle(
+    'select-markdown-image-asset',
+    async (
+      _event,
+      cwd: string,
+      markdownFilePath: string
+    ): Promise<{ ok: true; relativePath: string; name: string } | { ok: false; message: string } | null> => {
+      if (!cwd || !markdownFilePath) {
+        return { ok: false, message: 'Missing project or Markdown file path.' };
+      }
+
+      const resolvedMarkdown = resolve(cwd || '.', markdownFilePath || '');
+      const markdownValidation = await validateProjectFilePath(cwd, resolvedMarkdown);
+      if (!markdownValidation.ok) {
+        return { ok: false, message: markdownValidation.message };
+      }
+
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openFile'],
+        filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] }],
+      });
+
+      if (result.canceled || !result.filePaths[0]) {
+        return null;
+      }
+
+      const sourcePath = result.filePaths[0];
+      const ext = extname(sourcePath).toLowerCase();
+      if (!['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'].includes(ext)) {
+        return { ok: false, message: 'Only image files can be inserted.' };
+      }
+
+      let sourceStat;
+      try {
+        sourceStat = await fsPromises.stat(sourcePath);
+      } catch {
+        return { ok: false, message: 'Selected image was not found.' };
+      }
+
+      if (!sourceStat.isFile()) {
+        return { ok: false, message: 'Selected image is not a file.' };
+      }
+      if (sourceStat.size > MAX_ATTACHMENT_BYTES) {
+        return { ok: false, message: 'Selected image is too large.' };
+      }
+
+      const markdownDir = resolve(markdownValidation.targetReal, '..');
+      const markdownBase = basename(markdownValidation.targetReal).replace(/\.(md|markdown)$/i, '') || 'document';
+      const assetDir = resolve(markdownDir, `${markdownBase}.assets`);
+      if (!isPathWithinRoot(cwd, assetDir)) {
+        return { ok: false, message: 'Image asset directory is outside the project.' };
+      }
+
+      const safeBaseName = basename(sourcePath, ext)
+        .replace(/[^\w.-]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 72) || 'image';
+
+      let fileName = `${safeBaseName}${ext}`;
+      let targetPath = resolve(assetDir, fileName);
+      let suffix = 2;
+      while (existsSync(targetPath)) {
+        fileName = `${safeBaseName}-${suffix}${ext}`;
+        targetPath = resolve(assetDir, fileName);
+        suffix += 1;
+      }
+
+      if (!isPathWithinRoot(cwd, targetPath)) {
+        return { ok: false, message: 'Image asset target is outside the project.' };
+      }
+
+      try {
+        await fsPromises.mkdir(assetDir, { recursive: true });
+        await fsPromises.copyFile(sourcePath, targetPath);
+      } catch (error) {
+        return { ok: false, message: `Failed to copy image: ${String(error)}` };
+      }
+
+      const relativePath = relative(markdownDir, targetPath).replace(/\\/g, '/');
+      return { ok: true, relativePath, name: fileName };
+    }
+  );
+
   ipcMainHandle('create-inline-text-attachment', async (_event, cwd: string, text: string) => {
     if (!cwd || typeof text !== 'string') {
       return null;

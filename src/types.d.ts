@@ -129,6 +129,7 @@ declare global {
     readAttachmentPreview: (filePath: string) => Promise<string | null>;
     readProjectFilePreview: (cwd: string, filePath: string) => Promise<unknown>;
     createProjectAttachment: (cwd: string, filePath: string) => Promise<Attachment | null>;
+    selectMarkdownImageAsset: (cwd: string, markdownFilePath: string) => Promise<{ ok: boolean; relativePath?: string; name?: string; message?: string } | null>;
     createInlineTextAttachment: (cwd: string, text: string) => Promise<Attachment | null>;
     createInlineImageAttachment: (mimeType: string, data: Uint8Array) => Promise<Attachment | null>;
     writeProjectTextFile: (cwd: string, filePath: string, content: string) => Promise<{ ok: boolean; message?: string }>;

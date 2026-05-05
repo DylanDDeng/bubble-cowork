@@ -311,8 +311,9 @@ function createWindow(): void {
     height: windowState.height,
     minWidth: 800,
     minHeight: 600,
-    titleBarStyle: 'hiddenInset',
+    titleBarStyle: 'hidden',
     trafficLightPosition: { x: 15, y: 15 },
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#111214' : '#ffffff',
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,
@@ -671,6 +672,7 @@ app.whenReady().then(() => {
   });
   ipcMainHandle('set-theme', async (_event, theme: 'light' | 'dark' | 'system') => {
     nativeTheme.themeSource = theme;
+    mainWindow?.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#111214' : '#ffffff');
     return { ok: true };
   });
   createWindow();

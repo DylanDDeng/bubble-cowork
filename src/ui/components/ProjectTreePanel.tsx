@@ -6,6 +6,7 @@ import { useAppStore } from '../store/useAppStore';
 import { MDContent } from '../render/markdown';
 import { HighlightedCode } from './HighlightedCode';
 import { FileTypeIcon } from './FileTypeIcon';
+import { ProjectMarkdownEditor } from './ProjectMarkdownEditor';
 import { isHtmlFilePath, openHtmlFileInBrowserTab } from '../utils/html-preview';
 import {
   applyDiffToChangeRecord,
@@ -262,6 +263,8 @@ export function ProjectTreePanel({
   const [draftText, setDraftText] = useState('');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const [externalDiskText, setExternalDiskText] = useState<string | null>(null);
   const copiedTimerRef = useRef<number | null>(null);
   const [copiedPath, setCopiedPath] = useState(false);
 
@@ -691,6 +694,8 @@ export function ProjectTreePanel({
       setDraftText('');
       setSaveState('idle');
       setSaveError(null);
+      setLastSavedAt(null);
+      setExternalDiskText(null);
       setPptxSlideIndex(0);
 
       if (!activeSessionId) {
@@ -722,6 +727,8 @@ export function ProjectTreePanel({
     setDraftText('');
     setSaveState('idle');
     setSaveError(null);
+    setLastSavedAt(null);
+    setExternalDiskText(null);
     setPptxSlideIndex(0);
 
     const reader = window.electron.readProjectFilePreview;
@@ -745,6 +752,7 @@ export function ProjectTreePanel({
       setSelectedPreview(preview);
       if ((preview.kind === 'text' || preview.kind === 'markdown') && preview.editable) {
         setDraftText(preview.text);
+        setLastSavedAt(Date.now());
       }
     } catch (error) {
       if (previewRequestIdRef.current !== requestId) return;
@@ -773,6 +781,19 @@ export function ProjectTreePanel({
     if (node.kind !== 'file') return;
     await selectFilePath(node.path, node.name, true);
   };
+
+  const closePreview = useCallback(() => {
+    setSelectedFilePath(null);
+    setSelectedPreview(null);
+    setViewMode('view');
+    setDraftText('');
+    setSaveState('idle');
+    setSaveError(null);
+    setLastSavedAt(null);
+    setExternalDiskText(null);
+    setPptxSlideIndex(0);
+    if (isFullscreen && onToggleFullscreen) onToggleFullscreen();
+  }, [isFullscreen, onToggleFullscreen]);
 
   useEffect(() => {
     const handleOpenProjectFile = (event: Event) => {
@@ -860,13 +881,104 @@ export function ProjectTreePanel({
         return;
       }
       setSelectedPreview({ ...selectedPreview, text: draftText });
+      setExternalDiskText(null);
       void loadChangeRecords();
       setSaveState('saved');
+      setLastSavedAt(Date.now());
       window.setTimeout(() => setSaveState('idle'), 1200);
     } catch (error) {
       setSaveState('error');
       setSaveError(String(error));
     }
+  };
+
+  useEffect(() => {
+    if (
+      !selectedPreview ||
+      selectedPreview.kind !== 'markdown' ||
+      !selectedPreview.editable ||
+      !canSaveText ||
+      externalDiskText !== null ||
+      saveState === 'saving'
+    ) {
+      return;
+    }
+
+    const timerId = window.setTimeout(() => {
+      void handleSaveText();
+    }, 1200);
+
+    return () => window.clearTimeout(timerId);
+  }, [canSaveText, draftText, externalDiskText, saveState, selectedPreview]);
+
+  useEffect(() => {
+    if (
+      !cwd ||
+      !selectedFilePath ||
+      !selectedPreview ||
+      selectedPreview.kind !== 'markdown' ||
+      !selectedPreview.editable
+    ) {
+      return;
+    }
+
+    const reader = window.electron.readProjectFilePreview;
+    if (typeof reader !== 'function') return;
+
+    const intervalId = window.setInterval(() => {
+      void (async () => {
+        try {
+          const latest = (await reader(cwd, selectedFilePath)) as ProjectFilePreview;
+          if (latest.kind !== 'markdown' || !latest.editable) return;
+          if (latest.text === selectedPreview.text) return;
+
+          if (draftText === selectedPreview.text) {
+            setSelectedPreview(latest);
+            setDraftText(latest.text);
+            setExternalDiskText(null);
+            setLastSavedAt(Date.now());
+          } else {
+            setExternalDiskText(latest.text);
+          }
+        } catch {
+          // Polling is only a conflict detector; preview load/save surfaces real errors.
+        }
+      })();
+    }, 4000);
+
+    return () => window.clearInterval(intervalId);
+  }, [cwd, draftText, selectedFilePath, selectedPreview]);
+
+  const handleReloadMarkdownExternal = () => {
+    if (
+      !selectedPreview ||
+      selectedPreview.kind !== 'markdown' ||
+      externalDiskText === null
+    ) {
+      return;
+    }
+
+    setSelectedPreview({ ...selectedPreview, text: externalDiskText });
+    setDraftText(externalDiskText);
+    setExternalDiskText(null);
+    setSaveState('idle');
+    setSaveError(null);
+    setLastSavedAt(Date.now());
+  };
+
+  const handleKeepMarkdownLocal = () => {
+    if (
+      !selectedPreview ||
+      selectedPreview.kind !== 'markdown' ||
+      externalDiskText === null
+    ) {
+      return;
+    }
+
+    setSelectedPreview({ ...selectedPreview, text: externalDiskText });
+    setExternalDiskText(null);
+    setSaveState('idle');
+    setSaveError(null);
   };
 
   const handlePreviewResizeMove = (clientX: number) => {
@@ -1014,7 +1126,7 @@ export function ProjectTreePanel({
       )}
 
       <div
-        className={`relative flex h-full flex-col border-l border-[var(--tree-item-border)] bg-[var(--preview-surface)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        className={`relative flex h-full flex-col border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
           isFullscreen ? 'flex-1 min-w-0' : 'flex-shrink-0'
         } ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`}
         style={
@@ -1042,7 +1154,7 @@ export function ProjectTreePanel({
             <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
           </div>
         )}
-        <div className="h-8 drag-region flex-shrink-0" />
+        {!selectedFilePath && <div className="h-8 drag-region flex-shrink-0 bg-[var(--bg-primary)]" />}
         <div className="px-4 pt-2 pb-2 pr-14">
           <div className="flex items-center justify-between gap-2">
             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
@@ -1147,7 +1259,7 @@ export function ProjectTreePanel({
 
         {selectedFilePath && (
           <div
-            className="absolute top-8 bottom-0 z-20 border-l border-[var(--tree-item-border)] bg-[var(--preview-surface)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]"
+            className="absolute inset-y-0 z-20 border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]"
             style={
               isFullscreen
                 ? { left: 0, right: 0, width: 'auto' }
@@ -1178,7 +1290,7 @@ export function ProjectTreePanel({
                 </div>
 
                 <div className="flex items-center gap-1 flex-shrink-0 no-drag">
-                  {(selectedPreview?.kind === 'html' || selectedPreview?.kind === 'markdown') && (
+                  {selectedPreview?.kind === 'html' && (
                     <ViewModeToggle value={viewMode} onChange={setViewMode} />
                   )}
 
@@ -1211,10 +1323,7 @@ export function ProjectTreePanel({
                     </IconSquareButton>
                   )}
                   <IconSquareButton
-                    onClick={() => {
-                      setSelectedFilePath(null);
-                      if (isFullscreen && onToggleFullscreen) onToggleFullscreen();
-                    }}
+                    onClick={closePreview}
                     title="Close preview"
                     ariaLabel="Close preview"
                   >
@@ -1231,14 +1340,14 @@ export function ProjectTreePanel({
               </div>
 
               <div
-                className={`flex-1 min-h-0 overflow-auto rounded-lg border border-[var(--border)] ${
+                className={`flex-1 min-h-0 overflow-auto ${
                   isMarkdownCodePreviewSurface
-                    ? 'bg-[var(--preview-surface)] p-0'
+                    ? 'bg-[var(--bg-primary)] p-0'
                     : isCodePreviewSurface
-                    ? 'bg-[var(--code-block-bg)] p-0'
+                    ? 'rounded-lg border border-[var(--border)] bg-[var(--code-block-bg)] p-0'
                     : isMarkdownPreviewSurface
-                      ? 'bg-[var(--preview-surface)] p-0'
-                    : 'bg-[var(--preview-surface)] p-3'
+                      ? 'bg-[var(--bg-primary)] p-0'
+                    : 'rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] p-3'
                 }`}
               >
                 {previewLoading && (
@@ -1289,27 +1398,25 @@ export function ProjectTreePanel({
                 )}
 
                 {!previewLoading && selectedPreview?.kind === 'markdown' && (
-                  viewMode === 'code' && selectedPreview.editable ? (
-                    <>
-                      <textarea
-                        value={draftText}
-                        onChange={(e) => setDraftText(e.target.value)}
-                        className="w-full h-full min-h-[220px] resize-none bg-transparent outline-none font-mono text-sm whitespace-pre-wrap"
-                        spellCheck={false}
-                      />
-                      {saveState === 'error' && saveError && (
-                        <div className="mt-2 text-xs text-[var(--error)]">{saveError}</div>
-                      )}
-                    </>
-                  ) : viewMode === 'code' ? (
-                    <HighlightedCode
-                      code={selectedPreview.text}
-                      language="markdown"
-                      className="min-h-full rounded-none project-markdown-code-preview"
+                  selectedPreview.editable && cwd && selectedFilePath ? (
+                    <ProjectMarkdownEditor
+                      value={draftText}
+                      cwd={cwd}
+                      filePath={selectedFilePath}
+                      fileName={selectedPreview.name}
+                      isDirty={canSaveText}
+                      saveState={saveState}
+                      saveError={saveError}
+                      lastSavedAt={lastSavedAt}
+                      externalChange={externalDiskText !== null}
+                      onChange={setDraftText}
+                      onSave={handleSaveText}
+                      onReloadExternal={handleReloadMarkdownExternal}
+                      onKeepLocal={handleKeepMarkdownLocal}
                     />
                   ) : (
                     <MDContent
-                      content={selectedPreview.editable ? draftText : selectedPreview.text}
+                      content={selectedPreview.text}
                       allowHtml={false}
                       className="project-markdown-preview"
                     />

@@ -789,7 +789,7 @@ function buildThemeVariables(
     '--popover-shadow-lg': variant === 'light'
       ? '0 0 0 1px rgba(17, 24, 39, 0.04), 0 2px 4px rgba(15, 18, 25, 0.05), 0 24px 56px -14px rgba(15, 18, 25, 0.22)'
       : '0 0 0 1px rgba(0, 0, 0, 0.45), 0 4px 8px rgba(0, 0, 0, 0.35), 0 28px 64px -14px rgba(0, 0, 0, 0.65)',
-    '--app-shell-background': pack.theme.opaqueWindows ? surfaceUnder : 'transparent',
+    '--app-shell-background': surfaceUnder,
     '--app-sidebar-surface': pack.theme.opaqueWindows
       ? surfaceUnder
       : variant === 'dark'

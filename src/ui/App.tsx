@@ -659,7 +659,7 @@ export function App() {
         </div>
       ) : activeWorkspace === 'skills' ? (
         <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
-          <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0`}>
+          <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0 bg-[var(--bg-primary)]`}>
             <div className="flex h-full items-center px-3">
               {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
             </div>
@@ -678,7 +678,7 @@ export function App() {
           style={{ paddingRight: 'var(--project-preview-space, 0px)' }}
         >
           {/* Top drag region */}
-          <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0`}>
+          <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0 bg-[var(--bg-primary)]`}>
             <div className="flex h-full items-center justify-between px-3">
               <div className="flex items-center gap-0.5">
                 {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
