@@ -1282,7 +1282,7 @@ export function ProjectTreePanel({
 
             <div className={`h-full min-w-0 flex flex-col ${isEditableMarkdownPreview ? '' : 'px-3 py-3'}`}>
               {isEditableMarkdownPreview ? (
-                <div className="absolute right-3 top-3 z-30 flex items-center gap-1 no-drag">
+                <div className="absolute right-5 top-2.5 z-30 flex items-center gap-2 no-drag">
                   {onToggleFullscreen && (
                     <IconSquareButton
                       onClick={onToggleFullscreen}
@@ -1302,13 +1302,6 @@ export function ProjectTreePanel({
                     ariaLabel="Close preview"
                   >
                     <X className="w-4 h-4" />
-                  </IconSquareButton>
-                  <IconSquareButton
-                    onClick={() => handleCopyPath(selectedFilePath)}
-                    title={copiedPath ? 'Copied' : 'Copy path'}
-                    ariaLabel="Copy path"
-                  >
-                    {copiedPath ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                   </IconSquareButton>
                 </div>
               ) : (
