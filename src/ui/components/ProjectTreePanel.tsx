@@ -1106,6 +1106,11 @@ export function ProjectTreePanel({
     !previewLoading &&
     selectedPreview?.kind === 'markdown' &&
     viewMode === 'view';
+  const isEditableMarkdownPreview =
+    isMarkdownPreviewSurface &&
+    selectedPreview?.editable &&
+    !!cwd &&
+    !!selectedFilePath;
 
   return (
     <>
@@ -1275,21 +1280,52 @@ export function ProjectTreePanel({
               </div>
             )}
 
-            <div className="h-full min-w-0 flex flex-col px-3 py-3">
-              <div className="flex items-center justify-between gap-2 pb-2">
-                <div className="min-w-0">
-                  <div className="text-xs text-[var(--text-muted)]">Preview</div>
-                  <div
-                    className="text-sm font-medium text-[var(--text-primary)] truncate"
-                    title={selectedFilePath}
+            <div className={`h-full min-w-0 flex flex-col ${isEditableMarkdownPreview ? '' : 'px-3 py-3'}`}>
+              {isEditableMarkdownPreview ? (
+                <div className="absolute right-3 top-3 z-30 flex items-center gap-1 no-drag">
+                  {onToggleFullscreen && (
+                    <IconSquareButton
+                      onClick={onToggleFullscreen}
+                      title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+                      ariaLabel={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                    >
+                      {isFullscreen ? (
+                        <Minimize2 className="w-4 h-4" />
+                      ) : (
+                        <Maximize2 className="w-4 h-4" />
+                      )}
+                    </IconSquareButton>
+                  )}
+                  <IconSquareButton
+                    onClick={closePreview}
+                    title="Close preview"
+                    ariaLabel="Close preview"
                   >
-                    {selectedPreview?.name ||
-                      selectedFilePath.split('/').pop() ||
-                      selectedFilePath}
-                  </div>
+                    <X className="w-4 h-4" />
+                  </IconSquareButton>
+                  <IconSquareButton
+                    onClick={() => handleCopyPath(selectedFilePath)}
+                    title={copiedPath ? 'Copied' : 'Copy path'}
+                    ariaLabel="Copy path"
+                  >
+                    {copiedPath ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  </IconSquareButton>
                 </div>
+              ) : (
+                <div className="flex items-center justify-between gap-2 pb-2">
+                  <div className="min-w-0">
+                    <div className="text-xs text-[var(--text-muted)]">Preview</div>
+                    <div
+                      className="text-sm font-medium text-[var(--text-primary)] truncate"
+                      title={selectedFilePath}
+                    >
+                      {selectedPreview?.name ||
+                        selectedFilePath.split('/').pop() ||
+                        selectedFilePath}
+                    </div>
+                  </div>
 
-                <div className="flex items-center gap-1 flex-shrink-0 no-drag">
+                  <div className="flex items-center gap-1 flex-shrink-0 no-drag">
                   {selectedPreview?.kind === 'html' && (
                     <ViewModeToggle value={viewMode} onChange={setViewMode} />
                   )}
@@ -1337,7 +1373,8 @@ export function ProjectTreePanel({
                     {copiedPath ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                   </IconSquareButton>
                 </div>
-              </div>
+                </div>
+              )}
 
               <div
                 className={`flex-1 min-h-0 overflow-auto ${

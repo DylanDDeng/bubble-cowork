@@ -974,12 +974,13 @@ body {
 }
 
 .aegis-md-editor-top {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 16px;
-  min-height: 56px;
-  padding: 9px 14px;
+  min-height: 48px;
+  padding: 7px 176px 5px 132px;
   border-bottom: 0;
   background: var(--bg-primary);
 }
@@ -988,6 +989,7 @@ body {
   display: flex;
   min-width: 0;
   align-items: center;
+  justify-content: center;
   gap: 11px;
 }
 
@@ -1009,12 +1011,14 @@ body {
 
 .aegis-md-title-main {
   min-width: 0;
+  text-align: center;
 }
 
 .aegis-md-title-line {
   display: flex;
   min-width: 0;
   align-items: center;
+  justify-content: center;
   gap: 9px;
 }
 
@@ -1054,6 +1058,10 @@ body {
 }
 
 .aegis-md-save-cluster {
+  position: absolute;
+  right: 144px;
+  top: 50%;
+  transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -1093,9 +1101,10 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  min-height: 46px;
-  padding: 7px 12px;
-  border-bottom: 0;
+  min-height: 42px;
+  padding: 5px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 48%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   background: var(--bg-primary);
   overflow-x: auto;
 }
@@ -1176,7 +1185,7 @@ body {
   width: min(100%, 820px);
   min-height: 100%;
   margin: 0 auto;
-  padding: 34px 34px 120px;
+  padding: 24px 34px 120px;
 }
 
 .aegis-md-milkdown-root .ProseMirror {
