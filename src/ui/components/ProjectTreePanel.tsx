@@ -218,7 +218,7 @@ export function ProjectTreePanel({
     'files' | 'changes',
     { defaultWidth: number; minWidth: number; maxWidth: number; title: string }
   > = {
-    files: { defaultWidth: 300, minWidth: 280, maxWidth: 440, title: 'Files' },
+    files: { defaultWidth: 50, minWidth: 50, maxWidth: 440, title: 'Files' },
     changes: { defaultWidth: 360, minWidth: 320, maxWidth: 560, title: 'Changes' },
   };
   const panelMeta = PANEL_DIMENSIONS[activeTab];
