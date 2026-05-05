@@ -189,6 +189,19 @@ export function ChatPane({
         : [],
     [lastUserPromptIndex, session?.messages, session?.status]
   );
+  const activeTimelineWorkId = useMemo(() => {
+    for (let index = timelineItems.length - 1; index >= 0; index -= 1) {
+      const item = timelineItems[index];
+      if (item?.type === 'work' && item.active) {
+        return item.group.id;
+      }
+    }
+    return null;
+  }, [timelineItems]);
+  const hasActiveTimelineWork = useMemo(
+    () => Boolean(activeTimelineWorkId),
+    [activeTimelineWorkId]
+  );
 
   const { turns, changeRecordByToolUseId } = useMemo(
     () =>
@@ -268,13 +281,24 @@ export function ChatPane({
     !historyNavigationAnchor;
 
   const streamingWorkstreamModel = useMemo(
-    () =>
-      createStreamingWorkstreamModel({
+    () => {
+      if (hasActiveTimelineWork) {
+        return null;
+      }
+      return createStreamingWorkstreamModel({
         partialThinking,
         phase: turnPhase,
         permissionRequests: session?.permissionRequests || [],
-      }),
-    [partialThinking, session?.permissionRequests, turnPhase]
+      });
+    },
+    [hasActiveTimelineWork, partialThinking, session?.permissionRequests, turnPhase]
+  );
+  const activeLiveTrace = useMemo(
+    () => ({
+      partialThinking,
+      permissionRequests: session?.permissionRequests || [],
+    }),
+    [partialThinking, session?.permissionRequests]
   );
 
   useEffect(() => {
@@ -557,6 +581,7 @@ export function ChatPane({
                             toolResultsMap={toolResultsMap}
                             isSessionRunning={session.status === 'running'}
                             isLastBatch={item.active}
+                            liveTrace={item.group.id === activeTimelineWorkId ? activeLiveTrace : undefined}
                             defaultExpanded={item.defaultExpanded}
                             resetKey={item.disclosureResetKey}
                           />

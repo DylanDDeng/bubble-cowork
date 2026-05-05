@@ -46,6 +46,10 @@ function isTextBlock(block: ContentBlock): block is ContentBlock & { type: 'text
   return block.type === 'text' && Boolean(block.text?.trim());
 }
 
+function hasToolUseBlock(blocks: ContentBlock[]): boolean {
+  return blocks.some((block) => Boolean(normalizeToolUseBlock(block)));
+}
+
 function cloneAssistantMessageWithContent(
   message: AssistantMessage,
   content: ContentBlock[]
@@ -409,6 +413,7 @@ export function deriveTranscriptTimelineItems(
     }
 
     const blocks = getMessageContentBlocks(message);
+    const messageHasToolUse = hasToolUseBlock(blocks);
     let traceBuffer: ContentBlock[] = [];
     let textBuffer: ContentBlock[] = [];
 
@@ -432,6 +437,10 @@ export function deriveTranscriptTimelineItems(
       }
 
       if (isTextBlock(block)) {
+        if (messageHasToolUse) {
+          traceBuffer.push(block);
+          continue;
+        }
         flushTraceBuffer();
         textBuffer.push(block);
       }

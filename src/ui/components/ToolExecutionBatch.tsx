@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
-import type { ContentBlock, ToolStatus, StreamMessage } from '../types';
+import type { ContentBlock, PermissionRequestPayload, ToolStatus, StreamMessage } from '../types';
 import { AssistantWorkstream, WorkingFooter } from './AssistantWorkstream';
 import {
   createBatchWorkstreamModel,
@@ -21,6 +21,10 @@ interface ToolExecutionBatchProps {
    * session is mid-turn and each would mount its own setInterval-backed
    * WorkingFooter. */
   isLastBatch?: boolean;
+  liveTrace?: {
+    partialThinking?: string;
+    permissionRequests?: PermissionRequestPayload[];
+  };
   expanded?: boolean;
   defaultExpanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
@@ -33,6 +37,7 @@ export function ToolExecutionBatch({
   toolResultsMap,
   isSessionRunning,
   isLastBatch = false,
+  liveTrace,
   expanded,
   defaultExpanded,
   onExpandedChange,
@@ -46,8 +51,9 @@ export function ToolExecutionBatch({
         toolStatusMap,
         toolResultsMap,
         isSessionRunning: batchIsRunning,
+        liveTrace: batchIsRunning ? liveTrace : undefined,
       }),
-    [messages, toolResultsMap, toolStatusMap, batchIsRunning]
+    [messages, toolResultsMap, toolStatusMap, batchIsRunning, liveTrace]
   );
 
   const disclosureResetKey = resetKey ?? messages.map((message) => message.uuid).join(':');

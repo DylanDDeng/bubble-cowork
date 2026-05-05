@@ -367,6 +367,13 @@ function buildWorkstreamSummary(entries: WorkstreamEntry[], state: WorkstreamSta
     return erroredEntry.summary;
   }
 
+  const activeThinking = [...entries]
+    .reverse()
+    .find((entry) => entry.type === 'thinking' && entry.state === 'active');
+  if (activeThinking) {
+    return activeThinking.summary;
+  }
+
   const latestTask = [...entries].reverse().find((entry) => entry.type === 'task');
   if (latestTask) {
     return latestTask.summary;
@@ -389,6 +396,30 @@ function buildWorkstreamSummary(entries: WorkstreamEntry[], state: WorkstreamSta
   }
 
   return 'No work details yet';
+}
+
+function buildLiveWorkstreamEntries(input?: {
+  partialThinking?: string;
+  permissionRequests?: PermissionRequestPayload[];
+}): WorkstreamEntry[] {
+  if (!input) {
+    return [];
+  }
+
+  const permissionEntries = (input.permissionRequests || []).map(getApprovalStateFromRequest);
+  const thinking = input.partialThinking?.trim();
+  const thinkingEntry =
+    thinking && thinking.length > 0
+      ? ({
+          id: 'streaming-thinking',
+          type: 'thinking',
+          summary: truncateSummary(thinking, 120),
+          detail: thinking,
+          state: 'active',
+        } satisfies WorkstreamEntry)
+      : null;
+
+  return [...permissionEntries, ...(thinkingEntry ? [thinkingEntry] : [])];
 }
 
 function buildPreviewEntries(entries: WorkstreamEntry[]): WorkstreamEntry[] {
@@ -424,6 +455,10 @@ export function createBatchWorkstreamModel(params: {
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
   isSessionRunning: boolean;
+  liveTrace?: {
+    partialThinking?: string;
+    permissionRequests?: PermissionRequestPayload[];
+  };
 }): WorkstreamModel {
   const allBlocks = extractToolBlocks(params.messages);
   const traceEntries = extractTraceEntries(params.messages);
@@ -449,13 +484,15 @@ export function createBatchWorkstreamModel(params: {
       )
     )
     .filter((entry): entry is WorkstreamEntry => Boolean(entry));
+  const liveEntries = buildLiveWorkstreamEntries(params.liveTrace);
+  const allEntries = [...entries, ...liveEntries];
 
-  const state = deriveWorkstreamState(entries, params.isSessionRunning);
-  const previewEntries = buildPreviewEntries(entries);
-  const toolCount = entries.filter(
+  const state = deriveWorkstreamState(allEntries, params.isSessionRunning);
+  const previewEntries = buildPreviewEntries(allEntries);
+  const toolCount = allEntries.filter(
     (entry) => entry.type === 'tool' || entry.type === 'task' || entry.type === 'memory'
   ).length;
-  const noteCount = entries.filter(
+  const noteCount = allEntries.filter(
     (entry) => entry.type === 'note' || entry.type === 'thinking'
   ).length;
   const durationMs = computeBatchDurationMs(params.messages, state);
@@ -464,12 +501,12 @@ export function createBatchWorkstreamModel(params: {
   return {
     state,
     title: buildWorkstreamTitle(state),
-    summary: buildWorkstreamSummary(entries, state),
-    entries,
+    summary: buildWorkstreamSummary(allEntries, state),
+    entries: allEntries,
     previewEntries,
     toolCount,
     noteCount,
-    hiddenEntryCount: Math.max(entries.length - previewEntries.length, 0),
+    hiddenEntryCount: Math.max(allEntries.length - previewEntries.length, 0),
     startedAt,
     durationMs,
     todoProgress: extractLatestTodoProgress(allBlocks),
@@ -518,24 +555,17 @@ export function createStreamingWorkstreamModel(params: {
   phase: TurnPhase;
   permissionRequests?: PermissionRequestPayload[];
 }): WorkstreamModel | null {
-  const permissionEntries = (params.permissionRequests || []).map(getApprovalStateFromRequest);
-  const thinkingEntry =
-    params.partialThinking.trim().length > 0
-      ? ({
-          id: 'streaming-thinking',
-          type: 'thinking',
-          summary: truncateSummary(params.partialThinking, 120),
-          detail: params.partialThinking,
-          state: 'active',
-        } satisfies WorkstreamEntry)
-      : null;
-
-  const entries = [...permissionEntries, ...(thinkingEntry ? [thinkingEntry] : [])];
+  const entries = buildLiveWorkstreamEntries({
+    partialThinking: params.partialThinking,
+    permissionRequests: params.permissionRequests,
+  });
 
   if (entries.length === 0 && params.phase === 'complete') {
     return null;
   }
 
+  const permissionEntries = entries.filter((entry) => entry.type === 'approval');
+  const thinkingEntry = entries.find((entry) => entry.type === 'thinking');
   const state =
     permissionEntries.length > 0
       ? 'waiting'
@@ -543,7 +573,7 @@ export function createStreamingWorkstreamModel(params: {
         ? 'completed'
         : 'running';
   const summary =
-    permissionEntries[0]?.summary ||
+    entries.find((entry) => entry.type === 'approval')?.summary ||
     (thinkingEntry ? thinkingEntry.summary : params.phase === 'awaiting' ? 'Waiting for the next step' : 'Preparing response');
 
   const previewEntries = buildPreviewEntries(entries);
