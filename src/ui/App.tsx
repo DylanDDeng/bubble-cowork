@@ -34,8 +34,6 @@ import { ProjectTreePanel } from './components/ProjectTreePanel';
 import { BrowserPanel } from './components/browser/BrowserPanel';
 import { TerminalDrawer } from './components/TerminalDrawer';
 import { WorkspaceHost } from './components/WorkspaceHost';
-import { DecisionPanel } from './components/DecisionPanel';
-import { ExternalFilePermissionDialog } from './components/ExternalFilePermissionDialog';
 import { AgentSetupDialog } from './components/AgentSetupDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useCodexModelConfig } from './hooks/useCodexModelConfig';
@@ -57,10 +55,7 @@ import {
 import { AssistantWorkstream } from './components/AssistantWorkstream';
 import { createStreamingWorkstreamModel } from './utils/workstream';
 import type {
-  AskUserQuestionInput,
-  ExternalFilePermissionInput,
   ToolStatus,
-  PermissionResult,
   SessionStatus,
   StreamMessage,
   ContentBlock,
@@ -68,24 +63,6 @@ import type {
 
 // Tool result block type
 type ToolResultBlock = ContentBlock & { type: 'tool_result' };
-
-function isExternalFilePermissionInput(input: unknown): input is ExternalFilePermissionInput {
-  return (
-    typeof input === 'object' &&
-    input !== null &&
-    'kind' in input &&
-    (input as { kind?: unknown }).kind === 'external-file-access'
-  );
-}
-
-function isAskUserQuestionInput(input: unknown): input is AskUserQuestionInput {
-  return (
-    typeof input === 'object' &&
-    input !== null &&
-    'questions' in input &&
-    Array.isArray((input as { questions?: unknown }).questions)
-  );
-}
 
 export function App() {
   const electronAvailable =
@@ -140,7 +117,6 @@ export function App() {
     closeSplitChat,
     globalError,
     clearGlobalError,
-    removePermissionRequest,
     theme,
     themeState,
     uiFontFamily,
@@ -654,32 +630,6 @@ export function App() {
     }
   }, [globalError, clearGlobalError]);
 
-  // Handle permission response
-  const handlePermissionResult = (toolUseId: string, result: PermissionResult) => {
-    if (!activeSessionId) return;
-
-    sendEvent({
-      type: 'permission.response',
-      payload: {
-        sessionId: activeSessionId,
-        toolUseId,
-        result,
-      },
-    });
-
-    removePermissionRequest(activeSessionId, toolUseId);
-  };
-
-  const hasPendingPermissionRequests =
-    (activeSession?.permissionRequests?.length ?? 0) > 0;
-  const activeExternalPermissionRequest = useMemo(
-    () => activeSession?.permissionRequests.find((request) => isExternalFilePermissionInput(request.input)) || null,
-    [activeSession?.permissionRequests]
-  );
-  const activeGenericPermissionRequest = useMemo(
-    () => activeSession?.permissionRequests.find((request) => isAskUserQuestionInput(request.input)) || null,
-    [activeSession?.permissionRequests]
-  );
   const lastUserPromptIndex = useMemo(() => {
     if (!activeSession) return -1;
     for (let i = activeSession.messages.length - 1; i >= 0; i--) {

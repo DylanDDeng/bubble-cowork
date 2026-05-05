@@ -1,4 +1,4 @@
-import { readFile } from 'fs/promises';
+import { readFile, stat } from 'fs/promises';
 import { basename, resolve } from 'path';
 import type { BuiltinLspAdapter, BuiltinToolResult } from '../types';
 import { runCommand } from '../tools/command';
@@ -9,6 +9,14 @@ export function createStaticLspAdapter(signal: AbortSignal, children: Set<import
   return {
     async run(input): Promise<BuiltinToolResult> {
       const filePath = resolve(input.cwd, input.filePath);
+      const fileStat = await stat(filePath);
+      if (fileStat.isDirectory()) {
+        return {
+          content: `Error: LSP requires a file path, but received a directory: ${filePath}`,
+          isError: true,
+          status: 'command_error',
+        };
+      }
       const content = await readFile(filePath, 'utf-8');
       const lines = content.split('\n');
       const lineIndex = Math.max(0, Math.min(lines.length - 1, (input.line || 1) - 1));
@@ -115,4 +123,3 @@ function symbolAt(line: string, character: number): string {
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
-

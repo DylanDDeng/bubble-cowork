@@ -18,9 +18,7 @@ import { StructuredResponse } from './StructuredResponse';
 import { WorkingFooter } from './AssistantWorkstream';
 import { PromptInput } from './PromptInput';
 import { InSessionSearch } from './search/InSessionSearch';
-import { CodexApprovalPermissionDialog } from './CodexApprovalPermissionDialog';
-import { DecisionPanel } from './DecisionPanel';
-import { ExternalFilePermissionDialog } from './ExternalFilePermissionDialog';
+import { ComposerPendingPermissionPanel } from './ComposerPendingPermissionPanel';
 import { ErrorBoundary } from './ErrorBoundary';
 import { AgentAvatar } from './AgentAvatar';
 import { TurnChangesCard } from './TurnChangesCard';
@@ -33,43 +31,13 @@ import {
 } from '../utils/turn-change-records';
 import type { ChangeRecord } from '../utils/change-records';
 import type {
-  AskUserQuestionInput,
-  CodexApprovalPermissionInput,
   ContentBlock,
-  ExternalFilePermissionInput,
   PermissionResult,
   StreamMessage,
   ToolStatus,
 } from '../types';
 
 type ToolResultBlock = ContentBlock & { type: 'tool_result' };
-
-function isExternalFilePermissionInput(input: unknown): input is ExternalFilePermissionInput {
-  return (
-    typeof input === 'object' &&
-    input !== null &&
-    'kind' in input &&
-    (input as { kind?: unknown }).kind === 'external-file-access'
-  );
-}
-
-function isAskUserQuestionInput(input: unknown): input is AskUserQuestionInput {
-  return (
-    typeof input === 'object' &&
-    input !== null &&
-    'questions' in input &&
-    Array.isArray((input as { questions?: unknown }).questions)
-  );
-}
-
-function isCodexApprovalPermissionInput(input: unknown): input is CodexApprovalPermissionInput {
-  return (
-    typeof input === 'object' &&
-    input !== null &&
-    'kind' in input &&
-    (input as { kind?: unknown }).kind === 'codex-approval'
-  );
-}
 
 export function ChatPane({
   paneId,
@@ -450,23 +418,8 @@ export function ChatPane({
     removePermissionRequest(sessionId, toolUseId);
   };
 
-  const activeExternalPermissionRequest = useMemo(
-    () => session?.permissionRequests.find((request) => isExternalFilePermissionInput(request.input)) || null,
-    [session?.permissionRequests]
-  );
-  const activeCodexPermissionRequest = useMemo(
-    () => session?.permissionRequests.find((request) => isCodexApprovalPermissionInput(request.input)) || null,
-    [session?.permissionRequests]
-  );
-
-  const genericPermissionQueue = useMemo(
-    () =>
-      (session?.permissionRequests || []).filter((request) =>
-        isAskUserQuestionInput(request.input)
-      ),
-    [session?.permissionRequests]
-  );
-  const activeGenericPermissionRequest = genericPermissionQueue[0] || null;
+  const permissionQueue = session?.permissionRequests || [];
+  const activePermissionRequest = permissionQueue[0] || null;
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     const droppedSessionId = event.dataTransfer.getData('application/x-aegis-session-id');
@@ -754,60 +707,31 @@ export function ChatPane({
 
           {session.readOnly ? null : (
             <div className="px-8 pb-4">
-              {activeGenericPermissionRequest && isAskUserQuestionInput(activeGenericPermissionRequest.input) ? (
-                <div className="mb-3 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--accent)]/35 bg-[var(--bg-secondary)] shadow-sm">
-                  <div className="flex items-center justify-between gap-3 px-4 py-2">
-                    <div className="flex min-w-0 items-baseline gap-2">
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                        Permission
-                      </span>
-                      <span className="truncate text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--text-secondary)]">
-                        · {activeGenericPermissionRequest.toolName}
-                      </span>
-                    </div>
-                    {genericPermissionQueue.length > 1 ? (
-                      <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-[var(--accent)]/15 px-2 text-[10px] font-medium text-[var(--accent)]">
-                        1/{genericPermissionQueue.length}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="border-t border-[var(--border)]/60 px-4 py-3">
-                    <DecisionPanel
-                      chrome="bare"
-                      input={activeGenericPermissionRequest.input}
-                      onSubmit={(result) =>
-                        handlePermissionResult(activeGenericPermissionRequest.toolUseId, result)
-                      }
+              {activePermissionRequest ? (
+                <PromptInput
+                  sessionId={sessionId}
+                  approvalPending
+                  approvalPanel={
+                    <ComposerPendingPermissionPanel
+                      request={activePermissionRequest}
+                      pendingCount={permissionQueue.length}
+                      onSubmit={handlePermissionResult}
                     />
-                  </div>
-                </div>
-              ) : null}
-              {activePlanMessage ? (
-                <CodexActivePlanCard
-                  explanation={activePlanMessage.explanation}
-                  steps={activePlanMessage.steps}
+                  }
                 />
-              ) : null}
-              <PromptInput sessionId={sessionId} />
+              ) : (
+                <>
+                  {activePlanMessage ? (
+                    <CodexActivePlanCard
+                      explanation={activePlanMessage.explanation}
+                      steps={activePlanMessage.steps}
+                    />
+                  ) : null}
+                  <PromptInput sessionId={sessionId} />
+                </>
+              )}
             </div>
           )}
-
-          {isActive && activeExternalPermissionRequest && isExternalFilePermissionInput(activeExternalPermissionRequest.input) && (
-            <ExternalFilePermissionDialog
-              input={activeExternalPermissionRequest.input}
-              onSubmit={(result) => handlePermissionResult(activeExternalPermissionRequest.toolUseId, result)}
-            />
-          )}
-
-          {isActive &&
-            !activeExternalPermissionRequest &&
-            activeCodexPermissionRequest &&
-            isCodexApprovalPermissionInput(activeCodexPermissionRequest.input) && (
-              <CodexApprovalPermissionDialog
-                input={activeCodexPermissionRequest.input}
-                onSubmit={(result) => handlePermissionResult(activeCodexPermissionRequest.toolUseId, result)}
-              />
-            )}
 
           <TurnDiffDrawer record={selectedDiffRecord} onClose={handleCloseDiff} />
         </>

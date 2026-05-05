@@ -1,4 +1,4 @@
-import { access } from 'fs/promises';
+import { access, stat } from 'fs/promises';
 import { constants } from 'fs';
 import { resolve } from 'path';
 import type { BuiltinLspAdapter, BuiltinToolRegistryEntry } from '../types';
@@ -41,6 +41,10 @@ export function createLspTool(cwd: string, adapter?: BuiltinLspAdapter): Builtin
       const filePath = resolve(cwd, asString(args.filePath));
       try {
         await access(filePath, constants.R_OK);
+        const fileStat = await stat(filePath);
+        if (fileStat.isDirectory()) {
+          return { content: `Error: LSP requires a file path, but received a directory: ${filePath}`, isError: true, status: 'command_error' };
+        }
       } catch {
         return { content: `Error: File not found or not readable: ${filePath}`, isError: true, status: 'command_error' };
       }
@@ -63,4 +67,3 @@ export function createLspTool(cwd: string, adapter?: BuiltinLspAdapter): Builtin
     },
   };
 }
-

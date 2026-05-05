@@ -1,5 +1,5 @@
 import { constants } from 'fs';
-import { access, readFile } from 'fs/promises';
+import { access, readFile, stat } from 'fs/promises';
 import type { BuiltinToolRegistryEntry } from '../types';
 import { asNumber, isSensitivePath, resolveInsideCwd } from './common';
 
@@ -34,6 +34,14 @@ export function createReadTool(cwd: string): BuiltinToolRegistryEntry {
       }
       try {
         await access(file.path, constants.R_OK);
+        const fileStat = await stat(file.path);
+        if (fileStat.isDirectory()) {
+          return {
+            content: `Error: ${file.rel} is a directory. Use search or list a specific file path before reading.`,
+            isError: true,
+            status: 'command_error',
+          };
+        }
       } catch {
         return { content: `Error: Cannot read file: ${file.rel}`, isError: true, status: 'command_error' };
       }
@@ -63,4 +71,3 @@ export function createReadTool(cwd: string): BuiltinToolRegistryEntry {
     },
   };
 }
-

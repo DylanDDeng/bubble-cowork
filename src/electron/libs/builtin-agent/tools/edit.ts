@@ -1,5 +1,5 @@
 import { constants } from 'fs';
-import { access, readFile, writeFile } from 'fs/promises';
+import { access, readFile, stat, writeFile } from 'fs/promises';
 import { createUnifiedDiffHunks, formatUnifiedDiffHunks } from '../../../../shared/unified-diff';
 import type { BuiltinApprovalController, BuiltinToolRegistryEntry } from '../types';
 import { asString, resolveInsideCwd } from './common';
@@ -55,6 +55,14 @@ export function createEditTool(cwd: string, approval?: BuiltinApprovalController
       if (!file.ok) return { content: `Error: ${file.error}`, isError: true, status: 'command_error' };
       try {
         await access(file.path, constants.R_OK | constants.W_OK);
+        const fileStat = await stat(file.path);
+        if (fileStat.isDirectory()) {
+          return {
+            content: `Error: ${file.rel} is a directory. Edit requires a specific UTF-8 file path.`,
+            isError: true,
+            status: 'command_error',
+          };
+        }
       } catch {
         return { content: `Error: Cannot read/write file: ${file.rel}`, isError: true, status: 'command_error' };
       }

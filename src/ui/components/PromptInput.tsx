@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback, type ReactNode } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Check, ChevronDown, Plus, Square } from 'lucide-react';
 import { toast } from 'sonner';
@@ -271,7 +271,15 @@ function ProjectAgentPicker({
   );
 }
 
-export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
+export function PromptInput({
+  sessionId,
+  approvalPending = false,
+  approvalPanel,
+}: {
+  sessionId?: string | null;
+  approvalPending?: boolean;
+  approvalPanel?: ReactNode;
+} = {}) {
   const {
     activeSessionId,
     sessions,
@@ -373,7 +381,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
     [agentProfiles]
   );
   const isRunning = activeSession?.status === 'running';
-  const isBusy = isRunning || pendingStart;
+  const isBusy = isRunning || pendingStart || approvalPending;
   const runtimeClaudeModel = runtimeProvider === 'claude' ? agentRuntime?.model || null : null;
   const runtimeClaudeCompatibleProviderId =
     runtimeProvider === 'claude' ? agentRuntime?.compatibleProviderId : undefined;
@@ -1143,6 +1151,9 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
               />
             </div>
           )}
+          {approvalPending && approvalPanel ? (
+            approvalPanel
+          ) : (
           <div className="rounded-[26px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)] transition-[border-color,box-shadow] duration-200 focus-within:border-[color-mix(in_srgb,var(--border)_92%,transparent)] focus-within:shadow-[0_20px_52px_rgba(15,23,42,0.12)]">
           {attachments.length > 0 && (
             <div className="px-5 pt-4">
@@ -1178,7 +1189,9 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
             }}
             onKeyDown={handleKeyDown}
             placeholder={
-              isRunning
+              approvalPending
+                ? 'Resolve this approval request to continue'
+                : isRunning
                 ? 'Press Enter to stop...'
                 : pendingStart
                 ? 'Starting session...'
@@ -1186,7 +1199,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
                   ? `${composerBlocker.title}. ${composerBlocker.description}`
                   : 'Sending to the agent...'
             }
-            disabled={pendingStart}
+            disabled={pendingStart || approvalPending}
             className="w-full bg-transparent px-4 pt-3 pb-1 text-[14px] outline-none resize-none min-h-[56px] max-h-[200px] disabled:opacity-50"
             autoFocus={false}
           />
@@ -1237,7 +1250,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
-              {isRunning ? (
+              {isRunning && !approvalPending ? (
                 <button
                 onClick={handleStop}
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105"
@@ -1263,6 +1276,7 @@ export function PromptInput({ sessionId }: { sessionId?: string | null } = {}) {
             </div>
           </div>
           </div>
+          )}
         </div>
       </div>
     </div>
