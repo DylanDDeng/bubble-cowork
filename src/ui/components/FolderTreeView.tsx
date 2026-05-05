@@ -145,6 +145,7 @@ export function FolderTreeView({
   const {
     sessions,
     activeSessionId,
+    activeWorkspace,
     activePaneId,
     savedSplitVisible,
     setChatLayoutMode,
@@ -166,6 +167,7 @@ export function FolderTreeView({
   const [channelDraftName, setChannelDraftName] = useState('');
   const [agentRosterEditorProjectKey, setAgentRosterEditorProjectKey] = useState<string | null>(null);
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
+  const isChatWorkspaceActive = activeWorkspace === 'chat';
   const activeProjectKey = activeSession?.cwd?.trim() || projectCwd?.trim() || '__no_project__';
 
   const splitPair = useMemo<SplitPairState | null>(() => {
@@ -415,7 +417,7 @@ export function FolderTreeView({
             Pinned
           </div>
           {pinnedSessions.map((session) => {
-            const isSessionActive = activeSessionId === session.id;
+            const isSessionActive = isChatWorkspaceActive && activeSessionId === session.id;
 
             return (
               <SessionItem
@@ -544,8 +546,8 @@ export function FolderTreeView({
                     const activeChannelId =
                       activeChannelByProject[group.key] || DEFAULT_WORKSPACE_CHANNEL_ID;
                     const isChannelActive = channel.session
-                      ? activeSessionId === channel.session.id
-                      : activeChannelId === channel.id && activeProjectKey === group.key;
+                      ? isChatWorkspaceActive && activeSessionId === channel.session.id
+                      : isChatWorkspaceActive && activeChannelId === channel.id && activeProjectKey === group.key;
 
                     if (splitPair && channel.session?.id === splitPair.primary.id) {
                       return (
@@ -554,6 +556,7 @@ export function FolderTreeView({
                           primary={splitPair.primary}
                           secondary={splitPair.secondary}
                           activePaneId={activePaneId}
+                          isActive={isChatWorkspaceActive}
                           depth={1}
                           onOpenPrimary={() => {
                             setChatLayoutMode('split');
@@ -910,6 +913,7 @@ function SplitSessionRow({
   primary,
   secondary,
   activePaneId,
+  isActive,
   depth,
   onOpenPrimary,
   onOpenSecondary,
@@ -917,6 +921,7 @@ function SplitSessionRow({
   primary: SessionView;
   secondary: SessionView;
   activePaneId: 'primary' | 'secondary';
+  isActive: boolean;
   depth: number;
   onOpenPrimary: () => void;
   onOpenSecondary: () => void;
@@ -936,7 +941,7 @@ function SplitSessionRow({
         type="button"
         onClick={onOpenPrimary}
         className={`${rowBase} ${
-          activePaneId === 'primary'
+          isActive && activePaneId === 'primary'
             ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
         }`}
@@ -951,7 +956,7 @@ function SplitSessionRow({
         type="button"
         onClick={onOpenSecondary}
         className={`${rowBase} border-t border-[var(--border)] ${
-          activePaneId === 'secondary'
+          isActive && activePaneId === 'secondary'
             ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
         }`}
