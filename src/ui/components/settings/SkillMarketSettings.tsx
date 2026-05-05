@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
 import {
-  ArrowLeft,
   Boxes,
   CheckCircle2,
   Download,
@@ -21,8 +21,6 @@ import { CodexPluginLibraryContent } from './CodexPluginLibrary';
 const DEFAULT_HOT_LIMIT = 60;
 const DEFAULT_SEARCH_LIMIT = 80;
 const SEARCH_DEBOUNCE_MS = 250;
-const NARROW_MARKET_BREAKPOINT = 860;
-const MEDIUM_MARKET_BREAKPOINT = 1180;
 const SKILLS_MIN_WINDOW_WIDTH = 900;
 const DEFAULT_MIN_WINDOW_WIDTH = 800;
 const DEFAULT_MIN_WINDOW_HEIGHT = 600;
@@ -57,14 +55,11 @@ export function SkillMarketSettingsContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState<SkillMarketDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [installingId, setInstallingId] = useState<string | null>(null);
   const [installOutput, setInstallOutput] = useState<string | null>(null);
-  const [windowWidth, setWindowWidth] = useState(() =>
-    typeof window === 'undefined' ? 1280 : window.innerWidth
-  );
-  const [narrowPane, setNarrowPane] = useState<'list' | 'detail'>('list');
 
   const currentProjectPath = activeSessionId ? sessions[activeSessionId]?.cwd : undefined;
   const installedSkillNames = useMemo(
@@ -76,12 +71,6 @@ export function SkillMarketSettingsContent() {
     [claudeProjectSkills, claudeUserSkills]
   );
   const trimmedQuery = query.trim();
-  const marketLayout =
-    windowWidth < NARROW_MARKET_BREAKPOINT
-      ? 'narrow'
-      : windowWidth < MEDIUM_MARKET_BREAKPOINT
-        ? 'medium'
-        : 'wide';
 
   useEffect(() => {
     void setWindowMinSizeSafely(SKILLS_MIN_WINDOW_WIDTH, DEFAULT_MIN_WINDOW_HEIGHT);
@@ -105,12 +94,7 @@ export function SkillMarketSettingsContent() {
         }
 
         setItems(nextItems);
-        setSelectedId((current) => {
-          if (current && nextItems.some((item) => item.id === current)) {
-            return current;
-          }
-          return nextItems[0]?.id || null;
-        });
+        setSelectedId((current) => current && nextItems.some((item) => item.id === current) ? current : null);
       } catch (nextError) {
         if (!cancelled) {
           setItems([]);
@@ -131,20 +115,7 @@ export function SkillMarketSettingsContent() {
   }, [trimmedQuery]);
 
   useEffect(() => {
-    if (view !== 'market') {
-      return;
-    }
-
-    const updateWindowWidth = () => setWindowWidth(window.innerWidth);
-    updateWindowWidth();
-    window.addEventListener('resize', updateWindowWidth);
-    return () => {
-      window.removeEventListener('resize', updateWindowWidth);
-    };
-  }, [view]);
-
-  useEffect(() => {
-    if (!selectedId) {
+    if (!selectedId || !detailOpen) {
       setDetail(null);
       return;
     }
@@ -173,13 +144,7 @@ export function SkillMarketSettingsContent() {
     return () => {
       cancelled = true;
     };
-  }, [selectedId]);
-
-  useEffect(() => {
-    if (view === 'market') {
-      setNarrowPane('list');
-    }
-  }, [trimmedQuery, view]);
+  }, [detailOpen, selectedId]);
 
   const handleInstall = async (item: SkillMarketItem) => {
     setInstallingId(item.id);
@@ -207,36 +172,8 @@ export function SkillMarketSettingsContent() {
 
   const handleSelectItem = (itemId: string) => {
     setSelectedId(itemId);
-    if (marketLayout === 'narrow') {
-      setNarrowPane('detail');
-    }
+    setDetailOpen(true);
   };
-
-  const listPane = (
-    <MarketListPane
-      query={query}
-      trimmedQuery={trimmedQuery}
-      items={items}
-      error={error}
-      loading={loading}
-      installedSkillNames={installedSkillNames}
-      selectedId={selectedId}
-      onQueryChange={setQuery}
-      onClearQuery={() => setQuery('')}
-      onSelectItem={handleSelectItem}
-    />
-  );
-
-  const detailPane = (
-    <MarketDetailPane
-      detail={detail}
-      detailLoading={detailLoading}
-      installedSkillNames={installedSkillNames}
-      installingId={installingId}
-      installOutput={installOutput}
-      onInstall={handleInstall}
-    />
-  );
 
   return (
     <div className="space-y-4 pb-6">
@@ -297,87 +234,44 @@ export function SkillMarketSettingsContent() {
       ) : view === 'codex' ? (
         <CodexPluginLibraryContent />
       ) : (
-        marketLayout === 'narrow' ? (
-          narrowPane === 'detail' && selectedId ? (
-            <MarketDetailPane
-              detail={detail}
-              detailLoading={detailLoading}
-              installedSkillNames={installedSkillNames}
-              installingId={installingId}
-              installOutput={installOutput}
-              onInstall={handleInstall}
-              backAction={
-                <button
-                  type="button"
-                  onClick={() => setNarrowPane('list')}
-                  className="inline-flex items-center gap-1.5 rounded-[var(--radius-xl)] border border-[var(--border)] px-3 py-1.5 text-[13px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-                >
-                  <ArrowLeft className="h-3.5 w-3.5" />
-                  <span>Back to results</span>
-                </button>
-              }
-              className="min-h-[calc(100vh-180px)]"
-            />
-          ) : (
-            <div className="space-y-3">
-              {selectedId && (
-                <div className="flex items-center justify-between rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-[13px] text-[var(--text-secondary)]">
-                  <span>Browse results, then open a skill detail.</span>
-                  {detail && (
-                    <button
-                      type="button"
-                      onClick={() => setNarrowPane('detail')}
-                      className="inline-flex items-center gap-1.5 rounded-[var(--radius-xl)] bg-[var(--accent)] px-3 py-1.5 font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)]"
-                    >
-                      <span>Open detail</span>
-                    </button>
-                  )}
-                </div>
-              )}
-              <MarketListPane
-                query={query}
-                trimmedQuery={trimmedQuery}
-                items={items}
-                error={error}
-                loading={loading}
-                installedSkillNames={installedSkillNames}
-                selectedId={selectedId}
-                onQueryChange={setQuery}
-                onClearQuery={() => setQuery('')}
-                onSelectItem={handleSelectItem}
-                className="min-h-[calc(100vh-240px)]"
-              />
-            </div>
-          )
-        ) : (
-          <div
-            className={`grid min-h-[calc(100vh-180px)] gap-4 ${
-              marketLayout === 'wide'
-                ? 'grid-cols-[280px_minmax(0,1fr)]'
-                : 'grid-cols-[236px_minmax(0,1fr)]'
-            }`}
-          >
-            {listPane}
-            {detailPane}
-          </div>
-        )
+        <>
+          <MarketCardGrid
+            query={query}
+            trimmedQuery={trimmedQuery}
+            items={items}
+            error={error}
+            loading={loading}
+            installedSkillNames={installedSkillNames}
+            onQueryChange={setQuery}
+            onClearQuery={() => setQuery('')}
+            onSelectItem={handleSelectItem}
+          />
+          <MarketDetailDialog
+            open={detailOpen}
+            onOpenChange={setDetailOpen}
+            detail={detail}
+            detailLoading={detailLoading}
+            installedSkillNames={installedSkillNames}
+            installingId={installingId}
+            installOutput={installOutput}
+            onInstall={handleInstall}
+          />
+        </>
       )}
     </div>
   );
 }
 
-function MarketListPane({
+function MarketCardGrid({
   query,
   trimmedQuery,
   items,
   error,
   loading,
   installedSkillNames,
-  selectedId,
   onQueryChange,
   onClearQuery,
   onSelectItem,
-  className = 'min-h-[720px]',
 }: {
   query: string;
   trimmedQuery: string;
@@ -385,19 +279,21 @@ function MarketListPane({
   error: string | null;
   loading: boolean;
   installedSkillNames: Set<string>;
-  selectedId: string | null;
   onQueryChange: (value: string) => void;
   onClearQuery: () => void;
   onSelectItem: (itemId: string) => void;
-  className?: string;
 }) {
   return (
-    <section className={`flex flex-col overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] ${className}`}>
-      <div className="border-b border-[var(--border)] p-3">
-        <div className="relative">
-          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
-            <Search className="h-3.5 w-3.5" />
-          </div>
+    <section className="min-h-[calc(100vh-220px)] space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <h4 className="text-lg font-semibold text-[var(--text-primary)]">Marketplace</h4>
+          <p className="text-sm text-[var(--text-secondary)]">
+            {items.length} {items.length === 1 ? 'skill' : 'skills'} from skills.sh
+          </p>
+        </div>
+        <div className="relative w-full max-w-[520px]">
+          <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
           <input
             type="text"
             value={query}
@@ -419,47 +315,84 @@ function MarketListPane({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2">
-        {error ? (
-          <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] p-4 text-[14px] text-[var(--error)]">
-            {error}
-          </div>
-        ) : loading ? (
-          <div className="flex items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-4 text-[14px] text-[var(--text-secondary)]">
-            <LoaderCircle className="h-4 w-4 animate-spin" />
-            <span>Loading skills…</span>
-          </div>
-        ) : items.length === 0 ? (
-          <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--border)] bg-[var(--bg-primary)] p-4 text-[14px] text-[var(--text-muted)]">
-            {trimmedQuery ? 'No skills matched this search.' : 'No skills available right now.'}
-          </div>
-        ) : (
-          <div className="space-y-1.5">
-            {items.map((item) => (
-              <MarketListItem
-                key={item.id}
-                item={item}
-                installed={installedSkillNames.has(item.skillId)}
-                selected={selectedId === item.id}
-                onSelect={() => onSelectItem(item.id)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      <div className="h-px bg-[var(--border)]" />
+
+      {error ? (
+        <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] p-4 text-[14px] text-[var(--error)]">
+          {error}
+        </div>
+      ) : loading ? (
+        <div className="flex items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4 text-[14px] text-[var(--text-secondary)]">
+          <LoaderCircle className="h-4 w-4 animate-spin" />
+          <span>Loading skills...</span>
+        </div>
+      ) : items.length === 0 ? (
+        <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] p-4 text-[14px] text-[var(--text-muted)]">
+          {trimmedQuery ? 'No skills matched this search.' : 'No skills available right now.'}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+          {items.map((item) => (
+            <MarketSkillCard
+              key={item.id}
+              item={item}
+              installed={installedSkillNames.has(item.skillId)}
+              onSelect={() => onSelectItem(item.id)}
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
-function MarketDetailPane({
+function MarketDetailDialog({
+  open,
+  onOpenChange,
   detail,
   detailLoading,
   installedSkillNames,
   installingId,
   installOutput,
   onInstall,
-  backAction,
-  className = 'min-h-[720px]',
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  detail: SkillMarketDetail | null;
+  detailLoading: boolean;
+  installedSkillNames: Set<string>;
+  installingId: string | null;
+  installOutput: string | null;
+  onInstall: (item: SkillMarketItem) => Promise<void>;
+}) {
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/35 backdrop-blur-[2px]" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[81] flex max-h-[82vh] w-[min(920px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
+          <MarketDetailContent
+            detail={detail}
+            detailLoading={detailLoading}
+            installedSkillNames={installedSkillNames}
+            installingId={installingId}
+            installOutput={installOutput}
+            onInstall={onInstall}
+            onClose={() => onOpenChange(false)}
+          />
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function MarketDetailContent({
+  detail,
+  detailLoading,
+  installedSkillNames,
+  installingId,
+  installOutput,
+  onInstall,
+  onClose,
 }: {
   detail: SkillMarketDetail | null;
   detailLoading: boolean;
@@ -467,191 +400,210 @@ function MarketDetailPane({
   installingId: string | null;
   installOutput: string | null;
   onInstall: (item: SkillMarketItem) => Promise<void>;
-  backAction?: ReactNode;
-  className?: string;
+  onClose: () => void;
 }) {
-  return (
-    <aside className={`flex flex-col overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] ${className}`}>
-      {detailLoading ? (
-        <div className="flex flex-1 items-center justify-center gap-2 p-6 text-[14px] text-[var(--text-secondary)]">
-          <LoaderCircle className="h-4 w-4 animate-spin" />
-          <span>Loading skill details…</span>
-        </div>
-      ) : detail ? (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border)] px-6 py-5">
-            <div className="min-w-0 flex-1 space-y-3">
-              {backAction}
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Boxes className="h-4 w-4 text-[var(--text-secondary)]" />
-                  <div className="truncate text-[30px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
-                    {detail.name}
-                  </div>
-                  {installedSkillNames.has(detail.skillId) && (
-                    <span className="inline-flex items-center gap-1 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--accent-light)] px-2 py-0.5 text-[11px] font-medium text-[var(--accent)]">
-                      <CheckCircle2 className="h-3 w-3" />
-                      <span>Installed</span>
-                    </span>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-2 text-[14px] text-[var(--text-muted)]">
-                  <span>{detail.source}</span>
-                  <a
-                    href={detail.repoUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 transition-colors hover:text-[var(--text-primary)]"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    <span>Repo</span>
-                  </a>
-                  {detail.weeklyInstallsLabel && <span>{detail.weeklyInstallsLabel}</span>}
-                </div>
-              </div>
-            </div>
+  if (detailLoading) {
+    return (
+      <div className="flex min-h-[420px] items-center justify-center gap-2 p-6 text-[14px] text-[var(--text-secondary)]">
+        <LoaderCircle className="h-4 w-4 animate-spin" />
+        <span>Loading skill details...</span>
+      </div>
+    );
+  }
 
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void onInstall(detail)}
-                disabled={installingId === detail.id}
-                className="inline-flex items-center gap-2 rounded-[var(--radius-xl)] bg-[var(--accent)] px-4 py-2 text-[14px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {installingId === detail.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                <span>{installingId === detail.id ? 'Installing…' : 'Install'}</span>
-              </button>
+  if (!detail) {
+    return (
+      <div className="flex min-h-[320px] items-center justify-center p-6 text-[14px] leading-7 text-[var(--text-muted)]">
+        Select a skill to inspect its description, install command, and repository details.
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border)] px-6 py-5">
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Boxes className="h-4 w-4 text-[var(--text-secondary)]" />
+              <div className="truncate text-[30px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+                {detail.name}
+              </div>
+              {installedSkillNames.has(detail.skillId) && (
+                <span className="inline-flex items-center gap-1 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--accent-light)] px-2 py-0.5 text-[11px] font-medium text-[var(--accent)]">
+                  <CheckCircle2 className="h-3 w-3" />
+                  <span>Installed</span>
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-[14px] text-[var(--text-muted)]">
+              <span>{detail.source}</span>
               <a
-                href={detail.detailUrl}
+                href={detail.repoUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] px-3 py-2 text-[14px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                className="inline-flex items-center gap-1 transition-colors hover:text-[var(--text-primary)]"
               >
-                <ExternalLink className="h-4 w-4" />
-                <span>Open</span>
+                <ExternalLink className="h-3.5 w-3.5" />
+                <span>Repo</span>
               </a>
+              {detail.weeklyInstallsLabel && <span>{detail.weeklyInstallsLabel}</span>}
             </div>
           </div>
+        </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-            <div className="space-y-6">
-              <section className="space-y-3">
-                <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-                  Overview
-                </div>
-                <p className="text-[16px] leading-8 text-[var(--text-primary)]">
-                  {detail.description}
-                </p>
-              </section>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void onInstall(detail)}
+            disabled={installingId === detail.id}
+            className="inline-flex items-center gap-2 rounded-[var(--radius-xl)] bg-[var(--accent)] px-4 py-2 text-[14px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {installingId === detail.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            <span>{installingId === detail.id ? 'Installing...' : 'Install'}</span>
+          </button>
+          <a
+            href={detail.detailUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] px-3 py-2 text-[14px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+          >
+            <ExternalLink className="h-4 w-4" />
+            <span>Open</span>
+          </a>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-xl)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+            aria-label="Close skill detail"
+            title="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
 
-              <section className="space-y-3">
-                <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-                  Install
-                </div>
-                <div className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-4">
-                  <code className="block break-words font-mono text-[13px] leading-6 text-[var(--text-primary)]">
-                    {detail.installCommand}
-                  </code>
-                </div>
-              </section>
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+        <div className="space-y-6">
+          <section className="space-y-3">
+            <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+              Overview
+            </div>
+            <p className="text-[16px] leading-8 text-[var(--text-primary)]">
+              {detail.description}
+            </p>
+          </section>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <DetailPanelCard label="Repo" value={detail.repo} />
-                <DetailPanelCard
-                  label="Weekly installs"
-                  value={detail.weeklyInstallsLabel || formatInstallCount(detail.installs)}
-                />
+          <section className="space-y-3">
+            <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+              Install
+            </div>
+            <div className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-4">
+              <code className="block break-words font-mono text-[13px] leading-6 text-[var(--text-primary)]">
+                {detail.installCommand}
+              </code>
+            </div>
+          </section>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <DetailPanelCard label="Repo" value={detail.repo} />
+            <DetailPanelCard
+              label="Weekly installs"
+              value={detail.weeklyInstallsLabel || formatInstallCount(detail.installs)}
+            />
+          </div>
+
+          {detail.originalSource && detail.originalSource !== detail.source && (
+            <div className="text-[14px] text-[var(--text-secondary)]">
+              Originally from <span className="font-medium text-[var(--text-primary)]">{detail.originalSource}</span>
+            </div>
+          )}
+
+          {detail.securityAudits && detail.securityAudits.length > 0 && (
+            <section className="space-y-3">
+              <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                <span>Security audits</span>
               </div>
+              <div className="flex flex-wrap gap-2">
+                {detail.securityAudits.map((audit) => (
+                  <span
+                    key={`${audit.name}-${audit.status}`}
+                    className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1 text-xs text-[var(--text-secondary)]"
+                  >
+                    {audit.name}: {audit.status}
+                  </span>
+                ))}
+              </div>
+            </section>
+          )}
 
-              {detail.originalSource && detail.originalSource !== detail.source && (
-                <div className="text-[14px] text-[var(--text-secondary)]">
-                  Originally from <span className="font-medium text-[var(--text-primary)]">{detail.originalSource}</span>
-                </div>
-              )}
-
-              {detail.securityAudits && detail.securityAudits.length > 0 && (
-                <section className="space-y-3">
-                  <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                    <span>Security audits</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {detail.securityAudits.map((audit) => (
-                      <span
-                        key={`${audit.name}-${audit.status}`}
-                        className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1 text-xs text-[var(--text-secondary)]"
-                      >
-                        {audit.name}: {audit.status}
-                      </span>
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {installOutput && installingId !== detail.id && (
-                <section className="space-y-3">
-                  <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-                    Last install output
-                  </div>
-                  <pre className="max-h-[220px] overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-4 font-mono text-[13px] text-[var(--text-secondary)]">
-                    {installOutput}
-                  </pre>
-                </section>
-              )}
-            </div>
-          </div>
+          {installOutput && installingId !== detail.id && (
+            <section className="space-y-3">
+              <div className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                Last install output
+              </div>
+              <pre className="max-h-[220px] overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-4 font-mono text-[13px] text-[var(--text-secondary)]">
+                {installOutput}
+              </pre>
+            </section>
+          )}
         </div>
-      ) : (
-        <div className="flex flex-1 items-center justify-center p-6 text-[14px] leading-7 text-[var(--text-muted)]">
-          Select a skill to inspect its description, install command, and repository details.
-        </div>
-      )}
-    </aside>
+      </div>
+    </>
   );
 }
 
-function MarketListItem({
+function MarketSkillCard({
   item,
   installed,
-  selected,
   onSelect,
 }: {
   item: SkillMarketItem;
   installed: boolean;
-  selected: boolean;
   onSelect: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <article
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
-      className={`flex w-full items-start gap-3 rounded-[var(--radius-xl)] border px-3 py-3 text-left transition-colors ${
-        selected
-          ? 'border-[var(--sidebar-item-border)] bg-[var(--sidebar-item-active)]'
-          : 'border-transparent hover:bg-[var(--sidebar-item-hover)]'
-      }`}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+      className="cursor-pointer rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4 shadow-[0_6px_18px_rgba(0,0,0,0.03)] transition-colors hover:bg-[var(--bg-tertiary)]"
+      aria-label={`Open ${item.name} skill detail`}
     >
-      <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[var(--radius-xl)] bg-[var(--bg-primary)] text-[var(--text-secondary)]">
-        <Boxes className="h-4 w-4" />
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <div className="truncate text-[15px] font-semibold text-[var(--text-primary)]">{item.name}</div>
-          {installed && (
-            <span className="inline-flex items-center gap-1 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--accent-light)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)]">
-              <CheckCircle2 className="h-3 w-3" />
-              <span>Installed</span>
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
+          <Boxes className="h-4.5 w-4.5" />
+        </div>
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex items-center gap-2">
+            <h5 className="truncate text-[15px] font-medium tracking-[-0.01em] text-[var(--text-primary)]">
+              {item.name}
+            </h5>
+            {installed && (
+              <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" />
+            )}
+          </div>
+          <p className="line-clamp-2 text-sm leading-6 text-[var(--text-secondary)]">
+            {item.source}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <span className="inline-flex max-w-[180px] items-center rounded-full bg-[var(--bg-tertiary)] px-3 py-1 text-[10px] leading-4 text-[var(--text-muted)]">
+              {item.skillId}
             </span>
-          )}
-        </div>
-        <div className="truncate text-[13px] text-[var(--text-muted)]">{item.source}</div>
-        <div className="mt-1 text-[13px] text-[var(--text-secondary)]">
-          {formatInstallCount(item.installs)}
-          {typeof item.change === 'number' && item.change > 0 ? ` · +${item.change} hot` : ''}
+            <span className="inline-flex items-center rounded-full bg-[var(--bg-tertiary)] px-3 py-1 text-[10px] leading-4 text-[var(--text-muted)]">
+              {formatInstallCount(item.installs)}
+            </span>
+          </div>
         </div>
       </div>
-    </button>
+    </article>
   );
 }
 

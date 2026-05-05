@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
 import { Boxes, CheckCircle2, LoaderCircle, Plug, RefreshCw, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
@@ -101,6 +102,9 @@ export function CodexPluginLibraryContent() {
   const [pluginsError, setPluginsError] = useState<string | null>(null);
   const [skillsError, setSkillsError] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [pluginDetailOpen, setPluginDetailOpen] = useState(false);
+  const [selectedSkillPath, setSelectedSkillPath] = useState<string | null>(null);
+  const [skillDetailOpen, setSkillDetailOpen] = useState(false);
   const [detail, setDetail] = useState<ProviderPluginDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
@@ -129,9 +133,13 @@ export function CodexPluginLibraryContent() {
   }, [normalizedQuery, skillsResult.skills]);
 
   const selectedPlugin = useMemo(() => {
-    if (!selectedKey) return filteredPlugins[0] || null;
-    return filteredPlugins.find((entry) => pluginKey(entry) === selectedKey) || filteredPlugins[0] || null;
+    if (!selectedKey) return null;
+    return filteredPlugins.find((entry) => pluginKey(entry) === selectedKey) || null;
   }, [filteredPlugins, selectedKey]);
+  const selectedSkill = useMemo(() => {
+    if (!selectedSkillPath) return null;
+    return filteredSkills.find((skill) => skill.path === selectedSkillPath) || null;
+  }, [filteredSkills, selectedSkillPath]);
 
   const loadPlugins = async (forceReload = false) => {
     setLoadingPlugins(true);
@@ -153,7 +161,7 @@ export function CodexPluginLibraryContent() {
         if (current && nextEntries.some((entry) => pluginKey(entry) === current)) {
           return current;
         }
-        return nextEntries[0] ? pluginKey(nextEntries[0]) : null;
+        return null;
       });
     } catch (error) {
       const message = normalizeRemoteErrorMessage(error, 'Failed to load Codex plugins.');
@@ -189,7 +197,7 @@ export function CodexPluginLibraryContent() {
   }, [discoveryCwd, tab]);
 
   useEffect(() => {
-    if (!selectedPlugin) {
+    if (!selectedPlugin || !pluginDetailOpen) {
       setDetail(null);
       return;
     }
@@ -222,11 +230,21 @@ export function CodexPluginLibraryContent() {
     return () => {
       cancelled = true;
     };
-  }, [selectedPlugin]);
+  }, [pluginDetailOpen, selectedPlugin]);
 
   const refresh = () => {
     if (tab === 'plugins') void loadPlugins(true);
     else void loadSkills(true);
+  };
+
+  const openPluginDetail = (entry: PluginEntry) => {
+    setSelectedKey(pluginKey(entry));
+    setPluginDetailOpen(true);
+  };
+
+  const openSkillDetail = (skill: ProviderSkillDescriptor) => {
+    setSelectedSkillPath(skill.path);
+    setSkillDetailOpen(true);
   };
 
   return (
@@ -276,24 +294,35 @@ export function CodexPluginLibraryContent() {
       </div>
 
       {tab === 'plugins' ? (
-        <div className="grid min-h-[calc(100vh-220px)] gap-4 lg:grid-cols-[minmax(300px,420px)_minmax(0,1fr)]">
-          <PluginListPane
+        <>
+          <PluginCardGrid
             entries={filteredPlugins}
             loading={loadingPlugins}
             error={pluginsError || pluginsResult.remoteSyncError}
-            selectedKey={selectedPlugin ? pluginKey(selectedPlugin) : null}
-            onSelect={(entry) => setSelectedKey(pluginKey(entry))}
+            onSelect={openPluginDetail}
           />
-          <PluginDetailPane entry={selectedPlugin} detail={detail} loading={detailLoading} />
-        </div>
+          <PluginDetailDialog
+            open={pluginDetailOpen}
+            onOpenChange={setPluginDetailOpen}
+            entry={selectedPlugin}
+            detail={detail}
+            loading={detailLoading}
+          />
+        </>
       ) : (
         <SkillListPane
           skills={filteredSkills}
           loading={loadingSkills}
           error={skillsError}
           discoveryCwd={discoveryCwd}
+          onSelect={openSkillDetail}
         />
       )}
+      <CodexSkillDetailDialog
+        open={skillDetailOpen}
+        onOpenChange={setSkillDetailOpen}
+        skill={selectedSkill}
+      />
     </div>
   );
 }
@@ -329,57 +358,58 @@ function SearchBox({
   );
 }
 
-function PluginListPane({
+function PluginCardGrid({
   entries,
   loading,
   error,
-  selectedKey,
   onSelect,
 }: {
   entries: PluginEntry[];
   loading: boolean;
   error: string | null;
-  selectedKey: string | null;
   onSelect: (entry: PluginEntry) => void;
 }) {
   return (
-    <section className="min-h-0 rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]">
-      <div className="border-b border-[var(--border)] px-4 py-3">
-        <div className="text-sm font-medium text-[var(--text-primary)]">Codex plugins</div>
-        <div className="mt-0.5 text-xs text-[var(--text-muted)]">
-          {entries.length} {entries.length === 1 ? 'plugin' : 'plugins'}
+    <section className="min-h-[calc(100vh-240px)] space-y-4">
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-4">
+          <h4 className="text-lg font-semibold text-[var(--text-primary)]">Codex plugins</h4>
+          <span className="text-xs text-[var(--text-muted)]">
+            {entries.length} {entries.length === 1 ? 'plugin' : 'plugins'}
+          </span>
         </div>
+        <p className="text-sm text-[var(--text-secondary)]">
+          Plugins exposed by the Codex app-server.
+        </p>
       </div>
-      <div className="max-h-[calc(100vh-310px)] overflow-y-auto p-2">
-        {error && <InlineNotice>{error}</InlineNotice>}
-        {loading && entries.length === 0 ? (
-          <LoadingRows />
-        ) : entries.length === 0 ? (
-          <EmptyPanel>No Codex plugins found.</EmptyPanel>
-        ) : (
-          <div className="space-y-1">
-            {entries.map((entry) => (
-              <PluginRow
-                key={pluginKey(entry)}
-                entry={entry}
-                selected={selectedKey === pluginKey(entry)}
-                onClick={() => onSelect(entry)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+
+      <div className="h-px bg-[var(--border)]" />
+
+      {error && <InlineNotice>{error}</InlineNotice>}
+      {loading && entries.length === 0 ? (
+        <LoadingRows />
+      ) : entries.length === 0 ? (
+        <EmptyPanel>No Codex plugins found.</EmptyPanel>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+          {entries.map((entry) => (
+            <PluginCard
+              key={pluginKey(entry)}
+              entry={entry}
+              onClick={() => onSelect(entry)}
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
-function PluginRow({
+function PluginCard({
   entry,
-  selected,
   onClick,
 }: {
   entry: PluginEntry;
-  selected: boolean;
   onClick: () => void;
 }) {
   const plugin = entry.plugin;
@@ -387,45 +417,92 @@ function PluginRow({
   const description = plugin.interface?.shortDescription || formatPluginSource(plugin);
 
   return (
-    <button
-      type="button"
+    <article
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      className={`flex w-full items-start gap-3 rounded-[var(--radius-xl)] px-3 py-3 text-left transition-colors ${
-        selected
-          ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
-          : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-      }`}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      className="cursor-pointer rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4 shadow-[0_6px_18px_rgba(0,0,0,0.03)] transition-colors hover:bg-[var(--bg-tertiary)]"
+      aria-label={`Open ${title} plugin detail`}
     >
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-        <Plug className="h-4.5 w-4.5" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <div className="truncate text-sm font-medium">{title}</div>
-          {isInstalledPlugin(plugin) && (
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[var(--accent)]" />
-          )}
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
+          <Plug className="h-4.5 w-4.5" />
         </div>
-        <div className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">
-          {description}
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex items-center gap-2">
+            <h5 className="truncate text-[15px] font-medium tracking-[-0.01em] text-[var(--text-primary)]">
+              {title}
+            </h5>
+            {isInstalledPlugin(plugin) && (
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[var(--accent)]" />
+            )}
+          </div>
+          <p className="line-clamp-2 text-sm leading-6 text-[var(--text-secondary)]">
+            {description}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <SmallBadge>{entry.marketplaceName}</SmallBadge>
+            <SmallBadge>{plugin.enabled ? 'enabled' : isInstalledPlugin(plugin) ? 'installed' : 'available'}</SmallBadge>
+          </div>
         </div>
-        <div className="mt-2 text-[11px] text-[var(--text-muted)]">{entry.marketplaceName}</div>
       </div>
-    </button>
+    </article>
   );
 }
 
-function PluginDetailPane({
+function PluginDetailDialog({
+  open,
+  onOpenChange,
   entry,
   detail,
   loading,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   entry: PluginEntry | null;
   detail: ProviderPluginDetail | null;
   loading: boolean;
 }) {
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/35 backdrop-blur-[2px]" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[81] flex max-h-[82vh] w-[min(920px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
+          <PluginDetailContent
+            entry={entry}
+            detail={detail}
+            loading={loading}
+            onClose={() => onOpenChange(false)}
+          />
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function PluginDetailContent({
+  entry,
+  detail,
+  loading,
+  onClose,
+}: {
+  entry: PluginEntry | null;
+  detail: ProviderPluginDetail | null;
+  loading: boolean;
+  onClose: () => void;
+}) {
   if (!entry) {
-    return <EmptyPanel>Select a plugin to inspect its Codex capabilities.</EmptyPanel>;
+    return (
+      <div className="flex min-h-[320px] items-center justify-center p-6 text-sm text-[var(--text-muted)]">
+        Select a plugin to inspect its Codex capabilities.
+      </div>
+    );
   }
 
   const plugin = detail?.summary || entry.plugin;
@@ -437,7 +514,7 @@ function PluginDetailPane({
     'No plugin description available.';
 
   return (
-    <section className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]">
+    <>
       <div className="border-b border-[var(--border)] px-5 py-4">
         <div className="flex items-start gap-3">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
@@ -453,10 +530,19 @@ function PluginDetailPane({
             <p className="mt-1 text-xs text-[var(--text-muted)]">{entry.marketplaceName}</p>
           </div>
           {loading && <LoaderCircle className="h-4 w-4 animate-spin text-[var(--text-muted)]" />}
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-xl)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+            aria-label="Close plugin detail"
+            title="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
-      <div className="space-y-5 px-5 py-5">
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
         <p className="text-sm leading-6 text-[var(--text-secondary)]">{description}</p>
 
         <MetadataGrid
@@ -502,7 +588,7 @@ function PluginDetailPane({
           Install, uninstall, OAuth, and dynamic tool execution are intentionally disabled in this first pass.
         </div>
       </div>
-    </section>
+    </>
   );
 }
 
@@ -511,59 +597,166 @@ function SkillListPane({
   loading,
   error,
   discoveryCwd,
+  onSelect,
 }: {
   skills: ProviderSkillDescriptor[];
   loading: boolean;
   error: string | null;
   discoveryCwd?: string;
+  onSelect: (skill: ProviderSkillDescriptor) => void;
 }) {
   return (
-    <section className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]">
-      <div className="border-b border-[var(--border)] px-4 py-3">
-        <div className="text-sm font-medium text-[var(--text-primary)]">Codex skills</div>
-        <div className="mt-0.5 text-xs text-[var(--text-muted)]">
-          {discoveryCwd || 'No active workspace'}
+    <section className="min-h-[calc(100vh-240px)] space-y-4">
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-4">
+          <h4 className="text-lg font-semibold text-[var(--text-primary)]">Codex skills</h4>
+          <span className="text-xs text-[var(--text-muted)]">
+            {skills.length} {skills.length === 1 ? 'skill' : 'skills'}
+          </span>
         </div>
+        <p className="text-sm text-[var(--text-secondary)]">
+          {discoveryCwd || 'No active workspace'}
+        </p>
       </div>
-      <div className="p-4">
-        {error && <InlineNotice>{error}</InlineNotice>}
-        {loading && skills.length === 0 ? (
-          <LoadingRows />
-        ) : skills.length === 0 ? (
-          <EmptyPanel>No Codex skills found.</EmptyPanel>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-            {skills.map((skill) => (
-              <SkillMiniCard key={`${skill.path}:${skill.name}`} skill={skill} />
-            ))}
-          </div>
-        )}
-      </div>
+
+      <div className="h-px bg-[var(--border)]" />
+
+      {error && <InlineNotice>{error}</InlineNotice>}
+      {loading && skills.length === 0 ? (
+        <LoadingRows />
+      ) : skills.length === 0 ? (
+        <EmptyPanel>No Codex skills found.</EmptyPanel>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+          {skills.map((skill) => (
+            <SkillMiniCard
+              key={`${skill.path}:${skill.name}`}
+              skill={skill}
+              onSelect={() => onSelect(skill)}
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
-function SkillMiniCard({ skill }: { skill: ProviderSkillDescriptor }) {
+function SkillMiniCard({
+  skill,
+  onSelect,
+}: {
+  skill: ProviderSkillDescriptor;
+  onSelect?: () => void;
+}) {
+  const title = skill.interface?.displayName || skill.name;
+  const description = skill.interface?.shortDescription || skill.description || skill.path;
+
   return (
-    <article className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-3">
+    <article
+      role={onSelect ? 'button' : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (!onSelect) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+      className={`rounded-[var(--radius-2xl)] border border-[var(--border)] px-4 py-4 shadow-[0_6px_18px_rgba(0,0,0,0.03)] ${
+        onSelect
+          ? 'cursor-pointer bg-[var(--bg-secondary)] transition-colors hover:bg-[var(--bg-tertiary)]'
+          : 'bg-[var(--bg-primary)]'
+      }`}
+      aria-label={onSelect ? `Open ${title} skill detail` : undefined}
+    >
       <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
           <Boxes className="h-4 w-4" />
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-[var(--text-primary)]">
-            {skill.interface?.displayName || skill.name}
-          </div>
-          <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">
-            {skill.interface?.shortDescription || skill.description || skill.path}
+        <div className="min-w-0 flex-1 space-y-2">
+          <h5 className="truncate text-[15px] font-medium tracking-[-0.01em] text-[var(--text-primary)]">
+            {title}
+          </h5>
+          <p className="line-clamp-2 text-sm leading-6 text-[var(--text-secondary)]">
+            {description}
           </p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-2">
             {skill.scope && <SmallBadge>{skill.scope}</SmallBadge>}
             {skill.enabled && <SmallBadge>enabled</SmallBadge>}
           </div>
         </div>
       </div>
     </article>
+  );
+}
+
+function CodexSkillDetailDialog({
+  open,
+  onOpenChange,
+  skill,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  skill: ProviderSkillDescriptor | null;
+}) {
+  const title = skill?.interface?.displayName || skill?.name || 'Skill';
+  const description = skill?.interface?.shortDescription || skill?.description || 'No skill description available.';
+
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/35 backdrop-blur-[2px]" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[81] flex max-h-[82vh] w-[min(760px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
+          {!skill ? (
+            <div className="p-6 text-sm text-[var(--text-muted)]">Select a skill to inspect its details.</div>
+          ) : (
+            <>
+              <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-5">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
+                    <Boxes className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="break-words text-[24px] font-semibold tracking-[-0.025em] text-[var(--text-primary)]">
+                      {title}
+                    </h3>
+                    <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">{description}</p>
+                  </div>
+                </div>
+                <Dialog.Close asChild>
+                  <button
+                    type="button"
+                    className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[var(--radius-xl)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                    aria-label="Close skill detail"
+                    title="Close"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </Dialog.Close>
+              </div>
+              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
+                <MetadataGrid
+                  rows={[
+                    ['Name', skill.name],
+                    ['Path', skill.path],
+                    ['Enabled', skill.enabled ? 'Yes' : 'No'],
+                    ...(skill.scope ? [['Scope', skill.scope] as [string, string]] : []),
+                  ]}
+                />
+                {skill.dependencies ? (
+                  <DetailSection title="Dependencies">
+                    <pre className="max-h-[240px] overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-4 font-mono text-xs leading-6 text-[var(--text-secondary)]">
+                      {JSON.stringify(skill.dependencies, null, 2)}
+                    </pre>
+                  </DetailSection>
+                ) : null}
+              </div>
+            </>
+          )}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
