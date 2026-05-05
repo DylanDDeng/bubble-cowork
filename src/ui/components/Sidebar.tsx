@@ -11,7 +11,6 @@ import {
 import { useAppStore } from '../store/useAppStore';
 import { SidebarSearchPalette } from './search/SidebarSearchPalette';
 import { PromptLibraryPanel } from './prompts/PromptLibraryPanel';
-import { SidebarSkillLibraryPanel } from './sidebar/SidebarSkillLibraryPanel';
 import { AgentAvatar } from './AgentAvatar';
 import type {
   SidebarSearchAction,
@@ -337,8 +336,8 @@ export function Sidebar() {
         setShowSettings(false);
         break;
       case 'switch-skills':
-        setActiveWorkspace('chat');
-        setChatSidebarView('skills');
+        setActiveWorkspace('skills');
+        setChatSidebarView('threads');
         setShowSettings(false);
         break;
       case 'settings':
@@ -368,6 +367,12 @@ export function Sidebar() {
   const activateSidebarView = (view: ChatSidebarView) => {
     setActiveWorkspace('chat');
     setChatSidebarView(view);
+    setShowSettings(false);
+  };
+
+  const openSkillWorkspace = () => {
+    setActiveWorkspace('skills');
+    setChatSidebarView('threads');
     setShowSettings(false);
   };
 
@@ -434,19 +439,14 @@ export function Sidebar() {
                   <SidebarNavRow
                     icon={<Boxes className="h-[15px] w-[15px]" />}
                     label="Skill Library"
-                    active={
-                      (activeWorkspace === 'chat' && chatSidebarView === 'skills') ||
-                      activeWorkspace === 'skills'
-                    }
-                    onClick={() => activateSidebarView('skills')}
+                    active={activeWorkspace === 'skills'}
+                    onClick={openSkillWorkspace}
                   />
                 </div>
               </div>
 
               {chatSidebarView === 'prompts' ? (
                 <PromptLibraryPanel onShowProjects={() => activateSidebarView('threads')} />
-              ) : chatSidebarView === 'skills' ? (
-                <SidebarSkillLibraryPanel onShowProjects={() => activateSidebarView('threads')} />
               ) : (
                 <div className="flex min-h-0 flex-1 flex-col">
                   <ThreadScopeTabs

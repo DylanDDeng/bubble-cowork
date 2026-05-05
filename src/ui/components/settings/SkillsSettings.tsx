@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Boxes, LoaderCircle, Search, X } from 'lucide-react';
+import * as Dialog from '@radix-ui/react-dialog';
+import { Boxes, ExternalLink, FileText, LoaderCircle, Search, X } from 'lucide-react';
 import { sendEvent } from '../../hooks/useIPC';
 import { useAppStore } from '../../store/useAppStore';
 import type { ClaudeSkillSummary } from '../../types';
@@ -24,6 +25,11 @@ export function SkillsSettingsContentInner({ embedded = false }: { embedded?: bo
   const [refreshing, setRefreshing] = useState(false);
   const [refreshStartedAt, setRefreshStartedAt] = useState<number | null>(null);
   const [query, setQuery] = useState('');
+  const [selectedSkillPath, setSelectedSkillPath] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailBody, setDetailBody] = useState('');
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const currentProjectPath = activeSessionId ? sessions[activeSessionId]?.cwd : undefined;
   const currentProjectName = currentProjectPath?.split('/').filter(Boolean).pop();
@@ -68,6 +74,56 @@ export function SkillsSettingsContentInner({ embedded = false }: { embedded?: bo
     [claudeProjectSkills, query]
   );
   const hasSearchQuery = query.trim().length > 0;
+  const visibleSkills = useMemo(
+    () => [...filteredUserSkills, ...filteredProjectSkills],
+    [filteredProjectSkills, filteredUserSkills]
+  );
+  const selectedSkill = useMemo(
+    () => visibleSkills.find((skill) => skill.path === selectedSkillPath) || null,
+    [selectedSkillPath, visibleSkills]
+  );
+
+  useEffect(() => {
+    if (!detailOpen || !selectedSkill) {
+      setDetailBody('');
+      setDetailError(null);
+      setDetailLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetailError(null);
+    setDetailBody('');
+
+    void window.electron
+      .expandClaudeSkillPrompt(selectedSkill.path, selectedSkill.name, '')
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+
+        if (result.ok && result.prompt) {
+          setDetailBody(extractSkillInstructions(result.prompt));
+        } else {
+          setDetailError(result.message || 'Failed to load skill detail.');
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setDetailError(error instanceof Error ? error.message : String(error));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDetailLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [detailOpen, selectedSkill]);
 
   const refreshSkills = () => {
     setRefreshing(true);
@@ -85,6 +141,11 @@ export function SkillsSettingsContentInner({ embedded = false }: { embedded?: bo
     } finally {
       setRevealingPath((current) => (current === filePath ? null : current));
     }
+  };
+
+  const openSkillDetail = (filePath: string) => {
+    setSelectedSkillPath(filePath);
+    setDetailOpen(true);
   };
 
   return (
@@ -138,36 +199,51 @@ export function SkillsSettingsContentInner({ embedded = false }: { embedded?: bo
         </div>
       </div>
 
-      <SkillsSection
-        title="User Skills"
-        description="Available to every Claude session on this machine."
-        rootPath={claudeSkillsUserRoot}
-        skills={filteredUserSkills}
-        emptyMessage={hasSearchQuery ? 'No user-level skills match this search.' : 'No user-level skills found.'}
-        revealingPath={revealingPath}
-        onReveal={handleReveal}
-      />
+      <div className="min-h-[calc(100vh-240px)] space-y-7">
+        <SkillsSection
+          title="User Skills"
+          description="Available to every Claude session on this machine."
+          rootPath={claudeSkillsUserRoot}
+          skills={filteredUserSkills}
+          emptyMessage={hasSearchQuery ? 'No user-level skills match this search.' : 'No user-level skills found.'}
+          revealingPath={revealingPath}
+          onSelect={openSkillDetail}
+          onReveal={handleReveal}
+        />
 
-      <SkillsSection
-        title="Project Skills"
-        description={
-          currentProjectPath
-            ? `Available when the active session uses ${currentProjectName || 'this workspace'} as its working directory.`
-            : 'Open a session with a working directory to inspect workspace-specific skills.'
-        }
-        rootPath={claudeSkillsProjectRoot}
-        skills={filteredProjectSkills}
-        emptyMessage={
-          currentProjectPath
-            ? hasSearchQuery
-              ? 'No workspace-level skills match this search.'
-              : 'No workspace-level skills found for this project.'
-            : 'No active workspace selected.'
-        }
-        unavailable={!currentProjectPath}
-        revealingPath={revealingPath}
-        onReveal={handleReveal}
-      />
+        <SkillsSection
+          title="Project Skills"
+          description={
+            currentProjectPath
+              ? `Available when the active session uses ${currentProjectName || 'this workspace'} as its working directory.`
+              : 'Open a session with a working directory to inspect workspace-specific skills.'
+          }
+          rootPath={claudeSkillsProjectRoot}
+          skills={filteredProjectSkills}
+          emptyMessage={
+            currentProjectPath
+              ? hasSearchQuery
+                ? 'No workspace-level skills match this search.'
+                : 'No workspace-level skills found for this project.'
+              : 'No active workspace selected.'
+          }
+          unavailable={!currentProjectPath}
+          revealingPath={revealingPath}
+          onSelect={openSkillDetail}
+          onReveal={handleReveal}
+        />
+
+        <SkillDetailDialog
+          open={detailOpen}
+          onOpenChange={setDetailOpen}
+          skill={selectedSkill}
+          body={detailBody}
+          loading={detailLoading}
+          error={detailError}
+          revealing={selectedSkill ? revealingPath === selectedSkill.path : false}
+          onReveal={handleReveal}
+        />
+      </div>
     </div>
   );
 }
@@ -184,6 +260,11 @@ function filterSkills(skills: ClaudeSkillSummary[], query: string): ClaudeSkillS
   });
 }
 
+function extractSkillInstructions(prompt: string): string {
+  const match = prompt.match(/<skill_instructions>\n?([\s\S]*?)\n?<\/skill_instructions>/);
+  return (match?.[1] || prompt).trim();
+}
+
 function SkillsSection({
   title,
   description,
@@ -192,6 +273,7 @@ function SkillsSection({
   emptyMessage,
   unavailable = false,
   revealingPath,
+  onSelect,
   onReveal,
 }: {
   title: string;
@@ -201,6 +283,7 @@ function SkillsSection({
   emptyMessage: string;
   unavailable?: boolean;
   revealingPath: string | null;
+  onSelect: (filePath: string) => void;
   onReveal: (filePath: string) => Promise<void>;
 }) {
   return (
@@ -228,6 +311,7 @@ function SkillsSection({
               key={skill.path}
               skill={skill}
               revealing={revealingPath === skill.path}
+              onSelect={onSelect}
               onReveal={onReveal}
             />
           ))}
@@ -246,14 +330,28 @@ function SkillsSection({
 function SkillCard({
   skill,
   revealing,
+  onSelect,
   onReveal,
 }: {
   skill: ClaudeSkillSummary;
   revealing: boolean;
+  onSelect: (filePath: string) => void;
   onReveal: (filePath: string) => Promise<void>;
 }) {
   return (
-    <article className="rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4 shadow-[0_6px_18px_rgba(0,0,0,0.03)]">
+    <article
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(skill.path)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect(skill.path);
+        }
+      }}
+      className="cursor-pointer rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-4 shadow-[0_6px_18px_rgba(0,0,0,0.03)] transition-colors hover:bg-[var(--bg-tertiary)]"
+      aria-label={`Open ${skill.title || skill.name} skill detail`}
+    >
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
           <Boxes className="w-4.5 h-4.5" />
@@ -262,7 +360,7 @@ function SkillCard({
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-center gap-2 min-w-0">
             <h5 className="truncate text-[15px] font-medium tracking-[-0.01em] text-[var(--text-primary)]">
-              {skill.title.toUpperCase()}
+              {skill.title || skill.name}
             </h5>
           </div>
 
@@ -281,7 +379,10 @@ function SkillCard({
         </div>
 
         <button
-          onClick={() => void onReveal(skill.path)}
+          onClick={(event) => {
+            event.stopPropagation();
+            void onReveal(skill.path);
+          }}
           disabled={revealing}
           className="flex-shrink-0 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-60 disabled:cursor-not-allowed"
         >
@@ -289,5 +390,108 @@ function SkillCard({
         </button>
       </div>
     </article>
+  );
+}
+
+function SkillDetailDialog({
+  open,
+  onOpenChange,
+  skill,
+  body,
+  loading,
+  error,
+  revealing,
+  onReveal,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  skill: ClaudeSkillSummary | null;
+  body: string;
+  loading: boolean;
+  error: string | null;
+  revealing: boolean;
+  onReveal: (filePath: string) => Promise<void>;
+}) {
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/35 backdrop-blur-[2px]" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-[81] flex max-h-[82vh] w-[min(920px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
+          {!skill ? (
+            <div className="p-6 text-sm leading-6 text-[var(--text-muted)]">Select a skill card to inspect its instructions.</div>
+          ) : (
+            <>
+          <div className="border-b border-[var(--border)] px-5 py-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 space-y-2">
+                <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                  <FileText className="h-3.5 w-3.5" />
+                  <span>{skill.source} skill</span>
+                </div>
+                <h4 className="break-words text-[24px] font-semibold tracking-[-0.025em] text-[var(--text-primary)]">
+                  {skill.title || skill.name}
+                </h4>
+                <p className="break-words text-sm leading-6 text-[var(--text-secondary)]">
+                  {skill.description || `/${skill.name}`}
+                </p>
+              </div>
+
+              <div className="flex flex-shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void onReveal(skill.path)}
+                  disabled={revealing}
+                  className="inline-flex items-center gap-1.5 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-[13px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {revealing ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <ExternalLink className="h-3.5 w-3.5" />}
+                  <span>{revealing ? 'Opening' : 'Reveal'}</span>
+                </button>
+                <Dialog.Close asChild>
+                  <button
+                    type="button"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-xl)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                    aria-label="Close skill detail"
+                    title="Close"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </Dialog.Close>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-3 text-[12px] leading-5 text-[var(--text-muted)]">
+              <div className="break-all">
+                <span className="text-[var(--text-secondary)]">Name:</span> {skill.name}
+              </div>
+              <div className="break-all">
+                <span className="text-[var(--text-secondary)]">Path:</span> {skill.path}
+              </div>
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto p-5">
+            <div className="mb-3 text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+              Instructions
+            </div>
+            {loading ? (
+              <div className="flex min-h-[220px] items-center justify-center gap-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-4 text-sm text-[var(--text-secondary)]">
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+                <span>Loading skill detail...</span>
+              </div>
+            ) : error ? (
+              <div className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-4 text-sm leading-6 text-[var(--error)]">
+                {error}
+              </div>
+            ) : (
+              <pre className="max-h-[46vh] whitespace-pre-wrap break-words overflow-auto rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-4 font-mono text-[12px] leading-6 text-[var(--text-primary)]">
+                {body || 'No skill instructions found.'}
+              </pre>
+            )}
+          </div>
+            </>
+          )}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
