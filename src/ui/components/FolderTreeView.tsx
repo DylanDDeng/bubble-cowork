@@ -14,9 +14,7 @@ import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { DEFAULT_WORKSPACE_CHANNEL_ID, type WorkspaceChannel } from '../../shared/types';
 import type { AgentProfile, AgentProvider, SessionView } from '../types';
-import claudeLogo from '../assets/claude-color.svg';
-import openaiLogo from '../assets/openai.svg';
-import { OpenCodeLogo } from './OpenCodeLogo';
+
 import { AgentAvatar } from './AgentAvatar';
 
 type ProjectGroup = {
@@ -111,29 +109,7 @@ interface ProjectTreeViewProps {
 }
 
 function ProviderGlyph({ provider }: { provider?: AgentProvider }) {
-  if (provider === 'codex') {
-    return (
-      <img
-        src={openaiLogo}
-        alt=""
-        aria-hidden="true"
-        className="h-3.5 w-3.5 flex-shrink-0 opacity-80"
-      />
-    );
-  }
-
-  if (provider === 'opencode') {
-    return <OpenCodeLogo className="h-3.5 w-3.5 flex-shrink-0 opacity-80" />;
-  }
-
-  return (
-    <img
-      src={claudeLogo}
-      alt=""
-      aria-hidden="true"
-      className="h-3.5 w-3.5 flex-shrink-0 opacity-85"
-    />
-  );
+  return null;
 }
 
 export function FolderTreeView({
