@@ -19,7 +19,12 @@ export function createMemorySearchTool(memory: BuiltinMemoryAdapter): BuiltinToo
       const query = asString(args.query).trim();
       if (!query) return { content: 'Error: query is required', isError: true, status: 'command_error' };
       const limit = Math.max(1, Math.min(50, Math.floor(asNumber(args.limit, 16))));
-      return { content: await memory.search(query, limit), status: 'success', metadata: { kind: 'memory' } };
+      const result = await memory.search(query, limit);
+      return {
+        content: result.content,
+        status: 'success',
+        metadata: { kind: 'memory', citations: result.citations },
+      };
     },
   };
 }
@@ -35,8 +40,12 @@ export function createMemoryReadSummaryTool(memory: BuiltinMemoryAdapter): Built
       additionalProperties: false,
     },
     async execute() {
-      return { content: await memory.readSummary(), status: 'success', metadata: { kind: 'memory' } };
+      const result = await memory.readSummary();
+      return {
+        content: result.content,
+        status: 'success',
+        metadata: { kind: 'memory', citations: result.citations },
+      };
     },
   };
 }
-

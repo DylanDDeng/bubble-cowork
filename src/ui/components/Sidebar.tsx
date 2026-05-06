@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { SidebarSearchPalette } from './search/SidebarSearchPalette';
-import { PromptLibraryPanel } from './prompts/PromptLibraryPanel';
 import { AgentAvatar } from './AgentAvatar';
 import type {
   SidebarSearchAction,
@@ -21,7 +20,6 @@ import { FolderTreeView } from './FolderTreeView';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import type {
   AgentProfile,
-  ChatSidebarView,
 } from '../types';
 import { getMessageContentBlocks } from '../utils/message-content';
 
@@ -90,7 +88,6 @@ export function Sidebar() {
     activeSessionId,
     sidebarCollapsed,
     sidebarWidth,
-    chatSidebarView,
     projectCwd,
     activeChannelByProject,
     agentProfiles,
@@ -331,8 +328,8 @@ export function Sidebar() {
         setShowSettings(false);
         break;
       case 'switch-prompts':
-        setActiveWorkspace('chat');
-        setChatSidebarView('prompts');
+        setActiveWorkspace('prompts');
+        setChatSidebarView('threads');
         setShowSettings(false);
         break;
       case 'switch-skills':
@@ -361,12 +358,6 @@ export function Sidebar() {
     setActiveWorkspace('chat');
     setChatSidebarView('threads');
     setProjectCwd(projectId);
-    setShowSettings(false);
-  };
-
-  const activateSidebarView = (view: ChatSidebarView) => {
-    setActiveWorkspace('chat');
-    setChatSidebarView(view);
     setShowSettings(false);
   };
 
@@ -430,11 +421,12 @@ export function Sidebar() {
                   <SidebarNavRow
                     icon={<Bookmark className="h-[15px] w-[15px]" />}
                     label="Prompt Library"
-                    active={
-                      (activeWorkspace === 'chat' && chatSidebarView === 'prompts') ||
-                      activeWorkspace === 'prompts'
-                    }
-                    onClick={() => activateSidebarView('prompts')}
+                    active={activeWorkspace === 'prompts'}
+                    onClick={() => {
+                      setActiveWorkspace('prompts');
+                      setChatSidebarView('threads');
+                      setShowSettings(false);
+                    }}
                   />
                   <SidebarNavRow
                     icon={<Boxes className="h-[15px] w-[15px]" />}
@@ -445,50 +437,46 @@ export function Sidebar() {
                 </div>
               </div>
 
-              {chatSidebarView === 'prompts' ? (
-                <PromptLibraryPanel onShowProjects={() => activateSidebarView('threads')} />
-              ) : (
-                <div className="flex min-h-0 flex-1 flex-col">
-                  <ThreadScopeTabs
-                    activeScope={threadSidebarScope}
-                    onScopeChange={setThreadSidebarScope}
-                  />
-                  {threadSidebarScope === 'projects' ? (
-                    <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 pt-3">
-                      <FolderTreeView
-                        onSessionClick={(sessionId, options) => {
-                          setShowSettings(false);
-                          setChatLayoutMode(options?.preserveSplit ? 'split' : 'single');
-                          setActiveSession(sessionId);
-                          setShowNewSession(false);
-                          setActiveWorkspace('chat');
-                          setChatSidebarView('threads');
-                        }}
-                        onSelectProjectFolder={handleProjectFolderSelect}
-                        projectCwd={projectCwd}
-                        onNewSessionForProject={(nextCwd, channelId) => {
-                          const nextChannelId = channelId || getActiveChannelIdForProject(nextCwd);
-                          setProjectCwd(nextCwd);
-                          setActiveChannelForProject(nextCwd, nextChannelId);
-                          setShowSettings(false);
-                          setChatSidebarView('threads');
-                          createDraftSession(nextCwd, nextChannelId);
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <DirectMessagesPanel
-                      agents={directMessageAgents}
-                      selectedAgentId={activeDirectAgentId}
-                      onSelectAgent={(agentId) => {
+              <div className="flex min-h-0 flex-1 flex-col">
+                <ThreadScopeTabs
+                  activeScope={threadSidebarScope}
+                  onScopeChange={setThreadSidebarScope}
+                />
+                {threadSidebarScope === 'projects' ? (
+                  <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 pt-3">
+                    <FolderTreeView
+                      onSessionClick={(sessionId, options) => {
                         setShowSettings(false);
-                        setChatLayoutMode('single');
-                        openAgentDirectMessage(agentId);
+                        setChatLayoutMode(options?.preserveSplit ? 'split' : 'single');
+                        setActiveSession(sessionId);
+                        setShowNewSession(false);
+                        setActiveWorkspace('chat');
+                        setChatSidebarView('threads');
+                      }}
+                      onSelectProjectFolder={handleProjectFolderSelect}
+                      projectCwd={projectCwd}
+                      onNewSessionForProject={(nextCwd, channelId) => {
+                        const nextChannelId = channelId || getActiveChannelIdForProject(nextCwd);
+                        setProjectCwd(nextCwd);
+                        setActiveChannelForProject(nextCwd, nextChannelId);
+                        setShowSettings(false);
+                        setChatSidebarView('threads');
+                        createDraftSession(nextCwd, nextChannelId);
                       }}
                     />
-                  )}
-                </div>
-              )}
+                  </div>
+                ) : (
+                  <DirectMessagesPanel
+                    agents={directMessageAgents}
+                    selectedAgentId={activeDirectAgentId}
+                    onSelectAgent={(agentId) => {
+                      setShowSettings(false);
+                      setChatLayoutMode('single');
+                      openAgentDirectMessage(agentId);
+                    }}
+                  />
+                )}
+              </div>
 
               <div className="px-2 py-2">
                 <button

@@ -1975,14 +1975,11 @@ export const useAppStore = create<Store>()(
           uiFontFamily,
           chatCodeFontFamily,
         });
-        const sidebarView =
-          persisted?.chatSidebarView === 'prompts' ||
-          persisted?.activeWorkspace === 'prompts'
-            ? 'prompts'
-            : persisted?.chatSidebarView === 'skills' ||
-                persisted?.activeWorkspace === 'skills'
-              ? 'skills'
-              : 'threads';
+        const activeWorkspace =
+          persisted?.activeWorkspace === 'prompts' || persisted?.activeWorkspace === 'skills'
+            ? persisted.activeWorkspace
+            : 'chat';
+        const sidebarView = persisted?.chatSidebarView === 'skills' ? 'skills' : 'threads';
 
         return {
           ...currentState,
@@ -1990,7 +1987,7 @@ export const useAppStore = create<Store>()(
             ...currentState.sessions,
             ...draftSessions,
           },
-          activeWorkspace: 'chat',
+          activeWorkspace,
           workspaceChannelsByProject:
             persisted?.workspaceChannelsByProject || currentState.workspaceChannelsByProject,
           activeChannelByProject: persisted?.activeChannelByProject || currentState.activeChannelByProject,

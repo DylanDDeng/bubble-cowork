@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Copy, Check, Pencil, RotateCcw } from 'lucide-react';
+import { ChevronRight, Copy, Check, Pencil, RotateCcw } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { AttachmentChips } from './AttachmentChips';
 import { AttachmentPreviewGrid } from './AttachmentPreviewGrid';
@@ -547,6 +547,14 @@ function AssistantCard({
       ),
     [blocks]
   );
+  const memoryCitationBlocks = useMemo(
+    () =>
+      blocks.filter(
+        (block): block is ContentBlock & { type: 'memory_citations' } =>
+          block.type === 'memory_citations' && block.citations.length > 0
+      ),
+    [blocks]
+  );
 
   return (
     <div
@@ -585,6 +593,97 @@ function AssistantCard({
           />
         </div>
       ))}
+      {!isProgress && memoryCitationBlocks.map((block, idx) => (
+        <MemoryCitationsBlock key={`memory-citations-${idx}`} block={block} />
+      ))}
+    </div>
+  );
+}
+
+function MemoryCitationsBlock({
+  block,
+}: {
+  block: ContentBlock & { type: 'memory_citations' };
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { setBrowserPanelOpen, setProjectPanelView, setProjectTreeCollapsed } = useAppStore();
+  const count = block.citations.length;
+
+  const openCitation = (citation: (ContentBlock & { type: 'memory_citations' })['citations'][number]) => {
+    if (!citation.source.trim()) return;
+    setBrowserPanelOpen(false);
+    setProjectPanelView('files');
+    setProjectTreeCollapsed(false);
+    window.setTimeout(() => {
+      window.dispatchEvent(
+        new CustomEvent('aegis:open-project-file', {
+          detail: {
+            path: citation.source,
+            external: true,
+            lineStart: citation.lineStart,
+            lineEnd: citation.lineEnd,
+          },
+        })
+      );
+    }, 0);
+  };
+
+  return (
+    <div className="mt-3 max-w-[760px] text-[12px] text-[var(--text-muted)]">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="inline-flex items-center gap-1.5 py-1 text-[12px] leading-5 text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
+        aria-expanded={expanded}
+      >
+        <ChevronRight
+          className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`}
+        />
+        <span>
+          {count} memory citation{count === 1 ? '' : 's'}
+        </span>
+      </button>
+      {expanded ? (
+        <div className="mt-3 space-y-3 pl-3">
+          {block.citations.map((citation, index) => {
+            const lineLabel =
+              typeof citation.lineStart === 'number'
+                ? `line${citation.lineEnd && citation.lineEnd !== citation.lineStart ? 's' : ''} ${
+                    citation.lineEnd && citation.lineEnd !== citation.lineStart
+                      ? `${citation.lineStart}-${citation.lineEnd}`
+                      : citation.lineStart
+                  }`
+                : '';
+            const sourceName = citation.source.split('/').filter(Boolean).pop() || citation.source;
+            return (
+              <div key={`${citation.source}-${citation.lineStart ?? 'all'}-${index}`}>
+                <div className="flex min-w-0 flex-wrap items-baseline gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => openCitation(citation)}
+                    className="font-medium text-[var(--accent)] hover:underline"
+                    title={citation.source}
+                  >
+                    {sourceName}
+                  </button>
+                  {lineLabel ? (
+                    <button
+                      type="button"
+                      onClick={() => openCitation(citation)}
+                      className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:underline"
+                    >
+                      {lineLabel}
+                    </button>
+                  ) : null}
+                </div>
+                {citation.note ? (
+                  <div className="mt-0.5 text-[var(--text-muted)]/85">{citation.note}</div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }

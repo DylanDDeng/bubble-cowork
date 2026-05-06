@@ -7,6 +7,7 @@ import type {
   AegisPermissionMode,
   Attachment,
   ContentBlock,
+  MemoryCitation,
   PermissionResult,
   ProviderInputReference,
   StreamEvent,
@@ -30,6 +31,7 @@ import { createAllTools as createBuiltinTools } from '../builtin-agent/tools';
 import type {
   BuiltinAgentCallbacks,
   BuiltinApprovalController,
+  BuiltinMemoryLookupResult,
   BuiltinMemoryAdapter,
   BuiltinPermissionMode,
   BuiltinPlanController,
@@ -349,6 +351,54 @@ function buildAssistantMessage(content: ContentBlock[], streaming = false): Stre
   };
 }
 
+function truncateCitationNote(value: string, maxChars = 180): string {
+  const trimmed = value.replace(/\s+/g, ' ').trim();
+  if (trimmed.length <= maxChars) return trimmed;
+  return `${trimmed.slice(0, maxChars).trimEnd()}...`;
+}
+
+function memoryCitationKey(citation: MemoryCitation): string {
+  return [
+    citation.source,
+    citation.lineStart ?? '',
+    citation.lineEnd ?? '',
+    citation.note ?? '',
+  ].join(':');
+}
+
+function getMemoryCitationsFromMetadata(metadata?: BuiltinToolResultMetadata): MemoryCitation[] {
+  if (metadata?.kind !== 'memory' || !Array.isArray(metadata.citations)) {
+    return [];
+  }
+  return metadata.citations.filter((citation): citation is MemoryCitation => (
+    !!citation &&
+    typeof citation === 'object' &&
+    typeof citation.source === 'string' &&
+    citation.source.trim().length > 0
+  ));
+}
+
+function appendMemoryCitations(
+  blocks: ContentBlock[],
+  citations: MemoryCitation[]
+): ContentBlock[] {
+  if (citations.length === 0) {
+    return blocks;
+  }
+  const hasAnswerText = blocks.some((block) => block.type === 'text' && block.text.trim());
+  const hasToolUse = blocks.some((block) => block.type === 'tool_use');
+  if (!hasAnswerText || hasToolUse) {
+    return blocks;
+  }
+  return [
+    ...blocks,
+    {
+      type: 'memory_citations',
+      citations,
+    },
+  ];
+}
+
 function serializeToolResultContent(
   content: string,
   metadata?: BuiltinToolResultMetadata
@@ -557,26 +607,43 @@ async function buildAgentMemoryPrompt(memoryRoot: string): Promise<string> {
   ].join('\n');
 }
 
-async function searchAgentMemory(memoryRoot: string, query: string, limit = MEMORY_SEARCH_LIMIT): Promise<string> {
+async function searchAgentMemory(
+  memoryRoot: string,
+  query: string,
+  limit = MEMORY_SEARCH_LIMIT
+): Promise<BuiltinMemoryLookupResult> {
   await ensureAgentMemoryFiles(memoryRoot);
   const normalized = query.trim().toLowerCase();
-  if (!normalized) return 'Error: query is required.';
+  if (!normalized) {
+    return { content: 'Error: query is required.', citations: [] };
+  }
   const files = [join(memoryRoot, 'memory_summary.md'), join(memoryRoot, 'memory.md')];
   const matches: string[] = [];
+  const citations: MemoryCitation[] = [];
   for (const file of files) {
     const content = await readOptionalText(file);
     const lines = content.split('\n');
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
       if (!line.toLowerCase().includes(normalized)) continue;
-      matches.push(`- ${file}:${index + 1}\n  ${line.trim().slice(0, 260)}`);
+      const note = truncateCitationNote(line);
+      matches.push(`- ${file}:${index + 1}\n  ${note}`);
+      citations.push({
+        source: file,
+        lineStart: index + 1,
+        lineEnd: index + 1,
+        note,
+      });
       if (matches.length >= limit) break;
     }
     if (matches.length >= limit) break;
   }
-  return matches.length > 0
-    ? [`Memory search results for "${query}":`, ...matches].join('\n')
-    : `No built-in agent memory matches for "${query}".`;
+  return {
+    content: matches.length > 0
+      ? [`Memory search results for "${query}":`, ...matches].join('\n')
+      : `No built-in agent memory matches for "${query}".`,
+    citations,
+  };
 }
 
 function isAutomaticMemoryEnabled(): boolean {
@@ -1303,10 +1370,22 @@ class AegisBuiltinAgentSession {
       readSummary: async () => {
         await ensureAgentMemoryFiles(this.memoryRoot);
         const summaryPath = join(this.memoryRoot, 'memory_summary.md');
-        const content = trimMemorySection(await readOptionalText(summaryPath));
-        return content
-          ? `# Built-in agent memory summary\nPath: ${summaryPath}\n\n${content}`
-          : 'No built-in agent memory summary is available.';
+        const rawContent = await readOptionalText(summaryPath);
+        const content = trimMemorySection(rawContent);
+        const lineCount = rawContent.trim() ? rawContent.split('\n').length : undefined;
+        return {
+          content: content
+            ? `# Built-in agent memory summary\nPath: ${summaryPath}\n\n${content}`
+            : 'No built-in agent memory summary is available.',
+          citations: content
+            ? [{
+                source: summaryPath,
+                lineStart: 1,
+                lineEnd: lineCount,
+                note: 'loaded built-in agent memory summary',
+              }]
+            : [],
+        };
       },
       search: async (query, limit) => searchAgentMemory(this.memoryRoot, query, limit),
     };
@@ -1444,13 +1523,32 @@ class AegisBuiltinAgentSession {
       skillAdapter: createAegisSkillAdapter(cwd),
     });
 
+    let memoryCitations: MemoryCitation[] = [];
     const callbacks: BuiltinAgentCallbacks = {
       onText: (text) => this.options.onMessage(buildStreamDelta(text)),
       onReasoning: (text) => this.options.onMessage(buildReasoningDelta(text)),
       onStreamStop: () => this.options.onMessage(buildStreamStop()),
-      onAssistantMessage: (blocks) => this.options.onMessage(buildAssistantMessage(blocks)),
-      onToolResult: (toolCallId, content, isError, metadata) =>
-        this.options.onMessage(buildUserToolResult(toolCallId, content, isError, metadata)),
+      onAssistantMessage: (blocks) => {
+        const blocksWithCitations = appendMemoryCitations(blocks, memoryCitations);
+        if (blocksWithCitations !== blocks) {
+          memoryCitations = [];
+        }
+        this.options.onMessage(buildAssistantMessage(blocksWithCitations));
+      },
+      onToolResult: (toolCallId, content, isError, metadata) => {
+        const nextCitations = getMemoryCitationsFromMetadata(metadata);
+        if (nextCitations.length > 0) {
+          const seen = new Set(memoryCitations.map(memoryCitationKey));
+          for (const citation of nextCitations) {
+            const key = memoryCitationKey(citation);
+            if (!seen.has(key)) {
+              seen.add(key);
+              memoryCitations.push(citation);
+            }
+          }
+        }
+        this.options.onMessage(buildUserToolResult(toolCallId, content, isError, metadata));
+      },
     };
 
     const core = new AegisBuiltinAgentCore({

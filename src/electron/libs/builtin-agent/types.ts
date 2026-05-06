@@ -1,4 +1,4 @@
-import type { ContentBlock, PermissionResult, Usage } from '../../../shared/types';
+import type { ContentBlock, MemoryCitation, PermissionResult, Usage } from '../../../shared/types';
 
 export type BuiltinChatRole = 'system' | 'user' | 'assistant' | 'tool';
 
@@ -42,6 +42,7 @@ export type BuiltinToolResultStatus =
 
 export interface BuiltinToolResultMetadata {
   kind?: 'search' | 'read' | 'write' | 'edit' | 'shell' | 'web' | 'security' | 'lsp' | 'question' | 'memory' | 'subagent';
+  citations?: MemoryCitation[];
   path?: string;
   pattern?: string;
   matches?: number;
@@ -132,8 +133,13 @@ export interface BuiltinApprovalController {
 }
 
 export interface BuiltinMemoryAdapter {
-  readSummary: () => Promise<string>;
-  search: (query: string, limit?: number) => Promise<string>;
+  readSummary: () => Promise<BuiltinMemoryLookupResult>;
+  search: (query: string, limit?: number) => Promise<BuiltinMemoryLookupResult>;
+}
+
+export interface BuiltinMemoryLookupResult {
+  content: string;
+  citations: MemoryCitation[];
 }
 
 export interface BuiltinSkillSummary {

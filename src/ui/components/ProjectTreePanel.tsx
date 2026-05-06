@@ -97,6 +97,27 @@ type GitBranchEntry = {
   shortHash: string;
 };
 
+function dirnameOfPath(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, '/');
+  const index = normalized.lastIndexOf('/');
+  return index > 0 ? normalized.slice(0, index) : '.';
+}
+
+function sliceTextLineRange(text: string, lineStart?: number, lineEnd?: number): string {
+  if (typeof lineStart !== 'number' || !Number.isFinite(lineStart) || lineStart < 1) {
+    return text;
+  }
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const start = Math.max(1, Math.floor(lineStart));
+  const end = typeof lineEnd === 'number' && Number.isFinite(lineEnd)
+    ? Math.max(start, Math.floor(lineEnd))
+    : start;
+  return lines
+    .slice(start - 1, Math.min(lines.length, end))
+    .map((line, index) => `${String(start + index).padStart(4, ' ')} | ${line}`)
+    .join('\n');
+}
+
 function TreeNode({
   node,
   depth,
@@ -263,7 +284,6 @@ export function ProjectTreePanel({
   const [draftText, setDraftText] = useState('');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [externalDiskText, setExternalDiskText] = useState<string | null>(null);
   const copiedTimerRef = useRef<number | null>(null);
   const [copiedPath, setCopiedPath] = useState(false);
@@ -694,7 +714,6 @@ export function ProjectTreePanel({
       setDraftText('');
       setSaveState('idle');
       setSaveError(null);
-      setLastSavedAt(null);
       setExternalDiskText(null);
       setPptxSlideIndex(0);
 
@@ -727,7 +746,6 @@ export function ProjectTreePanel({
     setDraftText('');
     setSaveState('idle');
     setSaveError(null);
-    setLastSavedAt(null);
     setExternalDiskText(null);
     setPptxSlideIndex(0);
 
@@ -752,7 +770,6 @@ export function ProjectTreePanel({
       setSelectedPreview(preview);
       if ((preview.kind === 'text' || preview.kind === 'markdown') && preview.editable) {
         setDraftText(preview.text);
-        setLastSavedAt(Date.now());
       }
     } catch (error) {
       if (previewRequestIdRef.current !== requestId) return;
@@ -782,6 +799,66 @@ export function ProjectTreePanel({
     await selectFilePath(node.path, node.name, true);
   };
 
+  const selectExternalFilePath = useCallback(async (
+    filePath: string,
+    options: { lineStart?: number; lineEnd?: number } = {}
+  ) => {
+    const reader = window.electron.readProjectFilePreview;
+    if (typeof reader !== 'function') return;
+
+    const name = filePath.split('/').filter(Boolean).pop() || filePath;
+    setSelectedFilePath(filePath);
+    setViewMode('view');
+    setPreviewLoading(true);
+    setSelectedPreview(null);
+    setDraftText('');
+    setSaveState('idle');
+    setSaveError(null);
+    setExternalDiskText(null);
+    setPptxSlideIndex(0);
+
+    const requestId = (previewRequestIdRef.current += 1);
+    try {
+      const preview = (await reader(dirnameOfPath(filePath), filePath)) as ProjectFilePreview;
+      if (previewRequestIdRef.current !== requestId) return;
+      if (
+        (preview.kind === 'text' || preview.kind === 'markdown' || preview.kind === 'html') &&
+        typeof options.lineStart === 'number'
+      ) {
+        setSelectedPreview({
+          kind: 'text',
+          path: preview.path,
+          name: `${preview.name} lines ${options.lineStart}${
+            options.lineEnd && options.lineEnd !== options.lineStart ? `-${options.lineEnd}` : ''
+          }`,
+          ext: preview.ext,
+          size: preview.size,
+          text: sliceTextLineRange(preview.text, options.lineStart, options.lineEnd),
+          editable: false,
+        });
+        return;
+      }
+      if (preview.kind === 'text' || preview.kind === 'markdown' || preview.kind === 'html') {
+        setSelectedPreview({ ...preview, editable: false });
+        return;
+      }
+      setSelectedPreview(preview);
+    } catch (error) {
+      if (previewRequestIdRef.current !== requestId) return;
+      setSelectedPreview({
+        kind: 'error',
+        path: filePath,
+        name,
+        ext: '',
+        message: String(error),
+      });
+    } finally {
+      if (previewRequestIdRef.current === requestId) {
+        setPreviewLoading(false);
+      }
+    }
+  }, []);
+
   const closePreview = useCallback(() => {
     setSelectedFilePath(null);
     setSelectedPreview(null);
@@ -789,7 +866,6 @@ export function ProjectTreePanel({
     setDraftText('');
     setSaveState('idle');
     setSaveError(null);
-    setLastSavedAt(null);
     setExternalDiskText(null);
     setPptxSlideIndex(0);
     if (isFullscreen && onToggleFullscreen) onToggleFullscreen();
@@ -797,15 +873,28 @@ export function ProjectTreePanel({
 
   useEffect(() => {
     const handleOpenProjectFile = (event: Event) => {
-      const detail = (event as CustomEvent<{ cwd?: string; path?: string }>).detail;
+      const detail = (event as CustomEvent<{
+        cwd?: string;
+        path?: string;
+        external?: boolean;
+        lineStart?: number;
+        lineEnd?: number;
+      }>).detail;
       if (!detail?.path) return;
+      if (detail.external) {
+        void selectExternalFilePath(detail.path, {
+          lineStart: detail.lineStart,
+          lineEnd: detail.lineEnd,
+        });
+        return;
+      }
       if (detail.cwd && cwd && detail.cwd !== cwd) return;
       void selectFilePath(detail.path, undefined, false);
     };
 
     window.addEventListener('aegis:open-project-file', handleOpenProjectFile);
     return () => window.removeEventListener('aegis:open-project-file', handleOpenProjectFile);
-  }, [cwd, selectFilePath]);
+  }, [cwd, selectExternalFilePath, selectFilePath]);
 
   const handleCopyPath = async (path: string) => {
     try {
@@ -884,7 +973,6 @@ export function ProjectTreePanel({
       setExternalDiskText(null);
       void loadChangeRecords();
       setSaveState('saved');
-      setLastSavedAt(Date.now());
       window.setTimeout(() => setSaveState('idle'), 1200);
     } catch (error) {
       setSaveState('error');
@@ -936,7 +1024,6 @@ export function ProjectTreePanel({
             setSelectedPreview(latest);
             setDraftText(latest.text);
             setExternalDiskText(null);
-            setLastSavedAt(Date.now());
           } else {
             setExternalDiskText(latest.text);
           }
@@ -963,7 +1050,6 @@ export function ProjectTreePanel({
     setExternalDiskText(null);
     setSaveState('idle');
     setSaveError(null);
-    setLastSavedAt(Date.now());
   };
 
   const handleKeepMarkdownLocal = () => {
@@ -1434,10 +1520,8 @@ export function ProjectTreePanel({
                       cwd={cwd}
                       filePath={selectedFilePath}
                       fileName={selectedPreview.name}
-                      isDirty={canSaveText}
                       saveState={saveState}
                       saveError={saveError}
-                      lastSavedAt={lastSavedAt}
                       externalChange={externalDiskText !== null}
                       onChange={setDraftText}
                       onSave={handleSaveText}

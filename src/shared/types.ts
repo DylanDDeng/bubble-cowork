@@ -893,7 +893,15 @@ export type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'thinking'; thinking: string; signature?: string; durationMs?: number }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
+  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
+  | { type: 'memory_citations'; citations: MemoryCitation[] };
+
+export interface MemoryCitation {
+  source: string;
+  lineStart?: number;
+  lineEnd?: number;
+  note?: string;
+}
 
 // ===== Canonical tool kinds =====
 // Provider-agnostic taxonomy used by the UI to drive icons, copy, and grouping

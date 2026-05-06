@@ -46,6 +46,10 @@ function isTextBlock(block: ContentBlock): block is ContentBlock & { type: 'text
   return block.type === 'text' && Boolean(block.text?.trim());
 }
 
+function isAnswerSupportBlock(block: ContentBlock): boolean {
+  return block.type === 'memory_citations' && block.citations.length > 0;
+}
+
 function hasToolUseBlock(blocks: ContentBlock[]): boolean {
   return blocks.some((block) => Boolean(normalizeToolUseBlock(block)));
 }
@@ -436,7 +440,7 @@ export function deriveTranscriptTimelineItems(
         continue;
       }
 
-      if (isTextBlock(block)) {
+      if (isTextBlock(block) || isAnswerSupportBlock(block)) {
         if (messageHasToolUse) {
           traceBuffer.push(block);
           continue;

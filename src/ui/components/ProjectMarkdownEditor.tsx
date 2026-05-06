@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bold,
   CheckSquare,
+  ChevronLeft,
+  ChevronRight,
   Code,
   Heading1,
   Heading2,
@@ -13,7 +15,6 @@ import {
   ListOrdered,
   Quote,
   Redo2,
-  Save,
   Star,
   Strikethrough,
   Table,
@@ -77,10 +78,8 @@ type ProjectMarkdownEditorProps = {
   cwd: string;
   filePath: string;
   fileName: string;
-  isDirty: boolean;
   saveState: SaveState;
   saveError: string | null;
-  lastSavedAt: number | null;
   externalChange: boolean;
   onChange: (next: string) => void;
   onSave: () => void;
@@ -113,18 +112,6 @@ function combineFrontmatter(frontmatter: string, body: string): string {
   const normalizedBody = String(body || '').replace(/\r\n/g, '\n');
   if (!frontmatter) return normalizedBody;
   return `${frontmatter}${normalizedBody.replace(/^\n+/, '')}`;
-}
-
-function formatSaveLabel(saveState: SaveState, isDirty: boolean, lastSavedAt: number | null): string {
-  if (saveState === 'saving') return 'Saving...';
-  if (saveState === 'error') return 'Save failed';
-  if (isDirty) return 'Modified';
-  if (!lastSavedAt) return 'Saved';
-
-  const seconds = Math.max(1, Math.round((Date.now() - lastSavedAt) / 1000));
-  if (seconds < 60) return `Saved ${seconds}s ago`;
-  const minutes = Math.round(seconds / 60);
-  return `Saved ${minutes}m ago`;
 }
 
 function formatBreadcrumb(cwd: string, filePath: string): string {
@@ -301,10 +288,8 @@ export function ProjectMarkdownEditor({
   cwd,
   filePath,
   fileName,
-  isDirty,
   saveState,
   saveError,
-  lastSavedAt,
   externalChange,
   onChange,
   onSave,
@@ -320,8 +305,8 @@ export function ProjectMarkdownEditor({
   const headingFlashTimerRef = useRef<number | null>(null);
   const [outlineItems, setOutlineItems] = useState<MarkdownOutlineItem[]>([]);
   const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null);
+  const [outlineCollapsed, setOutlineCollapsed] = useState(false);
   const [, forceToolbarState] = useState(0);
-  const saveLabel = formatSaveLabel(saveState, isDirty, lastSavedAt);
   const breadcrumb = useMemo(() => formatBreadcrumb(cwd, filePath), [cwd, filePath]);
 
   const runCommand = useCallback(<T,>(key: { id: string } | unknown, payload?: T) => {
@@ -520,19 +505,6 @@ export function ProjectMarkdownEditor({
             {breadcrumb && <div className="aegis-md-breadcrumb" title={breadcrumb}>{breadcrumb}</div>}
           </div>
         </div>
-        <div className="aegis-md-save-cluster">
-          <span className={`aegis-md-save-state ${isDirty ? 'dirty' : ''}`}>{saveLabel}</span>
-          <button
-            type="button"
-            className="aegis-md-save-button"
-            onClick={onSave}
-            disabled={saveState === 'saving' || !isDirty}
-            title="Save document"
-          >
-            <Save className="h-4 w-4" />
-            Save
-          </button>
-        </div>
       </div>
 
       <div className="aegis-md-toolbar" aria-label="Markdown formatting toolbar">
@@ -605,30 +577,43 @@ export function ProjectMarkdownEditor({
         <div className="aegis-md-error">{saveError}</div>
       )}
 
-      <div className="aegis-md-main">
+      <div className={`aegis-md-main${outlineCollapsed ? ' outline-collapsed' : ''}`}>
         <div className="aegis-md-canvas">
           <div ref={hostRef} className="aegis-md-milkdown-root" />
         </div>
 
         <aside className="aegis-md-outline">
-          <div className="aegis-md-outline-title">Outline</div>
-          {outlineItems.length === 0 ? (
-            <div className="aegis-md-outline-empty">Add headings to build an outline.</div>
-          ) : (
-            <div className="aegis-md-outline-list">
-              {outlineItems.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`level-${item.level}${activeOutlineId === item.id ? ' active' : ''}`}
-                  onClick={() => jumpToOutlineItem(item)}
-                  title={item.text}
-                >
-                  {item.text}
-                </button>
-              ))}
-            </div>
-          )}
+          <button
+            type="button"
+            className="aegis-md-outline-toggle"
+            onClick={() => setOutlineCollapsed((collapsed) => !collapsed)}
+            title={outlineCollapsed ? 'Expand outline' : 'Collapse outline'}
+            aria-label={outlineCollapsed ? 'Expand outline' : 'Collapse outline'}
+            aria-expanded={!outlineCollapsed}
+          >
+            {outlineCollapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </button>
+          <div className="aegis-md-outline-content" aria-hidden={outlineCollapsed}>
+            <div className="aegis-md-outline-title">Outline</div>
+            {outlineItems.length === 0 ? (
+              <div className="aegis-md-outline-empty">Add headings to build an outline.</div>
+            ) : (
+              <div className="aegis-md-outline-list">
+                {outlineItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`level-${item.level}${activeOutlineId === item.id ? ' active' : ''}`}
+                    onClick={() => jumpToOutlineItem(item)}
+                    tabIndex={outlineCollapsed ? -1 : 0}
+                    title={item.text}
+                  >
+                    {item.text}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </aside>
       </div>
     </div>
