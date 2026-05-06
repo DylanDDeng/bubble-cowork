@@ -2664,6 +2664,100 @@ function parseGitNumstat(stdout: string): { insertions: number; deletions: numbe
   return { insertions, deletions };
 }
 
+function humanizeCommitTarget(value: string): string {
+  return value
+    .replace(/\.[^.]+$/, '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b(ui|ipc|api|pr|md|tsx?|jsx?)\b/gi, (match) => match.toUpperCase())
+    .toLowerCase()
+    .trim();
+}
+
+function inferCommitTarget(files: string[], diffText: string): string {
+  const haystack = `${files.join('\n')}\n${diffText}`.toLowerCase();
+
+  if (/generate[-\s]?commit[-\s]?message|gitgeneratecommitmessage/.test(haystack)) {
+    return 'commit message generation';
+  }
+  if (/commit/.test(haystack) && /dialog|modal|textarea|commit changes/.test(haystack)) {
+    return 'commit dialog';
+  }
+  if (haystack.includes('foldertreeview')) return 'folder tree';
+  if (haystack.includes('projecttreepanel')) return 'project tree';
+  if (haystack.includes('promptinput')) return 'composer';
+  if (haystack.includes('settings')) return 'settings';
+  if (haystack.includes('browserpanel')) return 'browser panel';
+
+  const componentPath = files.find((filePath) => filePath.includes('/components/'));
+  if (componentPath) {
+    return humanizeCommitTarget(basename(componentPath));
+  }
+
+  if (files.every((filePath) => /\.(md|mdx|txt)$/i.test(filePath))) return 'docs';
+  if (files.every((filePath) => /\.(test|spec)\.[jt]sx?$/i.test(filePath) || filePath.includes('__tests__'))) {
+    return 'tests';
+  }
+  if (files.every((filePath) => /\.(css|scss|sass|less)$/i.test(filePath))) return 'styles';
+  if (files.some((filePath) => filePath.startsWith('src/ui/'))) return 'UI';
+  if (files.some((filePath) => filePath.startsWith('src/electron/'))) return 'electron';
+  if (files.length === 1) return humanizeCommitTarget(basename(files[0]));
+
+  return 'project files';
+}
+
+function inferCommitType(entries: Array<{ filePath: string; status: string }>, diffText: string): string {
+  const files = entries.map((entry) => entry.filePath);
+  const lowerDiff = diffText.toLowerCase();
+
+  if (files.length > 0 && files.every((filePath) => /\.(md|mdx|txt)$/i.test(filePath))) return 'docs';
+  if (
+    files.length > 0 &&
+    files.every((filePath) => /\.(test|spec)\.[jt]sx?$/i.test(filePath) || filePath.includes('__tests__'))
+  ) {
+    return 'test';
+  }
+  if (files.length > 0 && files.every((filePath) => /\.(css|scss|sass|less)$/i.test(filePath))) return 'style';
+  if (/generate[-\s]?commit[-\s]?message|gitgeneratecommitmessage/.test(`${files.join('\n')}\n${lowerDiff}`)) {
+    return 'feat';
+  }
+  if (entries.some((entry) => entry.status === '?' || entry.status === 'A')) return 'feat';
+  if (lowerDiff.includes('classname') && /text-\[|font-|px-|py-|rounded-|gap-/.test(diffText)) return 'style';
+  if (/fix|bug|error|failed|failure|crash|overflow|covered|invalid|missing|permission/.test(lowerDiff)) return 'fix';
+  if (files.some((filePath) => /(^|\/)(package-lock\.json|package\.json|tsconfig\.json|vite\.config\.ts)$/.test(filePath))) {
+    return 'chore';
+  }
+
+  return 'chore';
+}
+
+function trimCommitSubject(subject: string): string {
+  const clean = subject.replace(/[.!?。！？]+$/g, '').trim();
+  if (clean.length <= 72) return clean;
+  return clean.slice(0, 72).replace(/\s+\S*$/, '').replace(/[.!?。！？]+$/g, '').trim();
+}
+
+function generateCommitMessageFromGitChanges(
+  entries: Array<{ filePath: string; status: string }>,
+  diffText: string
+): string {
+  const files = entries.map((entry) => entry.filePath);
+  const type = inferCommitType(entries, diffText);
+  const target = inferCommitTarget(files, diffText);
+  const verbByType: Record<string, string> = {
+    feat: 'add',
+    fix: 'fix',
+    refactor: 'refactor',
+    chore: 'update',
+    style: 'adjust',
+    docs: 'update',
+    test: 'update',
+  };
+  const verb = verbByType[type] || 'update';
+
+  return trimCommitSubject(`${type}: ${verb} ${target}`);
+}
+
 function parseGitHubRepoFromRemote(remoteUrl: string): { owner: string; repo: string } | null {
   const normalized = remoteUrl.trim();
   const sshMatch = normalized.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/i);
@@ -3759,6 +3853,52 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       return { ok: true, error: null, entries };
     } catch {
       return { ok: false, error: 'git-error', entries: [] };
+    }
+  });
+
+  ipcMainHandle('git-generate-commit-message', async (_event, cwd: string) => {
+    if (!cwd) return { ok: false, message: 'Missing cwd.' };
+
+    try {
+      await execFileAsync('git', ['rev-parse', '--git-dir'], { cwd, timeout: 5000 });
+    } catch {
+      return { ok: false, message: 'Current folder is not a git repository.' };
+    }
+
+    try {
+      const statusResult = await execFileAsync('git', ['-c', 'core.quotepath=false', 'status', '--porcelain', '-uall', '-z'], {
+        cwd,
+        maxBuffer: 1024 * 1024,
+        timeout: 10000,
+      });
+      const entries = parseGitStatusEntries(statusResult.stdout);
+      if (entries.length === 0) {
+        return { ok: false, message: 'No local changes to summarize.' };
+      }
+
+      const [stagedDiff, unstagedDiff] = await Promise.all([
+        execFileAsync('git', ['diff', '--cached', '--unified=0', '--'], {
+          cwd,
+          timeout: 10000,
+          maxBuffer: 2 * 1024 * 1024,
+        }),
+        execFileAsync('git', ['diff', '--unified=0', '--'], {
+          cwd,
+          timeout: 10000,
+          maxBuffer: 2 * 1024 * 1024,
+        }),
+      ]);
+      const diffText = `${stagedDiff.stdout}\n${unstagedDiff.stdout}`;
+
+      return {
+        ok: true,
+        message: generateCommitMessageFromGitChanges(entries, diffText),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : 'Failed to generate commit message.',
+      };
     }
   });
 

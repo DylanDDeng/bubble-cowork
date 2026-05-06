@@ -14,6 +14,7 @@ import {
   GitCommit,
   GitPullRequest,
   Globe,
+  Sparkles,
   SquareTerminal,
   ChevronDown,
   RefreshCw,
@@ -902,9 +903,116 @@ function GitHeaderActions({
   const [commitMessage, setCommitMessage] = useState('');
   const [commitMode, setCommitMode] = useState<'commit' | 'commit_push'>('commit');
   const [commitLoading, setCommitLoading] = useState(false);
+  const [commitGenerating, setCommitGenerating] = useState(false);
+  const [commitGenerationError, setCommitGenerationError] = useState<string | null>(null);
+  const [commitSuggestionSignature, setCommitSuggestionSignature] = useState<string | null>(null);
   const [pushLoading, setPushLoading] = useState(false);
   const [prLoading, setPrLoading] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
+
+  const commitChangeSignature = useMemo(
+    () => `${cwd || ''}:${state.branch || 'HEAD'}:${state.totalChanges}:${state.insertions}:${state.deletions}`,
+    [cwd, state.branch, state.totalChanges, state.insertions, state.deletions]
+  );
+
+  const createFallbackCommitMessage = useCallback(async () => {
+    if (!cwd) return null;
+
+    const changes = await window.electron.getGitChanges(cwd);
+    if (!changes.ok || changes.entries.length === 0) return null;
+
+    const files = changes.entries.map((entry) => entry.filePath);
+    const allDocs = files.every((filePath) => /\.(md|mdx|txt)$/i.test(filePath));
+    const allTests = files.every((filePath) => /\.(test|spec)\.[jt]sx?$/i.test(filePath) || filePath.includes('__tests__'));
+    const allStyles = files.every((filePath) => /\.(css|scss|sass|less)$/i.test(filePath));
+    const hasAdded = changes.entries.some((entry) => entry.status === '?' || entry.status === 'A');
+    const type = allDocs ? 'docs' : allTests ? 'test' : allStyles ? 'style' : hasAdded ? 'feat' : 'chore';
+    const target = files.some((filePath) => filePath.startsWith('src/ui/'))
+      ? 'UI'
+      : files.some((filePath) => filePath.startsWith('src/electron/'))
+        ? 'electron'
+        : files.length === 1
+          ? files[0]
+              .split('/')
+              .pop()
+              ?.replace(/\.[^.]+$/, '')
+              .replace(/[-_]+/g, ' ')
+              .toLowerCase()
+              .trim() || 'project files'
+          : 'project files';
+    const verbByType: Record<string, string> = {
+      docs: 'update',
+      test: 'update',
+      style: 'adjust',
+      feat: 'add',
+      chore: 'update',
+    };
+
+    return `${type}: ${verbByType[type] || 'update'} ${target}`;
+  }, [cwd]);
+
+  const handleGenerateCommitMessage = useCallback(async (signature = commitChangeSignature) => {
+    if (!cwd) return;
+
+    setCommitGenerating(true);
+    setCommitGenerationError(null);
+    setCommitSuggestionSignature(signature);
+    try {
+      const generateCommitMessage = window.electron.gitGenerateCommitMessage;
+      if (typeof generateCommitMessage === 'function') {
+        const result = await generateCommitMessage(cwd);
+        if (result.ok && result.message) {
+          setCommitMessage(result.message);
+          return;
+        }
+
+        throw new Error(result.message || 'Failed to generate commit message.');
+      }
+
+      throw new Error('Commit message generator is not available. Restart Aegis to load the latest preload.');
+    } catch (error) {
+      let fallbackMessage: string | null = null;
+      try {
+        fallbackMessage = await createFallbackCommitMessage();
+      } catch {
+        fallbackMessage = null;
+      }
+
+      if (fallbackMessage) {
+        setCommitMessage(fallbackMessage);
+        setCommitGenerationError('Used a basic local suggestion. Restart Aegis if the Generate button still cannot use the full generator.');
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : 'Failed to generate commit message.';
+      setCommitGenerationError(message);
+      toast.error(message);
+    } finally {
+      setCommitGenerating(false);
+    }
+  }, [commitChangeSignature, createFallbackCommitMessage, cwd]);
+
+  const openCommitDialog = useCallback((mode: 'commit' | 'commit_push') => {
+    setCommitMode(mode);
+    setCommitMessage('');
+    setCommitGenerationError(null);
+    setCommitSuggestionSignature(null);
+    setCommitDialogOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!commitDialogOpen || !cwd || state.totalChanges === 0 || commitMessage.trim()) return;
+    if (commitSuggestionSignature === commitChangeSignature) return;
+    void handleGenerateCommitMessage(commitChangeSignature);
+  }, [
+    commitChangeSignature,
+    commitDialogOpen,
+    commitMessage,
+    commitSuggestionSignature,
+    cwd,
+    handleGenerateCommitMessage,
+    state.totalChanges,
+  ]);
 
   if (!state.hasRepo || !cwd) {
     return null;
@@ -1030,10 +1138,7 @@ function GitHeaderActions({
         <div className="inline-flex items-center overflow-hidden rounded-md border border-[var(--border)] bg-[var(--bg-secondary)]">
           <button
             type="button"
-            onClick={() => {
-              setCommitMode('commit');
-              setCommitDialogOpen(true);
-            }}
+            onClick={() => openCommitDialog('commit')}
             disabled={state.totalChanges === 0 || commitLoading || pushLoading || prLoading || syncLoading}
             className="inline-flex h-6 items-center gap-1.5 px-2 text-[11px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
           >
@@ -1057,10 +1162,7 @@ function GitHeaderActions({
             className="popover-surface z-50 min-w-[180px] p-1.5"
           >
             <DropdownMenu.Item
-              onSelect={() => {
-                setCommitMode('commit');
-                setCommitDialogOpen(true);
-              }}
+              onSelect={() => openCommitDialog('commit')}
               disabled={state.totalChanges === 0 || commitLoading || pushLoading || prLoading || syncLoading}
               className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
             >
@@ -1068,10 +1170,7 @@ function GitHeaderActions({
               <span>Commit</span>
             </DropdownMenu.Item>
             <DropdownMenu.Item
-              onSelect={() => {
-                setCommitMode('commit_push');
-                setCommitDialogOpen(true);
-              }}
+              onSelect={() => openCommitDialog('commit_push')}
               disabled={state.totalChanges === 0 || commitLoading || pushLoading || prLoading || syncLoading}
               className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
             >
@@ -1110,30 +1209,30 @@ function GitHeaderActions({
       <Dialog.Root open={commitDialogOpen} onOpenChange={setCommitDialogOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-[90] bg-black/18 backdrop-blur-[1px]" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-[100] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
-            <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
-              <Dialog.Title className="text-[18px] font-semibold text-[var(--text-primary)]">
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[100] w-[min(392px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
+            <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2.5">
+              <Dialog.Title className="text-[14px] font-semibold text-[var(--text-primary)]">
                 Commit changes
               </Dialog.Title>
               <button
                 type="button"
                 onClick={() => setCommitDialogOpen(false)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-xl)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-lg)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
               >
-                <X className="h-4 w-4" />
+                <X className="h-3.5 w-3.5" />
               </button>
             </div>
 
-            <div className="space-y-4 px-4 py-4">
-              <div className="flex items-center justify-between gap-3 text-sm">
+            <div className="space-y-3 px-4 py-3.5">
+              <div className="flex items-center justify-between gap-3 text-[12px]">
                 <div className="text-[var(--text-secondary)]">Branch</div>
                 <div className="flex items-center gap-2 font-medium text-[var(--text-primary)]">
-                  <GitBranch className="h-4 w-4 text-[var(--text-secondary)]" />
+                  <GitBranch className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
                   <span>{state.branch || 'HEAD'}</span>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between gap-3 text-sm">
+              <div className="flex items-center justify-between gap-3 text-[12px]">
                 <div className="text-[var(--text-secondary)]">Changes</div>
                 <div className="flex items-center gap-3">
                   <span className="text-[var(--text-muted)]">{state.totalChanges} files</span>
@@ -1142,18 +1241,45 @@ function GitHeaderActions({
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]/92">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-[12px] font-medium text-[var(--text-secondary)]">Message</div>
+                <button
+                  type="button"
+                  onClick={() => void handleGenerateCommitMessage()}
+                  disabled={commitGenerating || commitLoading}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {commitGenerating ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5" />
+                  )}
+                  <span>{commitGenerating ? 'Generating…' : 'Generate'}</span>
+                </button>
+              </div>
+
+              <div className={`overflow-hidden rounded-[var(--radius-xl)] border bg-[var(--bg-secondary)]/92 ${commitGenerating ? 'border-[var(--accent)]/45' : 'border-[var(--border)]'}`}>
                 <textarea
                   value={commitMessage}
                   onChange={(event) => setCommitMessage(event.target.value)}
-                  placeholder="Commit message..."
+                  placeholder={commitGenerating ? 'Generating commit message...' : 'Commit message...'}
                   rows={4}
-                  className="w-full resize-none border-0 bg-transparent px-4 py-4 text-[16px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+                  className="w-full resize-none border-0 bg-transparent px-3 py-3 text-[13px] leading-5 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
                 />
               </div>
+              {commitGenerating || commitGenerationError ? (
+                <div className="flex items-center gap-2 text-[11px] leading-4 text-[var(--text-muted)]">
+                  {commitGenerating ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
+                  <span>
+                    {commitGenerating
+                      ? 'Generating commit message...'
+                      : commitGenerationError}
+                  </span>
+                </div>
+              ) : null}
 
-              <div className="space-y-2 rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-3">
-                <label className="flex items-center gap-3 text-[15px] text-[var(--text-primary)]">
+              <div className="space-y-1.5 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)]/92 p-3">
+                <label className="flex items-center gap-2.5 text-[13px] text-[var(--text-primary)]">
                   <input
                     type="radio"
                     checked={commitMode === 'commit'}
@@ -1161,7 +1287,7 @@ function GitHeaderActions({
                   />
                   <span>Commit</span>
                 </label>
-                <label className="flex items-center gap-3 text-[15px] text-[var(--text-primary)]">
+                <label className="flex items-center gap-2.5 text-[13px] text-[var(--text-primary)]">
                   <input
                     type="radio"
                     checked={commitMode === 'commit_push'}
@@ -1172,19 +1298,19 @@ function GitHeaderActions({
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 border-t border-[var(--border)] px-4 py-3">
+            <div className="flex items-center justify-end gap-2.5 border-t border-[var(--border)] px-4 py-3">
               <button
                 type="button"
                 onClick={() => setCommitDialogOpen(false)}
-                className="inline-flex items-center justify-center rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-[15px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                className="inline-flex h-9 items-center justify-center rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3.5 text-[13px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => void handleCommit()}
-                disabled={commitLoading || !commitMessage.trim()}
-                className="inline-flex min-w-[132px] items-center justify-center rounded-[var(--radius-xl)] bg-[var(--accent)] px-4 py-2 text-[15px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={commitLoading || commitGenerating || !commitMessage.trim()}
+                className="inline-flex h-9 min-w-[118px] items-center justify-center rounded-[var(--radius-lg)] bg-[var(--accent)] px-3.5 text-[13px] font-medium text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {commitLoading ? 'Working…' : commitMode === 'commit_push' ? 'Commit & Push' : 'Commit'}
               </button>

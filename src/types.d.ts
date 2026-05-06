@@ -190,6 +190,7 @@ declare global {
     gitUnstagePath: (cwd: string, filePath: string) => Promise<{ ok: boolean; message?: string }>;
     gitDiscardPath: (cwd: string, filePath: string, status?: string) => Promise<{ ok: boolean; message?: string }>;
     gitCommit: (cwd: string, message: string) => Promise<{ ok: boolean; message?: string; output?: string }>;
+    gitGenerateCommitMessage: (cwd: string) => Promise<{ ok: boolean; message?: string }>;
     gitPush: (cwd: string) => Promise<{ ok: boolean; message?: string; output?: string }>;
     gitSync: (cwd: string) => Promise<{ ok: boolean; message?: string; output?: string }>;
     gitCreatePr: (cwd: string) => Promise<{ ok: boolean; message?: string; url?: string }>;

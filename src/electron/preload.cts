@@ -453,6 +453,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('git-commit', cwd, message);
   },
 
+  gitGenerateCommitMessage: (cwd: string) => {
+    return ipcRenderer.invoke('git-generate-commit-message', cwd);
+  },
+
   gitPush: (cwd: string) => {
     return ipcRenderer.invoke('git-push', cwd);
   },
