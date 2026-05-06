@@ -1,47 +1,50 @@
 import { useMemo, useState } from 'react';
 import { File } from 'lucide-react';
+import defaultFileIconUrl from '../assets/vscode-icons/default_file.svg';
+import cssIconUrl from '../assets/vscode-icons/file_type_css.svg';
+import htmlIconUrl from '../assets/vscode-icons/file_type_html.svg';
+import imageIconUrl from '../assets/vscode-icons/file_type_image.svg';
+import jsIconUrl from '../assets/vscode-icons/file_type_js.svg';
+import jsonIconUrl from '../assets/vscode-icons/file_type_json.svg';
+import markdownIconUrl from '../assets/vscode-icons/file_type_markdown.svg';
+import powerpointIconUrl from '../assets/vscode-icons/file_type_powerpoint.svg';
+import reactJsIconUrl from '../assets/vscode-icons/file_type_reactjs.svg';
+import reactTsIconUrl from '../assets/vscode-icons/file_type_reactts.svg';
+import scssIconUrl from '../assets/vscode-icons/file_type_scss.svg';
+import svgIconUrl from '../assets/vscode-icons/file_type_svg.svg';
+import typescriptIconUrl from '../assets/vscode-icons/file_type_typescript.svg';
+import yamlIconUrl from '../assets/vscode-icons/file_type_yaml.svg';
 
-const VSCODE_ICONS_BASE_URL =
-  'https://cdn.jsdelivr.net/gh/vscode-icons/vscode-icons@v12.17.0/icons';
-
-const FILE_ICON_BY_EXTENSION: Record<string, string> = {
-  ts: 'file_type_typescript.svg',
-  tsx: 'file_type_reactts.svg',
-  js: 'file_type_js.svg',
-  jsx: 'file_type_reactjs.svg',
-  json: 'file_type_json.svg',
-  md: 'file_type_markdown.svg',
-  html: 'file_type_html.svg',
-  htm: 'file_type_html.svg',
-  css: 'file_type_css.svg',
-  scss: 'file_type_scss.svg',
-  yml: 'file_type_yaml.svg',
-  yaml: 'file_type_yaml.svg',
-  xml: 'file_type_xml.svg',
-  svg: 'file_type_svg.svg',
-  png: 'file_type_image.svg',
-  jpg: 'file_type_image.svg',
-  jpeg: 'file_type_image.svg',
-  gif: 'file_type_image.svg',
-  webp: 'file_type_image.svg',
-  bmp: 'file_type_image.svg',
-  ico: 'file_type_image.svg',
-  ppt: 'file_type_powerpoint.svg',
-  pptx: 'file_type_powerpoint.svg',
-  key: 'file_type_keynote.svg',
-  zip: 'file_type_zip.svg',
-  gz: 'file_type_zip.svg',
-  tar: 'file_type_zip.svg',
-  rar: 'file_type_zip.svg',
-  '7z': 'file_type_zip.svg',
+const FILE_ICON_URL_BY_EXTENSION: Record<string, string> = {
+  ts: typescriptIconUrl,
+  tsx: reactTsIconUrl,
+  js: jsIconUrl,
+  jsx: reactJsIconUrl,
+  json: jsonIconUrl,
+  md: markdownIconUrl,
+  html: htmlIconUrl,
+  htm: htmlIconUrl,
+  css: cssIconUrl,
+  scss: scssIconUrl,
+  yml: yamlIconUrl,
+  yaml: yamlIconUrl,
+  svg: svgIconUrl,
+  png: imageIconUrl,
+  jpg: imageIconUrl,
+  jpeg: imageIconUrl,
+  gif: imageIconUrl,
+  webp: imageIconUrl,
+  bmp: imageIconUrl,
+  ico: imageIconUrl,
+  ppt: powerpointIconUrl,
+  pptx: powerpointIconUrl,
 };
 
 export function getFileTypeIconUrl(name: string): string {
   const lower = name.toLowerCase();
   const parts = lower.split('.');
   const extension = parts.length > 1 ? parts[parts.length - 1] : '';
-  const iconFilename = FILE_ICON_BY_EXTENSION[extension] || 'default_file.svg';
-  return `${VSCODE_ICONS_BASE_URL}/${iconFilename}`;
+  return FILE_ICON_URL_BY_EXTENSION[extension] || defaultFileIconUrl;
 }
 
 export function FileTypeIcon({
