@@ -68,7 +68,7 @@ const CommandInput = React.forwardRef<
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
-        'flex h-11 w-full bg-transparent text-[14px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-50',
+        'flex h-11 w-full bg-transparent text-[13px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-50',
         className
       )}
       {...props}
@@ -96,7 +96,7 @@ const CommandEmpty = React.forwardRef<
 >((props, ref) => (
   <CommandPrimitive.Empty
     ref={ref}
-    className={cn('py-10 text-center text-sm text-[var(--text-muted)]', props.className)}
+    className={cn('py-10 text-center text-[13px] text-[var(--text-muted)]', props.className)}
     {...props}
   />
 ));
@@ -109,7 +109,7 @@ const CommandGroup = React.forwardRef<
   <CommandPrimitive.Group
     ref={ref}
     className={cn(
-      'overflow-hidden px-1.5 py-1.5 text-[var(--text-primary)] [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.08em] [&_[cmdk-group-heading]]:text-[var(--text-muted)]',
+      'overflow-hidden px-1.5 py-1.5 text-[var(--text-primary)] [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[13px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.08em] [&_[cmdk-group-heading]]:text-[var(--text-muted)]',
       className
     )}
     {...props}
@@ -136,7 +136,7 @@ const CommandItem = React.forwardRef<
   <CommandPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex cursor-pointer select-none items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 text-sm text-[var(--text-primary)] outline-none transition-colors data-[selected=true]:bg-[var(--bg-tertiary)] data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 aria-selected:bg-[var(--bg-tertiary)]',
+      'relative flex cursor-pointer select-none items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 text-[13px] text-[var(--text-primary)] outline-none transition-colors data-[selected=true]:bg-[var(--bg-tertiary)] data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 aria-selected:bg-[var(--bg-tertiary)]',
       className
     )}
     {...props}
@@ -148,7 +148,7 @@ function CommandShortcut({ className, ...props }: React.HTMLAttributes<HTMLSpanE
   return (
     <span
       className={cn(
-        'ml-auto inline-flex items-center gap-0.5 text-[11px] font-medium tracking-wide text-[var(--text-muted)]',
+        'ml-auto inline-flex items-center gap-0.5 text-[13px] font-medium tracking-wide text-[var(--text-muted)]',
         className
       )}
       {...props}
@@ -160,7 +160,7 @@ function CommandFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElem
   return (
     <div
       className={cn(
-        'flex items-center justify-between gap-3 border-t border-[var(--border)] bg-[var(--bg-tertiary)]/60 px-3 py-2 text-[11px] text-[var(--text-muted)]',
+        'flex items-center justify-between gap-3 border-t border-[var(--border)] bg-[var(--bg-tertiary)]/60 px-3 py-2 text-[13px] text-[var(--text-muted)]',
         className
       )}
       {...props}

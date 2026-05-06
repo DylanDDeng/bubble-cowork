@@ -244,26 +244,26 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                           query={query}
                         />
                       </div>
-                      <span className="w-20 shrink-0 truncate text-right text-[11px] text-[var(--text-muted)]/80">
+                      <span className="w-20 shrink-0 truncate text-right text-[13px] text-[var(--text-muted)]/80">
                         {thread.projectName}
                       </span>
-                      <span className="w-10 shrink-0 text-right text-[11px] text-[var(--text-muted)]/80">
+                      <span className="w-10 shrink-0 text-right text-[13px] text-[var(--text-muted)]/80">
                         {formatRelativeTime(thread.updatedAt)}
                       </span>
                     </div>
                     {snippet ? (
                       <div className="mt-0.5 flex items-start gap-3">
-                        <div className="min-w-0 flex-1 truncate text-[11px] leading-5 text-[var(--text-secondary)]/80">
+                        <div className="min-w-0 flex-1 truncate text-[13px] leading-5 text-[var(--text-secondary)]/80">
                           <HighlightedText text={snippet} query={query} />
                         </div>
                         {label ? (
-                          <span className="shrink-0 text-[11px] text-[var(--text-muted)]/70">
+                          <span className="shrink-0 text-[13px] text-[var(--text-muted)]/70">
                             {label}
                           </span>
                         ) : null}
                       </div>
                     ) : label ? (
-                      <div className="mt-0.5 text-[11px] text-[var(--text-muted)]/70">
+                      <div className="mt-0.5 text-[13px] text-[var(--text-muted)]/70">
                         {label}
                       </div>
                     ) : null}
@@ -289,11 +289,11 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                   <div className="truncate text-[13px] text-[var(--text-primary)]">
                     <HighlightedText text={project.name} query={query} />
                   </div>
-                  <div className="truncate text-[11px] text-[var(--text-muted)]/80">
+                  <div className="truncate text-[13px] text-[var(--text-muted)]/80">
                     {project.cwd}
                   </div>
                 </div>
-                <span className="shrink-0 text-[11px] text-[var(--text-muted)]/70">
+                <span className="shrink-0 text-[13px] text-[var(--text-muted)]/70">
                   {project.sessionCount} {project.sessionCount === 1 ? 'thread' : 'threads'}
                 </span>
               </CommandItem>
