@@ -225,6 +225,18 @@ export class CodexAdapter implements ProviderAdapter {
       this.clearStreamingState(threadId);
     });
 
+    this.manager.on('token_usage_updated', ({ threadId, usage }) => {
+      const message: StreamMessage = {
+        type: 'system',
+        subtype: 'token_usage',
+        uuid: `codex-token-usage-${threadId}`,
+        session_id: threadId,
+        provider: 'codex',
+        usage,
+      };
+      this.emit({ type: 'message', threadId, message });
+    });
+
     this.manager.on('tool_call', ({ threadId, params }) => {
       const p = params as Record<string, unknown>;
       const { item, toolName, toolInput, toolId } = this.extractToolCallInfo(p);

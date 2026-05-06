@@ -11,8 +11,24 @@ export type ClaudeContextSnapshot = {
   webSearchRequests: number;
 };
 
+export type CodexContextSnapshot = {
+  used: number;
+  total: number;
+  percent: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+};
+
 function isResultMessage(message: StreamMessage): message is Extract<StreamMessage, { type: 'result' }> {
   return message.type === 'result';
+}
+
+function isCodexTokenUsageMessage(
+  message: StreamMessage
+): message is Extract<StreamMessage, { type: 'system'; subtype: 'token_usage' }> {
+  return message.type === 'system' && message.subtype === 'token_usage' && message.provider === 'codex';
 }
 
 function selectModelUsageEntry(
@@ -69,6 +85,33 @@ export function getLatestClaudeContextSnapshot(
       cacheCreationTokens,
       maxOutputTokens: usage.maxOutputTokens || 0,
       webSearchRequests: usage.webSearchRequests || 0,
+    };
+  }
+
+  return null;
+}
+
+export function getLatestCodexContextSnapshot(messages: StreamMessage[]): CodexContextSnapshot | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!isCodexTokenUsageMessage(message)) {
+      continue;
+    }
+
+    const contextWindow = message.usage.contextWindow || 0;
+    if (contextWindow <= 0) {
+      continue;
+    }
+
+    const used = message.usage.totalTokens || 0;
+    return {
+      used,
+      total: contextWindow,
+      percent: Math.min(100, Math.max(0, Math.round((used / contextWindow) * 100))),
+      inputTokens: message.usage.inputTokens || 0,
+      cachedInputTokens: message.usage.cachedInputTokens || 0,
+      outputTokens: message.usage.outputTokens || 0,
+      reasoningOutputTokens: message.usage.reasoningOutputTokens || 0,
     };
   }
 

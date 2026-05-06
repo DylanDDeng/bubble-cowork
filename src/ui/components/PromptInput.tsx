@@ -13,6 +13,7 @@ import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ProjectAgentMentionMenu } from './ProjectAgentMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
+import { CodexContextIndicator } from './CodexContextIndicator';
 import { AgentAvatar } from './AgentAvatar';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
@@ -31,6 +32,7 @@ import {
 } from '../utils/long-prompt-attachment';
 import { buildCodexReferencePayload } from '../utils/codex-composer';
 import { buildAegisReferencePayload } from '../utils/aegis-composer';
+import { getLatestCodexContextSnapshot } from '../utils/context-usage';
 import {
   getAgentMentionHandle,
   getAgentMentionHandles,
@@ -304,6 +306,13 @@ export function PromptInput({
   const targetSessionId = sessionId ?? activeSessionId;
 
   const activeSession = targetSessionId ? sessions[targetSessionId] : null;
+  const codexContextSnapshot = useMemo(
+    () =>
+      activeSession?.provider === 'codex'
+        ? getLatestCodexContextSnapshot(activeSession.messages)
+        : null,
+    [activeSession?.messages, activeSession?.provider]
+  );
   const activeProjectKey =
     activeSession?.scope === 'dm' ? null : activeSession?.cwd?.trim() || null;
   const directAgentProfile =
@@ -1250,6 +1259,9 @@ export function PromptInput({
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
+              {codexContextSnapshot ? (
+                <CodexContextIndicator snapshot={codexContextSnapshot} />
+              ) : null}
               {isRunning && !approvalPending ? (
                 <button
                 onClick={handleStop}

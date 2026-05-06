@@ -96,7 +96,6 @@ function resolveSkillsDiscoveryCwd(cwd: string | undefined): string {
 // so swallow them silently instead of cluttering dev logs as "unhandled".
 const IGNORED_NOTIFICATIONS = new Set<string>([
   'account/rateLimits/updated',
-  'thread/tokenUsage/updated',
   'thread/status/changed',
   'fs/changed',
   'hook/started',
@@ -1098,6 +1097,28 @@ export class CodexAppServerManager extends EventEmitter {
         break;
       }
 
+      case 'thread/tokenUsage/updated': {
+        const providerThreadId = this.readString(params, 'threadId');
+        const threadId = this.findThreadByProviderThreadId(providerThreadId);
+        const tokenUsage = this.readObject(params, 'tokenUsage');
+        const total = this.readObject(tokenUsage, 'total');
+        const contextWindow = this.readNumber(tokenUsage, 'modelContextWindow') || 0;
+        if (threadId && total && contextWindow > 0) {
+          this.emit('token_usage_updated', {
+            threadId,
+            usage: {
+              inputTokens: this.readNumber(total, 'inputTokens') || 0,
+              cachedInputTokens: this.readNumber(total, 'cachedInputTokens') || 0,
+              outputTokens: this.readNumber(total, 'outputTokens') || 0,
+              reasoningOutputTokens: this.readNumber(total, 'reasoningOutputTokens') || 0,
+              totalTokens: this.readNumber(total, 'totalTokens') || 0,
+              contextWindow,
+            },
+          });
+        }
+        break;
+      }
+
       case 'item/started': {
         const item = (params.item as Record<string, unknown>) || params;
         const itemType = this.normalizeItemType(item);
@@ -1260,6 +1281,15 @@ export class CodexAppServerManager extends EventEmitter {
     if (!obj || typeof obj !== 'object') return null;
     const value = obj[key];
     return typeof value === 'string' ? value : null;
+  }
+
+  private readNumber(
+    obj: Record<string, unknown> | undefined,
+    key: string
+  ): number | null {
+    if (!obj || typeof obj !== 'object') return null;
+    const value = obj[key];
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
   }
 
   private asObject(value: unknown): Record<string, unknown> | undefined {

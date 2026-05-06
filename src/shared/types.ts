@@ -854,6 +854,14 @@ export type StreamMessage =
       session_id: string;
       compactMetadata: CompactMetadata;
     })
+  | (StreamMessageBase & {
+      type: 'system';
+      subtype: 'token_usage';
+      uuid: string;
+      session_id: string;
+      provider: 'codex';
+      usage: CodexContextUsage;
+    })
   | (StreamMessageBase & { type: 'assistant'; uuid: string; message: AssistantMessage; streaming?: boolean })
   | (StreamMessageBase & { type: 'user'; uuid: string; message: UserMessage })
   | (StreamMessageBase & {
@@ -934,6 +942,15 @@ export interface Usage {
   output_tokens: number;
   cache_creation_input_tokens?: number | null;
   cache_read_input_tokens?: number | null;
+}
+
+export interface CodexContextUsage {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+  contextWindow: number;
 }
 
 export interface ClaudeModelUsage {

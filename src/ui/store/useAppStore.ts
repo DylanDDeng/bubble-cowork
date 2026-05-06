@@ -491,7 +491,11 @@ function shouldPreserveStreamingStateForMessage(
   provider: SessionInfo['provider'],
   message: StreamMessage
 ): boolean {
-  return provider === 'codex' && message.type === 'assistant' && message.streaming === true;
+  return (
+    provider === 'codex' &&
+    ((message.type === 'assistant' && message.streaming === true) ||
+      (message.type === 'system' && message.subtype === 'token_usage'))
+  );
 }
 
 function sanitizeSidebarWidth(width: number | undefined, fallback: number): number {
