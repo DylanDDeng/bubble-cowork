@@ -21,6 +21,34 @@ import {
 } from '../utils/change-records';
 import type { ProjectTreeNode } from '../types';
 
+type ProjectPanelTab = 'files' | 'changes';
+type ProjectPanelDimensions = {
+  defaultWidth: number;
+  minWidth: number;
+  maxWidth: number;
+  title: string;
+};
+
+const PANEL_DIMENSIONS: Record<ProjectPanelTab, ProjectPanelDimensions> = {
+  files: { defaultWidth: 50, minWidth: 50, maxWidth: 440, title: 'Files' },
+  changes: { defaultWidth: 360, minWidth: 320, maxWidth: 560, title: 'Changes' },
+};
+
+const LEGACY_PROJECT_PANEL_WIDTH_STORAGE_KEY = 'cowork.projectPanelWidth';
+const getProjectPanelWidthStorageKey = (tab: ProjectPanelTab) =>
+  `${LEGACY_PROJECT_PANEL_WIDTH_STORAGE_KEY}.${tab}`;
+
+function parseStoredPanelWidth(
+  stored: string | null,
+  minWidth: number,
+  maxWidth: number
+) {
+  if (!stored) return null;
+  const parsed = Number(stored);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.min(maxWidth, Math.max(minWidth, parsed));
+}
+
 type ProjectFilePreview =
   | {
       kind: 'text' | 'markdown' | 'html';
@@ -229,19 +257,12 @@ export function ProjectTreePanel({
   onToggleFullscreen,
 }: {
   collapsed?: boolean;
-  activeTab: 'files' | 'changes';
+  activeTab: ProjectPanelTab;
   onClose: () => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
 }) {
   const MIN_CHANGES_SPINNER_MS = 450;
-  const PANEL_DIMENSIONS: Record<
-    'files' | 'changes',
-    { defaultWidth: number; minWidth: number; maxWidth: number; title: string }
-  > = {
-    files: { defaultWidth: 50, minWidth: 50, maxWidth: 440, title: 'Files' },
-    changes: { defaultWidth: 360, minWidth: 320, maxWidth: 560, title: 'Changes' },
-  };
   const panelMeta = PANEL_DIMENSIONS[activeTab];
   const defaultRailWidth = panelMeta.defaultWidth;
   const minRailWidth = panelMeta.minWidth;
@@ -566,15 +587,35 @@ export function ProjectTreePanel({
   }, [previewPanelWidth]);
 
   useEffect(() => {
-    const storedPanelWidth = window.localStorage.getItem('cowork.projectPanelWidth');
-    if (storedPanelWidth) {
-      const parsed = Number(storedPanelWidth);
-      if (Number.isFinite(parsed)) {
-        const clamped = Math.min(maxRailWidth, Math.max(minRailWidth, parsed));
-        setPanelWidth(clamped);
+    const storageKey = getProjectPanelWidthStorageKey(activeTab);
+    const storedPanelWidth = parseStoredPanelWidth(
+      window.localStorage.getItem(storageKey),
+      minRailWidth,
+      maxRailWidth
+    );
+    if (storedPanelWidth !== null) {
+      setPanelWidth(storedPanelWidth);
+      return;
+    }
+
+    if (activeTab === 'changes') {
+      const legacyPanelWidth = parseStoredPanelWidth(
+        window.localStorage.getItem(LEGACY_PROJECT_PANEL_WIDTH_STORAGE_KEY),
+        minRailWidth,
+        maxRailWidth
+      );
+      if (legacyPanelWidth !== null) {
+        window.localStorage.setItem(storageKey, String(legacyPanelWidth));
+        window.localStorage.removeItem(LEGACY_PROJECT_PANEL_WIDTH_STORAGE_KEY);
+        setPanelWidth(legacyPanelWidth);
+        return;
       }
     }
 
+    setPanelWidth(defaultRailWidth);
+  }, [activeTab, defaultRailWidth, minRailWidth, maxRailWidth]);
+
+  useEffect(() => {
     const stored = window.localStorage.getItem('cowork.projectPreviewWidth');
     if (!stored) return;
     const parsed = Number(stored);
@@ -1126,7 +1167,7 @@ export function ProjectTreePanel({
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
     window.localStorage.setItem(
-      'cowork.projectPanelWidth',
+      getProjectPanelWidthStorageKey(activeTab),
       String(latestPanelWidthRef.current)
     );
   };
