@@ -287,6 +287,7 @@ export interface AppActions {
   setActiveWorkspace: (workspace: ActiveWorkspace) => void;
   setChatSidebarView: (view: ChatSidebarView) => void;
   createWorkspaceChannel: (projectCwd: string, name: string) => string | null;
+  renameWorkspaceChannel: (projectCwd: string, channelId: string, newName: string) => boolean;
   setActiveChannelForProject: (projectCwd: string, channelId: string) => void;
   setSessionChannel: (sessionId: string, channelId: string) => void;
   createAgentProfile: () => string;

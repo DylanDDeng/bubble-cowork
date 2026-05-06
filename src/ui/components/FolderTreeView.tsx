@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Check,
   FolderClosed,
@@ -129,6 +130,7 @@ export function FolderTreeView({
     setActivePane,
     workspaceChannelsByProject,
     createWorkspaceChannel,
+    renameWorkspaceChannel,
     setActiveChannelForProject,
     setProjectCwd,
     setProjectAgentRoster,
@@ -142,6 +144,17 @@ export function FolderTreeView({
   const [channelDraftProjectKey, setChannelDraftProjectKey] = useState<string | null>(null);
   const [channelDraftName, setChannelDraftName] = useState('');
   const [agentRosterEditorProjectKey, setAgentRosterEditorProjectKey] = useState<string | null>(null);
+  const [contextMenuState, setContextMenuState] = useState<{
+    channelKey: string;
+    channelId: string;
+    channelName: string;
+    projectKey: string;
+    projectCwd: string | null;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [renamingChannelKey, setRenamingChannelKey] = useState<string | null>(null);
+  const [renameDraftName, setRenameDraftName] = useState('');
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const isChatWorkspaceActive = activeWorkspace === 'chat';
   const activeProjectKey = activeSession?.cwd?.trim() || projectCwd?.trim() || '__no_project__';
@@ -332,6 +345,27 @@ export function FolderTreeView({
       onNewSessionForProject(group.fullPath, nextChannelId);
     }
     cancelChannelDraft();
+  };
+
+  const startRenameChannel = (channelKey: string, channelName: string) => {
+    setRenamingChannelKey(channelKey);
+    setRenameDraftName(channelName);
+    setContextMenuState(null);
+  };
+
+  const cancelRenameChannel = () => {
+    setRenamingChannelKey(null);
+    setRenameDraftName('');
+  };
+
+  const submitRenameChannel = (projectCwd: string | null, channelId: string) => {
+    const trimmed = renameDraftName.trim();
+    if (!trimmed) {
+      cancelRenameChannel();
+      return;
+    }
+    renameWorkspaceChannel(projectCwd || '', channelId, trimmed);
+    cancelRenameChannel();
   };
 
   const isExpanded = (key: string) => !collapsedGroups.has(key);
@@ -525,6 +559,8 @@ export function FolderTreeView({
                       ? isChatWorkspaceActive && activeSessionId === channel.session.id
                       : isChatWorkspaceActive && activeChannelId === channel.id && activeProjectKey === group.key;
 
+                    const isRenaming = renamingChannelKey === channel.key;
+
                     if (splitPair && channel.session?.id === splitPair.primary.id) {
                       return (
                         <SplitSessionRow
@@ -563,6 +599,24 @@ export function FolderTreeView({
                             onNewSessionForProject(group.fullPath, channel.id);
                           }
                         }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          if (channel.id === DEFAULT_WORKSPACE_CHANNEL_ID) return;
+                          setContextMenuState({
+                            channelKey: channel.key,
+                            channelId: channel.id,
+                            channelName: channel.name,
+                            projectKey: group.key,
+                            projectCwd: group.fullPath,
+                            x: e.clientX,
+                            y: e.clientY,
+                          });
+                        }}
+                        isRenaming={isRenaming}
+                        renameValue={isRenaming ? renameDraftName : undefined}
+                        onRenameChange={isRenaming ? setRenameDraftName : undefined}
+                        onRenameSubmit={isRenaming ? () => submitRenameChannel(group.fullPath, channel.id) : undefined}
+                        onRenameCancel={isRenaming ? cancelRenameChannel : undefined}
                       />
                     );
                   })}
@@ -622,6 +676,34 @@ export function FolderTreeView({
         <div className="text-center text-[var(--text-muted)] py-8 text-[13px]">
           {sidebarSearchQuery ? 'No matching sessions' : 'No sessions yet'}
         </div>
+      )}
+
+      {contextMenuState && createPortal(
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setContextMenuState(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setContextMenuState(null);
+            }}
+          />
+          <div
+            className="popover-surface fixed z-50 min-w-[152px] p-1.5"
+            style={{ left: contextMenuState.x, top: contextMenuState.y }}
+          >
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-[13px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+              onClick={() =>
+                startRenameChannel(contextMenuState.channelKey, contextMenuState.channelName)
+              }
+            >
+              Rename channel
+            </button>
+          </div>
+        </>,
+        document.body
       )}
     </div>
   );
@@ -745,11 +827,23 @@ function ChannelItem({
   depth,
   isActive,
   onClick,
+  onContextMenu,
+  isRenaming,
+  renameValue,
+  onRenameChange,
+  onRenameSubmit,
+  onRenameCancel,
 }: {
   channel: ChannelGroup;
   depth: number;
   isActive: boolean;
   onClick: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
+  isRenaming?: boolean;
+  renameValue?: string;
+  onRenameChange?: (value: string) => void;
+  onRenameSubmit?: () => void;
+  onRenameCancel?: () => void;
 }) {
   const runtimeBadge = channel.session?.runtimeNotice
     ? channel.session.runtimeNotice
@@ -757,10 +851,57 @@ function ChannelItem({
       ? 'running'
       : null;
 
+  if (isRenaming) {
+    return (
+      <form
+        className="mb-1 flex h-7 w-[calc(100%-4px)] min-w-0 items-center gap-2 rounded-lg bg-[var(--sidebar-item-active)] px-2"
+        style={{ marginLeft: `${depth * 16}px` }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          onRenameSubmit?.();
+        }}
+      >
+        <Hash className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+        <input
+          autoFocus
+          value={renameValue}
+          onChange={(e) => onRenameChange?.(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              onRenameCancel?.();
+            }
+          }}
+          className="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+          placeholder={channel.name}
+          aria-label="Rename channel"
+        />
+        <button
+          type="submit"
+          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+          aria-label="Confirm rename"
+          title="Confirm rename"
+        >
+          <Check className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          onClick={onRenameCancel}
+          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+          aria-label="Cancel rename"
+          title="Cancel rename"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </form>
+    );
+  }
+
   return (
     <button
       type="button"
       onClick={onClick}
+      onContextMenu={onContextMenu}
       className={`group/channel mb-1 flex h-7 w-[calc(100%-4px)] min-w-0 items-center gap-2 rounded-lg px-2 text-left no-drag transition-colors duration-150 ${
         isActive
           ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'

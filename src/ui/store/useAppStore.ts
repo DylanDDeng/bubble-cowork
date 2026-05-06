@@ -1135,6 +1135,42 @@ export const useAppStore = create<Store>()(
     return channelId;
   },
 
+  renameWorkspaceChannel: (projectCwd, channelId, newName) => {
+    if (channelId === DEFAULT_WORKSPACE_CHANNEL_ID) return false;
+
+    const projectKey = getProjectChannelKey(projectCwd);
+    const normalizedName = normalizeWorkspaceChannelName(newName);
+    if (!normalizedName || normalizedName === DEFAULT_WORKSPACE_CHANNEL_ID) {
+      return false;
+    }
+
+    const now = Date.now();
+    let renamed = false;
+    set((state) => {
+      const currentChannels = state.workspaceChannelsByProject[projectKey];
+      if (!currentChannels) return {};
+
+      const nextChannels = currentChannels.map((channel) => {
+        if (channel.id === channelId) {
+          renamed = true;
+          return { ...channel, name: normalizedName, updatedAt: now };
+        }
+        return channel;
+      });
+
+      if (!renamed) return {};
+
+      return {
+        workspaceChannelsByProject: {
+          ...state.workspaceChannelsByProject,
+          [projectKey]: nextChannels,
+        },
+      };
+    });
+
+    return renamed;
+  },
+
   setActiveChannelForProject: (projectCwd, channelId) =>
     set((state) => ({
       activeChannelByProject: {
