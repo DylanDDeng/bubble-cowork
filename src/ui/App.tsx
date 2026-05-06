@@ -62,6 +62,14 @@ import type {
   ContentBlock,
 } from './types';
 
+const COMMIT_GENERATION_MIN_VISIBLE_MS = 450;
+
+function wait(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 // Tool result block type
 type ToolResultBlock = ContentBlock & { type: 'tool_result' };
 
@@ -905,6 +913,7 @@ function GitHeaderActions({
   const [commitLoading, setCommitLoading] = useState(false);
   const [commitGenerating, setCommitGenerating] = useState(false);
   const [commitGenerationError, setCommitGenerationError] = useState<string | null>(null);
+  const [commitGenerationNotice, setCommitGenerationNotice] = useState<string | null>(null);
   const [commitSuggestionSignature, setCommitSuggestionSignature] = useState<string | null>(null);
   const [pushLoading, setPushLoading] = useState(false);
   const [prLoading, setPrLoading] = useState(false);
@@ -951,11 +960,17 @@ function GitHeaderActions({
     return `${type}: ${verbByType[type] || 'update'} ${target}`;
   }, [cwd]);
 
-  const handleGenerateCommitMessage = useCallback(async (signature = commitChangeSignature) => {
+  const handleGenerateCommitMessage = useCallback(async (
+    signature = commitChangeSignature,
+    options: { showUnchangedNotice?: boolean } = {}
+  ) => {
     if (!cwd) return;
 
+    const startedAt = Date.now();
+    const previousMessage = commitMessage.trim();
     setCommitGenerating(true);
     setCommitGenerationError(null);
+    setCommitGenerationNotice(null);
     setCommitSuggestionSignature(signature);
     try {
       const generateCommitMessage = window.electron.gitGenerateCommitMessage;
@@ -963,6 +978,9 @@ function GitHeaderActions({
         const result = await generateCommitMessage(cwd);
         if (result.ok && result.message) {
           setCommitMessage(result.message);
+          if (options.showUnchangedNotice && result.message.trim() === previousMessage) {
+            setCommitGenerationNotice('Commit message is already up to date for these changes.');
+          }
           return;
         }
 
@@ -988,14 +1006,19 @@ function GitHeaderActions({
       setCommitGenerationError(message);
       toast.error(message);
     } finally {
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < COMMIT_GENERATION_MIN_VISIBLE_MS) {
+        await wait(COMMIT_GENERATION_MIN_VISIBLE_MS - elapsed);
+      }
       setCommitGenerating(false);
     }
-  }, [commitChangeSignature, createFallbackCommitMessage, cwd]);
+  }, [commitChangeSignature, commitMessage, createFallbackCommitMessage, cwd]);
 
   const openCommitDialog = useCallback((mode: 'commit' | 'commit_push') => {
     setCommitMode(mode);
     setCommitMessage('');
     setCommitGenerationError(null);
+    setCommitGenerationNotice(null);
     setCommitSuggestionSignature(null);
     setCommitDialogOpen(true);
   }, []);
@@ -1245,7 +1268,7 @@ function GitHeaderActions({
                 <div className="text-[12px] font-medium text-[var(--text-secondary)]">Message</div>
                 <button
                   type="button"
-                  onClick={() => void handleGenerateCommitMessage()}
+                  onClick={() => void handleGenerateCommitMessage(commitChangeSignature, { showUnchangedNotice: true })}
                   disabled={commitGenerating || commitLoading}
                   className="inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -1267,13 +1290,13 @@ function GitHeaderActions({
                   className="w-full resize-none border-0 bg-transparent px-3 py-3 text-[13px] leading-5 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
                 />
               </div>
-              {commitGenerating || commitGenerationError ? (
-                <div className="flex items-center gap-2 text-[11px] leading-4 text-[var(--text-muted)]">
+              {commitGenerating || commitGenerationError || commitGenerationNotice ? (
+                <div className={`flex items-center gap-2 text-[11px] leading-4 ${commitGenerationError ? 'text-[var(--error)]' : 'text-[var(--text-muted)]'}`}>
                   {commitGenerating ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
                   <span>
                     {commitGenerating
                       ? 'Generating commit message...'
-                      : commitGenerationError}
+                      : commitGenerationError || commitGenerationNotice}
                   </span>
                 </div>
               ) : null}
