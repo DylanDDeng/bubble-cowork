@@ -246,6 +246,16 @@ body {
   font-size: 13px !important;
 }
 
+.aegis-sidebar button[aria-expanded] > span {
+  font-weight: 400 !important;
+}
+
+.aegis-project-panel,
+.aegis-project-panel :is(button, input, textarea, select, div, span, p, label, td, th, pre, code):not(.project-markdown-preview, .project-markdown-preview *) {
+  font-size: 13px !important;
+  font-weight: 400;
+}
+
 .composer-fake-caret {
   position: absolute;
   left: 0;

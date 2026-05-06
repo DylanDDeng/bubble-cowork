@@ -1258,7 +1258,7 @@ export function ProjectTreePanel({
       )}
 
       <div
-        className={`relative flex h-full flex-col border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        className={`aegis-project-panel relative flex h-full flex-col border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
           isFullscreen ? 'flex-1 min-w-0' : 'flex-shrink-0'
         } ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`}
         style={
