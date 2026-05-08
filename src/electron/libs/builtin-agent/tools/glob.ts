@@ -46,7 +46,9 @@ export function createGlobTool(cwd: string): BuiltinToolRegistryEntry {
         return { content: `Error: Cannot glob path: ${root.rel} (${error instanceof Error ? error.message : String(error)})`, isError: true, status: 'command_error' };
       }
       files.sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path));
-      const matches = files.slice(0, MAX_RESULTS).map((item) => item.path);
+      const selected = files.slice(0, MAX_RESULTS);
+      const matches = selected.map((item) => item.path);
+      const matchPaths = selected.map((item) => resolve(root.path, item.path));
       const wasTruncated = truncated.value || files.length > MAX_RESULTS;
       if (matches.length === 0) {
         return {
@@ -58,7 +60,7 @@ export function createGlobTool(cwd: string): BuiltinToolRegistryEntry {
       return {
         content: `${matches.join('\n')}${wasTruncated ? `\n[More than ${MAX_RESULTS} files, output truncated]` : ''}`,
         status: wasTruncated ? 'partial' : 'success',
-        metadata: { kind: 'search', path: root.path, pattern, matches: matches.length, truncated: wasTruncated, searchSignature: `glob:${root.path}:${pattern}`, searchFamily: `glob:${pattern}` },
+        metadata: { kind: 'search', path: root.path, paths: matchPaths, pattern, matches: matches.length, truncated: wasTruncated, searchSignature: `glob:${root.path}:${pattern}`, searchFamily: `glob:${pattern}` },
       };
     },
   };
@@ -95,4 +97,3 @@ async function walk(
     }
   }
 }
-

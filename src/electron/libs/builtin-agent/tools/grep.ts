@@ -39,11 +39,16 @@ export function createGrepTool(cwd: string): BuiltinToolRegistryEntry {
       return new Promise((resolveResult) => {
         execFile('rg', rgArgs, { cwd, maxBuffer: 10 * 1024 * 1024 }, (_error, stdout) => {
           const matches: string[] = [];
+          const matchedPaths = new Set<string>();
           for (const line of stdout.split('\n').filter((item) => item.trim())) {
             try {
               const obj = JSON.parse(line);
               if (obj.type === 'match') {
-                matches.push(`${obj.data.path.text}:${obj.data.line_number}: ${obj.data.lines.text?.trim() ?? ''}`);
+                const path = typeof obj.data.path.text === 'string' ? obj.data.path.text : '';
+                if (path) {
+                  matchedPaths.add(resolve(cwd, path));
+                }
+                matches.push(`${path}:${obj.data.line_number}: ${obj.data.lines.text?.trim() ?? ''}`);
               }
             } catch {
               // Ignore malformed ripgrep JSON lines.
@@ -61,11 +66,10 @@ export function createGrepTool(cwd: string): BuiltinToolRegistryEntry {
           resolveResult({
             content: `${matches.join('\n')}${truncated ? `\n[More than ${MAX_MATCHES} matches, output truncated]` : ''}`,
             status: truncated ? 'partial' : 'success',
-            metadata: { kind: 'search', path: searchPath, pattern, matches: matches.length, truncated, searchSignature: `grep:${searchPath}:${pattern}:${glob}`, searchFamily: `grep:${pattern}` },
+            metadata: { kind: 'search', path: searchPath, paths: [...matchedPaths], pattern, matches: matches.length, truncated, searchSignature: `grep:${searchPath}:${pattern}:${glob}`, searchFamily: `grep:${pattern}` },
           });
         });
       });
     },
   };
 }
-

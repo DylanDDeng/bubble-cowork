@@ -13,7 +13,6 @@ import type {
   BuiltinToolResult,
 } from './types';
 
-const MAX_TURNS = 40;
 const MAX_OVERFLOW_RECOVERIES = 3;
 
 export interface AegisBuiltinAgentCoreOptions {
@@ -23,7 +22,13 @@ export interface AegisBuiltinAgentCoreOptions {
   callbacks: BuiltinAgentCallbacks;
   signal: AbortSignal;
   getSystemPrompt: (input: { toolNames: string[] }) => string;
+  getTransientMessages?: () => BuiltinChatMessage[];
+  onToolMetadata?: (metadata: BuiltinToolResult['metadata'] | undefined) => void;
   getPermissionMode: () => 'default' | 'plan' | 'bypassPermissions';
+  /**
+   * Optional guard for constrained child tasks. The main built-in agent leaves
+   * this unset so completion is driven by the model returning no tool calls.
+   */
   maxTurns?: number;
   initialMessages?: BuiltinChatMessage[];
 }
@@ -80,7 +85,7 @@ export class AegisBuiltinAgentCore {
     let recoveries = 0;
     let turnCount = 0;
 
-    while (!this.options.signal.aborted && turnCount < (this.options.maxTurns ?? MAX_TURNS)) {
+    while (!this.options.signal.aborted) {
       turnCount += 1;
       const effectiveTools = this.getEffectiveTools();
       this.messages[0] = {
@@ -90,8 +95,12 @@ export class AegisBuiltinAgentCore {
 
       let modelTurn: BuiltinModelTurn;
       try {
+        const projectedMessages = insertTransientMessages(
+          projectMessages(this.messages),
+          this.options.getTransientMessages?.() || []
+        );
         modelTurn = await this.options.complete({
-          messages: projectMessages(this.messages),
+          messages: projectedMessages,
           tools: effectiveTools.map(toToolDefinition),
           signal: this.options.signal,
           onText: this.options.callbacks.onText,
@@ -145,6 +154,12 @@ export class AegisBuiltinAgentCore {
         this.options.callbacks.onToolResult(call.id, result.content, result.isError, result.metadata);
       }
       this.messages = compactResidentHistory(this.messages);
+
+      if (this.options.maxTurns !== undefined && turnCount >= this.options.maxTurns) {
+        throw new Error(
+          `Aegis Built-in Agent child task reached its ${this.options.maxTurns}-turn guard without a final response.`
+        );
+      }
     }
   }
 
@@ -182,7 +197,12 @@ export class AegisBuiltinAgentCore {
         },
       ],
     });
-    await subAgent.runTurn(input);
+    let subtaskError: string | null = null;
+    try {
+      await subAgent.runTurn(input);
+    } catch (error) {
+      subtaskError = error instanceof Error ? error.message : String(error);
+    }
     const lines: string[] = [`Subtask type: ${policy.type}`];
     if (options?.description) lines.push(`Subtask description: ${options.description}`);
     const summary = output.join('').trim();
@@ -193,10 +213,19 @@ export class AegisBuiltinAgentCore {
         lines.push(`- ${note}`);
       }
     }
+    if (subtaskError) {
+      lines.push('', 'Subtask stopped:', subtaskError);
+    }
     return {
       content: lines.join('\n'),
-      status: policy.resultStatus,
-      metadata: { kind: 'subagent', reason: `Subtask (${policy.type}) investigation completed.` },
+      isError: Boolean(subtaskError),
+      status: subtaskError ? 'timeout' : policy.resultStatus,
+      metadata: {
+        kind: 'subagent',
+        reason: subtaskError
+          ? `Subtask (${policy.type}) stopped before a final response.`
+          : `Subtask (${policy.type}) investigation completed.`,
+      },
     };
   }
 
@@ -236,7 +265,7 @@ export class AegisBuiltinAgentCore {
       return { content: `Error: unknown tool ${call.function.name}`, isError: true, status: 'command_error' };
     }
     const args = parseArgs(call.function.arguments);
-    return tool.execute(args, {
+    const result = await tool.execute(args, {
       cwd: this.options.cwd,
       abortSignal: this.options.signal,
       toolCall: {
@@ -247,7 +276,25 @@ export class AegisBuiltinAgentCore {
         runSubtask: (input, cwd, options) => this.runSubtask(input, cwd, options),
       },
     });
+    this.options.onToolMetadata?.(result.metadata);
+    return result;
   }
+}
+
+function insertTransientMessages(
+  messages: BuiltinChatMessage[],
+  transient: BuiltinChatMessage[]
+): BuiltinChatMessage[] {
+  if (transient.length === 0) return messages;
+  const systemIndex = messages.findIndex((message) => message.role === 'system');
+  if (systemIndex === -1) {
+    return [...transient, ...messages];
+  }
+  return [
+    ...messages.slice(0, systemIndex + 1),
+    ...transient,
+    ...messages.slice(systemIndex + 1),
+  ];
 }
 
 function toToolDefinition(tool: BuiltinToolRegistryEntry): BuiltinToolDefinition {
