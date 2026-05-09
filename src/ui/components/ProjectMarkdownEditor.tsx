@@ -306,6 +306,7 @@ export function ProjectMarkdownEditor({
   const [outlineItems, setOutlineItems] = useState<MarkdownOutlineItem[]>([]);
   const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null);
   const [outlineCollapsed, setOutlineCollapsed] = useState(false);
+  const [editorFocused, setEditorFocused] = useState(false);
   const [, forceToolbarState] = useState(0);
   const breadcrumb = useMemo(() => formatBreadcrumb(cwd, filePath), [cwd, filePath]);
 
@@ -342,6 +343,12 @@ export function ProjectMarkdownEditor({
     setActiveOutlineId(active?.id || null);
     forceToolbarState((count) => count + 1);
   }, []);
+
+  const refreshCurrentEditorUi = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    refreshDerivedUi(view);
+  }, [refreshDerivedUi]);
 
   const jumpToOutlineItem = useCallback((item: MarkdownOutlineItem) => {
     const view = viewRef.current;
@@ -393,6 +400,7 @@ export function ProjectMarkdownEditor({
     const parts = splitFrontmatter(value);
     frontmatterRef.current = parts.frontmatter;
     currentFullMarkdownRef.current = value;
+    setEditorFocused(false);
     let disposed = false;
 
     const setup = async () => {
@@ -400,11 +408,20 @@ export function ProjectMarkdownEditor({
         .config((ctx) => {
           ctx.set(rootCtx, root);
           ctx.set(defaultValueCtx, parts.body);
-          ctx.get(listenerCtx).markdownUpdated((innerCtx, markdown) => {
+          const listeners = ctx.get(listenerCtx);
+          listeners.markdownUpdated((innerCtx, markdown) => {
             const next = combineFrontmatter(frontmatterRef.current, markdown);
             currentFullMarkdownRef.current = next;
             onChange(next);
             refreshDerivedUi(innerCtx.get(editorViewCtx));
+          });
+          listeners.focus((innerCtx) => {
+            setEditorFocused(true);
+            refreshDerivedUi(innerCtx.get(editorViewCtx));
+          });
+          listeners.blur(() => {
+            setEditorFocused(false);
+            forceToolbarState((count) => count + 1);
           });
         })
         .use(commonmark)
@@ -438,6 +455,7 @@ export function ProjectMarkdownEditor({
       const editor = editorRef.current;
       editorRef.current = null;
       viewRef.current = null;
+      setEditorFocused(false);
       if (editor) void editor.destroy();
       root.innerHTML = '';
       if (headingFlashTimerRef.current) {
@@ -471,18 +489,19 @@ export function ProjectMarkdownEditor({
   }, [onSave]);
 
   const view = viewRef.current;
+  const showActiveFormatting = editorFocused;
   const active = {
-    strong: markIsActive(view, 'strong'),
-    emphasis: markIsActive(view, 'emphasis'),
-    inlineCode: markIsActive(view, 'inlineCode'),
-    strike: markIsActive(view, 'strike_through'),
-    h1: nodeIsActive(view, 'heading', { level: 1 }),
-    h2: nodeIsActive(view, 'heading', { level: 2 }),
-    h3: nodeIsActive(view, 'heading', { level: 3 }),
-    bullet: nodeIsActive(view, 'bullet_list'),
-    ordered: nodeIsActive(view, 'ordered_list'),
-    quote: nodeIsActive(view, 'blockquote'),
-    codeBlock: nodeIsActive(view, 'code_block'),
+    strong: showActiveFormatting && markIsActive(view, 'strong'),
+    emphasis: showActiveFormatting && markIsActive(view, 'emphasis'),
+    inlineCode: showActiveFormatting && markIsActive(view, 'inlineCode'),
+    strike: showActiveFormatting && markIsActive(view, 'strike_through'),
+    h1: showActiveFormatting && nodeIsActive(view, 'heading', { level: 1 }),
+    h2: showActiveFormatting && nodeIsActive(view, 'heading', { level: 2 }),
+    h3: showActiveFormatting && nodeIsActive(view, 'heading', { level: 3 }),
+    bullet: showActiveFormatting && nodeIsActive(view, 'bullet_list'),
+    ordered: showActiveFormatting && nodeIsActive(view, 'ordered_list'),
+    quote: showActiveFormatting && nodeIsActive(view, 'blockquote'),
+    codeBlock: showActiveFormatting && nodeIsActive(view, 'code_block'),
   };
 
   return (
@@ -579,7 +598,12 @@ export function ProjectMarkdownEditor({
 
       <div className={`aegis-md-main${outlineCollapsed ? ' outline-collapsed' : ''}`}>
         <div className="aegis-md-canvas">
-          <div ref={hostRef} className="aegis-md-milkdown-root" />
+          <div
+            ref={hostRef}
+            className="aegis-md-milkdown-root"
+            onMouseUp={refreshCurrentEditorUi}
+            onKeyUp={refreshCurrentEditorUi}
+          />
         </div>
 
         <aside className="aegis-md-outline">
