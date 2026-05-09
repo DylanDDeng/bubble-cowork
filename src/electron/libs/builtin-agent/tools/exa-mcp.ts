@@ -6,20 +6,14 @@ export function resolveExaMcpUrl(): string {
   const baseUrl = (process.env.AEGIS_WEB_SEARCH_URL || process.env.BUBBLE_WEB_SEARCH_URL || DEFAULT_BASE_URL).trim();
   const url = new URL(baseUrl);
   const enabledTools = new Set(
-    (url.searchParams.get('tools') || 'web_search_exa,crawling_exa')
+    (url.searchParams.get('tools') || 'web_search_exa')
       .split(',')
       .map((item) => item.trim())
       .filter(Boolean)
   );
 
   enabledTools.add('web_search_exa');
-  enabledTools.add('crawling_exa');
   url.searchParams.set('tools', [...enabledTools].join(','));
-
-  const apiKey = (process.env.AEGIS_EXA_API_KEY || process.env.BUBBLE_EXA_API_KEY || '').trim();
-  if (apiKey && !url.searchParams.get('exaApiKey')) {
-    url.searchParams.set('exaApiKey', apiKey);
-  }
 
   return url.toString();
 }
@@ -88,4 +82,3 @@ function parseMcpResponse(body: string): string | undefined {
     return undefined;
   }
 }
-

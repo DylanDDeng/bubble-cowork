@@ -294,7 +294,7 @@ function CodeBlock({
         </button>
       </div>
 
-      <HighlightedCode code={rawCode} language={language} showLineNumbers={false} />
+      <HighlightedCode code={rawCode} language={language} showLineNumbers />
     </div>
   );
 }

@@ -26,12 +26,12 @@
   --tool-error: #dc2626;
 
   /* Markdown / code */
-  --code-inline-bg: #F0F0F2;
-  --code-inline-border: #E3E3E7;
-  --code-inline-text: #4B5563;
-  --code-block-bg: #EDEDF0;
-  --code-block-header-bg: #EDEDF0;
-  --code-block-border: #E6E6EA;
+  --code-inline-bg: #F3F3F4;
+  --code-inline-border: #E4E4E7;
+  --code-inline-text: #3F3F46;
+  --code-block-bg: #F7F7F8;
+  --code-block-header-bg: #F4F4F5;
+  --code-block-border: #DADCE0;
   --code-block-text: #1F2937;
   --code-copy-bg: transparent;
   --code-copy-hover: rgba(17, 24, 39, 0.05);
@@ -773,22 +773,23 @@ body {
 }
 
 .project-markdown-preview {
-  --project-md-text: color-mix(in srgb, var(--text-primary) 92%, #37352F);
+  --project-md-text: color-mix(in srgb, var(--text-primary) 94%, #2f3035);
   --project-md-muted: color-mix(in srgb, var(--text-secondary) 86%, #787774);
   --project-md-soft: color-mix(in srgb, var(--text-muted) 72%, transparent);
-  --project-md-rule: color-mix(in srgb, var(--border) 78%, transparent);
-  --project-md-callout-bg: color-mix(in srgb, var(--bg-tertiary) 44%, transparent);
-  --project-md-table-head: color-mix(in srgb, var(--bg-tertiary) 72%, transparent);
+  --project-md-rule: color-mix(in srgb, var(--border) 82%, transparent);
+  --project-md-callout-bg: color-mix(in srgb, var(--bg-tertiary) 48%, var(--preview-surface));
+  --project-md-table-head: color-mix(in srgb, var(--bg-tertiary) 58%, var(--preview-surface));
   --project-md-row-hover: color-mix(in srgb, var(--bg-tertiary) 36%, transparent);
+  --project-md-blue: #2563eb;
 
   box-sizing: border-box;
-  width: min(100%, 760px);
+  width: min(100%, 780px);
   min-height: 100%;
   margin: 0 auto;
-  padding: 28px 30px 44px;
+  padding: 30px 34px 48px;
   color: var(--project-md-text);
-  font-size: 15px;
-  line-height: 1.72;
+  font-size: 14px;
+  line-height: 1.65;
 }
 
 .project-markdown-preview > :first-child {
@@ -807,19 +808,20 @@ body {
 }
 
 .project-markdown-preview h1 {
-  margin: 0 0 1rem;
-  font-size: 24px;
-  line-height: 1.25;
-  font-weight: 700;
+  margin: 0 0 0.85rem;
+  font-size: 34px;
+  line-height: 1.16;
+  font-weight: 760;
+  letter-spacing: -0.01em;
 }
 
 .project-markdown-preview h2 {
-  margin: 1.85rem 0 0.75rem;
-  padding-bottom: 0.38rem;
+  margin: 1.35rem 0 0.65rem;
+  padding-bottom: 0.32rem;
   border-bottom: 1px solid var(--project-md-rule);
-  font-size: 18px;
+  font-size: 20px;
   line-height: 1.35;
-  font-weight: 650;
+  font-weight: 720;
 }
 
 .project-markdown-preview h3 {
@@ -830,7 +832,7 @@ body {
 }
 
 .project-markdown-preview p {
-  margin: 0.68rem 0;
+  margin: 0.55rem 0;
 }
 
 .project-markdown-preview strong {
@@ -844,17 +846,75 @@ body {
 
 .project-markdown-preview ul,
 .project-markdown-preview ol {
-  margin: 0.7rem 0;
-  padding-left: 1.45rem;
+  --project-md-list-marker: var(--project-md-blue);
+  counter-reset: project-md-list;
+  margin: 0.48rem 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.project-markdown-preview ul ul,
+.project-markdown-preview ol ol,
+.project-markdown-preview ul ol,
+.project-markdown-preview ol ul {
+  position: relative;
+  margin: 0.24rem 0;
 }
 
 .project-markdown-preview li {
-  margin: 0.32rem 0;
-  padding-left: 0.1rem;
+  position: relative;
+  margin: 0.18rem 0;
+  padding-left: 1.1rem;
 }
 
-.project-markdown-preview li::marker {
-  color: var(--project-md-soft);
+.project-markdown-preview ul > li::before {
+  content: "";
+  position: absolute;
+  top: 0.7em;
+  left: 0.12rem;
+  width: 0.32rem;
+  height: 0.32rem;
+  border-radius: 999px;
+  background: var(--project-md-list-marker);
+  z-index: 1;
+}
+
+.project-markdown-preview ul ul > li::before {
+  width: 0.28rem;
+  height: 0.28rem;
+  border: 1px solid var(--project-md-list-marker);
+  background: transparent;
+}
+
+.project-markdown-preview ul ul ul > li::before {
+  width: 0.28rem;
+  height: 0.28rem;
+  border-radius: 2px;
+  border: 0;
+  background: var(--project-md-list-marker);
+}
+
+.project-markdown-preview ol > li {
+  counter-increment: project-md-list;
+}
+
+.project-markdown-preview ol > li::before {
+  content: counter(project-md-list);
+  position: absolute;
+  top: 0;
+  left: 0;
+  min-width: 0.82rem;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--project-md-list-marker);
+  font-size: 1em;
+  font-weight: 700;
+  line-height: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  z-index: 1;
 }
 
 .project-markdown-preview li > p {
@@ -862,16 +922,20 @@ body {
 }
 
 .project-markdown-preview input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
-  margin: 0 0.55rem 0 -1.45rem;
+  width: 13px;
+  height: 13px;
+  margin: 0 0.5rem 0 -1.1rem;
   vertical-align: -0.12em;
-  accent-color: #787774;
+  accent-color: var(--project-md-blue);
   opacity: 1;
 }
 
 .project-markdown-preview li:has(input[type="checkbox"]) {
   list-style: none;
+}
+
+.project-markdown-preview li:has(input[type="checkbox"])::before {
+  content: none;
 }
 
 .project-markdown-preview li:has(input[type="checkbox"]:checked) {
@@ -895,12 +959,31 @@ body {
 }
 
 .project-markdown-preview blockquote {
-  margin: 1rem 0;
-  padding: 0.75rem 0.95rem;
-  border-left: 3px solid color-mix(in srgb, var(--project-md-muted) 34%, transparent);
-  border-radius: 0 6px 6px 0;
+  position: relative;
+  margin: 0.9rem 0;
+  padding: 0.72rem 0.9rem 0.72rem 2.25rem;
+  border: 1px solid var(--project-md-rule);
+  border-left: 2px solid var(--project-md-blue);
+  border-radius: 5px;
   background: var(--project-md-callout-bg);
   color: color-mix(in srgb, var(--project-md-text) 78%, var(--project-md-muted));
+}
+
+.project-markdown-preview blockquote::before {
+  content: "“";
+  position: absolute;
+  left: 0.85rem;
+  top: 0.68rem;
+  width: 1rem;
+  height: 1rem;
+  border: 1px solid var(--project-md-rule);
+  border-radius: 999px;
+  color: var(--project-md-muted);
+  background: var(--preview-surface);
+  font-family: Georgia, serif;
+  font-size: 16px;
+  line-height: 1rem;
+  text-align: center;
 }
 
 .project-markdown-preview blockquote > :first-child {
@@ -918,14 +1001,49 @@ body {
 
 .project-markdown-preview .md-inline-code {
   border-color: color-mix(in srgb, var(--code-inline-border) 52%, transparent);
-  background: color-mix(in srgb, var(--code-inline-bg) 50%, transparent);
+  background: var(--code-inline-bg);
   color: color-mix(in srgb, var(--code-inline-text) 88%, var(--text-primary));
   border-radius: 4px;
-  padding: 0.06rem 0.26rem;
+  padding: 0.07rem 0.32rem;
+  font-size: 0.88em;
 }
 
 .project-markdown-preview .md-code-block {
-  margin: 1rem 0;
+  margin: 0.9rem 0 1rem;
+  border-color: var(--code-block-border);
+  border-radius: 5px;
+  background: var(--code-block-bg);
+}
+
+.project-markdown-preview .md-code-header {
+  min-height: 30px;
+  padding: 4px 8px 3px 12px;
+  border-bottom: 1px solid var(--code-block-border);
+  background: var(--code-block-header-bg);
+}
+
+.project-markdown-preview .md-code-language,
+.project-markdown-preview .md-code-copy-label {
+  font-size: 12px;
+}
+
+.project-markdown-preview .highlighted-code-block {
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.project-markdown-preview .highlighted-code-lines {
+  padding: 4px 0;
+}
+
+.project-markdown-preview .highlighted-code-gutter {
+  padding-left: 12px;
+  padding-right: 9px;
+  border-right-color: color-mix(in srgb, var(--code-block-border) 72%, transparent);
+}
+
+.project-markdown-preview .highlighted-code-content {
+  padding: 0 13px;
 }
 
 .project-markdown-preview table {
@@ -933,9 +1051,9 @@ body {
   border-collapse: separate;
   border-spacing: 0;
   border: 1px solid var(--project-md-rule);
-  border-radius: 8px;
-  font-size: 14px;
-  line-height: 1.55;
+  border-radius: 5px;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .project-markdown-preview th,
@@ -943,7 +1061,7 @@ body {
   border: 0;
   border-right: 1px solid var(--project-md-rule);
   border-bottom: 1px solid var(--project-md-rule);
-  padding: 0.6rem 0.75rem;
+  padding: 0.42rem 0.65rem;
   vertical-align: top;
 }
 
@@ -970,8 +1088,9 @@ body {
   display: block;
   max-width: 100%;
   height: auto;
-  margin: 1.2rem 0;
-  border-radius: 8px;
+  margin: 1rem 0 0.45rem;
+  border: 1px solid var(--project-md-rule);
+  border-radius: 5px;
 }
 
 .aegis-md-editor {
@@ -1157,10 +1276,10 @@ body {
 
 .aegis-md-milkdown-root {
   box-sizing: border-box;
-  width: min(100%, 820px);
+  width: min(100%, 780px);
   min-height: 100%;
   margin: 0 auto;
-  padding: 24px 34px 120px;
+  padding: 30px 34px 120px;
 }
 
 .aegis-md-milkdown-root .ProseMirror {
@@ -1169,8 +1288,8 @@ body {
   border: 0;
   background: transparent;
   color: color-mix(in srgb, var(--text-primary) 94%, #37352f);
-  font-size: 16px;
-  line-height: 1.76;
+  font-size: 14px;
+  line-height: 1.65;
 }
 
 .aegis-md-milkdown-root .ProseMirror h1,
@@ -1186,54 +1305,141 @@ body {
 }
 
 .aegis-md-milkdown-root .ProseMirror h1 {
-  margin: 0 0 1rem;
-  font-size: 32px;
+  margin: 0 0 0.85rem;
+  font-size: 34px;
+  font-weight: 760;
+  letter-spacing: -0.01em;
 }
 
 .aegis-md-milkdown-root .ProseMirror h2 {
-  margin: 1.8rem 0 0.7rem;
-  padding-bottom: 0.38rem;
+  margin: 1.35rem 0 0.65rem;
+  padding-bottom: 0.32rem;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  font-size: 22px;
+  font-size: 20px;
+  font-weight: 720;
 }
 
 .aegis-md-milkdown-root .ProseMirror h3 {
-  margin: 1.35rem 0 0.5rem;
-  font-size: 18px;
+  margin: 1.15rem 0 0.42rem;
+  font-size: 15px;
 }
 
 .aegis-md-milkdown-root .ProseMirror p {
-  margin: 0.7rem 0;
+  margin: 0.55rem 0;
 }
 
 .aegis-md-milkdown-root .ProseMirror blockquote {
-  margin: 1rem 0;
-  padding: 0.65rem 0.95rem;
-  border-left: 3px solid color-mix(in srgb, var(--text-muted) 35%, transparent);
-  border-radius: 0 6px 6px 0;
-  background: color-mix(in srgb, var(--bg-tertiary) 42%, transparent);
+  position: relative;
+  margin: 0.9rem 0;
+  padding: 0.72rem 0.9rem 0.72rem 2.25rem;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-left: 2px solid #2563eb;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg-tertiary) 48%, var(--preview-surface));
   color: color-mix(in srgb, var(--text-primary) 78%, var(--text-secondary));
+}
+
+.aegis-md-milkdown-root .ProseMirror blockquote::before {
+  content: "“";
+  position: absolute;
+  left: 0.85rem;
+  top: 0.68rem;
+  width: 1rem;
+  height: 1rem;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--preview-surface);
+  font-family: Georgia, serif;
+  font-size: 16px;
+  line-height: 1rem;
+  text-align: center;
 }
 
 .aegis-md-milkdown-root .ProseMirror ul,
 .aegis-md-milkdown-root .ProseMirror ol {
-  margin: 0.7rem 0;
-  padding-left: 1.45rem;
+  --aegis-md-list-marker: #2563eb;
+  counter-reset: aegis-md-list;
+  margin: 0.48rem 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.aegis-md-milkdown-root .ProseMirror ul ul,
+.aegis-md-milkdown-root .ProseMirror ol ol,
+.aegis-md-milkdown-root .ProseMirror ul ol,
+.aegis-md-milkdown-root .ProseMirror ol ul {
+  position: relative;
+  margin: 0.24rem 0;
 }
 
 .aegis-md-milkdown-root .ProseMirror li {
-  margin: 0.28rem 0;
-  padding-left: 0.1rem;
+  margin: 0.18rem 0;
+  padding-left: 1.1rem;
+}
+
+.aegis-md-milkdown-root .ProseMirror ul > li::before {
+  content: "";
+  position: absolute;
+  top: 0.7em;
+  left: 0.12rem;
+  width: 0.32rem;
+  height: 0.32rem;
+  border-radius: 999px;
+  background: var(--aegis-md-list-marker);
+  z-index: 1;
+}
+
+.aegis-md-milkdown-root .ProseMirror ul ul > li::before {
+  width: 0.28rem;
+  height: 0.28rem;
+  border: 1px solid var(--aegis-md-list-marker);
+  background: transparent;
+}
+
+.aegis-md-milkdown-root .ProseMirror ul ul ul > li::before {
+  width: 0.28rem;
+  height: 0.28rem;
+  border-radius: 2px;
+  border: 0;
+  background: var(--aegis-md-list-marker);
+}
+
+.aegis-md-milkdown-root .ProseMirror ol > li {
+  counter-increment: aegis-md-list;
+}
+
+.aegis-md-milkdown-root .ProseMirror ol > li::before {
+  content: counter(aegis-md-list);
+  position: absolute;
+  top: 0;
+  left: 0;
+  min-width: 0.82rem;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--aegis-md-list-marker);
+  font-size: 1em;
+  font-weight: 700;
+  line-height: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  z-index: 1;
+}
+
+.aegis-md-milkdown-root .ProseMirror li[data-item-type="task"]::before {
+  content: none;
 }
 
 .aegis-md-milkdown-root .ProseMirror code {
   border: 1px solid color-mix(in srgb, var(--code-inline-border) 52%, transparent);
   border-radius: 4px;
-  background: color-mix(in srgb, var(--code-inline-bg) 58%, transparent);
+  background: var(--code-inline-bg);
   color: color-mix(in srgb, var(--code-inline-text) 88%, var(--text-primary));
-  padding: 0.08rem 0.28rem;
+  padding: 0.07rem 0.32rem;
   font-family: var(--font-mono);
-  font-size: 0.9em;
+  font-size: 0.88em;
 }
 
 .aegis-md-milkdown-root .ProseMirror pre {
@@ -1253,10 +1459,10 @@ body {
 }
 
 .aegis-md-code-block {
-  margin: 1rem 0 1.2rem;
+  margin: 0.9rem 0 1rem;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
-  border-radius: 9px;
+  border: 1px solid var(--code-block-border);
+  border-radius: 5px;
   background: var(--code-block-bg);
 }
 
@@ -1269,10 +1475,10 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 34px;
-  padding: 5px 7px 5px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
-  background: color-mix(in srgb, var(--preview-surface) 88%, var(--code-block-bg));
+  min-height: 30px;
+  padding: 4px 8px 3px 12px;
+  border-bottom: 1px solid var(--code-block-border);
+  background: var(--code-block-header-bg);
 }
 
 .aegis-md-code-language {
@@ -1305,7 +1511,7 @@ body {
   background: transparent;
   color: var(--code-block-text);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .aegis-md-codemirror-host .cm-editor.cm-focused {
@@ -1313,9 +1519,25 @@ body {
 }
 
 .aegis-md-codemirror-host .cm-scroller {
-  padding: 10px 12px 12px;
+  padding: 8px 0 9px;
   font-family: var(--font-mono);
-  line-height: 1.65;
+  line-height: 1.55;
+}
+
+.aegis-md-codemirror-host .cm-gutters {
+  border-right: 1px solid color-mix(in srgb, var(--code-block-border) 72%, transparent);
+  background: transparent;
+  color: var(--code-token-comment);
+}
+
+.aegis-md-codemirror-host .cm-lineNumbers .cm-gutterElement {
+  min-width: 3.1ch;
+  padding: 0 9px 0 12px;
+  opacity: 0.58;
+}
+
+.aegis-md-codemirror-host .cm-content {
+  padding: 0 0 0 13px;
 }
 
 .aegis-md-milkdown-root .ProseMirror table {
@@ -1325,14 +1547,16 @@ body {
   border-collapse: separate;
   border-spacing: 0;
   border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-  border-radius: 8px;
+  border-radius: 5px;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .aegis-md-milkdown-root .ProseMirror th,
 .aegis-md-milkdown-root .ProseMirror td {
   border-right: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  padding: 0.58rem 0.7rem;
+  padding: 0.42rem 0.65rem;
   vertical-align: top;
 }
 
@@ -1346,8 +1570,9 @@ body {
   display: block;
   max-width: 100%;
   height: auto;
-  margin: 1.1rem 0;
-  border-radius: 8px;
+  margin: 1rem 0 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 5px;
 }
 
 .aegis-md-milkdown-root .ProseMirror .aegis-md-heading-flash {

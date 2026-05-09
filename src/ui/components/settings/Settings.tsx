@@ -5,13 +5,11 @@ import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
 import { AgentsSettingsContent } from './AgentsSettings';
 import { McpSettingsContent } from './McpSettings';
-import { ProviderPicker } from '../ProviderPicker';
 import { BridgeSettingsContent } from './BridgeSettings';
 import { ThemePackEditor } from './ThemePackEditor';
 import { SettingsGroup, SettingsRow } from './SettingsPrimitives';
 import type { AppUpdateStatus, ChromeTheme, Theme, ThemeFonts, ThemeState, ThemeVariant } from '../../types';
 import { resolveThemeMode, resolveThemePack } from '../../theme/themes';
-import { loadPreferredProvider, savePreferredProvider } from '../../utils/provider';
 
 const SETTINGS_TABS = {
   general: {
@@ -225,7 +223,6 @@ function GeneralSettingsContent({
   const resolvedMode = resolveThemeMode(theme);
   const [appVersion, setAppVersion] = useState('...');
   const [checkingUpdates, setCheckingUpdates] = useState(false);
-  const [defaultProvider, setDefaultProvider] = useState(loadPreferredProvider());
   const lightTheme = resolveThemePack(themeState, 'light');
   const darkTheme = resolveThemePack(themeState, 'dark');
 
@@ -275,37 +272,6 @@ function GeneralSettingsContent({
 
   return (
     <div className="space-y-6 pb-8">
-      <SettingsGroup>
-        <SettingsRow variant="card" label="Default Agent" description="New sessions use this agent.">
-          <ProviderPicker
-            value={defaultProvider}
-            onChange={(provider) => {
-              setDefaultProvider(provider);
-              savePreferredProvider(provider);
-            }}
-            embedded
-          />
-        </SettingsRow>
-
-        <SettingsRow variant="card" label="Updates" description={`Version ${appVersion}`}>
-          <button
-            type="button"
-            onClick={() => void handleCheckForUpdates()}
-            disabled={checkingUpdates}
-            className="inline-flex h-8 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-          >
-            {checkingUpdates ? 'Checking...' : 'Check for Updates'}
-            {updateStatus.autoDetected ? (
-              <span
-                className="inline-flex h-2 w-2 rounded-full bg-[var(--error)]"
-                title={updateStatus.version ? `Update ${updateStatus.version} detected automatically` : 'Update detected automatically'}
-                aria-label={updateStatus.version ? `Update ${updateStatus.version} detected automatically` : 'Update detected automatically'}
-              />
-            ) : null}
-          </button>
-        </SettingsRow>
-      </SettingsGroup>
-
       <SettingsGroup title="Appearance">
         <SettingsRow variant="card" label="Mode" description="Light, dark, or follow system.">
           <div className="inline-flex items-center gap-0.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] p-0.5">
@@ -372,6 +338,26 @@ function GeneralSettingsContent({
             spellCheck={false}
             className="h-8 w-[280px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-right font-mono text-[12px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
           />
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup title="Application">
+        <SettingsRow variant="card" label="Updates" description={`Version ${appVersion}`}>
+          <button
+            type="button"
+            onClick={() => void handleCheckForUpdates()}
+            disabled={checkingUpdates}
+            className="inline-flex h-8 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+          >
+            {checkingUpdates ? 'Checking...' : 'Check for Updates'}
+            {updateStatus.autoDetected ? (
+              <span
+                className="inline-flex h-2 w-2 rounded-full bg-[var(--error)]"
+                title={updateStatus.version ? `Update ${updateStatus.version} detected automatically` : 'Update detected automatically'}
+                aria-label={updateStatus.version ? `Update ${updateStatus.version} detected automatically` : 'Update detected automatically'}
+              />
+            ) : null}
+          </button>
         </SettingsRow>
       </SettingsGroup>
     </div>
