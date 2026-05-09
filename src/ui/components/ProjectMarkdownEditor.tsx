@@ -36,6 +36,7 @@ import {
   createCodeBlockCommand,
   imageSchema,
   insertImageCommand,
+  liftListItemCommand,
   toggleEmphasisCommand,
   toggleInlineCodeCommand,
   toggleLinkCommand,
@@ -350,6 +351,26 @@ export function ProjectMarkdownEditor({
     refreshDerivedUi(view);
   }, [refreshDerivedUi]);
 
+  const toggleBulletList = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const command = nodeIsActive(view, 'bullet_list')
+      ? liftListItemCommand.key
+      : wrapInBulletListCommand.key;
+    runCommand(command);
+    window.setTimeout(refreshCurrentEditorUi, 0);
+  }, [refreshCurrentEditorUi, runCommand]);
+
+  const toggleOrderedList = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const command = nodeIsActive(view, 'ordered_list')
+      ? liftListItemCommand.key
+      : wrapInOrderedListCommand.key;
+    runCommand(command);
+    window.setTimeout(refreshCurrentEditorUi, 0);
+  }, [refreshCurrentEditorUi, runCommand]);
+
   const jumpToOutlineItem = useCallback((item: MarkdownOutlineItem) => {
     const view = viewRef.current;
     if (!view) return;
@@ -557,10 +578,10 @@ export function ProjectMarkdownEditor({
           <Heading3 className="h-4 w-4" />
         </ToolbarButton>
         <span className="aegis-md-toolbar-separator" />
-        <ToolbarButton title="Bullet list" active={active.bullet} onClick={() => runCommand(wrapInBulletListCommand.key)}>
+        <ToolbarButton title="Bullet list" active={active.bullet} onClick={toggleBulletList}>
           <List className="h-4 w-4" />
         </ToolbarButton>
-        <ToolbarButton title="Numbered list" active={active.ordered} onClick={() => runCommand(wrapInOrderedListCommand.key)}>
+        <ToolbarButton title="Numbered list" active={active.ordered} onClick={toggleOrderedList}>
           <ListOrdered className="h-4 w-4" />
         </ToolbarButton>
         <ToolbarButton title="Task list" onClick={() => replaceSelectionWithText('- [ ] ')}>
