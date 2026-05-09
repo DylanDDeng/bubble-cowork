@@ -817,8 +817,6 @@ body {
 
 .project-markdown-preview h2 {
   margin: 1.35rem 0 0.65rem;
-  padding-bottom: 0.32rem;
-  border-bottom: 1px solid var(--project-md-rule);
   font-size: 20px;
   line-height: 1.35;
   font-weight: 720;
@@ -1313,8 +1311,6 @@ body {
 
 .aegis-md-milkdown-root .ProseMirror h2 {
   margin: 1.35rem 0 0.65rem;
-  padding-bottom: 0.32rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   font-size: 20px;
   font-weight: 720;
 }
