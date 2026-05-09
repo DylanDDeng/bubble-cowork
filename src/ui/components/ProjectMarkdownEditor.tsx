@@ -15,7 +15,6 @@ import {
   ListOrdered,
   Quote,
   Redo2,
-  Star,
   Strikethrough,
   Table,
   Undo2,
@@ -79,6 +78,7 @@ type ProjectMarkdownEditorProps = {
   cwd: string;
   filePath: string;
   fileName: string;
+  hideTitleBar?: boolean;
   saveState: SaveState;
   saveError: string | null;
   externalChange: boolean;
@@ -289,6 +289,7 @@ export function ProjectMarkdownEditor({
   cwd,
   filePath,
   fileName,
+  hideTitleBar = false,
   saveState,
   saveError,
   externalChange,
@@ -526,26 +527,20 @@ export function ProjectMarkdownEditor({
   };
 
   return (
-    <div className="aegis-md-editor">
-      <div className="aegis-md-editor-top">
-        <div className="aegis-md-title-cluster">
-          <span className="aegis-md-file-badge" aria-hidden="true">M+</span>
-          <div className="aegis-md-title-main">
-            <div className="aegis-md-title-line">
-              <span className="aegis-md-file-name" title={filePath}>{fileName}</span>
-              <button
-                type="button"
-                className="aegis-md-favorite-button"
-                title="Favorite"
-                aria-label="Favorite document"
-              >
-                <Star className="h-3.5 w-3.5" />
-              </button>
+    <div className={`aegis-md-editor${hideTitleBar ? ' title-hidden' : ''}`}>
+      {!hideTitleBar && (
+        <div className="aegis-md-editor-top drag-region">
+          <div className="aegis-md-title-cluster">
+            <span className="aegis-md-file-badge" aria-hidden="true">M+</span>
+            <div className="aegis-md-title-main">
+              <div className="aegis-md-title-line">
+                <span className="aegis-md-file-name" title={filePath}>{fileName}</span>
+              </div>
+              {breadcrumb && <div className="aegis-md-breadcrumb" title={breadcrumb}>{breadcrumb}</div>}
             </div>
-            {breadcrumb && <div className="aegis-md-breadcrumb" title={breadcrumb}>{breadcrumb}</div>}
           </div>
         </div>
-      </div>
+      )}
 
       <div className="aegis-md-toolbar" aria-label="Markdown formatting toolbar">
         <ToolbarButton title="Undo" onClick={() => { viewRef.current && undo(viewRef.current.state, viewRef.current.dispatch); focusEditor(); }}>

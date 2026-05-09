@@ -1,7 +1,8 @@
 import { Compartment, EditorState } from '@codemirror/state';
-import { defaultHighlightStyle, LanguageDescription, syntaxHighlighting } from '@codemirror/language';
+import { HighlightStyle, LanguageDescription, syntaxHighlighting } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import { EditorView, keymap, lineNumbers, type ViewUpdate } from '@codemirror/view';
+import { tags as t } from '@lezer/highlight';
 import { codeBlockSchema } from '@milkdown/kit/preset/commonmark';
 import { exitCode } from '@milkdown/kit/prose/commands';
 import { undo, redo } from '@milkdown/kit/prose/history';
@@ -23,12 +24,52 @@ class LanguageLoader {
   }
 
   load(languageName: string) {
-    const language = this.map[languageName.toLowerCase()];
+    const language = this.map[normalizeLanguageName(languageName)];
     if (!language) return Promise.resolve(undefined);
     if (language.support) return Promise.resolve(language.support);
     return language.load();
   }
 }
+
+function normalizeLanguageName(languageName: string): string {
+  const normalized = languageName.trim().toLowerCase();
+  const aliases: Record<string, string> = {
+    plaintext: 'text',
+    py: 'python',
+    python3: 'python',
+    js: 'javascript',
+    jsx: 'javascript',
+    ts: 'typescript',
+    tsx: 'typescript',
+    sh: 'bash',
+    zsh: 'bash',
+    shell: 'bash',
+  };
+  return aliases[normalized] ?? normalized;
+}
+
+const codeBlockHighlightStyle = HighlightStyle.define([
+  { tag: [t.comment, t.quote], color: 'var(--code-token-comment)', fontStyle: 'italic' },
+  {
+    tag: [
+      t.keyword,
+      t.controlKeyword,
+      t.definitionKeyword,
+      t.moduleKeyword,
+      t.atom,
+      t.bool,
+      t.typeName,
+      t.className,
+    ],
+    color: 'var(--code-token-keyword)',
+  },
+  { tag: [t.string, t.docString, t.character, t.regexp], color: 'var(--code-token-string)' },
+  { tag: [t.function(t.variableName), t.function(t.propertyName), t.labelName], color: 'var(--code-token-function)' },
+  { tag: [t.number, t.integer, t.float], color: 'var(--code-token-number)' },
+  { tag: [t.operator, t.compareOperator, t.logicOperator, t.arithmeticOperator, t.punctuation], color: 'var(--code-token-operator)' },
+  { tag: [t.variableName, t.propertyName, t.attributeName], color: 'var(--code-token-variable)' },
+  { tag: t.invalid, color: 'var(--error)' },
+]);
 
 class ProjectMarkdownCodeBlockView {
   private node: ProseNode;
@@ -59,6 +100,7 @@ class ProjectMarkdownCodeBlockView {
     this.languageInput = document.createElement('input');
     this.languageInput.className = 'aegis-md-code-language';
     this.languageInput.type = 'text';
+    this.languageInput.setAttribute('aria-label', 'Code block language');
     this.languageInput.spellcheck = false;
     this.languageInput.placeholder = 'text';
     this.languageInput.value = String(node.attrs.language || '');
@@ -73,14 +115,19 @@ class ProjectMarkdownCodeBlockView {
     this.copyButton = document.createElement('button');
     this.copyButton.className = 'aegis-md-code-copy';
     this.copyButton.type = 'button';
-    this.copyButton.textContent = 'Copy';
+    this.copyButton.setAttribute('aria-label', 'Copy code');
+    this.copyButton.innerHTML = '<span class="aegis-md-code-copy-mark" aria-hidden="true"></span><span class="aegis-md-code-copy-label">Copy</span>';
     this.copyButton.addEventListener('click', () => {
       void navigator.clipboard.writeText(this.cm.state.doc.toString()).then(() => {
+        const label = this.copyButton.querySelector('.aegis-md-code-copy-label');
         this.copyButton.dataset.copied = 'true';
-        this.copyButton.textContent = 'Copied';
+        this.copyButton.setAttribute('aria-label', 'Copied');
+        if (label) label.textContent = 'Copied';
         window.setTimeout(() => {
+          const nextLabel = this.copyButton.querySelector('.aegis-md-code-copy-label');
           this.copyButton.removeAttribute('data-copied');
-          this.copyButton.textContent = 'Copy';
+          this.copyButton.setAttribute('aria-label', 'Copy code');
+          if (nextLabel) nextLabel.textContent = 'Copy';
         }, 1100);
       });
     });
@@ -102,7 +149,7 @@ class ProjectMarkdownCodeBlockView {
         lineNumbers(),
         keymap.of(this.codeMirrorKeymap()),
         this.languageConf.of([]),
-        syntaxHighlighting(defaultHighlightStyle),
+        syntaxHighlighting(codeBlockHighlightStyle),
         EditorState.changeFilter.of(() => this.view.editable),
         EditorView.updateListener.of((update) => this.forwardUpdate(update)),
       ],

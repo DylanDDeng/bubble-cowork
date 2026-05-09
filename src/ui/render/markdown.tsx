@@ -36,6 +36,7 @@ function extractTextContent(node: ReactNode): string {
 }
 
 function formatLanguageLabel(language: string): string {
+  if (language.toLowerCase() === 'plaintext') return 'text';
   if (language.toLowerCase() === 'javascript') return 'JavaScript';
   if (language.toLowerCase() === 'typescript') return 'TypeScript';
   if (language.toLowerCase() === 'bash') return 'Bash';
@@ -264,7 +265,7 @@ function CodeBlock({
   const [copied, setCopied] = useState(false);
   const rawCode = extractTextContent(children).replace(/\n$/, '');
   const showLanguageLabel = shouldDisplayLanguageLabel(language);
-  const languageLabel = showLanguageLabel ? formatLanguageLabel(language!) : 'Snippet';
+  const languageLabel = showLanguageLabel ? formatLanguageLabel(language!) : 'text';
 
   const handleCopy = async () => {
     try {

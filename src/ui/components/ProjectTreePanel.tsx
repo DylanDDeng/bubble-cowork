@@ -1409,27 +1409,33 @@ export function ProjectTreePanel({
 
             <div className={`h-full min-w-0 flex flex-col ${isEditableMarkdownPreview ? '' : 'px-3 py-3'}`}>
               {isEditableMarkdownPreview ? (
-                <div className="absolute right-5 top-2.5 z-30 flex items-center gap-2 no-drag">
-                  {onToggleFullscreen && (
+                <div
+                  className={`flex h-10 flex-shrink-0 items-center justify-end gap-2 border-b border-[var(--border)]/60 bg-[var(--bg-primary)] px-4 no-drag ${
+                    isFullscreen ? 'drag-region' : ''
+                  }`}
+                >
+                  <div className="flex items-center gap-2 no-drag">
+                    {onToggleFullscreen && (
+                      <IconSquareButton
+                        onClick={onToggleFullscreen}
+                        title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+                        ariaLabel={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                      >
+                        {isFullscreen ? (
+                          <Minimize2 className="w-4 h-4" />
+                        ) : (
+                          <Maximize2 className="w-4 h-4" />
+                        )}
+                      </IconSquareButton>
+                    )}
                     <IconSquareButton
-                      onClick={onToggleFullscreen}
-                      title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
-                      ariaLabel={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                      onClick={closePreview}
+                      title="Close preview"
+                      ariaLabel="Close preview"
                     >
-                      {isFullscreen ? (
-                        <Minimize2 className="w-4 h-4" />
-                      ) : (
-                        <Maximize2 className="w-4 h-4" />
-                      )}
+                      <X className="w-4 h-4" />
                     </IconSquareButton>
-                  )}
-                  <IconSquareButton
-                    onClick={closePreview}
-                    title="Close preview"
-                    ariaLabel="Close preview"
-                  >
-                    <X className="w-4 h-4" />
-                  </IconSquareButton>
+                  </div>
                 </div>
               ) : (
                 <div className="flex items-center justify-between gap-2 pb-2">
@@ -1561,6 +1567,7 @@ export function ProjectTreePanel({
                       cwd={cwd}
                       filePath={selectedFilePath}
                       fileName={selectedPreview.name}
+                      hideTitleBar
                       saveState={saveState}
                       saveError={saveError}
                       externalChange={externalDiskText !== null}
@@ -1947,7 +1954,7 @@ function IconSquareButton({
       onClick={onClick}
       title={title}
       aria-label={ariaLabel}
-      className="w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 hover:border-[var(--text-primary)]/10 transition-all duration-150"
+      className="no-drag pointer-events-auto w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 hover:border-[var(--text-primary)]/10 transition-all duration-150"
     >
       {children}
     </button>
