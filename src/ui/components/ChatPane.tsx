@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { toast } from 'sonner';
 import { sendEvent } from '../hooks/useIPC';
@@ -38,6 +38,44 @@ import type {
 } from '../types';
 
 type ToolResultBlock = ContentBlock & { type: 'tool_result' };
+type ChatScrollPosition = { scrollTop: number; stickToBottom: boolean };
+
+const CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 120;
+const chatPaneScrollPositions = new Map<string, ChatScrollPosition>();
+
+function getChatScrollPositionKey(paneId: 'primary' | 'secondary', sessionId: string): string {
+  return `${paneId}:${sessionId}`;
+}
+
+function isNearScrollBottom(container: HTMLDivElement): boolean {
+  return (
+    container.scrollHeight - container.scrollTop - container.clientHeight <
+    CHAT_SCROLL_BOTTOM_THRESHOLD_PX
+  );
+}
+
+function rememberChatScrollPosition(key: string, container: HTMLDivElement): void {
+  chatPaneScrollPositions.set(key, {
+    scrollTop: container.scrollTop,
+    stickToBottom: isNearScrollBottom(container),
+  });
+}
+
+function restoreChatScrollPosition(key: string, container: HTMLDivElement): void {
+  const savedPosition = chatPaneScrollPositions.get(key);
+  if (savedPosition) {
+    if (savedPosition.stickToBottom) {
+      container.scrollTop = container.scrollHeight;
+      return;
+    }
+
+    const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    container.scrollTop = Math.min(savedPosition.scrollTop, maxScrollTop);
+    return;
+  }
+
+  container.scrollTop = container.scrollHeight;
+}
 
 export function ChatPane({
   paneId,
@@ -69,14 +107,15 @@ export function ChatPane({
     removePermissionRequest,
   } = useAppStore();
   const session = sessionId ? sessions[sessionId] : null;
+  const scrollPositionKey = sessionId ? getChatScrollPositionKey(paneId, sessionId) : null;
   const directAgent =
     session?.scope === 'dm' && session.agentId
       ? agentProfiles[session.agentId] || null
       : null;
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const historyRequested = useRef(new Set<string>());
-  const prevMessageCountRef = useRef<number>(0);
+  const scrollUpdateStateRef = useRef<{ key: string; messageCount: number } | null>(null);
+  const shouldStickToBottomRef = useRef(true);
   const scrollHeightBeforeLoadRef = useRef<number>(0);
   const historyHighlightTimerRef = useRef<number | null>(null);
   const [highlightedHistoryAnchor, setHighlightedHistoryAnchor] = useState<string | null>(null);
@@ -315,11 +354,33 @@ export function ChatPane({
     }
   }, [session, sessionId]);
 
-  useEffect(() => {
-    if (!sessionId) return;
-    messagesEndRef.current?.scrollIntoView({ behavior: showPartialMessage ? 'auto' : 'smooth' });
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current;
+    const count = session?.messages.length ?? 0;
+    if (!container || !scrollPositionKey) {
+      scrollUpdateStateRef.current = null;
+      return;
+    }
+
+    const previous = scrollUpdateStateRef.current;
+    const isNewScrollTarget = previous?.key !== scrollPositionKey;
+    if (isNewScrollTarget) {
+      restoreChatScrollPosition(scrollPositionKey, container);
+    } else if (count > previous.messageCount && scrollHeightBeforeLoadRef.current > 0) {
+      const delta = container.scrollHeight - scrollHeightBeforeLoadRef.current;
+      if (delta > 0) {
+        container.scrollTop += delta;
+      }
+    } else if (shouldStickToBottomRef.current) {
+      container.scrollTop = container.scrollHeight;
+    }
+
+    rememberChatScrollPosition(scrollPositionKey, container);
+    shouldStickToBottomRef.current = isNearScrollBottom(container);
+    scrollUpdateStateRef.current = { key: scrollPositionKey, messageCount: count };
+    scrollHeightBeforeLoadRef.current = 0;
   }, [
-    sessionId,
+    scrollPositionKey,
     session?.messages.length,
     session?.streaming.isStreaming,
     partialMessage,
@@ -329,41 +390,44 @@ export function ChatPane({
   ]);
 
   useEffect(() => {
-    prevMessageCountRef.current = 0;
     scrollHeightBeforeLoadRef.current = 0;
     setHighlightedHistoryAnchor(null);
     setSelectedDiffRecord(null);
   }, [sessionId]);
 
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    const count = session?.messages.length ?? 0;
-    const prevCount = prevMessageCountRef.current;
-    if (container && count > prevCount && prevCount > 0 && scrollHeightBeforeLoadRef.current > 0) {
-      const delta = container.scrollHeight - scrollHeightBeforeLoadRef.current;
-      if (delta > 0) {
-        container.scrollTop += delta;
-      }
-    }
-    prevMessageCountRef.current = count;
-    scrollHeightBeforeLoadRef.current = 0;
-  }, [session?.messages.length]);
-
   const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current;
-    if (!container || !sessionId || !session?.hasMoreHistory || session?.loadingMoreHistory) return;
+    if (!container || !sessionId) return;
+
+    if (scrollPositionKey) {
+      rememberChatScrollPosition(scrollPositionKey, container);
+      shouldStickToBottomRef.current = isNearScrollBottom(container);
+    }
+
+    if (!session?.hasMoreHistory || session?.loadingMoreHistory) return;
     if (container.scrollTop < 200) {
       scrollHeightBeforeLoadRef.current = container.scrollHeight;
       loadOlderSessionHistory(sessionId);
     }
-  }, [loadOlderSessionHistory, session?.hasMoreHistory, session?.loadingMoreHistory, sessionId]);
+  }, [
+    loadOlderSessionHistory,
+    scrollPositionKey,
+    session?.hasMoreHistory,
+    session?.loadingMoreHistory,
+    sessionId,
+  ]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
     container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => container.removeEventListener('scroll', handleScroll);
-  }, [handleScroll]);
+    return () => {
+      if (scrollPositionKey) {
+        rememberChatScrollPosition(scrollPositionKey, container);
+      }
+      container.removeEventListener('scroll', handleScroll);
+    };
+  }, [handleScroll, scrollPositionKey]);
 
   useEffect(() => {
     if (!historyNavigationTarget || !sessionId || historyNavigationTarget.sessionId !== sessionId) {
@@ -726,7 +790,7 @@ export function ChatPane({
                 return <WorkingFooter startedAt={undefined} />;
               })()}
 
-              <div ref={messagesEndRef} />
+              <div />
             </div>
           </div>
 
