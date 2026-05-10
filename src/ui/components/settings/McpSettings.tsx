@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, PencilLine, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, PencilLine, Plus, Trash2 } from '../icons';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import { sendEvent } from '../../hooks/useIPC';

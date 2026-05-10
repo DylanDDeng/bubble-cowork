@@ -18,7 +18,7 @@ import {
   Strikethrough,
   Table,
   Undo2,
-} from 'lucide-react';
+} from './icons';
 import {
   Editor,
   commandsCtx,

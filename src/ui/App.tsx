@@ -20,7 +20,7 @@ import {
   RefreshCw,
   Upload,
   X,
-} from 'lucide-react';
+} from './components/icons';
 import { useAppStore } from './store/useAppStore';
 import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';

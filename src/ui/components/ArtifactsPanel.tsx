@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Copy, Check, ExternalLink, FolderSearch } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Copy, Check, ExternalLink, FolderSearch } from './icons';
 import { toast } from 'sonner';
 import type { StreamMessage } from '../types';
 import { MDContent } from '../render/markdown';
 import { HighlightedCode } from './HighlightedCode';
+import { IconButton } from './ui/icon-button';
 import { extractArtifactsFromMessages, type ArtifactItem, type ArtifactKind } from '../utils/artifacts';
 import { openHtmlFileInBrowserTab } from '../utils/html-preview';
 import { useAppStore } from '../store/useAppStore';
@@ -281,29 +282,29 @@ export function ArtifactsPanel({
                   <HtmlModeToggle value={htmlMode} onChange={setHtmlMode} />
                 )}
 
-                <IconSquareButton
+                <IconButton
                   onClick={handleOpen}
-                  title={cwd ? 'Open' : 'No working directory'}
-                  ariaLabel="Open"
+                  label="Open"
+                  tooltip={cwd ? 'Open' : 'No working directory'}
                   disabled={!cwd}
                 >
                   <ExternalLink className="w-4 h-4" />
-                </IconSquareButton>
-                <IconSquareButton
+                </IconButton>
+                <IconButton
                   onClick={handleReveal}
-                  title={cwd ? 'Reveal' : 'No working directory'}
-                  ariaLabel="Reveal"
+                  label="Reveal"
+                  tooltip={cwd ? 'Reveal' : 'No working directory'}
                   disabled={!cwd}
                 >
                   <FolderSearch className="w-4 h-4" />
-                </IconSquareButton>
-                <IconSquareButton
+                </IconButton>
+                <IconButton
                   onClick={() => handleCopyPath(selectedArtifact.filePath)}
-                  title={copiedPath ? 'Copied' : 'Copy path'}
-                  ariaLabel="Copy path"
+                  label="Copy path"
+                  tooltip={copiedPath ? 'Copied' : 'Copy path'}
                 >
                   {copiedPath ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                </IconSquareButton>
+                </IconButton>
               </div>
             </div>
 
@@ -483,30 +484,3 @@ function HtmlModeToggle({
     </div>
   );
 }
-
-function IconSquareButton({
-  children,
-  onClick,
-  title,
-  ariaLabel,
-  disabled,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  title: string;
-  ariaLabel: string;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      aria-label={ariaLabel}
-      disabled={disabled}
-      className="w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 hover:border-[var(--text-primary)]/10 transition-all duration-150 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:border-transparent disabled:hover:text-[var(--text-secondary)]"
-    >
-      {children}
-    </button>
-  );
-}
-

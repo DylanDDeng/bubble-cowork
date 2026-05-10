@@ -4,7 +4,7 @@ import {
   CircleX,
   LoaderCircle,
   ShieldAlert,
-} from 'lucide-react';
+} from './icons';
 import {
   type ToolResultBlock,
   type ToolUseBlock,

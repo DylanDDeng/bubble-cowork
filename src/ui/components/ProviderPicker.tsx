@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Bot, ChevronDown } from 'lucide-react';
+import { Bot, ChevronDown } from './icons';
 import type { AgentProvider } from '../types';
 import { PROVIDERS } from '../utils/provider';
 import claudeLogo from '../assets/claude-color.svg';

@@ -1,5 +1,5 @@
 import { forwardRef } from 'react';
-import { Search, X } from 'lucide-react';
+import { Search, X } from '../icons';
 import { useAppStore } from '../../store/useAppStore';
 
 interface SidebarSearchProps {

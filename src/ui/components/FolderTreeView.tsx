@@ -10,7 +10,7 @@ import {
   SlidersHorizontal,
   Users,
   X,
-} from 'lucide-react';
+} from './icons';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { DEFAULT_WORKSPACE_CHANNEL_ID, type WorkspaceChannel } from '../../shared/types';

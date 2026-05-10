@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Check, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown } from './icons';
 import type { ClaudeModelConfig } from '../types';
 import { buildClaudeModelOptions, formatClaudeModelLabel } from '../utils/claude-model';
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight } from './icons';
 import { FileTypeIcon } from './FileTypeIcon';
 import { DiffStatLabel } from './DiffStatLabel';
 import { useTurnDiffContext } from './TurnDiffContext';

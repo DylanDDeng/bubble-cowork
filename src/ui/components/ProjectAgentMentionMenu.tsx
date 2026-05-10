@@ -1,4 +1,4 @@
-import { Users } from 'lucide-react';
+import { Users } from './icons';
 import type { ProjectAgentMentionSuggestion } from '../utils/agent-mentions';
 import { AgentAvatar } from './AgentAvatar';
 

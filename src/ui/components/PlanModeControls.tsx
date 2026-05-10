@@ -1,4 +1,4 @@
-import { Check, ListChecks } from 'lucide-react';
+import { Check, ListChecks } from './icons';
 
 export function PlanModeMenuItem({
   active,

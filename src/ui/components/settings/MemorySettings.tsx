@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Brain, FolderOpen, RefreshCw, Save } from 'lucide-react';
+import { Brain, FolderOpen, RefreshCw, Save } from '../icons';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import type { MemoryDocument, MemoryWorkspace } from '../../types';

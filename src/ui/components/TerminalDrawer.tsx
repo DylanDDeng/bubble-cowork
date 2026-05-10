@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Minus } from 'lucide-react';
+import { Minus } from './icons';
 import { SessionTerminal } from './SessionTerminal';
 
 const MIN_DRAWER_HEIGHT = 180;

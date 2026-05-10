@@ -10,7 +10,7 @@ import {
   ShieldCheck,
   Sparkles,
   X,
-} from 'lucide-react';
+} from '../icons';
 import { toast } from 'sonner';
 import { sendEvent } from '../../hooks/useIPC';
 import { useAppStore } from '../../store/useAppStore';

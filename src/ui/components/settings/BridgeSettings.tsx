@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { FolderOpen, Play, Square } from 'lucide-react';
+import { FolderOpen, Play, Square } from '../icons';
 import { toast } from 'sonner';
 import type { FeishuBridgeConfig, FeishuBridgeStatus } from '../../types';
 import {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Brain, ChevronRight } from 'lucide-react';
+import { Brain, ChevronRight } from './icons';
 import { formatDurationLabel } from '../utils/format-duration';
 
 interface ThinkingBlockProps {

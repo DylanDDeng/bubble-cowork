@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Search, ChevronUp, ChevronDown, X } from 'lucide-react';
+import { Search, ChevronUp, ChevronDown, X } from '../icons';
 import { useAppStore } from '../../store/useAppStore';
 import { useDebounce } from '../../hooks/useDebounce';
 import type { SearchMatch } from '../../types';

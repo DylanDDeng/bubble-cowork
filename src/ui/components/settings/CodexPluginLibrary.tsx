@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Boxes, CheckCircle2, LoaderCircle, Plug, RefreshCw, Search, X } from 'lucide-react';
+import { Boxes, CheckCircle2, LoaderCircle, Plug, RefreshCw, Search, X } from '../icons';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import type {

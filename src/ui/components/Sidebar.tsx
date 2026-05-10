@@ -7,7 +7,7 @@ import {
   Search,
   Settings,
   SquarePen,
-} from 'lucide-react';
+} from './icons';
 import { useAppStore } from '../store/useAppStore';
 import { SidebarSearchPalette } from './search/SidebarSearchPalette';
 import { AgentAvatar } from './AgentAvatar';

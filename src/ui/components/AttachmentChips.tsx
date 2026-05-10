@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X } from 'lucide-react';
+import { X } from './icons';
 import type { Attachment } from '../types';
 import { FileTypeIcon } from './FileTypeIcon';
 

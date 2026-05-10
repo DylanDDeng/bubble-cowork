@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ExternalLink, Sparkles } from 'lucide-react';
+import { ExternalLink, Sparkles } from './icons';
 import { MDContent } from '../render/markdown';
 import {
   buildWidgetReceiverSrcdoc,

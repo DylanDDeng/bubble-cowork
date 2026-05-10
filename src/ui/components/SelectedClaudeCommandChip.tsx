@@ -1,4 +1,4 @@
-import { Terminal, X } from 'lucide-react';
+import { Terminal, X } from './icons';
 import type { ClaudeSlashCommand } from '../utils/claude-slash';
 
 export function SelectedClaudeCommandChip({

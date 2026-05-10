@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Zap } from 'lucide-react';
+import { Check, ChevronDown, Zap } from './icons';
 import { useState } from 'react';
 import type {
   ClaudeReasoningEffort,

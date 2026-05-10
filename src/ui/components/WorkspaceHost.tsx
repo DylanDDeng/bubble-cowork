@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Columns2 } from 'lucide-react';
+import { ArrowLeftRight, Columns2 } from './icons';
 import { useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { ChatPane } from './ChatPane';

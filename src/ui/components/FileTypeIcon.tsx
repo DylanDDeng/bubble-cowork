@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { File } from 'lucide-react';
+import { File } from './icons';
 import defaultFileIconUrl from '../assets/vscode-icons/default_file.svg';
 import cssIconUrl from '../assets/vscode-icons/file_type_css.svg';
 import htmlIconUrl from '../assets/vscode-icons/file_type_html.svg';

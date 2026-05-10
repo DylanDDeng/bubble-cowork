@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { X } from 'lucide-react';
+import { X } from './icons';
 import { FileTypeIcon } from './FileTypeIcon';
 import { DiffStatLabel } from './DiffStatLabel';
 import type { ChangeRecord } from '../utils/change-records';

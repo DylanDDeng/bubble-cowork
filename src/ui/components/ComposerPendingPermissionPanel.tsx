@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react';
-import { Loader2, ShieldAlert } from 'lucide-react';
+import { Loader2, ShieldAlert } from './icons';
 import { DecisionPanel } from './DecisionPanel';
 import type {
   AskUserQuestionInput,

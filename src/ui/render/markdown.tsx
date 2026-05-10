@@ -5,7 +5,7 @@ import remarkMath from 'remark-math';
 import rehypeRaw from 'rehype-raw';
 import rehypeKatex from 'rehype-katex';
 import type { Components } from 'react-markdown';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy } from '../components/icons';
 import { toast } from 'sonner';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { HighlightedCode } from '../components/HighlightedCode';

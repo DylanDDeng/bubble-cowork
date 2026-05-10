@@ -1,4 +1,4 @@
-import { Check, ListChecks, Loader2 } from 'lucide-react';
+import { Check, ListChecks, Loader2 } from './icons';
 import type { PlanStep, PlanStepStatus } from '../types';
 
 function StepStatusIcon({ status }: { status: PlanStepStatus }) {

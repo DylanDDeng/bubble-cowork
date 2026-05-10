@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FolderClosed, FolderOpen, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, GitBranch, GitCommit, Minus, Upload, FolderGit2, Maximize2, Minimize2, FilePlus, FolderPlus } from 'lucide-react';
+import { FolderClosed, FolderOpen, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, GitBranch, GitCommit, Minus, Upload, FolderGit2, Maximize2, Minimize2, File, FileAddIcon, FolderAddIcon } from './icons';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
@@ -7,6 +7,7 @@ import { MDContent } from '../render/markdown';
 import { HighlightedCode } from './HighlightedCode';
 import { FileTypeIcon } from './FileTypeIcon';
 import { ProjectMarkdownEditor } from './ProjectMarkdownEditor';
+import { IconButton } from './ui/icon-button';
 import { isHtmlFilePath, openHtmlFileInBrowserTab } from '../utils/html-preview';
 import {
   applyDiffToChangeRecord,
@@ -145,6 +146,21 @@ type ProjectTreeContextMenuState = {
   y: number;
   parentPath: string;
 };
+
+function CreateEntryIcon({
+  kind,
+  size = 'md',
+}: {
+  kind: CreateEntryKind;
+  size?: 'sm' | 'md';
+}) {
+  const iconClass = size === 'sm' ? 'h-4 w-4' : 'h-[18px] w-[18px]';
+  const Icon = kind === 'folder' ? FolderAddIcon : FileAddIcon;
+
+  return (
+    <Icon className={iconClass} stroke={1.85} aria-hidden="true" />
+  );
+}
 
 function dirnameOfPath(filePath: string): string {
   const normalized = filePath.replace(/\\/g, '/');
@@ -294,12 +310,8 @@ function CreateEntryRow({
     <div className="py-0.5" style={{ paddingLeft: depth * 12 }}>
       <div className="flex min-h-[24px] items-center gap-2 rounded-md bg-[var(--tree-item-active)] px-1 ring-1 ring-[var(--tree-item-border)]">
         <span className="flex h-4 w-3 shrink-0 items-center justify-center" />
-        <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center text-[var(--tree-file-accent-fg)]">
-          {draft.kind === 'folder' ? (
-            <FolderPlus className="h-3.5 w-3.5" />
-          ) : (
-            <FilePlus className="h-3.5 w-3.5" />
-          )}
+        <span className="group flex h-4.5 w-4.5 shrink-0 items-center justify-center text-[var(--tree-file-accent-fg)]">
+          <CreateEntryIcon kind={draft.kind} size="sm" />
         </span>
         <input
           ref={inputRef}
@@ -1515,49 +1527,41 @@ export function ProjectTreePanel({
           </div>
         )}
         {!selectedFilePath && <div className="h-8 drag-region flex-shrink-0 bg-[var(--bg-primary)]" />}
-        <div className="px-4 pt-2 pb-2 pr-14">
+        <div className="pl-4 pr-2 pt-2 pb-2">
           <div className="flex items-center justify-between gap-2">
             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
               {panelMeta.title}
             </div>
             {activeTab === 'files' && (
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
+              <div className="flex items-center gap-0.5">
+                <IconButton
+                  label="New file"
+                  size="sm"
                   onClick={() => startCreateEntry(getDefaultCreateParent(), 'file')}
                   disabled={!cwd}
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-lg)] border border-transparent text-[var(--text-muted)] transition-all hover:border-[var(--border)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-45"
-                  title="New file"
-                  aria-label="New file"
                 >
-                  <FilePlus className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
+                  <CreateEntryIcon kind="file" />
+                </IconButton>
+                <IconButton
+                  label="New folder"
+                  size="sm"
                   onClick={() => startCreateEntry(getDefaultCreateParent(), 'folder')}
                   disabled={!cwd}
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-lg)] border border-transparent text-[var(--text-muted)] transition-all hover:border-[var(--border)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-45"
-                  title="New folder"
-                  aria-label="New folder"
                 >
-                  <FolderPlus className="h-3.5 w-3.5" />
-                </button>
+                  <CreateEntryIcon kind="folder" />
+                </IconButton>
               </div>
             )}
             {activeTab === 'changes' && (
-              <button
+              <IconButton
+                label="Refresh changes"
+                size="sm"
                 onClick={() => void loadChangeRecords()}
                 disabled={changesLoading}
-                className={`rounded-[var(--radius-lg)] border p-1.5 transition-all ${
-                  changesLoading
-                    ? 'cursor-wait border-[var(--border)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] shadow-sm'
-                    : 'border-transparent text-[var(--text-muted)] hover:border-[var(--border)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] active:scale-[0.97]'
-                } disabled:opacity-70`}
-                title="Refresh changes"
-                aria-label="Refresh changes"
+                className={changesLoading ? 'cursor-wait bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : undefined}
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${changesLoading ? 'animate-spin' : ''}`} />
-              </button>
+              </IconButton>
             )}
           </div>
           {!cwd && (
@@ -1684,17 +1688,21 @@ export function ProjectTreePanel({
             <button
               type="button"
               onClick={() => startCreateEntry(projectTreeContextMenu.parentPath, 'file')}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+              className="group flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
             >
-              <FilePlus className="h-3.5 w-3.5" />
+              <span className="inline-flex">
+                <CreateEntryIcon kind="file" size="sm" />
+              </span>
               <span>New File</span>
             </button>
             <button
               type="button"
               onClick={() => startCreateEntry(projectTreeContextMenu.parentPath, 'folder')}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+              className="group flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
             >
-              <FolderPlus className="h-3.5 w-3.5" />
+              <span className="inline-flex">
+                <CreateEntryIcon kind="folder" size="sm" />
+              </span>
               <span>New Folder</span>
             </button>
           </div>
@@ -1721,31 +1729,30 @@ export function ProjectTreePanel({
             <div className={`h-full min-w-0 flex flex-col ${isEditableMarkdownPreview ? '' : 'px-3 py-3'}`}>
               {isEditableMarkdownPreview ? (
                 <div
-                  className={`flex h-10 flex-shrink-0 items-center justify-end gap-2 border-b border-[var(--border)]/60 bg-[var(--bg-primary)] px-4 no-drag ${
-                    isFullscreen ? 'drag-region' : ''
+                  className={`flex h-10 flex-shrink-0 items-center justify-end gap-2 border-b border-[var(--border)]/60 bg-[var(--bg-primary)] px-4 ${
+                    isFullscreen ? 'drag-region' : 'no-drag'
                   }`}
                 >
                   <div className="flex items-center gap-2 no-drag">
                     {onToggleFullscreen && (
-                      <IconSquareButton
+                      <IconButton
                         onClick={onToggleFullscreen}
-                        title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
-                        ariaLabel={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                        tooltip={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+                        label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
                       >
                         {isFullscreen ? (
                           <Minimize2 className="w-4 h-4" />
                         ) : (
                           <Maximize2 className="w-4 h-4" />
                         )}
-                      </IconSquareButton>
+                      </IconButton>
                     )}
-                    <IconSquareButton
+                    <IconButton
                       onClick={closePreview}
-                      title="Close preview"
-                      ariaLabel="Close preview"
+                      label="Close preview"
                     >
                       <X className="w-4 h-4" />
-                    </IconSquareButton>
+                    </IconButton>
                   </div>
                 </div>
               ) : (
@@ -1783,32 +1790,31 @@ export function ProjectTreePanel({
                   )}
 
                   {onToggleFullscreen && (
-                    <IconSquareButton
+                    <IconButton
                       onClick={onToggleFullscreen}
-                      title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
-                      ariaLabel={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                      tooltip={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+                      label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
                     >
                       {isFullscreen ? (
                         <Minimize2 className="w-4 h-4" />
                       ) : (
                         <Maximize2 className="w-4 h-4" />
                       )}
-                    </IconSquareButton>
+                    </IconButton>
                   )}
-                  <IconSquareButton
+                  <IconButton
                     onClick={closePreview}
-                    title="Close preview"
-                    ariaLabel="Close preview"
+                    label="Close preview"
                   >
                     <X className="w-4 h-4" />
-                  </IconSquareButton>
-                  <IconSquareButton
+                  </IconButton>
+                  <IconButton
                     onClick={() => handleCopyPath(selectedFilePath)}
-                    title={copiedPath ? 'Copied' : 'Copy path'}
-                    ariaLabel="Copy path"
+                    tooltip={copiedPath ? 'Copied' : 'Copy path'}
+                    label="Copy path"
                   >
                     {copiedPath ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  </IconSquareButton>
+                  </IconButton>
                 </div>
                 </div>
               )}
@@ -2247,29 +2253,6 @@ function formatBytes(bytes: number): string {
   }
   const rounded = unit === 0 ? String(Math.round(size)) : size.toFixed(1);
   return `${rounded} ${units[unit]}`;
-}
-
-function IconSquareButton({
-  children,
-  onClick,
-  title,
-  ariaLabel,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  title: string;
-  ariaLabel: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      aria-label={ariaLabel}
-      className="no-drag pointer-events-auto w-8 h-8 flex items-center justify-center rounded-lg border border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--text-primary)]/5 hover:border-[var(--text-primary)]/10 transition-all duration-150"
-    >
-      {children}
-    </button>
-  );
 }
 
 function ViewModeToggle({

@@ -1,4 +1,4 @@
-import { CheckCircle2, Circle, ListTodo, LoaderCircle } from 'lucide-react';
+import { CheckCircle2, Circle, ListTodo, LoaderCircle } from './icons';
 import type { TodoProgressItem, TodoProgressState } from '../utils/todo-progress';
 
 function TodoStatusIcon({ item }: { item: TodoProgressItem }) {

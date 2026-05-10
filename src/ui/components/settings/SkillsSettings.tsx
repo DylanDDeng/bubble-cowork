@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Boxes, ExternalLink, FileText, LoaderCircle, Search, X } from 'lucide-react';
+import { Boxes, ExternalLink, FileText, LoaderCircle, Search, X } from '../icons';
 import { sendEvent } from '../../hooks/useIPC';
 import { useAppStore } from '../../store/useAppStore';
 import type { ClaudeSkillSummary } from '../../types';

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight, Copy, Check, Pencil, RotateCcw } from 'lucide-react';
+import { ChevronRight, Copy, Check, Pencil, RotateCcw } from './icons';
 import { useAppStore } from '../store/useAppStore';
 import { AttachmentChips } from './AttachmentChips';
 import { AttachmentPreviewGrid } from './AttachmentPreviewGrid';

@@ -1,6 +1,6 @@
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
-import { AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, RefreshCw } from './icons';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Badge } from './ui/badge';
 import type { ClaudeRuntimeStatus, CodexRuntimeStatus, OpenCodeRuntimeStatus } from '../types';

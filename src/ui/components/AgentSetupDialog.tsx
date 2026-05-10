@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { AlertTriangle, Bot, CheckCircle2, ChevronDown, CircleDashed, Eye, EyeOff, Plus, RefreshCw, Settings, X } from 'lucide-react';
+import { AlertTriangle, Bot, CheckCircle2, ChevronDown, CircleDashed, Eye, EyeOff, Plus, RefreshCw, Settings, X } from './icons';
 import { toast } from 'sonner';
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';

@@ -1,4 +1,4 @@
-import { Bot, ChevronDown, Eye, EyeOff } from 'lucide-react';
+import { Bot, ChevronDown, Eye, EyeOff } from '../icons';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import claudeLogo from '../../assets/claude-color.svg';

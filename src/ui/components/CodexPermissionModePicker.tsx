@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronUp } from 'lucide-react';
+import { ChevronUp } from './icons';
 import type { CodexPermissionMode } from '../types';
 
 export function CodexPermissionModePicker({

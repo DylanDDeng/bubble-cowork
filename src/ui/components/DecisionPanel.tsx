@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check } from 'lucide-react';
+import { Check } from './icons';
 import type { AskUserQuestionInput, AskUserQuestion, PermissionResult } from '../types';
 
 interface DecisionPanelProps {

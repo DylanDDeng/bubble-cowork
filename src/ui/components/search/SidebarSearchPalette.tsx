@@ -7,7 +7,7 @@ import {
   Settings,
   SquarePen,
   MessageSquare,
-} from 'lucide-react';
+} from '../icons';
 import {
   CommandDialog,
   CommandEmpty,

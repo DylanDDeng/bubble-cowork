@@ -38,7 +38,7 @@ import {
   Plus,
   RefreshCw,
   X,
-} from 'lucide-react';
+} from '../icons';
 import { toast } from 'sonner';
 import type {
   BrowserReadoutResult,

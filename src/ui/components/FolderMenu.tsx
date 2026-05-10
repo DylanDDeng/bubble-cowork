@@ -1,5 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Folder, ChevronRight, Check, Plus, XSquare } from 'lucide-react';
+import { Folder, ChevronRight, Check, Plus, XSquare } from './icons';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import { buildFolderTree, getFolderDisplayName, type FolderTreeNode } from '../utils/folder-utils';

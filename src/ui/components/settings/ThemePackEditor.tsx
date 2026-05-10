@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Copy, Download, RotateCcw } from 'lucide-react';
+import { Copy, Download, RotateCcw } from '../icons';
 import { toast } from 'sonner';
 import { SettingsToggle } from './SettingsPrimitives';
 import type { ChromeTheme, Theme, ThemePack, ThemeState, ThemeVariant } from '../../types';

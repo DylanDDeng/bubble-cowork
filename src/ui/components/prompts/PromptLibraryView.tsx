@@ -14,7 +14,7 @@ import {
   Trash2,
   Upload,
   X,
-} from 'lucide-react';
+} from '../icons';
 import { toast } from 'sonner';
 import type { PromptLibraryItem } from '../../types';
 import { useAppStore } from '../../store/useAppStore';

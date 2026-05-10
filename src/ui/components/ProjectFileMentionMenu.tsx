@@ -1,4 +1,4 @@
-import { Search } from 'lucide-react';
+import { Search } from './icons';
 import type { ProjectFileSuggestion } from '../utils/project-file-mentions';
 import { FileTypeIcon } from './FileTypeIcon';
 

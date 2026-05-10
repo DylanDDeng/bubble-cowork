@@ -1,4 +1,4 @@
-import { Boxes, X } from 'lucide-react';
+import { Boxes, X } from './icons';
 import type { ClaudeSkillSummary } from '../types';
 
 export function SelectedClaudeSkillChip({

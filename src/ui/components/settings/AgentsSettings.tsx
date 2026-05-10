@@ -9,7 +9,7 @@ import {
   Plus,
   Trash2,
   User,
-} from 'lucide-react';
+} from '../icons';
 import { toast } from 'sonner';
 import { AgentModelPicker } from '../AgentModelPicker';
 import { AgentAvatar, AGENT_AVATAR_OPTIONS } from '../AgentAvatar';

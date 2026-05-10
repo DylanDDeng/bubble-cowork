@@ -13,8 +13,8 @@ import {
   Trash2,
   Workflow,
   Zap,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+} from './icons';
+import type { LucideIcon } from './icons';
 import type { ClaudeSlashSuggestion, ClaudeSlashCommand } from '../utils/claude-slash';
 
 interface MenuGroup {

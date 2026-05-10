@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight } from './icons';
 import type { ContentBlock, PermissionRequestPayload, ToolStatus, StreamMessage } from '../types';
 import { AssistantWorkstream, WorkingFooter } from './AssistantWorkstream';
 import {

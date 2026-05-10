@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BookmarkPlus } from 'lucide-react';
+import { BookmarkPlus } from '../icons';
 import { toast } from 'sonner';
 import { PromptLibraryEditorDialog } from './PromptLibraryEditorDialog';
 

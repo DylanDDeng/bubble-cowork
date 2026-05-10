@@ -7,7 +7,7 @@ import {
   RefreshCw,
   Search,
   X,
-} from 'lucide-react';
+} from '../icons';
 import { sendEvent } from '../../hooks/useIPC';
 import { useAppStore } from '../../store/useAppStore';
 import type { ClaudeSkillSummary } from '../../types';
