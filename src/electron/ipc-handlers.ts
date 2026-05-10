@@ -533,6 +533,95 @@ async function validateProjectFilePath(
   }
 }
 
+function validateProjectEntryName(name: string): { ok: true; name: string } | { ok: false; message: string } {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return { ok: false, message: 'Name is required.' };
+  }
+  if (trimmed === '.' || trimmed === '..') {
+    return { ok: false, message: 'Name cannot be "." or "..".' };
+  }
+  if (trimmed.includes('/') || trimmed.includes('\\') || trimmed.includes('\0') || basename(trimmed) !== trimmed) {
+    return { ok: false, message: 'Name cannot contain path separators.' };
+  }
+  return { ok: true, name: trimmed };
+}
+
+async function createProjectEntry(
+  cwd: string,
+  parentPath: string,
+  name: string,
+  kind: 'file' | 'folder'
+): Promise<{ ok: true; path: string; tree: Awaited<ReturnType<typeof readProjectTree>> } | { ok: false; message: string }> {
+  if (!cwd) {
+    return { ok: false, message: 'Missing project folder.' };
+  }
+
+  const nameValidation = validateProjectEntryName(name);
+  if (!nameValidation.ok) {
+    return nameValidation;
+  }
+
+  const projectRoot = resolve(cwd);
+  const parentResolved = resolve(projectRoot, parentPath || projectRoot);
+  if (!isPathWithinRoot(projectRoot, parentResolved)) {
+    return { ok: false, message: 'Parent folder is outside the selected project folder.' };
+  }
+
+  let rootReal: string;
+  let parentReal: string;
+  try {
+    [rootReal, parentReal] = await Promise.all([
+      fsPromises.realpath(projectRoot),
+      fsPromises.realpath(parentResolved),
+    ]);
+  } catch {
+    return { ok: false, message: 'Parent folder was not found.' };
+  }
+
+  if (!isPathWithinRoot(rootReal, parentReal)) {
+    return { ok: false, message: 'Parent folder is outside the selected project folder.' };
+  }
+
+  let parentStat;
+  try {
+    parentStat = await fsPromises.stat(parentResolved);
+  } catch {
+    return { ok: false, message: 'Parent folder was not found.' };
+  }
+  if (!parentStat.isDirectory()) {
+    return { ok: false, message: 'Parent path is not a folder.' };
+  }
+
+  const targetPath = resolve(parentResolved, nameValidation.name);
+  if (!isPathWithinRoot(projectRoot, targetPath)) {
+    return { ok: false, message: 'Target path is outside the selected project folder.' };
+  }
+
+  try {
+    await fsPromises.lstat(targetPath);
+    return { ok: false, message: 'A file or folder with that name already exists.' };
+  } catch {
+    // Missing is the expected state before creating a new entry.
+  }
+
+  try {
+    if (kind === 'folder') {
+      await fsPromises.mkdir(targetPath);
+    } else {
+      const handle = await fsPromises.open(targetPath, 'wx');
+      await handle.close();
+    }
+    const tree = await readProjectTree(projectRoot);
+    return { ok: true, path: targetPath, tree };
+  } catch (error) {
+    return {
+      ok: false,
+      message: `Failed to create ${kind === 'folder' ? 'folder' : 'file'}: ${String(error)}`,
+    };
+  }
+}
+
 function getHtmlPreviewMimeType(filePath: string): string {
   return HTML_PREVIEW_MIME_TYPES[extname(filePath).toLowerCase()] || 'application/octet-stream';
 }
@@ -3429,6 +3518,14 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
 
     return toProjectAttachment(cwd, filePath);
+  });
+
+  ipcMainHandle('create-project-file', async (_event, cwd: string, parentPath: string, name: string) => {
+    return createProjectEntry(cwd, parentPath, name, 'file');
+  });
+
+  ipcMainHandle('create-project-folder', async (_event, cwd: string, parentPath: string, name: string) => {
+    return createProjectEntry(cwd, parentPath, name, 'folder');
   });
 
   ipcMainHandle(

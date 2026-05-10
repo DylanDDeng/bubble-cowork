@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FolderClosed, FolderOpen, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, GitBranch, GitCommit, Minus, Upload, FolderGit2, Maximize2, Minimize2 } from 'lucide-react';
+import { FolderClosed, FolderOpen, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, GitBranch, GitCommit, Minus, Upload, FolderGit2, Maximize2, Minimize2, FilePlus, FolderPlus } from 'lucide-react';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
@@ -125,6 +125,27 @@ type GitBranchEntry = {
   shortHash: string;
 };
 
+type CreateEntryKind = 'file' | 'folder';
+type CreateDraftState = {
+  id: number;
+  kind: CreateEntryKind;
+  parentPath: string;
+  name: string;
+  error: string | null;
+  submitting: boolean;
+};
+type ProjectEntryCreateResult = {
+  ok: boolean;
+  path?: string;
+  tree?: ProjectTreeNode;
+  message?: string;
+};
+type ProjectTreeContextMenuState = {
+  x: number;
+  y: number;
+  parentPath: string;
+};
+
 function dirnameOfPath(filePath: string): string {
   const normalized = filePath.replace(/\\/g, '/');
   const index = normalized.lastIndexOf('/');
@@ -152,16 +173,26 @@ function TreeNode({
   expandedPaths,
   onToggle,
   onSelectFile,
+  onOpenContextMenu,
   selectedFilePath,
   forceExpand,
+  createDraft,
+  onCreateDraftNameChange,
+  onSubmitCreateDraft,
+  onCancelCreateDraft,
 }: {
   node: ProjectTreeNode;
   depth: number;
   expandedPaths: Set<string>;
   onToggle: (path: string) => void;
   onSelectFile: (node: ProjectTreeNode) => void;
+  onOpenContextMenu: (event: React.MouseEvent, node: ProjectTreeNode) => void;
   selectedFilePath: string | null;
   forceExpand: boolean;
+  createDraft: CreateDraftState | null;
+  onCreateDraftNameChange: (name: string) => void;
+  onSubmitCreateDraft: () => void;
+  onCancelCreateDraft: () => void;
 }) {
   const isDir = node.kind === 'dir';
   const isExpanded = forceExpand || expandedPaths.has(node.path);
@@ -182,6 +213,7 @@ function TreeNode({
             onSelectFile(node);
           }
         }}
+        onContextMenu={(event) => onOpenContextMenu(event, node)}
         role="button"
         tabIndex={0}
         onKeyDown={(e) => {
@@ -206,6 +238,15 @@ function TreeNode({
           {node.name}
         </span>
       </div>
+      {isDir && isExpanded && createDraft?.parentPath === node.path ? (
+        <CreateEntryRow
+          depth={depth + 1}
+          draft={createDraft}
+          onNameChange={onCreateDraftNameChange}
+          onSubmit={onSubmitCreateDraft}
+          onCancel={onCancelCreateDraft}
+        />
+      ) : null}
       {isDir &&
         isExpanded &&
         node.children?.map((child) => (
@@ -216,11 +257,80 @@ function TreeNode({
             expandedPaths={expandedPaths}
             onToggle={onToggle}
             onSelectFile={onSelectFile}
+            onOpenContextMenu={onOpenContextMenu}
             selectedFilePath={selectedFilePath}
             forceExpand={forceExpand}
+            createDraft={createDraft}
+            onCreateDraftNameChange={onCreateDraftNameChange}
+            onSubmitCreateDraft={onSubmitCreateDraft}
+            onCancelCreateDraft={onCancelCreateDraft}
           />
         ))}
     </>
+  );
+}
+
+function CreateEntryRow({
+  depth,
+  draft,
+  onNameChange,
+  onSubmit,
+  onCancel,
+}: {
+  depth: number;
+  draft: CreateDraftState;
+  onNameChange: (name: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [draft.id]);
+
+  return (
+    <div className="py-0.5" style={{ paddingLeft: depth * 12 }}>
+      <div className="flex min-h-[24px] items-center gap-2 rounded-md bg-[var(--tree-item-active)] px-1 ring-1 ring-[var(--tree-item-border)]">
+        <span className="flex h-4 w-3 shrink-0 items-center justify-center" />
+        <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center text-[var(--tree-file-accent-fg)]">
+          {draft.kind === 'folder' ? (
+            <FolderPlus className="h-3.5 w-3.5" />
+          ) : (
+            <FilePlus className="h-3.5 w-3.5" />
+          )}
+        </span>
+        <input
+          ref={inputRef}
+          value={draft.name}
+          disabled={draft.submitting}
+          placeholder={draft.kind === 'folder' ? 'folder-name' : 'file-name.md'}
+          onChange={(event) => onNameChange(event.target.value)}
+          onBlur={() => {
+            if (!draft.submitting && !draft.name.trim()) {
+              onCancel();
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              onSubmit();
+            }
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              onCancel();
+            }
+          }}
+          className="min-w-0 flex-1 bg-transparent text-sm leading-5 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+        />
+      </div>
+      {draft.error ? (
+        <div className="mt-1 px-8 text-[11px]" style={{ color: 'var(--danger, #d1435b)' }}>
+          {draft.error}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -308,6 +418,9 @@ export function ProjectTreePanel({
   const [externalDiskText, setExternalDiskText] = useState<string | null>(null);
   const copiedTimerRef = useRef<number | null>(null);
   const [copiedPath, setCopiedPath] = useState(false);
+  const createDraftIdRef = useRef(0);
+  const [createDraft, setCreateDraft] = useState<CreateDraftState | null>(null);
+  const [projectTreeContextMenu, setProjectTreeContextMenu] = useState<ProjectTreeContextMenuState | null>(null);
 
   const [changeRecords, setChangeRecords] = useState<ChangeRecord[]>([]);
   const [changesError, setChangesError] = useState<string | null>(null);
@@ -689,6 +802,8 @@ export function ProjectTreePanel({
     setSaveState('idle');
     setSaveError(null);
     setPptxSlideIndex(0);
+    setCreateDraft(null);
+    setProjectTreeContextMenu(null);
     setChangeRecords([]);
     setChangesError(null);
     setExpandedChangeId(null);
@@ -732,6 +847,43 @@ export function ProjectTreePanel({
       }
       return next;
     });
+  }, []);
+
+  const expandPath = useCallback((path: string) => {
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      next.add(path);
+      return next;
+    });
+  }, []);
+
+  const getDefaultCreateParent = useCallback(() => {
+    if (selectedFilePath) {
+      return dirnameOfPath(selectedFilePath);
+    }
+    return visibleTree?.path || cwd || '';
+  }, [cwd, selectedFilePath, visibleTree?.path]);
+
+  const startCreateEntry = useCallback((parentPath: string, kind: CreateEntryKind) => {
+    if (!cwd || !parentPath) return;
+    setProjectTreeContextMenu(null);
+    expandPath(parentPath);
+    setCreateDraft({
+      id: createDraftIdRef.current += 1,
+      kind,
+      parentPath,
+      name: '',
+      error: null,
+      submitting: false,
+    });
+  }, [cwd, expandPath]);
+
+  const cancelCreateEntry = useCallback(() => {
+    setCreateDraft(null);
+  }, []);
+
+  const handleCreateDraftNameChange = useCallback((name: string) => {
+    setCreateDraft((current) => current ? { ...current, name, error: null } : current);
   }, []);
 
   const selectFilePath = useCallback(async (filePath: string, fileName?: string, toggleSame = false) => {
@@ -840,6 +992,64 @@ export function ProjectTreePanel({
     await selectFilePath(node.path, node.name, true);
   };
 
+  const submitCreateDraft = useCallback(async () => {
+    if (!cwd || !createDraft) return;
+    const trimmedName = createDraft.name.trim();
+    if (!trimmedName) {
+      setCreateDraft((current) => current ? { ...current, error: 'Name is required.' } : current);
+      return;
+    }
+
+    setCreateDraft((current) => current ? { ...current, submitting: true, error: null } : current);
+
+    try {
+      const result = (
+        createDraft.kind === 'folder'
+          ? await window.electron.createProjectFolder(cwd, createDraft.parentPath, trimmedName)
+          : await window.electron.createProjectFile(cwd, createDraft.parentPath, trimmedName)
+      ) as ProjectEntryCreateResult;
+
+      if (!result?.ok || !result.path || !result.tree) {
+        setCreateDraft((current) =>
+          current ? { ...current, submitting: false, error: result?.message || 'Failed to create.' } : current
+        );
+        return;
+      }
+
+      setProjectTree(cwd, result.tree);
+      expandPath(createDraft.parentPath);
+      if (createDraft.kind === 'folder') {
+        expandPath(result.path);
+      }
+      setCreateDraft(null);
+      toast.success(`${createDraft.kind === 'folder' ? 'Folder' : 'File'} created.`);
+
+      if (createDraft.kind === 'file') {
+        await selectFilePath(result.path, trimmedName, false);
+      }
+    } catch (error) {
+      setCreateDraft((current) =>
+        current ? { ...current, submitting: false, error: String(error) } : current
+      );
+    }
+  }, [createDraft, cwd, expandPath, selectFilePath, setProjectTree]);
+
+  const openProjectTreeContextMenu = useCallback((event: React.MouseEvent, node?: ProjectTreeNode) => {
+    if (!cwd) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const parentPath = node
+      ? node.kind === 'dir'
+        ? node.path
+        : dirnameOfPath(node.path)
+      : visibleTree?.path || cwd;
+    setProjectTreeContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      parentPath,
+    });
+  }, [cwd, visibleTree?.path]);
+
   const selectExternalFilePath = useCallback(async (
     filePath: string,
     options: { lineStart?: number; lineEnd?: number } = {}
@@ -936,6 +1146,24 @@ export function ProjectTreePanel({
     window.addEventListener('aegis:open-project-file', handleOpenProjectFile);
     return () => window.removeEventListener('aegis:open-project-file', handleOpenProjectFile);
   }, [cwd, selectExternalFilePath, selectFilePath]);
+
+  useEffect(() => {
+    if (!projectTreeContextMenu) return;
+    const closeMenu = () => setProjectTreeContextMenu(null);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeMenu();
+      }
+    };
+    window.addEventListener('mousedown', closeMenu);
+    window.addEventListener('blur', closeMenu);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', closeMenu);
+      window.removeEventListener('blur', closeMenu);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [projectTreeContextMenu]);
 
   const handleCopyPath = async (path: string) => {
     try {
@@ -1292,6 +1520,30 @@ export function ProjectTreePanel({
             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
               {panelMeta.title}
             </div>
+            {activeTab === 'files' && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => startCreateEntry(getDefaultCreateParent(), 'file')}
+                  disabled={!cwd}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-lg)] border border-transparent text-[var(--text-muted)] transition-all hover:border-[var(--border)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-45"
+                  title="New file"
+                  aria-label="New file"
+                >
+                  <FilePlus className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startCreateEntry(getDefaultCreateParent(), 'folder')}
+                  disabled={!cwd}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-lg)] border border-transparent text-[var(--text-muted)] transition-all hover:border-[var(--border)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-45"
+                  title="New folder"
+                  aria-label="New folder"
+                >
+                  <FolderPlus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
             {activeTab === 'changes' && (
               <button
                 onClick={() => void loadChangeRecords()}
@@ -1314,7 +1566,14 @@ export function ProjectTreePanel({
         </div>
 
         <div className="flex-1 min-h-0 flex">
-          <div className="flex-1 overflow-auto px-3 pb-3">
+          <div
+            className="flex-1 overflow-auto px-3 pb-3"
+            onContextMenu={(event) => {
+              if (activeTab === 'files' && cwd) {
+                openProjectTreeContextMenu(event);
+              }
+            }}
+          >
             {activeTab === 'files' && (
               <>
                 {!cwd && (
@@ -1329,6 +1588,15 @@ export function ProjectTreePanel({
                 )}
                 {cwd && visibleTree && visibleNodes.length > 0 && (
                   <>
+                    {createDraft?.parentPath === visibleTree.path ? (
+                      <CreateEntryRow
+                        depth={0}
+                        draft={createDraft}
+                        onNameChange={handleCreateDraftNameChange}
+                        onSubmit={submitCreateDraft}
+                        onCancel={cancelCreateEntry}
+                      />
+                    ) : null}
                     {visibleNodes.map((node) => (
                       <TreeNode
                         key={node.path}
@@ -1337,13 +1605,27 @@ export function ProjectTreePanel({
                         expandedPaths={expandedPaths}
                         onToggle={togglePath}
                         onSelectFile={selectFile}
+                        onOpenContextMenu={openProjectTreeContextMenu}
                         selectedFilePath={selectedFilePath}
                         forceExpand={false}
+                        createDraft={createDraft}
+                        onCreateDraftNameChange={handleCreateDraftNameChange}
+                        onSubmitCreateDraft={submitCreateDraft}
+                        onCancelCreateDraft={cancelCreateEntry}
                       />
                     ))}
                   </>
                 )}
-                {cwd && !loading && (!visibleTree || visibleNodes.length === 0) && (
+                {cwd && visibleTree && visibleNodes.length === 0 && createDraft?.parentPath === visibleTree.path && (
+                  <CreateEntryRow
+                    depth={0}
+                    draft={createDraft}
+                    onNameChange={handleCreateDraftNameChange}
+                    onSubmit={submitCreateDraft}
+                    onCancel={cancelCreateEntry}
+                  />
+                )}
+                {cwd && !loading && (!visibleTree || visibleNodes.length === 0) && !createDraft && (
                   <div className="text-sm text-[var(--text-muted)] px-1 py-2">
                     No files found.
                   </div>
@@ -1388,6 +1670,35 @@ export function ProjectTreePanel({
             )}
           </div>
         </div>
+
+        {projectTreeContextMenu && activeTab === 'files' && (
+          <div
+            className="fixed z-[80] min-w-[168px] overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] py-1 shadow-[0_18px_42px_rgba(15,23,42,0.18)]"
+            style={{ left: projectTreeContextMenu.x, top: projectTreeContextMenu.y }}
+            onMouseDown={(event) => event.stopPropagation()}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => startCreateEntry(projectTreeContextMenu.parentPath, 'file')}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+            >
+              <FilePlus className="h-3.5 w-3.5" />
+              <span>New File</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => startCreateEntry(projectTreeContextMenu.parentPath, 'folder')}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+            >
+              <FolderPlus className="h-3.5 w-3.5" />
+              <span>New Folder</span>
+            </button>
+          </div>
+        )}
 
         {selectedFilePath && (
           <div

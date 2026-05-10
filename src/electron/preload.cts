@@ -361,6 +361,14 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('create-project-attachment', cwd, filePath);
   },
 
+  createProjectFile: (cwd: string, parentPath: string, name: string) => {
+    return ipcRenderer.invoke('create-project-file', cwd, parentPath, name);
+  },
+
+  createProjectFolder: (cwd: string, parentPath: string, name: string) => {
+    return ipcRenderer.invoke('create-project-folder', cwd, parentPath, name);
+  },
+
   selectMarkdownImageAsset: (cwd: string, markdownFilePath: string) => {
     return ipcRenderer.invoke('select-markdown-image-asset', cwd, markdownFilePath);
   },
