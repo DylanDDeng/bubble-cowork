@@ -593,6 +593,7 @@ export interface SessionStartPayload {
   aegisPermissionMode?: AegisPermissionMode;
   aegisReasoningEffort?: AegisBuiltInReasoningEffort;
   routedAgentId?: string | null;
+  routedAgentProfile?: RoutedAgentRuntimePayload | null;
   routedAgentTurns?: RoutedAgentTurnPayload[];
   availableAgentTurns?: RoutedAgentRuntimePayload[];
   hiddenFromThreads?: boolean;
@@ -623,6 +624,7 @@ export interface SessionContinuePayload {
   aegisPermissionMode?: AegisPermissionMode;
   aegisReasoningEffort?: AegisBuiltInReasoningEffort;
   routedAgentId?: string | null;
+  routedAgentProfile?: RoutedAgentRuntimePayload | null;
   routedAgentTurns?: RoutedAgentTurnPayload[];
   availableAgentTurns?: RoutedAgentRuntimePayload[];
 }

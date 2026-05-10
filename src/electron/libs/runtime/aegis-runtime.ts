@@ -10,6 +10,7 @@ import type {
   MemoryCitation,
   PermissionResult,
   ProviderInputReference,
+  RoutedAgentRuntimePayload,
   StreamEvent,
   StreamMessage,
   Usage,
@@ -277,18 +278,45 @@ function normalizePermissionMode(mode?: AegisPermissionMode): AegisPermissionMod
   return mode === 'readOnly' || mode === 'fullAccess' ? mode : 'defaultPermissions';
 }
 
+function sanitizeIdentityLine(value: string | undefined | null): string {
+  return (value || '').split(/\s+/).filter(Boolean).join(' ').trim();
+}
+
+function renderAgentIdentity(profile?: RoutedAgentRuntimePayload | null): string {
+  const agent = profile?.agent;
+  const name = sanitizeIdentityLine(agent?.name);
+  if (!name && !profile?.instructions?.trim()) {
+    return 'You are Aegis Built-in Agent, a pragmatic coding agent running inside the Aegis desktop app.';
+  }
+
+  const role = sanitizeIdentityLine(agent?.role);
+  const description = sanitizeIdentityLine(agent?.description);
+  const instructions = profile?.instructions?.trim();
+  return [
+    `You are ${name || 'this agent'}, an Aegis built-in agent running inside the Aegis desktop app.`,
+    '',
+    '## Agent Identity',
+    'These are user-configured standing instructions for this Aegis built-in agent. Treat them as the agent identity and operating style. Aegis safety, permissions, tool limits, and provider config boundaries remain higher priority.',
+    `Name: ${name || 'Aegis Built-in Agent'}`,
+    role ? `Role: ${role}` : '',
+    description ? `Profile: ${description}` : '',
+    instructions ? `Instructions:\n${instructions}` : '',
+  ].filter(Boolean).join('\n');
+}
+
 function buildSystemPrompt(input: {
   cwd: string;
   model: string;
   permissionMode: AegisPermissionMode;
   toolNames: string[];
+  agentProfile?: RoutedAgentRuntimePayload | null;
   memoryPrompt?: string;
   skillsPrompt?: string;
   todos?: BuiltinTodoItem[];
 }): string {
   const today = new Date().toISOString().slice(0, 10);
   return [
-    'You are Aegis Built-in Agent, a pragmatic coding agent running inside the Aegis desktop app.',
+    renderAgentIdentity(input.agentProfile),
     'You can inspect and modify the current project through tools. Use tools when the answer depends on current files, command output, or verification.',
     'Keep edits scoped to the user request. Do not modify provider-native config for Claude Code, Codex, or opencode.',
     'Prefer glob for file discovery, grep for content search, lsp for code navigation, and read for exact file inspection before using bash.',
@@ -1274,6 +1302,7 @@ class AegisBuiltinAgentSession {
   private coreCwd: string | null = null;
   private tools: BuiltinToolRegistryEntry[] = [];
   private currentSelection: BuiltinModelSelection;
+  private currentAgentProfile: RoutedAgentRuntimePayload | null = null;
   private currentMemoryPrompt = '';
   private currentSkillsPrompt = '';
   private currentCwd: string;
@@ -1594,6 +1623,7 @@ class AegisBuiltinAgentSession {
         model: this.currentSelection.modelId,
         permissionMode: this.permissionMode,
         toolNames,
+        agentProfile: this.currentAgentProfile,
         memoryPrompt: this.currentMemoryPrompt,
         skillsPrompt: this.currentSkillsPrompt,
         todos: this.getTodos(),
@@ -1623,7 +1653,8 @@ class AegisBuiltinAgentSession {
     modelOverride?: string,
     selectedSkills?: ProviderInputReference[],
     permissionModeOverride?: AegisPermissionMode,
-    reasoningEffortOverride?: 'high' | 'max'
+    reasoningEffortOverride?: 'high' | 'max',
+    agentProfile?: RoutedAgentRuntimePayload | null
   ): Promise<void> {
     const startedAt = Date.now();
     const cwd = this.options.session.cwd || process.cwd();
@@ -1634,6 +1665,7 @@ class AegisBuiltinAgentSession {
     this.currentCwd = cwd;
     this.projectInstructions.setCwd(cwd);
     this.currentSelection = selection;
+    this.currentAgentProfile = agentProfile || null;
     if (permissionModeOverride) {
       this.allowForSession = false;
     }
@@ -1711,7 +1743,8 @@ export const aegisRuntime: AgentRuntime = {
       options.model,
       options.aegisSkills,
       options.aegisPermissionMode,
-      options.aegisReasoningEffort
+      options.aegisReasoningEffort,
+      options.aegisAgentProfile
     ).catch((error) => {
       if (!abortController.signal.aborted) {
         options.onError?.(error instanceof Error ? error : new Error(String(error)));
@@ -1728,7 +1761,8 @@ export const aegisRuntime: AgentRuntime = {
           model,
           aegisSkills,
           sendOptions?.aegisPermissionMode,
-          sendOptions?.aegisReasoningEffort
+          sendOptions?.aegisReasoningEffort,
+          sendOptions?.aegisAgentProfile
         ).catch((error) => {
           if (!abortController.signal.aborted) {
             options.onError?.(error instanceof Error ? error : new Error(String(error)));

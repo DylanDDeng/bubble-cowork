@@ -140,6 +140,9 @@ function runCodexViaProviderService(options: RunnerOptions): RunnerHandle {
 	        codexPermissionMode?: import('../../shared/types').CodexPermissionMode;
 	        codexReasoningEffort?: import('../../shared/types').CodexReasoningEffort;
 	        codexFastMode?: boolean;
+	        aegisPermissionMode?: import('../../shared/types').AegisPermissionMode;
+	        aegisReasoningEffort?: import('../../shared/types').AegisBuiltInReasoningEffort;
+	        aegisAgentProfile?: import('../../shared/types').RoutedAgentRuntimePayload | null;
 	      }
 	    ) => {
 	      if (abortController.signal.aborted) return;

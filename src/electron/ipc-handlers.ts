@@ -4595,7 +4595,7 @@ function normalizeRoutedAgentPublicProfile(value: unknown): RoutedAgentPublicPro
 }
 
 function normalizeRoutedAgentRuntimePayload(
-  turn: RoutedAgentRuntimePayload | undefined
+  turn: RoutedAgentRuntimePayload | null | undefined
 ): RoutedAgentRuntimePayload | null {
   const routedAgentId = turn?.routedAgentId?.trim();
   if (!routedAgentId) {
@@ -5452,6 +5452,7 @@ async function runRoutedAgentTurn(
       runtime.provider === 'codex' ? turn.codexMentions : undefined,
       runtime.provider === 'aegis' ? turn.aegisSkills : undefined,
       runtime.provider === 'aegis' ? turn.aegisMentions : undefined,
+      runtime.provider === 'aegis' ? turn : undefined,
       turn.routedAgentId,
       resolveTurn,
       agentRunId
@@ -5491,6 +5492,7 @@ async function handleSessionStart(
     opencodePermissionMode,
     aegisPermissionMode,
     aegisReasoningEffort,
+    routedAgentProfile,
     routedAgentId,
     routedAgentTurns,
     availableAgentTurns,
@@ -5500,6 +5502,7 @@ async function handleSessionStart(
   const sessionScope = normalizeSessionScope(scope);
   const sessionAgentId = sessionScope === 'dm' ? agentId?.trim() || null : null;
   const turnAgentId = routedAgentId?.trim() || sessionAgentId || null;
+  const turnAgentProfile = normalizeRoutedAgentRuntimePayload(routedAgentProfile);
   const sessionCwd = cwd?.trim() || undefined;
   if (sessionScope !== 'dm' && !sessionCwd) {
     broadcast(mainWindow, {
@@ -5727,6 +5730,7 @@ async function handleSessionStart(
     chosenProvider === 'codex' ? codexMentions : undefined,
     chosenProvider === 'aegis' ? aegisSkills : undefined,
     chosenProvider === 'aegis' ? aegisMentions : undefined,
+    chosenProvider === 'aegis' ? turnAgentProfile : undefined,
     turnAgentId
   );
   return session.id;
@@ -5760,6 +5764,7 @@ async function handleSessionContinue(
     opencodePermissionMode,
     aegisPermissionMode,
     aegisReasoningEffort,
+    routedAgentProfile,
     routedAgentId,
     routedAgentTurns,
     availableAgentTurns,
@@ -5840,6 +5845,7 @@ async function handleSessionContinue(
   const previousProvider = session.provider || 'claude';
   const nextProvider = provider || previousProvider;
   const turnAgentId = routedAgentId?.trim() || session.agent_id || null;
+  const turnAgentProfile = normalizeRoutedAgentRuntimePayload(routedAgentProfile);
   const nextModel = normalizeModel(model ?? session.model ?? undefined);
   const previousCompatibleProviderId = session.compatible_provider_id || undefined;
   const nextCompatibleProviderId =
@@ -6104,6 +6110,7 @@ async function handleSessionContinue(
           ? {
               aegisPermissionMode: nextAegisPermissionMode || 'defaultPermissions',
               aegisReasoningEffort: nextAegisReasoningEffort,
+              aegisAgentProfile: turnAgentProfile,
             }
           : undefined;
       existingEntry.handle.send(
@@ -6214,6 +6221,7 @@ async function handleSessionContinue(
     nextProvider === 'codex' ? codexMentions : undefined,
     nextProvider === 'aegis' ? aegisSkills : undefined,
     nextProvider === 'aegis' ? aegisMentions : undefined,
+    nextProvider === 'aegis' ? turnAgentProfile : undefined,
     turnAgentId
   );
   return true;
@@ -6244,6 +6252,7 @@ function startRunner(
   codexMentions?: ProviderInputReference[],
   aegisSkills?: ProviderInputReference[],
   aegisMentions?: ProviderInputReference[],
+  aegisAgentProfile?: RoutedAgentRuntimePayload | null,
   activeAgentId?: string | null,
   onTurnDone?: (status: SessionStatus) => void,
   activeAgentRunId?: string | null
@@ -6306,6 +6315,7 @@ function startRunner(
     codexMentions: provider === 'codex' ? codexMentions : undefined,
     aegisSkills: provider === 'aegis' ? aegisSkills : undefined,
     aegisMentions: provider === 'aegis' ? aegisMentions : undefined,
+    aegisAgentProfile: provider === 'aegis' ? aegisAgentProfile : undefined,
     opencodePermissionMode,
     aegisPermissionMode,
     aegisReasoningEffort,

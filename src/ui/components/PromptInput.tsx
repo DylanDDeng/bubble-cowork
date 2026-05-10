@@ -62,11 +62,13 @@ function buildAgentEffectivePrompt(
     channelId?: string | null;
     handle?: string | null;
     assignmentSource?: 'mention' | 'assignment';
-  }
+  },
+  options?: { includeIdentity?: boolean }
 ): string {
   if (!profile) {
     return prompt;
   }
+  const includeIdentity = options?.includeIdentity !== false;
 
   const contextLines =
     context?.mode === 'project'
@@ -85,10 +87,10 @@ function buildAgentEffectivePrompt(
         ];
 
   const lines = [
-    `You are ${profile.name.trim() || 'this agent'}.`,
-    profile.role.trim() ? `Role: ${profile.role.trim()}` : '',
-    profile.description.trim() ? `Profile: ${profile.description.trim()}` : '',
-    profile.instructions.trim() ? `Instructions:\n${profile.instructions.trim()}` : '',
+    includeIdentity ? `You are ${profile.name.trim() || 'this agent'}.` : '',
+    includeIdentity && profile.role.trim() ? `Role: ${profile.role.trim()}` : '',
+    includeIdentity && profile.description.trim() ? `Profile: ${profile.description.trim()}` : '',
+    includeIdentity && profile.instructions.trim() ? `Instructions:\n${profile.instructions.trim()}` : '',
     ...contextLines,
     `User message:\n${prompt}`,
   ].filter(Boolean);
@@ -438,8 +440,12 @@ export function PromptInput({
               handle: activeProjectAgentRoute.handle,
               assignmentSource: activeProjectAgentRoute.assignmentSource,
             }
-          : undefined
+          : undefined,
+      { includeIdentity: runtimeProvider !== 'aegis' }
     );
+    const codexReferences = buildCodexReferencePayload(skillAutocomplete.selectedSkill);
+    const aegisReferences = buildAegisReferencePayload(skillAutocomplete.selectedSkill);
+    const activeAgentRuntimePayload = buildAgentRuntimePayload(runtimeAgentProfile, codexReferences, aegisReferences);
     sendEvent({
       type: 'session.continue',
       payload: {
@@ -472,6 +478,7 @@ export function PromptInput({
         aegisReasoningEffort:
           runtimeProvider === 'aegis' ? agentRuntime?.aegisReasoningEffort : undefined,
         routedAgentId: runtimeAgentProfile?.id || undefined,
+        routedAgentProfile: runtimeProvider === 'aegis' ? activeAgentRuntimePayload : undefined,
       },
     });
     resetComposer();
@@ -712,6 +719,10 @@ export function PromptInput({
     const rawOutgoingEffectivePrompt = promptWithAttachment.converted
       ? promptWithAttachment.prompt
       : normalizedPrompt;
+    const outgoingAttachments = promptWithAttachment.attachments;
+    const codexReferences = buildCodexReferencePayload(skillAutocomplete.selectedSkill);
+    const aegisReferences = buildAegisReferencePayload(skillAutocomplete.selectedSkill);
+    const activeAgentRuntimePayload = buildAgentRuntimePayload(runtimeAgentProfile, codexReferences, aegisReferences);
     const outgoingEffectivePrompt = buildAgentEffectivePrompt(
       rawOutgoingEffectivePrompt,
       runtimeAgentProfile,
@@ -725,11 +736,9 @@ export function PromptInput({
               handle: activeProjectAgentRoute.handle,
               assignmentSource: activeProjectAgentRoute.assignmentSource,
             }
-          : undefined
+          : undefined,
+      { includeIdentity: runtimeProvider !== 'aegis' }
     );
-    const outgoingAttachments = promptWithAttachment.attachments;
-    const codexReferences = buildCodexReferencePayload(skillAutocomplete.selectedSkill);
-    const aegisReferences = buildAegisReferencePayload(skillAutocomplete.selectedSkill);
     const projectAgentRuntimePayloads =
       !directAgentProfile
         ? projectAgentProfiles
@@ -756,7 +765,8 @@ export function PromptInput({
                   channelId: activeSession?.channelId,
                   handle: route.handle,
                   assignmentSource: route.assignmentSource,
-                }
+                },
+                { includeIdentity: routeRuntime.provider !== 'aegis' }
               );
 
               return {
@@ -828,6 +838,7 @@ export function PromptInput({
           aegisReasoningEffort:
             runtimeProvider === 'aegis' ? agentRuntime?.aegisReasoningEffort : undefined,
           routedAgentId: runtimeAgentProfile?.id || undefined,
+          routedAgentProfile: runtimeProvider === 'aegis' ? activeAgentRuntimePayload : undefined,
           routedAgentTurns: projectRoutedAgentTurns,
           availableAgentTurns: projectAgentRuntimePayloads,
         },
@@ -872,6 +883,7 @@ export function PromptInput({
           aegisReasoningEffort:
             runtimeProvider === 'aegis' ? agentRuntime?.aegisReasoningEffort : undefined,
           routedAgentId: runtimeAgentProfile?.id || undefined,
+          routedAgentProfile: runtimeProvider === 'aegis' ? activeAgentRuntimePayload : undefined,
           routedAgentTurns: projectRoutedAgentTurns,
           availableAgentTurns: projectAgentRuntimePayloads,
         },
