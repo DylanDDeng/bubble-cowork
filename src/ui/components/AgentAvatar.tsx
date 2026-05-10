@@ -69,7 +69,7 @@ export function AgentAvatar({
       role={decorative ? undefined : 'img'}
       aria-hidden={decorative ? true : undefined}
       aria-label={decorative ? undefined : resolvedLabel}
-      className={`inline-flex flex-shrink-0 items-center justify-center overflow-hidden rounded-md border border-[var(--border)] bg-[var(--bg-primary)] ${AGENT_AVATAR_SIZE_CLASSES[size]} ${className}`}
+      className={`inline-flex flex-shrink-0 items-center justify-center overflow-hidden ${AGENT_AVATAR_SIZE_CLASSES[size]} ${className}`}
     >
       <img
         src={imageFailed ? notionAvatar04 : src}

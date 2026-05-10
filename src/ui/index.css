@@ -2,6 +2,22 @@
 @import 'tw-animate-css';
 @import 'katex/dist/katex.min.css';
 
+@font-face {
+  font-family: 'IBM Plex Serif Var';
+  src: url('./assets/fonts/ibm-plex-serif-var-roman.woff2') format('woff2');
+  font-weight: 100 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'IBM Plex Serif Var';
+  src: url('./assets/fonts/ibm-plex-serif-var-italic.woff2') format('woff2');
+  font-weight: 100 700;
+  font-style: italic;
+  font-display: swap;
+}
+
 /* Theme variables - Light */
 :root {
   --bg-primary: #FFFFFF;
@@ -228,7 +244,7 @@ html {
 }
 
 body {
-  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  font-family: var(--font-sans), 'IBM Plex Serif Var', 'IBM Plex Serif', ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
   font-size: 13px;
   line-height: 1.5;
   background-color: var(--app-shell-background, var(--bg-primary));
@@ -1477,7 +1493,7 @@ body {
   outline: 0;
   background: var(--aegis-md-code-label-bg);
   color: var(--aegis-md-code-label-color);
-  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  font-family: var(--font-sans), 'IBM Plex Serif Var', 'IBM Plex Serif', ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
   font-size: 12px;
   font-weight: 650;
   line-height: 22px;

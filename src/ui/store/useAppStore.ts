@@ -37,6 +37,7 @@ import type {
 } from '../types';
 import {
   DEFAULT_THEME_STATE,
+  DEFAULT_UI_FONT_FAMILY,
   applyThemePreferences,
   normalizeThemeState,
   resetThemeVariant as resetThemeVariantState,
@@ -898,7 +899,7 @@ export const useAppStore = create<Store>()(
       // 主题
       theme: 'system' as const,
       themeState: DEFAULT_THEME_STATE,
-      uiFontFamily: '',
+      uiFontFamily: DEFAULT_UI_FONT_FAMILY,
       chatCodeFontFamily: '',
 
   // Actions
@@ -1997,7 +1998,9 @@ export const useAppStore = create<Store>()(
           )
         );
         const themeState = normalizeThemeState(persisted?.themeState || currentState.themeState);
-        const uiFontFamily = persisted?.uiFontFamily ?? currentState.uiFontFamily;
+        const uiFontFamily = persisted?.uiFontFamily?.trim()
+          ? persisted.uiFontFamily
+          : DEFAULT_UI_FONT_FAMILY;
         const chatCodeFontFamily = persisted?.chatCodeFontFamily ?? currentState.chatCodeFontFamily;
         const chatLayoutMode = normalizeChatLayoutMode(persisted?.chatLayoutMode);
         const savedSplitVisible = persisted?.savedSplitVisible ?? currentState.savedSplitVisible;
