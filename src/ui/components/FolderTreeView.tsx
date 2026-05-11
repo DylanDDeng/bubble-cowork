@@ -749,7 +749,7 @@ function ProjectAgentSummary({
             profile={profile}
             size="sm"
             decorative
-            className="h-5 w-5 rounded-[5px] ring-1 ring-[var(--bg-tertiary)]"
+            className="h-5 w-5 rounded-[5px]"
           />
         ))}
       </span>
