@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { X } from './icons';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { Check, ChevronDown, GitBranch, GitFork, Loader2, Monitor, X } from './icons';
 import { toast } from 'sonner';
 import { sendEvent } from '../hooks/useIPC';
 import { useAppStore } from '../store/useAppStore';
@@ -33,9 +34,11 @@ import type { ChangeRecord } from '../utils/change-records';
 import type {
   ContentBlock,
   PermissionResult,
+  SessionView,
   StreamMessage,
   ToolStatus,
 } from '../types';
+import type { GitBranchInfo } from '../../shared/types';
 
 type ToolResultBlock = ContentBlock & { type: 'tool_result' };
 type ChatScrollPosition = { scrollTop: number; stickToBottom: boolean };
@@ -75,6 +78,219 @@ function restoreChatScrollPosition(key: string, container: HTMLDivElement): void
   }
 
   container.scrollTop = container.scrollHeight;
+}
+
+function SessionWorkspaceControl({
+  session,
+  sessionId,
+}: {
+  session: SessionView;
+  sessionId: string;
+}) {
+  const projectCwd = session.projectCwd || session.cwd || null;
+  const effectiveCwd = session.worktreePath || session.cwd || projectCwd;
+  const isWorktree = session.envMode === 'worktree' && Boolean(session.worktreePath);
+  const [branches, setBranches] = useState<GitBranchInfo[]>([]);
+  const [branchesError, setBranchesError] = useState<string | null>(null);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [busyAction, setBusyAction] = useState<'local' | 'worktree' | 'branch' | null>(null);
+
+  const refreshBranches = useCallback(async () => {
+    const cwd = effectiveCwd || projectCwd;
+    if (!cwd) return;
+    setBranchesLoading(true);
+    try {
+      const result = await window.electron.getGitBranches(cwd);
+      if (!result.ok) {
+        setBranches([]);
+        setBranchesError(result.error || 'Unable to read branches.');
+        return;
+      }
+      setBranches(result.entries);
+      setBranchesError(null);
+    } catch (error) {
+      setBranches([]);
+      setBranchesError(error instanceof Error ? error.message : 'Unable to read branches.');
+    } finally {
+      setBranchesLoading(false);
+    }
+  }, [effectiveCwd, projectCwd]);
+
+  useEffect(() => {
+    void refreshBranches();
+  }, [refreshBranches]);
+
+  const branchOptions = useMemo(() => {
+    const byName = new Map<string, GitBranchInfo>();
+    for (const entry of branches) {
+      if (!entry.name) continue;
+      const existing = byName.get(entry.name);
+      if (!existing || (existing.remote && !entry.remote) || (!existing.worktreePath && entry.worktreePath)) {
+        byName.set(entry.name, entry);
+      }
+    }
+    return Array.from(byName.values()).sort((a, b) => {
+      if (a.current !== b.current) return a.current ? -1 : 1;
+      if (Boolean(a.worktreePath) !== Boolean(b.worktreePath)) return a.worktreePath ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [branches]);
+
+  const currentBranch =
+    branches.find((entry) => entry.current && !entry.remote)?.name ||
+    branches.find((entry) => entry.current)?.name ||
+    session.associatedWorktreeBranch ||
+    session.associatedWorktreeRef ||
+    'HEAD';
+
+  const runHandoff = useCallback(async (targetMode: 'local' | 'worktree', branch?: string | null, worktreePath?: string | null) => {
+    setBusyAction(targetMode);
+    try {
+      const result = await window.electron.gitSessionHandoff({
+        sessionId,
+        targetMode,
+        branch: branch || null,
+        worktreePath: worktreePath || null,
+      });
+      if (!result.ok) {
+        toast.error(result.message || 'Workspace switch failed.');
+        return;
+      }
+      toast.success(targetMode === 'worktree' ? 'Session moved to worktree.' : 'Session moved to local workspace.');
+      await refreshBranches();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Workspace switch failed.');
+    } finally {
+      setBusyAction(null);
+    }
+  }, [refreshBranches, sessionId]);
+
+  const handleSelectBranch = useCallback(async (entry: GitBranchInfo) => {
+    const cwd = effectiveCwd || projectCwd;
+    if (!cwd) return;
+    if (entry.current && (!entry.worktreePath || entry.worktreePath === cwd)) {
+      return;
+    }
+    if (entry.worktreePath && entry.worktreePath !== cwd) {
+      await runHandoff('worktree', entry.name, entry.worktreePath);
+      return;
+    }
+    setBusyAction('branch');
+    try {
+      const result = await window.electron.gitCheckoutBranch(cwd, entry.name);
+      if (!result.ok) {
+        toast.error(result.message || 'Branch checkout failed.');
+        return;
+      }
+      toast.success(`Checked out ${entry.name}.`);
+      await refreshBranches();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Branch checkout failed.');
+    } finally {
+      setBusyAction(null);
+    }
+  }, [effectiveCwd, projectCwd, refreshBranches, runHandoff]);
+
+  if (session.isDraft || session.scope === 'dm' || !projectCwd || !effectiveCwd) {
+    return null;
+  }
+
+  const BusyIcon = busyAction || branchesLoading ? Loader2 : null;
+
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      <DropdownMenu.Root onOpenChange={(open) => { if (open) void refreshBranches(); }}>
+        <DropdownMenu.Trigger asChild>
+          <button
+            type="button"
+            className="inline-flex h-6 max-w-[112px] items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+            disabled={busyAction !== null}
+            title={isWorktree ? session.worktreePath || 'Worktree' : projectCwd}
+          >
+            {BusyIcon ? <BusyIcon className="h-3.5 w-3.5 animate-spin" /> : isWorktree ? <GitFork className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
+            <span className="truncate">{isWorktree ? 'Worktree' : 'Local'}</span>
+            <ChevronDown className="h-3 w-3 shrink-0" />
+          </button>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            align="start"
+            sideOffset={6}
+            className="z-[9999] min-w-[190px] rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-xl"
+          >
+            <DropdownMenu.Item
+              disabled={!isWorktree || busyAction !== null}
+              onSelect={(event) => {
+                event.preventDefault();
+                void runHandoff('local');
+              }}
+              className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
+            >
+              <Monitor className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+              <span className="flex-1">Local</span>
+              {!isWorktree ? <Check className="h-3.5 w-3.5" /> : null}
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              disabled={busyAction !== null}
+              onSelect={(event) => {
+                event.preventDefault();
+                void runHandoff('worktree', currentBranch);
+              }}
+              className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
+            >
+              <GitFork className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+              <span className="flex-1">New worktree</span>
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+
+      <DropdownMenu.Root onOpenChange={(open) => { if (open) void refreshBranches(); }}>
+        <DropdownMenu.Trigger asChild>
+          <button
+            type="button"
+            className="inline-flex h-6 max-w-[150px] items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+            disabled={busyAction !== null}
+            title={currentBranch}
+          >
+            <GitBranch className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{currentBranch}</span>
+            <ChevronDown className="h-3 w-3 shrink-0" />
+          </button>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            align="start"
+            sideOffset={6}
+            className="z-[9999] max-h-[320px] min-w-[240px] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-xl"
+          >
+            {branchesError ? (
+              <div className="px-2 py-1.5 text-xs text-[var(--text-muted)]">{branchesError}</div>
+            ) : branchOptions.length === 0 ? (
+              <div className="px-2 py-1.5 text-xs text-[var(--text-muted)]">No branches</div>
+            ) : (
+              branchOptions.map((entry) => (
+                <DropdownMenu.Item
+                  key={`${entry.fullRef}:${entry.worktreePath || ''}`}
+                  disabled={busyAction !== null}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void handleSelectBranch(entry);
+                  }}
+                  className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
+                >
+                  <GitBranch className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
+                  <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+                  {entry.worktreePath ? <GitFork className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" /> : null}
+                  {entry.current ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
+                </DropdownMenu.Item>
+              ))
+            )}
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+    </div>
+  );
 }
 
 export function ChatPane({
@@ -569,9 +785,12 @@ export function ChatPane({
                   </span>
                 </>
               ) : (
-                <span className="truncate font-medium text-[var(--text-primary)]">
-                  {session.title || 'Chat'}
-                </span>
+                <>
+                  <span className="truncate font-medium text-[var(--text-primary)]">
+                    {session.title || 'Chat'}
+                  </span>
+                  <SessionWorkspaceControl session={session} sessionId={sessionId} />
+                </>
               )}
             </div>
             <div className="flex items-center gap-1">

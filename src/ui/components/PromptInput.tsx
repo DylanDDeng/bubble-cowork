@@ -315,8 +315,28 @@ export function PromptInput({
         : null,
     [activeSession?.messages, activeSession?.provider]
   );
-  const activeProjectKey =
-    activeSession?.scope === 'dm' ? null : activeSession?.cwd?.trim() || null;
+  const projectAgentKeyCandidates = useMemo(() => {
+    if (activeSession?.scope === 'dm') {
+      return [];
+    }
+
+    return Array.from(
+      new Set(
+        [activeSession?.projectCwd, activeSession?.cwd]
+          .map((value) => value?.trim())
+          .filter((value): value is string => Boolean(value))
+      )
+    );
+  }, [activeSession?.cwd, activeSession?.projectCwd, activeSession?.scope]);
+  const activeProjectKey = projectAgentKeyCandidates[0] || null;
+  const activeProjectRosterKey = useMemo(() => {
+    for (const projectKey of projectAgentKeyCandidates) {
+      if (Object.prototype.hasOwnProperty.call(projectAgentRostersByProject, projectKey)) {
+        return projectKey;
+      }
+    }
+    return activeProjectKey;
+  }, [activeProjectKey, projectAgentKeyCandidates, projectAgentRostersByProject]);
   const directAgentProfile =
     activeSession?.scope === 'dm' && activeSession.agentId
       ? agentProfiles[activeSession.agentId] || null
@@ -328,9 +348,9 @@ export function PromptInput({
         : getProjectAgentProfiles({
             agentProfiles,
             projectAgentRostersByProject,
-            cwd: activeSession?.cwd,
+            cwd: activeProjectRosterKey,
           }),
-    [activeSession?.cwd, activeSession?.scope, agentProfiles, projectAgentRostersByProject]
+    [activeProjectRosterKey, activeSession?.scope, agentProfiles, projectAgentRostersByProject]
   );
   const projectAgentRoutes = useMemo(
     () =>
@@ -353,13 +373,15 @@ export function PromptInput({
       return null;
     }
 
-    const persistedProfileId = selectedProjectAgentByProject[activeProjectKey];
+    const persistedProfileId =
+      selectedProjectAgentByProject[activeProjectRosterKey || activeProjectKey] ||
+      selectedProjectAgentByProject[activeProjectKey];
     return (
       projectAgentProfiles.find((profile) => profile.id === persistedProfileId) ||
       projectAgentProfiles[0] ||
       null
     );
-  }, [activeProjectKey, projectAgentProfiles, selectedProjectAgentByProject]);
+  }, [activeProjectKey, activeProjectRosterKey, projectAgentProfiles, selectedProjectAgentByProject]);
   const selectedProjectAgentRoute = useMemo(
     () =>
       selectedProjectAgentProfile
@@ -804,6 +826,12 @@ export function PromptInput({
           prompt: outgoingPrompt,
           effectivePrompt: outgoingEffectivePrompt,
           cwd: isDirectMessageDraft ? undefined : activeSession.cwd,
+          projectCwd: isDirectMessageDraft ? undefined : activeSession.projectCwd ?? activeSession.cwd ?? null,
+          envMode: isDirectMessageDraft ? undefined : activeSession.envMode ?? 'local',
+          worktreePath: isDirectMessageDraft ? undefined : activeSession.worktreePath ?? null,
+          associatedWorktreePath: isDirectMessageDraft ? undefined : activeSession.associatedWorktreePath ?? null,
+          associatedWorktreeBranch: isDirectMessageDraft ? undefined : activeSession.associatedWorktreeBranch ?? null,
+          associatedWorktreeRef: isDirectMessageDraft ? undefined : activeSession.associatedWorktreeRef ?? null,
           scope: isDirectMessageDraft ? 'dm' : 'project',
           agentId: isDirectMessageDraft ? activeSession.agentId || undefined : undefined,
           channelId: isDirectMessageDraft ? DEFAULT_WORKSPACE_CHANNEL_ID : channelId,
@@ -1233,8 +1261,9 @@ export function PromptInput({
                   selectedProfile={selectedProjectAgentProfile}
                   disabled={isBusy}
                   onSelect={(profileId) => {
-                    if (activeProjectKey) {
-                      setSelectedProjectAgentForProject(activeProjectKey, profileId);
+                    const projectKey = activeProjectRosterKey || activeProjectKey;
+                    if (projectKey) {
+                      setSelectedProjectAgentForProject(projectKey, profileId);
                     }
                   }}
                 />

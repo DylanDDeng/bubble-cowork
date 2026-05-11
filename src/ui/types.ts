@@ -169,6 +169,12 @@ export interface SessionView {
   scope?: SessionScope;
   agentId?: string | null;
   cwd?: string;
+  projectCwd?: string | null;
+  envMode?: import('../shared/types').ThreadEnvironmentMode;
+  worktreePath?: string | null;
+  associatedWorktreePath?: string | null;
+  associatedWorktreeBranch?: string | null;
+  associatedWorktreeRef?: string | null;
   claudeSessionId?: string;
   provider?: AgentProvider;
   model?: string;

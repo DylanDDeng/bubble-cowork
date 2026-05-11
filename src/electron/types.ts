@@ -42,6 +42,12 @@ export interface SessionRow {
   opencode_permission_mode: import('../shared/types').OpenCodePermissionMode | null;
   status: string;
   cwd: string | null;
+  project_cwd: string | null;
+  env_mode: import('../shared/types').ThreadEnvironmentMode | null;
+  worktree_path: string | null;
+  associated_worktree_path: string | null;
+  associated_worktree_branch: string | null;
+  associated_worktree_ref: string | null;
   allowed_tools: string | null;
   last_prompt: string | null;
   todo_state: string | null;

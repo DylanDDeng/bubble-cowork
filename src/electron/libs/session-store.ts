@@ -25,6 +25,7 @@ import type {
   ClaudeUsageReport,
   SessionSource,
   SessionScope,
+  ThreadEnvironmentMode,
 } from '../../shared/types';
 
 let db: Database.Database | null = null;
@@ -347,6 +348,12 @@ export function initialize(): void {
   ensureColumn('sessions', 'external_file_mtime', 'INTEGER');
   ensureColumn('sessions', 'hidden_from_threads', 'INTEGER DEFAULT 0');
   ensureColumn('sessions', 'workspace_channel_id', 'TEXT');
+  ensureColumn('sessions', 'project_cwd', 'TEXT');
+  ensureColumn('sessions', 'env_mode', "TEXT DEFAULT 'local'");
+  ensureColumn('sessions', 'worktree_path', 'TEXT');
+  ensureColumn('sessions', 'associated_worktree_path', 'TEXT');
+  ensureColumn('sessions', 'associated_worktree_branch', 'TEXT');
+  ensureColumn('sessions', 'associated_worktree_ref', 'TEXT');
   ensureColumn('messages', 'message_type', 'TEXT');
   ensureColumn('messages', 'source_origin', 'TEXT');
   ensureColumn('messages', 'search_text', 'TEXT');
@@ -851,6 +858,12 @@ function getDb(): Database.Database {
 export function createSession(params: {
   title: string;
   cwd?: string;
+  projectCwd?: string | null;
+  envMode?: ThreadEnvironmentMode;
+  worktreePath?: string | null;
+  associatedWorktreePath?: string | null;
+  associatedWorktreeBranch?: string | null;
+  associatedWorktreeRef?: string | null;
   allowedTools?: string;
   prompt?: string;
   provider?: 'aegis' | 'claude' | 'codex' | 'opencode';
@@ -907,6 +920,24 @@ export function createSession(params: {
 
   if ((params.provider || 'claude') === 'claude') {
     invalidateClaudeUsageReportCache();
+  }
+
+  if (
+    params.projectCwd !== undefined ||
+    params.envMode !== undefined ||
+    params.worktreePath !== undefined ||
+    params.associatedWorktreePath !== undefined ||
+    params.associatedWorktreeBranch !== undefined ||
+    params.associatedWorktreeRef !== undefined
+  ) {
+    updateSessionWorkspace(id, {
+      projectCwd: params.projectCwd ?? params.cwd ?? null,
+      envMode: params.envMode,
+      worktreePath: params.worktreePath,
+      associatedWorktreePath: params.associatedWorktreePath,
+      associatedWorktreeBranch: params.associatedWorktreeBranch,
+      associatedWorktreeRef: params.associatedWorktreeRef,
+    });
   }
 
   return getSession(id)!;
@@ -1266,6 +1297,62 @@ export function updateSessionChannelId(sessionId: string, channelId: string | nu
     UPDATE sessions SET workspace_channel_id = ?, updated_at = ? WHERE id = ?
   `);
   stmt.run(normalizeWorkspaceChannelId(channelId), now, sessionId);
+}
+
+export function updateSessionWorkspace(
+  sessionId: string,
+  workspace: {
+    projectCwd?: string | null;
+    envMode?: ThreadEnvironmentMode | null;
+    worktreePath?: string | null;
+    associatedWorktreePath?: string | null;
+    associatedWorktreeBranch?: string | null;
+    associatedWorktreeRef?: string | null;
+  }
+): void {
+  const current = getSession(sessionId);
+  if (!current) return;
+  const projectCwd = workspace.projectCwd !== undefined
+    ? workspace.projectCwd || null
+    : current.project_cwd || current.cwd || null;
+  const envMode = workspace.envMode === 'worktree' ? 'worktree' : 'local';
+  const worktreePath = workspace.worktreePath !== undefined
+    ? workspace.worktreePath || null
+    : current.worktree_path;
+  const associatedWorktreePath = workspace.associatedWorktreePath !== undefined
+    ? workspace.associatedWorktreePath || null
+    : current.associated_worktree_path;
+  const associatedWorktreeBranch = workspace.associatedWorktreeBranch !== undefined
+    ? workspace.associatedWorktreeBranch || null
+    : current.associated_worktree_branch;
+  const associatedWorktreeRef = workspace.associatedWorktreeRef !== undefined
+    ? workspace.associatedWorktreeRef || null
+    : current.associated_worktree_ref;
+  const effectiveCwd = envMode === 'worktree' && worktreePath ? worktreePath : projectCwd;
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions
+    SET cwd = ?,
+        project_cwd = ?,
+        env_mode = ?,
+        worktree_path = ?,
+        associated_worktree_path = ?,
+        associated_worktree_branch = ?,
+        associated_worktree_ref = ?,
+        updated_at = ?
+    WHERE id = ?
+  `);
+  stmt.run(
+    effectiveCwd,
+    projectCwd,
+    envMode,
+    worktreePath,
+    associatedWorktreePath,
+    associatedWorktreeBranch,
+    associatedWorktreeRef,
+    now,
+    sessionId
+  );
 }
 
 // 批量更新指定文件夹（及其子文件夹）下的 session 的路径（用于文件夹重命名）

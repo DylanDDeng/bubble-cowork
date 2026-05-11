@@ -644,6 +644,12 @@ function createDraftSessionView(
     readOnly: false,
     isDraft: true,
     cwd: cwd || undefined,
+    projectCwd: cwd || null,
+    envMode: 'local',
+    worktreePath: null,
+    associatedWorktreePath: null,
+    associatedWorktreeBranch: null,
+    associatedWorktreeRef: null,
     channelId: normalizeWorkspaceChannelId(channelId),
     provider: options?.provider || loadPreferredProvider(),
     model: options?.model,
@@ -2131,6 +2137,12 @@ function handleSessionList(
       source: session.source || 'aegis',
       readOnly: session.readOnly === true,
       cwd: session.cwd,
+      projectCwd: session.projectCwd ?? session.cwd ?? null,
+      envMode: session.envMode ?? (session.worktreePath ? 'worktree' : 'local'),
+      worktreePath: session.worktreePath ?? null,
+      associatedWorktreePath: session.associatedWorktreePath ?? null,
+      associatedWorktreeBranch: session.associatedWorktreeBranch ?? null,
+      associatedWorktreeRef: session.associatedWorktreeRef ?? null,
       claudeSessionId: session.claudeSessionId,
       provider: session.provider || 'claude',
       model: session.model,
@@ -2240,6 +2252,12 @@ function handleSessionStatus(
     scope?: SessionInfo['scope'];
     agentId?: SessionInfo['agentId'];
     cwd?: string;
+    projectCwd?: SessionInfo['projectCwd'];
+    envMode?: SessionInfo['envMode'];
+    worktreePath?: SessionInfo['worktreePath'];
+    associatedWorktreePath?: SessionInfo['associatedWorktreePath'];
+    associatedWorktreeBranch?: SessionInfo['associatedWorktreeBranch'];
+    associatedWorktreeRef?: SessionInfo['associatedWorktreeRef'];
     provider?: SessionInfo['provider'];
     model?: SessionInfo['model'];
     compatibleProviderId?: SessionInfo['compatibleProviderId'];
@@ -2266,6 +2284,12 @@ function handleSessionStatus(
     scope,
     agentId,
     cwd,
+    projectCwd,
+    envMode,
+    worktreePath,
+    associatedWorktreePath,
+    associatedWorktreeBranch,
+    associatedWorktreeRef,
     provider,
     model,
     compatibleProviderId,
@@ -2312,6 +2336,22 @@ function handleSessionStatus(
               ? agentId || null
               : session.agentId ?? null,
           cwd: cwd || session.cwd,
+          projectCwd:
+            projectCwd !== undefined ? projectCwd : session.projectCwd ?? cwd ?? session.cwd ?? null,
+          envMode: envMode ?? session.envMode ?? (worktreePath || session.worktreePath ? 'worktree' : 'local'),
+          worktreePath: worktreePath !== undefined ? worktreePath : session.worktreePath ?? null,
+          associatedWorktreePath:
+            associatedWorktreePath !== undefined
+              ? associatedWorktreePath
+              : session.associatedWorktreePath ?? null,
+          associatedWorktreeBranch:
+            associatedWorktreeBranch !== undefined
+              ? associatedWorktreeBranch
+              : session.associatedWorktreeBranch ?? null,
+          associatedWorktreeRef:
+            associatedWorktreeRef !== undefined
+              ? associatedWorktreeRef
+              : session.associatedWorktreeRef ?? null,
           provider: provider || session.provider,
           model: model !== undefined ? (model || undefined) : session.model,
           compatibleProviderId:
@@ -2386,6 +2426,12 @@ function handleSessionStatus(
       source: 'aegis',
       readOnly: false,
       cwd,
+      projectCwd: projectCwd ?? cwd ?? null,
+      envMode: envMode ?? (worktreePath ? 'worktree' : 'local'),
+      worktreePath: worktreePath ?? null,
+      associatedWorktreePath: associatedWorktreePath ?? null,
+      associatedWorktreeBranch: associatedWorktreeBranch ?? null,
+      associatedWorktreeRef: associatedWorktreeRef ?? null,
       provider: provider || 'claude',
       model,
       compatibleProviderId,

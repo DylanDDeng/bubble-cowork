@@ -91,6 +91,16 @@ import type {
   ProviderReadPluginInput,
 } from '../shared/types';
 import { getProviderService } from './libs/provider/service';
+import {
+  applyStash,
+  checkoutBranch,
+  createWorktree,
+  getCurrentBranch,
+  getGitTopLevel,
+  listBranches as listGitBranches,
+  removeWorktree,
+  stashWorkingTree,
+} from './libs/git-service';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
 const MAX_FILE_PREVIEW_BYTES = 5 * 1024 * 1024; // 5MB
@@ -4244,67 +4254,167 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     if (!cwd) return { ok: false, error: 'no-cwd', detachedHead: false, headShortHash: null, entries: [] };
 
     try {
-      await execFileAsync('git', ['rev-parse', '--git-dir'], { cwd, timeout: 5000 });
-    } catch {
-      return { ok: false, error: 'not-a-repo', detachedHead: false, headShortHash: null, entries: [] };
-    }
-
-    try {
-      const { stdout } = await execFileAsync(
-        'git',
-        [
-          'for-each-ref',
-          '--sort=-committerdate',
-          '--format=%(refname:short)%09%(refname)%09%(HEAD)%09%(upstream:short)%09%(objectname:short)',
-          'refs/heads',
-          'refs/remotes',
-        ],
-        {
-          cwd,
-          timeout: 10000,
-          maxBuffer: 2 * 1024 * 1024,
-        }
-      );
-
-      const entries = stdout
-        .split('\n')
-        .map((record) => record.trim())
-        .filter(Boolean)
-        .map((record) => {
-          const [name, fullRef, headMarker, upstream, shortHash] = record.split('\t');
-          const normalizedFullRef = fullRef?.trim() || '';
-          const remote = normalizedFullRef.startsWith('refs/remotes/');
-          return {
-            name: name?.trim() || '',
-            fullRef: normalizedFullRef,
-            current: (headMarker?.trim() || '') === '*' && !remote,
-            remote,
-            upstream: upstream?.trim() || null,
-            shortHash: shortHash?.trim() || '',
-          };
-        })
-        .filter((entry) => entry.name && entry.fullRef && !entry.name.endsWith('/HEAD'));
-
-      let detachedHead = !entries.some((entry) => entry.current);
-      let headShortHash: string | null = null;
-
-      if (detachedHead) {
-        try {
-          const { stdout: headStdout } = await execFileAsync('git', ['rev-parse', '--short', 'HEAD'], {
-            cwd,
-            timeout: 5000,
-          });
-          headShortHash = headStdout.trim() || null;
-        } catch {
-          detachedHead = false;
-        }
-      }
-
+      const { detachedHead, headShortHash, entries } = await listGitBranches(cwd);
       return { ok: true, error: null, detachedHead, headShortHash, entries };
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/not a git repository/i.test(message)) {
+        return { ok: false, error: 'not-a-repo', detachedHead: false, headShortHash: null, entries: [] };
+      }
       return { ok: false, error: 'git-error', detachedHead: false, headShortHash: null, entries: [] };
     }
   });
+
+  ipcMainHandle('git-checkout-branch', async (_event, cwd: string, branch: string) => {
+    try {
+      const output = await checkoutBranch({ cwd, branch });
+      return { ok: true, output };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMainHandle(
+    'git-session-handoff',
+    async (
+      _event,
+      input: {
+        sessionId: string;
+        targetMode: 'local' | 'worktree';
+        branch?: string | null;
+        newBranch?: string | null;
+        worktreePath?: string | null;
+      }
+    ) => {
+      const session = sessions.getSession(input.sessionId);
+      if (!session) return { ok: false, message: 'Unknown session.' };
+      const projectCwd = session.project_cwd || session.cwd;
+      if (!projectCwd) return { ok: false, message: 'Session has no project folder.' };
+      const broadcastWorkspaceStatus = (updated: ReturnType<typeof sessions.getSession>) => {
+        if (!updated) return;
+        broadcast(mainWindow, {
+          type: 'session.status',
+          payload: {
+            sessionId: updated.id,
+            status: updated.status as SessionStatus,
+            cwd: updated.cwd || undefined,
+            projectCwd: updated.project_cwd || updated.cwd || null,
+            envMode: updated.env_mode === 'worktree' ? 'worktree' : 'local',
+            worktreePath: updated.worktree_path || null,
+            associatedWorktreePath: updated.associated_worktree_path || null,
+            associatedWorktreeBranch: updated.associated_worktree_branch || null,
+            associatedWorktreeRef: updated.associated_worktree_ref || null,
+          },
+        });
+      };
+      try {
+        if (runnerHandles.has(input.sessionId) || session.status === 'running') {
+          handleSessionStop(mainWindow, input.sessionId);
+        }
+
+        if (input.targetMode === 'local') {
+          const sourceCwd = session.worktree_path || session.cwd || projectCwd;
+          const sourceIsWorktree = resolve(sourceCwd) !== resolve(projectCwd);
+          const sourceStash = sourceIsWorktree
+            ? await stashWorkingTree({
+                cwd: sourceCwd,
+                message: `Aegis handoff to local ${new Date().toISOString()}`,
+              })
+            : { created: false, stashSha: null, output: '' };
+          const localStash = await stashWorkingTree({
+            cwd: projectCwd,
+            message: `Aegis preserve local workspace ${new Date().toISOString()}`,
+          });
+          try {
+            if (input.branch?.trim()) {
+              const currentBranch = await getCurrentBranch(projectCwd).catch(() => null);
+              if (currentBranch !== input.branch.trim()) {
+                await checkoutBranch({ cwd: projectCwd, branch: input.branch.trim() });
+              }
+            }
+            if (sourceStash.created && sourceStash.stashSha) {
+              await applyStash({ cwd: projectCwd, stashSha: sourceStash.stashSha, drop: true });
+            }
+            if (localStash.created && localStash.stashSha) {
+              await applyStash({ cwd: projectCwd, stashSha: localStash.stashSha, drop: true });
+            }
+          } catch (error) {
+            if (sourceStash.created && sourceStash.stashSha) {
+              await applyStash({ cwd: sourceCwd, stashSha: sourceStash.stashSha }).catch(() => undefined);
+            }
+            if (localStash.created && localStash.stashSha) {
+              await applyStash({ cwd: projectCwd, stashSha: localStash.stashSha }).catch(() => undefined);
+            }
+            throw error;
+          }
+          sessions.updateSessionWorkspace(input.sessionId, {
+            projectCwd,
+            envMode: 'local',
+            worktreePath: null,
+          });
+          const updated = sessions.getSession(input.sessionId);
+          broadcastWorkspaceStatus(updated);
+          return { ok: true, session: updated, worktree: null };
+        }
+        const sourceCwd = session.cwd || projectCwd;
+        const sourceStash = await stashWorkingTree({
+          cwd: sourceCwd,
+          message: `Aegis handoff to worktree ${new Date().toISOString()}`,
+        });
+        const branch = input.branch || (await getCurrentBranch(projectCwd)) || 'HEAD';
+        const defaultNewBranch =
+          branch === 'HEAD'
+            ? `aegis/worktree-${Date.now().toString(36)}`
+            : `aegis/${branch.replace(/[^a-zA-Z0-9._/-]+/g, '-').replace(/[\\/]+/g, '-')}-${Date.now().toString(36)}`;
+        const newBranch = input.newBranch?.trim() || defaultNewBranch;
+        let createdWorktreePath: string | null = null;
+        const worktree = input.worktreePath
+          ? {
+              path: input.worktreePath,
+              branch: (await getCurrentBranch(input.worktreePath).catch(() => null)) || newBranch || branch,
+              head: null,
+              detached: false,
+              locked: false,
+              prunable: false,
+              current: false,
+            }
+          : await createWorktree({
+              cwd: projectCwd,
+              branch,
+              newBranch,
+            });
+        if (!input.worktreePath) {
+          createdWorktreePath = worktree.path;
+        }
+        try {
+          if (sourceStash.created && sourceStash.stashSha) {
+            await applyStash({ cwd: worktree.path, stashSha: sourceStash.stashSha, drop: true });
+          }
+        } catch (error) {
+          if (sourceStash.created && sourceStash.stashSha) {
+            await applyStash({ cwd: sourceCwd, stashSha: sourceStash.stashSha }).catch(() => undefined);
+          }
+          if (createdWorktreePath) {
+            await removeWorktree({ cwd: projectCwd, path: createdWorktreePath, force: true }).catch(() => undefined);
+          }
+          throw error;
+        }
+        sessions.updateSessionWorkspace(input.sessionId, {
+          projectCwd,
+          envMode: 'worktree',
+          worktreePath: worktree.path,
+          associatedWorktreePath: worktree.path,
+          associatedWorktreeBranch: worktree.branch || newBranch || branch,
+          associatedWorktreeRef: worktree.branch || newBranch || branch,
+        });
+        const updated = sessions.getSession(input.sessionId);
+        broadcastWorkspaceStatus(updated);
+        return { ok: true, session: updated, worktree };
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
 
   ipcMainHandle('get-git-history', async (_event, cwd: string) => {
     if (!cwd) return { ok: false, error: 'no-cwd', entries: [] };
@@ -4635,6 +4745,12 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     source: row.session_origin || 'aegis',
     readOnly: row.session_origin === 'claude_code' || row.session_origin === 'claude_remote',
     cwd: row.cwd || undefined,
+    projectCwd: row.project_cwd || row.cwd || null,
+    envMode: row.env_mode === 'worktree' ? 'worktree' : 'local',
+    worktreePath: row.worktree_path || null,
+    associatedWorktreePath: row.associated_worktree_path || null,
+    associatedWorktreeBranch: row.associated_worktree_branch || null,
+    associatedWorktreeRef: row.associated_worktree_ref || null,
     claudeSessionId: row.claude_session_id || undefined,
     provider: row.provider || 'claude',
     model: row.model || undefined,
@@ -5567,6 +5683,12 @@ async function handleSessionStart(
     prompt,
     effectivePrompt,
     cwd,
+    projectCwd,
+    envMode,
+    worktreePath,
+    associatedWorktreePath,
+    associatedWorktreeBranch,
+    associatedWorktreeRef,
     scope,
     agentId,
     allowedTools,
@@ -5609,6 +5731,9 @@ async function handleSessionStart(
     return null;
   }
   const chosenProvider = provider || 'claude';
+  const normalizedProjectCwd = projectCwd?.trim() || sessionCwd || null;
+  const normalizedEnvMode = envMode === 'worktree' ? 'worktree' : 'local';
+  const normalizedWorktreePath = worktreePath?.trim() || null;
   const sourcePrompt = prompt.trim();
   const longPromptAttachment = await maybeConvertLongPromptToAttachment({
     cwd: sessionCwd,
@@ -5674,6 +5799,12 @@ async function handleSessionStart(
   const session = sessions.createSession({
     title,
     cwd: sessionCwd,
+    projectCwd: normalizedProjectCwd,
+    envMode: normalizedEnvMode,
+    worktreePath: normalizedWorktreePath,
+    associatedWorktreePath: associatedWorktreePath?.trim() || normalizedWorktreePath,
+    associatedWorktreeBranch: associatedWorktreeBranch?.trim() || null,
+    associatedWorktreeRef: associatedWorktreeRef?.trim() || associatedWorktreeBranch?.trim() || null,
     scope: sessionScope,
     agentId: sessionAgentId,
     allowedTools,
@@ -5711,6 +5842,12 @@ async function handleSessionStart(
       scope: normalizeSessionScope(session.conversation_scope),
       agentId: session.agent_id || null,
       cwd: session.cwd || undefined,
+      projectCwd: session.project_cwd || session.cwd || null,
+      envMode: session.env_mode === 'worktree' ? 'worktree' : 'local',
+      worktreePath: session.worktree_path || null,
+      associatedWorktreePath: session.associated_worktree_path || null,
+      associatedWorktreeBranch: session.associated_worktree_branch || null,
+      associatedWorktreeRef: session.associated_worktree_ref || null,
       provider: chosenProvider,
       model: selectedModel,
       compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
@@ -6135,6 +6272,13 @@ async function handleSessionContinue(
       status: 'running',
       scope: normalizeSessionScope(session.conversation_scope),
       agentId: session.agent_id || null,
+      cwd: session.cwd || undefined,
+      projectCwd: session.project_cwd || session.cwd || null,
+      envMode: session.env_mode === 'worktree' ? 'worktree' : 'local',
+      worktreePath: session.worktree_path || null,
+      associatedWorktreePath: session.associated_worktree_path || null,
+      associatedWorktreeBranch: session.associated_worktree_branch || null,
+      associatedWorktreeRef: session.associated_worktree_ref || null,
       provider: nextProvider,
       model: nextModel ?? '',
       compatibleProviderId: nextProvider === 'claude' ? nextCompatibleProviderId : undefined,

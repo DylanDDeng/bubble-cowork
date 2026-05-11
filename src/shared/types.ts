@@ -570,6 +570,12 @@ export interface SessionStartPayload {
   prompt: string;
   effectivePrompt?: string;
   cwd?: string;
+  projectCwd?: string | null;
+  envMode?: ThreadEnvironmentMode;
+  worktreePath?: string | null;
+  associatedWorktreePath?: string | null;
+  associatedWorktreeBranch?: string | null;
+  associatedWorktreeRef?: string | null;
   scope?: SessionScope;
   agentId?: string | null;
   allowedTools?: string;
@@ -630,6 +636,36 @@ export interface SessionContinuePayload {
 }
 
 export type SessionScope = 'project' | 'dm';
+export type ThreadEnvironmentMode = 'local' | 'worktree';
+
+export interface SessionWorkspaceState {
+  envMode?: ThreadEnvironmentMode;
+  projectCwd?: string | null;
+  worktreePath?: string | null;
+  associatedWorktreePath?: string | null;
+  associatedWorktreeBranch?: string | null;
+  associatedWorktreeRef?: string | null;
+}
+
+export interface GitWorktree {
+  path: string;
+  branch: string | null;
+  head: string | null;
+  detached: boolean;
+  locked: boolean;
+  prunable: boolean;
+  current: boolean;
+}
+
+export interface GitBranchInfo {
+  name: string;
+  fullRef: string;
+  current: boolean;
+  remote: boolean;
+  upstream: string | null;
+  shortHash: string;
+  worktreePath?: string | null;
+}
 
 export interface RoutedAgentPublicProfile {
   id: string;
@@ -680,6 +716,12 @@ export interface SessionInfo {
   source?: SessionSource;
   readOnly?: boolean;
   cwd?: string;
+  projectCwd?: string | null;
+  envMode?: ThreadEnvironmentMode;
+  worktreePath?: string | null;
+  associatedWorktreePath?: string | null;
+  associatedWorktreeBranch?: string | null;
+  associatedWorktreeRef?: string | null;
   claudeSessionId?: string;
   provider?: AgentProvider;
   model?: string;
@@ -715,6 +757,12 @@ export interface SessionStatusPayload {
   readOnly?: boolean;
   title?: string;
   cwd?: string;
+  projectCwd?: string | null;
+  envMode?: ThreadEnvironmentMode;
+  worktreePath?: string | null;
+  associatedWorktreePath?: string | null;
+  associatedWorktreeBranch?: string | null;
+  associatedWorktreeRef?: string | null;
   error?: string;
   provider?: AgentProvider;
   model?: string;

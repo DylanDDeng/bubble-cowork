@@ -437,6 +437,14 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-git-branches', cwd);
   },
 
+  gitCheckoutBranch: (cwd: string, branch: string) => {
+    return ipcRenderer.invoke('git-checkout-branch', cwd, branch);
+  },
+
+  gitSessionHandoff: (input: unknown) => {
+    return ipcRenderer.invoke('git-session-handoff', input);
+  },
+
   getGitHistory: (cwd: string) => {
     return ipcRenderer.invoke('get-git-history', cwd);
   },

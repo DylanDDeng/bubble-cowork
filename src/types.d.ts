@@ -173,8 +173,17 @@ declare global {
         remote: boolean;
         upstream: string | null;
         shortHash: string;
+        worktreePath?: string | null;
       }>;
     }>;
+    gitCheckoutBranch: (cwd: string, branch: string) => Promise<{ ok: boolean; output?: string; message?: string }>;
+    gitSessionHandoff: (input: {
+      sessionId: string;
+      targetMode: import('./shared/types').ThreadEnvironmentMode;
+      branch?: string | null;
+      newBranch?: string | null;
+      worktreePath?: string | null;
+    }) => Promise<{ ok: boolean; message?: string; worktree?: import('./shared/types').GitWorktree | null; session?: unknown }>;
     getGitHistory: (cwd: string) => Promise<{
       ok: boolean;
       error: string | null;
