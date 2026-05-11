@@ -4284,6 +4284,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         branch?: string | null;
         newBranch?: string | null;
         worktreePath?: string | null;
+        includeChanges?: boolean;
       }
     ) => {
       const session = sessions.getSession(input.sessionId);
@@ -4357,10 +4358,13 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
           return { ok: true, session: updated, worktree: null };
         }
         const sourceCwd = session.cwd || projectCwd;
-        const sourceStash = await stashWorkingTree({
-          cwd: sourceCwd,
-          message: `Aegis handoff to worktree ${new Date().toISOString()}`,
-        });
+        const includeChanges = input.includeChanges === true;
+        const sourceStash = includeChanges
+          ? await stashWorkingTree({
+              cwd: sourceCwd,
+              message: `Aegis handoff to worktree ${new Date().toISOString()}`,
+            })
+          : { created: false, stashSha: null, output: '' };
         const branch = input.branch || (await getCurrentBranch(projectCwd)) || 'HEAD';
         const defaultNewBranch =
           branch === 'HEAD'
@@ -4397,7 +4401,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
           if (createdWorktreePath) {
             await removeWorktree({ cwd: projectCwd, path: createdWorktreePath, force: true }).catch(() => undefined);
           }
-          throw error;
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `Unable to bring current changes into the worktree. The original workspace was restored and the new worktree was cancelled.${detail ? `\n\n${detail}` : ''}`
+          );
         }
         sessions.updateSessionWorkspace(input.sessionId, {
           projectCwd,

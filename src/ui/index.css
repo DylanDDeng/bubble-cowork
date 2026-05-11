@@ -88,6 +88,7 @@
   --sidebar-segment-bg: #E0E2E5;
   --sidebar-segment-active: #F3F4F6;
   --sidebar-segment-shadow-active: 0 1px 3px rgba(20, 20, 20, 0.08);
+  --app-sidebar-surface: #dcdcddff;
 
   /* Radius system */
   --radius: 0.5rem;

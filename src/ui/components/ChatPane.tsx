@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as Dialog from '@radix-ui/react-dialog';
 import { Check, ChevronDown, GitBranch, GitFork, Loader2, Monitor, X } from './icons';
 import { toast } from 'sonner';
 import { sendEvent } from '../hooks/useIPC';
@@ -94,6 +95,12 @@ function SessionWorkspaceControl({
   const [branchesError, setBranchesError] = useState<string | null>(null);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [busyAction, setBusyAction] = useState<'local' | 'worktree' | 'branch' | null>(null);
+  const [worktreeDialogOpen, setWorktreeDialogOpen] = useState(false);
+  const [worktreeChanges, setWorktreeChanges] = useState<{
+    loading: boolean;
+    totalChanges: number | null;
+    error: string | null;
+  }>({ loading: false, totalChanges: null, error: null });
 
   const refreshBranches = useCallback(async () => {
     const cwd = effectiveCwd || projectCwd;
@@ -143,7 +150,44 @@ function SessionWorkspaceControl({
     session.associatedWorktreeRef ||
     'HEAD';
 
-  const runHandoff = useCallback(async (targetMode: 'local' | 'worktree', branch?: string | null, worktreePath?: string | null) => {
+  useEffect(() => {
+    if (!worktreeDialogOpen) return;
+    const cwd = effectiveCwd || projectCwd;
+    if (!cwd) return;
+    let cancelled = false;
+    setWorktreeChanges({ loading: true, totalChanges: null, error: null });
+    void window.electron.getGitOverview(cwd)
+      .then((result) => {
+        if (cancelled) return;
+        if (!result.ok) {
+          setWorktreeChanges({
+            loading: false,
+            totalChanges: null,
+            error: result.error || 'Unable to inspect current changes.',
+          });
+          return;
+        }
+        setWorktreeChanges({ loading: false, totalChanges: result.totalChanges, error: null });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setWorktreeChanges({
+          loading: false,
+          totalChanges: null,
+          error: error instanceof Error ? error.message : 'Unable to inspect current changes.',
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveCwd, projectCwd, worktreeDialogOpen]);
+
+  const runHandoff = useCallback(async (
+    targetMode: 'local' | 'worktree',
+    branch?: string | null,
+    worktreePath?: string | null,
+    includeChanges?: boolean
+  ) => {
     setBusyAction(targetMode);
     try {
       const result = await window.electron.gitSessionHandoff({
@@ -151,6 +195,7 @@ function SessionWorkspaceControl({
         targetMode,
         branch: branch || null,
         worktreePath: worktreePath || null,
+        includeChanges,
       });
       if (!result.ok) {
         toast.error(result.message || 'Workspace switch failed.');
@@ -165,6 +210,11 @@ function SessionWorkspaceControl({
     }
   }, [refreshBranches, sessionId]);
 
+  const createNewWorktree = useCallback((includeChanges: boolean) => {
+    setWorktreeDialogOpen(false);
+    void runHandoff('worktree', currentBranch, null, includeChanges);
+  }, [currentBranch, runHandoff]);
+
   const handleSelectBranch = useCallback(async (entry: GitBranchInfo) => {
     const cwd = effectiveCwd || projectCwd;
     if (!cwd) return;
@@ -172,7 +222,7 @@ function SessionWorkspaceControl({
       return;
     }
     if (entry.worktreePath && entry.worktreePath !== cwd) {
-      await runHandoff('worktree', entry.name, entry.worktreePath);
+      await runHandoff('worktree', entry.name, entry.worktreePath, false);
       return;
     }
     setBusyAction('branch');
@@ -234,7 +284,7 @@ function SessionWorkspaceControl({
               disabled={busyAction !== null}
               onSelect={(event) => {
                 event.preventDefault();
-                void runHandoff('worktree', currentBranch);
+                setWorktreeDialogOpen(true);
               }}
               className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
             >
@@ -244,6 +294,81 @@ function SessionWorkspaceControl({
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
+
+      <Dialog.Root open={worktreeDialogOpen} onOpenChange={setWorktreeDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[90] bg-black/20 backdrop-blur-[1px]" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[100] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
+            <div className="border-b border-[var(--border)] px-4 py-3">
+              <Dialog.Title className="text-[14px] font-semibold text-[var(--text-primary)]">
+                Create isolated worktree
+              </Dialog.Title>
+              <Dialog.Description className="mt-1 text-[12px] leading-5 text-[var(--text-muted)]">
+                Aegis will create a separate working directory for this session. It will not commit anything.
+              </Dialog.Description>
+            </div>
+            <div className="space-y-3 px-4 py-4 text-[12px] text-[var(--text-secondary)]">
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2.5">
+                <div className="flex items-center gap-2 text-[var(--text-primary)]">
+                  <GitBranch className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                  <span className="min-w-0 truncate">{currentBranch}</span>
+                </div>
+                <div className="mt-1 text-[11px] text-[var(--text-muted)]">
+                  New worktree branch will be created from this branch.
+                </div>
+              </div>
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2.5">
+                {worktreeChanges.loading ? (
+                  <div className="flex items-center gap-2 text-[var(--text-muted)]">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Checking current changes...</span>
+                  </div>
+                ) : worktreeChanges.error ? (
+                  <div className="text-[var(--text-muted)]">{worktreeChanges.error}</div>
+                ) : worktreeChanges.totalChanges && worktreeChanges.totalChanges > 0 ? (
+                  <div>
+                    <div className="font-medium text-[var(--text-primary)]">
+                      {worktreeChanges.totalChanges} uncommitted file{worktreeChanges.totalChanges === 1 ? '' : 's'} found
+                    </div>
+                    <div className="mt-1 leading-5 text-[var(--text-muted)]">
+                      Choose whether to leave them here or temporarily stash and copy them into the new worktree.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[var(--text-muted)]">
+                    No uncommitted changes found. A clean worktree will be created.
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setWorktreeDialogOpen(false)}
+                className="rounded-md px-3 py-1.5 text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={busyAction !== null || worktreeChanges.loading}
+                onClick={() => createNewWorktree(false)}
+                className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Create clean worktree
+              </button>
+              <button
+                type="button"
+                disabled={busyAction !== null || worktreeChanges.loading || !worktreeChanges.totalChanges}
+                onClick={() => createNewWorktree(true)}
+                className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-[12px] font-semibold text-[var(--accent-foreground)] transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Bring current changes
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       <DropdownMenu.Root onOpenChange={(open) => { if (open) void refreshBranches(); }}>
         <DropdownMenu.Trigger asChild>

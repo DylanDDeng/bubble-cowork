@@ -791,11 +791,11 @@ function buildThemeVariables(
       ? '0 0 0 1px rgba(17, 24, 39, 0.04), 0 2px 4px rgba(15, 18, 25, 0.05), 0 24px 56px -14px rgba(15, 18, 25, 0.22)'
       : '0 0 0 1px rgba(0, 0, 0, 0.45), 0 4px 8px rgba(0, 0, 0, 0.35), 0 28px 64px -14px rgba(0, 0, 0, 0.65)',
     '--app-shell-background': surfaceUnder,
-    '--app-sidebar-surface': pack.theme.opaqueWindows
-      ? surfaceUnder
-      : variant === 'dark'
-        ? `color-mix(in srgb, ${surfaceUnder} 72%, transparent)`
-        : `color-mix(in srgb, ${surfaceUnder} 64%, transparent)`,
+    '--app-sidebar-surface': variant === 'light'
+      ? '#dcdcddff'
+      : pack.theme.opaqueWindows
+        ? surfaceUnder
+        : `color-mix(in srgb, ${surfaceUnder} 72%, transparent)`,
     '--app-sidebar-shadow': variant === 'dark'
       ? 'inset 0 1px 0 rgba(255,255,255,0.025)'
       : 'inset 0 1px 0 rgba(0,0,0,0.03)',

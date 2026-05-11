@@ -183,6 +183,7 @@ declare global {
       branch?: string | null;
       newBranch?: string | null;
       worktreePath?: string | null;
+      includeChanges?: boolean;
     }) => Promise<{ ok: boolean; message?: string; worktree?: import('./shared/types').GitWorktree | null; session?: unknown }>;
     getGitHistory: (cwd: string) => Promise<{
       ok: boolean;
