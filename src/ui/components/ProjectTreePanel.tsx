@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FolderClosed, FolderOpen, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Maximize2, Minimize2, File, FileAddIcon, FolderAddIcon } from './icons';
+import { FolderClosed, FolderOpen, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Maximize2, Minimize2, File, FileDiff, Files, FileAddIcon, FolderAddIcon } from './icons';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
@@ -367,6 +367,7 @@ export function ProjectTreePanel({
 }) {
   const MIN_CHANGES_SPINNER_MS = 450;
   const panelMeta = PANEL_DIMENSIONS[activeTab];
+  const PanelTitleIcon = activeTab === 'files' ? Files : FileDiff;
   const defaultRailWidth = panelMeta.defaultWidth;
   const minRailWidth = panelMeta.minWidth;
   const maxRailWidth = panelMeta.maxWidth;
@@ -1357,8 +1358,13 @@ export function ProjectTreePanel({
         {!selectedFilePath && <div className="h-8 drag-region flex-shrink-0 bg-[var(--bg-primary)]" />}
         <div className="pl-4 pr-2 pt-2 pb-2">
           <div className="flex items-center justify-between gap-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-              {panelMeta.title}
+            <div
+              className="flex h-7 w-7 shrink-0 items-center justify-center text-[var(--text-muted)]"
+              title={panelMeta.title}
+              role="img"
+              aria-label={`${panelMeta.title} panel`}
+            >
+              <PanelTitleIcon className="h-3.5 w-3.5" aria-hidden="true" />
             </div>
             {activeTab === 'files' && (
               <div className="flex items-center gap-0.5">
