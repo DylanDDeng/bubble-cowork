@@ -66,7 +66,83 @@ function resolveUnpackedPath(maybeAsarPath: string): string {
   return maybeAsarPath;
 }
 
+function getClaudeCodeBinaryName(): string {
+  return process.platform === 'win32' ? 'claude.exe' : 'claude';
+}
+
+function getClaudeAgentSdkBinaryPackageNames(): string[] {
+  const arch = process.arch;
+  if (arch !== 'x64' && arch !== 'arm64') {
+    return [];
+  }
+
+  switch (process.platform) {
+    case 'darwin':
+      return [`@anthropic-ai/claude-agent-sdk-darwin-${arch}`];
+    case 'win32':
+      return [`@anthropic-ai/claude-agent-sdk-win32-${arch}`];
+    case 'linux':
+      return [
+        `@anthropic-ai/claude-agent-sdk-linux-${arch}`,
+        `@anthropic-ai/claude-agent-sdk-linux-${arch}-musl`,
+      ];
+    default:
+      return [];
+  }
+}
+
+function getBundledClaudeAgentSdkBinaryPath(): string | undefined {
+  if (!process.resourcesPath) {
+    return undefined;
+  }
+
+  const binaryName = getClaudeCodeBinaryName();
+  for (const packageName of getClaudeAgentSdkBinaryPackageNames()) {
+    const packageDirName = packageName.split('/').pop();
+    if (!packageDirName) {
+      continue;
+    }
+
+    const candidate = path.join(
+      process.resourcesPath,
+      'app.asar.unpacked',
+      'node_modules',
+      '@anthropic-ai',
+      packageDirName,
+      binaryName
+    );
+
+    if (fs.existsSync(candidate) && canExecute(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+function getWorkspaceClaudeAgentSdkBinaryPath(): string | undefined {
+  const binaryName = getClaudeCodeBinaryName();
+  for (const packageName of getClaudeAgentSdkBinaryPackageNames()) {
+    try {
+      const packageJsonPath = resolveUnpackedPath(requireFn.resolve(`${packageName}/package.json`));
+      const candidate = path.join(path.dirname(packageJsonPath), binaryName);
+      if (fs.existsSync(candidate) && canExecute(candidate)) {
+        return candidate;
+      }
+    } catch {
+      // Optional native binary packages are platform-specific and may be absent.
+    }
+  }
+
+  return undefined;
+}
+
 function getBundledClaudeCodeCliPath(): string | undefined {
+  const binary = getBundledClaudeAgentSdkBinaryPath();
+  if (binary) {
+    return binary;
+  }
+
   if (!process.resourcesPath) {
     return undefined;
   }
@@ -92,6 +168,11 @@ function resolveClaudeCodeCliPath(): string | undefined {
   const bundled = getBundledClaudeCodeCliPath();
   if (bundled) {
     return bundled;
+  }
+
+  const workspaceBinary = getWorkspaceClaudeAgentSdkBinaryPath();
+  if (workspaceBinary) {
+    return workspaceBinary;
   }
 
   try {

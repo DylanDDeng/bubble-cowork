@@ -52,6 +52,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install macOS x64 Claude runtime
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          CLAUDE_AGENT_SDK_VERSION="$(node -p "require('./node_modules/@anthropic-ai/claude-agent-sdk/package.json').version")"
+          CLAUDE_X64_PACKAGE="@anthropic-ai/claude-agent-sdk-darwin-x64"
+          CLAUDE_X64_DIR="node_modules/@anthropic-ai/claude-agent-sdk-darwin-x64"
+          CLAUDE_X64_TARBALL="$(npm pack --force "$CLAUDE_X64_PACKAGE@$CLAUDE_AGENT_SDK_VERSION" --pack-destination "$RUNNER_TEMP" | tail -n 1)"
+          rm -rf "$CLAUDE_X64_DIR"
+          mkdir -p "$CLAUDE_X64_DIR"
+          tar -xzf "$RUNNER_TEMP/$CLAUDE_X64_TARBALL" -C "$CLAUDE_X64_DIR" --strip-components=1
+          chmod +x "$CLAUDE_X64_DIR/claude"
+
       - name: Build (Vite + TS)
         run: npm run build
 
