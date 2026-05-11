@@ -226,10 +226,10 @@ export function PromptLibraryView() {
         <div className="mx-auto max-w-[1500px] px-8 pb-8 pt-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
-              <h1 className="text-[25px] font-semibold leading-8 tracking-[-0.03em] text-[var(--text-primary)]">
+              <h1 className="text-[13px] font-semibold leading-8 tracking-[-0.03em] text-[var(--text-primary)]">
                 Prompt Library
               </h1>
-              <p className="mt-1 text-[14px] text-[var(--text-secondary)]">
+              <p className="mt-1 text-[13px] text-[var(--text-secondary)]">
                 {items.length} saved prompt{items.length === 1 ? '' : 's'}
               </p>
             </div>
@@ -244,7 +244,7 @@ export function PromptLibraryView() {
               <button
                 type="button"
                 onClick={openNewEditor}
-                className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-[var(--accent)] px-4 text-[14px] font-medium text-[var(--accent-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.12)] transition-colors hover:bg-[var(--accent-hover)]"
+                className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-[var(--accent)] px-4 text-[13px] font-medium text-[var(--accent-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.12)] transition-colors hover:bg-[var(--accent-hover)]"
               >
                 <Plus className="h-4 w-4" />
                 <span>New Prompt</span>
@@ -260,7 +260,7 @@ export function PromptLibraryView() {
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder="Search prompts..."
-                className="h-10 w-full rounded-[10px] border border-[color:color-mix(in_srgb,var(--border)_80%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_68%,transparent)] pl-9 pr-9 text-[14px] text-[var(--text-primary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+                className="h-10 w-full rounded-[10px] border border-[color:color-mix(in_srgb,var(--border)_80%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_68%,transparent)] pl-9 pr-9 text-[13px] text-[var(--text-primary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
               />
               {searchQuery && (
                 <button
@@ -279,7 +279,7 @@ export function PromptLibraryView() {
               <select
                 value={selectedCategory}
                 onChange={(event) => setSelectedCategory(event.target.value)}
-                className="h-10 min-w-[220px] rounded-[10px] border border-[color:color-mix(in_srgb,var(--border)_80%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_72%,transparent)] px-3 text-[14px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
+                className="h-10 min-w-[220px] rounded-[10px] border border-[color:color-mix(in_srgb,var(--border)_80%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_72%,transparent)] px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
                 aria-label="Filter prompt category"
               >
                 <option value="all">All categories</option>
@@ -311,7 +311,7 @@ export function PromptLibraryView() {
 
           <section className="mt-5">
             {loading ? (
-              <div className="flex items-center gap-2 rounded-[14px] border border-[var(--border)] bg-[color:color-mix(in_srgb,var(--bg-primary)_70%,transparent)] px-4 py-4 text-[14px] text-[var(--text-secondary)]">
+              <div className="flex items-center gap-2 rounded-[14px] border border-[var(--border)] bg-[color:color-mix(in_srgb,var(--bg-primary)_70%,transparent)] px-4 py-4 text-[13px] text-[var(--text-secondary)]">
                 <LoaderCircle className="h-4 w-4 animate-spin" />
                 <span>Loading prompts...</span>
               </div>
@@ -414,10 +414,10 @@ function PromptCard({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="truncate text-[14px] font-semibold leading-5 tracking-[-0.01em] text-[var(--text-primary)]">
+              <h3 className="truncate text-[13px] font-semibold leading-5 tracking-[-0.01em] text-[var(--text-primary)]">
                 {item.title}
               </h3>
-              <div className="mt-1 text-[12px] text-[var(--text-secondary)]">
+              <div className="mt-1 text-[13px] text-[var(--text-secondary)]">
                 {formatRelativeTime(item.updatedAt)}
               </div>
             </div>
@@ -433,7 +433,7 @@ function PromptCard({
               {item.tags.slice(0, compact ? 5 : 3).map((tag) => (
                 <span
                   key={tag}
-                  className="max-w-[115px] truncate rounded-[6px] bg-[color:color-mix(in_srgb,var(--bg-tertiary)_84%,transparent)] px-2 py-0.5 text-[11px] leading-4 text-[var(--text-muted)]"
+                  className="max-w-[115px] truncate rounded-[6px] bg-[color:color-mix(in_srgb,var(--bg-tertiary)_84%,transparent)] px-2 py-0.5 text-[13px] leading-4 text-[var(--text-muted)]"
                   title={tag}
                 >
                   {tag}
@@ -502,7 +502,7 @@ function PromptDetailDialog({
         <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/25 backdrop-blur-[1.5px]" />
         <Dialog.Content className="fixed left-1/2 top-1/2 z-[81] flex max-h-[82vh] w-[min(620px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[16px] border border-[color:color-mix(in_srgb,var(--border)_78%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_94%,var(--bg-secondary))] shadow-[0_24px_80px_rgba(0,0,0,0.2)] outline-none">
           {!item ? (
-            <div className="flex min-h-[320px] items-center justify-center p-6 text-[14px] leading-7 text-[var(--text-muted)]">
+            <div className="flex min-h-[320px] items-center justify-center p-6 text-[13px] leading-7 text-[var(--text-muted)]">
               Select a prompt card to inspect its content.
             </div>
           ) : (
@@ -510,7 +510,7 @@ function PromptDetailDialog({
               <div className="border-b border-[color:color-mix(in_srgb,var(--border)_58%,transparent)] px-7 pb-5 pt-6">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <Dialog.Title className="break-words text-[18px] font-semibold leading-6 tracking-[-0.02em] text-[var(--text-primary)]">
+                    <Dialog.Title className="break-words text-[13px] font-semibold leading-6 tracking-[-0.02em] text-[var(--text-primary)]">
                       {item.title}
                     </Dialog.Title>
                     <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-[var(--text-muted)]">
@@ -540,7 +540,7 @@ function PromptDetailDialog({
                         key={tag}
                         type="button"
                         onClick={() => onCategoryClick(tag)}
-                        className="rounded-[7px] bg-[color:color-mix(in_srgb,var(--bg-tertiary)_78%,transparent)] px-2 py-1 text-[12px] leading-4 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                        className="rounded-[7px] bg-[color:color-mix(in_srgb,var(--bg-tertiary)_78%,transparent)] px-2 py-1 text-[13px] leading-4 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
                       >
                         {tag}
                       </button>
@@ -551,13 +551,13 @@ function PromptDetailDialog({
 
               <div className="min-h-0 flex-1 overflow-y-auto px-7 py-5">
                 {item.description && (
-                  <p className="mb-5 text-[14px] leading-6 text-[var(--text-secondary)]">
+                  <p className="mb-5 text-[13px] leading-6 text-[var(--text-secondary)]">
                     {item.description}
                   </p>
                 )}
 
                 <div className="mb-2 text-[13px] font-medium text-[var(--text-primary)]">Prompt</div>
-                <pre className="max-h-[300px] overflow-auto whitespace-pre-wrap break-words rounded-[10px] border border-[color:color-mix(in_srgb,var(--border)_78%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_78%,var(--bg-secondary))] p-4 font-mono text-[12px] leading-5 text-[var(--text-primary)]">
+                <pre className="max-h-[300px] overflow-auto whitespace-pre-wrap break-words rounded-[10px] border border-[color:color-mix(in_srgb,var(--border)_78%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_78%,var(--bg-secondary))] p-4 font-mono text-[13px] leading-5 text-[var(--text-primary)]">
                   {item.content}
                 </pre>
               </div>
@@ -581,7 +581,7 @@ function PromptDetailDialog({
                 <button
                   type="button"
                   onClick={() => onUsePrompt(item)}
-                  className="inline-flex h-10 items-center justify-center rounded-[10px] bg-[var(--accent)] px-4 text-[14px] font-medium text-[var(--accent-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.12)] transition-colors hover:bg-[var(--accent-hover)]"
+                  className="inline-flex h-10 items-center justify-center rounded-[10px] bg-[var(--accent)] px-4 text-[13px] font-medium text-[var(--accent-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.12)] transition-colors hover:bg-[var(--accent-hover)]"
                 >
                   Use Prompt
                 </button>
@@ -608,13 +608,13 @@ function EmptyPromptState({
   return (
     <div className="flex min-h-[320px] flex-col items-center justify-center rounded-[16px] border border-dashed border-[color:color-mix(in_srgb,var(--border)_78%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_66%,transparent)] px-6 py-10 text-center">
       <Bookmark className="mb-4 h-10 w-10 text-[var(--text-muted)]" strokeWidth={1.5} />
-      <div className="text-sm text-[var(--text-secondary)]">
+      <div className="text-[13px] text-[var(--text-secondary)]">
         {hasItems ? 'No prompts match your filters.' : 'No prompts saved yet.'}
       </div>
       <button
         type="button"
         onClick={hasFilters ? onClearFilters : onCreate}
-        className="mt-4 inline-flex items-center gap-1.5 rounded-[10px] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+        className="mt-4 inline-flex items-center gap-1.5 rounded-[10px] border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2 text-[13px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
       >
         {hasFilters ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
         <span>{hasFilters ? 'Clear filters' : 'Create your first prompt'}</span>
@@ -703,7 +703,7 @@ function DialogActionButton({
 function CategoryPill({ category, color }: { category: string; color: string }) {
   return (
     <span
-      className="inline-flex max-w-[140px] items-center rounded-[6px] px-2 py-0.5 text-[11px] font-medium leading-4"
+      className="inline-flex max-w-[140px] items-center rounded-[6px] px-2 py-0.5 text-[13px] font-medium leading-4"
       style={{
         color,
         backgroundColor: `color-mix(in srgb, ${color} 15%, transparent)`,

@@ -124,7 +124,7 @@ export function PromptLibraryEditorDialog({
         <Dialog.Content className="fixed left-1/2 top-1/2 z-[83] flex max-h-[86vh] w-[min(700px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[16px] border border-[color:color-mix(in_srgb,var(--border)_78%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_95%,var(--bg-secondary))] shadow-[0_26px_90px_rgba(0,0,0,0.22)] outline-none">
           <div className="flex items-start justify-between gap-4 px-7 pb-4 pt-6">
             <div>
-              <Dialog.Title className="text-[22px] font-semibold leading-7 tracking-[-0.03em] text-[var(--text-primary)]">
+              <Dialog.Title className="text-[13px] font-semibold leading-7 tracking-[-0.03em] text-[var(--text-primary)]">
                 {dialogTitle}
               </Dialog.Title>
             </div>
@@ -157,7 +157,7 @@ export function PromptLibraryEditorDialog({
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
                   placeholder="Summarize repo before coding"
-                  className="h-11 w-full rounded-[10px] border border-[color:color-mix(in_srgb,var(--border)_80%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_78%,var(--bg-secondary))] px-3 text-[15px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+                  className="h-11 w-full rounded-[10px] border border-[color:color-mix(in_srgb,var(--border)_80%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_78%,var(--bg-secondary))] px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
                 />
               </label>
 
@@ -167,7 +167,7 @@ export function PromptLibraryEditorDialog({
                   value={category}
                   onChange={(event) => setCategory(event.target.value)}
                   placeholder="research"
-                  className="h-11 w-full rounded-[10px] border border-[color:color-mix(in_srgb,var(--border)_80%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_78%,var(--bg-secondary))] px-3 text-[14px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+                  className="h-11 w-full rounded-[10px] border border-[color:color-mix(in_srgb,var(--border)_80%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_78%,var(--bg-secondary))] px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
                 />
               </label>
             </div>
@@ -178,7 +178,7 @@ export function PromptLibraryEditorDialog({
                 value={tagsInput}
                 onChange={(event) => setTagsInput(event.target.value)}
                 placeholder="customers, analysis, planning"
-                className="h-11 w-full rounded-[10px] border border-[color:color-mix(in_srgb,var(--border)_80%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_78%,var(--bg-secondary))] px-3 text-[14px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+                className="h-11 w-full rounded-[10px] border border-[color:color-mix(in_srgb,var(--border)_80%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_78%,var(--bg-secondary))] px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
               />
             </label>
 
@@ -201,7 +201,7 @@ export function PromptLibraryEditorDialog({
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
                 placeholder="Optional note about when to use this prompt"
-                className="h-11 w-full rounded-[10px] border border-[color:color-mix(in_srgb,var(--border)_80%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_78%,var(--bg-secondary))] px-3 text-[14px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+                className="h-11 w-full rounded-[10px] border border-[color:color-mix(in_srgb,var(--border)_80%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_78%,var(--bg-secondary))] px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
               />
             </label>
 
@@ -216,14 +216,14 @@ export function PromptLibraryEditorDialog({
               />
             </label>
 
-            {error ? <div className="mt-3 text-sm text-[#dc2626]">{error}</div> : null}
+            {error ? <div className="mt-3 text-[13px] text-[#dc2626]">{error}</div> : null}
           </div>
 
           <div className="flex items-center justify-end gap-2 border-t border-[color:color-mix(in_srgb,var(--border)_52%,transparent)] px-7 py-4">
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              className="inline-flex h-10 items-center rounded-[10px] border border-[color:color-mix(in_srgb,var(--border)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_72%,transparent)] px-4 text-[14px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+              className="inline-flex h-10 items-center rounded-[10px] border border-[color:color-mix(in_srgb,var(--border)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--bg-primary)_72%,transparent)] px-4 text-[13px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
             >
               Cancel
             </button>
@@ -231,7 +231,7 @@ export function PromptLibraryEditorDialog({
               type="button"
               onClick={() => void handleSubmit()}
               disabled={saving}
-              className="inline-flex h-10 items-center rounded-[10px] bg-[var(--accent)] px-4 text-[14px] font-medium text-[var(--accent-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.12)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex h-10 items-center rounded-[10px] bg-[var(--accent)] px-4 text-[13px] font-medium text-[var(--accent-foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.12)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saving ? 'Saving...' : initialItem ? 'Save Changes' : 'Save Prompt'}
             </button>

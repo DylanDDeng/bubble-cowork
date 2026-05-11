@@ -18,7 +18,7 @@ export function SavePromptButton({ content, disabled = false }: SavePromptButton
         type="button"
         onClick={() => setOpen(true)}
         disabled={disabled || !hasContent}
-        className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
         title="Save current prompt"
         aria-label="Save current prompt"
       >
