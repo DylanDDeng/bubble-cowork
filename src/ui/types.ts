@@ -135,7 +135,8 @@ export type AgentAvatarAssetKey =
   | 'notion-avatar-02'
   | 'notion-avatar-03'
   | 'notion-avatar-04'
-  | 'notion-avatar-05';
+  | 'notion-avatar-05'
+  | 'anime-avatar-01';
 
 export interface AgentProfileAvatar {
   type: 'asset';
