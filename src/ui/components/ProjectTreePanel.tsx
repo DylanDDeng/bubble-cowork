@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { FolderClosed, FolderOpen, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Maximize2, Minimize2, File, FileDiff, Files, FileAddIcon, FolderAddIcon } from './icons';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { toast } from 'sonner';
@@ -37,6 +37,7 @@ const PANEL_DIMENSIONS: Record<ProjectPanelTab, ProjectPanelDimensions> = {
 const LEGACY_PROJECT_PANEL_WIDTH_STORAGE_KEY = 'cowork.projectPanelWidth';
 const getProjectPanelWidthStorageKey = (tab: ProjectPanelTab) =>
   `${LEGACY_PROJECT_PANEL_WIDTH_STORAGE_KEY}.${tab}`;
+const PROJECT_ENTRY_DRAG_MIME = 'application/x-aegis-project-entry';
 
 function parseStoredPanelWidth(
   stored: string | null,
@@ -123,6 +124,8 @@ type ProjectEntryCreateResult = {
   tree?: ProjectTreeNode;
   message?: string;
 };
+type ProjectEntryMoveResult = ProjectEntryCreateResult;
+type ProjectDraggedEntry = Pick<ProjectTreeNode, 'kind' | 'name' | 'path'>;
 type ProjectTreeContextMenuState = {
   x: number;
   y: number;
@@ -144,10 +147,54 @@ function CreateEntryIcon({
   );
 }
 
+function normalizeProjectPath(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, '/');
+  return normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized;
+}
+
 function dirnameOfPath(filePath: string): string {
   const normalized = filePath.replace(/\\/g, '/');
   const index = normalized.lastIndexOf('/');
   return index > 0 ? normalized.slice(0, index) : '.';
+}
+
+function isSameProjectPath(left: string, right: string): boolean {
+  return normalizeProjectPath(left) === normalizeProjectPath(right);
+}
+
+function isPathInsideProjectPath(path: string, parentPath: string): boolean {
+  const normalizedPath = normalizeProjectPath(path);
+  const normalizedParent = normalizeProjectPath(parentPath);
+  const parentPrefix = normalizedParent.endsWith('/') ? normalizedParent : `${normalizedParent}/`;
+  return normalizedPath !== normalizedParent && normalizedPath.startsWith(parentPrefix);
+}
+
+function readDraggedProjectEntry(event: DragEvent<HTMLElement>): ProjectDraggedEntry | null {
+  const raw = event.dataTransfer.getData(PROJECT_ENTRY_DRAG_MIME);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<ProjectDraggedEntry>;
+    if (
+      typeof parsed.path === 'string' &&
+      typeof parsed.name === 'string' &&
+      (parsed.kind === 'file' || parsed.kind === 'dir')
+    ) {
+      return {
+        path: parsed.path,
+        name: parsed.name,
+        kind: parsed.kind,
+      };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function getNodeDropHoverId(path: string): string {
+  return `node:${normalizeProjectPath(path)}`;
 }
 
 function sliceTextLineRange(text: string, lineStart?: number, lineEnd?: number): string {
@@ -168,11 +215,21 @@ function sliceTextLineRange(text: string, lineStart?: number, lineEnd?: number):
 function TreeNode({
   node,
   depth,
+  parentPath,
   expandedPaths,
   onToggle,
   onSelectFile,
   onOpenContextMenu,
+  onProjectEntryDragStart,
+  onProjectEntryDragEnd,
+  onTreeNodeDragOver,
+  onTreeNodeDragLeave,
+  onTreeNodeDrop,
+  canDropEntryOnParent,
   selectedFilePath,
+  draggedEntry,
+  dropHoverId,
+  movingEntryPath,
   forceExpand,
   createDraft,
   onCreateDraftNameChange,
@@ -181,11 +238,21 @@ function TreeNode({
 }: {
   node: ProjectTreeNode;
   depth: number;
+  parentPath: string | null;
   expandedPaths: Set<string>;
   onToggle: (path: string) => void;
   onSelectFile: (node: ProjectTreeNode) => void;
   onOpenContextMenu: (event: React.MouseEvent, node: ProjectTreeNode) => void;
+  onProjectEntryDragStart: (event: DragEvent<HTMLDivElement>, node: ProjectTreeNode) => void;
+  onProjectEntryDragEnd: () => void;
+  onTreeNodeDragOver: (event: DragEvent<HTMLElement>, node: ProjectTreeNode, parentPath: string | null) => void;
+  onTreeNodeDragLeave: (event: DragEvent<HTMLElement>, node: ProjectTreeNode, parentPath: string | null) => void;
+  onTreeNodeDrop: (event: DragEvent<HTMLElement>, node: ProjectTreeNode, parentPath: string | null) => void;
+  canDropEntryOnParent: (entry: ProjectDraggedEntry, targetParentPath: string) => boolean;
   selectedFilePath: string | null;
+  draggedEntry: ProjectDraggedEntry | null;
+  dropHoverId: string | null;
+  movingEntryPath: string | null;
   forceExpand: boolean;
   createDraft: CreateDraftState | null;
   onCreateDraftNameChange: (name: string) => void;
@@ -196,14 +263,48 @@ function TreeNode({
   const isExpanded = forceExpand || expandedPaths.has(node.path);
   const chevron = isDir ? (isExpanded ? 'v' : '>') : '';
   const isSelected = !isDir && !!selectedFilePath && node.path === selectedFilePath;
+  const isDragSource = !!draggedEntry && isSameProjectPath(draggedEntry.path, node.path);
+  const isMoving = !!movingEntryPath && isSameProjectPath(movingEntryPath, node.path);
+  // The drop target a hover on this row resolves to: dirs target themselves; files target their parent dir.
+  const resolvedTargetPath: string | null = isDir
+    ? node.path
+    : parentPath || null;
+  const canAcceptDrop =
+    !!draggedEntry &&
+    !!resolvedTargetPath &&
+    canDropEntryOnParent(draggedEntry, resolvedTargetPath);
+  // Files highlight their parent dir row; dirs highlight themselves.
+  const isDropTarget =
+    isDir &&
+    canAcceptDrop &&
+    dropHoverId === getNodeDropHoverId(node.path);
+
+  // Hover-to-expand: when a collapsed dir is the active drop target, expand it after a short delay.
+  useEffect(() => {
+    if (!isDir || isExpanded) return;
+    if (!canAcceptDrop) return;
+    if (dropHoverId !== getNodeDropHoverId(node.path)) return;
+    const timer = window.setTimeout(() => {
+      onToggle(node.path);
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [isDir, isExpanded, canAcceptDrop, dropHoverId, node.path, onToggle]);
 
   return (
     <>
       <div
         className={`flex min-h-[24px] items-center gap-2 rounded-md py-0.5 text-sm transition-colors duration-150 hover:bg-[var(--tree-item-hover)] ${
           isSelected ? 'bg-[var(--tree-item-active)] ring-1 ring-[var(--tree-item-border)]' : ''
-        }`}
+        } ${isDropTarget ? 'bg-[var(--tree-item-active)] ring-1 ring-[var(--tree-file-accent-fg)]' : ''} ${
+          isDragSource || isMoving ? 'opacity-50' : ''
+        } ${!isDir ? 'cursor-grab active:cursor-grabbing' : ''}`}
         style={{ paddingLeft: depth * 12 }}
+        draggable={!isMoving}
+        onDragStart={(event) => onProjectEntryDragStart(event, node)}
+        onDragEnd={onProjectEntryDragEnd}
+        onDragOver={(event) => onTreeNodeDragOver(event, node, parentPath)}
+        onDragLeave={(event) => onTreeNodeDragLeave(event, node, parentPath)}
+        onDrop={(event) => onTreeNodeDrop(event, node, parentPath)}
         onClick={() => {
           if (isDir) {
             onToggle(node.path);
@@ -252,11 +353,21 @@ function TreeNode({
             key={child.path}
             node={child}
             depth={depth + 1}
+            parentPath={node.path}
             expandedPaths={expandedPaths}
             onToggle={onToggle}
             onSelectFile={onSelectFile}
             onOpenContextMenu={onOpenContextMenu}
+            onProjectEntryDragStart={onProjectEntryDragStart}
+            onProjectEntryDragEnd={onProjectEntryDragEnd}
+            onTreeNodeDragOver={onTreeNodeDragOver}
+            onTreeNodeDragLeave={onTreeNodeDragLeave}
+            onTreeNodeDrop={onTreeNodeDrop}
+            canDropEntryOnParent={canDropEntryOnParent}
             selectedFilePath={selectedFilePath}
+            draggedEntry={draggedEntry}
+            dropHoverId={dropHoverId}
+            movingEntryPath={movingEntryPath}
             forceExpand={forceExpand}
             createDraft={createDraft}
             onCreateDraftNameChange={onCreateDraftNameChange}
@@ -416,6 +527,10 @@ export function ProjectTreePanel({
   const createDraftIdRef = useRef(0);
   const [createDraft, setCreateDraft] = useState<CreateDraftState | null>(null);
   const [projectTreeContextMenu, setProjectTreeContextMenu] = useState<ProjectTreeContextMenuState | null>(null);
+  const [draggedProjectEntry, setDraggedProjectEntry] = useState<ProjectDraggedEntry | null>(null);
+  const draggedProjectEntryRef = useRef<ProjectDraggedEntry | null>(null);
+  const [projectDropHoverId, setProjectDropHoverId] = useState<string | null>(null);
+  const [movingProjectEntryPath, setMovingProjectEntryPath] = useState<string | null>(null);
 
   const [changeRecords, setChangeRecords] = useState<ChangeRecord[]>([]);
   const [changesError, setChangesError] = useState<string | null>(null);
@@ -646,6 +761,10 @@ export function ProjectTreePanel({
     setPptxSlideIndex(0);
     setCreateDraft(null);
     setProjectTreeContextMenu(null);
+    setDraggedProjectEntry(null);
+    draggedProjectEntryRef.current = null;
+    setProjectDropHoverId(null);
+    setMovingProjectEntryPath(null);
     setChangeRecords([]);
     setChangesError(null);
     setExpandedChangeId(null);
@@ -664,7 +783,7 @@ export function ProjectTreePanel({
     setExpandedPaths(new Set([visibleTree.path]));
   }, [visibleTree?.path]);
 
-  const togglePath = (path: string) => {
+  const togglePath = useCallback((path: string) => {
     setExpandedPaths((prev) => {
       const next = new Set(prev);
       if (next.has(path)) {
@@ -674,7 +793,7 @@ export function ProjectTreePanel({
       }
       return next;
     });
-  };
+  }, []);
 
   const expandParentsForPath = useCallback((path: string) => {
     const parts = path.split('/').filter(Boolean);
@@ -833,6 +952,204 @@ export function ProjectTreePanel({
     if (node.kind !== 'file') return;
     await selectFilePath(node.path, node.name, true);
   };
+
+  const canDropEntryOnParent = useCallback((entry: ProjectDraggedEntry, targetParentPath: string) => {
+    if (!cwd || !entry.path || !targetParentPath) return false;
+
+    const sourcePath = normalizeProjectPath(entry.path);
+    const targetPath = normalizeProjectPath(targetParentPath);
+    const projectRoot = normalizeProjectPath(cwd);
+
+    if (!isPathInsideProjectPath(sourcePath, projectRoot)) return false;
+    if (targetPath !== projectRoot && !isPathInsideProjectPath(targetPath, projectRoot)) return false;
+    if (isSameProjectPath(sourcePath, targetPath)) return false;
+    if (isSameProjectPath(dirnameOfPath(sourcePath), targetPath)) return false;
+    if (entry.kind === 'dir' && isPathInsideProjectPath(targetPath, sourcePath)) return false;
+
+    return true;
+  }, [cwd]);
+
+  const moveProjectEntryIntoParent = useCallback(async (
+    entry: ProjectDraggedEntry,
+    targetParentPath: string
+  ) => {
+    if (!cwd) return;
+
+    const mover = window.electron.moveProjectEntry;
+    if (typeof mover !== 'function') {
+      toast.error('File move API is not available. Please restart the app.');
+      return;
+    }
+
+    if (!canDropEntryOnParent(entry, targetParentPath)) return;
+
+    const wasSelected = !!selectedFilePath && isSameProjectPath(selectedFilePath, entry.path);
+    setMovingProjectEntryPath(entry.path);
+    setProjectDropHoverId(null);
+    setDraggedProjectEntry(null);
+    draggedProjectEntryRef.current = null;
+
+    try {
+      const result = (await mover(cwd, entry.path, targetParentPath)) as ProjectEntryMoveResult;
+      if (!result?.ok || !result.path || !result.tree) {
+        toast.error(result?.message || 'Failed to move file.');
+        return;
+      }
+
+      setProjectTree(cwd, result.tree);
+      expandPath(targetParentPath);
+
+      if (wasSelected) {
+        const movedPath = result.path;
+        setSelectedFilePath(movedPath);
+        setSelectedPreview((current) => current ? { ...current, path: movedPath } : current);
+      }
+
+      toast.success(`${entry.kind === 'dir' ? 'Folder' : 'File'} moved.`);
+    } catch (error) {
+      toast.error(`Failed to move file: ${String(error)}`);
+    } finally {
+      setMovingProjectEntryPath(null);
+    }
+  }, [canDropEntryOnParent, cwd, expandPath, selectedFilePath, setProjectTree]);
+
+  const handleProjectEntryDragStart = useCallback((event: DragEvent<HTMLDivElement>, node: ProjectTreeNode) => {
+    if (node.kind !== 'file' && node.kind !== 'dir') return;
+
+    const entry: ProjectDraggedEntry = {
+      kind: node.kind,
+      name: node.name,
+      path: node.path,
+    };
+    setProjectTreeContextMenu(null);
+    setCreateDraft(null);
+    draggedProjectEntryRef.current = entry;
+    setDraggedProjectEntry(entry);
+    setProjectDropHoverId(null);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData(PROJECT_ENTRY_DRAG_MIME, JSON.stringify(entry));
+    event.dataTransfer.setData('text/plain', node.path);
+  }, []);
+
+  const handleProjectEntryDragEnd = useCallback(() => {
+    draggedProjectEntryRef.current = null;
+    setDraggedProjectEntry(null);
+    setProjectDropHoverId(null);
+  }, []);
+
+  const getDraggedEntryForEvent = useCallback((event: DragEvent<HTMLElement>) => {
+    return draggedProjectEntryRef.current || draggedProjectEntry || readDraggedProjectEntry(event);
+  }, [draggedProjectEntry]);
+
+  // Set hover highlight to (targetParentPath, hoverId) if a drop is acceptable.
+  // Always call stopPropagation when we have a dragged entry so the root container
+  // does not see events that originated on a child row.
+  const handleDropTargetDragOver = useCallback((
+    event: DragEvent<HTMLElement>,
+    targetParentPath: string,
+    hoverId: string
+  ) => {
+    const entry = getDraggedEntryForEvent(event);
+    if (!entry) return;
+
+    event.stopPropagation();
+
+    if (canDropEntryOnParent(entry, targetParentPath)) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      setProjectDropHoverId((current) => (current === hoverId ? current : hoverId));
+      return;
+    }
+
+    // Not acceptable: don't preventDefault (browser shows "not allowed" cursor),
+    // but still clear hover if it belonged to this surface.
+    setProjectDropHoverId((current) => (current === hoverId ? null : current));
+  }, [canDropEntryOnParent, getDraggedEntryForEvent]);
+
+  const handleDropTargetDragLeave = useCallback((
+    event: DragEvent<HTMLElement>,
+    hoverId: string
+  ) => {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+      return;
+    }
+
+    setProjectDropHoverId((current) => (current === hoverId ? null : current));
+  }, []);
+
+  const handleProjectEntryDrop = useCallback((
+    event: DragEvent<HTMLElement>,
+    targetParentPath: string
+  ) => {
+    const entry = getDraggedEntryForEvent(event);
+    if (!entry) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    setProjectDropHoverId(null);
+
+    if (!canDropEntryOnParent(entry, targetParentPath)) return;
+    void moveProjectEntryIntoParent(entry, targetParentPath);
+  }, [canDropEntryOnParent, getDraggedEntryForEvent, moveProjectEntryIntoParent]);
+
+  // Resolve which parent dir a hover on a tree row should target:
+  // dir → itself; file → its parent dir.
+  const resolveTreeNodeDropTarget = useCallback((
+    node: ProjectTreeNode,
+    parentPath: string | null
+  ): { targetParentPath: string; hoverId: string } | null => {
+    if (node.kind === 'dir') {
+      return { targetParentPath: node.path, hoverId: getNodeDropHoverId(node.path) };
+    }
+    if (!parentPath) return null;
+    // Files surface the highlight on their containing directory.
+    return { targetParentPath: parentPath, hoverId: getNodeDropHoverId(parentPath) };
+  }, []);
+
+  const handleTreeNodeDragOver = useCallback((
+    event: DragEvent<HTMLElement>,
+    node: ProjectTreeNode,
+    parentPath: string | null
+  ) => {
+    const resolved = resolveTreeNodeDropTarget(node, parentPath);
+    if (!resolved) {
+      // No valid target on this row; still consume the event so it does not
+      // bubble up and highlight the project root.
+      const entry = getDraggedEntryForEvent(event);
+      if (entry) event.stopPropagation();
+      return;
+    }
+    handleDropTargetDragOver(event, resolved.targetParentPath, resolved.hoverId);
+  }, [getDraggedEntryForEvent, handleDropTargetDragOver, resolveTreeNodeDropTarget]);
+
+  const handleTreeNodeDragLeave = useCallback((
+    event: DragEvent<HTMLElement>,
+    node: ProjectTreeNode,
+    parentPath: string | null
+  ) => {
+    const resolved = resolveTreeNodeDropTarget(node, parentPath);
+    if (!resolved) return;
+    handleDropTargetDragLeave(event, resolved.hoverId);
+  }, [handleDropTargetDragLeave, resolveTreeNodeDropTarget]);
+
+  const handleTreeNodeDrop = useCallback((
+    event: DragEvent<HTMLElement>,
+    node: ProjectTreeNode,
+    parentPath: string | null
+  ) => {
+    const resolved = resolveTreeNodeDropTarget(node, parentPath);
+    if (!resolved) {
+      // Consume the event regardless to prevent the root container from acting on it.
+      const entry = getDraggedEntryForEvent(event);
+      if (entry) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      return;
+    }
+    handleProjectEntryDrop(event, resolved.targetParentPath);
+  }, [getDraggedEntryForEvent, handleProjectEntryDrop, resolveTreeNodeDropTarget]);
 
   const submitCreateDraft = useCallback(async () => {
     if (!cwd || !createDraft) return;
@@ -1308,6 +1625,9 @@ export function ProjectTreePanel({
     selectedPreview?.editable &&
     !!cwd &&
     !!selectedFilePath;
+  const projectRootDropHoverId = visibleTree ? getNodeDropHoverId(visibleTree.path) : null;
+  const isProjectRootDropTarget =
+    !!projectRootDropHoverId && projectDropHoverId === projectRootDropHoverId;
 
   return (
     <>
@@ -1406,7 +1726,24 @@ export function ProjectTreePanel({
 
         <div className="flex-1 min-h-0 flex">
           <div
-            className="flex-1 overflow-auto px-3 pb-3"
+            className={`flex-1 overflow-auto px-3 pb-3 transition-colors duration-150 ${
+              isProjectRootDropTarget ? 'bg-[var(--tree-item-hover)]' : ''
+            }`}
+            onDragOver={(event) => {
+              if (activeTab === 'files' && visibleTree && projectRootDropHoverId) {
+                handleDropTargetDragOver(event, visibleTree.path, projectRootDropHoverId);
+              }
+            }}
+            onDragLeave={(event) => {
+              if (activeTab === 'files' && projectRootDropHoverId) {
+                handleDropTargetDragLeave(event, projectRootDropHoverId);
+              }
+            }}
+            onDrop={(event) => {
+              if (activeTab === 'files' && visibleTree) {
+                handleProjectEntryDrop(event, visibleTree.path);
+              }
+            }}
             onContextMenu={(event) => {
               if (activeTab === 'files' && cwd) {
                 openProjectTreeContextMenu(event);
@@ -1441,11 +1778,21 @@ export function ProjectTreePanel({
                         key={node.path}
                         node={node}
                         depth={0}
+                        parentPath={visibleTree.path}
                         expandedPaths={expandedPaths}
                         onToggle={togglePath}
                         onSelectFile={selectFile}
                         onOpenContextMenu={openProjectTreeContextMenu}
+                        onProjectEntryDragStart={handleProjectEntryDragStart}
+                        onProjectEntryDragEnd={handleProjectEntryDragEnd}
+                        onTreeNodeDragOver={handleTreeNodeDragOver}
+                        onTreeNodeDragLeave={handleTreeNodeDragLeave}
+                        onTreeNodeDrop={handleTreeNodeDrop}
+                        canDropEntryOnParent={canDropEntryOnParent}
                         selectedFilePath={selectedFilePath}
+                        draggedEntry={draggedProjectEntry}
+                        dropHoverId={projectDropHoverId}
+                        movingEntryPath={movingProjectEntryPath}
                         forceExpand={false}
                         createDraft={createDraft}
                         onCreateDraftNameChange={handleCreateDraftNameChange}

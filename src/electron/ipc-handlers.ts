@@ -5,7 +5,7 @@ import { execFile } from 'child_process';
 import type { AddressInfo } from 'net';
 import { spawn as spawnPty, type IPty } from 'node-pty';
 import { promisify } from 'util';
-import { basename, extname, resolve, relative, isAbsolute, join } from 'path';
+import { basename, dirname, extname, resolve, relative, isAbsolute, join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
 import { runCodexOneShot, runOpenCodeOneShot } from './libs/codex-runner';
@@ -632,6 +632,110 @@ async function createProjectEntry(
       ok: false,
       message: `Failed to create ${kind === 'folder' ? 'folder' : 'file'}: ${String(error)}`,
     };
+  }
+}
+
+async function moveProjectEntry(
+  cwd: string,
+  sourcePath: string,
+  targetParentPath: string
+): Promise<{ ok: true; path: string; tree: Awaited<ReturnType<typeof readProjectTree>> } | { ok: false; message: string }> {
+  if (!cwd || !sourcePath || !targetParentPath) {
+    return { ok: false, message: 'Missing project folder or file path.' };
+  }
+
+  const projectRoot = resolve(cwd);
+  const sourceResolved = resolve(projectRoot, sourcePath);
+  const targetParentResolved = resolve(projectRoot, targetParentPath);
+
+  if (!isPathWithinRoot(projectRoot, sourceResolved) || sourceResolved === projectRoot) {
+    return { ok: false, message: 'Source is outside the selected project folder.' };
+  }
+  if (!isPathWithinRoot(projectRoot, targetParentResolved)) {
+    return { ok: false, message: 'Target folder is outside the selected project folder.' };
+  }
+
+  let rootReal: string;
+  let sourceReal: string;
+  let targetParentReal: string;
+  try {
+    [rootReal, sourceReal, targetParentReal] = await Promise.all([
+      fsPromises.realpath(projectRoot),
+      fsPromises.realpath(sourceResolved),
+      fsPromises.realpath(targetParentResolved),
+    ]);
+  } catch {
+    return { ok: false, message: 'Source file or target folder was not found.' };
+  }
+
+  if (!isPathWithinRoot(rootReal, sourceReal) || sourceReal === rootReal) {
+    return { ok: false, message: 'Source is outside the selected project folder.' };
+  }
+  if (!isPathWithinRoot(rootReal, targetParentReal)) {
+    return { ok: false, message: 'Target folder is outside the selected project folder.' };
+  }
+
+  let sourceStat;
+  let targetParentStat;
+  try {
+    [sourceStat, targetParentStat] = await Promise.all([
+      fsPromises.lstat(sourceResolved),
+      fsPromises.stat(targetParentReal),
+    ]);
+  } catch {
+    return { ok: false, message: 'Source file or target folder was not found.' };
+  }
+
+  if (!targetParentStat.isDirectory()) {
+    return { ok: false, message: 'Target path is not a folder.' };
+  }
+
+  if (sourceStat.isDirectory() && isPathWithinRoot(sourceReal, targetParentReal)) {
+    return { ok: false, message: 'Cannot move a folder into itself.' };
+  }
+
+  if (resolve(dirname(sourceResolved)) === resolve(targetParentReal)) {
+    return { ok: false, message: 'File is already in that folder.' };
+  }
+
+  const targetPath = resolve(targetParentReal, basename(sourceResolved));
+  if (!isPathWithinRoot(rootReal, targetPath)) {
+    return { ok: false, message: 'Target path is outside the selected project folder.' };
+  }
+
+  try {
+    await fsPromises.lstat(targetPath);
+    return { ok: false, message: 'A file or folder with that name already exists in the target folder.' };
+  } catch {
+    // Missing is the expected state before moving an entry.
+  }
+
+  try {
+    try {
+      await fsPromises.rename(sourceResolved, targetPath);
+    } catch (renameError) {
+      const code = (renameError as NodeJS.ErrnoException)?.code;
+      if (code !== 'EXDEV') throw renameError;
+      // Cross-device move: copy then remove. cp handles both files and directories recursively.
+      await fsPromises.cp(sourceResolved, targetPath, {
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+      });
+      try {
+        await fsPromises.rm(sourceResolved, { recursive: true, force: false });
+      } catch (cleanupError) {
+        // The copy succeeded; surface the cleanup failure so the user knows the source still exists.
+        return {
+          ok: false,
+          message: `Copied to target but failed to remove source: ${String(cleanupError)}`,
+        };
+      }
+    }
+    const tree = await readProjectTree(projectRoot);
+    return { ok: true, path: targetPath, tree };
+  } catch (error) {
+    return { ok: false, message: `Failed to move file: ${String(error)}` };
   }
 }
 
@@ -3641,6 +3745,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('create-project-folder', async (_event, cwd: string, parentPath: string, name: string) => {
     return createProjectEntry(cwd, parentPath, name, 'folder');
+  });
+
+  ipcMainHandle('move-project-entry', async (_event, cwd: string, sourcePath: string, targetParentPath: string) => {
+    return moveProjectEntry(cwd, sourcePath, targetParentPath);
   });
 
   ipcMainHandle(

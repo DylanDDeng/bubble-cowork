@@ -131,6 +131,7 @@ declare global {
     createProjectAttachment: (cwd: string, filePath: string) => Promise<Attachment | null>;
     createProjectFile: (cwd: string, parentPath: string, name: string) => Promise<{ ok: boolean; path?: string; tree?: ProjectTreeNode; message?: string }>;
     createProjectFolder: (cwd: string, parentPath: string, name: string) => Promise<{ ok: boolean; path?: string; tree?: ProjectTreeNode; message?: string }>;
+    moveProjectEntry: (cwd: string, sourcePath: string, targetParentPath: string) => Promise<{ ok: boolean; path?: string; tree?: ProjectTreeNode; message?: string }>;
     selectMarkdownImageAsset: (cwd: string, markdownFilePath: string) => Promise<{ ok: boolean; relativePath?: string; name?: string; message?: string } | null>;
     createInlineTextAttachment: (cwd: string, text: string) => Promise<Attachment | null>;
     createInlineImageAttachment: (mimeType: string, data: Uint8Array) => Promise<Attachment | null>;
