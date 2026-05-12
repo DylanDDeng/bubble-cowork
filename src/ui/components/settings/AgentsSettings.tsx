@@ -12,7 +12,7 @@ import {
 } from '../icons';
 import { toast } from 'sonner';
 import { AgentModelPicker } from '../AgentModelPicker';
-import { AgentAvatar, AGENT_AVATAR_OPTIONS } from '../AgentAvatar';
+import { AgentAvatar, AvatarDropdown } from '../AgentAvatar';
 import { useAppStore } from '../../store/useAppStore';
 import type {
   AegisBuiltInAgentConfig,
@@ -928,32 +928,5 @@ function AvatarPicker({
   profile: AgentProfile;
   onChange: (key: AgentAvatarAssetKey) => void;
 }) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {AGENT_AVATAR_OPTIONS.map((option) => {
-        const active = profile.avatar.key === option.key;
-        return (
-          <button
-            key={option.key}
-            type="button"
-            onClick={() => onChange(option.key)}
-            className={`rounded-lg p-1 transition-colors ${
-              active
-                ? 'bg-[var(--sidebar-item-active)] ring-1 ring-[var(--accent)]/35'
-                : 'hover:bg-[var(--bg-secondary)]'
-            }`}
-            aria-label={`Use ${option.label} avatar`}
-            aria-pressed={active}
-            title={option.label}
-          >
-            <AgentAvatar
-              avatarKey={option.key}
-              label={option.label}
-              size="lg"
-            />
-          </button>
-        );
-      })}
-    </div>
-  );
+  return <AvatarDropdown value={profile.avatar.key} onChange={onChange} />;
 }

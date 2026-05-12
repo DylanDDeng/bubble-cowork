@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
 import { OpenCodeLogo } from './OpenCodeLogo';
-import { AgentAvatar, AGENT_AVATAR_OPTIONS } from './AgentAvatar';
+import { AgentAvatar, AvatarDropdown } from './AgentAvatar';
 import { useAppStore } from '../store/useAppStore';
 import type {
   AegisBuiltInAgentConfig,
@@ -680,24 +680,10 @@ function AgentProfileSetupForm({
       ) : (
         <>
       <FormField label="Avatar">
-        <div className="flex flex-wrap gap-2">
-          {AGENT_AVATAR_OPTIONS.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              onClick={() => onChange({ avatar: { type: 'asset', key: option.key } })}
-              className={`rounded-md border p-1 transition-colors ${
-                draft.avatar.key === option.key
-                  ? 'border-[var(--text-muted)] bg-[var(--bg-secondary)]'
-                  : 'border-[var(--border)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]'
-              }`}
-              title={option.label}
-              aria-label={option.label}
-            >
-              <AgentAvatar avatarKey={option.key} size="md" decorative />
-            </button>
-          ))}
-        </div>
+        <AvatarDropdown
+          value={draft.avatar.key}
+          onChange={(key) => onChange({ avatar: { type: 'asset', key } })}
+        />
       </FormField>
 
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">

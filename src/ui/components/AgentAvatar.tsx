@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Check, ChevronDown } from './icons';
 import notionAvatar01 from '../assets/agent-avatars/notion-avatar-01.svg';
 import notionAvatar02 from '../assets/agent-avatars/notion-avatar-02.svg';
 import notionAvatar03 from '../assets/agent-avatars/notion-avatar-03.svg';
@@ -82,5 +83,95 @@ export function AgentAvatar({
         onError={() => setImageFailed(true)}
       />
     </span>
+  );
+}
+
+export function AvatarDropdown({
+  value,
+  onChange,
+  label,
+  triggerClassName = '',
+  menuPlacement = 'bottom',
+}: {
+  value: AgentAvatarAssetKey;
+  onChange: (key: AgentAvatarAssetKey) => void;
+  label?: string;
+  triggerClassName?: string;
+  menuPlacement?: 'top' | 'bottom';
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const current =
+    AGENT_AVATAR_OPTIONS.find((option) => option.key === value) || AGENT_AVATAR_OPTIONS[0];
+
+  useEffect(() => {
+    if (!open) return;
+    const handle = (event: MouseEvent) => {
+      if (!containerRef.current) return;
+      if (!containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', handle);
+    return () => window.removeEventListener('mousedown', handle);
+  }, [open]);
+
+  const menuPositionClass = menuPlacement === 'top' ? 'bottom-full mb-1' : 'top-full mt-1';
+
+  return (
+    <div ref={containerRef} className={`relative no-drag ${triggerClassName}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="flex h-8 w-full items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-2 text-[12.5px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)] focus:border-[var(--text-muted)] focus:outline-none"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <AgentAvatar avatarKey={current.key} size="md" decorative />
+          <span className="truncate">{label || current.label}</span>
+        </span>
+        <ChevronDown
+          className={`h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)] transition-transform ${
+            open ? 'rotate-180' : ''
+          }`}
+          aria-hidden="true"
+        />
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          className={`popover-surface absolute left-0 z-20 max-h-64 w-full min-w-[180px] overflow-y-auto p-1 ${menuPositionClass}`}
+        >
+          {AGENT_AVATAR_OPTIONS.map((option) => {
+            const active = option.key === value;
+            return (
+              <button
+                key={option.key}
+                type="button"
+                role="option"
+                aria-selected={active}
+                onClick={() => {
+                  onChange(option.key);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors ${
+                  active
+                    ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <AgentAvatar avatarKey={option.key} size="md" decorative />
+                <span className="flex-1 truncate">{option.label}</span>
+                {active ? (
+                  <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" aria-hidden="true" />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
