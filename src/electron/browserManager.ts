@@ -205,6 +205,7 @@ export class BrowserManager {
   private readonly listeners = new Set<BrowserStateListener>();
   private readonly selectionListeners = new Set<BrowserSendSelectionListener>();
   private readonly suspendTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly closingRuntimeKeys = new Set<string>();
 
   setWindow(window: BrowserWindow | null): void {
     this.window = window;
@@ -242,6 +243,7 @@ export class BrowserManager {
     this.listeners.clear();
     this.selectionListeners.clear();
     this.states.clear();
+    this.closingRuntimeKeys.clear();
     this.window = null;
     this.activeSessionId = null;
     this.activeBounds = null;
@@ -388,12 +390,14 @@ export class BrowserManager {
 
   closeTab(input: BrowserTabInput): SessionBrowserState {
     const state = this.ensureWorkspace(input.sessionId);
-    const nextTabs = state.tabs.filter((tab) => tab.id !== input.tabId);
-    if (nextTabs.length === state.tabs.length) {
+    const closingTabIndex = state.tabs.findIndex((tab) => tab.id === input.tabId);
+    if (closingTabIndex === -1) {
       return cloneSessionState(state);
     }
 
-    this.destroyRuntime(input.sessionId, input.tabId);
+    const wasActiveTab = state.activeTabId === input.tabId;
+    this.closingRuntimeKeys.add(buildRuntimeKey(input.sessionId, input.tabId));
+    const nextTabs = state.tabs.filter((tab) => tab.id !== input.tabId);
     state.tabs = nextTabs;
 
     if (nextTabs.length === 0) {
@@ -405,19 +409,23 @@ export class BrowserManager {
         this.activeSessionId = null;
       }
       this.emitState(input.sessionId);
+      this.destroyRuntime(input.sessionId, input.tabId, { defer: true });
       return cloneSessionState(state);
     }
 
-    if (!state.activeTabId || state.activeTabId === input.tabId) {
-      state.activeTabId = nextTabs[Math.max(0, nextTabs.length - 1)]?.id ?? null;
-    }
-
-    if (this.activeSessionId === input.sessionId && this.activeBounds) {
-      this.attachActiveTab(input.sessionId, this.activeBounds);
+    if (!state.activeTabId || wasActiveTab) {
+      const nextActiveIndex = Math.min(closingTabIndex, nextTabs.length - 1);
+      state.activeTabId = nextTabs[Math.max(0, nextActiveIndex)]?.id ?? null;
     }
 
     syncSessionLastError(state);
     this.emitState(input.sessionId);
+
+    if (wasActiveTab && this.activeSessionId === input.sessionId && this.activeBounds) {
+      this.attachActiveTab(input.sessionId, this.activeBounds);
+    }
+
+    this.destroyRuntime(input.sessionId, input.tabId, { defer: true });
     return cloneSessionState(state);
   }
 
@@ -660,6 +668,10 @@ export class BrowserManager {
     this.attachedRuntimeKey = null;
   }
 
+  private isRuntimeClosing(sessionId: string, tabId: string): boolean {
+    return this.closingRuntimeKeys.has(buildRuntimeKey(sessionId, tabId));
+  }
+
   private ensureLiveRuntime(sessionId: string, tabId: string): LiveTabRuntime {
     const key = buildRuntimeKey(sessionId, tabId);
     const existing = this.runtimes.get(key);
@@ -694,6 +706,9 @@ export class BrowserManager {
     const webContents = view.webContents;
 
     webContents.setWindowOpenHandler(({ url }) => {
+      if (this.isRuntimeClosing(sessionId, tabId)) {
+        return { action: 'deny' };
+      }
       if (url.startsWith('http://') || url.startsWith('https://') || url === ABOUT_BLANK_URL) {
         this.newTab({ sessionId, url, activate: true });
         if (this.activeSessionId === sessionId && this.activeBounds) {
@@ -707,26 +722,33 @@ export class BrowserManager {
 
     webContents.on('page-title-updated', (event) => {
       event.preventDefault();
+      if (this.isRuntimeClosing(sessionId, tabId)) return;
       this.syncRuntimeState(sessionId, tabId);
     });
     webContents.on('page-favicon-updated', (_event, faviconUrls) => {
+      if (this.isRuntimeClosing(sessionId, tabId)) return;
       this.syncRuntimeState(sessionId, tabId, faviconUrls);
     });
     webContents.on('did-start-loading', () => {
+      if (this.isRuntimeClosing(sessionId, tabId)) return;
       this.syncRuntimeState(sessionId, tabId);
     });
     webContents.on('did-stop-loading', () => {
+      if (this.isRuntimeClosing(sessionId, tabId)) return;
       this.syncRuntimeState(sessionId, tabId);
     });
     webContents.on('did-navigate', () => {
+      if (this.isRuntimeClosing(sessionId, tabId)) return;
       this.syncRuntimeState(sessionId, tabId);
     });
     webContents.on('did-navigate-in-page', () => {
+      if (this.isRuntimeClosing(sessionId, tabId)) return;
       this.syncRuntimeState(sessionId, tabId);
     });
     webContents.on(
       'did-fail-load',
       (_event, errorCode, _errorDescription, validatedURL, isMainFrame) => {
+        if (this.isRuntimeClosing(sessionId, tabId)) return;
         if (!isMainFrame || errorCode === BROWSER_ERROR_ABORTED) return;
         const state = this.states.get(sessionId);
         const tab = state ? this.getTab(state, tabId) : null;
@@ -740,10 +762,12 @@ export class BrowserManager {
       }
     );
     webContents.on('context-menu', (_event, params) => {
+      if (this.isRuntimeClosing(sessionId, tabId)) return;
       this.handleContextMenu(sessionId, tabId, params);
     });
 
     webContents.on('render-process-gone', () => {
+      if (this.isRuntimeClosing(sessionId, tabId)) return;
       const state = this.states.get(sessionId);
       const tab = state ? this.getTab(state, tabId) : null;
       this.destroyRuntime(sessionId, tabId);
@@ -779,6 +803,10 @@ export class BrowserManager {
     const currentUrl = webContents.getURL();
     const shouldLoad = options.force === true || currentUrl !== nextUrl || currentUrl.length === 0;
 
+    if (this.isRuntimeClosing(sessionId, tabId)) {
+      return;
+    }
+
     if (!shouldLoad) {
       this.syncRuntimeState(sessionId, tabId);
       return;
@@ -793,8 +821,14 @@ export class BrowserManager {
 
     try {
       await webContents.loadURL(nextUrl);
+      if (this.isRuntimeClosing(sessionId, tabId)) {
+        return;
+      }
       this.syncRuntimeState(sessionId, tabId);
     } catch (error) {
+      if (this.isRuntimeClosing(sessionId, tabId)) {
+        return;
+      }
       if (isAbortedNavigationError(error)) {
         this.syncRuntimeState(sessionId, tabId);
         return;
@@ -807,6 +841,7 @@ export class BrowserManager {
   }
 
   private syncRuntimeState(sessionId: string, tabId: string, faviconUrls?: string[]): void {
+    if (this.isRuntimeClosing(sessionId, tabId)) return;
     const state = this.states.get(sessionId);
     const tab = state ? this.getTab(state, tabId) : null;
     const runtime = this.runtimes.get(buildRuntimeKey(sessionId, tabId));
@@ -830,17 +865,65 @@ export class BrowserManager {
     }
   }
 
-  private destroyRuntime(sessionId: string, tabId: string): void {
+  private destroyRuntime(
+    sessionId: string,
+    tabId: string,
+    options: { defer?: boolean } = {}
+  ): void {
     const key = buildRuntimeKey(sessionId, tabId);
     const runtime = this.runtimes.get(key);
-    if (!runtime) return;
+    if (!runtime) {
+      this.closingRuntimeKeys.delete(key);
+      return;
+    }
+    this.closingRuntimeKeys.add(key);
     if (this.attachedRuntimeKey === key) {
       this.detachAttachedRuntime();
     }
     this.runtimes.delete(key);
+
+    if (options.defer) {
+      const timer = setTimeout(() => {
+        this.closeRuntimeWebContents(runtime, key);
+      }, 0);
+      timer.unref();
+      return;
+    }
+
+    this.closeRuntimeWebContents(runtime, key);
+  }
+
+  private closeRuntimeWebContents(runtime: LiveTabRuntime, key: string): void {
     const webContents = runtime.view.webContents;
-    if (!webContents.isDestroyed()) {
+    if (webContents.isDestroyed()) {
+      this.closingRuntimeKeys.delete(key);
+      return;
+    }
+
+    let cleanupTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      cleanupTimer = null;
+      this.closingRuntimeKeys.delete(key);
+    }, 30_000);
+    cleanupTimer.unref();
+
+    const cleanup = () => {
+      if (cleanupTimer) {
+        clearTimeout(cleanupTimer);
+        cleanupTimer = null;
+      }
+      this.closingRuntimeKeys.delete(key);
+    };
+
+    webContents.once('destroyed', cleanup);
+    try {
+      if (webContents.isLoading()) {
+        webContents.stop();
+      }
       webContents.close({ waitForBeforeUnload: false });
+    } catch (error) {
+      webContents.removeListener('destroyed', cleanup);
+      cleanup();
+      console.warn('[BrowserManager] Failed to close browser tab runtime:', error);
     }
   }
 
