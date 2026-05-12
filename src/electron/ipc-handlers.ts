@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'http';
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, watch, type FSWatcher, promises as fsPromises } from 'fs';
+import { chmodSync, createReadStream, existsSync, mkdirSync, readFileSync, statSync, watch, type FSWatcher, promises as fsPromises } from 'fs';
 import { execFile } from 'child_process';
 import type { AddressInfo } from 'net';
 import { spawn as spawnPty, type IPty } from 'node-pty';
@@ -104,6 +104,7 @@ import {
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
 const MAX_FILE_PREVIEW_BYTES = 5 * 1024 * 1024; // 5MB
+const MAX_STREAMING_PDF_PREVIEW_BYTES = 200 * 1024 * 1024; // 200MB
 const DIRECT_EDIT_BOOTSTRAP_MAX_TRANSCRIPT_CHARS = 20_000;
 const LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD = 500;
 const LONG_PROMPT_ATTACHMENT_INSTRUCTION =
@@ -141,7 +142,7 @@ const ATTACHMENT_MIME_TYPES: Record<string, string> = {
   '.m4a': 'audio/mp4',
 };
 
-const HTML_PREVIEW_MIME_TYPES: Record<string, string> = {
+const LOCAL_PREVIEW_MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.htm': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -160,6 +161,7 @@ const HTML_PREVIEW_MIME_TYPES: Record<string, string> = {
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
   '.ttf': 'font/ttf',
+  '.pdf': 'application/pdf',
 };
 
 const projectWatchers = new Map<
@@ -171,7 +173,7 @@ const terminalSessions = new Map<string, {
   cwd: string;
   history: string;
 }>();
-const htmlPreviewServers = new Map<string, {
+const localPreviewServers = new Map<string, {
   server: HttpServer;
   port: number;
   token: string;
@@ -475,6 +477,7 @@ type ProjectFilePreview =
       name: string;
       ext: string;
       size: number;
+      previewUrl?: string;
       dataBase64?: string;
       dataUrl?: string;
     }
@@ -632,8 +635,8 @@ async function createProjectEntry(
   }
 }
 
-function getHtmlPreviewMimeType(filePath: string): string {
-  return HTML_PREVIEW_MIME_TYPES[extname(filePath).toLowerCase()] || 'application/octet-stream';
+function getLocalPreviewMimeType(filePath: string): string {
+  return LOCAL_PREVIEW_MIME_TYPES[extname(filePath).toLowerCase()] || 'application/octet-stream';
 }
 
 function toPreviewUrlPath(filePath: string): string {
@@ -653,6 +656,105 @@ function sendPreviewResponse(
     'Cache-Control': 'no-store',
   });
   res.end(body);
+}
+
+function parsePreviewByteRange(
+  rangeHeader: string | string[] | undefined,
+  size: number
+): { start: number; end: number } | 'invalid' | null {
+  const header = Array.isArray(rangeHeader) ? rangeHeader[0] : rangeHeader;
+  if (!header) {
+    return null;
+  }
+
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(header.trim());
+  if (!match || (match[1] === '' && match[2] === '') || size <= 0) {
+    return 'invalid';
+  }
+
+  if (match[1] === '') {
+    const suffixLength = Number(match[2]);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) {
+      return 'invalid';
+    }
+    return {
+      start: Math.max(size - suffixLength, 0),
+      end: size - 1,
+    };
+  }
+
+  const start = Number(match[1]);
+  const requestedEnd = match[2] === '' ? size - 1 : Number(match[2]);
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(requestedEnd) ||
+    start < 0 ||
+    requestedEnd < start ||
+    start >= size
+  ) {
+    return 'invalid';
+  }
+
+  return {
+    start,
+    end: Math.min(requestedEnd, size - 1),
+  };
+}
+
+function streamPreviewFile(
+  req: IncomingMessage,
+  res: ServerResponse,
+  filePath: string,
+  size: number
+): void {
+  const mimeType = getLocalPreviewMimeType(filePath);
+  const range = parsePreviewByteRange(req.headers.range, size);
+
+  if (range === 'invalid') {
+    res.writeHead(416, {
+      'Content-Range': `bytes */${size}`,
+      'Cache-Control': 'no-store',
+      'Accept-Ranges': 'bytes',
+    });
+    res.end();
+    return;
+  }
+
+  const start = range ? range.start : 0;
+  const end = range ? range.end : Math.max(size - 1, 0);
+  const contentLength = range ? end - start + 1 : size;
+  const headers: Record<string, string> = {
+    'Content-Type': mimeType,
+    'Content-Length': String(contentLength),
+    'Cache-Control': 'no-store',
+    'Accept-Ranges': 'bytes',
+    'X-Content-Type-Options': 'nosniff',
+  };
+
+  if (range) {
+    headers['Content-Range'] = `bytes ${start}-${end}/${size}`;
+  }
+
+  res.writeHead(range ? 206 : 200, headers);
+  if (req.method === 'HEAD') {
+    res.end();
+    return;
+  }
+
+  if (size === 0) {
+    res.end();
+    return;
+  }
+
+  const stream = createReadStream(filePath, { start, end });
+  stream.on('error', (error) => {
+    if (!res.headersSent) {
+      sendPreviewResponse(res, 500, `Failed to read preview file: ${String(error)}`);
+      return;
+    }
+    res.destroy(error);
+  });
+  stream.pipe(res);
 }
 
 async function resolvePreviewRequestFile(rootReal: string, requestPathname: string): Promise<string | null> {
@@ -699,7 +801,7 @@ async function resolvePreviewRequestFile(rootReal: string, requestPathname: stri
   return stat.isFile() ? targetPath : null;
 }
 
-async function handleHtmlPreviewRequest(
+async function handleLocalPreviewRequest(
   rootReal: string,
   token: string,
   req: IncomingMessage,
@@ -731,30 +833,26 @@ async function handleHtmlPreviewRequest(
   }
 
   try {
-    const data = await fsPromises.readFile(filePath);
-    res.writeHead(200, {
-      'Content-Type': getHtmlPreviewMimeType(filePath),
-      'Cache-Control': 'no-store',
-    });
-    if (req.method === 'HEAD') {
-      res.end();
+    const stat = await fsPromises.stat(filePath);
+    if (!stat.isFile()) {
+      sendPreviewResponse(res, 404, 'Not found');
       return;
     }
-    res.end(data);
+    streamPreviewFile(req, res, filePath, stat.size);
   } catch (error) {
     sendPreviewResponse(res, 500, `Failed to read preview file: ${String(error)}`);
   }
 }
 
-async function ensureHtmlPreviewServer(rootReal: string): Promise<{ port: number; token: string }> {
-  const existing = htmlPreviewServers.get(rootReal);
+async function ensureLocalPreviewServer(rootReal: string): Promise<{ port: number; token: string }> {
+  const existing = localPreviewServers.get(rootReal);
   if (existing) {
     return { port: existing.port, token: existing.token };
   }
 
   const token = uuidv4();
   const server = createServer((req, res) => {
-    void handleHtmlPreviewRequest(rootReal, token, req, res);
+    void handleLocalPreviewRequest(rootReal, token, req, res);
   });
 
   const port = await new Promise<number>((resolvePort, reject) => {
@@ -779,10 +877,22 @@ async function ensureHtmlPreviewServer(rootReal: string): Promise<{ port: number
 
   server.unref();
   server.once('close', () => {
-    htmlPreviewServers.delete(rootReal);
+    localPreviewServers.delete(rootReal);
   });
-  htmlPreviewServers.set(rootReal, { server, port, token });
+  localPreviewServers.set(rootReal, { server, port, token });
   return { port, token };
+}
+
+async function getLocalPreviewUrl(
+  rootReal: string,
+  targetReal: string
+): Promise<{ ok: true; url: string } | { ok: false; message: string }> {
+  const { port, token } = await ensureLocalPreviewServer(rootReal);
+  const relativePath = relative(rootReal, targetReal);
+  return {
+    ok: true,
+    url: `http://127.0.0.1:${port}/${token}${toPreviewUrlPath(relativePath)}`,
+  };
 }
 
 async function getHtmlPreviewUrl(
@@ -809,12 +919,7 @@ async function getHtmlPreviewUrl(
     return { ok: false, message: 'Preview file was not found' };
   }
 
-  const { port, token } = await ensureHtmlPreviewServer(validation.rootReal);
-  const relativePath = relative(validation.rootReal, validation.targetReal);
-  return {
-    ok: true,
-    url: `http://127.0.0.1:${port}/${token}${toPreviewUrlPath(relativePath)}`,
-  };
+  return getLocalPreviewUrl(validation.rootReal, validation.targetReal);
 }
 
 function getAttachmentSpec(filePath: string): { kind: Attachment['kind']; mimeType: string } | null {
@@ -3641,7 +3746,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   );
 
-  // RPC: 读取项目文件预览（安全：仅允许 cwd 内的文件，<=5MB）
+  // RPC: 读取项目文件预览（安全：仅允许 cwd 内的文件；PDF 走本地流式预览）
   ipcMainHandle(
     'read-project-file-preview',
     async (_event, cwd: string, filePath: string): Promise<ProjectFilePreview> => {
@@ -3663,6 +3768,49 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
       if (!stat.isFile()) {
         return { kind: 'error', path: validation.targetReal, name, ext, message: 'Not a file' };
+      }
+
+      if (ext === '.pdf') {
+        if (stat.size > MAX_STREAMING_PDF_PREVIEW_BYTES) {
+          return {
+            kind: 'too_large',
+            path: validation.targetReal,
+            name,
+            ext,
+            size: stat.size,
+            maxBytes: MAX_STREAMING_PDF_PREVIEW_BYTES,
+          };
+        }
+
+        try {
+          const preview = await getLocalPreviewUrl(validation.rootReal, validation.targetReal);
+          if (!preview.ok) {
+            return {
+              kind: 'error',
+              path: validation.targetReal,
+              name,
+              ext,
+              message: preview.message,
+            };
+          }
+
+          return {
+            kind: 'pdf',
+            path: validation.targetReal,
+            name,
+            ext,
+            size: stat.size,
+            previewUrl: preview.url,
+          };
+        } catch (error) {
+          return {
+            kind: 'error',
+            path: validation.targetReal,
+            name,
+            ext,
+            message: `Failed to create PDF preview: ${String(error)}`,
+          };
+        }
       }
 
       if (stat.size > MAX_FILE_PREVIEW_BYTES) {
@@ -3747,30 +3895,6 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
             name,
             ext,
             message: `Failed to read file: ${String(error)}`,
-          };
-        }
-      }
-
-      if (ext === '.pdf') {
-        try {
-          const buffer = await fsPromises.readFile(validation.targetReal);
-          const dataBase64 = buffer.toString('base64');
-          return {
-            kind: 'pdf',
-            path: validation.targetReal,
-            name,
-            ext,
-            size: stat.size,
-            dataBase64,
-            dataUrl: `data:application/pdf;base64,${dataBase64}`,
-          };
-        } catch (error) {
-          return {
-            kind: 'error',
-            path: validation.targetReal,
-            name,
-            ext,
-            message: `Failed to read PDF: ${String(error)}`,
           };
         }
       }
@@ -7336,10 +7460,10 @@ export function cleanup(): void {
   for (const sessionId of terminalSessions.keys()) {
     disposeTerminalSession(sessionId);
   }
-  for (const [, entry] of htmlPreviewServers) {
+  for (const [, entry] of localPreviewServers) {
     entry.server.close();
   }
-  htmlPreviewServers.clear();
+  localPreviewServers.clear();
 
   // 关闭数据库
   sessions.close();

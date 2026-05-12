@@ -73,6 +73,7 @@ type ProjectFilePreview =
       name: string;
       ext: string;
       size: number;
+      previewUrl?: string;
       dataBase64?: string;
       dataUrl?: string;
     }
@@ -1904,6 +1905,12 @@ function PdfPreview({
     let objectUrl: string | null = null;
 
     try {
+      if (preview.previewUrl) {
+        setPdfUrl(preview.previewUrl);
+        setPdfError(null);
+        return;
+      }
+
       const encoded =
         preview.dataBase64 ||
         preview.dataUrl?.replace(/^data:application\/pdf;base64,/, '') ||
@@ -1929,7 +1936,7 @@ function PdfPreview({
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [preview.dataBase64, preview.dataUrl, preview.path]);
+  }, [preview.dataBase64, preview.dataUrl, preview.path, preview.previewUrl]);
 
   if (pdfError) {
     return <div className="text-sm text-[var(--error)]">{pdfError}</div>;
