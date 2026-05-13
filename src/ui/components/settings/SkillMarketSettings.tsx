@@ -184,17 +184,6 @@ export function SkillMarketSettingsContent() {
           </div>
           <button
             type="button"
-            onClick={() => setView('skills')}
-            className={`rounded-lg border px-3 py-1.5 text-[15px] transition-colors ${
-              view === 'skills'
-                ? 'border-[var(--border)] bg-[var(--bg-secondary)] font-medium text-[var(--text-primary)]'
-                : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            Claude Skills
-          </button>
-          <button
-            type="button"
             onClick={() => setView('market')}
             className={`rounded-lg border px-3 py-1.5 text-[15px] transition-colors ${
               view === 'market'
@@ -203,6 +192,17 @@ export function SkillMarketSettingsContent() {
             }`}
           >
             Marketplace
+          </button>
+          <button
+            type="button"
+            onClick={() => setView('skills')}
+            className={`rounded-lg border px-3 py-1.5 text-[15px] transition-colors ${
+              view === 'skills'
+                ? 'border-[var(--border)] bg-[var(--bg-secondary)] font-medium text-[var(--text-primary)]'
+                : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            Claude Skills
           </button>
           <button
             type="button"
