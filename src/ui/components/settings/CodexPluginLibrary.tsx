@@ -709,47 +709,51 @@ function CodexSkillDetailDialog({
         <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/35 backdrop-blur-[2px]" />
         <Dialog.Content className="fixed left-1/2 top-1/2 z-[81] flex max-h-[82vh] w-[min(760px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
           {!skill ? (
-            <div className="p-6 text-sm text-[var(--text-muted)]">Select a skill to inspect its details.</div>
+            <div className="p-6 text-sm text-[var(--text-muted)]">Select a skill card to inspect its instructions.</div>
           ) : (
             <>
-              <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-5">
-                <div className="flex min-w-0 items-start gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-                    <Brain className="h-5 w-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="break-words text-[24px] font-semibold tracking-[-0.025em] text-[var(--text-primary)]">
+              <div className="border-b border-[var(--border)] px-5 py-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-2">
+                    <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+                      <Brain className="h-3.5 w-3.5" />
+                      <span>Codex skill</span>
+                    </div>
+                    <h4 className="break-words text-[24px] font-semibold tracking-[-0.025em] text-[var(--text-primary)]">
                       {title}
-                    </h3>
-                    <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">{description}</p>
+                    </h4>
+                    <p className="break-words text-sm leading-6 text-[var(--text-secondary)]">
+                      {description}
+                    </p>
                   </div>
+                  <Dialog.Close asChild>
+                    <button
+                      type="button"
+                      className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[var(--radius-xl)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                      aria-label="Close skill detail"
+                      title="Close"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </Dialog.Close>
                 </div>
-                <Dialog.Close asChild>
-                  <button
-                    type="button"
-                    className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[var(--radius-xl)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-                    aria-label="Close skill detail"
-                    title="Close"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </Dialog.Close>
+                <div className="mt-4 space-y-2 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-3 text-[12px] leading-5 text-[var(--text-muted)]">
+                  <div className="break-all"><span className="text-[var(--text-secondary)]">Name:</span> {skill.name}</div>
+                  <div className="break-all"><span className="text-[var(--text-secondary)]">Path:</span> {skill.path}</div>
+                  <div className="break-all"><span className="text-[var(--text-secondary)]">Enabled:</span> {skill.enabled ? 'Yes' : 'No'}</div>
+                  {skill.scope ? (
+                    <div className="break-all"><span className="text-[var(--text-secondary)]">Scope:</span> {skill.scope}</div>
+                  ) : null}
+                </div>
               </div>
-              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
-                <MetadataGrid
-                  rows={[
-                    ['Name', skill.name],
-                    ['Path', skill.path],
-                    ['Enabled', skill.enabled ? 'Yes' : 'No'],
-                    ...(skill.scope ? [['Scope', skill.scope] as [string, string]] : []),
-                  ]}
-                />
+              <div className="min-h-0 flex-1 overflow-y-auto p-5">
                 {skill.dependencies ? (
-                  <DetailSection title="Dependencies">
-                    <pre className="max-h-[240px] overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-4 font-mono text-xs leading-6 text-[var(--text-secondary)]">
+                  <>
+                    <div className="mb-3 text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">Dependencies</div>
+                    <pre className="max-h-[46vh] whitespace-pre-wrap break-words overflow-auto rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-4 font-mono text-[12px] leading-6 text-[var(--text-primary)]">
                       {JSON.stringify(skill.dependencies, null, 2)}
                     </pre>
-                  </DetailSection>
+                  </>
                 ) : null}
               </div>
             </>
