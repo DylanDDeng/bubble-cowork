@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
-  Boxes,
+  Brain,
   CheckCircle2,
   Download,
   ExternalLink,
@@ -425,7 +425,7 @@ function MarketDetailContent({
         <div className="min-w-0 flex-1 space-y-3">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <Boxes className="h-4 w-4 text-[var(--text-secondary)]" />
+              <Brain className="h-4 w-4 text-[var(--text-secondary)]" />
               <div className="truncate text-[30px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
                 {detail.name}
               </div>
@@ -579,7 +579,7 @@ function MarketSkillCard({
     >
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-          <Boxes className="h-4.5 w-4.5" />
+          <Brain className="h-4.5 w-4.5" />
         </div>
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-center gap-2">

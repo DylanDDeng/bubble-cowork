@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Boxes, CheckCircle2, LoaderCircle, Plug, RefreshCw, Search, X } from '../icons';
+import { Brain, CheckCircle2, LoaderCircle, Plug, RefreshCw, Search, X } from '../icons';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import type {
@@ -672,7 +672,7 @@ function SkillMiniCard({
     >
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-          <Boxes className="h-4 w-4" />
+          <Brain className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1 space-y-2">
           <h5 className="truncate text-[15px] font-medium tracking-[-0.01em] text-[var(--text-primary)]">
@@ -715,7 +715,7 @@ function CodexSkillDetailDialog({
               <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-5">
                 <div className="flex min-w-0 items-start gap-3">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-                    <Boxes className="h-5 w-5" />
+                    <Brain className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
                     <h3 className="break-words text-[24px] font-semibold tracking-[-0.025em] text-[var(--text-primary)]">

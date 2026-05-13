@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   Bookmark,
-  Boxes,
+  Brain,
   FolderOpen,
   MessageCircle,
   Search,
@@ -429,7 +429,7 @@ export function Sidebar() {
                     }}
                   />
                   <SidebarNavRow
-                    icon={<Boxes className="h-[15px] w-[15px]" />}
+                    icon={<Brain className="h-[15px] w-[15px]" />}
                     label="Skill Library"
                     active={activeWorkspace === 'skills'}
                     onClick={openSkillWorkspace}
