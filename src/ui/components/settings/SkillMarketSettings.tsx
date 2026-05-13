@@ -191,7 +191,7 @@ export function SkillMarketSettingsContent() {
                 : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
             }`}
           >
-            My Skills
+            Claude Skills
           </button>
           <button
             type="button"
