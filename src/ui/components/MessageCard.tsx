@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight, Copy, Check, Pencil, RotateCcw } from './icons';
+import { cn } from '@/ui/lib/utils';
 import { useAppStore } from '../store/useAppStore';
 import { AttachmentChips } from './AttachmentChips';
 import { AttachmentPreviewGrid } from './AttachmentPreviewGrid';
@@ -448,12 +449,14 @@ function IconButton({
   title,
   ariaLabel,
   disabled,
+  className,
 }: {
   children: ReactNode;
   onClick: () => void;
   title: string;
   ariaLabel: string;
   disabled?: boolean;
+  className?: string;
 }) {
   return (
     <button
@@ -461,7 +464,10 @@ function IconButton({
       title={title}
       aria-label={ariaLabel}
       disabled={disabled}
-      className="p-1 rounded transition-colors hover:text-[var(--text-secondary)] disabled:opacity-50 disabled:cursor-not-allowed"
+      className={cn(
+        'p-1 rounded transition-colors text-[var(--text-muted)]/60 hover:text-[var(--text-secondary)] disabled:opacity-50 disabled:cursor-not-allowed',
+        className
+      )}
     >
       {children}
     </button>
@@ -519,6 +525,7 @@ function AssistantCard({
   const isProgress = presentation === 'progress';
   const { agentProfiles } = useAppStore();
   const agentProfile = message.agentId ? agentProfiles[message.agentId] || null : null;
+  const [copied, setCopied] = useState(false);
   const blocks = useMemo(
     () => getContentBlocks(message.message.content as unknown),
     [message.message.content]
@@ -556,12 +563,30 @@ function AssistantCard({
     [blocks]
   );
 
+  const markdownToCopy = useMemo(
+    () => textBlocks.map((block) => block.text).join('\n\n'),
+    [textBlocks]
+  );
+
+  const handleCopyAnswer = async () => {
+    if (!markdownToCopy) return;
+    try {
+      await navigator.clipboard.writeText(markdownToCopy);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignore
+    }
+  };
+
+  const showCopyBar = !isProgress && !isStreaming && markdownToCopy.length > 0;
+
   return (
     <div
       className={
         isProgress
           ? 'my-2 min-w-0 border-l-2 border-[var(--border)] py-0.5 pl-3 text-[13px] text-[var(--text-secondary)]'
-          : 'my-3 min-w-0'
+          : 'my-3 min-w-0 group'
       }
     >
       {!isProgress && agentProfile ? (
@@ -596,6 +621,17 @@ function AssistantCard({
       {!isProgress && memoryCitationBlocks.map((block, idx) => (
         <MemoryCitationsBlock key={`memory-citations-${idx}`} block={block} />
       ))}
+      {showCopyBar && (
+        <div className="mt-1 flex items-center justify-start opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto">
+          <IconButton
+            onClick={handleCopyAnswer}
+            title={copied ? 'Copied' : 'Copy as markdown'}
+            ariaLabel="Copy as markdown"
+          >
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+          </IconButton>
+        </div>
+      )}
     </div>
   );
 }
