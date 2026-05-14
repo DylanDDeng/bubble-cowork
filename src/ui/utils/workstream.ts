@@ -560,7 +560,7 @@ export function createStreamingWorkstreamModel(params: {
     permissionRequests: params.permissionRequests,
   });
 
-  if (entries.length === 0 && params.phase === 'complete') {
+  if (entries.length === 0) {
     return null;
   }
 

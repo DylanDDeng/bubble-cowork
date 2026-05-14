@@ -151,6 +151,7 @@ function WorkstreamToggle({
   const elapsedMs = model.durationMs ?? estimateElapsedMs(model.startedAt, now);
   const elapsedLabel = typeof elapsedMs === 'number' ? formatElapsed(elapsedMs) : null;
   const stateLabel = isRunning ? 'Working' : 'Worked';
+  const showElapsedInToggle = Boolean(elapsedLabel) && (!isRunning || !expanded);
 
   return (
     <button
@@ -169,7 +170,7 @@ function WorkstreamToggle({
       <span>
         {stepCount} step{stepCount === 1 ? '' : 's'}
       </span>
-      {elapsedLabel ? (
+      {showElapsedInToggle ? (
         <>
           <span className="text-[var(--text-muted)]/35">·</span>
           <span>
