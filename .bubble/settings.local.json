@@ -4,7 +4,20 @@
       "Bash(wc:*)",
       "Bash(ls:*)",
       "Bash(cd:*)",
-      "Bash(undefined:*)"
+      "Bash(undefined:*)",
+      "Bash(which codex:*)",
+      "Bash(codex:*)",
+      "Bash(echo:*)",
+      "Bash(cat:*)",
+      "Bash(which:*)",
+      "Bash(# Check:*)",
+      "Bash(# Look:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(sed:*)",
+      "Bash(grep:*)"
     ]
   }
 }

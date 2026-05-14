@@ -332,6 +332,9 @@ function createWindow(): void {
   setupIPCHandlers(mainWindow);
   registerBrowserIpc(mainWindow);
 
+  // 后台预热 Claude 运行时状态缓存，避免首次发消息时等待 1-5 秒
+  import('./libs/claude-runtime-status.js').then((m) => m.prefetchClaudeRuntimeStatus());
+
   if (isDev()) {
     const webContents = mainWindow.webContents;
     webContents.on('preload-error', (_event, preloadPath, error) => {

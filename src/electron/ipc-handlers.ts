@@ -46,7 +46,7 @@ import { loadFeishuBridgeConfig, saveFeishuBridgeConfig } from './libs/feishu-br
 import { feishuBridge } from './libs/feishu-bridge';
 import { getMemoryWorkspace, saveMemoryDocument } from './libs/memory-store';
 import { listAegisSkillsForProvider } from './libs/builtin-agent/skills/manager';
-import { formatClaudeRuntimeBlockingMessage, getClaudeRuntimeStatus } from './libs/claude-runtime-status';
+import { formatClaudeRuntimeBlockingMessage, getClaudeRuntimeStatus, getClaudeRuntimeStatusCached, invalidateClaudeRuntimeCache } from './libs/claude-runtime-status';
 import {
   getSkillMarketDetail,
   getSkillMarketHot,
@@ -3397,6 +3397,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // RPC: 保存 Claude-compatible provider 配置
   ipcMainHandle('save-claude-compatible-provider-config', async (_, config: ClaudeCompatibleProvidersConfig) => {
     saveCompatibleProviderConfig(config);
+    invalidateClaudeRuntimeCache(); // 配置变更后清除缓存，下次发消息时重新检查
     return loadCompatibleProviderConfig();
   });
 
@@ -5204,7 +5205,7 @@ async function ensureRoutedAgentTurnRuntimeReady(
   model?: string
 ): Promise<boolean> {
   if (provider === 'claude') {
-    const runtimeStatus = await getClaudeRuntimeStatus(model || null);
+    const runtimeStatus = await getClaudeRuntimeStatusCached(model || null);
     if (!runtimeStatus.ready) {
       sessions.updateSessionStatus(sessionId, 'error');
       broadcast(mainWindow, {
@@ -5999,29 +6000,7 @@ async function handleSessionStart(
   const selectedAegisReasoningEffort =
     chosenProvider === 'aegis' ? normalizeAegisReasoningEffort(aegisReasoningEffort) : undefined;
 
-  if (chosenProvider === 'claude') {
-    const runtimeStatus = await getClaudeRuntimeStatus(selectedModel || null);
-    if (!runtimeStatus.ready) {
-      broadcast(mainWindow, {
-        type: 'runner.error',
-        payload: {
-          message: formatClaudeRuntimeBlockingMessage(runtimeStatus),
-        },
-      });
-      return null;
-    }
-  } else if (chosenProvider === 'opencode') {
-    const runtimeStatus = await getOpencodeRuntimeStatus();
-    if (!runtimeStatus.ready) {
-      broadcast(mainWindow, {
-        type: 'runner.error',
-        payload: {
-          message: 'OpenCode ACP is not ready. Check Settings > Providers.',
-        },
-      });
-      return null;
-    }
-  }
+  // 运行时状态检查已移动到会话创建和状态广播之后，以便前端立即显示 spinning 效果
 
   if (isDev()) {
     console.log('[Session Start]', {
@@ -6111,6 +6090,48 @@ async function handleSessionStart(
     },
   });
 
+  // 广播用户 prompt（在运行时检查之前，让用户消息立即显示）
+  const createdAt = Date.now();
+  broadcast(mainWindow, {
+    type: 'stream.user_prompt',
+    payload: { sessionId: session.id, prompt: outgoingPrompt, attachments: outgoingAttachments, createdAt },
+  });
+
+  // 保存 user_prompt
+  sessions.addMessage(session.id, {
+    type: 'user_prompt',
+    prompt: outgoingPrompt,
+    attachments: outgoingAttachments,
+    createdAt,
+  });
+
+  // 检查运行时状态（在会话状态已设为 running 之后，以便前端立即显示 spinning 效果）
+  if (chosenProvider === 'claude') {
+    const runtimeStatus = await getClaudeRuntimeStatusCached(selectedModel || null);
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(session.id, 'error');
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatClaudeRuntimeBlockingMessage(runtimeStatus),
+        },
+      });
+      return null;
+    }
+  } else if (chosenProvider === 'opencode') {
+    const runtimeStatus = await getOpencodeRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(session.id, 'error');
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: 'OpenCode ACP is not ready. Check Settings > Providers.',
+        },
+      });
+      return null;
+    }
+  }
+
   // 异步生成更好的标题（不阻塞）
   if (sessionScope !== 'dm') {
     generateSessionTitle(
@@ -6145,26 +6166,6 @@ async function handleSessionStart(
       console.error('Failed to generate title:', err);
     });
   }
-
-  // 广播用户 prompt
-  const createdAt = Date.now();
-  broadcast(mainWindow, {
-    type: 'stream.user_prompt',
-    payload: {
-      sessionId: session.id,
-      prompt: outgoingPrompt,
-      attachments: outgoingAttachments,
-      createdAt,
-    },
-  });
-
-  // 保存 user_prompt 到消息历史
-  sessions.addMessage(session.id, {
-    type: 'user_prompt',
-    prompt: outgoingPrompt,
-    attachments: outgoingAttachments,
-    createdAt,
-  });
 
   if (normalizedRoutedAgentTurns.length > 0) {
     void runRoutedAgentTurnSequence(
@@ -6421,31 +6422,7 @@ async function handleSessionContinue(
     nextProvider === 'aegis' &&
     runnerHandles.get(sessionId)?.aegisReasoningEffort !== nextAegisReasoningEffort;
 
-  if (nextProvider === 'claude') {
-    const runtimeStatus = await getClaudeRuntimeStatus(nextModel || null);
-    if (!runtimeStatus.ready) {
-      broadcast(mainWindow, {
-        type: 'runner.error',
-        payload: {
-          message: formatClaudeRuntimeBlockingMessage(runtimeStatus),
-          sessionId,
-        },
-      });
-      return false;
-    }
-  } else if (nextProvider === 'opencode') {
-    const runtimeStatus = await getOpencodeRuntimeStatus();
-    if (!runtimeStatus.ready) {
-      broadcast(mainWindow, {
-        type: 'runner.error',
-        payload: {
-          message: 'OpenCode ACP is not ready. Check Settings > Providers.',
-          sessionId,
-        },
-      });
-      return false;
-    }
-  }
+  // 运行时状态检查已移动到会话状态广播之后，以便前端立即显示 spinning 效果
 
   if (isDev()) {
     console.log('[Session Continue]', {
@@ -6539,7 +6516,7 @@ async function handleSessionContinue(
     },
   });
 
-  // 广播用户 prompt
+  // 广播用户 prompt（在运行时检查之前，让用户消息立即显示）
   const createdAt = Date.now();
   broadcast(mainWindow, {
     type: 'stream.user_prompt',
@@ -6553,6 +6530,35 @@ async function handleSessionContinue(
     attachments: outgoingAttachments,
     createdAt,
   });
+
+  // 检查运行时状态（在会话状态已设为 running 之后，以便前端立即显示 spinning 效果）
+  if (nextProvider === 'claude') {
+    const runtimeStatus = await getClaudeRuntimeStatusCached(nextModel || null);
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(sessionId, 'error');
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatClaudeRuntimeBlockingMessage(runtimeStatus),
+          sessionId,
+        },
+      });
+      return false;
+    }
+  } else if (nextProvider === 'opencode') {
+    const runtimeStatus = await getOpencodeRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(sessionId, 'error');
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: 'OpenCode ACP is not ready. Check Settings > Providers.',
+          sessionId,
+        },
+      });
+      return false;
+    }
+  }
 
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
     if (

@@ -326,3 +326,61 @@ export function formatClaudeRuntimeBlockingMessage(status: ClaudeRuntimeStatus):
 
   return status.summary;
 }
+
+// ────────────────────────────────────────
+// 缓存机制：启动时预检查，避免每次发消息都等待 1-5 秒
+// ────────────────────────────────────────
+
+interface CachedEntry {
+  status: ClaudeRuntimeStatus
+  model: string | null
+  cachedAt: number
+}
+
+let cachedStatus: CachedEntry | null = null
+
+/** 缓存有效期：5 分钟（单位：毫秒） */
+const CACHE_TTL_MS = 5 * 60 * 1000
+
+/**
+ * 清除缓存。当用户修改 Claude 设置（CLI 路径、模型、API Key 等）时调用。
+ */
+export function invalidateClaudeRuntimeCache(): void {
+  cachedStatus = null
+}
+
+/**
+ * 获取 Claude 运行时状态（带缓存）。
+ * 如果缓存有效且模型匹配，直接返回缓存结果；否则重新检查并更新缓存。
+ *
+ * @param model - 可选的模型名称，用于区分不同模型的缓存
+ */
+export async function getClaudeRuntimeStatusCached(model?: string | null): Promise<ClaudeRuntimeStatus> {
+  const targetModel = model ?? null
+
+  // 缓存有效：模型匹配且未过期
+  if (
+    cachedStatus &&
+    cachedStatus.model === targetModel &&
+    Date.now() - cachedStatus.cachedAt < CACHE_TTL_MS
+  ) {
+    return cachedStatus.status
+  }
+
+  // 缓存无效：重新检查
+  const status = await getClaudeRuntimeStatus(targetModel)
+  cachedStatus = { status, model: targetModel, cachedAt: Date.now() }
+  return status
+}
+
+/**
+ * 后台预热缓存。在 App 启动时调用，不阻塞启动流程。
+ * 如果检查失败，会在下次 getClaudeRuntimeStatusCached 调用时重试。
+ */
+export async function prefetchClaudeRuntimeStatus(): Promise<void> {
+  try {
+    await getClaudeRuntimeStatusCached()
+  } catch {
+    // 静默失败，下次 getClaudeRuntimeStatusCached 调用会重试
+  }
+}
