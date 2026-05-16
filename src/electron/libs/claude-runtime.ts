@@ -192,6 +192,10 @@ function isNodeScriptPath(filePath: string | undefined): boolean {
   return lower.endsWith('.js') || lower.endsWith('.cjs') || lower.endsWith('.mjs');
 }
 
+export function isClaudeCodeNativeExecutable(filePath: string | undefined): boolean {
+  return Boolean(filePath && !isNodeScriptPath(filePath));
+}
+
 export function getClaudeCodeRuntime(): ClaudeCodeRuntime {
   const cliPath = resolveClaudeCodeCliPath();
   const env: Record<string, string | undefined> = {};
@@ -199,12 +203,12 @@ export function getClaudeCodeRuntime(): ClaudeCodeRuntime {
   let executableArgs: string[] = [];
   let pathToClaudeCodeExecutable = cliPath;
 
-  if (cliPath && !isNodeScriptPath(cliPath)) {
+  if (isClaudeCodeNativeExecutable(cliPath)) {
     return {
-      executable: cliPath,
+      executable,
       executableArgs: [],
       env: {},
-      pathToClaudeCodeExecutable: undefined,
+      pathToClaudeCodeExecutable,
     };
   }
 
