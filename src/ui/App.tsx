@@ -7,7 +7,7 @@ import {
   CloudUpload,
   Copy,
   FileDiff,
-  Files,
+  FolderClosed,
   FolderOpen,
   ExternalLink,
   GitBranch,
@@ -826,7 +826,6 @@ function InlineProjectPanelHeaderActions({
     {
       id: 'files' as const,
       label: 'Files',
-      icon: Files,
     },
     {
       id: 'changes' as const,
@@ -845,8 +844,10 @@ function InlineProjectPanelHeaderActions({
             changeStats.deletions > 0
         )
         .map((item) => {
-        const Icon = item.icon;
         const active = !collapsed && activeTab === item.id;
+        const Icon = item.id === 'files'
+          ? active ? FolderOpen : FolderClosed
+          : item.icon;
 
         return (
           <button
