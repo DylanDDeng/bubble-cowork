@@ -3,7 +3,11 @@ import { sep } from 'path';
 import type { ClaudeRuntimeSource, ClaudeRuntimeStatus } from '../../shared/types';
 import { getClaudeEnv, hasClaudeCodeOAuthAccount, sanitizeOfficialClaudeEnv } from './claude-settings';
 import { normalizeClaudeRequestedModel } from './claude-model-selection';
-import { getClaudeCodeRuntime, type ClaudeCodeRuntime } from './claude-runtime';
+import {
+  getClaudeCodeRuntime,
+  isClaudeCodeNativeExecutable,
+  type ClaudeCodeRuntime,
+} from './claude-runtime';
 
 const INSTALL_COMMAND = 'claude install stable';
 const LOGIN_COMMAND = 'claude auth login';
@@ -128,14 +132,20 @@ function execClaudeRuntimeCommand(
     });
   }
 
-  const commandArgs = runtime.pathToClaudeCodeExecutable
-    ? [...runtime.executableArgs, runtime.pathToClaudeCodeExecutable, ...args]
-    : [...runtime.executableArgs, ...args];
+  const nativeExecutable = isClaudeCodeNativeExecutable(runtime.pathToClaudeCodeExecutable)
+    ? runtime.pathToClaudeCodeExecutable
+    : undefined;
+  const command = nativeExecutable || runtime.executable;
+  const commandArgs = nativeExecutable
+    ? args
+    : runtime.pathToClaudeCodeExecutable
+      ? [...runtime.executableArgs, runtime.pathToClaudeCodeExecutable, ...args]
+      : [...runtime.executableArgs, ...args];
   const commandEnv = env || buildClaudeRuntimeEnv(runtime.env);
 
   return new Promise((resolve) => {
     execFile(
-      runtime.executable,
+      command,
       commandArgs,
       {
         env: commandEnv,
