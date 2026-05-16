@@ -8,6 +8,7 @@ import jsIconUrl from '../assets/vscode-icons/file_type_js.svg';
 import jsonIconUrl from '../assets/vscode-icons/file_type_json.svg';
 import markdownIconUrl from '../assets/vscode-icons/file_type_markdown.svg';
 import powerpointIconUrl from '../assets/vscode-icons/file_type_powerpoint.svg';
+import pythonIconUrl from '../assets/vscode-icons/file_type_python.svg';
 import reactJsIconUrl from '../assets/vscode-icons/file_type_reactjs.svg';
 import reactTsIconUrl from '../assets/vscode-icons/file_type_reactts.svg';
 import scssIconUrl from '../assets/vscode-icons/file_type_scss.svg';
@@ -38,6 +39,8 @@ const FILE_ICON_URL_BY_EXTENSION: Record<string, string> = {
   ico: imageIconUrl,
   ppt: powerpointIconUrl,
   pptx: powerpointIconUrl,
+  py: pythonIconUrl,
+  pyw: pythonIconUrl,
 };
 
 export function getFileTypeIconUrl(name: string): string {

@@ -5,9 +5,24 @@ import remarkMath from 'remark-math';
 import rehypeRaw from 'rehype-raw';
 import rehypeKatex from 'rehype-katex';
 import type { Components } from 'react-markdown';
-import { Check, Copy } from '../components/icons';
+import {
+  BrandFigma,
+  BrandGithub,
+  BrandGmail,
+  BrandGoogleDrive,
+  BrandNotion,
+  BrandOpenai,
+  BrandSlack,
+  BrandTwitter,
+  BrandVercel,
+  BrandX,
+  Check,
+  Copy,
+  type IconComponent,
+} from '../components/icons';
 import { toast } from 'sonner';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { FileTypeIcon } from '../components/FileTypeIcon';
 import { HighlightedCode } from '../components/HighlightedCode';
 import { useAppStore } from '../store/useAppStore';
 import { isHtmlFilePath, openHtmlFileInBrowserTab } from '../utils/html-preview';
@@ -16,6 +31,18 @@ interface MDContentProps {
   content: string;
   className?: string;
   allowHtml?: boolean;
+}
+
+interface ProjectFileLink {
+  path: string;
+  line?: number;
+}
+
+interface ExternalLinkApp {
+  kind: string;
+  label: string;
+  Icon?: IconComponent;
+  monogram?: string;
 }
 
 function extractTextContent(node: ReactNode): string {
@@ -100,18 +127,34 @@ function stripHashAndQuery(value: string): string {
   return value.slice(0, Math.min(...cutPoints));
 }
 
+function extractLineHint(value: string): number | undefined {
+  const match = /(?:#L|[?&#]line=)(\d+)/i.exec(value);
+  if (!match) return undefined;
+
+  const line = Number(match[1]);
+  return Number.isInteger(line) && line > 0 ? line : undefined;
+}
+
 function normalizeSlashPath(value: string): string {
   return value.replace(/\\/g, '/').replace(/\/+/g, '/');
 }
 
-function stripLineSuffix(path: string): string {
+function parseLineSuffix(path: string): ProjectFileLink {
   // Model answers often cite files as README.md:3 or src/App.tsx:120:8.
-  // The preview API expects only the file path; line navigation can be layered
-  // on later without treating the line suffix as part of the filename.
-  return path.replace(/:(\d+)(?::\d+)?$/, '');
+  // Keep the display line while preventing it from becoming part of the filename.
+  const match = /:(\d+)(?::\d+)?$/.exec(path);
+  if (!match) {
+    return { path };
+  }
+
+  const line = Number(match[1]);
+  return {
+    path: path.slice(0, match.index ?? path.length),
+    line: Number.isInteger(line) && line > 0 ? line : undefined,
+  };
 }
 
-function getProjectFileHref(href: string | undefined, cwd: string | null): string | null {
+function getProjectFileLink(href: string | undefined, cwd: string | null): ProjectFileLink | null {
   if (!href || !cwd) return null;
 
   const raw = href.trim();
@@ -121,6 +164,7 @@ function getProjectFileHref(href: string | undefined, cwd: string | null): strin
     return null;
   }
 
+  const lineHint = extractLineHint(raw);
   let path = raw;
   if (raw.toLowerCase().startsWith('file:')) {
     try {
@@ -137,7 +181,8 @@ function getProjectFileHref(href: string | undefined, cwd: string | null): strin
     }
   }
 
-  path = stripLineSuffix(normalizeSlashPath(path.trim()));
+  const parsed = parseLineSuffix(normalizeSlashPath(path.trim()));
+  path = parsed.path;
   if (!path || path.includes('\0')) return null;
 
   const normalizedCwd = normalizeSlashPath(cwd).replace(/\/$/, '');
@@ -149,7 +194,70 @@ function getProjectFileHref(href: string | undefined, cwd: string | null): strin
   }
 
   path = path.replace(/^\.\//, '');
-  return path && path !== '.' ? path : null;
+  return path && path !== '.' ? { path, line: parsed.line ?? lineHint } : null;
+}
+
+function matchesHost(host: string, domain: string): boolean {
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
+function getExternalLinkApp(href: string | undefined): ExternalLinkApp | null {
+  if (!href) return null;
+
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return null;
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return null;
+  }
+
+  const host = url.hostname.toLowerCase().replace(/^www\./, '');
+
+  if (matchesHost(host, 'github.com')) {
+    return { kind: 'github', label: 'GitHub', Icon: BrandGithub };
+  }
+  if (matchesHost(host, 'figma.com')) {
+    return { kind: 'figma', label: 'Figma', Icon: BrandFigma };
+  }
+  if (matchesHost(host, 'notion.so') || matchesHost(host, 'notion.site')) {
+    return { kind: 'notion', label: 'Notion', Icon: BrandNotion };
+  }
+  if (matchesHost(host, 'linear.app')) {
+    return { kind: 'linear', label: 'Linear', monogram: 'L' };
+  }
+  if (matchesHost(host, 'x.com')) {
+    return { kind: 'x', label: 'X', Icon: BrandX };
+  }
+  if (matchesHost(host, 'twitter.com')) {
+    return { kind: 'twitter', label: 'Twitter', Icon: BrandTwitter };
+  }
+  if (matchesHost(host, 'openai.com') || matchesHost(host, 'chatgpt.com')) {
+    return { kind: 'openai', label: 'OpenAI', Icon: BrandOpenai };
+  }
+  if (matchesHost(host, 'slack.com')) {
+    return { kind: 'slack', label: 'Slack', Icon: BrandSlack };
+  }
+  if (matchesHost(host, 'vercel.com') || matchesHost(host, 'vercel.app')) {
+    return { kind: 'vercel', label: 'Vercel', Icon: BrandVercel };
+  }
+  if (host === 'mail.google.com' || matchesHost(host, 'gmail.com')) {
+    return { kind: 'gmail', label: 'Gmail', Icon: BrandGmail };
+  }
+  if (host === 'drive.google.com' || host === 'docs.google.com') {
+    return { kind: 'google-drive', label: 'Google Drive', Icon: BrandGoogleDrive };
+  }
+
+  return null;
+}
+
+function shouldShowLineSuffix(children: ReactNode, line: number | undefined): line is number {
+  if (!line) return false;
+  const text = extractTextContent(children);
+  return !new RegExp(`(?:\\bline\\s*${line}\\b|#L${line}\\b|:${line}\\b)`, 'i').test(text);
 }
 
 function MarkdownAnchor({
@@ -168,15 +276,16 @@ function MarkdownAnchor({
     setProjectTreeCollapsed,
   } = useAppStore();
   const cwd = (activeSessionId ? sessions[activeSessionId]?.cwd : null) || projectCwd || null;
-  const projectFilePath = getProjectFileHref(href, cwd);
+  const projectFile = getProjectFileLink(href, cwd);
+  const externalLinkApp = projectFile ? null : getExternalLinkApp(href);
 
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-    if (!projectFilePath || !cwd) return;
+    if (!projectFile || !cwd) return;
 
     event.preventDefault();
     event.stopPropagation();
 
-    if (isHtmlFilePath(projectFilePath)) {
+    if (isHtmlFilePath(projectFile.path)) {
       if (!activeSessionId) {
         toast.error('No active session for browser preview.');
         return;
@@ -184,7 +293,7 @@ function MarkdownAnchor({
 
       openHtmlFileInBrowserTab({
         cwd,
-        filePath: projectFilePath,
+        filePath: projectFile.path,
         sessionId: activeSessionId,
       })
         .then(() => {
@@ -204,20 +313,66 @@ function MarkdownAnchor({
     window.setTimeout(() => {
       window.dispatchEvent(
         new CustomEvent('aegis:open-project-file', {
-          detail: { cwd, path: projectFilePath },
+          detail: { cwd, path: projectFile.path, lineStart: projectFile.line },
         })
       );
     }, 0);
   };
 
+  if (projectFile) {
+    const showLine = shouldShowLineSuffix(children, projectFile.line);
+    const title = projectFile.line
+      ? `Open ${projectFile.path} at line ${projectFile.line}`
+      : `Open ${projectFile.path}`;
+
+    return (
+      <a
+        href={href}
+        className="md-file-link"
+        onClick={handleClick}
+        title={title}
+      >
+        <FileTypeIcon
+          name={projectFile.path}
+          className="md-file-link-icon"
+          fallbackClassName="md-file-link-fallback-icon"
+        />
+        <span className="md-link-label">{children}</span>
+        {showLine && <span className="md-file-link-line">(line {projectFile.line})</span>}
+      </a>
+    );
+  }
+
+  if (externalLinkApp) {
+    const Icon = externalLinkApp.Icon;
+
+    return (
+      <a
+        href={href}
+        className={`md-app-link md-app-link-${externalLinkApp.kind}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`Open ${externalLinkApp.label}`}
+      >
+        {Icon ? (
+          <Icon className="md-app-link-icon" aria-hidden="true" />
+        ) : (
+          <span className="md-app-link-monogram" aria-hidden="true">
+            {externalLinkApp.monogram}
+          </span>
+        )}
+        <span className="md-link-label">{children}</span>
+      </a>
+    );
+  }
+
   return (
     <a
       href={href}
       className="text-[var(--accent)] hover:underline"
-      target={projectFilePath ? undefined : '_blank'}
-      rel={projectFilePath ? undefined : 'noopener noreferrer'}
+      target="_blank"
+      rel="noopener noreferrer"
       onClick={handleClick}
-      title={projectFilePath ? `Open ${projectFilePath}` : undefined}
     >
       {children}
     </a>
