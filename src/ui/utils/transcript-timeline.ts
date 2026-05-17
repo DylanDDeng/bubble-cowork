@@ -209,6 +209,28 @@ function combineWorkGroups(groups: TimelineWorkGroup[]): TimelineWorkGroup | nul
   return createWorkGroup(messages, originalIndices);
 }
 
+function timelineItemOriginalIndices(item: TranscriptTimelineItem): number[] {
+  return item.type === 'work' ? item.group.originalIndices : [item.originalIndex];
+}
+
+function isActiveRunningTurn(
+  turnItems: TranscriptTimelineItem[],
+  options: { activeTurnStartIndex?: number; sessionRunning?: boolean }
+): boolean {
+  const activeTurnStartIndex = options.activeTurnStartIndex;
+  return (
+    options.sessionRunning === true &&
+    typeof activeTurnStartIndex === 'number' &&
+    turnItems.some((item) =>
+      timelineItemOriginalIndices(item).some((index) => index > activeTurnStartIndex)
+    )
+  );
+}
+
+function hasTurnResult(turnItems: TranscriptTimelineItem[]): boolean {
+  return turnItems.some((item) => item.type === 'message' && item.message.type === 'result');
+}
+
 function collapseTurnWorkBeforeAnswer(
   turnItems: TranscriptTimelineItem[],
   options: { activeTurnStartIndex?: number; sessionRunning?: boolean }
@@ -222,14 +244,8 @@ function collapseTurnWorkBeforeAnswer(
     }
     return -1;
   })();
-  const answerItem =
-    answerSourceIndex >= 0 && turnItems[answerSourceIndex]?.type === 'message'
-      ? (turnItems[answerSourceIndex] as Extract<TranscriptTimelineItem, { type: 'message' }>)
-      : null;
-  const answerHasTrailingWork =
-    answerItem?.inlineWorkGroup?.originalIndices.some((index) => index > answerItem.originalIndex) ?? false;
-  const hasTerminalAnswer =
-    answerSourceIndex >= 0 && (options.sessionRunning !== true || !answerHasTrailingWork);
+  const activeRunningTurn = isActiveRunningTurn(turnItems, options);
+  const hasTerminalAnswer = answerSourceIndex >= 0 && (!activeRunningTurn || hasTurnResult(turnItems));
 
   const workGroups: TimelineWorkGroup[] = [];
   const visibleItems: TranscriptTimelineItem[] = [];
@@ -248,7 +264,7 @@ function collapseTurnWorkBeforeAnswer(
       continue;
     }
 
-    if (item.message.type === 'assistant' && index !== answerSourceIndex) {
+    if (item.message.type === 'assistant' && (!hasTerminalAnswer || index !== answerSourceIndex)) {
       if (item.inlineWorkGroup) {
         workGroups.push(item.inlineWorkGroup);
       }

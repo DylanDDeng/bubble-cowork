@@ -399,6 +399,7 @@ function buildWorkstreamSummary(entries: WorkstreamEntry[], state: WorkstreamSta
 }
 
 function buildLiveWorkstreamEntries(input?: {
+  partialText?: string;
   partialThinking?: string;
   permissionRequests?: PermissionRequestPayload[];
 }): WorkstreamEntry[] {
@@ -418,8 +419,22 @@ function buildLiveWorkstreamEntries(input?: {
           state: 'active',
         } satisfies WorkstreamEntry)
       : null;
+  const text = input.partialText?.trim();
+  const textEntry =
+    text && text.length > 0
+      ? ({
+          id: 'streaming-text',
+          type: 'note',
+          summary: truncateSummary(text, 120),
+          detail: text,
+        } satisfies WorkstreamEntry)
+      : null;
 
-  return [...permissionEntries, ...(thinkingEntry ? [thinkingEntry] : [])];
+  return [
+    ...permissionEntries,
+    ...(thinkingEntry ? [thinkingEntry] : []),
+    ...(textEntry ? [textEntry] : []),
+  ];
 }
 
 function buildPreviewEntries(entries: WorkstreamEntry[]): WorkstreamEntry[] {
@@ -455,7 +470,9 @@ export function createBatchWorkstreamModel(params: {
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
   isSessionRunning: boolean;
+  startedAt?: number;
   liveTrace?: {
+    partialText?: string;
     partialThinking?: string;
     permissionRequests?: PermissionRequestPayload[];
   };
@@ -496,7 +513,7 @@ export function createBatchWorkstreamModel(params: {
     (entry) => entry.type === 'note' || entry.type === 'thinking'
   ).length;
   const durationMs = computeBatchDurationMs(params.messages, state);
-  const startedAt = computeBatchStartedAt(params.messages);
+  const startedAt = params.startedAt ?? computeBatchStartedAt(params.messages);
 
   return {
     state,
@@ -551,11 +568,14 @@ function computeBatchDurationMs(
 }
 
 export function createStreamingWorkstreamModel(params: {
+  partialText?: string;
   partialThinking: string;
   phase: TurnPhase;
+  startedAt?: number;
   permissionRequests?: PermissionRequestPayload[];
 }): WorkstreamModel | null {
   const entries = buildLiveWorkstreamEntries({
+    partialText: params.partialText,
     partialThinking: params.partialThinking,
     permissionRequests: params.permissionRequests,
   });
@@ -587,6 +607,7 @@ export function createStreamingWorkstreamModel(params: {
     toolCount: 0,
     noteCount: entries.length,
     hiddenEntryCount: Math.max(entries.length - previewEntries.length, 0),
+    startedAt: params.startedAt,
     todoProgress: null,
   };
 }

@@ -558,6 +558,13 @@ export function ChatPane({
     }
     return -1;
   }, [session?.messages]);
+  const activeTurnStartedAt = useMemo(() => {
+    if (!session || lastUserPromptIndex < 0) {
+      return undefined;
+    }
+    const createdAt = (session.messages[lastUserPromptIndex] as { createdAt?: unknown })?.createdAt;
+    return typeof createdAt === 'number' && Number.isFinite(createdAt) ? createdAt : undefined;
+  }, [lastUserPromptIndex, session?.messages]);
 
   const timelineItems = useMemo(
     () =>
@@ -666,20 +673,35 @@ export function ChatPane({
         return null;
       }
       return createStreamingWorkstreamModel({
+        partialText: partialMessage,
         partialThinking,
         phase: turnPhase,
+        startedAt: activeTurnStartedAt,
         permissionRequests: session?.permissionRequests || [],
       });
     },
-    [hasActiveTimelineWork, partialThinking, session?.permissionRequests, turnPhase]
+    [
+      activeTurnStartedAt,
+      hasActiveTimelineWork,
+      partialMessage,
+      partialThinking,
+      session?.permissionRequests,
+      turnPhase,
+    ]
   );
   const activeLiveTrace = useMemo(
     () => ({
+      partialText: partialMessage,
       partialThinking,
       permissionRequests: session?.permissionRequests || [],
     }),
-    [partialThinking, session?.permissionRequests]
+    [partialMessage, partialThinking, session?.permissionRequests]
   );
+  const shouldRenderStandalonePartial =
+    !hasActiveTimelineWork &&
+    !streamingWorkstreamModel &&
+    showPartialMessage &&
+    partialMessage.length > 0;
 
   useEffect(() => {
     if (!sessionId || !session) {
@@ -989,6 +1011,7 @@ export function ChatPane({
                             toolResultsMap={toolResultsMap}
                             isSessionRunning={session.status === 'running'}
                             isLastBatch={item.active}
+                            startedAt={item.active ? activeTurnStartedAt : undefined}
                             liveTrace={item.group.id === activeTimelineWorkId ? activeLiveTrace : undefined}
                             defaultExpanded={item.defaultExpanded}
                             resetKey={item.disclosureResetKey}
@@ -1095,7 +1118,7 @@ export function ChatPane({
                 })}
               </TurnDiffContext.Provider>
 
-              {(streamingWorkstreamModel || (showPartialMessage && partialMessage)) && (
+              {(streamingWorkstreamModel || shouldRenderStandalonePartial) && (
                 <div className="my-2 min-w-0 overflow-x-auto streaming-content">
                   {streamingWorkstreamModel ? (
                     <WorkstreamDisclosure
@@ -1105,7 +1128,7 @@ export function ChatPane({
                       resetKey={`${sessionId}:${lastUserPromptIndex}`}
                     />
                   ) : null}
-                  {partialMessage ? (
+                  {shouldRenderStandalonePartial ? (
                     <ErrorBoundary
                       resetKey={partialMessage}
                       fallback={
@@ -1128,10 +1151,9 @@ export function ChatPane({
               {(() => {
                 if (session.status !== 'running') return null;
                 if (streamingWorkstreamModel) return null;
-                const last = timelineItems[timelineItems.length - 1];
-                if (last && last.type === 'work' && last.active) return null;
+                if (hasActiveTimelineWork) return null;
                 if (turnPhase === 'complete') return null;
-                return <WorkingFooter startedAt={undefined} />;
+                return <WorkingFooter startedAt={activeTurnStartedAt} />;
               })()}
 
               <div />

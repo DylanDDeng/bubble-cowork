@@ -21,7 +21,9 @@ interface ToolExecutionBatchProps {
    * session is mid-turn and each would mount its own setInterval-backed
    * WorkingFooter. */
   isLastBatch?: boolean;
+  startedAt?: number;
   liveTrace?: {
+    partialText?: string;
     partialThinking?: string;
     permissionRequests?: PermissionRequestPayload[];
   };
@@ -37,6 +39,7 @@ export function ToolExecutionBatch({
   toolResultsMap,
   isSessionRunning,
   isLastBatch = false,
+  startedAt,
   liveTrace,
   expanded,
   defaultExpanded,
@@ -51,9 +54,10 @@ export function ToolExecutionBatch({
         toolStatusMap,
         toolResultsMap,
         isSessionRunning: batchIsRunning,
+        startedAt: batchIsRunning ? startedAt : undefined,
         liveTrace: batchIsRunning ? liveTrace : undefined,
       }),
-    [messages, toolResultsMap, toolStatusMap, batchIsRunning, liveTrace]
+    [messages, toolResultsMap, toolStatusMap, batchIsRunning, startedAt, liveTrace]
   );
 
   const disclosureResetKey = resetKey ?? messages.map((message) => message.uuid).join(':');
