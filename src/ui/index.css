@@ -497,6 +497,57 @@ body {
   cursor: wait;
 }
 
+.markdown-content .md-inline-file-code {
+  display: inline-flex;
+  max-width: min(100%, 32rem);
+  min-width: 0;
+  align-items: center;
+  gap: 0.28rem;
+  margin: 0 0.02rem;
+  padding: 0.05rem 0.3rem 0.06rem 0.24rem;
+  vertical-align: -0.16em;
+  border: 1px solid color-mix(in srgb, var(--code-inline-border) 62%, transparent);
+  border-radius: 0.34rem;
+  background: color-mix(in srgb, var(--code-inline-bg) 68%, transparent);
+  color: color-mix(in srgb, var(--code-inline-text) 90%, var(--text-primary));
+  font-family: var(--font-mono), 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.82em;
+  font-weight: 500;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+button.md-inline-file-code {
+  cursor: pointer;
+  text-align: left;
+}
+
+button.md-inline-file-code:hover {
+  border-color: color-mix(in srgb, var(--code-inline-border) 78%, transparent);
+  background: color-mix(in srgb, var(--bg-tertiary) 88%, transparent);
+  color: var(--text-primary);
+}
+
+.markdown-content .md-inline-file-code-icon,
+.markdown-content .md-inline-file-code-fallback-icon {
+  width: 1em;
+  height: 1em;
+  flex: 0 0 auto;
+}
+
+.markdown-content .md-inline-file-code-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.markdown-content .md-inline-file-code-line {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 0.92em;
+  font-weight: 450;
+}
+
 .markdown-content .md-code-block {
   --md-code-surface: color-mix(in srgb, var(--preview-surface) 92%, var(--bg-tertiary));
   --md-code-header-surface: color-mix(in srgb, var(--preview-surface) 88%, var(--bg-tertiary));
@@ -768,7 +819,6 @@ body {
   gap: 0.32rem;
   margin: 0 0.02rem;
   vertical-align: -0.18em;
-  color: var(--accent);
   font-weight: 500;
   line-height: 1.25;
   white-space: nowrap;
@@ -778,17 +828,29 @@ body {
 
 .markdown-content .md-file-link {
   padding: 0.01rem 0.08rem 0.02rem 0.05rem;
+  border: 0;
   background: transparent;
+  color: var(--text-primary);
+}
+
+.markdown-content .md-file-link .md-inline-code {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
+  font-weight: inherit;
 }
 
 .markdown-content .md-app-link {
   padding: 0.06rem 0.36rem 0.07rem 0.3rem;
+  color: var(--accent);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .markdown-content a.md-file-link:hover {
-  color: var(--accent);
+  color: var(--text-primary);
   text-decoration: none;
   background: transparent;
 }

@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback, type ReactNode } from 'react';
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Check, ChevronDown, Plus, Square } from './icons';
+import { Plus, Square } from './icons';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
@@ -15,12 +14,12 @@ import { ProjectAgentMentionMenu } from './ProjectAgentMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
 import { CodexContextIndicator } from './CodexContextIndicator';
 import { AgentAvatar } from './AgentAvatar';
+import { ProjectAgentPicker } from './ProjectAgentPicker';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
 import { useProjectAgentMentions } from '../hooks/useProjectAgentMentions';
 import {
   DEFAULT_WORKSPACE_CHANNEL_ID,
-  type RoutedAgentPublicProfile,
   type RoutedAgentRuntimePayload,
   type RoutedAgentTurnPayload,
 } from '../../shared/types';
@@ -41,6 +40,12 @@ import {
   insertProjectAgentMention,
   resolveProjectAgentMentionRoutes,
 } from '../utils/agent-mentions';
+import {
+  buildAgentEffectivePrompt,
+  buildAgentRuntimePayload,
+  getAgentRuntime,
+  toPublicAgentProfile,
+} from '../utils/agent-runtime';
 
 function isImeComposingEvent(
   event: React.KeyboardEvent,
@@ -50,228 +55,6 @@ function isImeComposingEvent(
     isComposingRef.current ||
     event.nativeEvent.isComposing === true ||
     (event.nativeEvent as KeyboardEvent).keyCode === 229
-  );
-}
-
-function buildAgentEffectivePrompt(
-  prompt: string,
-  profile: AgentProfile | null | undefined,
-  context?: {
-    mode: 'dm' | 'project';
-    cwd?: string | null;
-    channelId?: string | null;
-    handle?: string | null;
-    assignmentSource?: 'mention' | 'assignment';
-  },
-  options?: { includeIdentity?: boolean }
-): string {
-  if (!profile) {
-    return prompt;
-  }
-  const includeIdentity = options?.includeIdentity !== false;
-
-  const contextLines =
-    context?.mode === 'project'
-      ? [
-          context.handle
-            ? `${context.assignmentSource === 'assignment' ? 'Assigned agent' : 'Mention'}: @${context.handle}`
-            : '',
-          context.channelId ? `Project channel: #${context.channelId}` : '',
-          context.cwd ? `Project directory: ${context.cwd}` : '',
-          context.assignmentSource === 'assignment'
-            ? 'This is a project channel task assignment. Use the project context and answer as the assigned agent.'
-            : 'This is a project channel conversation. Use the project context and answer as the mentioned agent.',
-        ]
-      : [
-          'This is a direct message conversation. Do not assume any project working directory or project context unless the user explicitly provides it.',
-        ];
-
-  const lines = [
-    includeIdentity ? `You are ${profile.name.trim() || 'this agent'}.` : '',
-    includeIdentity && profile.role.trim() ? `Role: ${profile.role.trim()}` : '',
-    includeIdentity && profile.description.trim() ? `Profile: ${profile.description.trim()}` : '',
-    includeIdentity && profile.instructions.trim() ? `Instructions:\n${profile.instructions.trim()}` : '',
-    ...contextLines,
-    `User message:\n${prompt}`,
-  ].filter(Boolean);
-
-  return lines.join('\n\n');
-}
-
-function getAgentRuntime(profile: AgentProfile | null | undefined) {
-  if (!profile) {
-    return null;
-  }
-
-  const identity = `${profile.id} ${profile.name} ${profile.role}`.toLowerCase();
-  const isReviewer =
-    identity.includes('reviewer') ||
-    identity.includes('review') ||
-    identity.includes('评审') ||
-    identity.includes('审查') ||
-    identity.includes('审阅');
-  const effectivePermissionPolicy =
-    profile.permissionPolicy === 'readOnly' && isReviewer ? 'ask' : profile.permissionPolicy;
-  const isReadOnly = effectivePermissionPolicy === 'readOnly';
-  const isFullAccess = effectivePermissionPolicy === 'fullAccess';
-
-  return {
-    provider: profile.provider,
-    model: profile.model?.trim() || null,
-    compatibleProviderId: profile.provider === 'claude' ? profile.compatibleProviderId : undefined,
-    claudeReasoningEffort: profile.provider === 'claude' ? profile.reasoningEffort : undefined,
-    codexReasoningEffort:
-      profile.provider === 'codex' && profile.reasoningEffort !== 'max'
-        ? profile.reasoningEffort
-        : undefined,
-    claudeAccessMode: isFullAccess ? 'fullAccess' as const : 'default' as const,
-    claudeExecutionMode: isReadOnly ? 'plan' as const : 'execute' as const,
-    codexExecutionMode: isReadOnly ? 'plan' as const : 'execute' as const,
-    codexPermissionMode: isFullAccess ? 'fullAccess' as const : 'defaultPermissions' as const,
-    opencodePermissionMode: isFullAccess ? 'fullAccess' as const : 'defaultPermissions' as const,
-    aegisPermissionMode: isReadOnly
-      ? 'readOnly' as const
-      : isFullAccess
-        ? 'fullAccess' as const
-        : 'defaultPermissions' as const,
-    aegisReasoningEffort:
-      profile.provider === 'aegis' && (profile.reasoningEffort === 'high' || profile.reasoningEffort === 'max')
-        ? profile.reasoningEffort
-        : undefined,
-  };
-}
-
-function canAgentDelegate(profile: AgentProfile): boolean {
-  const identity = `${profile.name} ${profile.role}`.toLowerCase();
-  return (
-    profile.canDelegate === true ||
-    identity.includes('coordinator') ||
-    identity.includes('协调') ||
-    identity.includes('调度')
-  );
-}
-
-function toPublicAgentProfile(profile: AgentProfile): RoutedAgentPublicProfile {
-  return {
-    id: profile.id,
-    name: profile.name.trim() || 'Agent',
-    role: profile.role.trim() || 'Agent',
-    description: profile.description.trim() || undefined,
-    canDelegate: canAgentDelegate(profile),
-  };
-}
-
-function buildAgentRuntimePayload(
-  profile: AgentProfile,
-  codexReferences: ReturnType<typeof buildCodexReferencePayload>,
-  aegisReferences: ReturnType<typeof buildAegisReferencePayload>
-): RoutedAgentRuntimePayload | null {
-  const runtime = getAgentRuntime(profile);
-  if (!runtime) {
-    return null;
-  }
-
-  return {
-    routedAgentId: profile.id,
-    agent: toPublicAgentProfile(profile),
-    instructions: profile.instructions.trim() || undefined,
-    provider: runtime.provider,
-    model: runtime.model || undefined,
-    compatibleProviderId:
-      runtime.provider === 'claude' ? runtime.compatibleProviderId : undefined,
-    claudeAccessMode: runtime.provider === 'claude' ? runtime.claudeAccessMode : undefined,
-    claudeExecutionMode: runtime.provider === 'claude' ? runtime.claudeExecutionMode : undefined,
-    claudeReasoningEffort:
-      runtime.provider === 'claude' ? runtime.claudeReasoningEffort : undefined,
-    codexExecutionMode: runtime.provider === 'codex' ? runtime.codexExecutionMode : undefined,
-    codexPermissionMode: runtime.provider === 'codex' ? runtime.codexPermissionMode : undefined,
-    codexReasoningEffort: runtime.provider === 'codex' ? runtime.codexReasoningEffort : undefined,
-    codexSkills: runtime.provider === 'codex' ? codexReferences.codexSkills : undefined,
-    codexMentions: runtime.provider === 'codex' ? codexReferences.codexMentions : undefined,
-    aegisSkills: runtime.provider === 'aegis' ? aegisReferences.aegisSkills : undefined,
-    aegisMentions: runtime.provider === 'aegis' ? aegisReferences.aegisMentions : undefined,
-    opencodePermissionMode:
-      runtime.provider === 'opencode' ? runtime.opencodePermissionMode : undefined,
-    aegisPermissionMode:
-      runtime.provider === 'aegis' ? runtime.aegisPermissionMode : undefined,
-    aegisReasoningEffort:
-      runtime.provider === 'aegis' ? runtime.aegisReasoningEffort : undefined,
-  };
-}
-
-function providerLabel(provider: AgentProfile['provider']): string {
-  if (provider === 'aegis') return 'Aegis';
-  if (provider === 'codex') return 'Codex';
-  if (provider === 'opencode') return 'OpenCode';
-  return 'Claude';
-}
-
-function ProjectAgentPicker({
-  profiles,
-  selectedProfile,
-  disabled,
-  onSelect,
-}: {
-  profiles: AgentProfile[];
-  selectedProfile: AgentProfile | null;
-  disabled: boolean;
-  onSelect: (profileId: string) => void;
-}) {
-  if (profiles.length === 0) {
-    return null;
-  }
-
-  return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          className="flex h-8 min-w-0 max-w-[220px] items-center gap-1.5 rounded-lg bg-[var(--bg-tertiary)] px-2 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[color-mix(in_srgb,var(--bg-tertiary)_76%,var(--accent)_24%)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-          title={selectedProfile ? `Send with ${selectedProfile.name.trim() || 'Agent'}` : 'Select agent'}
-          aria-label="Select project agent"
-        >
-          {selectedProfile ? (
-            <AgentAvatar profile={selectedProfile} size="sm" decorative />
-          ) : null}
-          <span className="min-w-0 truncate">
-            {selectedProfile?.name.trim() || 'Select agent'}
-          </span>
-          <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
-        </button>
-      </DropdownMenu.Trigger>
-
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="start"
-          side="top"
-          sideOffset={8}
-          className="z-50 w-[280px] overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_18px_44px_rgba(15,23,42,0.14)]"
-        >
-          {profiles.map((profile) => {
-            const selected = selectedProfile?.id === profile.id;
-            return (
-              <DropdownMenu.Item
-                key={profile.id}
-                onSelect={() => onSelect(profile.id)}
-                className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
-              >
-                <AgentAvatar profile={profile} size="sm" decorative />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[12px] font-medium text-[var(--text-primary)]">
-                    {profile.name.trim() || 'Agent'}
-                  </div>
-                  <div className="truncate text-[11px] text-[var(--text-muted)]">
-                    @{getAgentMentionHandle(profile)} · {profile.role.trim() || 'Agent'} · {providerLabel(profile.provider)}
-                  </div>
-                </div>
-                {selected ? <Check className="h-4 w-4 text-[var(--accent)]" /> : null}
-              </DropdownMenu.Item>
-            );
-          })}
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
   );
 }
 

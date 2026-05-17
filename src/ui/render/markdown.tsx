@@ -260,13 +260,33 @@ function shouldShowLineSuffix(children: ReactNode, line: number | undefined): li
   return !new RegExp(`(?:\\bline\\s*${line}\\b|#L${line}\\b|:${line}\\b)`, 'i').test(text);
 }
 
-function MarkdownAnchor({
-  href,
-  children,
-}: {
-  href?: string;
-  children: ReactNode;
-}) {
+function getInlineProjectFileCode(text: string): ProjectFileLink | null {
+  const raw = text.trim();
+  if (!raw || raw.length > 180 || /[\r\n\t]/.test(raw) || raw.includes('\0')) {
+    return null;
+  }
+  if (/^(?:https?|mailto|tel|javascript|data|blob|file):/i.test(raw)) {
+    return null;
+  }
+
+  const parsed = parseLineSuffix(normalizeSlashPath(raw));
+  const path = parsed.path.replace(/^\.\//, '');
+  if (!path || path === '.' || path.startsWith('/')) {
+    return null;
+  }
+
+  const basename = path.split('/').filter(Boolean).pop() || path;
+  if (!basename || /^\.[^.]+$/.test(basename)) {
+    return null;
+  }
+  if (!/\.[A-Za-z0-9][A-Za-z0-9_-]{0,12}$/.test(basename)) {
+    return null;
+  }
+
+  return { path, line: parsed.line };
+}
+
+function useProjectFileNavigation() {
   const {
     activeSessionId,
     sessions,
@@ -276,14 +296,9 @@ function MarkdownAnchor({
     setProjectTreeCollapsed,
   } = useAppStore();
   const cwd = (activeSessionId ? sessions[activeSessionId]?.cwd : null) || projectCwd || null;
-  const projectFile = getProjectFileLink(href, cwd);
-  const externalLinkApp = projectFile ? null : getExternalLinkApp(href);
 
-  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-    if (!projectFile || !cwd) return;
-
-    event.preventDefault();
-    event.stopPropagation();
+  const openProjectFile = (projectFile: ProjectFileLink) => {
+    if (!cwd) return;
 
     if (isHtmlFilePath(projectFile.path)) {
       if (!activeSessionId) {
@@ -317,6 +332,28 @@ function MarkdownAnchor({
         })
       );
     }, 0);
+  };
+
+  return { cwd, openProjectFile };
+}
+
+function MarkdownAnchor({
+  href,
+  children,
+}: {
+  href?: string;
+  children: ReactNode;
+}) {
+  const { cwd, openProjectFile } = useProjectFileNavigation();
+  const projectFile = getProjectFileLink(href, cwd);
+  const externalLinkApp = projectFile ? null : getExternalLinkApp(href);
+
+  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!projectFile || !cwd) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    openProjectFile(projectFile);
   };
 
   if (projectFile) {
@@ -376,6 +413,49 @@ function MarkdownAnchor({
     >
       {children}
     </a>
+  );
+}
+
+function InlineProjectFileCode({ projectFile }: { projectFile: ProjectFileLink }) {
+  const { cwd, openProjectFile } = useProjectFileNavigation();
+  const title = projectFile.line
+    ? `Open ${projectFile.path} at line ${projectFile.line}`
+    : `Open ${projectFile.path}`;
+  const content = (
+    <>
+      <FileTypeIcon
+        name={projectFile.path}
+        className="md-inline-file-code-icon"
+        fallbackClassName="md-inline-file-code-fallback-icon"
+      />
+      <span className="md-inline-file-code-label">{projectFile.path}</span>
+      {projectFile.line ? (
+        <span className="md-inline-file-code-line">(line {projectFile.line})</span>
+      ) : null}
+    </>
+  );
+
+  if (!cwd) {
+    return (
+      <span className="md-inline-file-code" title={projectFile.path}>
+        {content}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="md-inline-file-code"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openProjectFile(projectFile);
+      }}
+      title={title}
+    >
+      {content}
+    </button>
   );
 }
 
@@ -480,6 +560,12 @@ const components: Components = {
     const text = extractTextContent(children);
     if (!className && looksLikeRevealablePath(text)) {
       return <InlinePathCode text={text} />;
+    }
+    if (!className) {
+      const projectFile = getInlineProjectFileCode(text);
+      if (projectFile) {
+        return <InlineProjectFileCode projectFile={projectFile} />;
+      }
     }
 
     return (

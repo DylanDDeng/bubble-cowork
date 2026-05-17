@@ -30,7 +30,7 @@ type ProjectPanelDimensions = {
 };
 
 const PANEL_DIMENSIONS: Record<ProjectPanelTab, ProjectPanelDimensions> = {
-  files: { defaultWidth: 50, minWidth: 50, maxWidth: 440, title: 'Files' },
+  files: { defaultWidth: 300, minWidth: 240, maxWidth: 520, title: 'Files' },
   changes: { defaultWidth: 360, minWidth: 320, maxWidth: 560, title: 'Changes' },
 };
 
@@ -42,11 +42,13 @@ const PROJECT_ENTRY_DRAG_MIME = 'application/x-aegis-project-entry';
 function parseStoredPanelWidth(
   stored: string | null,
   minWidth: number,
-  maxWidth: number
+  maxWidth: number,
+  fallbackWidth?: number
 ) {
   if (!stored) return null;
   const parsed = Number(stored);
   if (!Number.isFinite(parsed)) return null;
+  if (parsed < minWidth && typeof fallbackWidth === 'number') return fallbackWidth;
   return Math.min(maxWidth, Math.max(minWidth, parsed));
 }
 
@@ -661,7 +663,8 @@ export function ProjectTreePanel({
     const storedPanelWidth = parseStoredPanelWidth(
       window.localStorage.getItem(storageKey),
       minRailWidth,
-      maxRailWidth
+      maxRailWidth,
+      defaultRailWidth
     );
     if (storedPanelWidth !== null) {
       setPanelWidth(storedPanelWidth);
@@ -672,7 +675,8 @@ export function ProjectTreePanel({
       const legacyPanelWidth = parseStoredPanelWidth(
         window.localStorage.getItem(LEGACY_PROJECT_PANEL_WIDTH_STORAGE_KEY),
         minRailWidth,
-        maxRailWidth
+        maxRailWidth,
+        defaultRailWidth
       );
       if (legacyPanelWidth !== null) {
         window.localStorage.setItem(storageKey, String(legacyPanelWidth));
