@@ -37,6 +37,7 @@ export type WorkstreamEntry =
       type: 'note';
       summary: string;
       detail?: string;
+      state?: 'streaming' | 'completed';
     }
   | {
       id: string;
@@ -82,8 +83,8 @@ export interface WorkstreamModel {
 }
 
 type TraceEntry =
-  | { type: 'thinking'; id: string; content: string }
-  | { type: 'note'; id: string; content: string }
+  | { type: 'thinking'; id: string; content: string; streaming?: boolean }
+  | { type: 'note'; id: string; content: string; streaming?: boolean }
   | { type: 'tool'; id: string; block: ToolUseBlock };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -186,27 +187,77 @@ export function extractToolBlocks(
 }
 
 export function extractTraceEntries(
-  messages: (StreamMessage & { type: 'assistant' })[]
+  messages: (StreamMessage & { type: 'assistant' })[],
+  partials?: { partialText?: string; partialThinking?: string }
 ): TraceEntry[] {
   const entries: TraceEntry[] = [];
+  const trimmedPartialText = partials?.partialText?.trim() || '';
+  const trimmedPartialThinking = partials?.partialThinking?.trim() || '';
+  const lastMsgIndex = messages.length - 1;
+  let textPartialUsed = false;
+  let thinkingPartialUsed = false;
 
-  for (const msg of messages) {
+  for (let msgIdx = 0; msgIdx < messages.length; msgIdx += 1) {
+    const msg = messages[msgIdx];
+    const isLast = msgIdx === lastMsgIndex;
+
     for (const block of getMessageContentBlocks(msg)) {
-      if (block.type === 'thinking' && block.thinking?.trim()) {
-        entries.push({
-          type: 'thinking',
-          id: `thinking-${entries.length}`,
-          content: block.thinking.trim(),
-        });
+      if (block.type === 'thinking') {
+        const content = block.thinking?.trim() || '';
+        if (content) {
+          // If a real thinking content matches the partial buffer (prefix
+          // match), the partial has already been merged — mark it consumed
+          // so we don't append a duplicate later.
+          if (
+            trimmedPartialThinking &&
+            !thinkingPartialUsed &&
+            (content === trimmedPartialThinking || content.startsWith(trimmedPartialThinking))
+          ) {
+            thinkingPartialUsed = true;
+          }
+          entries.push({
+            type: 'thinking',
+            id: `thinking-${entries.length}`,
+            content,
+          });
+        } else if (isLast && trimmedPartialThinking && !thinkingPartialUsed) {
+          // Empty thinking slot in the streaming message — fill it with the
+          // live partial in its natural position.
+          entries.push({
+            type: 'thinking',
+            id: 'streaming-thinking',
+            content: trimmedPartialThinking,
+            streaming: true,
+          });
+          thinkingPartialUsed = true;
+        }
         continue;
       }
 
-      if (block.type === 'text' && block.text?.trim()) {
-        entries.push({
-          type: 'note',
-          id: `note-${entries.length}`,
-          content: block.text.trim(),
-        });
+      if (block.type === 'text') {
+        const content = block.text?.trim() || '';
+        if (content) {
+          if (
+            trimmedPartialText &&
+            !textPartialUsed &&
+            (content === trimmedPartialText || content.startsWith(trimmedPartialText))
+          ) {
+            textPartialUsed = true;
+          }
+          entries.push({
+            type: 'note',
+            id: `note-${entries.length}`,
+            content,
+          });
+        } else if (isLast && trimmedPartialText && !textPartialUsed) {
+          entries.push({
+            type: 'note',
+            id: 'streaming-text',
+            content: trimmedPartialText,
+            streaming: true,
+          });
+          textPartialUsed = true;
+        }
         continue;
       }
 
@@ -219,6 +270,25 @@ export function extractTraceEntries(
         });
       }
     }
+  }
+
+  // Partials that didn't slot into any empty block (e.g. the streaming text
+  // hasn't been pushed into the message yet) get appended at the tail.
+  if (trimmedPartialThinking && !thinkingPartialUsed) {
+    entries.push({
+      type: 'thinking',
+      id: 'streaming-thinking',
+      content: trimmedPartialThinking,
+      streaming: true,
+    });
+  }
+  if (trimmedPartialText && !textPartialUsed) {
+    entries.push({
+      type: 'note',
+      id: 'streaming-text',
+      content: trimmedPartialText,
+      streaming: true,
+    });
   }
 
   return entries;
@@ -236,7 +306,7 @@ function createEntryFromTrace(
       type: 'thinking',
       summary: truncateSummary(entry.content, 120),
       detail: entry.content,
-      state: 'completed',
+      state: entry.streaming ? 'active' : 'completed',
     };
   }
 
@@ -246,6 +316,7 @@ function createEntryFromTrace(
       type: 'note',
       summary: truncateSummary(entry.content, 120),
       detail: entry.content,
+      ...(entry.streaming ? { state: 'streaming' as const } : {}),
     };
   }
 
@@ -478,7 +549,10 @@ export function createBatchWorkstreamModel(params: {
   };
 }): WorkstreamModel {
   const allBlocks = extractToolBlocks(params.messages);
-  const traceEntries = extractTraceEntries(params.messages);
+  const traceEntries = extractTraceEntries(params.messages, {
+    partialText: params.liveTrace?.partialText,
+    partialThinking: params.liveTrace?.partialThinking,
+  });
   const activePendingToolId = params.isSessionRunning
     ? [...traceEntries]
         .reverse()
@@ -501,8 +575,11 @@ export function createBatchWorkstreamModel(params: {
       )
     )
     .filter((entry): entry is WorkstreamEntry => Boolean(entry));
-  const liveEntries = buildLiveWorkstreamEntries(params.liveTrace);
-  const allEntries = [...entries, ...liveEntries];
+
+  const permissionEntries = (params.liveTrace?.permissionRequests || []).map(
+    getApprovalStateFromRequest
+  );
+  const allEntries = [...entries, ...permissionEntries];
 
   const state = deriveWorkstreamState(allEntries, params.isSessionRunning);
   const previewEntries = buildPreviewEntries(allEntries);

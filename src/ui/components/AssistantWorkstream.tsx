@@ -93,7 +93,7 @@ function groupEntries(entries: WorkstreamEntry[]): EntryGroup[] {
   };
 
   for (const entry of entries) {
-    if (entry.type === 'note') {
+    if (entry.type === 'note' && entry.state !== 'streaming') {
       flush();
       groups.push({ kind: 'text', entry });
     } else {
@@ -163,6 +163,9 @@ function EntryRow({ entry }: { entry: WorkstreamEntry }) {
   if (entry.type === 'thinking') {
     return <ThinkingRow entry={entry} />;
   }
+  if (entry.type === 'note') {
+    return <StreamingNoteRow entry={entry} />;
+  }
   if (entry.type === 'approval') {
     return <ApprovalRow entry={entry} />;
   }
@@ -170,6 +173,22 @@ function EntryRow({ entry }: { entry: WorkstreamEntry }) {
     return <ErrorRow entry={entry} />;
   }
   return <ToolRow entry={entry} />;
+}
+
+function StreamingNoteRow({
+  entry,
+}: {
+  entry: Extract<WorkstreamEntry, { type: 'note' }>;
+}) {
+  return (
+    <div
+      className="flex items-baseline gap-1.5 py-0.5 text-[12px] leading-5 text-[var(--text-muted)]/55"
+      title={safeTitle(entry.detail)}
+    >
+      <span className="min-w-0 flex-1 truncate">{entry.summary}</span>
+      <span className="inline-flex h-1 w-1 flex-shrink-0 rounded-full bg-[var(--text-muted)]/45 animate-pulse" />
+    </div>
+  );
 }
 
 // ── Thinking row ────────────────────────────────────────────────────────────
