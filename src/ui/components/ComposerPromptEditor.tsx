@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { getFileTypeIconUrl } from './FileTypeIcon';
 import { extractProjectFileMentions } from '../utils/project-file-mentions';
@@ -49,6 +50,10 @@ function isSegmentElement(node: Node | null | undefined): boolean {
     typeof node.dataset.segmentType === 'string' &&
     node.dataset.segmentType.length > 0
   );
+}
+
+function isImeKeyboardEvent(event: ReactKeyboardEvent<HTMLDivElement>): boolean {
+  return event.nativeEvent.isComposing === true || event.keyCode === 229 || event.key === 'Process';
 }
 
 function getChildTextLength(node: ChildNode): number {
@@ -414,6 +419,7 @@ export const ComposerPromptEditor = forwardRef<
   const caretFrameRef = useRef<number | null>(null);
   const isComposingRef = useRef(false);
   const isApplyingSelectionRef = useRef(false);
+  const didAutoFocusRef = useRef(false);
   const lastRenderedSlashContextRef = useRef<SlashTokenContext | undefined>(undefined);
   const lastRenderedAgentMentionLabelsRef = useRef<Record<string, string> | undefined>(undefined);
   const displayHasValue = useMemo(() => props.value.length > 0, [props.value]);
@@ -519,15 +525,24 @@ export const ComposerPromptEditor = forwardRef<
   );
 
   useEffect(() => {
-    if (props.autoFocus && editorRef.current) {
-      editorRef.current.focus();
-      setCursorIndex(editorRef.current, props.cursorIndex);
-      syncFakeCaret();
+    if (!props.autoFocus) {
+      didAutoFocusRef.current = false;
+      return;
     }
+    if (didAutoFocusRef.current || !editorRef.current) {
+      return;
+    }
+    didAutoFocusRef.current = true;
+    editorRef.current.focus();
+    setCursorIndex(editorRef.current, props.cursorIndex);
+    syncFakeCaret();
   }, [props.autoFocus, props.cursorIndex, syncFakeCaret]);
 
   useLayoutEffect(() => {
     if (!editorRef.current) {
+      return;
+    }
+    if (isComposingRef.current) {
       return;
     }
 
@@ -695,6 +710,12 @@ export const ComposerPromptEditor = forwardRef<
         onInput={handleInput}
         onPaste={handlePaste}
         onKeyDown={(event) => {
+          if (isImeKeyboardEvent(event)) {
+            props.onKeyDown?.(event);
+            syncFakeCaret();
+            return;
+          }
+
           if (event.key === 'Enter' && event.shiftKey) {
             event.preventDefault();
             insertTextAtCursor('\n');
