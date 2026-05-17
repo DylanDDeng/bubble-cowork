@@ -38,6 +38,9 @@ const LEGACY_PROJECT_PANEL_WIDTH_STORAGE_KEY = 'cowork.projectPanelWidth';
 const getProjectPanelWidthStorageKey = (tab: ProjectPanelTab) =>
   `${LEGACY_PROJECT_PANEL_WIDTH_STORAGE_KEY}.${tab}`;
 const PROJECT_ENTRY_DRAG_MIME = 'application/x-aegis-project-entry';
+const PROJECT_TREE_INDENT_PX = 18;
+const PROJECT_TREE_ROW_PADDING_LEFT_PX = 4;
+const PROJECT_TREE_GUIDE_OFFSET_PX = 12;
 
 function parseStoredPanelWidth(
   stored: string | null,
@@ -160,6 +163,12 @@ function dirnameOfPath(filePath: string): string {
   return index > 0 ? normalized.slice(0, index) : '.';
 }
 
+function basenameOfPath(filePath: string): string {
+  const normalized = normalizeProjectPath(filePath);
+  const parts = normalized.split('/').filter(Boolean);
+  return parts[parts.length - 1] || normalized || 'Project';
+}
+
 function isSameProjectPath(left: string, right: string): boolean {
   return normalizeProjectPath(left) === normalizeProjectPath(right);
 }
@@ -263,7 +272,6 @@ function TreeNode({
 }) {
   const isDir = node.kind === 'dir';
   const isExpanded = forceExpand || expandedPaths.has(node.path);
-  const chevron = isDir ? (isExpanded ? 'v' : '>') : '';
   const isSelected = !isDir && !!selectedFilePath && node.path === selectedFilePath;
   const isDragSource = !!draggedEntry && isSameProjectPath(draggedEntry.path, node.path);
   const isMoving = !!movingEntryPath && isSameProjectPath(movingEntryPath, node.path);
@@ -293,14 +301,16 @@ function TreeNode({
   }, [isDir, isExpanded, canAcceptDrop, dropHoverId, node.path, onToggle]);
 
   return (
-    <>
+    <div>
       <div
-        className={`flex min-h-[24px] items-center gap-2 rounded-md py-0.5 text-sm transition-colors duration-150 hover:bg-[var(--tree-item-hover)] ${
-          isSelected ? 'bg-[var(--tree-item-active)] ring-1 ring-[var(--tree-item-border)]' : ''
-        } ${isDropTarget ? 'bg-[var(--tree-item-active)] ring-1 ring-[var(--tree-file-accent-fg)]' : ''} ${
+        className={`group/project-tree-row flex min-h-[26px] items-center gap-2 rounded-[5px] px-1.5 py-[2px] text-[13px] transition-[background-color,color,box-shadow,opacity] duration-150 hover:bg-[var(--tree-item-hover)] ${
+          isSelected ? 'bg-[var(--tree-item-active)] shadow-[inset_0_0_0_1px_var(--tree-item-border)]' : ''
+        } ${isDropTarget ? 'bg-[var(--tree-item-active)] shadow-[inset_0_0_0_1px_var(--tree-file-accent-fg)]' : ''} ${
           isDragSource || isMoving ? 'opacity-50' : ''
-        } ${!isDir ? 'cursor-grab active:cursor-grabbing' : ''}`}
-        style={{ paddingLeft: depth * 12 }}
+        } ${!isDir ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'}`}
+        style={{
+          paddingLeft: PROJECT_TREE_ROW_PADDING_LEFT_PX + depth * PROJECT_TREE_INDENT_PX,
+        }}
         draggable={!isMoving}
         onDragStart={(event) => onProjectEntryDragStart(event, node)}
         onDragEnd={onProjectEntryDragEnd}
@@ -317,6 +327,7 @@ function TreeNode({
         onContextMenu={(event) => onOpenContextMenu(event, node)}
         role="button"
         tabIndex={0}
+        aria-expanded={isDir ? isExpanded : undefined}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
@@ -328,12 +339,9 @@ function TreeNode({
           }
         }}
       >
-        <span className="flex h-4 w-3 shrink-0 items-center justify-center text-[10px] leading-none text-[var(--text-muted)]">
-          {chevron}
-        </span>
         <ProjectTreeNodeIcon node={node} isExpanded={isExpanded} />
         <span
-          className={`min-w-0 truncate leading-5 ${isDir ? 'font-medium' : 'text-[var(--text-secondary)]'}`}
+          className={`min-w-0 truncate leading-[22px] ${isDir ? 'font-medium text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}
           title={node.name}
         >
           {node.name}
@@ -348,36 +356,48 @@ function TreeNode({
           onCancel={onCancelCreateDraft}
         />
       ) : null}
-      {isDir &&
-        isExpanded &&
-        node.children?.map((child) => (
-          <TreeNode
-            key={child.path}
-            node={child}
-            depth={depth + 1}
-            parentPath={node.path}
-            expandedPaths={expandedPaths}
-            onToggle={onToggle}
-            onSelectFile={onSelectFile}
-            onOpenContextMenu={onOpenContextMenu}
-            onProjectEntryDragStart={onProjectEntryDragStart}
-            onProjectEntryDragEnd={onProjectEntryDragEnd}
-            onTreeNodeDragOver={onTreeNodeDragOver}
-            onTreeNodeDragLeave={onTreeNodeDragLeave}
-            onTreeNodeDrop={onTreeNodeDrop}
-            canDropEntryOnParent={canDropEntryOnParent}
-            selectedFilePath={selectedFilePath}
-            draggedEntry={draggedEntry}
-            dropHoverId={dropHoverId}
-            movingEntryPath={movingEntryPath}
-            forceExpand={forceExpand}
-            createDraft={createDraft}
-            onCreateDraftNameChange={onCreateDraftNameChange}
-            onSubmitCreateDraft={onSubmitCreateDraft}
-            onCancelCreateDraft={onCancelCreateDraft}
+      {isDir && isExpanded && node.children?.length ? (
+        <div className="relative">
+          <span
+            className="pointer-events-none absolute bottom-1 top-0 w-px bg-[var(--tree-item-border)] opacity-[0.55]"
+            style={{
+              left:
+                PROJECT_TREE_ROW_PADDING_LEFT_PX +
+                depth * PROJECT_TREE_INDENT_PX +
+                PROJECT_TREE_GUIDE_OFFSET_PX,
+            }}
+            aria-hidden="true"
           />
-        ))}
-    </>
+          {node.children.map((child) => (
+            <TreeNode
+              key={child.path}
+              node={child}
+              depth={depth + 1}
+              parentPath={node.path}
+              expandedPaths={expandedPaths}
+              onToggle={onToggle}
+              onSelectFile={onSelectFile}
+              onOpenContextMenu={onOpenContextMenu}
+              onProjectEntryDragStart={onProjectEntryDragStart}
+              onProjectEntryDragEnd={onProjectEntryDragEnd}
+              onTreeNodeDragOver={onTreeNodeDragOver}
+              onTreeNodeDragLeave={onTreeNodeDragLeave}
+              onTreeNodeDrop={onTreeNodeDrop}
+              canDropEntryOnParent={canDropEntryOnParent}
+              selectedFilePath={selectedFilePath}
+              draggedEntry={draggedEntry}
+              dropHoverId={dropHoverId}
+              movingEntryPath={movingEntryPath}
+              forceExpand={forceExpand}
+              createDraft={createDraft}
+              onCreateDraftNameChange={onCreateDraftNameChange}
+              onSubmitCreateDraft={onSubmitCreateDraft}
+              onCancelCreateDraft={onCancelCreateDraft}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -402,10 +422,14 @@ function CreateEntryRow({
   }, [draft.id]);
 
   return (
-    <div className="py-0.5" style={{ paddingLeft: depth * 12 }}>
-      <div className="flex min-h-[24px] items-center gap-2 rounded-md bg-[var(--tree-item-active)] px-1 ring-1 ring-[var(--tree-item-border)]">
-        <span className="flex h-4 w-3 shrink-0 items-center justify-center" />
-        <span className="group flex h-4.5 w-4.5 shrink-0 items-center justify-center text-[var(--tree-file-accent-fg)]">
+    <div
+      className="py-[1px]"
+      style={{
+        paddingLeft: PROJECT_TREE_ROW_PADDING_LEFT_PX + depth * PROJECT_TREE_INDENT_PX,
+      }}
+    >
+      <div className="flex min-h-[26px] items-center gap-2 rounded-[5px] bg-[var(--tree-item-active)] px-1.5 shadow-[inset_0_0_0_1px_var(--tree-item-border)]">
+        <span className="group flex h-[18px] w-[18px] shrink-0 items-center justify-center text-[var(--tree-file-accent-fg)]">
           <CreateEntryIcon kind={draft.kind} size="sm" />
         </span>
         <input
@@ -429,7 +453,7 @@ function CreateEntryRow({
               onCancel();
             }
           }}
-          className="min-w-0 flex-1 bg-transparent text-sm leading-5 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+          className="min-w-0 flex-1 bg-transparent text-[13px] leading-[22px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
         />
       </div>
       {draft.error ? (
@@ -450,18 +474,18 @@ function ProjectTreeNodeIcon({
 }) {
   if (node.kind === 'dir') {
     return (
-      <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center text-[var(--tree-file-accent-fg)]">
-        {isExpanded ? <FolderOpen className="w-3.5 h-3.5" /> : <FolderClosed className="w-3.5 h-3.5" />}
+      <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-[var(--tree-file-accent-fg)]">
+        {isExpanded ? <FolderOpen className="h-4 w-4" stroke={1.75} /> : <FolderClosed className="h-4 w-4" stroke={1.75} />}
       </span>
     );
   }
 
   return (
-    <span className="flex h-4.5 w-4.5 flex-shrink-0 items-center justify-center" aria-hidden="true">
+    <span className="flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center" aria-hidden="true">
       <FileTypeIcon
         name={node.name}
-        className="h-4 w-4"
-        fallbackClassName="h-3.5 w-3.5 text-[var(--text-secondary)]"
+        className="h-4 w-4 opacity-90"
+        fallbackClassName="h-4 w-4 text-[var(--text-secondary)]"
       />
     </span>
   );
@@ -499,6 +523,7 @@ export function ProjectTreePanel({
     setProjectTreeCollapsed,
   } = useAppStore();
   const [loading, setLoading] = useState(false);
+  const [projectTreeError, setProjectTreeError] = useState<string | null>(null);
   const prevCwdRef = useRef<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const initRootRef = useRef<string | null>(null);
@@ -704,6 +729,7 @@ export function ProjectTreePanel({
 
     if (!current || !shouldWatchProjectTree) {
       setProjectTree(null, null);
+      setProjectTreeError(null);
       if (prevCwdRef.current) {
         window.electron.unwatchProjectTree(prevCwdRef.current);
         prevCwdRef.current = null;
@@ -717,23 +743,30 @@ export function ProjectTreePanel({
     prevCwdRef.current = current;
 
     setLoading(true);
+    setProjectTreeError(null);
     window.electron
       .getProjectTree(current)
       .then((tree) => {
         if (cancelled) return;
         if (tree) {
+          setProjectTreeError(null);
           setProjectTree(current, tree);
+          void window.electron.watchProjectTree(current);
         } else {
+          setProjectTreeError('Project folder not found.');
           setProjectTree(current, null);
         }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setProjectTreeError('Unable to read project folder.');
+        setProjectTree(current, null);
       })
       .finally(() => {
         if (!cancelled) {
           setLoading(false);
         }
       });
-
-    window.electron.watchProjectTree(current);
 
     return () => {
       cancelled = true;
@@ -751,6 +784,7 @@ export function ProjectTreePanel({
     () => visibleTree?.children || [],
     [visibleTree]
   );
+  const canUseProjectTree = Boolean(cwd && visibleTree && !projectTreeError);
 
   useEffect(() => {
     setExpandedPaths(new Set());
@@ -762,6 +796,7 @@ export function ProjectTreePanel({
     setDraftText('');
     setSaveState('idle');
     setSaveError(null);
+    setProjectTreeError(null);
     setPptxSlideIndex(0);
     setCreateDraft(null);
     setProjectTreeContextMenu(null);
@@ -1632,6 +1667,11 @@ export function ProjectTreePanel({
   const projectRootDropHoverId = visibleTree ? getNodeDropHoverId(visibleTree.path) : null;
   const isProjectRootDropTarget =
     !!projectRootDropHoverId && projectDropHoverId === projectRootDropHoverId;
+  const isProjectRootExpanded =
+    !!visibleTree && (expandedPaths.has(visibleTree.path) || initRootRef.current !== visibleTree.path);
+  const projectRootName = visibleTree
+    ? visibleTree.name || basenameOfPath(visibleTree.path)
+    : cwd ? basenameOfPath(cwd) : 'Project';
 
   return (
     <>
@@ -1652,7 +1692,7 @@ export function ProjectTreePanel({
       )}
 
       <div
-        className={`aegis-project-panel relative flex h-full flex-col border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        className={`aegis-project-panel relative flex h-full flex-col border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] font-sans transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
           isFullscreen ? 'flex-1 min-w-0' : 'flex-shrink-0'
         } ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`}
         style={
@@ -1697,7 +1737,7 @@ export function ProjectTreePanel({
                   label="New file"
                   size="sm"
                   onClick={() => startCreateEntry(getDefaultCreateParent(), 'file')}
-                  disabled={!cwd}
+                  disabled={!canUseProjectTree}
                 >
                   <CreateEntryIcon kind="file" />
                 </IconButton>
@@ -1705,7 +1745,7 @@ export function ProjectTreePanel({
                   label="New folder"
                   size="sm"
                   onClick={() => startCreateEntry(getDefaultCreateParent(), 'folder')}
-                  disabled={!cwd}
+                  disabled={!canUseProjectTree}
                 >
                   <CreateEntryIcon kind="folder" />
                 </IconButton>
@@ -1730,7 +1770,7 @@ export function ProjectTreePanel({
 
         <div className="flex-1 min-h-0 flex">
           <div
-            className={`flex-1 overflow-auto px-3 pb-3 transition-colors duration-150 ${
+            className={`flex-1 overflow-auto px-2.5 pb-3 transition-colors duration-150 ${
               isProjectRootDropTarget ? 'bg-[var(--tree-item-hover)]' : ''
             }`}
             onDragOver={(event) => {
@@ -1749,7 +1789,7 @@ export function ProjectTreePanel({
               }
             }}
             onContextMenu={(event) => {
-              if (activeTab === 'files' && cwd) {
+              if (activeTab === 'files' && canUseProjectTree) {
                 openProjectTreeContextMenu(event);
               }
             }}
@@ -1766,11 +1806,60 @@ export function ProjectTreePanel({
                     Loading files...
                   </div>
                 )}
-                {cwd && visibleTree && visibleNodes.length > 0 && (
-                  <>
+                {cwd && visibleTree && !projectTreeError && (
+                  <div className="mb-1">
+                    <div
+                      className={`flex min-h-[26px] items-center gap-2 rounded-[5px] px-1.5 py-[2px] text-[13px] transition-[background-color,color,box-shadow] duration-150 hover:bg-[var(--tree-item-hover)] ${
+                        isProjectRootDropTarget
+                          ? 'bg-[var(--tree-item-active)] shadow-[inset_0_0_0_1px_var(--tree-file-accent-fg)]'
+                          : ''
+                      }`}
+                      style={{ paddingLeft: PROJECT_TREE_ROW_PADDING_LEFT_PX }}
+                      onClick={() => togglePath(visibleTree.path)}
+                      onDragOver={(event) => {
+                        if (projectRootDropHoverId) {
+                          handleDropTargetDragOver(event, visibleTree.path, projectRootDropHoverId);
+                        }
+                      }}
+                      onDragLeave={(event) => {
+                        if (projectRootDropHoverId) {
+                          handleDropTargetDragLeave(event, projectRootDropHoverId);
+                        }
+                      }}
+                      onDrop={(event) => handleProjectEntryDrop(event, visibleTree.path)}
+                      onContextMenu={(event) => openProjectTreeContextMenu(event, visibleTree)}
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={isProjectRootExpanded}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          togglePath(visibleTree.path);
+                        }
+                      }}
+                    >
+                      <ProjectTreeNodeIcon node={visibleTree} isExpanded={isProjectRootExpanded} />
+                      <span
+                        className="min-w-0 truncate font-semibold leading-[22px] text-[var(--text-primary)]"
+                        title={visibleTree.path}
+                      >
+                        {projectRootName}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {cwd && visibleTree && isProjectRootExpanded && visibleNodes.length > 0 && (
+                  <div className="relative">
+                    <span
+                      className="pointer-events-none absolute bottom-1 top-0 w-px bg-[var(--tree-item-border)] opacity-[0.55]"
+                      style={{
+                        left: PROJECT_TREE_ROW_PADDING_LEFT_PX + PROJECT_TREE_GUIDE_OFFSET_PX,
+                      }}
+                      aria-hidden="true"
+                    />
                     {createDraft?.parentPath === visibleTree.path ? (
                       <CreateEntryRow
-                        depth={0}
+                        depth={1}
                         draft={createDraft}
                         onNameChange={handleCreateDraftNameChange}
                         onSubmit={submitCreateDraft}
@@ -1781,7 +1870,7 @@ export function ProjectTreePanel({
                       <TreeNode
                         key={node.path}
                         node={node}
-                        depth={0}
+                        depth={1}
                         parentPath={visibleTree.path}
                         expandedPaths={expandedPaths}
                         onToggle={togglePath}
@@ -1804,18 +1893,23 @@ export function ProjectTreePanel({
                         onCancelCreateDraft={cancelCreateEntry}
                       />
                     ))}
-                  </>
+                  </div>
                 )}
                 {cwd && visibleTree && visibleNodes.length === 0 && createDraft?.parentPath === visibleTree.path && (
                   <CreateEntryRow
-                    depth={0}
+                    depth={1}
                     draft={createDraft}
                     onNameChange={handleCreateDraftNameChange}
                     onSubmit={submitCreateDraft}
                     onCancel={cancelCreateEntry}
                   />
                 )}
-                {cwd && !loading && (!visibleTree || visibleNodes.length === 0) && !createDraft && (
+                {cwd && !loading && projectTreeError && (
+                  <div className="text-sm text-[var(--text-muted)] px-1 py-2">
+                    {projectTreeError}
+                  </div>
+                )}
+                {cwd && !loading && !projectTreeError && (!visibleTree || (isProjectRootExpanded && visibleNodes.length === 0)) && !createDraft && (
                   <div className="text-sm text-[var(--text-muted)] px-1 py-2">
                     No files found.
                   </div>

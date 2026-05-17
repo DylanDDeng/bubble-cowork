@@ -55,7 +55,17 @@ async function buildNode(fullPath: string, name: string): Promise<ProjectTreeNod
   return { name, path: fullPath, kind: 'dir', children };
 }
 
-export async function readProjectTree(rootPath: string): Promise<ProjectTreeNode> {
+export async function readProjectTree(rootPath: string): Promise<ProjectTreeNode | null> {
+  let stat;
+  try {
+    stat = await fs.stat(rootPath);
+  } catch {
+    return null;
+  }
+  if (!stat.isDirectory()) {
+    return null;
+  }
+
   const name = basename(rootPath) || rootPath;
   return buildNode(rootPath, name);
 }

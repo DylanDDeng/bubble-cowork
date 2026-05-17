@@ -542,7 +542,7 @@ export type ServerEvent =
   | { type: 'stream.message'; payload: { sessionId: string; message: StreamMessage } }
   | { type: 'permission.request'; payload: PermissionRequestPayload }
   | { type: 'runner.error'; payload: { message: string; sessionId?: string } }
-  | { type: 'project.tree'; payload: { cwd: string; tree: ProjectTreeNode } }
+  | { type: 'project.tree'; payload: { cwd: string; tree: ProjectTreeNode | null } }
   | { type: 'app.update'; payload: AppUpdateStatus }
   // MCP 事件
   | { type: 'mcp.config'; payload: {

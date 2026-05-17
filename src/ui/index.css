@@ -2086,6 +2086,10 @@ button.md-inline-file-code:hover {
   transform: rotate(90deg);
 }
 
+.aegis-project-panel {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+}
+
 /* Tree connector lines */
 .tree-item {
   position: relative;

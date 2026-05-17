@@ -168,6 +168,26 @@ const projectWatchers = new Map<
   string,
   { watcher: FSWatcher; timer?: NodeJS.Timeout }
 >();
+
+async function isReadableDirectory(path: string): Promise<boolean> {
+  try {
+    const stat = await fsPromises.stat(path);
+    return stat.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function closeProjectTreeWatcher(cwd: string): void {
+  const entry = projectWatchers.get(cwd);
+  if (!entry) return;
+  if (entry.timer) {
+    clearTimeout(entry.timer);
+  }
+  entry.watcher.close();
+  projectWatchers.delete(cwd);
+}
+
 const terminalSessions = new Map<string, {
   process: IPty;
   cwd: string;
@@ -565,7 +585,7 @@ async function createProjectEntry(
   parentPath: string,
   name: string,
   kind: 'file' | 'folder'
-): Promise<{ ok: true; path: string; tree: Awaited<ReturnType<typeof readProjectTree>> } | { ok: false; message: string }> {
+): Promise<{ ok: true; path: string; tree: NonNullable<Awaited<ReturnType<typeof readProjectTree>>> } | { ok: false; message: string }> {
   if (!cwd) {
     return { ok: false, message: 'Missing project folder.' };
   }
@@ -626,6 +646,9 @@ async function createProjectEntry(
       await handle.close();
     }
     const tree = await readProjectTree(projectRoot);
+    if (!tree) {
+      return { ok: false, message: 'Project folder was not found.' };
+    }
     return { ok: true, path: targetPath, tree };
   } catch (error) {
     return {
@@ -639,7 +662,7 @@ async function moveProjectEntry(
   cwd: string,
   sourcePath: string,
   targetParentPath: string
-): Promise<{ ok: true; path: string; tree: Awaited<ReturnType<typeof readProjectTree>> } | { ok: false; message: string }> {
+): Promise<{ ok: true; path: string; tree: NonNullable<Awaited<ReturnType<typeof readProjectTree>>> } | { ok: false; message: string }> {
   if (!cwd || !sourcePath || !targetParentPath) {
     return { ok: false, message: 'Missing project folder or file path.' };
   }
@@ -733,6 +756,9 @@ async function moveProjectEntry(
       }
     }
     const tree = await readProjectTree(projectRoot);
+    if (!tree) {
+      return { ok: false, message: 'Project folder was not found.' };
+    }
     return { ok: true, path: targetPath, tree };
   } catch (error) {
     return { ok: false, message: `Failed to move file: ${String(error)}` };
@@ -2866,13 +2892,16 @@ function broadcast(mainWindow: BrowserWindow, event: ServerEvent): void {
 async function emitProjectTree(mainWindow: BrowserWindow, cwd: string): Promise<void> {
   try {
     const tree = await readProjectTree(cwd);
+    if (!tree) {
+      closeProjectTreeWatcher(cwd);
+      broadcast(mainWindow, { type: 'project.tree', payload: { cwd, tree: null } });
+      return;
+    }
     broadcast(mainWindow, { type: 'project.tree', payload: { cwd, tree } });
   } catch (error) {
     console.error('Failed to read project tree:', error);
-    broadcast(mainWindow, {
-      type: 'runner.error',
-      payload: { message: `Failed to read project tree: ${String(error)}` },
-    });
+    closeProjectTreeWatcher(cwd);
+    broadcast(mainWindow, { type: 'project.tree', payload: { cwd, tree: null } });
   }
 }
 
@@ -4135,6 +4164,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     if (!cwd) {
       return false;
     }
+    if (!(await isReadableDirectory(cwd))) {
+      closeProjectTreeWatcher(cwd);
+      return false;
+    }
     if (projectWatchers.has(cwd)) {
       scheduleProjectTree(mainWindow, cwd);
       return true;
@@ -4150,24 +4183,13 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       return true;
     } catch (error) {
       console.error('Failed to watch project tree:', error);
-      broadcast(mainWindow, {
-        type: 'runner.error',
-        payload: { message: `Failed to watch project tree: ${String(error)}` },
-      });
       return false;
     }
   });
 
   // RPC: 取消订阅项目文件树更新
   ipcMainHandle('unwatch-project-tree', async (_event, cwd: string) => {
-    const entry = projectWatchers.get(cwd);
-    if (entry) {
-      if (entry.timer) {
-        clearTimeout(entry.timer);
-      }
-      entry.watcher.close();
-      projectWatchers.delete(cwd);
-    }
+    closeProjectTreeWatcher(cwd);
     return true;
   });
 
