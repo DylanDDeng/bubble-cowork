@@ -603,8 +603,26 @@ export function ChatPane({
     if (turns.length === 0 || timelineItems.length === 0) {
       return map;
     }
+
+    let activeWorkLastMessageIndex: number | null = null;
+    if (activeTimelineWorkId) {
+      for (const item of timelineItems) {
+        if (item.type === 'work' && item.group.id === activeTimelineWorkId) {
+          const indices = item.group.originalIndices;
+          activeWorkLastMessageIndex = indices[indices.length - 1] ?? null;
+          break;
+        }
+      }
+    }
+
     for (const turn of turns) {
       if (turn.totalFiles === 0) continue;
+      if (
+        activeWorkLastMessageIndex !== null &&
+        turn.lastMessageIndex >= activeWorkLastMessageIndex
+      ) {
+        continue;
+      }
       let lastIdx = -1;
       for (let i = 0; i < timelineItems.length; i += 1) {
         const item = timelineItems[i];
@@ -623,7 +641,7 @@ export function ChatPane({
       }
     }
     return map;
-  }, [turns, timelineItems]);
+  }, [turns, timelineItems, activeTimelineWorkId]);
 
   const handleOpenDiff = useCallback((record: ChangeRecord) => {
     setSelectedDiffRecord(record);
