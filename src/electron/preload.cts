@@ -99,6 +99,17 @@ contextBridge.exposeInMainWorld('electron', {
     };
   },
 
+  onWindowShellState: (callback: (state: { rounded: boolean }) => void) => {
+    const handler = (_: unknown, state: { rounded: boolean }) => {
+      callback(state);
+    };
+
+    ipcRenderer.on('window-shell-state', handler);
+    return () => {
+      ipcRenderer.removeListener('window-shell-state', handler);
+    };
+  },
+
   // 生成会话标题
   generateSessionTitle: (prompt: string) => {
     return ipcRenderer.invoke('generate-session-title', prompt);
@@ -135,6 +146,10 @@ contextBridge.exposeInMainWorld('electron', {
 
   getAppVersion: () => {
     return ipcRenderer.invoke('get-app-version');
+  },
+
+  getWindowShellState: () => {
+    return ipcRenderer.invoke('get-window-shell-state');
   },
 
   setTheme: (theme: 'light' | 'dark' | 'system') => {

@@ -60,6 +60,7 @@ declare global {
     onServerEvent: (callback: (event: ServerEvent) => void) => () => void;
     sendClientEvent: (event: ClientEvent) => void;
     onTerminalEvent: (callback: (event: { type: 'data' | 'exit'; sessionId: string; data?: string; exitCode?: number | null }) => void) => () => void;
+    onWindowShellState: (callback: (state: { rounded: boolean }) => void) => () => void;
     generateSessionTitle: (prompt: string) => Promise<string>;
     getRecentCwds: (limit?: number) => Promise<string[]>;
     startTerminalSession: (sessionId: string, cwd: string, cols?: number, rows?: number) => Promise<{ ok: boolean; history?: string; message?: string }>;
@@ -68,6 +69,7 @@ declare global {
     stopTerminalSession: (sessionId: string) => Promise<{ ok: boolean; message?: string }>;
     setWindowMinSize: (width: number, height: number) => Promise<{ ok: boolean }>;
     getAppVersion: () => Promise<string>;
+    getWindowShellState: () => Promise<{ rounded: boolean }>;
     setTheme: (theme: 'light' | 'dark' | 'system') => Promise<{ ok: boolean }>;
     getUiResumeState: () => Promise<UiResumeState | null>;
     getUiResumeStateSync: () => UiResumeState | null;

@@ -256,7 +256,11 @@ function normalizeAgentAvatarAssetKey(
     value === 'notion-avatar-03' ||
     value === 'notion-avatar-04' ||
     value === 'notion-avatar-05' ||
-    value === 'anime-avatar-01'
+    value === 'anime-avatar-01' ||
+    value === 'anime-avatar-02' ||
+    value === 'anime-avatar-03' ||
+    value === 'anime-avatar-04' ||
+    value === 'anime-avatar-05'
     ? value
     : fallback;
 }

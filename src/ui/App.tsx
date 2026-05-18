@@ -70,6 +70,10 @@ function wait(ms: number) {
   });
 }
 
+function getDefaultWindowShellRounded(): boolean {
+  return typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac');
+}
+
 // Tool result block type
 type ToolResultBlock = ContentBlock & { type: 'tool_result' };
 
@@ -85,6 +89,7 @@ export function App() {
   // Initialize global keyboard shortcuts
   useKeyboardShortcuts();
   const codexModelConfig = useCodexModelConfig();
+  const [windowShellRounded, setWindowShellRounded] = useState(getDefaultWindowShellRounded);
 
   const {
     connected,
@@ -163,6 +168,22 @@ export function App() {
     sessionsLoaded,
     setAgentSetupOpen,
   ]);
+
+  useEffect(() => {
+    if (!electronAvailable) {
+      return;
+    }
+
+    const unsubscribe = window.electron.onWindowShellState((state) => {
+      setWindowShellRounded(state.rounded);
+    });
+
+    void window.electron.getWindowShellState().then((state) => {
+      setWindowShellRounded(state.rounded);
+    });
+
+    return unsubscribe;
+  }, [electronAvailable]);
 
   if (!electronAvailable) {
     return (
@@ -650,7 +671,11 @@ export function App() {
   }, [activeSession?.messages]);
 
   return (
-    <div className="flex h-full min-h-0 bg-[var(--bg-primary)]">
+    <div
+      className={`aegis-window-shell flex h-full min-h-0 ${
+        windowShellRounded ? 'aegis-window-shell--rounded' : ''
+      }`}
+    >
       {/* Sidebar */}
       {!showSettings && <Sidebar />}
 
@@ -661,7 +686,7 @@ export function App() {
       {!showSettings && activeWorkspace === 'chat' && !sessionsLoaded ? (
         <div className="flex-1 min-w-0 bg-[var(--bg-primary)]" />
       ) : showSettings ? (
-        <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
+        <div className="flex-1 min-w-0 flex flex-col bg-transparent">
           <div className="flex-1 min-h-0">
             <Settings />
           </div>

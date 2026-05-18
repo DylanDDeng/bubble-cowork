@@ -55,6 +55,43 @@ let latestUpdateStatus: AppUpdateStatus = {
 let latestUiResumeState: import('../shared/types').UiResumeState | null = null;
 let isQuitting = false;
 const RELEASES_URL = 'https://github.com/DylanDDeng/bubble-cowork/releases';
+const TRANSPARENT_WINDOW_BACKGROUND = '#00000000';
+
+function getMainWindowBackgroundColor(): string {
+  return process.platform === 'darwin'
+    ? TRANSPARENT_WINDOW_BACKGROUND
+    : nativeTheme.shouldUseDarkColors
+      ? '#111214'
+      : '#ffffff';
+}
+
+function getWindowShellState(win: BrowserWindow): { rounded: boolean } {
+  return {
+    rounded:
+      process.platform === 'darwin' &&
+      !win.isMaximized() &&
+      !win.isFullScreen() &&
+      !win.isSimpleFullScreen(),
+  };
+}
+
+function emitWindowShellState(win: BrowserWindow): void {
+  if (win.isDestroyed()) {
+    return;
+  }
+
+  win.webContents.send('window-shell-state', getWindowShellState(win));
+}
+
+function registerWindowShellState(win: BrowserWindow): void {
+  const emit = () => emitWindowShellState(win);
+
+  win.on('maximize', emit);
+  win.on('unmaximize', emit);
+  win.on('enter-full-screen', emit);
+  win.on('leave-full-screen', emit);
+  win.webContents.on('did-finish-load', emit);
+}
 
 function logDevLifecycle(event: string, details?: unknown): void {
   if (!isDev()) {
@@ -313,7 +350,14 @@ function createWindow(): void {
     minHeight: 600,
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 15, y: 15 },
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#111214' : '#ffffff',
+    backgroundColor: getMainWindowBackgroundColor(),
+    ...(process.platform === 'darwin'
+      ? {
+          transparent: true,
+          roundedCorners: true,
+          hasShadow: true,
+        }
+      : {}),
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,
@@ -331,6 +375,7 @@ function createWindow(): void {
   // 设置 IPC 处理器
   setupIPCHandlers(mainWindow);
   registerBrowserIpc(mainWindow);
+  registerWindowShellState(mainWindow);
 
   // 后台预热 Claude 运行时状态缓存，避免首次发消息时等待 1-5 秒
   import('./libs/claude-runtime-status.js').then((m) => m.prefetchClaudeRuntimeStatus());
@@ -673,9 +718,12 @@ app.whenReady().then(() => {
   ipcMainHandle('get-app-version', async () => {
     return app.getVersion();
   });
+  ipcMainHandle('get-window-shell-state', async () => {
+    return mainWindow ? getWindowShellState(mainWindow) : { rounded: process.platform === 'darwin' };
+  });
   ipcMainHandle('set-theme', async (_event, theme: 'light' | 'dark' | 'system') => {
     nativeTheme.themeSource = theme;
-    mainWindow?.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#111214' : '#ffffff');
+    mainWindow?.setBackgroundColor(getMainWindowBackgroundColor());
     return { ok: true };
   });
   createWindow();

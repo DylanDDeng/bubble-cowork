@@ -55,7 +55,6 @@ import {
 } from './libs/skill-market';
 import * as folderConfig from './libs/folder-config';
 import { ipcMainHandle, isDev } from './util';
-import { scheduleExternalClaudeSessionSync } from './libs/external-claude-sessions';
 import { getHistorySourceForSession, toUnifiedSessionRecord } from './libs/history/registry';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../shared/types';
 import type {
@@ -4995,8 +4994,9 @@ async function handleClientEvent(
 
 // 会话列表
 function handleSessionList(mainWindow: BrowserWindow): void {
-  scheduleExternalClaudeSessionSync(mainWindow, () => handleSessionList(mainWindow));
-  const rows = sessions.listSessions();
+  const rows = sessions
+    .listSessions()
+    .filter((row) => row.session_origin !== 'claude_code');
   const latestClaudeModelUsageBySession = sessions.getLatestClaudeModelUsageBySession();
   const sessionInfos: SessionInfo[] = rows.map((row) => ({
     id: row.id,

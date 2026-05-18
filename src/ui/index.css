@@ -97,6 +97,7 @@
   --radius-lg: 8px;
   --radius-xl: 12px;
   --radius-2xl: 16px;
+  --app-window-corner-radius: 16px;
 
   /* Popover / dropdown surface (unified) */
   --popover-bg: #FFFFFF;
@@ -241,21 +242,41 @@ body,
 
 html {
   font-size: 100%;
-  background-color: var(--bg-primary);
+  background-color: transparent;
 }
 
 body {
   font-family: var(--font-sans), 'IBM Plex Serif Var', 'IBM Plex Serif', ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
   font-size: 13px;
   line-height: 1.5;
-  background-color: var(--app-shell-background, var(--bg-primary));
+  background-color: transparent;
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
-  background-color: var(--bg-primary);
+  background-color: transparent;
+}
+
+.aegis-window-shell {
+  background-color: transparent;
+}
+
+.aegis-window-shell--rounded {
+  overflow: hidden;
+  border-radius: var(--app-window-corner-radius);
+}
+
+.aegis-window-shell--rounded .aegis-sidebar,
+.aegis-window-shell--rounded .aegis-window-left-surface {
+  background-color: var(--app-sidebar-surface);
+}
+
+.aegis-window-shell--rounded .aegis-sidebar {
+  overflow: hidden;
+  border-top-left-radius: var(--app-window-corner-radius);
+  border-bottom-left-radius: var(--app-window-corner-radius);
 }
 
 .aegis-sidebar,

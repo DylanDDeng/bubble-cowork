@@ -169,12 +169,12 @@ export class BuiltinExecutionGovernor {
 
 export function classifyBuiltinAgentTask(prompt: string): BuiltinTaskType {
   const text = prompt.toLowerCase();
-  if (/\b(security|secret|credential|api[_ -]?key|token|auth|vulnerability|漏洞|密钥)\b/.test(text)) return 'security_investigation';
-  if (/\b(review|code review|审查|评审)\b/.test(text)) return 'code_review';
-  if (/\b(debug|bug|fix|error|failing|trace|root cause|报错|修复|排查)\b/.test(text)) return 'debugging';
-  if (/\b(implement|add|build|create|refactor|change|feature|实现|开发|改造|重构)\b/.test(text)) return 'implementation';
-  if (/\b(what is this|overview|orientation|在干嘛|做什么|看下这个项目)\b/.test(text)) return 'repo_orientation';
-  if (/\b(product|roadmap|方案|产品|规划)\b/.test(text)) return 'product_discussion';
+  if (/\b(security|secret|credential|api[_ -]?key|token|auth|vulnerability)\b|漏洞|密钥|令牌|凭证|安全|鉴权|认证/.test(text)) return 'security_investigation';
+  if (/\b(review|code review)\b|代码.{0,3}(检查|审查|评审)|检查.{0,3}代码|审查|评审/.test(text)) return 'code_review';
+  if (/\b(debug|bug|fix|error|failing|trace|root cause)\b|报错|修复|排查|错误|失败|崩溃/.test(text)) return 'debugging';
+  if (/\b(implement|add|build|create|refactor|change|feature)\b|实现|开发|改造|重构|新增|创建|构建/.test(text)) return 'implementation';
+  if (/\b(what is this|overview|orientation)\b|在干嘛|做什么|看下这个项目|项目概览|仓库概览/.test(text)) return 'repo_orientation';
+  if (/\b(product|roadmap)\b|方案|产品|规划|路线图/.test(text)) return 'product_discussion';
   return 'general';
 }
 

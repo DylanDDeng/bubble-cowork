@@ -4,7 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { AegisBuiltinAgentCore } from '../dist-electron/electron/libs/builtin-agent/agent.js';
-import { BuiltinExecutionGovernor } from '../dist-electron/electron/libs/builtin-agent/governance/execution-governor.js';
+import {
+  BuiltinExecutionGovernor,
+  classifyBuiltinAgentTask,
+} from '../dist-electron/electron/libs/builtin-agent/governance/execution-governor.js';
 import { createBashTool } from '../dist-electron/electron/libs/builtin-agent/tools/bash.js';
 import { createEditTool } from '../dist-electron/electron/libs/builtin-agent/tools/edit.js';
 import { FileStateTracker } from '../dist-electron/electron/libs/builtin-agent/tools/file-state.js';
@@ -23,6 +26,12 @@ const ctx = {
   abortSignal: abortController.signal,
   toolCall: { id: 'tool-check', name: 'check' },
 };
+
+assert.equal(classifyBuiltinAgentTask('检查下代码看看还有没有问题'), 'code_review');
+assert.equal(classifyBuiltinAgentTask('实现一个新功能'), 'implementation');
+assert.equal(classifyBuiltinAgentTask('看下这个项目在干嘛'), 'repo_orientation');
+assert.equal(classifyBuiltinAgentTask('排查这个报错'), 'debugging');
+assert.equal(classifyBuiltinAgentTask('检查 API token 有没有泄露'), 'security_investigation');
 
 const fileState = new FileStateTracker(cwd);
 const write = createWriteTool(cwd, approval, fileState);

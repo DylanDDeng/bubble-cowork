@@ -6,6 +6,10 @@ import notionAvatar03 from '../assets/agent-avatars/notion-avatar-03.svg';
 import notionAvatar04 from '../assets/agent-avatars/notion-avatar-04.svg';
 import notionAvatar05 from '../assets/agent-avatars/notion-avatar-05.svg';
 import animeAvatar01 from '../assets/agent-avatars/anime-avatar-01.svg';
+import animeAvatar02 from '../assets/agent-avatars/anime-avatar-02.png';
+import animeAvatar03 from '../assets/agent-avatars/anime-avatar-03.png';
+import animeAvatar04 from '../assets/agent-avatars/anime-avatar-04.png';
+import animeAvatar05 from '../assets/agent-avatars/anime-avatar-05.png';
 import type {
   AgentAvatarAssetKey,
   AgentProfile,
@@ -22,6 +26,10 @@ export const AGENT_AVATAR_OPTIONS: Array<{
   { key: 'notion-avatar-04', label: 'Avatar 4' },
   { key: 'notion-avatar-05', label: 'Avatar 5' },
   { key: 'anime-avatar-01', label: 'Anime Avatar 1' },
+  { key: 'anime-avatar-02', label: 'Anime Avatar 2' },
+  { key: 'anime-avatar-03', label: 'Anime Avatar 3' },
+  { key: 'anime-avatar-04', label: 'Anime Avatar 4' },
+  { key: 'anime-avatar-05', label: 'Anime Avatar 5' },
 ];
 
 const AGENT_AVATAR_ASSETS: Record<AgentAvatarAssetKey, string> = {
@@ -31,6 +39,10 @@ const AGENT_AVATAR_ASSETS: Record<AgentAvatarAssetKey, string> = {
   'notion-avatar-04': notionAvatar04,
   'notion-avatar-05': notionAvatar05,
   'anime-avatar-01': animeAvatar01,
+  'anime-avatar-02': animeAvatar02,
+  'anime-avatar-03': animeAvatar03,
+  'anime-avatar-04': animeAvatar04,
+  'anime-avatar-05': animeAvatar05,
 };
 
 const AGENT_AVATAR_SIZE_CLASSES = {
