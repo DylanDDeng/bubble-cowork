@@ -263,11 +263,6 @@ body {
   background-color: var(--bg-primary);
 }
 
-.aegis-window-shell--rounded {
-  overflow: hidden;
-  border-radius: var(--app-window-corner-radius);
-}
-
 .aegis-window-shell--rounded .aegis-sidebar,
 .aegis-window-shell--rounded .aegis-window-left-surface {
   background-color: var(--app-sidebar-surface);
