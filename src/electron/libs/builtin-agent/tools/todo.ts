@@ -57,9 +57,8 @@ export function createTodoTool(store: BuiltinTodoStore): BuiltinToolRegistryEntr
       return {
         content: `Todo list updated: ${normalized.length} item(s), ${completed} completed, ${inProgressCount} in progress, ${pending} pending.`,
         status: 'success',
-        metadata: { kind: 'memory', matches: normalized.length },
+        metadata: { kind: 'todo', matches: normalized.length, completed, inProgress: inProgressCount, pending },
       };
     },
   };
 }
-

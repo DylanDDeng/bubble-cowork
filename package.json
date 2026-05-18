@@ -10,6 +10,7 @@
     "dev:electron": "npm run transpile:electron && node scripts/prepare-electron-native-deps.mjs && electron .",
     "transpile:electron": "tsc -p src/electron/tsconfig.json",
     "build": "npm run transpile:electron && vite build",
+    "check:builtin-agent": "npm run transpile:electron && node scripts/check-builtin-agent.mjs",
     "check:icons": "node scripts/check-ui-icon-imports.mjs",
     "build:electron": "electron-builder",
     "dist": "npm run build && npm run build:electron"

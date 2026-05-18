@@ -5,6 +5,7 @@ export { createGlobTool } from './glob';
 export { createGrepTool } from './grep';
 export { createLspTool } from './lsp';
 export { createMemoryReadSummaryTool, createMemorySearchTool } from './memory';
+export { createPatchTool } from './patch';
 export { createQuestionTool } from './question';
 export { createReadTool } from './read';
 export { createSkillReadResourceTool, createSkillReadTool, createSkillTool } from './skill';
@@ -34,6 +35,7 @@ import { createGlobTool } from './glob';
 import { createGrepTool } from './grep';
 import { createLspTool } from './lsp';
 import { createMemoryReadSummaryTool, createMemorySearchTool } from './memory';
+import { createPatchTool } from './patch';
 import { createQuestionTool } from './question';
 import { createReadTool } from './read';
 import { createSkillReadResourceTool, createSkillReadTool, createSkillTool } from './skill';
@@ -67,6 +69,7 @@ export function createAllTools(cwd: string, options: CreateAllBuiltinToolsOption
     createBashTool(cwd, options.approvalController, options.children),
     createWriteTool(cwd, options.approvalController),
     createEditTool(cwd, options.approvalController),
+    createPatchTool(cwd, options.approvalController),
     createGlobTool(cwd),
     createGrepTool(cwd),
     createLspTool(cwd, options.lspAdapter),

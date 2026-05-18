@@ -6,7 +6,17 @@ import { asNumber, isSensitivePath, resolveInsideCwd } from './common';
 const MAX_LINES = 250;
 const MAX_BYTES = 100 * 1024;
 
+interface ReadHistoryEntry {
+  mtimeMs: number;
+  size: number;
+  firstLine: number;
+  lastLine: number;
+  truncated: boolean;
+}
+
 export function createReadTool(cwd: string): BuiltinToolRegistryEntry {
+  const readHistory = new Map<string, ReadHistoryEntry>();
+
   return {
     name: 'read',
     readOnly: true,
@@ -32,6 +42,12 @@ export function createReadTool(cwd: string): BuiltinToolRegistryEntry {
           metadata: { kind: 'security', path: file.path, reason: 'Sensitive credential storage is not readable from general-purpose tasks.' },
         };
       }
+      const requestedOffset = Math.max(1, Math.floor(asNumber(args.offset, 1)));
+      const requestedLimit = typeof args.limit === 'number' && Number.isFinite(args.limit)
+        ? String(Math.max(1, Math.floor(args.limit)))
+        : 'all';
+      const historyKey = `${file.path}:${requestedOffset}:${requestedLimit}`;
+      let stableStat: { mtimeMs: number; size: number } | null = null;
       try {
         await access(file.path, constants.R_OK);
         const fileStat = await stat(file.path);
@@ -42,12 +58,30 @@ export function createReadTool(cwd: string): BuiltinToolRegistryEntry {
             status: 'command_error',
           };
         }
+        stableStat = { mtimeMs: fileStat.mtimeMs, size: fileStat.size };
       } catch {
         return { content: `Error: Cannot read file: ${file.rel}`, isError: true, status: 'command_error' };
       }
+      const previous = readHistory.get(historyKey);
+      if (previous && stableStat && previous.mtimeMs === stableStat.mtimeMs && previous.size === stableStat.size) {
+        return {
+          content:
+            `File unchanged since previous read of ${file.rel} lines ${previous.firstLine}-${previous.lastLine}. ` +
+            `Reuse that earlier result instead of reading the same range again.` +
+            (previous.truncated ? '\n[Previous read was truncated.]' : ''),
+          status: previous.truncated ? 'partial' : 'success',
+          metadata: {
+            kind: 'read',
+            path: file.path,
+            truncated: previous.truncated,
+            repeated: true,
+            reason: 'unchanged',
+          },
+        };
+      }
       const content = await readFile(file.path, 'utf-8');
       const lines = content.split('\n');
-      const offset = Math.max(0, Math.floor(asNumber(args.offset, 1)) - 1);
+      const offset = requestedOffset - 1;
       const limit = Math.max(1, Math.floor(asNumber(args.limit, lines.length)));
       let selected = lines.slice(offset, offset + limit);
       let truncated = false;
@@ -63,6 +97,13 @@ export function createReadTool(cwd: string): BuiltinToolRegistryEntry {
       if (truncated) {
         output += `\n[Output truncated: exceeded ${MAX_LINES} lines or ${MAX_BYTES / 1024}KB limit]`;
       }
+      readHistory.set(historyKey, {
+        mtimeMs: stableStat?.mtimeMs ?? 0,
+        size: stableStat?.size ?? Buffer.byteLength(content, 'utf-8'),
+        firstLine: Math.min(lines.length, offset + 1),
+        lastLine: Math.min(lines.length, offset + selected.length),
+        truncated,
+      });
       return {
         content: output,
         status: truncated ? 'partial' : 'success',

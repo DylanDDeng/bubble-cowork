@@ -9,6 +9,7 @@ export interface BuiltinToolCall {
     name: string;
     arguments: string;
   };
+  argsCorrupt?: boolean;
 }
 
 export interface BuiltinChatMessage {
@@ -41,15 +42,20 @@ export type BuiltinToolResultStatus =
   | 'command_error';
 
 export interface BuiltinToolResultMetadata {
-  kind?: 'search' | 'read' | 'write' | 'edit' | 'shell' | 'web' | 'security' | 'lsp' | 'question' | 'memory' | 'subagent';
+  kind?: 'search' | 'read' | 'write' | 'edit' | 'shell' | 'web' | 'security' | 'lsp' | 'question' | 'memory' | 'todo' | 'subagent';
   citations?: MemoryCitation[];
   path?: string;
   pattern?: string;
   matches?: number;
   truncated?: boolean;
   reason?: string;
+  diff?: string;
+  addedLines?: number;
+  removedLines?: number;
   searchSignature?: string;
   searchFamily?: string;
+  readSignature?: string;
+  readFamily?: string;
   [key: string]: unknown;
 }
 
@@ -120,7 +126,7 @@ export interface BuiltinQuestionController {
 }
 
 export interface BuiltinApprovalController {
-  requestCommand: (input: { id: string; command: string; cwd: string }) => Promise<PermissionResult>;
+  requestCommand: (input: { id: string; command: string; cwd: string; summary?: string[] }) => Promise<PermissionResult>;
   requestFileChange: (input: {
     id: string;
     toolName: string;

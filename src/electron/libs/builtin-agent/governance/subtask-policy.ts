@@ -11,7 +11,7 @@ export interface BuiltinSubtaskPolicy {
   allowedTools: string[];
   reminder: string;
   resultStatus: BuiltinToolResultStatus;
-  maxTurns: number;
+  maxTurns?: number;
 }
 
 const POLICY_MAP: Record<BuiltinSubtaskType, BuiltinSubtaskPolicy> = {
@@ -23,9 +23,9 @@ const POLICY_MAP: Record<BuiltinSubtaskType, BuiltinSubtaskPolicy> = {
       '- Focus on locating relevant files, symbols, and evidence quickly.',
       '- Use glob for file discovery, grep for content search, lsp for code navigation, and web tools for current external facts.',
       '- Return a concise summary of what you found and where.',
+      '- Stop by giving a final answer when the scoped evidence is found or clearly absent.',
     ].join('\n'),
     resultStatus: 'success',
-    maxTurns: 6,
   },
   security_investigation: {
     type: 'security_investigation',
@@ -35,9 +35,9 @@ const POLICY_MAP: Record<BuiltinSubtaskType, BuiltinSubtaskPolicy> = {
       '- Investigate only in read-only mode.',
       '- Collect evidence about config load paths, environment reads, persistence paths, masking, and exposure paths.',
       '- Do not loop on broad keyword search; summarize evidence and uncertainty.',
+      '- Stop by giving a final answer when the scoped evidence is found or clearly absent.',
     ].join('\n'),
     resultStatus: 'success',
-    maxTurns: 8,
   },
   evidence_correlation: {
     type: 'evidence_correlation',
@@ -47,9 +47,9 @@ const POLICY_MAP: Record<BuiltinSubtaskType, BuiltinSubtaskPolicy> = {
       '- Correlate evidence already discovered.',
       '- Avoid new broad searches; read only the specific files that matter.',
       '- Produce a reasoning-focused summary that states what the evidence supports.',
+      '- Stop by giving a final answer when the scoped evidence is found or clearly absent.',
     ].join('\n'),
     resultStatus: 'success',
-    maxTurns: 4,
   },
   general_readonly: {
     type: 'general_readonly',
@@ -58,9 +58,9 @@ const POLICY_MAP: Record<BuiltinSubtaskType, BuiltinSubtaskPolicy> = {
       'Subtask policy: general_readonly',
       '- Stay in read-only mode.',
       '- Keep the scope tightly bounded and summarize findings concisely.',
+      '- Stop by giving a final answer when the scoped evidence is found or clearly absent.',
     ].join('\n'),
     resultStatus: 'success',
-    maxTurns: 6,
   },
 };
 

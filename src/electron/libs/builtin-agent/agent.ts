@@ -1,6 +1,11 @@
 import type { ContentBlock } from '../../../shared/types';
 import { compactResidentHistory, projectMessages } from './context/projector';
 import { isContextOverflowError } from './context/overflow';
+import {
+  BuiltinExecutionGovernor,
+  classifyBuiltinAgentTask,
+  normalizeToolResultMetadata,
+} from './governance/execution-governor';
 import { filterToolsForSubtask, getSubtaskPolicy, type BuiltinSubtaskType } from './governance/subtask-policy';
 import type {
   BuiltinAgentCallbacks,
@@ -82,12 +87,13 @@ export class AegisBuiltinAgentCore {
 
   async runTurn(prompt: string): Promise<void> {
     this.messages.push({ role: 'user', content: prompt });
+    const governor = new BuiltinExecutionGovernor(classifyBuiltinAgentTask(prompt));
     let recoveries = 0;
     let turnCount = 0;
 
     while (!this.options.signal.aborted) {
       turnCount += 1;
-      const effectiveTools = this.getEffectiveTools();
+      const effectiveTools = governor.filterToolDefinitions(this.getEffectiveTools());
       this.messages[0] = {
         role: 'system',
         content: this.options.getSystemPrompt({ toolNames: effectiveTools.map((tool) => tool.name) }),
@@ -97,7 +103,10 @@ export class AegisBuiltinAgentCore {
       try {
         const projectedMessages = insertTransientMessages(
           projectMessages(this.messages),
-          this.options.getTransientMessages?.() || []
+          [
+            ...(this.options.getTransientMessages?.() || []),
+            ...governor.consumePendingReminders().map(toSystemReminderMessage),
+          ]
         );
         modelTurn = await this.options.complete({
           messages: projectedMessages,
@@ -145,7 +154,7 @@ export class AegisBuiltinAgentCore {
 
       const toolByName = new Map(effectiveTools.map((tool) => [tool.name, tool]));
       for (const call of modelTurn.toolCalls) {
-        const result = await this.executeTool(call, toolByName);
+        const result = await this.executeTool(call, toolByName, governor);
         this.messages.push({
           role: 'tool',
           tool_call_id: call.id,
@@ -240,7 +249,8 @@ export class AegisBuiltinAgentCore {
 
   private async executeTool(
     call: BuiltinToolCall,
-    toolByName: Map<string, BuiltinToolRegistryEntry>
+    toolByName: Map<string, BuiltinToolRegistryEntry>,
+    governor?: BuiltinExecutionGovernor
   ): Promise<BuiltinToolResult> {
     const tool = toolByName.get(call.function.name);
     if (!tool) {
@@ -264,8 +274,44 @@ export class AegisBuiltinAgentCore {
       }
       return { content: `Error: unknown tool ${call.function.name}`, isError: true, status: 'command_error' };
     }
-    const args = parseArgs(call.function.arguments);
-    const result = await tool.execute(args, {
+    if (call.argsCorrupt) {
+      return {
+        content:
+          `Error: The arguments for "${call.function.name}" failed to parse as JSON, indicating the tool call was truncated or malformed mid-stream. ` +
+          'Re-issue the call with valid JSON arguments; do not assume the previous attempt ran.',
+        isError: true,
+        status: 'blocked',
+        metadata: { kind: 'security', reason: 'args_corrupt' },
+      };
+    }
+    const parsedArgs = parseArgs(call.function.arguments);
+    if (parsedArgs.corrupt) {
+      return {
+        content:
+          `Error: Tool "${call.function.name}" was called with malformed JSON arguments. ` +
+          'Re-issue the call with valid JSON arguments; do not assume the previous attempt ran.',
+        isError: true,
+        status: 'blocked',
+        metadata: { kind: 'security', reason: 'args_corrupt' },
+      };
+    }
+    const missingRequired = findMissingRequiredArgs(tool.parameters, parsedArgs.args);
+    if (missingRequired.length > 0) {
+      return {
+        content:
+          `Error: Tool "${call.function.name}" was called without required argument${missingRequired.length === 1 ? '' : 's'}: ` +
+          `${missingRequired.map((name) => `"${name}"`).join(', ')}. Re-issue the call with all required fields filled. ` +
+          'Do not assume the previous attempt ran with default values.',
+        isError: true,
+        status: 'blocked',
+        metadata: { kind: 'security', reason: 'missing_required_args', missing: missingRequired },
+      };
+    }
+    const governorDecision = governor?.beforeToolCall(call.function.name, parsedArgs.args);
+    if (governorDecision?.blockedResult) {
+      return governorDecision.blockedResult;
+    }
+    const rawResult = await tool.execute(parsedArgs.args, {
       cwd: this.options.cwd,
       abortSignal: this.options.signal,
       toolCall: {
@@ -276,6 +322,8 @@ export class AegisBuiltinAgentCore {
         runSubtask: (input, cwd, options) => this.runSubtask(input, cwd, options),
       },
     });
+    const result = normalizeToolResultMetadata(call.function.name, parsedArgs.args, rawResult);
+    governor?.afterToolResult(call.function.name, parsedArgs.args, result);
     this.options.onToolMetadata?.(result.metadata);
     return result;
   }
@@ -297,6 +345,10 @@ function insertTransientMessages(
   ];
 }
 
+function toSystemReminderMessage(content: string): BuiltinChatMessage {
+  return { role: 'user', content };
+}
+
 function toToolDefinition(tool: BuiltinToolRegistryEntry): BuiltinToolDefinition {
   return {
     name: tool.name,
@@ -305,13 +357,30 @@ function toToolDefinition(tool: BuiltinToolRegistryEntry): BuiltinToolDefinition
   };
 }
 
-function parseArgs(raw: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(raw || '{}');
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-  } catch {
-    return {};
+function parseArgs(raw: string): { args: Record<string, unknown>; corrupt: boolean } {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) {
+    return { args: {}, corrupt: false };
   }
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return { args: parsed as Record<string, unknown>, corrupt: false };
+    }
+    return { args: {}, corrupt: true };
+  } catch {
+    return { args: {}, corrupt: true };
+  }
+}
+
+function findMissingRequiredArgs(
+  schema: Record<string, unknown> | undefined,
+  args: Record<string, unknown>
+): string[] {
+  const required = Array.isArray(schema?.required)
+    ? schema.required.filter((item): item is string => typeof item === 'string')
+    : [];
+  return required.filter((name) => args[name] === undefined || args[name] === null);
 }
 
 function buildAssistantBlocks(turn: BuiltinModelTurn): ContentBlock[] {
@@ -332,7 +401,7 @@ function buildAssistantToolBlocks(turn: BuiltinModelTurn): ContentBlock[] {
       type: 'tool_use',
       id: call.id,
       name: call.function.name,
-      input: parseArgs(call.function.arguments),
+      input: parseArgs(call.function.arguments).args,
     });
   }
   return blocks;

@@ -40,23 +40,26 @@ export function getToolSummary(name: string, input: unknown): string {
     return providerTitle;
   }
 
-  switch (name) {
+  switch (name.trim().toLowerCase()) {
     case 'Bash':
+    case 'bash':
       return getStringField(input, 'command') || '';
-    case 'Read':
-    case 'Write':
-    case 'Edit':
-    case 'Delete':
+    case 'read':
+    case 'write':
+    case 'edit':
+    case 'patch':
+    case 'delete':
       return (
         getStringField(input, 'file_path') ||
         getStringField(input, 'path') ||
         getStringField(input, 'filename') ||
         ''
       );
-    case 'Glob':
-    case 'Grep':
+    case 'glob':
+    case 'grep':
       return getStringField(input, 'pattern') || '';
-    case 'AskUserQuestion': {
+    case 'askuserquestion':
+    case 'question': {
       if (!isRecord(input)) return '';
       const questions = input.questions;
       if (!Array.isArray(questions) || questions.length === 0) return '';
@@ -64,7 +67,7 @@ export function getToolSummary(name: string, input: unknown): string {
       if (!isRecord(first)) return '';
       return getStringField(first, 'question') || '';
     }
-    case 'Task': {
+    case 'task': {
       const desc = getStringField(input, 'description');
       if (desc) return desc;
       const prompt = getStringField(input, 'prompt');
@@ -93,6 +96,7 @@ const TOOL_VERBS: Record<string, VerbPair> = {
   Read: ['Reading', 'Read'],
   Write: ['Writing', 'Wrote'],
   Edit: ['Editing', 'Edited'],
+  Patch: ['Patching', 'Patched'],
   MultiEdit: ['Editing', 'Edited'],
   Delete: ['Deleting', 'Deleted'],
   Glob: ['Finding', 'Found'],
@@ -102,6 +106,17 @@ const TOOL_VERBS: Record<string, VerbPair> = {
   Task: ['Running', 'Ran'],
   TodoWrite: ['Updating', 'Updated'],
   NotebookEdit: ['Editing', 'Edited'],
+  read: ['Reading', 'Read'],
+  write: ['Writing', 'Wrote'],
+  edit: ['Editing', 'Edited'],
+  patch: ['Patching', 'Patched'],
+  delete: ['Deleting', 'Deleted'],
+  glob: ['Finding', 'Found'],
+  grep: ['Searching', 'Searched'],
+  web_fetch: ['Fetching', 'Fetched'],
+  web_search: ['Searching', 'Searched'],
+  task: ['Running', 'Ran'],
+  todo_write: ['Updating', 'Updated'],
 };
 
 const SHELL_TOOL_VERBS: Record<string, VerbPair> = {
@@ -297,7 +312,7 @@ export function deriveReadableToolDisplay(
     return { verb: '', target: providerTitle };
   }
 
-  if (name === 'Bash') {
+  if (name === 'Bash' || name === 'bash') {
     const command = getStringField(input, 'command');
     if (command) {
       return describeBashCommand(command, status);
@@ -305,7 +320,8 @@ export function deriveReadableToolDisplay(
     return { verb: pickVerb(DEFAULT_VERB, status), target: 'command' };
   }
 
-  if (name === 'Read' || name === 'Write' || name === 'Edit' || name === 'Delete' || name === 'MultiEdit') {
+  if (name === 'Read' || name === 'Write' || name === 'Edit' || name === 'Patch' || name === 'Delete' || name === 'MultiEdit'
+    || name === 'read' || name === 'write' || name === 'edit' || name === 'patch' || name === 'delete') {
     const path =
       getStringField(input, 'file_path') ||
       getStringField(input, 'path') ||
@@ -315,27 +331,27 @@ export function deriveReadableToolDisplay(
     return { verb: pickVerb(verbs, status), target: path ? lastPathSegment(path) : 'file' };
   }
 
-  if (name === 'Glob') {
+  if (name === 'Glob' || name === 'glob') {
     const pattern = getStringField(input, 'pattern') || '';
     return { verb: pickVerb(TOOL_VERBS.Glob, status), target: pattern || 'pattern' };
   }
 
-  if (name === 'Grep') {
+  if (name === 'Grep' || name === 'grep') {
     const pattern = getStringField(input, 'pattern') || '';
     return { verb: pickVerb(TOOL_VERBS.Grep, status), target: pattern ? `for ${truncate(pattern, 40)}` : 'pattern' };
   }
 
-  if (name === 'WebFetch') {
+  if (name === 'WebFetch' || name === 'web_fetch') {
     const url = getStringField(input, 'url') || '';
     return { verb: pickVerb(TOOL_VERBS.WebFetch, status), target: url ? truncate(url, 60) : 'url' };
   }
 
-  if (name === 'WebSearch') {
+  if (name === 'WebSearch' || name === 'web_search') {
     const query = getStringField(input, 'query') || '';
     return { verb: pickVerb(TOOL_VERBS.WebSearch, status), target: query ? truncate(query, 60) : 'query' };
   }
 
-  if (name === 'Task') {
+  if (name === 'Task' || name === 'task') {
     const desc =
       getStringField(input, 'description') ||
       getStringField(input, 'subagent_type') ||
@@ -344,7 +360,7 @@ export function deriveReadableToolDisplay(
     return { verb: pickVerb(TOOL_VERBS.Task, status), target: desc ? truncate(desc, 60) : 'subagent task' };
   }
 
-  if (name === 'TodoWrite') {
+  if (name === 'TodoWrite' || name === 'todo_write') {
     return { verb: pickVerb(TOOL_VERBS.TodoWrite, status), target: 'todo list' };
   }
 
@@ -405,18 +421,19 @@ function detectBashKind(command: string | null | undefined): CanonicalToolKind {
 }
 
 export function classifyToolUse(toolName: string, input: unknown): CanonicalToolKind {
-  if (toolName === 'Read') return 'file_read';
-  if (toolName === 'Write' || toolName === 'Edit' || toolName === 'MultiEdit' || toolName === 'Delete' || toolName === 'NotebookEdit') {
+  const normalized = toolName.trim().toLowerCase();
+  if (normalized === 'read') return 'file_read';
+  if (['write', 'edit', 'patch', 'multiedit', 'delete', 'notebookedit'].includes(normalized)) {
     return 'file_change';
   }
-  if (toolName === 'Bash') {
+  if (normalized === 'bash') {
     return detectBashKind(getStringField(input, 'command'));
   }
-  if (toolName === 'Grep' || toolName === 'Glob') return 'pattern_search';
-  if (toolName === 'WebSearch' || toolName === 'WebFetch') return 'web_search';
-  if (toolName === 'Task') return 'subagent';
-  if (toolName === 'TodoWrite') return 'todo_update';
-  if (toolName === 'AskUserQuestion') return 'approval';
+  if (normalized === 'grep' || normalized === 'glob') return 'pattern_search';
+  if (normalized === 'websearch' || normalized === 'webfetch' || normalized === 'web_search' || normalized === 'web_fetch') return 'web_search';
+  if (normalized === 'task') return 'subagent';
+  if (normalized === 'todowrite' || normalized === 'todo_write') return 'todo_update';
+  if (normalized === 'askuserquestion' || normalized === 'question') return 'approval';
   if (
     toolName === 'remember_search' ||
     toolName === 'remember_get' ||

@@ -4,14 +4,14 @@ export function createTaskTool(): BuiltinToolRegistryEntry {
   return {
     name: 'task',
     readOnly: true,
-    description: `Delegate a bounded investigative subtask to a read-only sub-agent and return a concise summary.
+    description: `Delegate a focused investigative subtask to a read-only sub-agent and return a concise summary.
 
 Use this when:
 - a search or investigation can be scoped as a sub-problem
 - you want a focused summary before continuing the main task
 - you need to inspect a specific hypothesis or area without polluting the main loop with exploratory churn
 
-Do not use this for edits or shell-heavy workflows. The subtask agent runs in read-only mode.`,
+Do not use this for edits or shell-heavy workflows. The subtask agent runs in read-only mode and should finish when the scoped evidence is found or clearly absent.`,
     parameters: {
       type: 'object',
       properties: {
@@ -51,4 +51,3 @@ Do not use this for edits or shell-heavy workflows. The subtask agent runs in re
     },
   };
 }
-

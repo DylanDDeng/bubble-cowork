@@ -63,6 +63,10 @@ function pruneLargeToolResults(messages: BuiltinChatMessage[]): BuiltinChatMessa
     if (message.content.length <= TOOL_RESULT_KEEP_CHARS) {
       return message;
     }
+    const compact = compactSerializedToolResult(message.content);
+    if (compact) {
+      return { ...message, content: compact };
+    }
     return {
       ...message,
       content: [
@@ -74,6 +78,38 @@ function pruneLargeToolResults(messages: BuiltinChatMessage[]): BuiltinChatMessa
       ].join('\n'),
     };
   });
+}
+
+function compactSerializedToolResult(content: string): string | null {
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const result = parsed as { output?: unknown; metadata?: unknown };
+    if (typeof result.output !== 'string') return null;
+    const metadata = result.metadata && typeof result.metadata === 'object' && !Array.isArray(result.metadata)
+      ? result.metadata as Record<string, unknown>
+      : {};
+    const output = result.output;
+    const headChars = Math.floor(TOOL_RESULT_KEEP_CHARS * 0.55);
+    const tailChars = Math.floor(TOOL_RESULT_KEEP_CHARS * 0.25);
+    const compactOutput = [
+      output.slice(0, headChars).trimEnd(),
+      '',
+      `[tool output compacted from ${output.length} chars; metadata retained]`,
+      '',
+      output.slice(-tailChars).trimStart(),
+    ].join('\n');
+    return JSON.stringify({
+      output: compactOutput,
+      metadata: {
+        ...metadata,
+        compacted: true,
+        originalOutputChars: output.length,
+      },
+    });
+  } catch {
+    return null;
+  }
 }
 
 function takeRecentTurns(messages: BuiltinChatMessage[], keepRecentTurns: number): BuiltinChatMessage[] {
@@ -94,4 +130,3 @@ function takeRecentTurns(messages: BuiltinChatMessage[], keepRecentTurns: number
   }
   return recent;
 }
-
