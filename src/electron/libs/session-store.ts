@@ -373,6 +373,8 @@ export function initialize(): void {
     CREATE INDEX IF NOT EXISTS idx_builtin_memory_consolidations_agent ON builtin_memory_consolidations(agent_id, created_at);
   `);
 
+  purgeImportedClaudeCodeSessions();
+
   const backfilledCount = backfillClaudeSessionModelsFromInitMessages();
   if (backfilledCount > 0) {
     console.log(`[session-store] Backfilled ${backfilledCount} Claude session model values from init messages.`);
@@ -397,6 +399,55 @@ function invalidateClaudeUsageReportCache(): void {
   codexUsageReportCache.clear();
   opencodeUsageReportDataVersion += 1;
   opencodeUsageReportCache.clear();
+}
+
+function purgeImportedClaudeCodeSessions(): void {
+  const database = getDb();
+  const sessionRows = database
+    .prepare(`SELECT id FROM sessions WHERE session_origin = 'claude_code'`)
+    .all() as Array<{ id: string }>;
+
+  if (sessionRows.length === 0) {
+    return;
+  }
+
+  const sessionIds = sessionRows.map((row) => row.id);
+  const selectArtifactRows = database.prepare('SELECT file_path FROM artifacts WHERE session_id = ?');
+  const artifactPaths = sessionIds.flatMap((sessionId) =>
+    (selectArtifactRows.all(sessionId) as Array<{ file_path: string }>).map((row) => row.file_path)
+  );
+
+  const deleteSearchIndex = database.prepare('DELETE FROM search_index WHERE session_id = ?');
+  const deleteDerivedSummaries = database.prepare('DELETE FROM derived_summaries WHERE session_id = ?');
+  const deleteArtifacts = database.prepare('DELETE FROM artifacts WHERE session_id = ?');
+  const deleteMemoryCandidates = database.prepare('DELETE FROM builtin_memory_candidates WHERE session_id = ?');
+  const deleteMemoryRollouts = database.prepare('DELETE FROM builtin_memory_rollouts WHERE session_id = ?');
+  const deleteMessages = database.prepare('DELETE FROM messages WHERE session_id = ?');
+  const deleteSession = database.prepare('DELETE FROM sessions WHERE id = ?');
+
+  const purgeTransaction = database.transaction((ids: string[]) => {
+    for (const sessionId of ids) {
+      deleteSearchIndex.run(sessionId);
+      deleteDerivedSummaries.run(sessionId);
+      deleteArtifacts.run(sessionId);
+      deleteMemoryCandidates.run(sessionId);
+      deleteMemoryRollouts.run(sessionId);
+      deleteMessages.run(sessionId);
+      deleteSession.run(sessionId);
+    }
+  });
+
+  purgeTransaction(sessionIds);
+  deleteArtifactFiles(artifactPaths);
+  for (const sessionId of sessionIds) {
+    try {
+      rmSync(join(getMessageArtifactsRoot(), sessionId), { recursive: true, force: true });
+    } catch {
+      // ignore cleanup failures
+    }
+  }
+  invalidateClaudeUsageReportCache();
+  console.log(`[session-store] Purged ${sessionIds.length} imported Claude Code local history session(s).`);
 }
 
 function extractMessageType(message: StreamMessage): string {
@@ -481,9 +532,6 @@ function getSessionSourceOrigin(sessionId: string): SessionSource {
     return 'aegis';
   }
 
-  if (row.session_origin === 'claude_code') {
-    return 'claude_code';
-  }
   if (row.session_origin === 'claude_remote') {
     return 'claude_remote';
   }
@@ -731,15 +779,13 @@ function backfillMessageMetadata(): void {
       try {
         const parsed = readStoredMessagePayload(row.data, row.created_at);
         const sourceOrigin =
-          row.session_origin === 'claude_code'
-            ? 'claude_code'
-            : row.session_origin === 'claude_remote'
-              ? 'claude_remote'
-              : row.provider === 'codex'
-                ? 'codex_local'
-                : row.provider === 'opencode'
-                  ? 'opencode_local'
-                  : 'aegis';
+          row.session_origin === 'claude_remote'
+            ? 'claude_remote'
+            : row.provider === 'codex'
+              ? 'codex_local'
+              : row.provider === 'opencode'
+                ? 'opencode_local'
+                : 'aegis';
         const searchText = normalizeSearchText(extractSearchableMessageText(parsed));
         updateStmt.run(extractMessageType(parsed), sourceOrigin, searchText, row.created_at, row.id);
         upsertSearchIndexStmt.run(row.id, row.session_id, sourceOrigin, searchText, row.created_at);
@@ -953,97 +999,6 @@ export function getSession(sessionId: string): SessionRow | undefined {
 export function listSessions(): SessionRow[] {
   const stmt = getDb().prepare('SELECT * FROM sessions WHERE COALESCE(hidden_from_threads, 0) = 0 ORDER BY updated_at DESC');
   return stmt.all() as SessionRow[];
-}
-
-export function getExternalSessionSyncInfo(sessionId: string): Pick<
-  SessionRow,
-  'id' | 'external_file_path' | 'external_file_mtime' | 'session_origin'
-> | undefined {
-  const stmt = getDb().prepare(`
-    SELECT id, external_file_path, external_file_mtime, session_origin
-    FROM sessions
-    WHERE id = ?
-  `);
-  return stmt.get(sessionId) as Pick<
-    SessionRow,
-    'id' | 'external_file_path' | 'external_file_mtime' | 'session_origin'
-  > | undefined;
-}
-
-export function upsertExternalClaudeSession(params: {
-  sessionId: string;
-  title: string;
-  cwd?: string | null;
-  model?: string | null;
-  createdAt: number;
-  updatedAt: number;
-  externalFilePath: string;
-  externalFileMtime: number;
-}): void {
-  const stmt = getDb().prepare(`
-    INSERT INTO sessions (
-      id,
-      title,
-      claude_session_id,
-      codex_session_id,
-      opencode_session_id,
-      provider,
-      model,
-      compatible_provider_id,
-      betas,
-      claude_access_mode,
-      claude_execution_mode,
-      codex_permission_mode,
-      codex_reasoning_effort,
-      codex_fast_mode,
-      opencode_permission_mode,
-      status,
-      cwd,
-      allowed_tools,
-      last_prompt,
-      session_origin,
-      external_file_path,
-      external_file_mtime,
-      hidden_from_threads,
-      created_at,
-      updated_at
-    )
-    VALUES (?, ?, NULL, NULL, NULL, 'claude', ?, NULL, NULL, 'default', 'execute', NULL, NULL, 0, NULL, 'idle', ?, NULL, NULL, 'claude_code', ?, ?, 0, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      title = excluded.title,
-      provider = 'claude',
-      model = excluded.model,
-      status = 'idle',
-      cwd = excluded.cwd,
-      session_origin = 'claude_code',
-      external_file_path = excluded.external_file_path,
-      external_file_mtime = excluded.external_file_mtime,
-      updated_at = excluded.updated_at
-  `);
-
-  stmt.run(
-    params.sessionId,
-    params.title,
-    params.model || null,
-    params.cwd || null,
-    params.externalFilePath,
-    params.externalFileMtime,
-    params.createdAt,
-    params.updatedAt
-  );
-}
-
-export function pruneMissingExternalClaudeSessions(validSessionIds: string[]): number {
-  const existing = getDb()
-    .prepare(`SELECT id FROM sessions WHERE session_origin = 'claude_code'`)
-    .all() as Array<{ id: string }>;
-
-  const valid = new Set(validSessionIds);
-  const staleIds = existing.map((row) => row.id).filter((id) => !valid.has(id));
-  for (const id of staleIds) {
-    deleteSession(id);
-  }
-  return staleIds.length;
 }
 
 export function getLatestClaudeModelUsageBySession(): Record<string, LatestClaudeModelUsage> {

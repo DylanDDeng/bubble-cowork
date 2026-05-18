@@ -273,12 +273,6 @@ body {
   background-color: var(--app-sidebar-surface);
 }
 
-.aegis-window-shell--rounded .aegis-sidebar {
-  overflow: hidden;
-  border-top-left-radius: var(--app-window-corner-radius);
-  border-bottom-left-radius: var(--app-window-corner-radius);
-}
-
 .aegis-sidebar,
 .aegis-sidebar :is(button, input, textarea, select, div, span, p, h1, h2, h3, label) {
   font-size: 13px !important;

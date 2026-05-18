@@ -1,6 +1,5 @@
 import type { SessionRow } from '../../types';
 import { AegisDbHistorySource } from './sources/AegisDbHistorySource';
-import { ClaudeCodeLocalHistorySource } from './sources/ClaudeCodeLocalHistorySource';
 import { RemoteClaudeHistorySource } from './sources/RemoteClaudeHistorySource';
 import type {
   SessionHistorySource,
@@ -9,13 +8,9 @@ import type {
 } from './types';
 
 const aegisDbHistorySource = new AegisDbHistorySource();
-const claudeCodeLocalHistorySource = new ClaudeCodeLocalHistorySource();
 const remoteClaudeHistorySource = new RemoteClaudeHistorySource();
 
 export function normalizeUnifiedSessionSource(row: Pick<SessionRow, 'provider' | 'session_origin'>): UnifiedSessionSource {
-  if (row.session_origin === 'claude_code') {
-    return 'claude_code_local';
-  }
   if (row.session_origin === 'claude_remote') {
     return 'claude_remote';
   }
@@ -37,7 +32,7 @@ export function toUnifiedSessionRecord(row: SessionRow): UnifiedSessionRecord {
     provider: row.provider,
     model: row.model,
     source,
-    readOnly: source === 'claude_code_local' || source === 'claude_remote',
+    readOnly: source === 'claude_remote',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     externalFilePath: row.external_file_path,
@@ -47,8 +42,6 @@ export function toUnifiedSessionRecord(row: SessionRow): UnifiedSessionRecord {
 
 export function getHistorySourceForSession(session: UnifiedSessionRecord): SessionHistorySource {
   switch (session.source) {
-    case 'claude_code_local':
-      return claudeCodeLocalHistorySource;
     case 'claude_remote':
       return remoteClaudeHistorySource;
     case 'codex_local':
@@ -57,8 +50,4 @@ export function getHistorySourceForSession(session: UnifiedSessionRecord): Sessi
     default:
       return aegisDbHistorySource;
   }
-}
-
-export function getClaudeCodeLocalHistorySource(): ClaudeCodeLocalHistorySource {
-  return claudeCodeLocalHistorySource;
 }

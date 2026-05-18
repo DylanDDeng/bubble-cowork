@@ -327,7 +327,6 @@ export interface WorkspaceChannel {
 export type AgentProvider = 'aegis' | 'claude' | 'codex' | 'opencode';
 export type SessionSource =
   | 'aegis'
-  | 'claude_code'
   | 'claude_remote'
   | 'codex_local'
   | 'opencode_local';

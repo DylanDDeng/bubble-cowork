@@ -1023,7 +1023,7 @@ export function ChatPane({
             {session.readOnly && (
               <div className="mb-4 flex justify-center">
                 <div className="max-w-[760px] rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-                  This Claude Code session is indexed from your local terminal history. It is read-only in Aegis for now.
+                  This conversation is read-only in Aegis.
                 </div>
               </div>
             )}

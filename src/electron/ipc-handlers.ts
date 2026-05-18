@@ -55,7 +55,6 @@ import {
 } from './libs/skill-market';
 import * as folderConfig from './libs/folder-config';
 import { ipcMainHandle, isDev } from './util';
-import { scheduleExternalClaudeSessionSync } from './libs/external-claude-sessions';
 import { getHistorySourceForSession, toUnifiedSessionRecord } from './libs/history/registry';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../shared/types';
 import type {
@@ -4995,7 +4994,6 @@ async function handleClientEvent(
 
 // 会话列表
 function handleSessionList(mainWindow: BrowserWindow): void {
-  scheduleExternalClaudeSessionSync(mainWindow, () => handleSessionList(mainWindow));
   const rows = sessions.listSessions();
   const latestClaudeModelUsageBySession = sessions.getLatestClaudeModelUsageBySession();
   const sessionInfos: SessionInfo[] = rows.map((row) => ({
@@ -5005,7 +5003,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     scope: normalizeSessionScope(row.conversation_scope),
     agentId: row.agent_id || null,
     source: row.session_origin || 'aegis',
-    readOnly: row.session_origin === 'claude_code' || row.session_origin === 'claude_remote',
+    readOnly: row.session_origin === 'claude_remote',
     cwd: row.cwd || undefined,
     projectCwd: row.project_cwd || row.cwd || null,
     envMode: row.env_mode === 'worktree' ? 'worktree' : 'local',
@@ -7303,10 +7301,10 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
 // 删除会话
 function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void {
   const session = sessions.getSession(sessionId);
-  if (session?.session_origin === 'claude_code' || session?.session_origin === 'claude_remote') {
+  if (session?.session_origin === 'claude_remote') {
     broadcast(mainWindow, {
       type: 'runner.error',
-      payload: { message: 'External Claude Code sessions are read-only in Aegis.', sessionId },
+      payload: { message: 'External Claude sessions are read-only in Aegis.', sessionId },
     });
     return;
   }

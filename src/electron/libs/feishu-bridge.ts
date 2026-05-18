@@ -139,18 +139,31 @@ class FeishuBridgeService {
   private wsClient: lark.WSClient | null = null;
   private restClient: lark.Client | null = null;
   private botOpenId: string | null = null;
-  private bindings = loadBindings().bindings;
+  private bindings: FeishuBridgeBinding[] | null = null;
   private permissionIndex = new Map<string, { chatId: string; sessionId: string }>();
 
   setHandlers(handlers: BridgeHandlers): void {
     this.handlers = handlers;
   }
 
+  private getBindings(): FeishuBridgeBinding[] {
+    if (!this.bindings) {
+      this.bindings = loadBindings().bindings;
+    }
+    return this.bindings;
+  }
+
+  private persistBindings(bindings: FeishuBridgeBinding[]): void {
+    this.bindings = bindings;
+    saveBindings(bindings);
+    this.updateStatus({});
+  }
+
   getStatus(): FeishuBridgeStatus {
     return {
       ...this.status,
       botOpenId: this.botOpenId || undefined,
-      activeBindings: this.bindings.length,
+      activeBindings: this.getBindings().length,
     };
   }
 
@@ -158,7 +171,7 @@ class FeishuBridgeService {
     this.status = {
       ...this.status,
       ...partial,
-      activeBindings: this.bindings.length,
+      activeBindings: this.getBindings().length,
     };
   }
 
@@ -273,11 +286,11 @@ class FeishuBridgeService {
   }
 
   private findBinding(chatId: string): FeishuBridgeBinding | null {
-    const binding = this.bindings.find((item) => item.chatId === chatId) || null;
+    const bindings = this.getBindings();
+    const binding = bindings.find((item) => item.chatId === chatId) || null;
     if (!binding) return null;
     if (!getSession(binding.sessionId)) {
-      this.bindings = this.bindings.filter((item) => item.chatId !== chatId);
-      saveBindings(this.bindings);
+      this.persistBindings(bindings.filter((item) => item.chatId !== chatId));
       return null;
     }
     return binding;
@@ -285,22 +298,20 @@ class FeishuBridgeService {
 
   private upsertBinding(chatId: string, userId: string, sessionId: string): void {
     const now = Date.now();
+    const existing = this.findBinding(chatId);
+    const bindings = this.getBindings();
     const nextBinding: FeishuBridgeBinding = {
       chatId,
       userId,
       sessionId,
-      createdAt: this.findBinding(chatId)?.createdAt || now,
+      createdAt: existing?.createdAt || now,
       updatedAt: now,
     };
-    this.bindings = [...this.bindings.filter((item) => item.chatId !== chatId), nextBinding];
-    saveBindings(this.bindings);
-    this.updateStatus({});
+    this.persistBindings([...bindings.filter((item) => item.chatId !== chatId), nextBinding]);
   }
 
   private clearBinding(chatId: string): void {
-    this.bindings = this.bindings.filter((item) => item.chatId !== chatId);
-    saveBindings(this.bindings);
-    this.updateStatus({});
+    this.persistBindings(this.getBindings().filter((item) => item.chatId !== chatId));
   }
 
   private isAllowedUser(config: FeishuBridgeConfig, userId: string): boolean {
@@ -442,7 +453,7 @@ class FeishuBridgeService {
   }
 
   async handleSessionMessage(sessionId: string, message: StreamMessage): Promise<void> {
-    const binding = this.bindings.find((item) => item.sessionId === sessionId);
+    const binding = this.getBindings().find((item) => item.sessionId === sessionId);
     if (!binding) {
       return;
     }
@@ -456,7 +467,7 @@ class FeishuBridgeService {
   }
 
   async handleRunnerError(sessionId: string, errorMessage: string): Promise<void> {
-    const binding = this.bindings.find((item) => item.sessionId === sessionId);
+    const binding = this.getBindings().find((item) => item.sessionId === sessionId);
     if (!binding) {
       return;
     }
@@ -464,7 +475,7 @@ class FeishuBridgeService {
   }
 
   async handlePermissionRequest(payload: PermissionRequestPayload): Promise<void> {
-    const binding = this.bindings.find((item) => item.sessionId === payload.sessionId);
+    const binding = this.getBindings().find((item) => item.sessionId === payload.sessionId);
     if (!binding) {
       return;
     }

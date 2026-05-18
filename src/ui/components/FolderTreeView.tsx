@@ -190,8 +190,7 @@ export function FolderTreeView({
     let sessionList = Object.values(sessions).filter(
       (session) =>
         !session.hiddenFromThreads &&
-        session.scope !== 'dm' &&
-        session.source !== 'claude_code'
+        session.scope !== 'dm'
     );
 
     if (splitPair) {
@@ -994,11 +993,6 @@ function SessionItem({
 
       <div className="flex min-h-[22px] items-center gap-2">
         <span className="flex-1 truncate text-[13px] font-normal leading-[1.3]">{session.title}</span>
-        {session.source === 'claude_code' && (
-          <span className="rounded-full bg-[var(--accent-light)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--text-secondary)]">
-            Claude Code
-          </span>
-        )}
         <span className="flex-shrink-0 text-[12px] text-[var(--text-muted)]">
           {formatSidebarTime(session.updatedAt)}
         </span>

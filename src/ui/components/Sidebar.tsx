@@ -238,8 +238,7 @@ export function Sidebar() {
       Object.values(sessions).filter(
         (session) =>
           !session.hiddenFromThreads &&
-          session.scope !== 'dm' &&
-          session.source !== 'claude_code'
+          session.scope !== 'dm'
       ),
     [sessions]
   );
