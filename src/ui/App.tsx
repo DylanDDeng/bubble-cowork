@@ -686,7 +686,7 @@ export function App() {
       {!showSettings && activeWorkspace === 'chat' && !sessionsLoaded ? (
         <div className="flex-1 min-w-0 bg-[var(--bg-primary)]" />
       ) : showSettings ? (
-        <div className="flex-1 min-w-0 flex flex-col bg-transparent">
+        <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
           <div className="flex-1 min-h-0">
             <Settings />
           </div>

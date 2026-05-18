@@ -79,13 +79,13 @@ export function Settings() {
     : 'general';
   const activeMeta = SETTINGS_TABS[resolvedActiveSettingsTab];
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col bg-transparent">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-primary)]">
       <div className="flex h-8 flex-shrink-0">
         <div className="aegis-window-left-surface drag-region w-[280px] flex-shrink-0 border-r border-[var(--border)] bg-[var(--app-sidebar-surface)]" />
         <div className="drag-region flex-1 bg-[var(--bg-primary)]" />
       </div>
 
-      <div className="flex min-h-0 flex-1 bg-transparent">
+      <div className="flex min-h-0 flex-1 bg-[var(--bg-primary)]">
       <aside className="aegis-window-left-surface w-[280px] flex-shrink-0 select-none border-r border-[var(--border)] bg-[var(--app-sidebar-surface)]">
         <div className="flex h-full flex-col px-3 pb-6 pt-4">
           <button

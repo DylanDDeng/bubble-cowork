@@ -55,14 +55,9 @@ let latestUpdateStatus: AppUpdateStatus = {
 let latestUiResumeState: import('../shared/types').UiResumeState | null = null;
 let isQuitting = false;
 const RELEASES_URL = 'https://github.com/DylanDDeng/bubble-cowork/releases';
-const TRANSPARENT_WINDOW_BACKGROUND = '#00000000';
 
 function getMainWindowBackgroundColor(): string {
-  return process.platform === 'darwin'
-    ? TRANSPARENT_WINDOW_BACKGROUND
-    : nativeTheme.shouldUseDarkColors
-      ? '#111214'
-      : '#ffffff';
+  return nativeTheme.shouldUseDarkColors ? '#111214' : '#ffffff';
 }
 
 function getWindowShellState(win: BrowserWindow): { rounded: boolean } {
@@ -351,13 +346,6 @@ function createWindow(): void {
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 15, y: 15 },
     backgroundColor: getMainWindowBackgroundColor(),
-    ...(process.platform === 'darwin'
-      ? {
-          transparent: true,
-          roundedCorners: true,
-          hasShadow: true,
-        }
-      : {}),
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,

@@ -242,25 +242,25 @@ body,
 
 html {
   font-size: 100%;
-  background-color: transparent;
+  background-color: var(--bg-primary);
 }
 
 body {
   font-family: var(--font-sans), 'IBM Plex Serif Var', 'IBM Plex Serif', ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
   font-size: 13px;
   line-height: 1.5;
-  background-color: transparent;
+  background-color: var(--app-shell-background, var(--bg-primary));
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
-  background-color: transparent;
+  background-color: var(--bg-primary);
 }
 
 .aegis-window-shell {
-  background-color: transparent;
+  background-color: var(--bg-primary);
 }
 
 .aegis-window-shell--rounded {
