@@ -47,7 +47,6 @@ export function getToolSummary(name: string, input: unknown): string {
     case 'read':
     case 'write':
     case 'edit':
-    case 'patch':
     case 'delete':
       return (
         getStringField(input, 'file_path') ||
@@ -96,7 +95,6 @@ const TOOL_VERBS: Record<string, VerbPair> = {
   Read: ['Reading', 'Read'],
   Write: ['Writing', 'Wrote'],
   Edit: ['Editing', 'Edited'],
-  Patch: ['Patching', 'Patched'],
   MultiEdit: ['Editing', 'Edited'],
   Delete: ['Deleting', 'Deleted'],
   Glob: ['Finding', 'Found'],
@@ -109,7 +107,6 @@ const TOOL_VERBS: Record<string, VerbPair> = {
   read: ['Reading', 'Read'],
   write: ['Writing', 'Wrote'],
   edit: ['Editing', 'Edited'],
-  patch: ['Patching', 'Patched'],
   delete: ['Deleting', 'Deleted'],
   glob: ['Finding', 'Found'],
   grep: ['Searching', 'Searched'],
@@ -320,8 +317,8 @@ export function deriveReadableToolDisplay(
     return { verb: pickVerb(DEFAULT_VERB, status), target: 'command' };
   }
 
-  if (name === 'Read' || name === 'Write' || name === 'Edit' || name === 'Patch' || name === 'Delete' || name === 'MultiEdit'
-    || name === 'read' || name === 'write' || name === 'edit' || name === 'patch' || name === 'delete') {
+  if (name === 'Read' || name === 'Write' || name === 'Edit' || name === 'Delete' || name === 'MultiEdit'
+    || name === 'read' || name === 'write' || name === 'edit' || name === 'delete') {
     const path =
       getStringField(input, 'file_path') ||
       getStringField(input, 'path') ||
@@ -423,7 +420,7 @@ function detectBashKind(command: string | null | undefined): CanonicalToolKind {
 export function classifyToolUse(toolName: string, input: unknown): CanonicalToolKind {
   const normalized = toolName.trim().toLowerCase();
   if (normalized === 'read') return 'file_read';
-  if (['write', 'edit', 'patch', 'multiedit', 'delete', 'notebookedit'].includes(normalized)) {
+  if (['write', 'edit', 'multiedit', 'delete', 'notebookedit'].includes(normalized)) {
     return 'file_change';
   }
   if (normalized === 'bash') {

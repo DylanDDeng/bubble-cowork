@@ -3,6 +3,7 @@ import { access, readFile, stat, writeFile } from 'fs/promises';
 import type { BuiltinApprovalController, BuiltinToolRegistryEntry } from '../types';
 import { asString, resolveInsideCwd } from './common';
 import { countDiffChanges, createToolUnifiedDiff } from './diff-utils';
+import type { FileStateTracker } from './file-state';
 import { withFileMutationQueue } from './file-mutation-queue';
 
 interface NormalizedText {
@@ -149,7 +150,7 @@ function applyEdits(content: string, edits: Array<{ oldText: string; newText: st
   return { content: next, normalizedMatches };
 }
 
-export function createEditTool(cwd: string, approval?: BuiltinApprovalController): BuiltinToolRegistryEntry {
+export function createEditTool(cwd: string, approval?: BuiltinApprovalController, fileState?: FileStateTracker): BuiltinToolRegistryEntry {
   return {
     name: 'edit',
     description: 'Apply one or more targeted string replacements to an existing UTF-8 file inside the project directory. Prefer exact oldText; unique normalized matches can tolerate line endings, trailing whitespace, Unicode spaces, and smart punctuation.',
@@ -245,6 +246,7 @@ export function createEditTool(cwd: string, approval?: BuiltinApprovalController
           };
         }
         await writeFile(file.path, applied.content, 'utf-8');
+        await fileState?.observe(file.path, 'edit', applied.content).catch(() => undefined);
         return {
           content: [
             `Edited ${file.rel} with ${edits.length} replacement(s).`,

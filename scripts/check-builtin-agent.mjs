@@ -7,7 +7,7 @@ import { AegisBuiltinAgentCore } from '../dist-electron/electron/libs/builtin-ag
 import { BuiltinExecutionGovernor } from '../dist-electron/electron/libs/builtin-agent/governance/execution-governor.js';
 import { createBashTool } from '../dist-electron/electron/libs/builtin-agent/tools/bash.js';
 import { createEditTool } from '../dist-electron/electron/libs/builtin-agent/tools/edit.js';
-import { createPatchTool } from '../dist-electron/electron/libs/builtin-agent/tools/patch.js';
+import { FileStateTracker } from '../dist-electron/electron/libs/builtin-agent/tools/file-state.js';
 import { createReadTool } from '../dist-electron/electron/libs/builtin-agent/tools/read.js';
 import { createWriteTool } from '../dist-electron/electron/libs/builtin-agent/tools/write.js';
 
@@ -24,7 +24,8 @@ const ctx = {
   toolCall: { id: 'tool-check', name: 'check' },
 };
 
-const write = createWriteTool(cwd, approval);
+const fileState = new FileStateTracker(cwd);
+const write = createWriteTool(cwd, approval, fileState);
 const writeResult = await write.execute({ path: 'new.txt', content: 'alpha\nbeta\n' }, ctx);
 assert.equal(writeResult.status, 'success');
 assert.match(writeResult.metadata.diff, /\+alpha/);
@@ -33,14 +34,14 @@ assert.equal(writeResult.metadata.addedLines, 2);
 const duplicateWrite = await write.execute({ path: 'new.txt', content: 'again\n' }, ctx);
 assert.equal(duplicateWrite.status, 'command_error');
 
-const read = createReadTool(cwd);
+const read = createReadTool(cwd, fileState);
 const firstRead = await read.execute({ path: 'new.txt' }, ctx);
 const secondRead = await read.execute({ path: 'new.txt' }, ctx);
 assert.match(firstRead.content, /alpha/);
 assert.equal(secondRead.metadata.repeated, true);
 
 fs.writeFileSync(path.join(cwd, 'normalize.txt'), 'hello\u00a0world  \nquote \u201cx\u201d\n', 'utf8');
-const edit = createEditTool(cwd, approval);
+const edit = createEditTool(cwd, approval, fileState);
 const editResult = await edit.execute({
   path: 'normalize.txt',
   oldText: 'hello world\nquote "x"\n',
@@ -49,20 +50,21 @@ const editResult = await edit.execute({
 assert.equal(editResult.status, 'success');
 assert.equal(fs.readFileSync(path.join(cwd, 'normalize.txt'), 'utf8'), 'done\n');
 
-const patch = createPatchTool(cwd, approval);
-const patchResult = await patch.execute({
-  diff: [
-    '--- a/new.txt',
-    '+++ b/new.txt',
-    '@@ -1,2 +1,2 @@',
-    ' alpha',
-    '-beta',
-    '+gamma',
-    '',
-  ].join('\n'),
-}, ctx);
-assert.equal(patchResult.status, 'success');
+const overwriteResult = await write.execute({ path: 'new.txt', content: 'alpha\ngamma\n', overwrite: true }, ctx);
+assert.equal(overwriteResult.status, 'success');
+assert.equal(overwriteResult.metadata.overwrite, true);
 assert.equal(fs.readFileSync(path.join(cwd, 'new.txt'), 'utf8'), 'alpha\ngamma\n');
+
+fs.writeFileSync(path.join(cwd, 'unobserved.txt'), 'old\n', 'utf8');
+const unobservedOverwrite = await write.execute({ path: 'unobserved.txt', content: 'new\n', overwrite: true }, ctx);
+assert.equal(unobservedOverwrite.status, 'blocked');
+assert.equal(unobservedOverwrite.metadata.reason, 'unobserved');
+
+await read.execute({ path: 'unobserved.txt' }, ctx);
+fs.writeFileSync(path.join(cwd, 'unobserved.txt'), 'external\n', 'utf8');
+const staleOverwrite = await write.execute({ path: 'unobserved.txt', content: 'new\n', overwrite: true }, ctx);
+assert.equal(staleOverwrite.status, 'blocked');
+assert.equal(staleOverwrite.metadata.reason, 'changed');
 
 const bash = createBashTool(cwd, approval, children);
 const dangerous = await bash.execute({ command: 'rm -rf /' }, ctx);

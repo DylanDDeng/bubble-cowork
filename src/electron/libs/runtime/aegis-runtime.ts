@@ -344,7 +344,7 @@ function buildSystemPrompt(input: {
     'Keep edits scoped to the user request. Do not modify provider-native config for Claude Code, Codex, or opencode.',
     'Prefer glob for file discovery, grep for content search, lsp for code navigation, and read for exact file inspection before using bash.',
     'Use web_search and web_fetch when the task depends on current external information or a referenced URL.',
-    'Use edit for targeted existing-file replacements, patch for larger unified-diff edits, and write for new files. Use todo_write before and during complex multi-step implementation work so the UI can show progress.',
+    'Use edit for small targeted existing-file replacements. Use write for new files or write with overwrite=true for intentional full-file replacement after the file has been read or modified in this session. Never delete and recreate a file just to overwrite it. Use todo_write before and during complex multi-step implementation work so the UI can show progress.',
     'If a tool result says a read/search was repeated or unchanged, rely on the earlier result unless a concrete file change or context-loss reason requires a fresh read.',
     'Use task for bounded read-only sub-investigations. Use skill_read and skill_read_resource for progressive skill loading. Use tool_search before calling deferred tools such as the legacy skill wrapper.',
     'Use question only when a user decision or missing requirement blocks meaningful progress.',

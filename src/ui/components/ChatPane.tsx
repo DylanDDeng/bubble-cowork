@@ -14,7 +14,7 @@ import {
 } from '../utils/message-content';
 import { deriveTranscriptTimelineItems } from '../utils/transcript-timeline';
 import { resolveCodexModel } from '../utils/codex-model';
-import { MessageCard } from './MessageCard';
+import { AssistantCopyAction, MessageCard, getAssistantMarkdownToCopy } from './MessageCard';
 import { ToolExecutionBatch, WorkstreamDisclosure } from './ToolExecutionBatch';
 import { StructuredResponse } from './StructuredResponse';
 import { WorkingFooter } from './AssistantWorkstream';
@@ -643,6 +643,48 @@ export function ChatPane({
     return map;
   }, [turns, timelineItems, activeTimelineWorkId]);
 
+  const copyPlacementByTimelineIndex = useMemo(() => {
+    const actionTextByCardIndex = new Map<number, string>();
+    const hiddenMessageIndices = new Set<number>();
+
+    for (const [cardIndex, turn] of turnCardByTimelineIndex) {
+      for (let index = cardIndex; index >= 0; index -= 1) {
+        const item = timelineItems[index];
+        if (!item) continue;
+
+        const originalIndices =
+          item.type === 'work'
+            ? item.group.originalIndices
+            : [item.originalIndex];
+        const itemIsInTurn = originalIndices.some(
+          (originalIndex) =>
+            originalIndex >= turn.firstMessageIndex &&
+            originalIndex <= turn.lastMessageIndex
+        );
+        if (!itemIsInTurn) {
+          continue;
+        }
+        if (item.type !== 'message' || item.message.type !== 'assistant') {
+          continue;
+        }
+        if (item.assistantPresentation === 'progress' || item.message.streaming === true) {
+          continue;
+        }
+
+        const markdownToCopy = getAssistantMarkdownToCopy(item.message);
+        if (!markdownToCopy.trim()) {
+          continue;
+        }
+
+        actionTextByCardIndex.set(cardIndex, markdownToCopy);
+        hiddenMessageIndices.add(index);
+        break;
+      }
+    }
+
+    return { actionTextByCardIndex, hiddenMessageIndices };
+  }, [timelineItems, turnCardByTimelineIndex]);
+
   const handleOpenDiff = useCallback((record: ChangeRecord) => {
     setSelectedDiffRecord(record);
   }, []);
@@ -1009,8 +1051,11 @@ export function ChatPane({
                   if (item.type === 'work') {
                     const anchor = String(item.group.originalIndices[0]);
                     const highlighted = highlightedHistoryAnchor === anchor;
+                    const copyActionText = turnCard
+                      ? copyPlacementByTimelineIndex.actionTextByCardIndex.get(idx) || ''
+                      : '';
                     return (
-                      <div key={item.group.id}>
+                      <div key={item.group.id} className={copyActionText ? 'group' : undefined}>
                         <div
                           data-message-index={item.group.originalIndices[0]}
                           className={highlighted ? 'rounded-2xl transition-colors duration-300' : undefined}
@@ -1036,14 +1081,19 @@ export function ChatPane({
                           />
                         </div>
                         {turnCard ? <TurnChangesCard summary={turnCard} /> : null}
+                        {copyActionText ? <AssistantCopyAction text={copyActionText} /> : null}
                       </div>
                     );
                   }
 
                   const anchor = String(item.originalIndex);
                   const highlighted = highlightedHistoryAnchor === anchor;
+                  const copyActionText = turnCard
+                    ? copyPlacementByTimelineIndex.actionTextByCardIndex.get(idx) || ''
+                    : '';
+                  const hideAssistantCopyBar = copyPlacementByTimelineIndex.hiddenMessageIndices.has(idx);
                   return (
-                    <div key={`message-${item.originalIndex}`}>
+                    <div key={`message-${item.originalIndex}`} className={copyActionText ? 'group' : undefined}>
                       <div
                         data-message-index={item.originalIndex}
                         className={highlighted ? 'rounded-2xl transition-colors duration-300' : undefined}
@@ -1062,6 +1112,7 @@ export function ChatPane({
                           toolStatusMap={toolStatusMap}
                           toolResultsMap={toolResultsMap}
                           assistantPresentation={item.assistantPresentation}
+                          hideAssistantCopyBar={hideAssistantCopyBar}
                           userPromptActions={
                             item.message.type === 'user_prompt' &&
                             session.readOnly !== true &&
@@ -1131,6 +1182,7 @@ export function ChatPane({
                         ) : null}
                       </div>
                       {turnCard ? <TurnChangesCard summary={turnCard} /> : null}
+                      {copyActionText ? <AssistantCopyAction text={copyActionText} /> : null}
                     </div>
                   );
                 })}

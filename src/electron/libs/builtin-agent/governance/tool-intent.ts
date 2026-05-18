@@ -90,7 +90,6 @@ export function analyzeBuiltinToolIntent(input: {
         ),
       };
     case 'write':
-    case 'patch':
       return { family: 'write' };
     case 'edit':
       return { family: 'edit' };

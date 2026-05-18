@@ -148,7 +148,6 @@ function normalizeToolOperation(name: string): ChangeOperation | null {
   if (normalized === 'bash') return 'bash';
   if (normalized === 'write') return 'write';
   if (normalized === 'edit') return 'edit';
-  if (normalized === 'patch') return 'edit';
   if (normalized === 'delete') return 'delete';
   return null;
 }

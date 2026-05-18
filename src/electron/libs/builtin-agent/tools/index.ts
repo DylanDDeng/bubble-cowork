@@ -5,7 +5,6 @@ export { createGlobTool } from './glob';
 export { createGrepTool } from './grep';
 export { createLspTool } from './lsp';
 export { createMemoryReadSummaryTool, createMemorySearchTool } from './memory';
-export { createPatchTool } from './patch';
 export { createQuestionTool } from './question';
 export { createReadTool } from './read';
 export { createSkillReadResourceTool, createSkillReadTool, createSkillTool } from './skill';
@@ -35,7 +34,6 @@ import { createGlobTool } from './glob';
 import { createGrepTool } from './grep';
 import { createLspTool } from './lsp';
 import { createMemoryReadSummaryTool, createMemorySearchTool } from './memory';
-import { createPatchTool } from './patch';
 import { createQuestionTool } from './question';
 import { createReadTool } from './read';
 import { createSkillReadResourceTool, createSkillReadTool, createSkillTool } from './skill';
@@ -45,6 +43,7 @@ import { createToolSearchTool } from './tool-search';
 import { createWebFetchTool } from './web-fetch';
 import { createWebSearchTool } from './web-search';
 import { createWriteTool } from './write';
+import { FileStateTracker } from './file-state';
 
 export interface CreateAllBuiltinToolsOptions {
   children: Set<ChildProcess>;
@@ -63,13 +62,13 @@ export function createAllTools(cwd: string, options: CreateAllBuiltinToolsOption
   skillTool.deferred = true;
   const skillReadTool = createSkillReadTool(options.skillAdapter);
   const skillReadResourceTool = createSkillReadResourceTool(options.skillAdapter);
+  const fileState = new FileStateTracker(cwd);
 
   return [
-    createReadTool(cwd),
+    createReadTool(cwd, fileState),
     createBashTool(cwd, options.approvalController, options.children),
-    createWriteTool(cwd, options.approvalController),
-    createEditTool(cwd, options.approvalController),
-    createPatchTool(cwd, options.approvalController),
+    createWriteTool(cwd, options.approvalController, fileState),
+    createEditTool(cwd, options.approvalController, fileState),
     createGlobTool(cwd),
     createGrepTool(cwd),
     createLspTool(cwd, options.lspAdapter),

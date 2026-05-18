@@ -57,6 +57,7 @@ interface MessageCardProps {
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
   assistantPresentation?: 'answer' | 'progress';
+  hideAssistantCopyBar?: boolean;
   userPromptActions?: {
     canEditAndRetry: boolean;
     isSessionRunning: boolean;
@@ -70,6 +71,7 @@ export function MessageCard({
   toolStatusMap,
   toolResultsMap,
   assistantPresentation = 'answer',
+  hideAssistantCopyBar = false,
   userPromptActions,
 }: MessageCardProps) {
   switch (message.type) {
@@ -100,6 +102,7 @@ export function MessageCard({
           toolStatusMap={toolStatusMap}
           toolResultsMap={toolResultsMap}
           presentation={assistantPresentation}
+          hideCopyBar={hideAssistantCopyBar}
         />
       );
 
@@ -508,6 +511,65 @@ function GenericSlashChip({ name, compact = false }: { name: string; compact?: b
 
 type AssistantMessage = StreamMessage & { type: 'assistant' };
 
+export function getAssistantMarkdownToCopy(message: StreamMessage): string {
+  if (message.type !== 'assistant') {
+    return '';
+  }
+
+  return getContentBlocks(message.message.content as unknown)
+    .filter(
+      (block): block is ContentBlock & { type: 'text' } =>
+        block.type === 'text' && Boolean(block.text?.trim())
+    )
+    .map((block) => block.text)
+    .join('\n\n');
+}
+
+export function AssistantCopyAction({
+  text,
+  className,
+  inline = false,
+}: {
+  text: string;
+  className?: string;
+  inline?: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignore
+    }
+  };
+
+  if (!text.trim()) {
+    return null;
+  }
+
+  return (
+    <div
+      className={cn(
+        inline ? 'flex items-center justify-start' : 'mt-1 flex items-center justify-start',
+        'opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto',
+        className
+      )}
+    >
+      <IconButton
+        onClick={handleCopy}
+        title={copied ? 'Copied' : 'Copy as markdown'}
+        ariaLabel="Copy as markdown"
+      >
+        {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+      </IconButton>
+    </div>
+  );
+}
+
 // Assistant 消息卡片：trace 内容（thinking + tool_use）走 workstream，
 // text 块走 markdown 渲染。
 function AssistantCard({
@@ -515,17 +577,18 @@ function AssistantCard({
   toolStatusMap,
   toolResultsMap,
   presentation,
+  hideCopyBar,
 }: {
   message: AssistantMessage;
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
   presentation: 'answer' | 'progress';
+  hideCopyBar?: boolean;
 }) {
   const isStreaming = message.streaming === true;
   const isProgress = presentation === 'progress';
   const { agentProfiles } = useAppStore();
   const agentProfile = message.agentId ? agentProfiles[message.agentId] || null : null;
-  const [copied, setCopied] = useState(false);
   const blocks = useMemo(
     () => getContentBlocks(message.message.content as unknown),
     [message.message.content]
@@ -568,18 +631,7 @@ function AssistantCard({
     [textBlocks]
   );
 
-  const handleCopyAnswer = async () => {
-    if (!markdownToCopy) return;
-    try {
-      await navigator.clipboard.writeText(markdownToCopy);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // ignore
-    }
-  };
-
-  const showCopyBar = !isProgress && !isStreaming && markdownToCopy.length > 0;
+  const showCopyBar = !hideCopyBar && !isProgress && !isStreaming && markdownToCopy.length > 0;
 
   return (
     <div
@@ -621,17 +673,7 @@ function AssistantCard({
       {!isProgress && memoryCitationBlocks.map((block, idx) => (
         <MemoryCitationsBlock key={`memory-citations-${idx}`} block={block} />
       ))}
-      {showCopyBar && (
-        <div className="mt-1 flex items-center justify-start opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto">
-          <IconButton
-            onClick={handleCopyAnswer}
-            title={copied ? 'Copied' : 'Copy as markdown'}
-            ariaLabel="Copy as markdown"
-          >
-            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-          </IconButton>
-        </div>
-      )}
+      {showCopyBar ? <AssistantCopyAction text={markdownToCopy} /> : null}
     </div>
   );
 }

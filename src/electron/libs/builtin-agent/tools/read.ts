@@ -2,6 +2,7 @@ import { constants } from 'fs';
 import { access, readFile, stat } from 'fs/promises';
 import type { BuiltinToolRegistryEntry } from '../types';
 import { asNumber, isSensitivePath, resolveInsideCwd } from './common';
+import type { FileStateTracker } from './file-state';
 
 const MAX_LINES = 250;
 const MAX_BYTES = 100 * 1024;
@@ -14,7 +15,7 @@ interface ReadHistoryEntry {
   truncated: boolean;
 }
 
-export function createReadTool(cwd: string): BuiltinToolRegistryEntry {
+export function createReadTool(cwd: string, fileState?: FileStateTracker): BuiltinToolRegistryEntry {
   const readHistory = new Map<string, ReadHistoryEntry>();
 
   return {
@@ -96,6 +97,10 @@ export function createReadTool(cwd: string): BuiltinToolRegistryEntry {
       }
       if (truncated) {
         output += `\n[Output truncated: exceeded ${MAX_LINES} lines or ${MAX_BYTES / 1024}KB limit]`;
+      }
+      const explicitLimit = typeof args.limit === 'number' && Number.isFinite(args.limit);
+      if (!truncated && requestedOffset === 1 && !explicitLimit) {
+        await fileState?.observe(file.path, 'read', content).catch(() => undefined);
       }
       readHistory.set(historyKey, {
         mtimeMs: stableStat?.mtimeMs ?? 0,
