@@ -93,6 +93,7 @@ export function Sidebar() {
     agentProfiles,
     sessions,
     activeWorkspace,
+    chatLayoutMode,
     setChatLayoutMode,
     setSidebarCollapsed,
     setSidebarWidth,
@@ -446,7 +447,9 @@ export function Sidebar() {
                     <FolderTreeView
                       onSessionClick={(sessionId, options) => {
                         setShowSettings(false);
-                        setChatLayoutMode(options?.preserveSplit ? 'split' : 'single');
+                        setChatLayoutMode(
+                          options?.preserveSplit || chatLayoutMode === 'split' ? 'split' : 'single'
+                        );
                         setActiveSession(sessionId);
                         setShowNewSession(false);
                         setActiveWorkspace('chat');

@@ -16,7 +16,7 @@ export function WorkspaceHost({
     chatSplitRatio,
     setActivePane,
     closeSplitChat,
-    setChatPaneSession,
+    openSplitChat,
     setChatSplitRatio,
     swapChatPanes,
   } = useAppStore();
@@ -29,55 +29,7 @@ export function WorkspaceHost({
   const secondaryBasis = useMemo(() => `${(1 - chatSplitRatio) * 100}%`, [chatSplitRatio]);
 
   const applyDroppedSession = (paneId: 'primary' | 'secondary', sessionId: string) => {
-    const currentPrimary =
-      chatLayoutMode === 'single'
-        ? activeSessionId
-        : chatPanes.primary.sessionId;
-
-    if (chatLayoutMode === 'single') {
-      useAppStore.setState({
-        chatLayoutMode: 'split',
-        savedSplitVisible: true,
-        activePaneId: paneId,
-        activeSessionId: sessionId,
-        showNewSession: false,
-        chatPanes: {
-          primary: {
-            id: 'primary',
-            sessionId: paneId === 'primary' ? sessionId : currentPrimary,
-            surface: 'chat',
-          },
-          secondary: {
-            id: 'secondary',
-            sessionId:
-              paneId === 'secondary'
-                ? sessionId
-                : currentPrimary && currentPrimary !== sessionId
-                  ? currentPrimary
-                  : null,
-            surface: 'chat',
-          },
-        },
-      });
-
-      const nextState = useAppStore.getState();
-      void window.electron.saveUiResumeState({
-        activeSessionId: nextState.activeSessionId,
-        showNewSession: nextState.showNewSession,
-        projectCwd: nextState.projectCwd,
-        projectTreeCollapsed: nextState.projectTreeCollapsed,
-        projectPanelView: nextState.projectPanelView,
-        terminalDrawerOpen: nextState.terminalDrawerOpen,
-        terminalDrawerHeight: nextState.terminalDrawerHeight,
-        chatLayoutMode: nextState.chatLayoutMode,
-        activePaneId: nextState.activePaneId,
-        chatPanes: nextState.chatPanes,
-        chatSplitRatio: nextState.chatSplitRatio,
-      });
-      return;
-    }
-
-    setChatPaneSession(paneId, sessionId);
+    openSplitChat(paneId, sessionId);
   };
 
   const startResize = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -142,6 +94,23 @@ export function WorkspaceHost({
       </>
     ) : null;
 
+  const primaryControls =
+    chatLayoutMode === 'single' && activeSessionId ? (
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          openSplitChat('secondary', null);
+        }}
+        className="inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+        aria-label="Open split view"
+        title="Open split view"
+      >
+        <Columns2 className="h-3.5 w-3.5" />
+        <span>Split</span>
+      </button>
+    ) : null;
+
   const renderPane = (paneId: 'primary' | 'secondary') => {
     const pane = chatPanes[paneId];
     const isActive = activePaneId === paneId;
@@ -191,6 +160,7 @@ export function WorkspaceHost({
           onActivate={() => setActivePane('primary')}
           codexModelConfig={codexModelConfig}
           dropHint={dragTarget === 'primary' ? 'Open on left' : null}
+          headerActions={primaryControls}
         />
         {dragTarget === 'secondary' ? (
           <div className="pointer-events-none absolute inset-y-0 right-0 z-10 flex w-1/2 items-center justify-center rounded-l-[var(--radius-2xl)] border-2 border-dashed border-[color-mix(in_srgb,var(--accent)_30%,transparent)] bg-[color-mix(in_srgb,var(--accent-light)_75%,transparent)] text-sm font-medium text-[var(--text-primary)]">

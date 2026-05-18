@@ -1493,22 +1493,103 @@ export const useAppStore = create<Store>()(
   },
 
   openSplitChat: (paneId, sessionId) => {
-    set((state) => ({
-      chatLayoutMode: 'split',
-      savedSplitVisible: true,
-      activePaneId: paneId,
-      activeSessionId: sessionId,
-      activeWorkspace: 'chat',
-      showNewSession: false,
-      chatPanes: {
-        ...state.chatPanes,
-        [paneId]: {
-          ...state.chatPanes[paneId],
-          sessionId,
-          surface: 'chat',
+    set((state) => {
+      const otherPaneId: ChatPaneId = paneId === 'primary' ? 'secondary' : 'primary';
+      const targetSession = sessionId ? state.sessions[sessionId] : null;
+
+      if (sessionId && state.chatLayoutMode === 'split') {
+        const existingPaneId = state.chatPanes.primary.sessionId === sessionId
+          ? 'primary'
+          : state.chatPanes.secondary.sessionId === sessionId
+            ? 'secondary'
+            : null;
+
+        if (existingPaneId) {
+          return {
+            activePaneId: existingPaneId,
+            activeSessionId: sessionId,
+            activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, targetSession),
+            activeWorkspace: 'chat',
+            showNewSession: false,
+          };
+        }
+      }
+
+      if (state.chatLayoutMode === 'single') {
+        const currentSessionId =
+          state.activeSessionId ??
+          state.chatPanes[state.activePaneId]?.sessionId ??
+          state.chatPanes.primary.sessionId ??
+          null;
+        const nextPrimarySessionId =
+          paneId === 'primary'
+            ? sessionId ?? currentSessionId
+            : currentSessionId;
+        const nextSecondarySessionId =
+          paneId === 'secondary'
+            ? sessionId
+            : currentSessionId && currentSessionId !== sessionId
+              ? currentSessionId
+              : null;
+        const dedupedSecondarySessionId =
+          nextSecondarySessionId && nextSecondarySessionId !== nextPrimarySessionId
+            ? nextSecondarySessionId
+            : null;
+        const nextActiveSessionId =
+          paneId === 'secondary' && sessionId && sessionId === nextPrimarySessionId
+            ? dedupedSecondarySessionId
+            : sessionId;
+
+        return {
+          chatLayoutMode: 'split',
+          savedSplitVisible: true,
+          activePaneId: paneId,
+          activeSessionId: nextActiveSessionId,
+          activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, targetSession),
+          activeWorkspace: 'chat',
+          showNewSession: nextActiveSessionId === null,
+          chatPanes: {
+            primary: {
+              id: 'primary',
+              sessionId: nextPrimarySessionId,
+              surface: 'chat',
+            },
+            secondary: {
+              id: 'secondary',
+              sessionId: dedupedSecondarySessionId,
+              surface: 'chat',
+            },
+          },
+        };
+      }
+
+      return {
+        chatLayoutMode: 'split',
+        savedSplitVisible: true,
+        activePaneId: paneId,
+        activeSessionId: sessionId,
+        activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, targetSession),
+        activeWorkspace: 'chat',
+        showNewSession: sessionId === null,
+        chatPanes: {
+          ...state.chatPanes,
+          [paneId]: {
+            ...state.chatPanes[paneId],
+            sessionId,
+            surface: 'chat',
+          },
+          ...(sessionId && state.chatPanes[otherPaneId].sessionId === sessionId
+            ? {
+                [otherPaneId]: {
+                  ...state.chatPanes[otherPaneId],
+                  sessionId: null,
+                  surface: 'chat' as const,
+                },
+              }
+            : {}),
         },
-      },
-    }));
+      };
+    });
     persistUiResumeStateSnapshot(get());
   },
 

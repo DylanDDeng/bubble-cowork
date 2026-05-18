@@ -102,6 +102,20 @@ function formatSidebarTime(timestamp: number): string {
   return `${Math.floor(months / 12)}y`;
 }
 
+function getIndentedRowStyle(depth: number, rightInset = 4) {
+  const indent = depth * 16;
+  return {
+    marginLeft: `${indent}px`,
+    width: `calc(100% - ${indent + rightInset}px)`,
+  };
+}
+
+function setSessionDragData(event: React.DragEvent<HTMLElement>, session: SessionView) {
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('application/x-aegis-session-id', session.id);
+  event.dataTransfer.setData('text/plain', session.title);
+}
+
 interface ProjectTreeViewProps {
   onSessionClick: (sessionId: string, options?: { preserveSplit?: boolean }) => void;
   onSelectProjectFolder: () => void;
@@ -128,6 +142,7 @@ export function FolderTreeView({
     setChatLayoutMode,
     chatPanes,
     setActivePane,
+    openSplitChat,
     workspaceChannelsByProject,
     createWorkspaceChannel,
     renameWorkspaceChannel,
@@ -150,6 +165,7 @@ export function FolderTreeView({
     channelName: string;
     projectKey: string;
     projectCwd: string | null;
+    sessionId: string | null;
     x: number;
     y: number;
   } | null>(null);
@@ -600,13 +616,14 @@ export function FolderTreeView({
                         }}
                         onContextMenu={(e) => {
                           e.preventDefault();
-                          if (channel.id === DEFAULT_WORKSPACE_CHANNEL_ID) return;
+                          if (channel.id === DEFAULT_WORKSPACE_CHANNEL_ID && !channel.session) return;
                           setContextMenuState({
                             channelKey: channel.key,
                             channelId: channel.id,
                             channelName: channel.name,
                             projectKey: group.key,
                             projectCwd: group.fullPath,
+                            sessionId: channel.session?.id || null,
                             x: e.clientX,
                             y: e.clientY,
                           });
@@ -688,18 +705,32 @@ export function FolderTreeView({
             }}
           />
           <div
-            className="popover-surface fixed z-50 min-w-[152px] p-1.5"
+            className="popover-surface fixed z-50 min-w-[144px] p-1.5"
             style={{ left: contextMenuState.x, top: contextMenuState.y }}
           >
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-[13px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
-              onClick={() =>
-                startRenameChannel(contextMenuState.channelKey, contextMenuState.channelName)
-              }
-            >
-              Rename channel
-            </button>
+            {contextMenuState.sessionId && (
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-[13px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                onClick={() => {
+                  openSplitChat('secondary', contextMenuState.sessionId);
+                  setContextMenuState(null);
+                }}
+              >
+                Open in split view
+              </button>
+            )}
+            {contextMenuState.channelId !== DEFAULT_WORKSPACE_CHANNEL_ID && (
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-[13px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+                onClick={() =>
+                  startRenameChannel(contextMenuState.channelKey, contextMenuState.channelName)
+                }
+              >
+                Rename channel
+              </button>
+            )}
           </div>
         </>,
         document.body
@@ -727,12 +758,12 @@ function ProjectAgentSummary({
     <button
       type="button"
       onClick={onToggleEditor}
-      className={`group/agents mt-1 flex h-8 w-[calc(100%-4px)] min-w-0 items-center gap-2 rounded-lg px-2 text-left transition-colors duration-150 ${
+      className={`group/agents mt-1 flex h-8 min-w-0 items-center gap-2 rounded-lg px-2 text-left transition-colors duration-150 ${
         editorOpen
           ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
           : 'text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
       }`}
-      style={{ marginLeft: `${depth * 16}px` }}
+      style={getIndentedRowStyle(depth)}
       title={title}
       aria-expanded={editorOpen}
       aria-label="Configure project agents"
@@ -772,8 +803,8 @@ function ProjectAgentRosterEditor({
 
   return (
     <div
-      className="mb-1 mt-1 w-[calc(100%-4px)] rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-1"
-      style={{ marginLeft: `${depth * 16}px` }}
+      className="mb-1 mt-1 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-1"
+      style={getIndentedRowStyle(depth)}
     >
       <div className="mb-1 flex h-7 items-center justify-between px-2">
         <span className="truncate text-[12px] font-normal text-[var(--text-secondary)]">
@@ -853,8 +884,8 @@ function ChannelItem({
   if (isRenaming) {
     return (
       <form
-        className="mb-1 flex h-7 w-[calc(100%-4px)] min-w-0 items-center gap-2 rounded-lg bg-[var(--sidebar-item-active)] px-2"
-        style={{ marginLeft: `${depth * 16}px` }}
+        className="mb-1 flex h-7 min-w-0 items-center gap-2 rounded-lg bg-[var(--sidebar-item-active)] px-2"
+        style={getIndentedRowStyle(depth)}
         onSubmit={(e) => {
           e.preventDefault();
           onRenameSubmit?.();
@@ -897,16 +928,28 @@ function ChannelItem({
   }
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onClick();
+        }
+      }}
       onContextMenu={onContextMenu}
-      className={`group/channel mb-1 flex h-7 w-[calc(100%-4px)] min-w-0 items-center gap-2 rounded-lg px-2 text-left no-drag transition-colors duration-150 ${
+      draggable={Boolean(channel.session)}
+      onDragStart={(event) => {
+        if (!channel.session) return;
+        setSessionDragData(event, channel.session);
+      }}
+      className={`group/channel mb-1 flex h-7 min-w-0 items-center gap-2 rounded-lg px-2 text-left no-drag transition-colors duration-150 ${
         isActive
           ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
           : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-      }`}
-      style={{ marginLeft: `${depth * 16}px` }}
+      } ${channel.session ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
+      style={getIndentedRowStyle(depth)}
       title={`# ${channel.name}`}
       aria-label={`Open # ${channel.name}`}
     >
@@ -936,7 +979,7 @@ function ChannelItem({
           }
         />
       )}
-    </button>
+    </div>
   );
 }
 
@@ -968,9 +1011,7 @@ function SessionItem({
       }}
       draggable
       onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('application/x-aegis-session-id', session.id);
-        event.dataTransfer.setData('text/plain', session.title);
+        setSessionDragData(event, session);
       }}
       onClick={onClick}
     >

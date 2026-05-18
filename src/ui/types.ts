@@ -313,7 +313,7 @@ export interface AppActions {
   setChatPaneSession: (paneId: ChatPaneId, sessionId: string | null) => void;
   setChatPaneSurface: (paneId: ChatPaneId, surface: WorkspaceSurface) => void;
   setChatSplitRatio: (ratio: number) => void;
-  openSplitChat: (paneId: ChatPaneId, sessionId: string) => void;
+  openSplitChat: (paneId: ChatPaneId, sessionId: string | null) => void;
   closeSplitChat: () => void;
   swapChatPanes: () => void;
   setShowNewSession: (show: boolean) => void;
