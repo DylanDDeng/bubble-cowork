@@ -345,6 +345,7 @@ function createWindow(): void {
     minHeight: 600,
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 15, y: 15 },
+    ...(process.platform === 'darwin' ? { roundedCorners: true } : {}),
     backgroundColor: getMainWindowBackgroundColor(),
     webPreferences: {
       preload: getPreloadPath(),
