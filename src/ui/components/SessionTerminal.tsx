@@ -15,10 +15,12 @@ type TerminalTab = {
 export function SessionTerminal({
   sessionId,
   cwd,
+  visible = true,
   onRequestClose,
 }: {
   sessionId: string | null;
   cwd: string | null;
+  visible?: boolean;
   onRequestClose?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -27,6 +29,8 @@ export function SessionTerminal({
   const ligaturesAddonRef = useRef<LigaturesAddon | null>(null);
   const webglAddonRef = useRef<WebglAddon | null>(null);
   const tabsRef = useRef<TerminalTab[]>([]);
+  const activeTabIdRef = useRef<string | null>(null);
+  const visibleRef = useRef(visible);
   const nextTabNumberRef = useRef(1);
   const [tabs, setTabs] = useState<TerminalTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -94,7 +98,16 @@ export function SessionTerminal({
       return;
     }
 
-    fitAddonRef.current.fit();
+    if (!visibleRef.current) {
+      return;
+    }
+
+    try {
+      fitAddonRef.current.fit();
+    } catch {
+      return;
+    }
+
     if (!terminalId) {
       return;
     }
@@ -117,9 +130,25 @@ export function SessionTerminal({
     };
   };
 
+  const createInitialTab = () => {
+    const initialTab = createTab(nextTabNumberRef.current);
+    nextTabNumberRef.current += 1;
+    tabsRef.current = [initialTab];
+    setTabs([initialTab]);
+    setActiveTabId(initialTab.id);
+  };
+
   useEffect(() => {
     tabsRef.current = tabs;
   }, [tabs]);
+
+  useEffect(() => {
+    activeTabIdRef.current = activeTabId;
+  }, [activeTabId]);
+
+  useEffect(() => {
+    visibleRef.current = visible;
+  }, [visible]);
 
   useEffect(() => {
     if (!containerRef.current || terminalRef.current) {
@@ -140,7 +169,9 @@ export function SessionTerminal({
     terminal.loadAddon(fitAddon);
     terminal.open(containerRef.current);
     fitAddon.fit();
-    terminal.focus();
+    if (visibleRef.current) {
+      terminal.focus();
+    }
 
     // Match dpcode's runtime stack, but only after the viewport is mounted and measured.
     const enhancementFrame = window.requestAnimationFrame(() => {
@@ -175,7 +206,7 @@ export function SessionTerminal({
     fitAddonRef.current = fitAddon;
 
     const resize = () => {
-      syncTerminalSize(activeTabId);
+      syncTerminalSize(activeTabIdRef.current);
     };
     window.addEventListener('resize', resize);
 
@@ -191,7 +222,7 @@ export function SessionTerminal({
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [activeTabId]);
+  }, []);
 
   useEffect(() => {
     if (!terminalRef.current) {
@@ -216,7 +247,7 @@ export function SessionTerminal({
 
       resizeFrame = window.requestAnimationFrame(() => {
         resizeFrame = null;
-        syncTerminalSize(activeTabId);
+        syncTerminalSize(activeTabIdRef.current);
       });
     });
 
@@ -228,7 +259,22 @@ export function SessionTerminal({
         window.cancelAnimationFrame(resizeFrame);
       }
     };
-  }, [activeTabId]);
+  }, []);
+
+  useEffect(() => {
+    if (!visible) {
+      return;
+    }
+
+    const resizeFrame = window.requestAnimationFrame(() => {
+      syncTerminalSize(activeTabId);
+      terminalRef.current?.focus();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(resizeFrame);
+    };
+  }, [activeTabId, visible]);
 
   useEffect(() => {
     stopTerminalTabs(tabsRef.current);
@@ -243,12 +289,16 @@ export function SessionTerminal({
       return;
     }
 
-    const initialTab = createTab(nextTabNumberRef.current);
-    nextTabNumberRef.current += 1;
-    tabsRef.current = [initialTab];
-    setTabs([initialTab]);
-    setActiveTabId(initialTab.id);
+    createInitialTab();
   }, [canStart, normalizedCwd, normalizedSessionId]);
+
+  useEffect(() => {
+    if (!visible || !canStart || tabsRef.current.length > 0) {
+      return;
+    }
+
+    createInitialTab();
+  }, [canStart, visible]);
 
   useEffect(() => {
     if (!terminalRef.current || !activeTabId || !normalizedCwd || !canStart) {
@@ -286,7 +336,9 @@ export function SessionTerminal({
         terminalRef.current.write(result.history);
       }
       syncTerminalSize(activeTabId);
-      terminalRef.current.focus();
+      if (visibleRef.current) {
+        terminalRef.current.focus();
+      }
     }).catch((error) => {
       if (cancelled || !terminalRef.current) {
         return;

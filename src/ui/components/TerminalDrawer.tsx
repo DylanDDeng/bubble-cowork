@@ -29,10 +29,17 @@ export function TerminalDrawer({
   const startHeightRef = useRef(height);
   const resizingRef = useRef(false);
   const [isResizing, setIsResizing] = useState(false);
+  const [terminalMounted, setTerminalMounted] = useState(open);
 
   useEffect(() => {
     latestHeightRef.current = height;
   }, [height]);
+
+  useEffect(() => {
+    if (open) {
+      setTerminalMounted(true);
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!isResizing || fullscreen) {
@@ -131,8 +138,8 @@ export function TerminalDrawer({
                 type="button"
                 onClick={onClose}
                 className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                aria-label="Close terminal"
-                title="Close terminal"
+                aria-label="Hide terminal"
+                title="Hide terminal"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -140,10 +147,11 @@ export function TerminalDrawer({
           </div>
 
           <div className="min-h-0 flex-1">
-            {open ? (
+            {terminalMounted ? (
               <SessionTerminal
                 sessionId={sessionId}
                 cwd={cwd}
+                visible={open}
                 onRequestClose={onClose}
               />
             ) : null}
