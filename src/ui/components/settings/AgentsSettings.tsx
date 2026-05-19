@@ -9,6 +9,7 @@ import {
   Plus,
   Trash2,
   User,
+  Users,
 } from '../icons';
 import { toast } from 'sonner';
 import { AgentModelPicker } from '../AgentModelPicker';
@@ -22,6 +23,8 @@ import type {
   AgentAvatarAssetKey,
   ClaudeCompatibleProviderId,
   AgentReasoningEffort,
+  TeamProfile,
+  TeamMemberProfile,
 } from '../../types';
 import { useClaudeModelConfig } from '../../hooks/useClaudeModelConfig';
 import { useCodexModelConfig } from '../../hooks/useCodexModelConfig';
@@ -117,6 +120,10 @@ function displayPermissionPolicy(policy: AgentPermissionPolicy): string {
   return 'Ask';
 }
 
+function displayTeamName(team: TeamProfile): string {
+  return team.name.trim() || 'Untitled team';
+}
+
 function getAegisProviderApiKey(config: AegisBuiltInAgentConfig, providerId: string): string {
   return config.providerApiKeys?.[providerId] || (config.providerId === providerId ? config.apiKey : '');
 }
@@ -165,17 +172,34 @@ function readAegisApiKeyDraft(
 export function AgentsSettingsContent() {
   const {
     agentProfiles,
+    teamProfiles,
+    workspaceChannelsByProject,
+    projectCwd,
     createAgentProfile,
     updateAgentProfile,
     deleteAgentProfile,
+    createTeamProfile,
+    updateTeamProfile,
+    deleteTeamProfile,
+    setWorkspaceChannelDefaultTeam,
     setAgentSetupOpen,
   } = useAppStore();
   const profiles = useMemo(
     () => Object.values(agentProfiles).sort((left, right) => left.createdAt - right.createdAt),
     [agentProfiles]
   );
+  const teams = useMemo(
+    () => Object.values(teamProfiles).sort((left, right) => left.createdAt - right.createdAt),
+    [teamProfiles]
+  );
+  const currentProjectChannels = useMemo(
+    () => projectCwd ? workspaceChannelsByProject[projectCwd] || [] : [],
+    [projectCwd, workspaceChannelsByProject]
+  );
   const [selectedProfileId, setSelectedProfileId] = useState('');
+  const [selectedTeamId, setSelectedTeamId] = useState('');
   const selectedProfile = selectedProfileId ? agentProfiles[selectedProfileId] || null : null;
+  const selectedTeam = selectedTeamId ? teamProfiles[selectedTeamId] || null : null;
 
   useEffect(() => {
     if (profiles.length === 0) {
@@ -202,6 +226,21 @@ export function AgentsSettingsContent() {
     const nextProfile = profiles.find((candidate) => candidate.id !== profileId);
     deleteAgentProfile(profileId);
     setSelectedProfileId(nextProfile?.id || '');
+  };
+
+  const handleCreateTeam = () => {
+    const teamId = createTeamProfile();
+    setSelectedTeamId(teamId);
+  };
+
+  const handleDeleteTeam = (teamId: string) => {
+    const team = teamProfiles[teamId];
+    if (!team) return;
+    const confirmed = window.confirm(`Delete team "${displayTeamName(team)}"?`);
+    if (!confirmed) return;
+    const nextTeam = teams.find((candidate) => candidate.id !== teamId);
+    deleteTeamProfile(teamId);
+    setSelectedTeamId(nextTeam?.id || '');
   };
 
   return (
@@ -304,6 +343,96 @@ export function AgentsSettingsContent() {
           </>
         )}
       </SettingsGroup>
+
+      <SettingsGroup
+        title="Channel Teams"
+        description="Teams are channel/session collaboration presets. The leader stays as the main chat surface; members run only when delegated."
+      >
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3">
+          <div className="min-w-0">
+            <div className="text-[13px] font-medium text-[var(--text-primary)]">Teams</div>
+            <div className="mt-0.5 flex items-center gap-2 text-[12px] leading-5 text-[var(--text-muted)]">
+              <span>Reusable leader/member groups for project channels.</span>
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--bg-secondary)] px-1.5 text-[11px] font-medium text-[var(--text-secondary)]">
+                {teams.length}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleCreateTeam}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12.5px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New
+          </button>
+        </div>
+
+        {teams.length === 0 ? (
+          <button
+            type="button"
+            onClick={handleCreateTeam}
+            className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-md border border-dashed border-[var(--border)] text-[var(--text-muted)]">
+              <Users className="h-3.5 w-3.5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium text-[var(--text-primary)]">New channel team</span>
+              <span className="mt-0.5 block text-[12px] leading-5 text-[var(--text-muted)]">
+                Pick a leader, add members, then bind it to a channel or session.
+              </span>
+            </span>
+            <span className="inline-flex h-8 items-center rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12.5px] font-medium text-[var(--text-primary)]">
+              Create
+            </span>
+          </button>
+        ) : (
+          teams.map((team) => (
+            <TeamProfileRow
+              key={team.id}
+              team={team}
+              profiles={profiles}
+              expanded={selectedTeam?.id === team.id}
+              onToggleExpand={() => setSelectedTeamId((current) => current === team.id ? '' : team.id)}
+              onUpdate={(patch) => updateTeamProfile(team.id, patch)}
+              onDelete={() => handleDeleteTeam(team.id)}
+            />
+          ))
+        )}
+
+        {projectCwd && currentProjectChannels.length > 0 ? (
+          <div className="bg-[var(--bg-secondary)] px-4 py-3">
+            <div className="mb-2 text-[12px] font-medium text-[var(--text-secondary)]">
+              Channel defaults for current project
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {currentProjectChannels.map((channel) => (
+                <label
+                  key={channel.id}
+                  className="grid grid-cols-[minmax(0,1fr)_minmax(120px,180px)] items-center gap-2"
+                >
+                  <span className="truncate text-[12px] text-[var(--text-secondary)]">#{channel.name || channel.id}</span>
+                  <select
+                    value={channel.defaultTeamId || ''}
+                    onChange={(event) =>
+                      setWorkspaceChannelDefaultTeam(projectCwd, channel.id, event.target.value || null)
+                    }
+                    className={FIELD_CONTROL_CLASS}
+                  >
+                    <option value="">No default</option>
+                    {teams.map((team) => (
+                      <option key={team.id} value={team.id}>
+                        {displayTeamName(team)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </SettingsGroup>
     </div>
   );
 }
@@ -380,6 +509,68 @@ function AgentProfileRow({
         <div className="border-t border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-3">
           <AgentProfileForm
             profile={profile}
+            onUpdate={onUpdate}
+            onDelete={onDelete}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TeamProfileRow({
+  team,
+  profiles,
+  expanded,
+  onToggleExpand,
+  onUpdate,
+  onDelete,
+}: {
+  team: TeamProfile;
+  profiles: AgentProfile[];
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onUpdate: (patch: Partial<Omit<TeamProfile, 'id' | 'createdAt'>>) => void;
+  onDelete: () => void;
+}) {
+  const leader = team.leaderAgentId ? profiles.find((profile) => profile.id === team.leaderAgentId) : null;
+  const enabledMembers = team.members.filter((member) => member.enabled);
+
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={onToggleExpand}
+        className="grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--bg-secondary)]/60"
+      >
+        <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--bg-secondary)] text-[var(--text-muted)]">
+          <Users className="h-3.5 w-3.5" />
+        </span>
+        <span className="min-w-0">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-[13px] font-semibold text-[var(--text-primary)]">
+              {displayTeamName(team)}
+            </span>
+            <span className="truncate text-[12px] text-[var(--text-muted)]">
+              Leader: {leader?.name.trim() || 'Not set'}
+            </span>
+          </span>
+          <span className="mt-0.5 block truncate text-[12px] text-[var(--text-muted)]">
+            {enabledMembers.length} member{enabledMembers.length === 1 ? '' : 's'}
+          </span>
+        </span>
+        <ChevronDown
+          className={`h-4 w-4 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`}
+          aria-hidden="true"
+        />
+      </button>
+
+      {expanded ? (
+        <div className="border-t border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-3">
+          <TeamProfileForm
+            team={team}
+            profiles={profiles}
             onUpdate={onUpdate}
             onDelete={onDelete}
           />
@@ -878,6 +1069,169 @@ function AgentProfileForm({
         >
           <Trash2 className="h-3.5 w-3.5" />
           Delete profile
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TeamProfileForm({
+  team,
+  profiles,
+  onUpdate,
+  onDelete,
+}: {
+  team: TeamProfile;
+  profiles: AgentProfile[];
+  onUpdate: (patch: Partial<Omit<TeamProfile, 'id' | 'createdAt'>>) => void;
+  onDelete: () => void;
+}) {
+  const enabledProfiles = profiles.filter((profile) => profile.enabled);
+  const memberMap = new Map(team.members.map((member) => [member.agentId, member]));
+
+  const setMemberEnabled = (profileId: string, enabled: boolean) => {
+    const existing = memberMap.get(profileId);
+    const nextMembers = enabled
+      ? [
+          ...team.members.filter((member) => member.agentId !== profileId),
+          existing || {
+            agentId: profileId,
+            role: profiles.find((profile) => profile.id === profileId)?.role || undefined,
+            enabled: true,
+            order: team.members.length,
+          },
+        ]
+      : team.members.map((member) =>
+          member.agentId === profileId ? { ...member, enabled: false } : member
+        );
+    onUpdate({
+      members: nextMembers.map((member, index) => ({
+        ...member,
+        enabled: member.agentId === profileId ? enabled : member.enabled,
+        order: index,
+      })),
+      leaderAgentId:
+        enabled && !team.leaderAgentId
+          ? profileId
+          : !enabled && team.leaderAgentId === profileId
+            ? nextMembers.find((member) => member.agentId !== profileId && member.enabled)?.agentId || null
+            : team.leaderAgentId,
+    });
+  };
+
+  const updateMemberRole = (profileId: string, role: string) => {
+    onUpdate({
+      members: team.members.map((member) =>
+        member.agentId === profileId ? { ...member, role: role.trim() || undefined } : member
+      ),
+    });
+  };
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-primary)]">
+      <div className="grid min-h-[260px] lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+        <FormSection title="Team" icon={<Users className="h-3.5 w-3.5" />}>
+          <FormField label="Name">
+            <input
+              value={team.name}
+              onChange={(event) => onUpdate({ name: event.target.value })}
+              className={FIELD_CONTROL_CLASS}
+            />
+          </FormField>
+          <FormField label="Description">
+            <textarea
+              value={team.description || ''}
+              onChange={(event) => onUpdate({ description: event.target.value })}
+              rows={3}
+              className={TEXTAREA_CONTROL_CLASS}
+            />
+          </FormField>
+          <FormField label="Leader">
+            <select
+              value={team.leaderAgentId || ''}
+              onChange={(event) => onUpdate({ leaderAgentId: event.target.value || null })}
+              className={FIELD_CONTROL_CLASS}
+            >
+              <option value="">No leader</option>
+              {team.members.filter((member) => member.enabled).map((member) => {
+                const profile = profiles.find((candidate) => candidate.id === member.agentId);
+                if (!profile) return null;
+                return (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.name.trim() || profile.id}
+                  </option>
+                );
+              })}
+            </select>
+          </FormField>
+          <FormField label="Instructions">
+            <textarea
+              value={team.instructions || ''}
+              onChange={(event) => onUpdate({ instructions: event.target.value })}
+              rows={5}
+              className={TEXTAREA_CONTROL_CLASS}
+            />
+          </FormField>
+        </FormSection>
+
+        <FormSection
+          title="Members"
+          icon={<User className="h-3.5 w-3.5" />}
+          className="border-t border-[var(--border)] lg:border-l lg:border-t-0"
+        >
+          <div className="space-y-2">
+            {enabledProfiles.length === 0 ? (
+              <div className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-[12px] text-[var(--text-muted)]">
+                No enabled agent profiles.
+              </div>
+            ) : (
+              enabledProfiles.map((profile) => {
+                const member = memberMap.get(profile.id);
+                const selected = member?.enabled === true;
+                return (
+                  <div
+                    key={profile.id}
+                    className="grid grid-cols-[auto_minmax(0,1fr)_minmax(110px,160px)] items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-2 py-2"
+                  >
+                    <SettingsToggle
+                      checked={selected}
+                      onChange={(checked) => setMemberEnabled(profile.id, checked)}
+                      ariaLabel={`${selected ? 'Remove' : 'Add'} ${profile.name}`}
+                    />
+                    <div className="flex min-w-0 items-center gap-2">
+                      <AgentAvatar profile={profile} size="sm" decorative />
+                      <div className="min-w-0">
+                        <div className="truncate text-[12.5px] font-medium text-[var(--text-primary)]">
+                          {profile.name.trim() || profile.id}
+                        </div>
+                        <div className="truncate text-[11px] text-[var(--text-muted)]">
+                          {displayProvider(profile)}
+                        </div>
+                      </div>
+                    </div>
+                    <input
+                      value={member?.role || profile.role || ''}
+                      onChange={(event) => updateMemberRole(profile.id, event.target.value)}
+                      disabled={!selected}
+                      className={FIELD_CONTROL_CLASS}
+                      placeholder="Role"
+                    />
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </FormSection>
+      </div>
+
+      <div className="border-t border-[var(--border)] px-4 py-3">
+        <button
+          type="button"
+          onClick={onDelete}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[12.5px] font-medium text-red-600 transition-colors hover:bg-red-500/10 dark:text-red-400"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Delete team
         </button>
       </div>
     </div>

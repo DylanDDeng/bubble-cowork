@@ -48,6 +48,7 @@ function createDefaultChannel(projectCwd?: string | null): WorkspaceChannel {
     id: DEFAULT_WORKSPACE_CHANNEL_ID,
     projectCwd: projectCwd?.trim() || '',
     name: 'all',
+    defaultTeamId: null,
     createdAt: now,
     updatedAt: now,
   };

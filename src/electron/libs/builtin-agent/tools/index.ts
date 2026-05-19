@@ -1,4 +1,5 @@
 export { createBashTool } from './bash';
+export { createDelegateTool } from './delegate';
 export { createEditTool } from './edit';
 export { createExitPlanModeTool } from './exit-plan-mode';
 export { createGlobTool } from './glob';
@@ -28,6 +29,7 @@ import type {
   BuiltinToolSearchController,
 } from '../types';
 import { createBashTool } from './bash';
+import { createDelegateTool } from './delegate';
 import { createEditTool } from './edit';
 import { createExitPlanModeTool } from './exit-plan-mode';
 import { createGlobTool } from './glob';
@@ -55,6 +57,7 @@ export interface CreateAllBuiltinToolsOptions {
   toolSearchController: BuiltinToolSearchController;
   lspAdapter?: BuiltinLspAdapter;
   skillAdapter?: BuiltinSkillAdapter;
+  delegateEnabled?: boolean;
 }
 
 export function createAllTools(cwd: string, options: CreateAllBuiltinToolsOptions): BuiltinToolRegistryEntry[] {
@@ -76,6 +79,7 @@ export function createAllTools(cwd: string, options: CreateAllBuiltinToolsOption
     createWebFetchTool(),
     createMemorySearchTool(options.memoryAdapter),
     createMemoryReadSummaryTool(options.memoryAdapter),
+    ...(options.delegateEnabled ? [createDelegateTool()] : []),
     createTaskTool(),
     createQuestionTool(options.questionController),
     createTodoTool(options.todoStore),

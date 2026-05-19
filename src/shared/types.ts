@@ -319,6 +319,7 @@ export interface WorkspaceChannel {
   projectCwd: string;
   name: string;
   description?: string;
+  defaultTeamId?: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -519,7 +520,9 @@ export type ClientEvent =
   | { type: 'folder.delete'; payload: { path: string } }
   | { type: 'folder.move'; payload: { oldPath: string; newPath: string } }
   | { type: 'session.setFolder'; payload: { sessionId: string; folderPath: string | null } }
-  | { type: 'session.setChannel'; payload: { sessionId: string; channelId: string } };
+  | { type: 'session.setChannel'; payload: { sessionId: string; channelId: string } }
+  | { type: 'session.setTeam'; payload: { sessionId: string; teamMode: SessionTeamMode; teamId?: string | null } }
+  | { type: 'profiles.sync'; payload: ProfileSnapshotPayload };
 
 export interface AppUpdateStatus {
   available: boolean;
@@ -561,7 +564,9 @@ export type ServerEvent =
   | { type: 'folder.list'; payload: { folders: FolderConfig[] } }
   | { type: 'folder.changed'; payload: { folders: FolderConfig[] } }
   | { type: 'session.folderChanged'; payload: { sessionId: string; folderPath: string | null } }
-  | { type: 'session.channelChanged'; payload: { sessionId: string; channelId: string } };
+  | { type: 'session.channelChanged'; payload: { sessionId: string; channelId: string } }
+  | { type: 'session.teamChanged'; payload: { sessionId: string; teamMode: SessionTeamMode; teamId: string | null } }
+  | { type: 'profiles.list'; payload: ProfileSnapshotPayload };
 
 // Payload 类型
 export interface SessionStartPayload {
@@ -601,6 +606,10 @@ export interface SessionStartPayload {
   routedAgentProfile?: RoutedAgentRuntimePayload | null;
   routedAgentTurns?: RoutedAgentTurnPayload[];
   availableAgentTurns?: RoutedAgentRuntimePayload[];
+  teamMode?: SessionTeamMode;
+  teamId?: string | null;
+  teamProfile?: TeamProfile | null;
+  teamAgentTurns?: RoutedAgentRuntimePayload[];
   hiddenFromThreads?: boolean;
   channelId?: string;
 }
@@ -632,6 +641,10 @@ export interface SessionContinuePayload {
   routedAgentProfile?: RoutedAgentRuntimePayload | null;
   routedAgentTurns?: RoutedAgentTurnPayload[];
   availableAgentTurns?: RoutedAgentRuntimePayload[];
+  teamMode?: SessionTeamMode;
+  teamId?: string | null;
+  teamProfile?: TeamProfile | null;
+  teamAgentTurns?: RoutedAgentRuntimePayload[];
 }
 
 export type SessionScope = 'project' | 'dm';
@@ -706,6 +719,72 @@ export interface RoutedAgentTurnPayload extends RoutedAgentRuntimePayload {
   delegationKind?: 'user' | 'delegated' | 'summary';
 }
 
+export type SessionTeamMode = 'channel_default' | 'solo' | 'team' | 'manual';
+
+export interface TeamMemberProfile {
+  agentId: string;
+  role?: string;
+  enabled: boolean;
+  order: number;
+}
+
+export interface TeamProfile {
+  id: string;
+  name: string;
+  description?: string;
+  leaderAgentId: string | null;
+  instructions?: string;
+  members: TeamMemberProfile[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type StoredAgentProfile = Record<string, unknown> & {
+  id: string;
+  createdAt?: number;
+  updatedAt?: number;
+};
+
+export interface ProfileSnapshotPayload {
+  agentProfiles: StoredAgentProfile[];
+  teamProfiles: TeamProfile[];
+}
+
+export interface DelegateCall {
+  id: string;
+  agentId: string;
+  task: string;
+  reason: string;
+  contextRefs?: string[];
+}
+
+export type DelegateErrorKind = 'timeout' | 'tool_denied' | 'api_error' | 'budget_exceeded';
+
+export interface DelegateArtifactRef {
+  type: 'diff' | 'file' | 'link' | 'log' | 'note';
+  id: string;
+  title: string;
+}
+
+export interface DelegateResult {
+  delegateCallId: string;
+  agentId: string;
+  status: 'ok' | 'blocked' | 'needs_user' | 'error';
+  summary: string;
+  errorKind?: DelegateErrorKind;
+  artifacts?: DelegateArtifactRef[];
+  rawRef: string;
+}
+
+export interface LeaderTurnPlan {
+  message?: string;
+  delegates?: DelegateCall[];
+  askUser?: { question: string };
+  noActionReason?: string;
+}
+
+export type DelegateActivityState = 'queued' | 'running' | 'completed' | 'error';
+
 export interface SessionInfo {
   id: string;
   title: string;
@@ -740,6 +819,8 @@ export interface SessionInfo {
   folderPath?: string | null;
   hiddenFromThreads?: boolean;
   channelId?: string;
+  teamMode?: SessionTeamMode;
+  teamId?: string | null;
   latestClaudeModelUsage?: LatestClaudeModelUsage;
   createdAt: number;
   updatedAt: number;
@@ -779,6 +860,8 @@ export interface SessionStatusPayload {
   aegisReasoningEffort?: AegisBuiltInReasoningEffort;
   hiddenFromThreads?: boolean;
   channelId?: string;
+  teamMode?: SessionTeamMode;
+  teamId?: string | null;
 }
 
 export interface SessionHistoryPayload {
@@ -859,6 +942,11 @@ export type StreamMessageBase = {
   createdAt?: number;
   agentId?: string | null;
   agentRunId?: string | null;
+  parentTurnId?: string | null;
+  delegateCallId?: string | null;
+  delegateRunId?: string | null;
+  delegateAgentId?: string | null;
+  delegateReason?: string | null;
 };
 
 export interface CompactMetadata {
@@ -933,6 +1021,15 @@ export type StreamMessage =
       uuid: string;
       planMarkdown: string;
       turnId?: string;
+    })
+  | (StreamMessageBase & {
+      type: 'delegate_activity';
+      uuid: string;
+      session_id: string;
+      call: DelegateCall;
+      state: DelegateActivityState;
+      result?: DelegateResult;
+      raw?: string;
     })
   | (StreamMessageBase & { type: 'stream_event'; event: StreamEvent })
   | (StreamMessageBase & { type: 'mcp_status'; servers: McpServerStatus[] });

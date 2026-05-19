@@ -96,6 +96,7 @@ export function App() {
     connected,
     sessions,
     agentProfiles,
+    teamProfiles,
     agentSetupOpen,
     agentSetupDismissedAt,
     agentSetupCompletedAt,
@@ -141,6 +142,7 @@ export function App() {
 
   // Track history requests (prevent duplicates)
   const historyRequested = useRef(new Set<string>());
+  const profileSyncSentRef = useRef(false);
   const sessionStatusSnapshotRef = useRef(new Map<string, SessionStatus>());
   const pendingAutoPreviewSessionsRef = useRef(new Set<string>());
   const autoPreviewedArtifactsRef = useRef(new Set<string>());
@@ -330,6 +332,24 @@ export function App() {
       sendEvent({ type: 'mcp.get-config' });
     }
   }, [connected]);
+
+  useEffect(() => {
+    if (!connected) {
+      profileSyncSentRef.current = false;
+      return;
+    }
+    if (profileSyncSentRef.current) {
+      return;
+    }
+    profileSyncSentRef.current = true;
+    sendEvent({
+      type: 'profiles.sync',
+      payload: {
+        agentProfiles: Object.values(agentProfiles),
+        teamProfiles: Object.values(teamProfiles),
+      },
+    });
+  }, [connected, agentProfiles, teamProfiles]);
 
   const loadGitOverview = useCallback(async () => {
     const cwd = (activeSession?.cwd || projectCwd || '').trim();

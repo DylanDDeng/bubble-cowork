@@ -7,12 +7,17 @@ import type {
   AegisPermissionMode,
   Attachment,
   ContentBlock,
+  DelegateActivityState,
+  DelegateCall,
+  DelegateErrorKind,
+  DelegateResult,
   MemoryCitation,
   PermissionResult,
   ProviderInputReference,
   RoutedAgentRuntimePayload,
   StreamEvent,
   StreamMessage,
+  TeamProfile,
   Usage,
 } from '../../../shared/types';
 import {
@@ -112,6 +117,12 @@ interface MemoryConsolidationOutput {
   summary?: string;
 }
 
+interface DelegateWorkerOutput {
+  status?: DelegateResult['status'];
+  summary?: string;
+  artifacts?: DelegateResult['artifacts'];
+}
+
 interface BuiltinModelSelection {
   providerId: string;
   modelId: string;
@@ -128,6 +139,8 @@ const MAX_MEMORY_SECTION_CHARS = 8_000;
 const AUTO_MEMORY_TRANSCRIPT_CHARS = 18_000;
 const AUTO_MEMORY_SUMMARY_CHARS = 5_000;
 const AUTO_MEMORY_TIMEOUT_MS = 45_000;
+const DELEGATE_SUMMARY_MAX_CHARS = 900;
+const DELEGATE_RAW_MAX_CHARS = 18_000;
 const AUTO_MEMORY_CONSOLIDATION_CANDIDATES = 24;
 const MEMORY_SEARCH_LIMIT = 16;
 const MOONSHOT_PROVIDER_IDS = new Set(['moonshot-cn', 'moonshot-intl', 'kimi-for-coding']);
@@ -327,12 +340,52 @@ function renderAgentIdentity(profile?: RoutedAgentRuntimePayload | null): string
   ].filter(Boolean).join('\n');
 }
 
+function renderTeamPrompt(
+  team?: TeamProfile | null,
+  teamAgents?: RoutedAgentRuntimePayload[]
+): string {
+  if (!team || !teamAgents || teamAgents.length === 0) {
+    return '';
+  }
+  const agentById = new Map(teamAgents.map((agent) => [agent.routedAgentId, agent]));
+  const members = team.members
+    .filter((member) => member.enabled)
+    .map((member) => {
+      const runtime = agentById.get(member.agentId);
+      const name = runtime?.agent?.name || member.agentId;
+      const role = member.role || runtime?.agent?.role || 'Team member';
+      const description = runtime?.agent?.description ? ` - ${runtime.agent.description}` : '';
+      return `- ${member.agentId}: ${name} (${role})${description}`;
+    });
+  if (members.length === 0) {
+    return '';
+  }
+  return [
+    '## Channel Team',
+    `Team: ${team.name}`,
+    team.description ? `Description: ${team.description}` : '',
+    team.instructions ? `Team instructions:\n${team.instructions}` : '',
+    'Delegation rules:',
+    '- You are the leader and the only conversational surface by default.',
+    '- Members are silent unless you call delegate or the user explicitly mentions an agent.',
+    '- Use delegate only for bounded parallel work that materially helps this turn.',
+    '- Same agent should not receive duplicate pending work for the same issue.',
+    '- Every delegate call must include agentId, task, and a one-line reason visible to the user.',
+    '- After delegate results return, summarize the outcome yourself and decide the next step.',
+    '',
+    'Available team members:',
+    ...members,
+  ].filter(Boolean).join('\n');
+}
+
 function buildSystemPrompt(input: {
   cwd: string;
   model: string;
   permissionMode: AegisPermissionMode;
   toolNames: string[];
   agentProfile?: RoutedAgentRuntimePayload | null;
+  teamProfile?: TeamProfile | null;
+  teamAgents?: RoutedAgentRuntimePayload[];
   memoryPrompt?: string;
   skillsPrompt?: string;
   todos?: BuiltinTodoItem[];
@@ -352,6 +405,7 @@ function buildSystemPrompt(input: {
     'When permission mode is readOnly, destructive tools are unavailable. Investigate, then call exit_plan_mode with a concrete plan for approval.',
     'Built-in memory is read-only from this conversation. A background memory worker may update this built-in agent profile after turns complete.',
     'Do not touch Claude Code, Codex, or OpenCode native memory/config.',
+    renderTeamPrompt(input.teamProfile, input.teamAgents),
     '',
     `Current date: ${today}`,
     `Working directory: ${input.cwd}`,
@@ -804,6 +858,102 @@ function parseMemoryConsolidationOutput(raw: string): MemoryConsolidationOutput 
   };
 }
 
+function parseDelegateWorkerOutput(raw: string): DelegateWorkerOutput {
+  const parsed = extractJsonObject(raw);
+  if (!parsed || typeof parsed !== 'object') {
+    return {};
+  }
+  const record = parsed as Record<string, unknown>;
+  const status = record.status === 'ok' ||
+    record.status === 'blocked' ||
+    record.status === 'needs_user' ||
+    record.status === 'error'
+    ? record.status
+    : undefined;
+  const artifacts = Array.isArray(record.artifacts)
+    ? record.artifacts
+        .map((item): NonNullable<DelegateResult['artifacts']>[number] | null => {
+          if (!item || typeof item !== 'object') return null;
+          const artifact = item as Record<string, unknown>;
+          const type = artifact.type;
+          if (
+            type !== 'diff' &&
+            type !== 'file' &&
+            type !== 'link' &&
+            type !== 'log' &&
+            type !== 'note'
+          ) {
+            return null;
+          }
+          const id = asString(artifact.id).trim();
+          const title = asString(artifact.title).trim();
+          if (!id || !title) return null;
+          return { type, id, title };
+        })
+        .filter((item): item is NonNullable<DelegateResult['artifacts']>[number] => Boolean(item))
+    : undefined;
+  return {
+    status,
+    summary: asString(record.summary).trim(),
+    artifacts,
+  };
+}
+
+function capDelegateSummary(value: string): string {
+  const compacted = value.replace(/\s+/g, ' ').trim();
+  if (compacted.length <= DELEGATE_SUMMARY_MAX_CHARS) {
+    return compacted;
+  }
+  return `${compacted.slice(0, DELEGATE_SUMMARY_MAX_CHARS - 40).trimEnd()}... [summary truncated]`;
+}
+
+function capDelegateRaw(value: string): string {
+  return truncateMiddle(value, DELEGATE_RAW_MAX_CHARS);
+}
+
+function normalizeDelegateTaskKey(call: DelegateCall): string {
+  return `${call.agentId}:${call.task.replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 500)}`;
+}
+
+function buildDelegateActivityMessage(input: {
+  sessionId: string;
+  uuid: string;
+  call: DelegateCall;
+  state: DelegateActivityState;
+  result?: DelegateResult;
+  raw?: string;
+}): StreamMessage {
+  return {
+    type: 'delegate_activity',
+    uuid: input.uuid,
+    session_id: input.sessionId,
+    call: input.call,
+    state: input.state,
+    result: input.result,
+    raw: input.raw,
+    parentTurnId: `aegis:${input.sessionId}`,
+    delegateCallId: input.call.id,
+    delegateRunId: input.uuid,
+    delegateAgentId: input.call.agentId,
+    delegateReason: input.call.reason,
+    createdAt: Date.now(),
+  };
+}
+
+function renderRecentBuiltinContext(messages: BuiltinChatMessage[], keepTurns = 3): string {
+  const userOrAssistant = messages.filter((message) => message.role === 'user' || message.role === 'assistant');
+  const recent = userOrAssistant.slice(-keepTurns * 2);
+  return recent
+    .map((message) => {
+      const label = message.role === 'assistant' ? 'Leader' : 'User';
+      const text = typeof message.content === 'string' ? message.content : '';
+      if (!text.trim()) return '';
+      return `${label}:\n${truncateMiddle(text.trim(), 2_000)}`;
+    })
+    .filter(Boolean)
+    .join('\n\n---\n\n');
+}
+
 function normalizeMemorySummary(summary: string): string {
   const redacted = redactMemorySecrets(summary).trim();
   if (!redacted) return '';
@@ -889,6 +1039,9 @@ function streamMessageToMemoryText(message: StreamMessage): string {
   }
   if (message.type === 'result') {
     return `Result: ${message.subtype || 'unknown'}`;
+  }
+  if (message.type === 'delegate_activity') {
+    return `Delegate ${message.call.agentId}: ${message.result?.summary || message.call.reason}`;
   }
   return '';
 }
@@ -1365,9 +1518,13 @@ class AegisBuiltinAgentSession {
   private todos: BuiltinTodoItem[] = [];
   private core: AegisBuiltinAgentCore | null = null;
   private coreCwd: string | null = null;
+  private coreDelegateEnabled = false;
   private tools: BuiltinToolRegistryEntry[] = [];
   private currentSelection: BuiltinModelSelection;
   private currentAgentProfile: RoutedAgentRuntimePayload | null = null;
+  private currentTeam: TeamProfile | null = null;
+  private currentTeamAgents: RoutedAgentRuntimePayload[] = [];
+  private pendingDelegateKeys = new Set<string>();
   private currentMemoryPrompt = '';
   private currentSkillsPrompt = '';
   private currentCwd: string;
@@ -1627,6 +1784,203 @@ class AegisBuiltinAgentSession {
       : '';
   }
 
+  private resolveDelegateAgent(agentId: string): RoutedAgentRuntimePayload | null {
+    const normalizedAgentId = agentId.trim();
+    if (!this.currentTeam || !normalizedAgentId) return null;
+    const member = this.currentTeam.members.find((item) => item.enabled && item.agentId === normalizedAgentId);
+    if (!member) return null;
+    return this.currentTeamAgents.find((agent) => agent.routedAgentId === normalizedAgentId) || null;
+  }
+
+  private buildDelegateWorkerPrompt(call: DelegateCall, worker: RoutedAgentRuntimePayload): string {
+    const context = renderRecentBuiltinContext(this.core?.history || []);
+    const refs = call.contextRefs?.length ? call.contextRefs.map((ref) => `- ${ref}`).join('\n') : '(none)';
+    return [
+      `You are ${worker.agent?.name || call.agentId}, a delegated member of the current Aegis Channel Team.`,
+      worker.agent?.role ? `Role: ${worker.agent.role}` : '',
+      worker.agent?.description ? `Profile: ${worker.agent.description}` : '',
+      worker.instructions ? `Instructions:\n${worker.instructions}` : '',
+      '',
+      'You are not the conversational leader. Do the delegated task only, then return strict JSON and no markdown fence.',
+      'Return shape: {"status":"ok|blocked|needs_user|error","summary":"<=200 tokens","artifacts":[{"type":"diff|file|link|log|note","id":"...","title":"..."}]}.',
+      'The summary must be concise and evidence-based. If blocked, say exactly what is missing.',
+      '',
+      `Delegation reason: ${call.reason}`,
+      '',
+      'Task:',
+      call.task,
+      '',
+      'Explicit context refs:',
+      refs,
+      context ? `\nRecent leader context:\n${context}` : '',
+    ].filter(Boolean).join('\n');
+  }
+
+  private buildDelegateResult(input: {
+    call: DelegateCall;
+    activityId: string;
+    raw: string;
+    status?: DelegateResult['status'];
+    errorKind?: DelegateErrorKind;
+    artifacts?: DelegateResult['artifacts'];
+  }): DelegateResult {
+    const parsed = parseDelegateWorkerOutput(input.raw);
+    const fallbackSummary = input.raw.trim()
+      ? input.raw.replace(/```(?:json)?/g, '').replace(/```/g, '').trim()
+      : input.errorKind
+        ? `Delegate failed with ${input.errorKind}.`
+        : 'Delegate completed without a textual summary.';
+    return {
+      delegateCallId: input.call.id,
+      agentId: input.call.agentId,
+      status: input.status || parsed.status || 'ok',
+      errorKind: input.errorKind,
+      summary: capDelegateSummary(parsed.summary || fallbackSummary),
+      artifacts: input.artifacts || parsed.artifacts,
+      rawRef: input.activityId,
+    };
+  }
+
+  private async runDelegate(call: DelegateCall): Promise<DelegateResult> {
+    const worker = this.resolveDelegateAgent(call.agentId);
+    const activityId = `delegate-${randomUUID()}`;
+    const taskKey = normalizeDelegateTaskKey(call);
+
+    if (!worker) {
+      const result: DelegateResult = {
+        delegateCallId: call.id,
+        agentId: call.agentId,
+        status: 'blocked',
+        summary: `No enabled Channel Team member matches agentId "${call.agentId}".`,
+        rawRef: activityId,
+      };
+      this.options.onMessage(buildDelegateActivityMessage({
+        sessionId: this.options.session.id,
+        uuid: activityId,
+        call,
+        state: 'error',
+        result,
+        raw: result.summary,
+      }));
+      return result;
+    }
+
+    if (this.pendingDelegateKeys.has(taskKey)) {
+      const result: DelegateResult = {
+        delegateCallId: call.id,
+        agentId: call.agentId,
+        status: 'blocked',
+        summary: 'Duplicate pending delegate for the same agent and task was skipped.',
+        rawRef: activityId,
+      };
+      this.options.onMessage(buildDelegateActivityMessage({
+        sessionId: this.options.session.id,
+        uuid: activityId,
+        call,
+        state: 'error',
+        result,
+        raw: result.summary,
+      }));
+      return result;
+    }
+
+    this.pendingDelegateKeys.add(taskKey);
+    this.options.onMessage(buildDelegateActivityMessage({
+      sessionId: this.options.session.id,
+      uuid: activityId,
+      call,
+      state: 'running',
+    }));
+
+    const output: string[] = [];
+    const notes: string[] = [];
+    const workerSelection = resolveBuiltinSelection(
+      worker.model || this.currentSelection.encodedModel,
+      worker.aegisReasoningEffort || this.currentSelection.reasoningEffort
+    );
+    const workerPrompt = this.buildDelegateWorkerPrompt(call, worker);
+    const workerTools = this.tools.filter((tool) => tool.name !== 'delegate');
+    const workerCore = new AegisBuiltinAgentCore({
+      cwd: this.currentCwd,
+      tools: workerTools,
+      complete: async (input) => {
+        const result = await streamChatCompletion({
+          messages: input.messages as ChatMessage[],
+          selection: workerSelection,
+          tools: input.tools.map(toOpenAiToolDefinition),
+          signal: input.signal,
+          onText: input.onText,
+          onReasoning: input.onReasoning,
+        });
+        return result;
+      },
+      callbacks: {
+        onText: (text) => output.push(text),
+        onReasoning: () => undefined,
+        onStreamStop: () => undefined,
+        onAssistantMessage: () => undefined,
+        onToolResult: (_id, content, isError) => {
+          const firstLine = content.split('\n').find((line) => line.trim())?.trim();
+          if (firstLine) notes.push(`${isError ? 'error' : 'ok'}: ${firstLine}`);
+        },
+      },
+      signal: this.abortController.signal,
+      getPermissionMode: this.getBuiltinPermissionMode,
+      getTransientMessages: this.getProjectInstructionMessages,
+      maxTurns: 10,
+      getSystemPrompt: ({ toolNames }) => buildSystemPrompt({
+        cwd: this.currentCwd,
+        model: workerSelection.modelId,
+        permissionMode: this.permissionMode,
+        toolNames,
+        agentProfile: worker,
+        memoryPrompt: this.currentMemoryPrompt,
+        skillsPrompt: this.currentSkillsPrompt,
+        todos: [],
+      }),
+      initialMessages: [
+        {
+          role: 'user',
+          content: '<system-reminder>You are running as a delegated worker. Do not delegate further. Keep output strict JSON.</system-reminder>',
+        },
+      ],
+    });
+
+    let result: DelegateResult;
+    let raw = '';
+    try {
+      await workerCore.runTurn(workerPrompt);
+      raw = capDelegateRaw(output.join('').trim());
+      if (notes.length > 0) {
+        raw = [raw, '', 'Worker tool notes:', ...notes.slice(0, 10).map((note) => `- ${note}`)].filter(Boolean).join('\n');
+      }
+      result = this.buildDelegateResult({ call, activityId, raw });
+    } catch (error) {
+      const errorKind: DelegateErrorKind =
+        error instanceof Error && error.name === 'AbortError' ? 'timeout' : 'api_error';
+      raw = capDelegateRaw(error instanceof Error ? error.message : String(error));
+      result = this.buildDelegateResult({
+        call,
+        activityId,
+        raw,
+        status: 'error',
+        errorKind,
+      });
+    } finally {
+      this.pendingDelegateKeys.delete(taskKey);
+    }
+
+    this.options.onMessage(buildDelegateActivityMessage({
+      sessionId: this.options.session.id,
+      uuid: activityId,
+      call,
+      state: result.status === 'error' ? 'error' : 'completed',
+      result,
+      raw,
+    }));
+    return result;
+  }
+
   private createAgentCore(cwd: string): { core: AegisBuiltinAgentCore; tools: BuiltinToolRegistryEntry[] } {
     let tools: BuiltinToolRegistryEntry[] = [];
     const toolSearchController = {
@@ -1646,6 +2000,7 @@ class AegisBuiltinAgentSession {
       toolSearchController,
       lspAdapter: createStaticLspAdapter(this.abortController.signal, this.children),
       skillAdapter: createAegisSkillAdapter(cwd),
+      delegateEnabled: Boolean(this.currentTeam && this.currentTeamAgents.length > 0),
     });
 
     let memoryCitations: MemoryCitation[] = [];
@@ -1674,6 +2029,7 @@ class AegisBuiltinAgentSession {
         }
         this.options.onMessage(buildUserToolResult(toolCallId, content, isError, metadata));
       },
+      onDelegate: (call) => this.runDelegate(call),
     };
 
     const core = new AegisBuiltinAgentCore({
@@ -1690,6 +2046,8 @@ class AegisBuiltinAgentSession {
         permissionMode: this.permissionMode,
         toolNames,
         agentProfile: this.currentAgentProfile,
+        teamProfile: this.currentTeam,
+        teamAgents: this.currentTeamAgents,
         memoryPrompt: this.currentMemoryPrompt,
         skillsPrompt: this.currentSkillsPrompt,
         todos: this.getTodos(),
@@ -1709,6 +2067,7 @@ class AegisBuiltinAgentSession {
     });
     this.core = core;
     this.coreCwd = cwd;
+    this.coreDelegateEnabled = Boolean(this.currentTeam && this.currentTeamAgents.length > 0);
     this.tools = tools;
     return { core, tools };
   }
@@ -1720,7 +2079,9 @@ class AegisBuiltinAgentSession {
     selectedSkills?: ProviderInputReference[],
     permissionModeOverride?: AegisPermissionMode,
     reasoningEffortOverride?: 'high' | 'max',
-    agentProfile?: RoutedAgentRuntimePayload | null
+    agentProfile?: RoutedAgentRuntimePayload | null,
+    teamProfile?: TeamProfile | null,
+    teamAgents?: RoutedAgentRuntimePayload[]
   ): Promise<void> {
     const startedAt = Date.now();
     const cwd = this.options.session.cwd || process.cwd();
@@ -1732,6 +2093,9 @@ class AegisBuiltinAgentSession {
     this.projectInstructions.setCwd(cwd);
     this.currentSelection = selection;
     this.currentAgentProfile = agentProfile || null;
+    this.currentTeam = teamProfile || null;
+    this.currentTeamAgents = teamAgents || [];
+    this.pendingDelegateKeys.clear();
     if (permissionModeOverride) {
       this.allowForSession = false;
     }
@@ -1747,7 +2111,8 @@ class AegisBuiltinAgentSession {
     const skillInjections = buildSkillInjections(skillOutcome, effectiveSelectedSkills);
     const skillDependencyPrompt = await this.resolveSkillDependencies(skillOutcome, effectiveSelectedSkills);
     this.currentSkillsPrompt = renderedSkills?.prompt || '';
-    if (!this.core || this.coreCwd !== cwd) {
+    const delegateEnabled = Boolean(this.currentTeam && this.currentTeamAgents.length > 0);
+    if (!this.core || this.coreCwd !== cwd || this.coreDelegateEnabled !== delegateEnabled) {
       this.createAgentCore(cwd);
     }
     const core = this.core;
@@ -1810,7 +2175,9 @@ export const aegisRuntime: AgentRuntime = {
       options.aegisSkills,
       options.aegisPermissionMode,
       options.aegisReasoningEffort,
-      options.aegisAgentProfile
+      options.aegisAgentProfile,
+      options.aegisTeam,
+      options.aegisTeamAgents
     ).catch((error) => {
       if (!abortController.signal.aborted) {
         options.onError?.(error instanceof Error ? error : new Error(String(error)));
@@ -1828,7 +2195,9 @@ export const aegisRuntime: AgentRuntime = {
           aegisSkills,
           sendOptions?.aegisPermissionMode,
           sendOptions?.aegisReasoningEffort,
-          sendOptions?.aegisAgentProfile
+          sendOptions?.aegisAgentProfile,
+          sendOptions?.aegisTeam ?? options.aegisTeam,
+          sendOptions?.aegisTeamAgents ?? options.aegisTeamAgents
         ).catch((error) => {
           if (!abortController.signal.aborted) {
             options.onError?.(error instanceof Error ? error : new Error(String(error)));

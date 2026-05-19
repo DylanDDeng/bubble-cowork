@@ -55,6 +55,8 @@ export interface SessionRow {
   folder_path: string | null;
   hidden_from_threads: number | null;
   workspace_channel_id: string | null;
+  team_mode: import('../shared/types').SessionTeamMode | null;
+  team_id: string | null;
   session_origin: import('../shared/types').SessionSource | null;
   external_file_path: string | null;
   external_file_mtime: number | null;
@@ -69,6 +71,9 @@ export interface MessageRow {
   source_origin: import('../shared/types').SessionSource | null;
   search_text: string | null;
   sort_key: number | null;
+  parent_turn_id: string | null;
+  delegate_call_id: string | null;
+  delegate_run_id: string | null;
   data: string; // JSON string of StreamMessage
   created_at: number;
 }
@@ -118,6 +123,8 @@ export interface RunnerOptions {
   aegisSkills?: import('../shared/types').ProviderInputReference[];
   aegisMentions?: import('../shared/types').ProviderInputReference[];
   aegisAgentProfile?: import('../shared/types').RoutedAgentRuntimePayload | null;
+  aegisTeam?: import('../shared/types').TeamProfile | null;
+  aegisTeamAgents?: import('../shared/types').RoutedAgentRuntimePayload[];
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
   aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort;
@@ -152,6 +159,8 @@ export interface RunnerHandle {
       aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
       aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort;
       aegisAgentProfile?: import('../shared/types').RoutedAgentRuntimePayload | null;
+      aegisTeam?: import('../shared/types').TeamProfile | null;
+      aegisTeamAgents?: import('../shared/types').RoutedAgentRuntimePayload[];
     }
   ) => void;
 }

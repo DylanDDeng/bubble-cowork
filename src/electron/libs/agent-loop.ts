@@ -143,6 +143,8 @@ function runCodexViaProviderService(options: RunnerOptions): RunnerHandle {
 	        aegisPermissionMode?: import('../../shared/types').AegisPermissionMode;
 	        aegisReasoningEffort?: import('../../shared/types').AegisBuiltInReasoningEffort;
 	        aegisAgentProfile?: import('../../shared/types').RoutedAgentRuntimePayload | null;
+	        aegisTeam?: import('../../shared/types').TeamProfile | null;
+	        aegisTeamAgents?: import('../../shared/types').RoutedAgentRuntimePayload[];
 	      }
 	    ) => {
 	      if (abortController.signal.aborted) return;

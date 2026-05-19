@@ -103,6 +103,12 @@ export type {
   FolderConfig,
   CanonicalToolKind,
   WorkspaceChannel,
+  TeamProfile,
+  TeamMemberProfile,
+  SessionTeamMode,
+  DelegateCall,
+  DelegateResult,
+  DelegateActivityState,
 } from '../shared/types';
 
 // 主题类型
@@ -199,6 +205,8 @@ export interface SessionView {
   folderPath?: string | null;
   hiddenFromThreads?: boolean;
   channelId?: string;
+  teamMode?: import('../shared/types').SessionTeamMode;
+  teamId?: string | null;
   source?: import('../shared/types').SessionSource;
   readOnly?: boolean;
   isDraft?: boolean;
@@ -221,6 +229,7 @@ export interface AppState {
   workspaceChannelsByProject: Record<string, WorkspaceChannel[]>;
   activeChannelByProject: Record<string, string>;
   agentProfiles: Record<string, AgentProfile>;
+  teamProfiles: Record<string, import('../shared/types').TeamProfile>;
   projectAgentRostersByProject: Record<string, string[]>;
   selectedProjectAgentByProject: Record<string, string>;
   activeSessionId: string | null;
@@ -304,6 +313,18 @@ export interface AppActions {
   createAgentProfile: () => string;
   updateAgentProfile: (profileId: string, patch: Partial<Omit<AgentProfile, 'id' | 'createdAt'>>) => void;
   deleteAgentProfile: (profileId: string) => void;
+  createTeamProfile: () => string;
+  updateTeamProfile: (
+    teamId: string,
+    patch: Partial<Omit<import('../shared/types').TeamProfile, 'id' | 'createdAt'>>
+  ) => void;
+  deleteTeamProfile: (teamId: string) => void;
+  setWorkspaceChannelDefaultTeam: (projectCwd: string, channelId: string, teamId: string | null) => void;
+  setSessionTeam: (
+    sessionId: string,
+    teamMode: import('../shared/types').SessionTeamMode,
+    teamId?: string | null
+  ) => void;
   setProjectAgentRoster: (projectCwd: string, profileIds: string[]) => void;
   setSelectedProjectAgentForProject: (projectCwd: string, profileId: string | null) => void;
   openAgentDirectMessage: (profileId: string) => string | null;

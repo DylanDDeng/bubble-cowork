@@ -19,6 +19,7 @@ import type {
   AgentAvatarAssetKey,
   SessionView,
   ServerEvent,
+  ClientEvent,
   SessionInfo,
   StreamMessage,
   ContentBlock,
@@ -34,6 +35,9 @@ import type {
   ChromeTheme,
   PromptLibraryInsertMode,
   WorkspaceChannel,
+  TeamProfile,
+  TeamMemberProfile,
+  SessionTeamMode,
 } from '../types';
 import {
   DEFAULT_THEME_STATE,
@@ -72,6 +76,23 @@ function getProjectChannelKey(cwd?: string | null): string {
   return cwd?.trim() || '__no_project__';
 }
 
+function syncProfilesToMain(
+  agentProfiles: Record<string, AgentProfile>,
+  teamProfiles: Record<string, TeamProfile>
+): void {
+  if (typeof window === 'undefined' || !window.electron?.sendClientEvent) {
+    return;
+  }
+  const event: ClientEvent = {
+    type: 'profiles.sync',
+    payload: {
+      agentProfiles: Object.values(agentProfiles),
+      teamProfiles: Object.values(teamProfiles),
+    },
+  };
+  window.electron.sendClientEvent(event);
+}
+
 function normalizeWorkspaceChannelId(value?: string | null): string {
   const trimmed = value?.trim();
   return trimmed || DEFAULT_WORKSPACE_CHANNEL_ID;
@@ -92,6 +113,7 @@ function createDefaultWorkspaceChannel(projectCwd?: string | null): WorkspaceCha
     id: DEFAULT_WORKSPACE_CHANNEL_ID,
     projectCwd: projectCwd?.trim() || '',
     name: 'all',
+    defaultTeamId: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -409,6 +431,85 @@ function normalizeProjectAgentRosters(
   );
 }
 
+function normalizeTeamMemberProfiles(
+  value: unknown,
+  agentProfiles: Record<string, AgentProfile>
+): TeamMemberProfile[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item, index): TeamMemberProfile | null => {
+      if (!item || typeof item !== 'object') return null;
+      const record = item as Partial<TeamMemberProfile>;
+      const agentId = record.agentId?.trim();
+      if (!agentId || !agentProfiles[agentId]) return null;
+      return {
+        agentId,
+        role: record.role?.trim() || undefined,
+        enabled: record.enabled !== false,
+        order: typeof record.order === 'number' ? record.order : index,
+      };
+    })
+    .filter((member): member is TeamMemberProfile => Boolean(member))
+    .sort((left, right) => left.order - right.order)
+    .map((member, index) => ({ ...member, order: index }));
+}
+
+function normalizeTeamProfiles(
+  value: unknown,
+  agentProfiles: Record<string, AgentProfile>
+): Record<string, TeamProfile> {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+
+  const now = Date.now();
+  return Object.fromEntries(
+    Object.entries(value as Record<string, Partial<TeamProfile>>)
+      .map(([id, team]) => {
+        const normalizedId = team.id?.trim() || id.trim();
+        if (!normalizedId) return null;
+        const members = normalizeTeamMemberProfiles(team.members, agentProfiles);
+        const leaderAgentId =
+          team.leaderAgentId && agentProfiles[team.leaderAgentId]
+            ? team.leaderAgentId
+            : members.find((member) => agentProfiles[member.agentId])?.agentId || null;
+        return [
+          normalizedId,
+          {
+            id: normalizedId,
+            name: team.name?.trim() || 'New Team',
+            description: team.description?.trim() || undefined,
+            leaderAgentId,
+            instructions: team.instructions?.trim() || undefined,
+            members,
+            createdAt: typeof team.createdAt === 'number' ? team.createdAt : now,
+            updatedAt: typeof team.updatedAt === 'number' ? team.updatedAt : now,
+          } satisfies TeamProfile,
+        ] as const;
+      })
+      .filter((entry): entry is readonly [string, TeamProfile] => Boolean(entry))
+  );
+}
+
+function createUniqueTeamProfileId(existing: Record<string, TeamProfile>): string {
+  let index = Object.keys(existing).length + 1;
+  let candidate = `team-${index}`;
+  while (existing[candidate]) {
+    index += 1;
+    candidate = `team-${index}`;
+  }
+  return candidate;
+}
+
+function normalizeSessionTeamMode(value: unknown): SessionTeamMode {
+  return value === 'solo' || value === 'team' || value === 'manual'
+    ? value
+    : 'channel_default';
+}
+
 type AssistantStreamMessage = StreamMessage & { type: 'assistant' };
 
 function clearRuntimeNoticeTimer(sessionId: string): void {
@@ -634,6 +735,8 @@ function createDraftSessionView(
     | 'opencodePermissionMode'
     | 'aegisPermissionMode'
     | 'aegisReasoningEffort'
+    | 'teamMode'
+    | 'teamId'
   >>
 ): SessionView {
   const now = Date.now();
@@ -656,6 +759,8 @@ function createDraftSessionView(
     associatedWorktreeBranch: null,
     associatedWorktreeRef: null,
     channelId: normalizeWorkspaceChannelId(channelId),
+    teamMode: options?.teamMode || 'channel_default',
+    teamId: options?.teamId || null,
     provider: options?.provider || loadPreferredProvider(),
     model: options?.model,
     compatibleProviderId: options?.compatibleProviderId,
@@ -785,6 +890,7 @@ export const useAppStore = create<Store>()(
       workspaceChannelsByProject: {},
       activeChannelByProject: {},
       agentProfiles: createStarterAgentProfiles(),
+      teamProfiles: {},
       projectAgentRostersByProject: {},
       selectedProjectAgentByProject: {},
       activeSessionId: initialUiResumeState?.activeSessionId ?? null,
@@ -989,6 +1095,25 @@ export const useAppStore = create<Store>()(
         });
         break;
 
+      case 'profiles.list':
+        set((state) => {
+          const agentProfileRecords = Object.fromEntries(
+            event.payload.agentProfiles.map((profile) => [profile.id, profile])
+          );
+          const incomingAgentProfiles =
+            event.payload.agentProfiles.length > 0
+              ? normalizeAgentProfiles(agentProfileRecords)
+              : state.agentProfiles;
+          const teamProfileRecords = Object.fromEntries(
+            event.payload.teamProfiles.map((team) => [team.id, team])
+          );
+          return {
+            agentProfiles: incomingAgentProfiles,
+            teamProfiles: normalizeTeamProfiles(teamProfileRecords, incomingAgentProfiles),
+          };
+        });
+        break;
+
       case 'session.pinned':
         handleSessionPinned(event.payload, set, get);
         break;
@@ -1004,6 +1129,10 @@ export const useAppStore = create<Store>()(
 
       case 'session.channelChanged':
         handleSessionChannelChanged(event.payload, set, get);
+        break;
+
+      case 'session.teamChanged':
+        handleSessionTeamChanged(event.payload, set, get);
         break;
     }
   },
@@ -1136,6 +1265,7 @@ export const useAppStore = create<Store>()(
               id: channelId,
               projectCwd,
               name: channelId,
+              defaultTeamId: null,
               createdAt: now,
               updatedAt: now,
             },
@@ -1253,12 +1383,12 @@ export const useAppStore = create<Store>()(
       createdAt: now,
       updatedAt: now,
     };
-    set({
-      agentProfiles: {
-        ...state.agentProfiles,
-        [profileId]: profile,
-      },
-    });
+    const nextAgentProfiles = {
+      ...state.agentProfiles,
+      [profileId]: profile,
+    };
+    set({ agentProfiles: nextAgentProfiles });
+    syncProfilesToMain(nextAgentProfiles, state.teamProfiles);
     return profileId;
   },
 
@@ -1275,52 +1405,52 @@ export const useAppStore = create<Store>()(
         patch,
         'compatibleProviderId'
       );
-      return {
-        agentProfiles: {
-          ...state.agentProfiles,
-          [profileId]: {
-            ...current,
-            ...patch,
-            id: current.id,
-            name: patch.name !== undefined ? patch.name : current.name,
-            role: patch.role !== undefined ? patch.role : current.role,
-            description:
-              patch.description !== undefined ? patch.description : current.description,
-            instructions:
-              patch.instructions !== undefined ? patch.instructions : current.instructions,
-            avatar:
-              patch.avatar !== undefined
-                ? normalizeAgentProfileAvatar(patch.avatar, current, current.id)
-                : current.avatar,
-            provider: nextProvider,
-            model: hasModelPatch ? patch.model?.trim() || undefined : current.model,
-            compatibleProviderId:
-              nextProvider === 'claude'
-                ? hasCompatibleProviderPatch
-                  ? normalizeClaudeCompatibleProviderId(patch.compatibleProviderId)
-                  : current.compatibleProviderId
-                : undefined,
-            permissionPolicy:
-              patch.permissionPolicy !== undefined
-                ? normalizeAgentPermissionPolicyForProfile(
-                    patch.permissionPolicy,
-                    { ...current, ...patch },
-                    current.id
-                  )
-                : normalizeAgentPermissionPolicyForProfile(
-                    current.permissionPolicy,
-                    { ...current, ...patch },
-                    current.id
-                  ),
-            canDelegate:
-              patch.canDelegate !== undefined ? patch.canDelegate === true : current.canDelegate,
-            color:
-              patch.color !== undefined ? normalizeAgentProfileColor(patch.color) : current.color,
-            createdAt: current.createdAt,
-            updatedAt: Date.now(),
-          },
+      const nextAgentProfiles = {
+        ...state.agentProfiles,
+        [profileId]: {
+          ...current,
+          ...patch,
+          id: current.id,
+          name: patch.name !== undefined ? patch.name : current.name,
+          role: patch.role !== undefined ? patch.role : current.role,
+          description:
+            patch.description !== undefined ? patch.description : current.description,
+          instructions:
+            patch.instructions !== undefined ? patch.instructions : current.instructions,
+          avatar:
+            patch.avatar !== undefined
+              ? normalizeAgentProfileAvatar(patch.avatar, current, current.id)
+              : current.avatar,
+          provider: nextProvider,
+          model: hasModelPatch ? patch.model?.trim() || undefined : current.model,
+          compatibleProviderId:
+            nextProvider === 'claude'
+              ? hasCompatibleProviderPatch
+                ? normalizeClaudeCompatibleProviderId(patch.compatibleProviderId)
+                : current.compatibleProviderId
+              : undefined,
+          permissionPolicy:
+            patch.permissionPolicy !== undefined
+              ? normalizeAgentPermissionPolicyForProfile(
+                  patch.permissionPolicy,
+                  { ...current, ...patch },
+                  current.id
+                )
+              : normalizeAgentPermissionPolicyForProfile(
+                  current.permissionPolicy,
+                  { ...current, ...patch },
+                  current.id
+                ),
+          canDelegate:
+            patch.canDelegate !== undefined ? patch.canDelegate === true : current.canDelegate,
+          color:
+            patch.color !== undefined ? normalizeAgentProfileColor(patch.color) : current.color,
+          createdAt: current.createdAt,
+          updatedAt: Date.now(),
         },
       };
+      syncProfilesToMain(nextAgentProfiles, state.teamProfiles);
+      return { agentProfiles: nextAgentProfiles };
     }),
 
   deleteAgentProfile: (profileId) =>
@@ -1344,10 +1474,165 @@ export const useAppStore = create<Store>()(
             selectedProfileId !== profileId && nextRosters[projectKey]?.includes(selectedProfileId)
         )
       );
+      const nextTeamProfiles = Object.fromEntries(
+        Object.entries(state.teamProfiles)
+          .map(([teamId, team]) => {
+            const members = team.members
+              .filter((member) => member.agentId !== profileId && Boolean(nextProfiles[member.agentId]))
+              .map((member, index) => ({ ...member, order: index }));
+            const leaderAgentId =
+              team.leaderAgentId !== profileId && team.leaderAgentId && nextProfiles[team.leaderAgentId]
+                ? team.leaderAgentId
+                : members[0]?.agentId || null;
+            return [teamId, { ...team, members, leaderAgentId, updatedAt: Date.now() }] as const;
+          })
+          .filter(([, team]) => team.members.length > 0)
+      );
+      syncProfilesToMain(nextProfiles, nextTeamProfiles);
       return {
         agentProfiles: nextProfiles,
+        teamProfiles: nextTeamProfiles,
         projectAgentRostersByProject: nextRosters,
         selectedProjectAgentByProject: nextSelectedProjectAgents,
+      };
+    }),
+
+  createTeamProfile: () => {
+    const state = get();
+    const now = Date.now();
+    const teamId = createUniqueTeamProfileId(state.teamProfiles);
+    const enabledProfiles = Object.values(state.agentProfiles)
+      .filter((profile) => profile.enabled)
+      .sort((left, right) => left.createdAt - right.createdAt);
+    const members = enabledProfiles.slice(0, 3).map((profile, index) => ({
+      agentId: profile.id,
+      role: profile.role.trim() || undefined,
+      enabled: true,
+      order: index,
+    }));
+    const team: TeamProfile = {
+      id: teamId,
+      name: 'New Team',
+      description: '',
+      leaderAgentId: members[0]?.agentId || null,
+      instructions: '',
+      members,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const nextTeamProfiles = {
+      ...state.teamProfiles,
+      [teamId]: team,
+    };
+    set({ teamProfiles: nextTeamProfiles });
+    syncProfilesToMain(state.agentProfiles, nextTeamProfiles);
+    return teamId;
+  },
+
+  updateTeamProfile: (teamId, patch) =>
+    set((state) => {
+      const current = state.teamProfiles[teamId];
+      if (!current) return state;
+      const rawMembers = patch.members !== undefined ? patch.members : current.members;
+      const members = normalizeTeamMemberProfiles(rawMembers, state.agentProfiles);
+      const leaderCandidate =
+        patch.leaderAgentId !== undefined ? patch.leaderAgentId : current.leaderAgentId;
+      const leaderAgentId =
+        leaderCandidate && state.agentProfiles[leaderCandidate] && members.some((member) => member.agentId === leaderCandidate)
+          ? leaderCandidate
+          : members[0]?.agentId || null;
+      const nextTeamProfiles = {
+        ...state.teamProfiles,
+        [teamId]: {
+          ...current,
+          ...patch,
+          id: current.id,
+          name: patch.name !== undefined ? patch.name : current.name,
+          description: patch.description !== undefined ? patch.description : current.description,
+          instructions: patch.instructions !== undefined ? patch.instructions : current.instructions,
+          leaderAgentId,
+          members,
+          createdAt: current.createdAt,
+          updatedAt: Date.now(),
+        },
+      };
+      syncProfilesToMain(state.agentProfiles, nextTeamProfiles);
+      return { teamProfiles: nextTeamProfiles };
+    }),
+
+  deleteTeamProfile: (teamId) =>
+    set((state) => {
+      if (!state.teamProfiles[teamId]) return state;
+      const nextTeams = { ...state.teamProfiles };
+      delete nextTeams[teamId];
+      const nextChannels = Object.fromEntries(
+        Object.entries(state.workspaceChannelsByProject).map(([projectKey, channels]) => [
+          projectKey,
+          channels.map((channel) =>
+            channel.defaultTeamId === teamId
+              ? { ...channel, defaultTeamId: null, updatedAt: Date.now() }
+              : channel
+          ),
+        ])
+      );
+      const nextSessions = Object.fromEntries(
+        Object.entries(state.sessions).map(([sessionId, session]) => [
+          sessionId,
+          session.teamId === teamId
+            ? { ...session, teamMode: 'channel_default' as const, teamId: null, updatedAt: Date.now() }
+            : session,
+        ])
+      );
+      syncProfilesToMain(state.agentProfiles, nextTeams);
+      return {
+        teamProfiles: nextTeams,
+        workspaceChannelsByProject: nextChannels,
+        sessions: nextSessions,
+      };
+    }),
+
+  setWorkspaceChannelDefaultTeam: (projectCwd, channelId, teamId) =>
+    set((state) => {
+      const projectKey = getProjectChannelKey(projectCwd);
+      const channels = ensureDefaultWorkspaceChannel(
+        state.workspaceChannelsByProject[projectKey],
+        projectCwd
+      );
+      return {
+        workspaceChannelsByProject: {
+          ...state.workspaceChannelsByProject,
+          [projectKey]: channels.map((channel) =>
+            channel.id === normalizeWorkspaceChannelId(channelId)
+              ? {
+                  ...channel,
+                  defaultTeamId: teamId && state.teamProfiles[teamId] ? teamId : null,
+                  updatedAt: Date.now(),
+                }
+              : channel
+          ),
+        },
+      };
+    }),
+
+  setSessionTeam: (sessionId, teamMode, teamId) =>
+    set((state) => {
+      const session = state.sessions[sessionId];
+      if (!session) return state;
+      const normalizedMode = normalizeSessionTeamMode(teamMode);
+      const normalizedTeamId =
+        normalizedMode === 'team' || normalizedMode === 'manual'
+          ? teamId?.trim() || null
+          : null;
+      return {
+        sessions: {
+          ...state.sessions,
+          [sessionId]: {
+            ...session,
+            teamMode: normalizedMode,
+            teamId: normalizedTeamId,
+            updatedAt: Date.now(),
+          },
+        },
       };
     }),
 
@@ -2020,6 +2305,7 @@ export const useAppStore = create<Store>()(
         workspaceChannelsByProject: state.workspaceChannelsByProject,
         activeChannelByProject: state.activeChannelByProject,
         agentProfiles: state.agentProfiles,
+        teamProfiles: state.teamProfiles,
         projectAgentRostersByProject: state.projectAgentRostersByProject,
         selectedProjectAgentByProject: state.selectedProjectAgentByProject,
         agentSetupDismissedAt: state.agentSetupDismissedAt,
@@ -2050,6 +2336,7 @@ export const useAppStore = create<Store>()(
           workspaceChannelsByProject?: Record<string, WorkspaceChannel[]>;
           activeChannelByProject?: Record<string, string>;
           agentProfiles?: Record<string, AgentProfile>;
+          teamProfiles?: Record<string, TeamProfile>;
           projectAgentRostersByProject?: Record<string, string[]>;
           selectedProjectAgentByProject?: Record<string, string>;
           agentSetupDismissedAt?: number | null;
@@ -2089,6 +2376,7 @@ export const useAppStore = create<Store>()(
               (projectAgentRostersByProject[projectKey] || []).includes(profileId)
           )
         );
+        const teamProfiles = normalizeTeamProfiles(persisted?.teamProfiles, agentProfiles);
         const themeState = normalizeThemeState(persisted?.themeState || currentState.themeState);
         const uiFontFamily = persisted?.uiFontFamily?.trim()
           ? persisted.uiFontFamily
@@ -2127,6 +2415,7 @@ export const useAppStore = create<Store>()(
             persisted?.workspaceChannelsByProject || currentState.workspaceChannelsByProject,
           activeChannelByProject: persisted?.activeChannelByProject || currentState.activeChannelByProject,
           agentProfiles,
+          teamProfiles,
           projectAgentRostersByProject,
           selectedProjectAgentByProject,
           agentSetupOpen: false,
@@ -2203,6 +2492,7 @@ function handleSessionList(
             id: channelId,
             projectCwd: session.cwd || '',
             name: channelId,
+            defaultTeamId: null,
             createdAt: now,
             updatedAt: now,
           },
@@ -2248,6 +2538,8 @@ function handleSessionList(
       folderPath: session.folderPath || null,
       hiddenFromThreads: session.hiddenFromThreads === true,
       channelId,
+      teamMode: normalizeSessionTeamMode(session.teamMode),
+      teamId: session.teamId || null,
       latestClaudeModelUsage: session.latestClaudeModelUsage,
       messages: existing?.messages || [],
       hydrated: existing?.hydrated || false,
@@ -2357,8 +2649,11 @@ function handleSessionStatus(
     codexFastMode?: SessionInfo['codexFastMode'];
     opencodePermissionMode?: SessionInfo['opencodePermissionMode'];
     aegisPermissionMode?: SessionInfo['aegisPermissionMode'];
+    aegisReasoningEffort?: SessionInfo['aegisReasoningEffort'];
     hiddenFromThreads?: boolean;
     channelId?: string;
+    teamMode?: SessionInfo['teamMode'];
+    teamId?: SessionInfo['teamId'];
   },
   set: SetState,
   get: () => Store
@@ -2392,6 +2687,8 @@ function handleSessionStatus(
     aegisReasoningEffort,
     hiddenFromThreads,
     channelId,
+    teamMode,
+    teamId,
   } = payload;
   const state = get();
   const session = state.sessions[sessionId];
@@ -2485,6 +2782,11 @@ function handleSessionStatus(
             channelId !== undefined
               ? normalizeWorkspaceChannelId(channelId)
               : normalizeWorkspaceChannelId(session.channelId),
+          teamMode: teamMode !== undefined ? normalizeSessionTeamMode(teamMode) : session.teamMode || 'channel_default',
+          teamId:
+            teamId !== undefined
+              ? teamId || null
+              : session.teamId || null,
           latestClaudeModelUsage: session.latestClaudeModelUsage,
           streaming:
             status === 'running'
@@ -2532,6 +2834,8 @@ function handleSessionStatus(
       opencodePermissionMode,
       hiddenFromThreads: hiddenFromThreads === true,
       channelId: normalizeWorkspaceChannelId(channelId),
+      teamMode: teamMode !== undefined ? normalizeSessionTeamMode(teamMode) : 'channel_default',
+      teamId: teamId || null,
       latestClaudeModelUsage: undefined,
       messages: [],
       hydrated: true, // 新会话不需要 hydration
@@ -2931,6 +3235,28 @@ function handleSessionChannelChanged(
     activeChannelByProject: {
       ...get().activeChannelByProject,
       [getProjectChannelKey(session.cwd)]: normalizedChannelId,
+    },
+  });
+}
+
+function handleSessionTeamChanged(
+  payload: { sessionId: string; teamMode: SessionTeamMode; teamId: string | null },
+  set: SetState,
+  get: () => Store
+) {
+  const { sessionId, teamMode, teamId } = payload;
+  const session = get().sessions[sessionId];
+  if (!session) return;
+
+  set({
+    sessions: {
+      ...get().sessions,
+      [sessionId]: {
+        ...session,
+        teamMode: normalizeSessionTeamMode(teamMode),
+        teamId: teamId || null,
+        updatedAt: Date.now(),
+      },
     },
   });
 }

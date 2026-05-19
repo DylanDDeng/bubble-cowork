@@ -15,6 +15,7 @@ import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './Compose
 import { CodexContextIndicator } from './CodexContextIndicator';
 import { AgentAvatar } from './AgentAvatar';
 import { ProjectAgentPicker } from './ProjectAgentPicker';
+import { ProjectTeamPicker } from './ProjectTeamPicker';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
 import { useProjectAgentMentions } from '../hooks/useProjectAgentMentions';
@@ -22,6 +23,7 @@ import {
   DEFAULT_WORKSPACE_CHANNEL_ID,
   type RoutedAgentRuntimePayload,
   type RoutedAgentTurnPayload,
+  type SessionTeamMode,
 } from '../../shared/types';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
@@ -71,9 +73,12 @@ export function PromptInput({
     activeSessionId,
     sessions,
     agentProfiles,
+    teamProfiles,
+    workspaceChannelsByProject,
     projectAgentRostersByProject,
     selectedProjectAgentByProject,
     setSelectedProjectAgentForProject,
+    setSessionTeam,
     activeChannelByProject,
     pendingStart,
     setShowNewSession,
@@ -183,14 +188,43 @@ export function PromptInput({
         ? [selectedProjectAgentRoute]
         : [];
   const activeProjectAgentRoute = effectiveProjectAgentRoutes[0] || null;
-  const runtimeAgentProfile = directAgentProfile || activeProjectAgentRoute?.profile || null;
-  const directAgentRuntime = getAgentRuntime(directAgentProfile);
-  const projectAgentRuntime = getAgentRuntime(activeProjectAgentRoute?.profile || null);
-  const agentRuntime = directAgentRuntime || projectAgentRuntime;
+  const teamOptions = useMemo(
+    () => Object.values(teamProfiles).sort((left, right) => left.createdAt - right.createdAt),
+    [teamProfiles]
+  );
+  const activeProjectChannels = activeProjectKey
+    ? workspaceChannelsByProject[activeProjectKey] || []
+    : [];
+  const activeChannel = activeProjectChannels.find(
+    (channel) => channel.id === (activeSession?.channelId || DEFAULT_WORKSPACE_CHANNEL_ID)
+  );
+  const channelDefaultTeam = activeChannel?.defaultTeamId
+    ? teamProfiles[activeChannel.defaultTeamId] || null
+    : null;
+  const sessionTeamMode = activeSession?.teamMode || 'channel_default';
+  const explicitAgentMention = activeProjectAgentRoutes.length > 0;
+  const sessionSelectedTeam =
+    (sessionTeamMode === 'team' || sessionTeamMode === 'manual') && activeSession?.teamId
+      ? teamProfiles[activeSession.teamId] || null
+      : sessionTeamMode === 'channel_default'
+        ? channelDefaultTeam
+        : null;
+  const effectiveTeamProfile =
+    !directAgentProfile && !explicitAgentMention && sessionTeamMode !== 'solo'
+      ? sessionSelectedTeam
+      : null;
+  const teamLeaderProfile =
+    effectiveTeamProfile?.leaderAgentId
+      ? agentProfiles[effectiveTeamProfile.leaderAgentId] || null
+      : null;
+  const runtimeAgentProfile = directAgentProfile || teamLeaderProfile || activeProjectAgentRoute?.profile || null;
+  const agentRuntime = getAgentRuntime(runtimeAgentProfile);
   const runtimeProvider = agentRuntime?.provider || 'claude';
   const activeComposerAgentProfiles = directAgentProfile
     ? [directAgentProfile]
-    : effectiveProjectAgentRoutes.map((route) => route.profile);
+    : runtimeAgentProfile
+      ? [runtimeAgentProfile]
+      : effectiveProjectAgentRoutes.map((route) => route.profile);
   const activeComposerAgentProfile = activeComposerAgentProfiles[0] || null;
   const enabledAgentCount = useMemo(
     () => Object.values(agentProfiles).filter((profile) => profile.enabled).length,
@@ -221,6 +255,20 @@ export function PromptInput({
       editorRef.current?.setCursorIndex(0);
     });
   }, []);
+
+  const handleSelectTeam = useCallback(
+    (mode: SessionTeamMode, teamId?: string | null) => {
+      if (!activeSession) return;
+      setSessionTeam(activeSession.id, mode, teamId || null);
+      if (!activeSession.isDraft) {
+        sendEvent({
+          type: 'session.setTeam',
+          payload: { sessionId: activeSession.id, teamMode: mode, teamId: teamId || null },
+        });
+      }
+    },
+    [activeSession, setSessionTeam]
+  );
 
   const handleAutoSubmitClaudeCommand = (nextPrompt: string) => {
     if (!runtimeAgentProfile || !agentRuntime) {
@@ -394,14 +442,14 @@ export function PromptInput({
       return null;
     }
 
-    if (projectAgentProfiles.length === 0) {
+    if (projectAgentProfiles.length === 0 && !effectiveTeamProfile) {
       return {
         title: 'No agents assigned to this project',
         description: 'Create an agent profile or add one to this project.',
       };
     }
 
-    if (effectiveProjectAgentRoutes.length === 0) {
+    if (effectiveProjectAgentRoutes.length === 0 && !effectiveTeamProfile) {
       return {
         title: 'Select an agent to send',
         description: 'Pick a project agent before sending in this channel.',
@@ -414,6 +462,7 @@ export function PromptInput({
     activeSession,
     directAgentProfile,
     enabledAgentCount,
+    effectiveTeamProfile,
     projectAgentProfiles.length,
   ]);
 
@@ -550,10 +599,20 @@ export function PromptInput({
             .map((profile) => buildAgentRuntimePayload(profile, codexReferences, aegisReferences))
             .filter((turn): turn is RoutedAgentRuntimePayload => Boolean(turn))
         : undefined;
+    const teamAgentRuntimePayloads =
+      effectiveTeamProfile && runtimeProvider === 'aegis'
+        ? effectiveTeamProfile.members
+            .filter((member) => member.enabled && member.agentId !== runtimeAgentProfile?.id)
+            .map((member) => agentProfiles[member.agentId])
+            .filter((profile): profile is AgentProfile => Boolean(profile?.enabled))
+            .map((profile) => buildAgentRuntimePayload(profile, codexReferences, aegisReferences))
+            .filter((turn): turn is RoutedAgentRuntimePayload => Boolean(turn))
+        : undefined;
     const projectPublicAgents =
       !directAgentProfile ? projectAgentProfiles.map(toPublicAgentProfile) : undefined;
+    const shouldUseRoutedAgentTurns = runtimeProvider !== 'aegis' || activeProjectAgentRoutes.length > 0;
     const projectRoutedAgentTurns: RoutedAgentTurnPayload[] | undefined =
-      !directAgentProfile && effectiveProjectAgentRoutes.length > 0
+      shouldUseRoutedAgentTurns && !directAgentProfile && effectiveProjectAgentRoutes.length > 0
         ? effectiveProjectAgentRoutes
             .map((route): RoutedAgentTurnPayload | null => {
               const routeRuntime = buildAgentRuntimePayload(route.profile, codexReferences, aegisReferences);
@@ -652,6 +711,10 @@ export function PromptInput({
           routedAgentProfile: runtimeProvider === 'aegis' ? activeAgentRuntimePayload : undefined,
           routedAgentTurns: projectRoutedAgentTurns,
           availableAgentTurns: projectAgentRuntimePayloads,
+          teamMode: activeSession.teamMode || 'channel_default',
+          teamId: activeSession.teamId || null,
+          teamProfile: runtimeProvider === 'aegis' ? effectiveTeamProfile || null : undefined,
+          teamAgentTurns: runtimeProvider === 'aegis' ? teamAgentRuntimePayloads : undefined,
         },
       });
       resetComposer();
@@ -697,6 +760,10 @@ export function PromptInput({
           routedAgentProfile: runtimeProvider === 'aegis' ? activeAgentRuntimePayload : undefined,
           routedAgentTurns: projectRoutedAgentTurns,
           availableAgentTurns: projectAgentRuntimePayloads,
+          teamMode: activeSession.teamMode || 'channel_default',
+          teamId: activeSession.teamId || null,
+          teamProfile: runtimeProvider === 'aegis' ? effectiveTeamProfile || null : undefined,
+          teamAgentTurns: runtimeProvider === 'aegis' ? teamAgentRuntimePayloads : undefined,
         },
       });
       resetComposer();
@@ -1067,6 +1134,16 @@ export function PromptInput({
                     </span>
                   ) : null}
                 </div>
+              ) : null}
+              {!directAgentProfile && activeProjectAgentRoutes.length === 0 ? (
+                <ProjectTeamPicker
+                  teams={teamOptions}
+                  selectedMode={sessionTeamMode}
+                  selectedTeam={sessionSelectedTeam}
+                  channelDefaultTeam={channelDefaultTeam}
+                  disabled={isBusy}
+                  onSelect={handleSelectTeam}
+                />
               ) : null}
               <button
                 type="button"

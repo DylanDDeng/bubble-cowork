@@ -153,14 +153,48 @@ export class AegisBuiltinAgentCore {
       this.options.callbacks.onAssistantMessage(buildAssistantToolBlocks(modelTurn));
 
       const toolByName = new Map(effectiveTools.map((tool) => [tool.name, tool]));
-      for (const call of modelTurn.toolCalls) {
-        const result = await this.executeTool(call, toolByName, governor);
-        this.messages.push({
-          role: 'tool',
-          tool_call_id: call.id,
-          content: result.content,
-        });
-        this.options.callbacks.onToolResult(call.id, result.content, result.isError, result.metadata);
+      const hasDelegateCalls = modelTurn.toolCalls.some((call) => call.function.name === 'delegate');
+      const toolResults = hasDelegateCalls
+        ? await Promise.all(
+            modelTurn.toolCalls.map(async (call) => {
+              if (call.function.name !== 'delegate') {
+                return {
+                  call,
+                  result: {
+                    content:
+                      'Skipped: delegate calls hard-return this leader turn. Resume after delegated members finish, then decide any next tools.',
+                    isError: true,
+                    status: 'blocked' as const,
+                    metadata: { kind: 'delegate' as const, reason: 'delegate_hard_return' },
+                  },
+                };
+              }
+              return { call, result: await this.executeTool(call, toolByName, governor) };
+            })
+          )
+        : [];
+
+      if (hasDelegateCalls) {
+        for (const { call, result } of toolResults) {
+          this.messages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: result.content,
+          });
+          this.options.callbacks.onToolResult(call.id, result.content, result.isError, result.metadata);
+        }
+      }
+
+      if (!hasDelegateCalls) {
+        for (const call of modelTurn.toolCalls) {
+          const result = await this.executeTool(call, toolByName, governor);
+          this.messages.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: result.content,
+          });
+          this.options.callbacks.onToolResult(call.id, result.content, result.isError, result.metadata);
+        }
       }
       this.messages = compactResidentHistory(this.messages);
 
@@ -320,12 +354,28 @@ export class AegisBuiltinAgentCore {
       },
       agent: {
         runSubtask: (input, cwd, options) => this.runSubtask(input, cwd, options),
+        runDelegate: (delegateCall) => this.runDelegate(delegateCall),
       },
     });
     const result = normalizeToolResultMetadata(call.function.name, parsedArgs.args, rawResult);
     governor?.afterToolResult(call.function.name, parsedArgs.args, result);
     this.options.onToolMetadata?.(result.metadata);
     return result;
+  }
+
+  private async runDelegate(call: import('../../../shared/types').DelegateCall) {
+    const delegateRunner = this.options.callbacks.onDelegate;
+    if (!delegateRunner) {
+      return {
+        delegateCallId: call.id,
+        agentId: call.agentId,
+        status: 'error' as const,
+        errorKind: 'api_error' as const,
+        summary: 'Delegate runtime is not available for this session.',
+        rawRef: call.id,
+      };
+    }
+    return delegateRunner(call);
   }
 }
 

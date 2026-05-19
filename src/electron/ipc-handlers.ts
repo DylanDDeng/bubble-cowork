@@ -85,6 +85,8 @@ import type {
   RoutedAgentPublicProfile,
   RoutedAgentRuntimePayload,
   RoutedAgentTurnPayload,
+  SessionTeamMode,
+  TeamProfile,
   ProviderListPluginsInput,
   ProviderListSkillsInput,
   ProviderReadPluginInput,
@@ -116,6 +118,12 @@ function normalizeWorkspaceChannelId(value?: string | null): string {
 
 function normalizeSessionScope(value?: string | null): SessionInfo['scope'] {
   return value === 'dm' ? 'dm' : 'project';
+}
+
+function normalizeSessionTeamMode(value?: string | null): SessionTeamMode {
+  return value === 'solo' || value === 'team' || value === 'manual'
+    ? value
+    : 'channel_default';
 }
 
 function getDirectMessageRuntimeCwd(): string {
@@ -4989,6 +4997,14 @@ async function handleClientEvent(
     case 'session.setChannel':
       handleSessionSetChannel(mainWindow, event.payload);
       break;
+
+    case 'session.setTeam':
+      handleSessionSetTeam(mainWindow, event.payload);
+      break;
+
+    case 'profiles.sync':
+      handleProfilesSync(mainWindow, event.payload);
+      break;
   }
 }
 
@@ -5029,6 +5045,8 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     folderPath: row.folder_path || null,
     hiddenFromThreads: row.hidden_from_threads === 1,
     channelId: normalizeWorkspaceChannelId(row.workspace_channel_id),
+    teamMode: normalizeSessionTeamMode(row.team_mode),
+    teamId: row.team_id || null,
     latestClaudeModelUsage: latestClaudeModelUsageBySession[row.id],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -5044,6 +5062,19 @@ function handleSessionList(mainWindow: BrowserWindow): void {
   broadcast(mainWindow, {
     type: 'folder.list',
     payload: { folders },
+  });
+
+  broadcastProfileSnapshots(mainWindow);
+}
+
+function broadcastProfileSnapshots(mainWindow: BrowserWindow): void {
+  const payload = sessions.getProfileSnapshots();
+  if (payload.agentProfiles.length === 0 && payload.teamProfiles.length === 0) {
+    return;
+  }
+  broadcast(mainWindow, {
+    type: 'profiles.list',
+    payload,
   });
 }
 
@@ -5108,6 +5139,73 @@ function normalizeAvailableAgentTurns(
     uniqueTurns.set(normalized.routedAgentId, normalized);
   }
   return Array.from(uniqueTurns.values());
+}
+
+function buildAegisTeamRuntimeFromStore(
+  teamId: string | null | undefined,
+  providedTeam?: TeamProfile | null,
+  providedTeamAgents?: RoutedAgentRuntimePayload[]
+): { team: TeamProfile | null; agents: RoutedAgentRuntimePayload[] } {
+  const normalizedTeamId = teamId?.trim() || providedTeam?.id?.trim() || '';
+  const providedAgents = normalizeAvailableAgentTurns(providedTeamAgents);
+  if (!normalizedTeamId && !providedTeam) {
+    return { team: null, agents: providedAgents };
+  }
+
+  const snapshots = sessions.getProfileSnapshots();
+  const storedTeam = normalizedTeamId
+    ? snapshots.teamProfiles.find((team) => team.id === normalizedTeamId) || null
+    : null;
+  const team = providedTeam || storedTeam;
+  if (!team) {
+    return { team: null, agents: providedAgents };
+  }
+
+  const agentsById = new Map(providedAgents.map((agent) => [agent.routedAgentId, agent]));
+  for (const profile of snapshots.agentProfiles) {
+    if (typeof profile.id !== 'string' || agentsById.has(profile.id)) {
+      continue;
+    }
+    const provider = profile.provider === 'aegis' ||
+      profile.provider === 'claude' ||
+      profile.provider === 'codex' ||
+      profile.provider === 'opencode'
+      ? profile.provider
+      : 'claude';
+    agentsById.set(profile.id, {
+      routedAgentId: profile.id,
+      agent: {
+        id: profile.id,
+        name: typeof profile.name === 'string' && profile.name.trim() ? profile.name : profile.id,
+        role: typeof profile.role === 'string' ? profile.role : undefined,
+        description: typeof profile.description === 'string' ? profile.description : undefined,
+        canDelegate: profile.canDelegate === true,
+      },
+      instructions: typeof profile.instructions === 'string' ? profile.instructions : undefined,
+      provider,
+      model: typeof profile.model === 'string' ? profile.model : undefined,
+      compatibleProviderId:
+        typeof profile.compatibleProviderId === 'string'
+          ? (profile.compatibleProviderId as import('../shared/types').ClaudeCompatibleProviderId)
+          : undefined,
+      claudeReasoningEffort:
+        typeof profile.reasoningEffort === 'string'
+          ? (profile.reasoningEffort as import('../shared/types').ClaudeReasoningEffort)
+          : undefined,
+      codexReasoningEffort:
+        typeof profile.reasoningEffort === 'string'
+          ? (profile.reasoningEffort as import('../shared/types').CodexReasoningEffort)
+          : undefined,
+      aegisReasoningEffort:
+        typeof profile.reasoningEffort === 'string'
+          ? (profile.reasoningEffort as import('../shared/types').AegisBuiltInReasoningEffort)
+          : undefined,
+    });
+  }
+
+  const teamAgentIds = new Set(team.members.map((member) => member.agentId));
+  const agents = Array.from(agentsById.values()).filter((agent) => teamAgentIds.has(agent.routedAgentId));
+  return { team, agents };
 }
 
 function normalizeRoutedAgentTurns(
@@ -5926,6 +6024,8 @@ async function runRoutedAgentTurn(
       runtime.provider === 'aegis' ? turn.aegisSkills : undefined,
       runtime.provider === 'aegis' ? turn.aegisMentions : undefined,
       runtime.provider === 'aegis' ? turn : undefined,
+      undefined,
+      undefined,
       turn.routedAgentId,
       resolveTurn,
       agentRunId
@@ -5975,6 +6075,10 @@ async function handleSessionStart(
     routedAgentId,
     routedAgentTurns,
     availableAgentTurns,
+    teamMode,
+    teamId,
+    teamProfile,
+    teamAgentTurns,
     hiddenFromThreads,
     channelId,
   } = payload;
@@ -6019,6 +6123,11 @@ async function handleSessionStart(
     chosenProvider === 'claude' ? normalizeClaudeReasoningEffort(claudeReasoningEffort) : undefined;
   const selectedAegisReasoningEffort =
     chosenProvider === 'aegis' ? normalizeAegisReasoningEffort(aegisReasoningEffort) : undefined;
+  const normalizedTeamMode = normalizeSessionTeamMode(teamMode);
+  const normalizedTeamId =
+    normalizedTeamMode === 'team' || normalizedTeamMode === 'manual'
+      ? teamId?.trim() || teamProfile?.id || null
+      : null;
 
   // 运行时状态检查已移动到会话创建和状态广播之后，以便前端立即显示 spinning 效果
 
@@ -6065,6 +6174,8 @@ async function handleSessionStart(
       chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
     hiddenFromThreads: hiddenFromThreads === true,
     channelId: normalizeWorkspaceChannelId(channelId),
+    teamMode: normalizedTeamMode,
+    teamId: normalizedTeamId,
   });
 
   // 更新状态为 running
@@ -6107,6 +6218,8 @@ async function handleSessionStart(
       aegisReasoningEffort: chosenProvider === 'aegis' ? selectedAegisReasoningEffort : undefined,
       hiddenFromThreads: session.hidden_from_threads === 1,
       channelId: normalizeWorkspaceChannelId(session.workspace_channel_id),
+      teamMode: normalizeSessionTeamMode(session.team_mode),
+      teamId: session.team_id || null,
     },
   });
 
@@ -6199,6 +6312,10 @@ async function handleSessionStart(
     return session.id;
   }
 
+  const aegisTeamRuntime = chosenProvider === 'aegis'
+    ? buildAegisTeamRuntimeFromStore(normalizedTeamId, teamProfile, teamAgentTurns)
+    : { team: null, agents: [] };
+
   // 启动 Runner
   startRunner(
     mainWindow,
@@ -6225,6 +6342,8 @@ async function handleSessionStart(
     chosenProvider === 'aegis' ? aegisSkills : undefined,
     chosenProvider === 'aegis' ? aegisMentions : undefined,
     chosenProvider === 'aegis' ? turnAgentProfile : undefined,
+    chosenProvider === 'aegis' ? aegisTeamRuntime.team : undefined,
+    chosenProvider === 'aegis' ? aegisTeamRuntime.agents : undefined,
     turnAgentId
   );
   return session.id;
@@ -6262,6 +6381,10 @@ async function handleSessionContinue(
     routedAgentId,
     routedAgentTurns,
     availableAgentTurns,
+    teamMode,
+    teamId,
+    teamProfile,
+    teamAgentTurns,
   } = payload;
 
   const session = sessions.getSession(sessionId);
@@ -6402,6 +6525,16 @@ async function handleSessionContinue(
   const nextAegisReasoningEffort = nextProvider === 'aegis'
     ? normalizeAegisReasoningEffort(aegisReasoningEffort)
     : undefined;
+  const nextTeamMode = teamMode !== undefined
+    ? normalizeSessionTeamMode(teamMode)
+    : normalizeSessionTeamMode(session.team_mode);
+  const nextTeamId =
+    nextTeamMode === 'team' || nextTeamMode === 'manual'
+      ? teamId?.trim() || teamProfile?.id || session.team_id || null
+      : null;
+  const aegisTeamRuntime = nextProvider === 'aegis'
+    ? buildAegisTeamRuntimeFromStore(nextTeamId, teamProfile, teamAgentTurns)
+    : { team: null, agents: [] };
   const accessModeChanged =
     nextProvider === 'claude' &&
     (runnerHandles.get(sessionId)?.claudeAccessMode || 'default') !== nextClaudeAccessMode;
@@ -6495,6 +6628,9 @@ async function handleSessionContinue(
       nextOpenCodePermissionMode || 'defaultPermissions'
     );
   }
+  if (teamMode !== undefined || teamId !== undefined) {
+    sessions.updateSessionTeam(sessionId, nextTeamMode, nextTeamId);
+  }
 
   // 更新状态
   sessions.updateSessionStatus(sessionId, 'running');
@@ -6533,6 +6669,8 @@ async function handleSessionContinue(
         nextProvider === 'aegis' ? (nextAegisPermissionMode || 'defaultPermissions') : undefined,
       aegisReasoningEffort: nextProvider === 'aegis' ? nextAegisReasoningEffort : undefined,
       hiddenFromThreads: session.hidden_from_threads === 1,
+      teamMode: nextTeamMode,
+      teamId: nextTeamId,
     },
   });
 
@@ -6617,6 +6755,8 @@ async function handleSessionContinue(
               aegisPermissionMode: nextAegisPermissionMode || 'defaultPermissions',
               aegisReasoningEffort: nextAegisReasoningEffort,
               aegisAgentProfile: turnAgentProfile,
+              aegisTeam: aegisTeamRuntime.team,
+              aegisTeamAgents: aegisTeamRuntime.agents,
             }
           : undefined;
       existingEntry.handle.send(
@@ -6728,6 +6868,8 @@ async function handleSessionContinue(
     nextProvider === 'aegis' ? aegisSkills : undefined,
     nextProvider === 'aegis' ? aegisMentions : undefined,
     nextProvider === 'aegis' ? turnAgentProfile : undefined,
+    nextProvider === 'aegis' ? aegisTeamRuntime.team : undefined,
+    nextProvider === 'aegis' ? aegisTeamRuntime.agents : undefined,
     turnAgentId
   );
   return true;
@@ -6759,6 +6901,8 @@ function startRunner(
   aegisSkills?: ProviderInputReference[],
   aegisMentions?: ProviderInputReference[],
   aegisAgentProfile?: RoutedAgentRuntimePayload | null,
+  aegisTeam?: TeamProfile | null,
+  aegisTeamAgents?: RoutedAgentRuntimePayload[],
   activeAgentId?: string | null,
   onTurnDone?: (status: SessionStatus) => void,
   activeAgentRunId?: string | null
@@ -6822,6 +6966,8 @@ function startRunner(
     aegisSkills: provider === 'aegis' ? aegisSkills : undefined,
     aegisMentions: provider === 'aegis' ? aegisMentions : undefined,
     aegisAgentProfile: provider === 'aegis' ? aegisAgentProfile : undefined,
+    aegisTeam: provider === 'aegis' ? aegisTeam : undefined,
+    aegisTeamAgents: provider === 'aegis' ? aegisTeamAgents : undefined,
     opencodePermissionMode,
     aegisPermissionMode,
     aegisReasoningEffort,
@@ -7569,6 +7715,43 @@ function handleSessionSetChannel(
     broadcast(mainWindow, {
       type: 'runner.error',
       payload: { message: `Failed to set session channel: ${String(error)}` },
+    });
+  }
+}
+
+function handleSessionSetTeam(
+  mainWindow: BrowserWindow,
+  payload: { sessionId: string; teamMode: SessionTeamMode; teamId?: string | null }
+): void {
+  try {
+    const teamMode = normalizeSessionTeamMode(payload.teamMode);
+    const teamId = teamMode === 'team' || teamMode === 'manual'
+      ? payload.teamId?.trim() || null
+      : null;
+    sessions.updateSessionTeam(payload.sessionId, teamMode, teamId);
+    broadcast(mainWindow, {
+      type: 'session.teamChanged',
+      payload: { sessionId: payload.sessionId, teamMode, teamId },
+    });
+  } catch (error) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: `Failed to set session team: ${String(error)}` },
+    });
+  }
+}
+
+function handleProfilesSync(
+  mainWindow: BrowserWindow,
+  payload: import('../shared/types').ProfileSnapshotPayload
+): void {
+  try {
+    sessions.replaceProfileSnapshots(payload);
+    broadcastProfileSnapshots(mainWindow);
+  } catch (error) {
+    broadcast(mainWindow, {
+      type: 'runner.error',
+      payload: { message: `Failed to sync profile snapshots: ${String(error)}` },
     });
   }
 }

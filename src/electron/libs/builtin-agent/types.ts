@@ -1,4 +1,11 @@
-import type { ContentBlock, MemoryCitation, PermissionResult, Usage } from '../../../shared/types';
+import type {
+  ContentBlock,
+  DelegateCall,
+  DelegateResult,
+  MemoryCitation,
+  PermissionResult,
+  Usage,
+} from '../../../shared/types';
 
 export type BuiltinChatRole = 'system' | 'user' | 'assistant' | 'tool';
 
@@ -42,7 +49,7 @@ export type BuiltinToolResultStatus =
   | 'command_error';
 
 export interface BuiltinToolResultMetadata {
-  kind?: 'search' | 'read' | 'write' | 'edit' | 'shell' | 'web' | 'security' | 'lsp' | 'question' | 'memory' | 'todo' | 'subagent';
+  kind?: 'search' | 'read' | 'write' | 'edit' | 'shell' | 'web' | 'security' | 'lsp' | 'question' | 'memory' | 'todo' | 'subagent' | 'delegate';
   citations?: MemoryCitation[];
   path?: string;
   pattern?: string;
@@ -79,6 +86,7 @@ export interface BuiltinToolContext {
       cwd: string,
       options?: { subtaskType?: string; description?: string }
     ) => Promise<BuiltinToolResult>;
+    runDelegate?: (call: DelegateCall) => Promise<DelegateResult>;
   };
 }
 
@@ -190,6 +198,7 @@ export interface BuiltinAgentCallbacks {
     isError?: boolean,
     metadata?: BuiltinToolResultMetadata
   ) => void;
+  onDelegate?: (call: DelegateCall) => Promise<DelegateResult>;
 }
 
 export type BuiltinModelComplete = (input: {

@@ -25,6 +25,10 @@ import type {
   ClaudeUsageReport,
   SessionSource,
   SessionScope,
+  SessionTeamMode,
+  ProfileSnapshotPayload,
+  StoredAgentProfile,
+  TeamProfile,
   ThreadEnvironmentMode,
 } from '../../shared/types';
 
@@ -71,6 +75,9 @@ type MessagePersistenceRecord = {
   sourceOrigin: SessionSource;
   searchText: string;
   sortKey: number;
+  parentTurnId: string | null;
+  delegateCallId: string | null;
+  delegateRunId: string | null;
   data: string;
   createdAt: number;
   artifact?: MessageArtifactPersistenceRecord;
@@ -190,6 +197,12 @@ function normalizeSessionScope(value?: string | null): SessionScope {
   return value === 'dm' ? 'dm' : 'project';
 }
 
+function normalizeSessionTeamMode(value?: string | null): SessionTeamMode {
+  return value === 'solo' || value === 'team' || value === 'manual'
+    ? value
+    : 'channel_default';
+}
+
 // 初始化数据库
 export function initialize(): void {
   const dbPath = join(app.getPath('userData'), 'sessions.db');
@@ -229,6 +242,8 @@ export function initialize(): void {
       external_file_mtime INTEGER,
       hidden_from_threads INTEGER DEFAULT 0,
       workspace_channel_id TEXT,
+      team_mode TEXT DEFAULT 'channel_default',
+      team_id TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -240,9 +255,26 @@ export function initialize(): void {
       source_origin TEXT,
       search_text TEXT,
       sort_key INTEGER,
+      parent_turn_id TEXT,
+      delegate_call_id TEXT,
+      delegate_run_id TEXT,
       data TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_profiles (
+      id TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS team_profiles (
+      id TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS artifacts (
@@ -348,6 +380,8 @@ export function initialize(): void {
   ensureColumn('sessions', 'external_file_mtime', 'INTEGER');
   ensureColumn('sessions', 'hidden_from_threads', 'INTEGER DEFAULT 0');
   ensureColumn('sessions', 'workspace_channel_id', 'TEXT');
+  ensureColumn('sessions', 'team_mode', "TEXT DEFAULT 'channel_default'");
+  ensureColumn('sessions', 'team_id', 'TEXT');
   ensureColumn('sessions', 'project_cwd', 'TEXT');
   ensureColumn('sessions', 'env_mode', "TEXT DEFAULT 'local'");
   ensureColumn('sessions', 'worktree_path', 'TEXT');
@@ -358,12 +392,19 @@ export function initialize(): void {
   ensureColumn('messages', 'source_origin', 'TEXT');
   ensureColumn('messages', 'search_text', 'TEXT');
   ensureColumn('messages', 'sort_key', 'INTEGER');
+  ensureColumn('messages', 'parent_turn_id', 'TEXT');
+  ensureColumn('messages', 'delegate_call_id', 'TEXT');
+  ensureColumn('messages', 'delegate_run_id', 'TEXT');
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
     CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
     CREATE INDEX IF NOT EXISTS idx_messages_sort_key ON messages(sort_key);
     CREATE INDEX IF NOT EXISTS idx_messages_message_type ON messages(message_type);
+    CREATE INDEX IF NOT EXISTS idx_messages_parent_turn_id ON messages(parent_turn_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_delegate_call_id ON messages(delegate_call_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_profiles_updated_at ON agent_profiles(updated_at);
+    CREATE INDEX IF NOT EXISTS idx_team_profiles_updated_at ON team_profiles(updated_at);
     CREATE INDEX IF NOT EXISTS idx_artifacts_session_id ON artifacts(session_id);
     CREATE INDEX IF NOT EXISTS idx_derived_summaries_session_id ON derived_summaries(session_id);
     CREATE INDEX IF NOT EXISTS idx_search_index_session_id ON search_index(session_id);
@@ -504,6 +545,16 @@ function extractSearchableMessageText(message: StreamMessage): string {
 
   if (message.type === 'result') {
     return message.subtype || '';
+  }
+
+  if (message.type === 'delegate_activity') {
+    return [
+      message.call.agentId,
+      message.call.reason,
+      message.call.task,
+      message.result?.summary,
+      message.raw,
+    ].filter(Boolean).join('\n');
   }
 
   return '';
@@ -652,6 +703,9 @@ function buildMessagePersistenceRecord(
     sourceOrigin,
     searchText: normalizeSearchText(extractSearchableMessageText(message)),
     sortKey: createdAt,
+    parentTurnId: typeof message.parentTurnId === 'string' ? message.parentTurnId : null,
+    delegateCallId: typeof message.delegateCallId === 'string' ? message.delegateCallId : null,
+    delegateRunId: typeof message.delegateRunId === 'string' ? message.delegateRunId : null,
     data: externalized?.storedData || rawData,
     createdAt,
     artifact: externalized?.artifact,
@@ -900,6 +954,97 @@ function getDb(): Database.Database {
   return db;
 }
 
+type ProfileRow = {
+  id: string;
+  data: string;
+  created_at: number;
+  updated_at: number;
+};
+
+function normalizeStoredProfileRecord(value: unknown): StoredAgentProfile | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === 'string' ? record.id.trim() : '';
+  if (!id) return null;
+  return { ...record, id } as StoredAgentProfile;
+}
+
+function normalizeStoredTeamProfile(value: unknown): TeamProfile | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Partial<TeamProfile>;
+  const id = typeof record.id === 'string' ? record.id.trim() : '';
+  const name = typeof record.name === 'string' ? record.name : '';
+  if (!id || !name.trim()) return null;
+  return {
+    ...record,
+    id,
+    name,
+    leaderAgentId: typeof record.leaderAgentId === 'string' ? record.leaderAgentId : null,
+    members: Array.isArray(record.members) ? record.members : [],
+    createdAt: typeof record.createdAt === 'number' ? record.createdAt : Date.now(),
+    updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : Date.now(),
+  } as TeamProfile;
+}
+
+function parseStoredProfileRow<T>(row: ProfileRow, normalize: (value: unknown) => T | null): T | null {
+  try {
+    return normalize(JSON.parse(row.data));
+  } catch {
+    return null;
+  }
+}
+
+function replaceProfileTable<T extends { id: string; createdAt?: number; updatedAt?: number }>(
+  tableName: 'agent_profiles' | 'team_profiles',
+  profiles: T[]
+): void {
+  const now = Date.now();
+  const db = getDb();
+  const transaction = db.transaction((items: T[]) => {
+    db.prepare(`DELETE FROM ${tableName}`).run();
+    const stmt = db.prepare(`
+      INSERT INTO ${tableName} (id, data, created_at, updated_at)
+      VALUES (?, ?, ?, ?)
+    `);
+    for (const item of items) {
+      const id = item.id.trim();
+      if (!id) continue;
+      const createdAt = typeof item.createdAt === 'number' ? item.createdAt : now;
+      const updatedAt = typeof item.updatedAt === 'number' ? item.updatedAt : now;
+      stmt.run(id, JSON.stringify({ ...item, id, createdAt, updatedAt }), createdAt, updatedAt);
+    }
+  });
+  transaction(profiles);
+}
+
+export function replaceProfileSnapshots(payload: ProfileSnapshotPayload): void {
+  const agentProfiles = payload.agentProfiles
+    .map(normalizeStoredProfileRecord)
+    .filter((item): item is StoredAgentProfile => Boolean(item));
+  const teamProfiles = payload.teamProfiles
+    .map(normalizeStoredTeamProfile)
+    .filter((item): item is TeamProfile => Boolean(item));
+  replaceProfileTable('agent_profiles', agentProfiles);
+  replaceProfileTable('team_profiles', teamProfiles);
+}
+
+export function getProfileSnapshots(): ProfileSnapshotPayload {
+  const agentRows = getDb()
+    .prepare('SELECT id, data, created_at, updated_at FROM agent_profiles ORDER BY created_at ASC')
+    .all() as ProfileRow[];
+  const teamRows = getDb()
+    .prepare('SELECT id, data, created_at, updated_at FROM team_profiles ORDER BY created_at ASC')
+    .all() as ProfileRow[];
+  return {
+    agentProfiles: agentRows
+      .map((row) => parseStoredProfileRow(row, normalizeStoredProfileRecord))
+      .filter((item): item is StoredAgentProfile => Boolean(item)),
+    teamProfiles: teamRows
+      .map((row) => parseStoredProfileRow(row, normalizeStoredTeamProfile))
+      .filter((item): item is TeamProfile => Boolean(item)),
+  };
+}
+
 // 创建会话
 export function createSession(params: {
   title: string;
@@ -928,13 +1073,15 @@ export function createSession(params: {
   opencodePermissionMode?: OpenCodePermissionMode;
   hiddenFromThreads?: boolean;
   channelId?: string;
+  teamMode?: SessionTeamMode;
+  teamId?: string | null;
 }): SessionRow {
   const now = Date.now();
   const id = uuidv4();
 
   const stmt = getDb().prepare(`
-    INSERT INTO sessions (id, title, provider, model, conversation_scope, agent_id, compatible_provider_id, betas, claude_access_mode, claude_execution_mode, claude_reasoning_effort, codex_execution_mode, codex_permission_mode, codex_reasoning_effort, codex_fast_mode, opencode_permission_mode, cwd, allowed_tools, last_prompt, todo_state, session_origin, external_file_path, external_file_mtime, hidden_from_threads, workspace_channel_id, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aegis', NULL, NULL, ?, ?, 'idle', ?, ?)
+    INSERT INTO sessions (id, title, provider, model, conversation_scope, agent_id, compatible_provider_id, betas, claude_access_mode, claude_execution_mode, claude_reasoning_effort, codex_execution_mode, codex_permission_mode, codex_reasoning_effort, codex_fast_mode, opencode_permission_mode, cwd, allowed_tools, last_prompt, todo_state, session_origin, external_file_path, external_file_mtime, hidden_from_threads, workspace_channel_id, team_mode, team_id, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'aegis', NULL, NULL, ?, ?, ?, ?, 'idle', ?, ?)
   `);
 
   stmt.run(
@@ -960,6 +1107,8 @@ export function createSession(params: {
     'todo',
     params.hiddenFromThreads ? 1 : 0,
     normalizeWorkspaceChannelId(params.channelId),
+    normalizeSessionTeamMode(params.teamMode),
+    params.teamId?.trim() || null,
     now,
     now
   );
@@ -1254,6 +1403,22 @@ export function updateSessionChannelId(sessionId: string, channelId: string | nu
   stmt.run(normalizeWorkspaceChannelId(channelId), now, sessionId);
 }
 
+export function updateSessionTeam(
+  sessionId: string,
+  teamMode: SessionTeamMode,
+  teamId?: string | null
+): void {
+  const now = Date.now();
+  const normalizedMode = normalizeSessionTeamMode(teamMode);
+  const normalizedTeamId = normalizedMode === 'team' || normalizedMode === 'manual'
+    ? teamId?.trim() || null
+    : null;
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET team_mode = ?, team_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(normalizedMode, normalizedTeamId, now, sessionId);
+}
+
 export function updateSessionWorkspace(
   sessionId: string,
   workspace: {
@@ -1390,13 +1555,16 @@ export function addMessage(sessionId: string, message: StreamMessage): void {
   const record = buildMessagePersistenceRecord(sessionId, sourceOrigin, message);
 
   const stmt = getDb().prepare(`
-    INSERT INTO messages (id, session_id, message_type, source_origin, search_text, sort_key, data, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, session_id, message_type, source_origin, search_text, sort_key, parent_turn_id, delegate_call_id, delegate_run_id, data, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       message_type = excluded.message_type,
       source_origin = excluded.source_origin,
       search_text = excluded.search_text,
       sort_key = excluded.sort_key,
+      parent_turn_id = excluded.parent_turn_id,
+      delegate_call_id = excluded.delegate_call_id,
+      delegate_run_id = excluded.delegate_run_id,
       data = excluded.data,
       created_at = excluded.created_at
   `);
@@ -1416,6 +1584,9 @@ export function addMessage(sessionId: string, message: StreamMessage): void {
     record.sourceOrigin,
     record.searchText,
     record.sortKey,
+    record.parentTurnId,
+    record.delegateCallId,
+    record.delegateRunId,
     record.data,
     record.createdAt
   );
@@ -1446,8 +1617,8 @@ export function replaceSessionHistory(sessionId: string, messages: StreamMessage
   const deleteArtifactsStmt = getDb().prepare('DELETE FROM artifacts WHERE session_id = ? AND kind = ?');
   const deleteSearchIndexStmt = getDb().prepare('DELETE FROM search_index WHERE session_id = ?');
   const insertStmt = getDb().prepare(`
-    INSERT INTO messages (id, session_id, message_type, source_origin, search_text, sort_key, data, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, session_id, message_type, source_origin, search_text, sort_key, parent_turn_id, delegate_call_id, delegate_run_id, data, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertSearchIndexStmt = getDb().prepare(`
     INSERT INTO search_index (message_id, session_id, source_origin, text, updated_at)
@@ -1470,6 +1641,9 @@ export function replaceSessionHistory(sessionId: string, messages: StreamMessage
         record.sourceOrigin,
         record.searchText,
         record.sortKey,
+        record.parentTurnId,
+        record.delegateCallId,
+        record.delegateRunId,
         record.data,
         record.createdAt
       );

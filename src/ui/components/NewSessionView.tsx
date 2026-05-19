@@ -12,6 +12,7 @@ import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './Compose
 import { SidebarHeaderTrigger } from './Sidebar';
 import { SavePromptButton } from './prompts/SavePromptButton';
 import { ProjectAgentPicker } from './ProjectAgentPicker';
+import { ProjectTeamPicker } from './ProjectTeamPicker';
 import { FolderOpen } from './icons';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
@@ -20,6 +21,7 @@ import {
   DEFAULT_WORKSPACE_CHANNEL_ID,
   type RoutedAgentRuntimePayload,
   type RoutedAgentTurnPayload,
+  type SessionTeamMode,
 } from '../../shared/types';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
@@ -62,6 +64,8 @@ export function NewSessionView() {
     activeChannelByProject,
     sidebarCollapsed,
     agentProfiles,
+    teamProfiles,
+    workspaceChannelsByProject,
     projectAgentRostersByProject,
     selectedProjectAgentByProject,
     setAgentSetupOpen,
@@ -77,6 +81,8 @@ export function NewSessionView() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedTeamMode, setSelectedTeamMode] = useState<SessionTeamMode>('channel_default');
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [showCwdHint, setShowCwdHint] = useState(false);
   const [cursorIndex, setCursorIndex] = useState(0);
   const editorRef = useRef<ComposerPromptEditorHandle | null>(null);
@@ -155,7 +161,30 @@ export function NewSessionView() {
       : selectedProjectAgentRoute
         ? [selectedProjectAgentRoute]
         : [];
-  const runtimeAgentProfile = effectiveProjectAgentRoutes[0]?.profile || null;
+  const teamOptions = useMemo(
+    () => Object.values(teamProfiles).sort((left, right) => left.createdAt - right.createdAt),
+    [teamProfiles]
+  );
+  const currentProjectChannels = cwd ? workspaceChannelsByProject[cwd] || [] : [];
+  const currentChannelId = cwd ? activeChannelByProject[cwd] || DEFAULT_WORKSPACE_CHANNEL_ID : DEFAULT_WORKSPACE_CHANNEL_ID;
+  const currentChannel = currentProjectChannels.find((channel) => channel.id === currentChannelId);
+  const channelDefaultTeam = currentChannel?.defaultTeamId ? teamProfiles[currentChannel.defaultTeamId] || null : null;
+  const sessionSelectedTeam =
+    (selectedTeamMode === 'team' || selectedTeamMode === 'manual') && selectedTeamId
+      ? teamProfiles[selectedTeamId] || null
+      : selectedTeamMode === 'channel_default'
+        ? channelDefaultTeam
+        : null;
+  const explicitAgentMention = activeProjectAgentRoutes.length > 0;
+  const effectiveTeamProfile =
+    !explicitAgentMention && selectedTeamMode !== 'solo'
+      ? sessionSelectedTeam
+      : null;
+  const teamLeaderProfile =
+    effectiveTeamProfile?.leaderAgentId
+      ? agentProfiles[effectiveTeamProfile.leaderAgentId] || null
+      : null;
+  const runtimeAgentProfile = teamLeaderProfile || effectiveProjectAgentRoutes[0]?.profile || null;
   const agentRuntime = getAgentRuntime(runtimeAgentProfile);
   const runtimeProvider = agentRuntime?.provider || 'claude';
   const recentProjectOptions = useMemo(() => {
@@ -410,8 +439,18 @@ export function NewSessionView() {
     const projectAgentRuntimePayloads = newSessionAgentProfiles
       .map((profile) => buildAgentRuntimePayload(profile, codexReferences, aegisReferences))
       .filter((turn): turn is RoutedAgentRuntimePayload => Boolean(turn));
+    const teamAgentRuntimePayloads =
+      effectiveTeamProfile && runtimeProvider === 'aegis'
+        ? effectiveTeamProfile.members
+            .filter((member) => member.enabled && member.agentId !== runtimeAgentProfile?.id)
+            .map((member) => agentProfiles[member.agentId])
+            .filter((profile): profile is AgentProfile => Boolean(profile?.enabled))
+            .map((profile) => buildAgentRuntimePayload(profile, codexReferences, aegisReferences))
+            .filter((turn): turn is RoutedAgentRuntimePayload => Boolean(turn))
+        : undefined;
     const projectPublicAgents = newSessionAgentProfiles.map(toPublicAgentProfile);
-    const projectRoutedAgentTurns: RoutedAgentTurnPayload[] = effectiveProjectAgentRoutes
+    const shouldUseRoutedAgentTurns = runtimeProvider !== 'aegis' || activeProjectAgentRoutes.length > 0;
+    const projectRoutedAgentTurns: RoutedAgentTurnPayload[] = shouldUseRoutedAgentTurns ? effectiveProjectAgentRoutes
       .map((route): RoutedAgentTurnPayload | null => {
         const routeRuntime = buildAgentRuntimePayload(route.profile, codexReferences, aegisReferences);
         if (!routeRuntime) {
@@ -439,7 +478,7 @@ export function NewSessionView() {
           delegationKind: 'user',
         };
       })
-      .filter((turn): turn is RoutedAgentTurnPayload => Boolean(turn));
+      .filter((turn): turn is RoutedAgentTurnPayload => Boolean(turn)) : [];
     if (promptWithAttachment.reason === 'attachment_create_failed') {
       toast.error('Failed to convert the long message into an attachment. Sending inline instead.');
     }
@@ -499,6 +538,10 @@ export function NewSessionView() {
         routedAgentProfile: runtimeProvider === 'aegis' ? activeAgentRuntimePayload : undefined,
         routedAgentTurns: projectRoutedAgentTurns,
         availableAgentTurns: projectAgentRuntimePayloads,
+        teamMode: selectedTeamMode,
+        teamId: selectedTeamId,
+        teamProfile: runtimeProvider === 'aegis' ? effectiveTeamProfile || null : undefined,
+        teamAgentTurns: runtimeProvider === 'aegis' ? teamAgentRuntimePayloads : undefined,
       },
     });
 
@@ -936,6 +979,19 @@ export function NewSessionView() {
                   }
                 }}
               />
+              {activeProjectAgentRoutes.length === 0 ? (
+                <ProjectTeamPicker
+                  teams={teamOptions}
+                  selectedMode={selectedTeamMode}
+                  selectedTeam={sessionSelectedTeam}
+                  channelDefaultTeam={channelDefaultTeam}
+                  disabled={pendingStart}
+                  onSelect={(mode, teamId) => {
+                    setSelectedTeamMode(mode);
+                    setSelectedTeamId(teamId || null);
+                  }}
+                />
+              ) : null}
               <SavePromptButton content={promptLibraryContent} disabled={pendingStart} />
 
               <button
