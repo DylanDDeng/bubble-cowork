@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bold,
   CheckSquare,
-  ChevronLeft,
-  ChevronRight,
   Code,
   Heading1,
   Heading2,
@@ -307,7 +305,6 @@ export function ProjectMarkdownEditor({
   const headingFlashTimerRef = useRef<number | null>(null);
   const [outlineItems, setOutlineItems] = useState<MarkdownOutlineItem[]>([]);
   const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null);
-  const [outlineCollapsed, setOutlineCollapsed] = useState(false);
   const [editorFocused, setEditorFocused] = useState(false);
   const [, forceToolbarState] = useState(0);
   const breadcrumb = useMemo(() => formatBreadcrumb(cwd, filePath), [cwd, filePath]);
@@ -612,7 +609,7 @@ export function ProjectMarkdownEditor({
         <div className="aegis-md-error">{saveError}</div>
       )}
 
-      <div className={`aegis-md-main${outlineCollapsed ? ' outline-collapsed' : ''}`}>
+      <div className="aegis-md-main">
         <div className="aegis-md-canvas">
           <div
             ref={hostRef}
@@ -622,19 +619,19 @@ export function ProjectMarkdownEditor({
           />
         </div>
 
-        <aside className="aegis-md-outline">
+        <aside className="aegis-md-outline" aria-label="Document outline">
           <button
             type="button"
-            className="aegis-md-outline-toggle"
-            onClick={() => setOutlineCollapsed((collapsed) => !collapsed)}
-            title={outlineCollapsed ? 'Expand outline' : 'Collapse outline'}
-            aria-label={outlineCollapsed ? 'Expand outline' : 'Collapse outline'}
-            aria-expanded={!outlineCollapsed}
+            className="aegis-md-outline-trigger"
+            title="Show outline"
+            aria-label="Show outline"
           >
-            {outlineCollapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            <span />
+            <span />
+            <span />
+            <span />
           </button>
-          <div className="aegis-md-outline-content" aria-hidden={outlineCollapsed}>
-            <div className="aegis-md-outline-title">Outline</div>
+          <div className="aegis-md-outline-content">
             {outlineItems.length === 0 ? (
               <div className="aegis-md-outline-empty">Add headings to build an outline.</div>
             ) : (
@@ -645,7 +642,6 @@ export function ProjectMarkdownEditor({
                     type="button"
                     className={`level-${item.level}${activeOutlineId === item.id ? ' active' : ''}`}
                     onClick={() => jumpToOutlineItem(item)}
-                    tabIndex={outlineCollapsed ? -1 : 0}
                     title={item.text}
                   >
                     {item.text}

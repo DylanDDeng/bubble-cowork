@@ -540,6 +540,7 @@ export function ProjectTreePanel({
   const startWidthRef = useRef(0);
   const latestPreviewWidthRef = useRef(previewPanelWidth);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+  const [selectedFileCwd, setSelectedFileCwd] = useState<string | null>(null);
   const [selectedPreview, setSelectedPreview] = useState<ProjectFilePreview | null>(null);
   const [pptxSlideIndex, setPptxSlideIndex] = useState(0);
   const [viewMode, setViewMode] = useState<'view' | 'code'>('view');
@@ -790,6 +791,7 @@ export function ProjectTreePanel({
     setExpandedPaths(new Set());
     initRootRef.current = null;
     setSelectedFilePath(null);
+    setSelectedFileCwd(null);
     setSelectedPreview(null);
     setViewMode('view');
     setPreviewLoading(false);
@@ -892,6 +894,7 @@ export function ProjectTreePanel({
     // Toggle: 如果点击的是已选中的文件，取消选中
     if (toggleSame && selectedFilePath === filePath) {
       setSelectedFilePath(null);
+      setSelectedFileCwd(null);
       setSelectedPreview(null);
       return;
     }
@@ -902,6 +905,7 @@ export function ProjectTreePanel({
       const requestId = (previewRequestIdRef.current += 1);
       expandParentsForPath(filePath);
       setSelectedFilePath(null);
+      setSelectedFileCwd(null);
       setPreviewLoading(false);
       setSelectedPreview(null);
       setDraftText('');
@@ -932,6 +936,7 @@ export function ProjectTreePanel({
     }
 
     setSelectedFilePath(filePath);
+    setSelectedFileCwd(cwd);
     expandParentsForPath(filePath);
     setViewMode('view');
     setPreviewLoading(true);
@@ -1041,6 +1046,7 @@ export function ProjectTreePanel({
       if (wasSelected) {
         const movedPath = result.path;
         setSelectedFilePath(movedPath);
+        setSelectedFileCwd(cwd);
         setSelectedPreview((current) => current ? { ...current, path: movedPath } : current);
       }
 
@@ -1256,7 +1262,9 @@ export function ProjectTreePanel({
     if (typeof reader !== 'function') return;
 
     const name = filePath.split('/').filter(Boolean).pop() || filePath;
+    const fileCwd = dirnameOfPath(filePath);
     setSelectedFilePath(filePath);
+    setSelectedFileCwd(fileCwd);
     setViewMode('view');
     setPreviewLoading(true);
     setSelectedPreview(null);
@@ -1268,10 +1276,17 @@ export function ProjectTreePanel({
 
     const requestId = (previewRequestIdRef.current += 1);
     try {
-      const preview = (await reader(dirnameOfPath(filePath), filePath)) as ProjectFilePreview;
+      const preview = (await reader(fileCwd, filePath)) as ProjectFilePreview;
       if (previewRequestIdRef.current !== requestId) return;
+      if (preview.kind === 'markdown') {
+        setSelectedPreview(preview);
+        if (preview.editable) {
+          setDraftText(preview.text);
+        }
+        return;
+      }
       if (
-        (preview.kind === 'text' || preview.kind === 'markdown' || preview.kind === 'html') &&
+        (preview.kind === 'text' || preview.kind === 'html') &&
         typeof options.lineStart === 'number'
       ) {
         setSelectedPreview({
@@ -1310,6 +1325,7 @@ export function ProjectTreePanel({
 
   const closePreview = useCallback(() => {
     setSelectedFilePath(null);
+    setSelectedFileCwd(null);
     setSelectedPreview(null);
     setViewMode('view');
     setDraftText('');
@@ -1405,14 +1421,14 @@ export function ProjectTreePanel({
   }, [collapsed, selectedFilePath, previewPanelWidth]);
 
   const canSaveText =
-    !!cwd &&
+    !!selectedFileCwd &&
     !!selectedPreview &&
     (selectedPreview.kind === 'text' || selectedPreview.kind === 'markdown') &&
     selectedPreview.editable &&
     draftText !== selectedPreview.text;
 
   const handleSaveText = async () => {
-    if (!cwd) return;
+    if (!selectedFileCwd) return;
     if (
       !selectedPreview ||
       (selectedPreview.kind !== 'text' && selectedPreview.kind !== 'markdown') ||
@@ -1427,7 +1443,7 @@ export function ProjectTreePanel({
     setSaveError(null);
     try {
       const result = (await window.electron.writeProjectTextFile(
-        cwd,
+        selectedFileCwd,
         selectedFilePath,
         draftText
       )) as { ok: boolean; message?: string };
@@ -1469,6 +1485,7 @@ export function ProjectTreePanel({
   useEffect(() => {
     if (
       !cwd ||
+      !selectedFileCwd ||
       !selectedFilePath ||
       !selectedPreview ||
       selectedPreview.kind !== 'markdown' ||
@@ -1483,7 +1500,7 @@ export function ProjectTreePanel({
     const intervalId = window.setInterval(() => {
       void (async () => {
         try {
-          const latest = (await reader(cwd, selectedFilePath)) as ProjectFilePreview;
+          const latest = (await reader(selectedFileCwd, selectedFilePath)) as ProjectFilePreview;
           if (latest.kind !== 'markdown' || !latest.editable) return;
           if (latest.text === selectedPreview.text) return;
 
@@ -1501,7 +1518,7 @@ export function ProjectTreePanel({
     }, 4000);
 
     return () => window.clearInterval(intervalId);
-  }, [cwd, draftText, selectedFilePath, selectedPreview]);
+  }, [cwd, draftText, selectedFileCwd, selectedFilePath, selectedPreview]);
 
   const handleReloadMarkdownExternal = () => {
     if (
@@ -1662,7 +1679,7 @@ export function ProjectTreePanel({
   const isEditableMarkdownPreview =
     isMarkdownPreviewSurface &&
     selectedPreview?.editable &&
-    !!cwd &&
+    !!selectedFileCwd &&
     !!selectedFilePath;
   const projectRootDropHoverId = visibleTree ? getNodeDropHoverId(visibleTree.path) : null;
   const isProjectRootDropTarget =
@@ -2158,10 +2175,10 @@ export function ProjectTreePanel({
                 )}
 
                 {!previewLoading && selectedPreview?.kind === 'markdown' && (
-                  selectedPreview.editable && cwd && selectedFilePath ? (
+                  selectedPreview.editable && selectedFileCwd && selectedFilePath ? (
                     <ProjectMarkdownEditor
                       value={draftText}
-                      cwd={cwd}
+                      cwd={selectedFileCwd}
                       filePath={selectedFilePath}
                       fileName={selectedPreview.name}
                       hideTitleBar
