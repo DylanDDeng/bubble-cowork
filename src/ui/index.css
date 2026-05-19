@@ -1808,22 +1808,24 @@ button.md-inline-file-code:hover {
   z-index: 3;
   display: flex;
   width: 32px;
-  height: 164px;
+  max-height: min(240px, calc(100vh - 140px));
   align-items: center;
   justify-content: flex-start;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   border: 0;
   border-radius: 10px;
-  padding: 12px 0 0;
+  padding: 10px 0;
   color: var(--text-muted);
   opacity: 0.9;
+  overflow: hidden;
   transition:
     opacity 160ms ease,
     transform 180ms ease;
 }
 
 .aegis-md-outline-trigger:hover,
+.aegis-md-outline.is-open .aegis-md-outline-trigger,
 .aegis-md-outline:focus-within .aegis-md-outline-trigger {
   opacity: 1;
   transform: translateX(-1px);
@@ -1840,17 +1842,19 @@ button.md-inline-file-code:hover {
     transform 180ms ease;
 }
 
-.aegis-md-outline-trigger span:first-child {
+.aegis-md-outline-trigger span.active {
   background: color-mix(in srgb, var(--text-primary) 88%, transparent);
 }
 
 .aegis-md-outline:hover .aegis-md-outline-trigger span,
+.aegis-md-outline.is-open .aegis-md-outline-trigger span,
 .aegis-md-outline:focus-within .aegis-md-outline-trigger span {
   background: color-mix(in srgb, var(--text-secondary) 42%, transparent);
 }
 
-.aegis-md-outline:hover .aegis-md-outline-trigger span:first-child,
-.aegis-md-outline:focus-within .aegis-md-outline-trigger span:first-child {
+.aegis-md-outline:hover .aegis-md-outline-trigger span.active,
+.aegis-md-outline.is-open .aegis-md-outline-trigger span.active,
+.aegis-md-outline:focus-within .aegis-md-outline-trigger span.active {
   background: color-mix(in srgb, var(--text-primary) 92%, transparent);
 }
 
@@ -1878,6 +1882,7 @@ button.md-inline-file-code:hover {
 }
 
 .aegis-md-outline:hover .aegis-md-outline-content,
+.aegis-md-outline.is-open .aegis-md-outline-content,
 .aegis-md-outline:focus-within .aegis-md-outline-content {
   opacity: 1;
   pointer-events: auto;
@@ -1929,8 +1934,8 @@ button.md-inline-file-code:hover {
 }
 
 .aegis-md-outline-list button.active {
-  background: color-mix(in srgb, var(--bg-tertiary) 78%, var(--preview-surface));
-  color: var(--text-primary);
+  background: transparent;
+  color: var(--accent);
   font-weight: 650;
 }
 

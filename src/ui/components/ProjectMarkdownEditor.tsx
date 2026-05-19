@@ -303,8 +303,10 @@ export function ProjectMarkdownEditor({
   const frontmatterRef = useRef(splitFrontmatter(value).frontmatter);
   const outlineItemsRef = useRef<MarkdownOutlineItem[]>([]);
   const headingFlashTimerRef = useRef<number | null>(null);
+  const outlineCloseTimerRef = useRef<number | null>(null);
   const [outlineItems, setOutlineItems] = useState<MarkdownOutlineItem[]>([]);
   const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null);
+  const [outlineOpen, setOutlineOpen] = useState(false);
   const [editorFocused, setEditorFocused] = useState(false);
   const [, forceToolbarState] = useState(0);
   const breadcrumb = useMemo(() => formatBreadcrumb(cwd, filePath), [cwd, filePath]);
@@ -348,6 +350,24 @@ export function ProjectMarkdownEditor({
     if (!view) return;
     refreshDerivedUi(view);
   }, [refreshDerivedUi]);
+
+  const openOutline = useCallback(() => {
+    if (outlineCloseTimerRef.current) {
+      window.clearTimeout(outlineCloseTimerRef.current);
+      outlineCloseTimerRef.current = null;
+    }
+    setOutlineOpen(true);
+  }, []);
+
+  const queueCloseOutline = useCallback(() => {
+    if (outlineCloseTimerRef.current) {
+      window.clearTimeout(outlineCloseTimerRef.current);
+    }
+    outlineCloseTimerRef.current = window.setTimeout(() => {
+      setOutlineOpen(false);
+      outlineCloseTimerRef.current = null;
+    }, 180);
+  }, []);
 
   const toggleBulletList = useCallback(() => {
     const view = viewRef.current;
@@ -507,6 +527,14 @@ export function ProjectMarkdownEditor({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onSave]);
 
+  useEffect(() => {
+    return () => {
+      if (outlineCloseTimerRef.current) {
+        window.clearTimeout(outlineCloseTimerRef.current);
+      }
+    };
+  }, []);
+
   const view = viewRef.current;
   const showActiveFormatting = editorFocused;
   const active = {
@@ -619,22 +647,34 @@ export function ProjectMarkdownEditor({
           />
         </div>
 
-        <aside className="aegis-md-outline" aria-label="Document outline">
-          <button
-            type="button"
-            className="aegis-md-outline-trigger"
-            title="Show outline"
-            aria-label="Show outline"
+        {outlineItems.length > 0 && (
+          <aside
+            className={`aegis-md-outline${outlineOpen ? ' is-open' : ''}`}
+            aria-label="Document outline"
           >
-            <span />
-            <span />
-            <span />
-            <span />
-          </button>
-          <div className="aegis-md-outline-content">
-            {outlineItems.length === 0 ? (
-              <div className="aegis-md-outline-empty">Add headings to build an outline.</div>
-            ) : (
+            <button
+              type="button"
+              className="aegis-md-outline-trigger"
+              title="Show outline"
+              aria-label="Show outline"
+              aria-expanded={outlineOpen}
+              onMouseEnter={openOutline}
+              onMouseLeave={queueCloseOutline}
+              onFocus={openOutline}
+              onBlur={queueCloseOutline}
+            >
+              {outlineItems.map((item) => (
+                <span
+                  key={`outline-trigger-${item.id}`}
+                  className={`level-${item.level}${activeOutlineId === item.id ? ' active' : ''}`}
+                />
+              ))}
+            </button>
+            <div
+              className="aegis-md-outline-content"
+              onMouseEnter={openOutline}
+              onMouseLeave={queueCloseOutline}
+            >
               <div className="aegis-md-outline-list">
                 {outlineItems.map((item) => (
                   <button
@@ -648,9 +688,9 @@ export function ProjectMarkdownEditor({
                   </button>
                 ))}
               </div>
-            )}
-          </div>
-        </aside>
+            </div>
+          </aside>
+        )}
       </div>
     </div>
   );
