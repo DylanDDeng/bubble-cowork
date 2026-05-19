@@ -43,7 +43,6 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "electron-updater": "^6.3.4",
-    "jsdom": "^28.1.0",
     "katex": "^0.16.28",
     "motion": "^12.27.5",
     "node-pty": "^1.1.0",

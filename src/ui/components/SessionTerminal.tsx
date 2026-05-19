@@ -203,6 +203,34 @@ export function SessionTerminal({
   });
 
   useEffect(() => {
+    const element = containerRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    let resizeFrame: number | null = null;
+    const observer = new ResizeObserver(() => {
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame);
+      }
+
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = null;
+        syncTerminalSize(activeTabId);
+      });
+    });
+
+    observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+      if (resizeFrame !== null) {
+        window.cancelAnimationFrame(resizeFrame);
+      }
+    };
+  }, [activeTabId]);
+
+  useEffect(() => {
     stopTerminalTabs(tabsRef.current);
     tabsRef.current = [];
     nextTabNumberRef.current = 1;

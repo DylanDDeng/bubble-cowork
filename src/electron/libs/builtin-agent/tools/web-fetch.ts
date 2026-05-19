@@ -185,108 +185,153 @@ async function formatResponseBody(body: string, contentType: string, format: Fet
   if (!contentType.includes('text/html')) return body;
   if (format === 'html') return body;
 
-  const { JSDOM } = require('jsdom') as {
-    JSDOM: new (html: string) => { window: { document: Document } };
-  };
-  const document = new JSDOM(body).window.document;
-  document.querySelectorAll('script, style, noscript, iframe, object, embed, meta, link').forEach((node: Element) => {
-    node.remove();
-  });
   if (format === 'text') {
-    return (document.body?.textContent || document.documentElement.textContent || '').replace(/\s+/g, ' ').trim();
+    return htmlToText(body);
   }
-  return htmlDocumentToMarkdown(document);
+  return htmlToMarkdown(body);
 }
 
-function htmlDocumentToMarkdown(document: Document): string {
-  const lines: string[] = [];
-  const root = document.body || document.documentElement;
-  for (const child of Array.from(root.childNodes)) {
-    appendMarkdown(child, lines);
-  }
-  return lines
+function htmlToText(html: string): string {
+  return decodeHtmlEntities(
+    stripHtmlTags(addBlockBreaks(stripNonContentHtml(html))).replace(/\s+/g, ' ')
+  ).trim();
+}
+
+function htmlToMarkdown(html: string): string {
+  const codeBlocks: string[] = [];
+  let working = stripNonContentHtml(html);
+
+  working = working.replace(/<pre\b[^>]*>([\s\S]*?)<\/pre>/gi, (_match, inner: string) => {
+    const index = codeBlocks.length;
+    const code = decodeHtmlEntities(stripHtmlTags(inner)).trimEnd();
+    codeBlocks.push(code);
+    return `\n\n@@AEGIS_CODE_BLOCK_${index}@@\n\n`;
+  });
+
+  working = working.replace(/<br\s*\/?>/gi, '\n');
+  working = working.replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_match, level: string, inner: string) => {
+    const text = inlineHtmlToMarkdown(inner);
+    return text ? `\n\n${'#'.repeat(Number(level))} ${text}\n\n` : '\n\n';
+  });
+  working = working.replace(/<li\b[^>]*>([\s\S]*?)<\/li>/gi, (_match, inner: string) => {
+    const text = inlineHtmlToMarkdown(inner);
+    return text ? `\n- ${text}\n` : '\n';
+  });
+  working = working.replace(/<blockquote\b[^>]*>([\s\S]*?)<\/blockquote>/gi, (_match, inner: string) => {
+    const text = htmlToText(inner);
+    if (!text) return '\n\n';
+    return `\n\n${text.split('\n').map((line) => `> ${line}`).join('\n')}\n\n`;
+  });
+  working = addBlockBreaks(working);
+  working = inlineHtmlToMarkdown(working);
+  working = stripHtmlTags(working);
+  working = decodeHtmlEntities(working);
+
+  working = working.replace(/@@AEGIS_CODE_BLOCK_(\d+)@@/g, (_match, index: string) => {
+    const code = codeBlocks[Number(index)] || '';
+    return code ? `\n\n\`\`\`\n${code}\n\`\`\`\n\n` : '';
+  });
+
+  return cleanupMarkdown(working);
+}
+
+function stripNonContentHtml(html: string): string {
+  return html
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<!doctype[^>]*>/gi, ' ')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, ' ')
+    .replace(/<object\b[^>]*>[\s\S]*?<\/object>/gi, ' ')
+    .replace(/<embed\b[^>]*>[\s\S]*?<\/embed>/gi, ' ')
+    .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, ' ')
+    .replace(/<meta\b[^>]*>/gi, ' ')
+    .replace(/<link\b[^>]*>/gi, ' ');
+}
+
+function addBlockBreaks(html: string): string {
+  return html
+    .replace(/<\/?(?:article|aside|body|div|footer|form|header|hr|main|nav|ol|p|section|table|tbody|td|tfoot|th|thead|tr|ul)\b[^>]*>/gi, '\n\n');
+}
+
+function inlineHtmlToMarkdown(html: string): string {
+  let output = html;
+  output = output.replace(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi, (_match, attrs: string, inner: string) => {
+    const text = normalizeInlineText(decodeHtmlEntities(stripHtmlTags(inlineHtmlToMarkdown(inner))));
+    const href = extractHtmlAttribute(attrs, 'href');
+    return text && href ? `[${text}](${decodeHtmlEntities(href)})` : text;
+  });
+  output = output.replace(/<(?:strong|b)\b[^>]*>([\s\S]*?)<\/(?:strong|b)>/gi, (_match, inner: string) => {
+    const text = normalizeInlineText(decodeHtmlEntities(stripHtmlTags(inlineHtmlToMarkdown(inner))));
+    return text ? `**${text}**` : '';
+  });
+  output = output.replace(/<(?:em|i)\b[^>]*>([\s\S]*?)<\/(?:em|i)>/gi, (_match, inner: string) => {
+    const text = normalizeInlineText(decodeHtmlEntities(stripHtmlTags(inlineHtmlToMarkdown(inner))));
+    return text ? `*${text}*` : '';
+  });
+  output = output.replace(/<code\b[^>]*>([\s\S]*?)<\/code>/gi, (_match, inner: string) => {
+    const text = decodeHtmlEntities(stripHtmlTags(inner)).replace(/\s+/g, ' ').trim();
+    return text ? `\`${text.replace(/`/g, '\\`')}\`` : '';
+  });
+  return output;
+}
+
+function extractHtmlAttribute(attrs: string, name: string): string | null {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`${escaped}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, 'i');
+  const match = pattern.exec(attrs);
+  return match?.[1] || match?.[2] || match?.[3] || null;
+}
+
+function stripHtmlTags(value: string): string {
+  return value.replace(/<[^>]+>/g, ' ');
+}
+
+function cleanupMarkdown(value: string): string {
+  return value
+    .split('\n')
+    .map((line) => line.replace(/[ \t]+/g, ' ').trim())
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-function appendMarkdown(node: Node, lines: string[]): void {
-  if (node.nodeType === node.TEXT_NODE) {
-    const text = normalizeInlineText(node.textContent || '');
-    if (text) lines.push(text);
-    return;
-  }
-  if (node.nodeType !== node.ELEMENT_NODE) return;
-
-  const element = node as Element;
-  const tag = element.tagName.toLowerCase();
-  if (tag === 'br') {
-    lines.push('');
-    return;
-  }
-  if (/^h[1-6]$/.test(tag)) {
-    const level = Number(tag.slice(1));
-    const text = normalizeInlineText(element.textContent || '');
-    if (text) lines.push(`${'#'.repeat(level)} ${text}`, '');
-    return;
-  }
-  if (tag === 'p' || tag === 'section' || tag === 'article' || tag === 'main' || tag === 'header' || tag === 'footer') {
-    const text = inlineMarkdown(element);
-    if (text) lines.push(text, '');
-    return;
-  }
-  if (tag === 'li') {
-    const text = inlineMarkdown(element);
-    if (text) lines.push(`- ${text}`);
-    return;
-  }
-  if (tag === 'pre') {
-    const text = element.textContent || '';
-    if (text.trim()) lines.push('```', text.trimEnd(), '```', '');
-    return;
-  }
-  if (tag === 'blockquote') {
-    const text = normalizeInlineText(element.textContent || '');
-    if (text) lines.push(...text.split('\n').map((line) => `> ${line}`), '');
-    return;
-  }
-  if (tag === 'table') {
-    const text = normalizeInlineText(element.textContent || '');
-    if (text) lines.push(text, '');
-    return;
-  }
-
-  for (const child of Array.from(element.childNodes)) {
-    appendMarkdown(child, lines);
-  }
-}
-
-function inlineMarkdown(element: Element): string {
-  const pieces: string[] = [];
-  for (const node of Array.from(element.childNodes)) {
-    pieces.push(inlineNodeMarkdown(node));
-  }
-  return normalizeInlineText(pieces.join(''));
-}
-
-function inlineNodeMarkdown(node: Node): string {
-  if (node.nodeType === node.TEXT_NODE) return node.textContent || '';
-  if (node.nodeType !== node.ELEMENT_NODE) return '';
-  const element = node as Element;
-  const tag = element.tagName.toLowerCase();
-  const text = inlineMarkdown(element);
-  if (!text) return '';
-  if (tag === 'a') {
-    const href = element.getAttribute('href');
-    return href ? `[${text}](${href})` : text;
-  }
-  if (tag === 'strong' || tag === 'b') return `**${text}**`;
-  if (tag === 'em' || tag === 'i') return `*${text}*`;
-  if (tag === 'code') return `\`${text.replace(/`/g, '\\`')}\``;
-  if (tag === 'br') return '\n';
-  return text;
+    .replace(/^\s+|\s+$/g, '');
 }
 
 function normalizeInlineText(value: string): string {
   return value.replace(/[ \t\r\n]+/g, ' ').trim();
+}
+
+function decodeHtmlEntities(value: string): string {
+  const namedEntities: Record<string, string> = {
+    amp: '&',
+    apos: "'",
+    cent: '¢',
+    copy: '©',
+    emdash: '—',
+    endash: '–',
+    gt: '>',
+    hellip: '…',
+    laquo: '«',
+    ldquo: '“',
+    lsaquo: '‹',
+    lsquo: '‘',
+    lt: '<',
+    nbsp: ' ',
+    quot: '"',
+    raquo: '»',
+    rdquo: '”',
+    rsaquo: '›',
+    rsquo: '’',
+    reg: '®',
+    trade: '™',
+  };
+
+  return value.replace(/&(#x?[0-9a-f]+|[a-z][a-z0-9]+);/gi, (entity, body: string) => {
+    if (body[0] === '#') {
+      const isHex = body[1]?.toLowerCase() === 'x';
+      const codePoint = Number.parseInt(body.slice(isHex ? 2 : 1), isHex ? 16 : 10);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : entity;
+    }
+    return namedEntities[body.toLowerCase()] || entity;
+  });
 }

@@ -90,6 +90,7 @@ export function App() {
   useKeyboardShortcuts();
   const codexModelConfig = useCodexModelConfig();
   const [windowShellRounded, setWindowShellRounded] = useState(getDefaultWindowShellRounded);
+  const [terminalFullscreen, setTerminalFullscreen] = useState(false);
 
   const {
     connected,
@@ -737,7 +738,10 @@ export function App() {
                 />
                 <button
                   type="button"
-                  onClick={() => setTerminalDrawerOpen(!terminalDrawerOpen)}
+                  onClick={() => {
+                    setTerminalDrawerOpen(!terminalDrawerOpen);
+                    setTerminalFullscreen(false);
+                  }}
                   className={`no-drag inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] font-medium transition-colors ${
                     terminalDrawerOpen
                       ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
@@ -774,16 +778,23 @@ export function App() {
             </div>
           </div>
 
-          <WorkspaceHost codexModelConfig={codexModelConfig} />
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+            <WorkspaceHost codexModelConfig={codexModelConfig} />
 
-          <TerminalDrawer
-            open={terminalDrawerOpen}
-            height={terminalDrawerHeight}
-            onHeightChange={setTerminalDrawerHeight}
-            onClose={() => setTerminalDrawerOpen(false)}
-            sessionId={activeSessionId}
-            cwd={activeSession?.cwd || projectCwd || null}
-          />
+            <TerminalDrawer
+              open={terminalDrawerOpen}
+              height={terminalDrawerHeight}
+              onHeightChange={setTerminalDrawerHeight}
+              fullscreen={terminalFullscreen}
+              onFullscreenChange={setTerminalFullscreen}
+              onClose={() => {
+                setTerminalDrawerOpen(false);
+                setTerminalFullscreen(false);
+              }}
+              sessionId={activeSessionId}
+              cwd={activeSession?.cwd || projectCwd || null}
+            />
+          </div>
         </div>
       ) : (
         <NewSessionView key={newSessionKey} />
