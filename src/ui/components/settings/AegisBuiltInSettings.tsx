@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Bot, Eye, EyeOff } from '../icons';
+import { Eye, EyeOff } from '../icons';
 import type { AegisBuiltInAgentConfig } from '../../types';
 import {
   AEGIS_BUILT_IN_DEFAULT_MODEL,
@@ -12,6 +12,7 @@ import {
   resolveAegisBuiltInModel,
 } from '../../../shared/aegis-built-in-catalog';
 import { SettingsGroup, SettingsRow } from './SettingsPrimitives';
+import aegisAvatar from '../../assets/agent-avatars/anime-avatar-03.png';
 
 const DEFAULT_PROVIDER = getAegisBuiltInProvider(AEGIS_BUILT_IN_DEFAULT_PROVIDER_ID);
 const DEFAULT_CONFIG: AegisBuiltInAgentConfig = {
@@ -107,8 +108,8 @@ export function AegisBuiltInSettingsContent() {
         setDraftConfig(normalized);
       })
       .catch((error) => {
-        console.error('Failed to load Aegis Built-in config:', error);
-        toast.error(error instanceof Error ? error.message : 'Failed to load Aegis Built-in config.');
+        console.error('Failed to load Aegis config:', error);
+        toast.error(error instanceof Error ? error.message : 'Failed to load Aegis config.');
       })
       .finally(() => {
         if (!cancelled) {
@@ -167,9 +168,9 @@ export function AegisBuiltInSettingsContent() {
       setSavedConfig(saved);
       setDraftConfig(saved);
       window.dispatchEvent(new CustomEvent('aegis-built-in-agent-config-updated'));
-      toast.success('Aegis Built-in settings saved.');
+      toast.success('Aegis settings saved.');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to save Aegis Built-in settings.');
+      toast.error(error instanceof Error ? error.message : 'Failed to save Aegis settings.');
     } finally {
       setSaving(false);
     }
@@ -179,11 +180,11 @@ export function AegisBuiltInSettingsContent() {
     <div className="space-y-6 pb-8">
       <SettingsGroup title="Runtime">
         <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3">
-          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--bg-secondary)] text-[var(--accent)]">
-            <Bot className="h-4 w-4" aria-hidden="true" />
+          <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-md bg-[var(--bg-secondary)]">
+            <img src={aegisAvatar} alt="" className="h-full w-full object-cover" aria-hidden="true" />
           </span>
           <div className="min-w-0">
-            <div className="text-[13px] font-medium text-[var(--text-primary)]">Aegis Built-in Agent</div>
+            <div className="text-[13px] font-medium text-[var(--text-primary)]">Aegis</div>
             <div className="mt-0.5 truncate text-[12px] text-[var(--text-muted)]">
               {provider?.name || selection.providerId} · {selection.modelId}
             </div>
@@ -199,12 +200,12 @@ export function AegisBuiltInSettingsContent() {
 
       <SettingsGroup
         title="Model"
-        description="This only configures Aegis Built-in. Claude Code, Codex, and OpenCode keep their own native settings."
+        description="This only configures Aegis. Claude Code, Codex, and OpenCode keep their own native settings."
       >
         <SettingsRow
           variant="card"
           label="Provider"
-          description="Choose the OpenAI-compatible backend used by the built-in runtime."
+          description="Choose the OpenAI-compatible backend used by the Aegis runtime."
         >
           <select
             value={selection.providerId}
@@ -223,7 +224,7 @@ export function AegisBuiltInSettingsContent() {
         <SettingsRow
           variant="card"
           label="Model"
-          description="This is the default model shown when you select Aegis Built-in in Composer."
+          description="This is the default model shown when you select Aegis in Composer."
         >
           <select
             value={selection.encoded}

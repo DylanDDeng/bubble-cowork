@@ -1,4 +1,4 @@
-import { Bot, ChevronDown, Eye, EyeOff } from '../icons';
+import { ChevronDown, Eye, EyeOff } from '../icons';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import claudeLogo from '../../assets/claude-color.svg';
@@ -8,6 +8,7 @@ import deepseekLogo from '../../assets/deepseek-color.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
 import mimoLogo from '../../assets/xiaomimimo.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
+import aegisAvatar from '../../assets/agent-avatars/anime-avatar-03.png';
 import { useClaudeRuntimeStatus } from '../../hooks/useClaudeRuntimeStatus';
 import { useCodexRuntimeStatus } from '../../hooks/useCodexRuntimeStatus';
 import { useOpencodeRuntimeStatus } from '../../hooks/useOpencodeRuntimeStatus';
@@ -403,9 +404,9 @@ export function CompatibleProviderSettingsContent() {
     <div className="space-y-6 pb-8">
       <SettingsGroup title="Runtime Health">
         <RuntimeStatusRow
-          title="Aegis Built-in"
-          logo={<Bot className="h-5 w-5 text-[var(--accent)]" aria-hidden="true" />}
-          detail={aegisNeedsKey ? 'Configure it in Aegis Built-in settings, or provide a matching app environment key.' : undefined}
+          title="Aegis"
+          logo={<img src={aegisAvatar} alt="" className="h-5 w-5 rounded-full object-cover" aria-hidden="true" />}
+          detail={aegisNeedsKey ? 'Configure it in Aegis settings, or provide a matching app environment key.' : undefined}
           status={
             aegisConfigured
               ? { label: 'Configured', tone: 'text-emerald-700', dot: 'bg-emerald-500' }

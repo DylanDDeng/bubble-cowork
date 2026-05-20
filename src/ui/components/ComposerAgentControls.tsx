@@ -1,16 +1,17 @@
 import { useMemo, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Bot, Check, ChevronDown, Search } from './icons';
+import { Check, ChevronDown, Search } from './icons';
 import type { AgentProvider } from '../types';
 import type { ComposerModelOption } from '../hooks/useComposerAgentSelection';
 import { PROVIDERS } from '../utils/provider';
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
+import aegisAvatar from '../assets/agent-avatars/anime-avatar-03.png';
 import { OpenCodeLogo } from './OpenCodeLogo';
 
 function AgentIcon({ provider }: { provider: AgentProvider }) {
   if (provider === 'aegis') {
-    return <Bot className="h-4 w-4 flex-shrink-0 text-[var(--accent)]" aria-hidden="true" />;
+    return <img src={aegisAvatar} alt="" className="h-4 w-4 flex-shrink-0 rounded-full object-cover" aria-hidden="true" />;
   }
   if (provider === 'claude') {
     return <img src={claudeLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;

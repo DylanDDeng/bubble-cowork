@@ -91,7 +91,7 @@ export function useAgentReadiness(
 function buildAegisEntry(): AgentReadinessEntry {
   return {
     provider: 'aegis',
-    label: 'Aegis Built-in',
+    label: 'Aegis',
     state: 'ready',
     summary: 'Ready',
     detail: 'Runs through the built-in Aegis coding agent runtime.',

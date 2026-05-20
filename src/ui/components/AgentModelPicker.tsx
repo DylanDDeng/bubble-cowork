@@ -1,5 +1,5 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Check, ChevronDown, ChevronLeft, Search } from './icons';
+import { Check, ChevronDown, ChevronLeft, Search } from './icons';
 import type { AgentProvider, ClaudeCompatibleProviderId, ClaudeModelConfig } from '../types';
 import { PROVIDERS } from '../utils/provider';
 import {
@@ -18,6 +18,7 @@ import mimoLogo from '../assets/xiaomimimo.svg';
 import moonshotLogo from '../assets/moonshot.svg';
 import openaiLogo from '../assets/openai.svg';
 import zhipuLogo from '../assets/zhipu-color.svg';
+import aegisAvatar from '../assets/agent-avatars/anime-avatar-03.png';
 import { OpenCodeLogo } from './OpenCodeLogo';
 import { Input } from './ui/input';
 
@@ -73,7 +74,7 @@ function isVisibleClaudePickerModel(
 
 function ProviderIcon({ provider }: { provider: AgentProvider }) {
   if (provider === 'aegis') {
-    return <Bot className="h-4 w-4 flex-shrink-0 text-[var(--accent)]" aria-hidden="true" />;
+    return <img src={aegisAvatar} alt="" className="h-4 w-4 flex-shrink-0 rounded-full object-cover" aria-hidden="true" />;
   }
 
   if (provider === 'claude') {

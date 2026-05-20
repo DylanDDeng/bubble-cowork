@@ -1,14 +1,15 @@
 import { useState } from 'react';
-import { Bot, ChevronDown } from './icons';
+import { ChevronDown } from './icons';
 import type { AgentProvider } from '../types';
 import { PROVIDERS } from '../utils/provider';
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
+import aegisAvatar from '../assets/agent-avatars/anime-avatar-03.png';
 import { OpenCodeLogo } from './OpenCodeLogo';
 
 function ProviderIcon({ provider }: { provider: AgentProvider }) {
   if (provider === 'aegis') {
-    return <Bot className="h-4 w-4 flex-shrink-0 text-[var(--accent)]" aria-hidden="true" />;
+    return <img src={aegisAvatar} alt="" className="h-4 w-4 flex-shrink-0 rounded-full object-cover" aria-hidden="true" />;
   }
 
   if (provider === 'claude') {

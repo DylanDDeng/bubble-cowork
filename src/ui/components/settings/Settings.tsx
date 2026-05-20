@@ -19,9 +19,9 @@ const SETTINGS_TABS = {
     icon: <SettingsIcon className="w-4 h-4" />,
   },
   aegis: {
-    label: 'Aegis Built-in',
-    title: 'Aegis Built-in',
-    description: 'Configure the app-owned built-in agent runtime.',
+    label: 'Aegis',
+    title: 'Aegis',
+    description: 'Configure the app-owned agent runtime.',
     icon: <Bot className="w-4 h-4" />,
   },
   mcp: {
