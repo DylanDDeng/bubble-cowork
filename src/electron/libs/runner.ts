@@ -25,7 +25,7 @@ import {
 
 type ClaudeSettingSource = 'user' | 'project' | 'local';
 const CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local'];
-const OFFICIAL_CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['project'];
+const OFFICIAL_CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local'];
 const ENABLE_AEGIS_MEMORY_FOR_NATIVE_PROVIDERS = false;
 
 // Persistent store for memory extraction messages (survives across runClaude calls)

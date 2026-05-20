@@ -405,7 +405,7 @@ export function CompatibleProviderSettingsContent() {
         <RuntimeStatusRow
           title="Aegis Built-in"
           logo={<Bot className="h-5 w-5 text-[var(--accent)]" aria-hidden="true" />}
-          detail={aegisNeedsKey ? 'Configure the runtime key in the agent profile, or provide a matching app environment key.' : undefined}
+          detail={aegisNeedsKey ? 'Configure it in Aegis Built-in settings, or provide a matching app environment key.' : undefined}
           status={
             aegisConfigured
               ? { label: 'Configured', tone: 'text-emerald-700', dot: 'bg-emerald-500' }

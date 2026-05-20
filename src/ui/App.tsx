@@ -35,7 +35,6 @@ import { ProjectTreePanel } from './components/ProjectTreePanel';
 import { BrowserPanel } from './components/browser/BrowserPanel';
 import { TerminalDrawer } from './components/TerminalDrawer';
 import { WorkspaceHost } from './components/WorkspaceHost';
-import { AgentSetupDialog } from './components/AgentSetupDialog';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useCodexModelConfig } from './hooks/useCodexModelConfig';
 import { applyThemePreferences } from './theme/themes';
@@ -95,12 +94,6 @@ export function App() {
   const {
     connected,
     sessions,
-    agentProfiles,
-    teamProfiles,
-    agentSetupOpen,
-    agentSetupDismissedAt,
-    agentSetupCompletedAt,
-    setAgentSetupOpen,
     activeSessionId,
     historyNavigationTarget,
     loadOlderSessionHistory,
@@ -142,35 +135,10 @@ export function App() {
 
   // Track history requests (prevent duplicates)
   const historyRequested = useRef(new Set<string>());
-  const profileSyncSentRef = useRef(false);
   const sessionStatusSnapshotRef = useRef(new Map<string, SessionStatus>());
   const pendingAutoPreviewSessionsRef = useRef(new Set<string>());
   const autoPreviewedArtifactsRef = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
-  const agentProfileCount = Object.keys(agentProfiles).length;
-
-  useEffect(() => {
-    if (
-      !electronAvailable ||
-      !sessionsLoaded ||
-      agentProfileCount > 0 ||
-      agentSetupOpen ||
-      agentSetupDismissedAt ||
-      agentSetupCompletedAt
-    ) {
-      return;
-    }
-
-    setAgentSetupOpen(true);
-  }, [
-    agentProfileCount,
-    agentSetupCompletedAt,
-    agentSetupDismissedAt,
-    agentSetupOpen,
-    electronAvailable,
-    sessionsLoaded,
-    setAgentSetupOpen,
-  ]);
 
   useEffect(() => {
     if (!electronAvailable) {
@@ -332,24 +300,6 @@ export function App() {
       sendEvent({ type: 'mcp.get-config' });
     }
   }, [connected]);
-
-  useEffect(() => {
-    if (!connected) {
-      profileSyncSentRef.current = false;
-      return;
-    }
-    if (profileSyncSentRef.current) {
-      return;
-    }
-    profileSyncSentRef.current = true;
-    sendEvent({
-      type: 'profiles.sync',
-      payload: {
-        agentProfiles: Object.values(agentProfiles),
-        teamProfiles: Object.values(teamProfiles),
-      },
-    });
-  }, [connected, agentProfiles, teamProfiles]);
 
   const loadGitOverview = useCallback(async () => {
     const cwd = (activeSession?.cwd || projectCwd || '').trim();
@@ -848,8 +798,6 @@ export function App() {
           }
         />
       )}
-
-      <AgentSetupDialog />
 
       {/* Toast notifications */}
       <Toaster

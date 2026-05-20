@@ -1,54 +1,41 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MutableRefObject,
+} from 'react';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import type { AgentProfile, Attachment } from '../types';
+import type { Attachment } from '../types';
 import coworkLogo from '../assets/cowork-logo.svg';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
-import { ProjectAgentMentionMenu } from './ProjectAgentMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
 import { SidebarHeaderTrigger } from './Sidebar';
 import { SavePromptButton } from './prompts/SavePromptButton';
-import { ProjectAgentPicker } from './ProjectAgentPicker';
-import { ProjectTeamPicker } from './ProjectTeamPicker';
+import { ComposerAgentPicker, ComposerModelPicker } from './ComposerAgentControls';
 import { FolderOpen } from './icons';
+import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
-import { useProjectAgentMentions } from '../hooks/useProjectAgentMentions';
-import {
-  DEFAULT_WORKSPACE_CHANNEL_ID,
-  type RoutedAgentRuntimePayload,
-  type RoutedAgentTurnPayload,
-  type SessionTeamMode,
-} from '../../shared/types';
+import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
+import { buildAegisReferencePayload } from '../utils/aegis-composer';
+import { buildCodexReferencePayload } from '../utils/codex-composer';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
 import {
   LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD,
   maybeConvertLongPromptToAttachment,
 } from '../utils/long-prompt-attachment';
-import { buildCodexReferencePayload } from '../utils/codex-composer';
-import { buildAegisReferencePayload } from '../utils/aegis-composer';
-import {
-  getAgentMentionHandle,
-  getAgentMentionHandles,
-  getAgentMentionAliases,
-  getProjectAgentProfiles,
-  insertProjectAgentMention,
-  resolveProjectAgentMentionRoutes,
-} from '../utils/agent-mentions';
-import {
-  buildAgentEffectivePrompt,
-  buildAgentRuntimePayload,
-  getAgentRuntime,
-  toPublicAgentProfile,
-} from '../utils/agent-runtime';
 
 function isImeComposingEvent(
-  event: React.KeyboardEvent,
-  isComposingRef: React.MutableRefObject<boolean>
+  event: ReactKeyboardEvent,
+  isComposingRef: MutableRefObject<boolean>
 ): boolean {
   return (
     isComposingRef.current ||
@@ -63,130 +50,37 @@ export function NewSessionView() {
     projectCwd,
     activeChannelByProject,
     sidebarCollapsed,
-    agentProfiles,
-    teamProfiles,
-    workspaceChannelsByProject,
-    projectAgentRostersByProject,
-    selectedProjectAgentByProject,
-    setAgentSetupOpen,
     setPendingStart,
     setProjectCwd,
     setActiveChannelForProject,
-    setProjectAgentRoster,
-    setSelectedProjectAgentForProject,
     promptLibraryInsertRequest,
     consumePromptLibraryInsert,
   } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  const [selectedTeamMode, setSelectedTeamMode] = useState<SessionTeamMode>('channel_default');
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [showCwdHint, setShowCwdHint] = useState(false);
   const [cursorIndex, setCursorIndex] = useState(0);
   const editorRef = useRef<ComposerPromptEditorHandle | null>(null);
   const isComposingRef = useRef(false);
   const cwd = projectCwd || '';
   const hasSelectedCwd = cwd.trim().length > 0;
-  const enabledAgentProfiles = useMemo(
-    () => Object.values(agentProfiles)
-      .filter((profile) => profile.enabled)
-      .sort((left, right) => left.createdAt - right.createdAt),
-    [agentProfiles]
+  const agentSelection = useComposerAgentSelection({ selectionKey: '__new_session__' });
+  const capabilityMenu = useComposerCapabilityMenu({
+    enabled: true,
+    enableSkills: true,
+    provider: agentSelection.provider,
+    prompt,
+    cursorIndex,
+    projectPath: cwd || undefined,
+    setPrompt,
+    setCursorIndex,
+  });
+  const promptLibraryContent = useMemo(
+    () => capabilityMenu.displayPrompt.trim(),
+    [capabilityMenu.displayPrompt]
   );
-  const projectAgentProfiles = useMemo(
-    () =>
-      getProjectAgentProfiles({
-        agentProfiles,
-        projectAgentRostersByProject,
-        cwd,
-      }),
-    [agentProfiles, cwd, projectAgentRostersByProject]
-  );
-  const newSessionAgentProfiles =
-    projectAgentProfiles.length > 0 ? projectAgentProfiles : enabledAgentProfiles;
-  const projectAgentMentionHandles = useMemo(
-    () => getAgentMentionHandles(newSessionAgentProfiles),
-    [newSessionAgentProfiles]
-  );
-  const projectAgentMentionLabels = useMemo(
-    () =>
-      Object.fromEntries(
-        newSessionAgentProfiles.flatMap((profile) =>
-          getAgentMentionAliases(profile).map((handle) => [
-            handle,
-            profile.name.trim() || 'Agent',
-          ])
-        )
-      ),
-    [newSessionAgentProfiles]
-  );
-  const selectedProjectAgentProfile = useMemo(() => {
-    const persistedProfileId = cwd ? selectedProjectAgentByProject[cwd] : null;
-    return (
-      newSessionAgentProfiles.find((profile) => profile.id === selectedAgentId) ||
-      newSessionAgentProfiles.find((profile) => profile.id === persistedProfileId) ||
-      newSessionAgentProfiles[0] ||
-      null
-    );
-  }, [cwd, newSessionAgentProfiles, selectedAgentId, selectedProjectAgentByProject]);
-  const projectAgentRoutes = useMemo(
-    () => resolveProjectAgentMentionRoutes(prompt, newSessionAgentProfiles),
-    [newSessionAgentProfiles, prompt]
-  );
-  const activeProjectAgentRoutes = useMemo(
-    () =>
-      projectAgentRoutes.map((route) => ({
-        profile: route.profile,
-        handle: route.handle,
-        assignmentSource: 'mention' as const,
-      })),
-    [projectAgentRoutes]
-  );
-  const selectedProjectAgentRoute = useMemo(
-    () =>
-      selectedProjectAgentProfile
-        ? {
-            profile: selectedProjectAgentProfile,
-            handle: getAgentMentionHandle(selectedProjectAgentProfile),
-            assignmentSource: 'assignment' as const,
-          }
-        : null,
-    [selectedProjectAgentProfile]
-  );
-  const effectiveProjectAgentRoutes =
-    activeProjectAgentRoutes.length > 0
-      ? activeProjectAgentRoutes
-      : selectedProjectAgentRoute
-        ? [selectedProjectAgentRoute]
-        : [];
-  const teamOptions = useMemo(
-    () => Object.values(teamProfiles).sort((left, right) => left.createdAt - right.createdAt),
-    [teamProfiles]
-  );
-  const currentProjectChannels = cwd ? workspaceChannelsByProject[cwd] || [] : [];
-  const currentChannelId = cwd ? activeChannelByProject[cwd] || DEFAULT_WORKSPACE_CHANNEL_ID : DEFAULT_WORKSPACE_CHANNEL_ID;
-  const currentChannel = currentProjectChannels.find((channel) => channel.id === currentChannelId);
-  const channelDefaultTeam = currentChannel?.defaultTeamId ? teamProfiles[currentChannel.defaultTeamId] || null : null;
-  const sessionSelectedTeam =
-    (selectedTeamMode === 'team' || selectedTeamMode === 'manual') && selectedTeamId
-      ? teamProfiles[selectedTeamId] || null
-      : selectedTeamMode === 'channel_default'
-        ? channelDefaultTeam
-        : null;
-  const explicitAgentMention = activeProjectAgentRoutes.length > 0;
-  const effectiveTeamProfile =
-    !explicitAgentMention && selectedTeamMode !== 'solo'
-      ? sessionSelectedTeam
-      : null;
-  const teamLeaderProfile =
-    effectiveTeamProfile?.leaderAgentId
-      ? agentProfiles[effectiveTeamProfile.leaderAgentId] || null
-      : null;
-  const runtimeAgentProfile = teamLeaderProfile || effectiveProjectAgentRoutes[0]?.profile || null;
-  const agentRuntime = getAgentRuntime(runtimeAgentProfile);
-  const runtimeProvider = agentRuntime?.provider || 'claude';
+
   const recentProjectOptions = useMemo(() => {
     if (!cwd) {
       return recentCwds.slice(0, 6);
@@ -195,29 +89,12 @@ export function NewSessionView() {
     const next = [cwd, ...recentCwds.filter((dir) => dir !== cwd)];
     return next.slice(0, 6);
   }, [cwd, recentCwds]);
-  const skillAutocomplete = useComposerCapabilityMenu({
-    enabled: true,
-    enableSkills: true,
-    provider: runtimeProvider,
-    prompt,
-    cursorIndex,
-    projectPath: cwd || undefined,
-    setPrompt,
-    setCursorIndex,
-  });
-  const projectAgentMentions = useProjectAgentMentions({
-    profiles: newSessionAgentProfiles,
-    prompt: skillAutocomplete.displayPrompt,
-    cursorIndex,
-  });
+
   const projectFileMentions = useProjectFileMentions({
     cwd,
-    prompt: skillAutocomplete.displayPrompt,
+    prompt,
     cursorIndex,
   });
-  const projectAgentMentionActive =
-    projectAgentMentions.hasMentionQuery && projectAgentMentions.suggestions.length > 0;
-  const promptLibraryContent = useMemo(() => prompt.trim(), [prompt]);
 
   useEffect(() => {
     if (!promptLibraryInsertRequest) {
@@ -235,37 +112,9 @@ export function NewSessionView() {
     consumePromptLibraryInsert(promptLibraryInsertRequest.nonce);
   }, [consumePromptLibraryInsert, promptLibraryInsertRequest]);
 
-  // 加载最近工作目录
   useEffect(() => {
     window.electron.getRecentCwds(8).then(setRecentCwds);
   }, []);
-
-  useEffect(() => {
-    if (
-      selectedAgentId &&
-      newSessionAgentProfiles.some((profile) => profile.id === selectedAgentId)
-    ) {
-      return;
-    }
-
-    const persistedProfileId = cwd ? selectedProjectAgentByProject[cwd] : null;
-    const nextProfile =
-      newSessionAgentProfiles.find((profile) => profile.id === persistedProfileId) ||
-      newSessionAgentProfiles[0] ||
-      null;
-    setSelectedAgentId(nextProfile?.id || null);
-  }, [cwd, newSessionAgentProfiles, selectedAgentId, selectedProjectAgentByProject]);
-
-  useEffect(() => {
-    if (runtimeProvider === 'codex' || runtimeProvider === 'aegis') {
-      return;
-    }
-
-    sendEvent({
-      type: 'skills.list',
-      payload: { projectPath: cwd || undefined },
-    });
-  }, [cwd, runtimeProvider]);
 
   useEffect(() => {
     if (!showCwdHint) return;
@@ -274,46 +123,16 @@ export function NewSessionView() {
   }, [showCwdHint]);
 
   const buildDispatchPrompt = async (dispatchCwd = cwd): Promise<string | null> => {
-    const trimmedPrompt = prompt.trim();
-
-    const selectedSkill = skillAutocomplete.selectedSkill;
-    if (selectedSkill) {
-      const selectedSkillRemainder = skillAutocomplete.selectedSkillRemainder;
-      const expandedPrompt =
-        runtimeProvider === 'codex'
-          ? selectedSkillRemainder.trim()
-          : runtimeProvider === 'claude'
-            ? trimmedPrompt
-            : await (async () => {
-                const result = await window.electron.expandClaudeSkillPrompt(
-                  selectedSkill.path,
-                  selectedSkill.name,
-                  selectedSkillRemainder
-                );
-
-                if (!result.ok || !result.prompt) {
-                  toast.error(result.message || `Failed to expand /${selectedSkill.name}.`);
-                  return null;
-                }
-
-                return result.prompt.trim();
-              })();
-
-      if (expandedPrompt === null) {
-        return null;
-      }
-
-      return buildPromptWithProjectFileMentions({
-        cwd: dispatchCwd,
-        prompt: expandedPrompt,
-        ignoredMentionPaths: projectAgentMentionHandles,
-      });
-    }
+    const selectedSkillPrompt =
+      capabilityMenu.selectedSkill &&
+      (agentSelection.provider === 'codex' || agentSelection.provider === 'aegis')
+        ? capabilityMenu.selectedSkillRemainder.trim()
+        : prompt.trim();
 
     return buildPromptWithProjectFileMentions({
       cwd: dispatchCwd,
-      prompt: trimmedPrompt,
-      ignoredMentionPaths: projectAgentMentionHandles,
+      prompt: selectedSkillPrompt,
+      ignoredMentionPaths: [],
     });
   };
 
@@ -339,13 +158,13 @@ export function NewSessionView() {
     nextCursorIndex: number
   ): Promise<boolean> => {
     if (isComposingRef.current) {
-      skillAutocomplete.setDisplayPrompt(value);
+      setPrompt(value);
       setCursorIndex(nextCursorIndex);
       return false;
     }
 
     if (value.trim().length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
-      skillAutocomplete.setDisplayPrompt(value);
+      setPrompt(value);
       setCursorIndex(nextCursorIndex);
       return false;
     }
@@ -357,7 +176,7 @@ export function NewSessionView() {
     });
 
     if (!promptWithAttachment.converted) {
-      skillAutocomplete.setDisplayPrompt(value);
+      setPrompt(value);
       setCursorIndex(nextCursorIndex);
       if (promptWithAttachment.reason === 'attachment_create_failed') {
         toast.error('Failed to convert the long message into an attachment.');
@@ -366,11 +185,11 @@ export function NewSessionView() {
     }
 
     setAttachments(promptWithAttachment.attachments);
-    skillAutocomplete.setDisplayPrompt('');
+    setPrompt('');
     setCursorIndex(0);
     window.requestAnimationFrame(() => editorRef.current?.focus());
     return true;
-  }, [attachments, cwd, skillAutocomplete]);
+  }, [attachments, cwd]);
 
   const handleStart = async () => {
     if (!prompt.trim() && attachments.length === 0) return;
@@ -382,14 +201,6 @@ export function NewSessionView() {
         return;
       }
       dispatchCwd = selected;
-    }
-    if (!runtimeAgentProfile || !agentRuntime) {
-      toast.error(
-        enabledAgentProfiles.length === 0
-          ? 'Set up an agent before starting a task.'
-          : 'Select an agent before starting a task.'
-      );
-      return;
     }
 
     setPendingStart(true);
@@ -406,95 +217,26 @@ export function NewSessionView() {
       attachments,
     });
     const outgoingPrompt = promptWithAttachment.converted ? promptWithAttachment.prompt : displayPrompt;
-    const rawOutgoingEffectivePrompt = promptWithAttachment.converted
+    const outgoingEffectivePrompt = promptWithAttachment.converted
       ? promptWithAttachment.prompt
       : normalizedPrompt;
     const outgoingAttachments = promptWithAttachment.attachments;
-    const codexReferences =
-      runtimeProvider === 'codex'
-        ? buildCodexReferencePayload(skillAutocomplete.selectedSkill)
-        : {};
-    const aegisReferences =
-      runtimeProvider === 'aegis'
-        ? buildAegisReferencePayload(skillAutocomplete.selectedSkill)
-        : {};
-    const activeAgentRuntimePayload = buildAgentRuntimePayload(runtimeAgentProfile, codexReferences, aegisReferences);
-    if (!activeAgentRuntimePayload) {
-      toast.error('Selected agent is not available.');
-      setPendingStart(false);
-      return;
-    }
-    const outgoingEffectivePrompt = buildAgentEffectivePrompt(
-      rawOutgoingEffectivePrompt,
-      runtimeAgentProfile,
-      {
-        mode: 'project',
-        cwd: dispatchCwd,
-        channelId: activeChannelByProject[dispatchCwd] || DEFAULT_WORKSPACE_CHANNEL_ID,
-        handle: effectiveProjectAgentRoutes[0]?.handle,
-        assignmentSource: effectiveProjectAgentRoutes[0]?.assignmentSource,
-      },
-      { includeIdentity: runtimeProvider !== 'aegis' }
-    );
-    const projectAgentRuntimePayloads = newSessionAgentProfiles
-      .map((profile) => buildAgentRuntimePayload(profile, codexReferences, aegisReferences))
-      .filter((turn): turn is RoutedAgentRuntimePayload => Boolean(turn));
-    const teamAgentRuntimePayloads =
-      effectiveTeamProfile && runtimeProvider === 'aegis'
-        ? effectiveTeamProfile.members
-            .filter((member) => member.enabled && member.agentId !== runtimeAgentProfile?.id)
-            .map((member) => agentProfiles[member.agentId])
-            .filter((profile): profile is AgentProfile => Boolean(profile?.enabled))
-            .map((profile) => buildAgentRuntimePayload(profile, codexReferences, aegisReferences))
-            .filter((turn): turn is RoutedAgentRuntimePayload => Boolean(turn))
-        : undefined;
-    const projectPublicAgents = newSessionAgentProfiles.map(toPublicAgentProfile);
-    const shouldUseRoutedAgentTurns = runtimeProvider !== 'aegis' || activeProjectAgentRoutes.length > 0;
-    const projectRoutedAgentTurns: RoutedAgentTurnPayload[] = shouldUseRoutedAgentTurns ? effectiveProjectAgentRoutes
-      .map((route): RoutedAgentTurnPayload | null => {
-        const routeRuntime = buildAgentRuntimePayload(route.profile, codexReferences, aegisReferences);
-        if (!routeRuntime) {
-          return null;
-        }
-
-        const routeEffectivePrompt = buildAgentEffectivePrompt(
-          rawOutgoingEffectivePrompt,
-          route.profile,
-          {
-            mode: 'project',
-            cwd: dispatchCwd,
-            channelId: activeChannelByProject[dispatchCwd] || DEFAULT_WORKSPACE_CHANNEL_ID,
-            handle: route.handle,
-            assignmentSource: route.assignmentSource,
-          },
-          { includeIdentity: routeRuntime.provider !== 'aegis' }
-        );
-
-        return {
-          ...routeRuntime,
-          effectivePrompt: routeEffectivePrompt,
-          projectAgents: projectPublicAgents,
-          availableAgentTurns: projectAgentRuntimePayloads,
-          delegationKind: 'user',
-        };
-      })
-      .filter((turn): turn is RoutedAgentTurnPayload => Boolean(turn)) : [];
     if (promptWithAttachment.reason === 'attachment_create_failed') {
       toast.error('Failed to convert the long message into an attachment. Sending inline instead.');
     }
+    const codexReferences =
+      agentSelection.provider === 'codex'
+        ? buildCodexReferencePayload(capabilityMenu.selectedSkill)
+        : {};
+    const aegisReferences =
+      agentSelection.provider === 'aegis'
+        ? buildAegisReferencePayload(capabilityMenu.selectedSkill)
+        : {};
 
-    // 用 prompt 前 30 字符作为临时标题（后台会异步生成更好的标题）
     const tempTitleSource = displayPrompt || outgoingPrompt;
     const tempTitle = tempTitleSource.slice(0, 30) + (tempTitleSource.length > 30 ? '...' : '');
-    const projectKey = dispatchCwd;
-    const channelId = activeChannelByProject[projectKey] || DEFAULT_WORKSPACE_CHANNEL_ID;
-    const currentRoster = projectAgentRostersByProject[projectKey] || [];
-    if (!currentRoster.includes(runtimeAgentProfile.id)) {
-      setProjectAgentRoster(projectKey, [...currentRoster, runtimeAgentProfile.id]);
-    }
-    setSelectedProjectAgentForProject(projectKey, runtimeAgentProfile.id);
+    const channelId = activeChannelByProject[dispatchCwd] || DEFAULT_WORKSPACE_CHANNEL_ID;
 
-    // 立即发送开始会话事件
     sendEvent({
       type: 'session.start',
       payload: {
@@ -504,48 +246,19 @@ export function NewSessionView() {
         cwd: dispatchCwd || undefined,
         channelId,
         attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
-        provider: runtimeProvider,
-        model:
-          runtimeProvider === 'claude'
-            ? agentRuntime.model || undefined
-            : runtimeProvider === 'codex'
-              ? agentRuntime.model || undefined
-              : runtimeProvider === 'opencode'
-                ? agentRuntime.model || undefined
-                : runtimeProvider === 'aegis'
-                  ? agentRuntime.model || undefined
-                : undefined,
+        provider: agentSelection.provider,
+        model: agentSelection.model || undefined,
         compatibleProviderId:
-          runtimeProvider === 'claude' ? agentRuntime.compatibleProviderId : undefined,
-        claudeAccessMode: runtimeProvider === 'claude' ? agentRuntime.claudeAccessMode : undefined,
-        claudeExecutionMode: runtimeProvider === 'claude' ? agentRuntime.claudeExecutionMode : undefined,
-        claudeReasoningEffort: runtimeProvider === 'claude' ? agentRuntime.claudeReasoningEffort : undefined,
-        codexExecutionMode: runtimeProvider === 'codex' ? agentRuntime.codexExecutionMode : undefined,
-        codexPermissionMode: runtimeProvider === 'codex' ? agentRuntime.codexPermissionMode : undefined,
-        codexReasoningEffort:
-          runtimeProvider === 'codex' ? agentRuntime.codexReasoningEffort : undefined,
-        codexSkills: runtimeProvider === 'codex' ? codexReferences.codexSkills : undefined,
-        codexMentions: runtimeProvider === 'codex' ? codexReferences.codexMentions : undefined,
-        aegisSkills: runtimeProvider === 'aegis' ? aegisReferences.aegisSkills : undefined,
-        aegisMentions: runtimeProvider === 'aegis' ? aegisReferences.aegisMentions : undefined,
-        opencodePermissionMode:
-          runtimeProvider === 'opencode' ? agentRuntime.opencodePermissionMode : undefined,
-        aegisPermissionMode:
-          runtimeProvider === 'aegis' ? agentRuntime.aegisPermissionMode : undefined,
-        aegisReasoningEffort:
-          runtimeProvider === 'aegis' ? agentRuntime.aegisReasoningEffort : undefined,
-        routedAgentId: runtimeAgentProfile.id,
-        routedAgentProfile: runtimeProvider === 'aegis' ? activeAgentRuntimePayload : undefined,
-        routedAgentTurns: projectRoutedAgentTurns,
-        availableAgentTurns: projectAgentRuntimePayloads,
-        teamMode: selectedTeamMode,
-        teamId: selectedTeamId,
-        teamProfile: runtimeProvider === 'aegis' ? effectiveTeamProfile || null : undefined,
-        teamAgentTurns: runtimeProvider === 'aegis' ? teamAgentRuntimePayloads : undefined,
+          agentSelection.provider === 'claude'
+            ? agentSelection.compatibleProviderId || undefined
+            : undefined,
+        ...codexReferences,
+        ...aegisReferences,
+        teamMode: 'solo',
+        teamId: null,
       },
     });
 
-    // 清空输入
     setPrompt('');
     setAttachments([]);
   };
@@ -571,28 +284,6 @@ export function NewSessionView() {
     });
   };
 
-  const handleSelectProjectAgent = useCallback(
-    (suggestion: { profile: AgentProfile }) => {
-      const mention = projectAgentMentions.mention;
-      if (!mention) {
-        return;
-      }
-
-      const next = insertProjectAgentMention(
-        skillAutocomplete.displayPrompt,
-        mention,
-        suggestion.profile
-      );
-      skillAutocomplete.setDisplayPrompt(next.prompt);
-      setCursorIndex(next.cursorIndex);
-      window.requestAnimationFrame(() => {
-        editorRef.current?.focus();
-        editorRef.current?.setCursorIndex(next.cursorIndex);
-      });
-    },
-    [projectAgentMentions.mention, skillAutocomplete]
-  );
-
   const handleSelectProjectFile = useCallback(
     async (file: { path: string; relativePath?: string }) => {
       const mention = projectFileMentions.mention;
@@ -601,18 +292,18 @@ export function NewSessionView() {
       }
 
       const next = insertProjectFileMention(
-        skillAutocomplete.displayPrompt,
+        prompt,
         mention,
         file.relativePath || file.path
       );
-      skillAutocomplete.setDisplayPrompt(next.prompt);
+      setPrompt(next.prompt);
       setCursorIndex(next.cursorIndex);
       window.requestAnimationFrame(() => {
         editorRef.current?.focus();
         editorRef.current?.setCursorIndex(next.cursorIndex);
       });
     },
-    [cwd, projectFileMentions.mention, skillAutocomplete]
+    [cwd, projectFileMentions.mention, prompt]
   );
 
   const handlePromptChange = async (value: string, nextCursorIndex: number) => {
@@ -684,10 +375,9 @@ export function NewSessionView() {
         return;
       }
 
-      const currentPrompt = skillAutocomplete.displayPrompt;
-      const nextPrompt = `${currentPrompt.slice(0, context.start)}${currentPrompt.slice(context.end)}`;
+      const nextPrompt = `${prompt.slice(0, context.start)}${prompt.slice(context.end)}`;
       setAttachments(promptWithAttachment.attachments);
-      skillAutocomplete.setDisplayPrompt(nextPrompt);
+      setPrompt(nextPrompt);
       setCursorIndex(context.start);
       window.requestAnimationFrame(() => {
         editorRef.current?.focus();
@@ -696,42 +386,15 @@ export function NewSessionView() {
     })();
 
     return true;
-  }, [attachments, cwd, skillAutocomplete]);
+  }, [attachments, cwd, prompt]);
 
   const canStartTask =
     (prompt.trim().length > 0 || attachments.length > 0) &&
-    !pendingStart &&
-    Boolean(runtimeAgentProfile);
+    !pendingStart;
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: ReactKeyboardEvent) => {
     if (isImeComposingEvent(e, isComposingRef)) {
       return;
-    }
-
-    if (projectAgentMentionActive) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        projectAgentMentions.moveSelection(1);
-        return;
-      }
-
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        projectAgentMentions.moveSelection(-1);
-        return;
-      }
-
-      if (
-        (e.key === 'Enter' || e.key === 'Tab') &&
-        projectAgentMentions.suggestions.length > 0
-      ) {
-        e.preventDefault();
-        const currentSuggestion = projectAgentMentions.getCurrentSuggestion();
-        if (currentSuggestion) {
-          handleSelectProjectAgent(currentSuggestion);
-        }
-        return;
-      }
     }
 
     if (projectFileMentions.hasMentionQuery) {
@@ -760,22 +423,26 @@ export function NewSessionView() {
       }
     }
 
-    if (skillAutocomplete.hasSlashQuery) {
+    if (capabilityMenu.hasSlashQuery) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        skillAutocomplete.moveSelection(1);
+        capabilityMenu.moveSelection(1);
         return;
       }
 
       if (e.key === 'ArrowUp') {
         e.preventDefault();
-        skillAutocomplete.moveSelection(-1);
+        capabilityMenu.moveSelection(-1);
         return;
       }
 
-      if ((e.key === 'Enter' || e.key === 'Tab') && skillAutocomplete.suggestions.length > 0) {
+      if (
+        (e.key === 'Enter' || e.key === 'Tab') &&
+        capabilityMenu.suggestions.length > 0
+      ) {
         e.preventDefault();
-        skillAutocomplete.selectCurrentSuggestion();
+        capabilityMenu.selectCurrentSuggestion();
+        window.requestAnimationFrame(() => editorRef.current?.focus());
         return;
       }
     }
@@ -788,14 +455,12 @@ export function NewSessionView() {
 
   return (
     <div className="flex-1 min-w-0 flex flex-col">
-      {/* 顶部拖拽区域 */}
       <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0`}>
         <div className="flex h-full items-center px-3">
           {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
         </div>
       </div>
 
-      {/* 内容区域 */}
       <div className="flex-1 flex justify-center px-8 pb-4 pt-10">
         <div className="flex h-full w-full max-w-[920px] flex-col">
           <div className="flex flex-1 items-center justify-center text-center">
@@ -822,31 +487,25 @@ export function NewSessionView() {
               ) : (
                 <div className="mt-5 flex flex-wrap items-center justify-center gap-3 text-[12px] text-[var(--text-muted)]">
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-1">
+                    Agent
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-1">
+                    Model
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-1">
                     <kbd className="rounded bg-[var(--bg-primary)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)] border border-[var(--border)]">/</kbd>
                     Commands
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-1">
+                    <kbd className="rounded bg-[var(--bg-primary)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)] border border-[var(--border)]">$</kbd>
+                    Skills
                   </span>
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-1">
                     <kbd className="rounded bg-[var(--bg-primary)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)] border border-[var(--border)]">@</kbd>
                     Mention files
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-1">
-                    <kbd className="rounded bg-[var(--bg-primary)] px-1 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)] border border-[var(--border)]">Shift+Enter</kbd>
-                    New line
-                  </span>
                 </div>
               )}
-
-              {enabledAgentProfiles.length === 0 ? (
-                <div className="mt-5 flex justify-center">
-                  <button
-                    type="button"
-                    onClick={() => setAgentSetupOpen(true)}
-                    className="inline-flex h-8 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-[12.5px] font-medium text-[var(--text-primary)] shadow-sm transition-colors hover:bg-[var(--bg-tertiary)]"
-                  >
-                    Set up agents
-                  </button>
-                </div>
-              ) : null}
             </div>
           </div>
 
@@ -873,18 +532,9 @@ export function NewSessionView() {
               </div>
             </div>
 
-            {/* Composer */}
             <div className="mx-auto max-w-4xl">
               <div className="group relative rounded-[28px] bg-[var(--border)]/45 p-px transition-colors duration-200 focus-within:bg-[var(--border)]/70">
-              {projectAgentMentionActive ? (
-                <div className="absolute inset-x-0 bottom-full z-40">
-                  <ProjectAgentMentionMenu
-                    suggestions={projectAgentMentions.suggestions}
-                    selectedIndex={projectAgentMentions.selectedIndex}
-                    onSelect={handleSelectProjectAgent}
-                  />
-                </div>
-              ) : projectFileMentions.hasMentionQuery ? (
+              {projectFileMentions.hasMentionQuery ? (
                 <div className="absolute inset-x-0 bottom-full z-40">
                   <ProjectFileMentionMenu
                     suggestions={projectFileMentions.suggestions}
@@ -895,19 +545,22 @@ export function NewSessionView() {
                     }}
                   />
                 </div>
-              ) : skillAutocomplete.hasSlashQuery && (
+              ) : capabilityMenu.hasSlashQuery ? (
                 <div className="absolute inset-x-0 bottom-full z-40">
                   <ClaudeSkillMenu
-                    suggestions={skillAutocomplete.suggestions}
-                    selectedIndex={skillAutocomplete.selectedIndex}
-                    empty={skillAutocomplete.suggestions.length === 0}
-                    title={skillAutocomplete.menuTitle}
-                    emptyMessage={skillAutocomplete.emptyMessage}
-                    onSelect={skillAutocomplete.selectSuggestion}
-                    onHighlight={skillAutocomplete.setSelectedIndex}
+                    suggestions={capabilityMenu.suggestions}
+                    selectedIndex={capabilityMenu.selectedIndex}
+                    empty={capabilityMenu.suggestions.length === 0}
+                    title={capabilityMenu.menuTitle}
+                    emptyMessage={capabilityMenu.emptyMessage}
+                    onSelect={(suggestion) => {
+                      capabilityMenu.selectSuggestion(suggestion);
+                      window.requestAnimationFrame(() => editorRef.current?.focus());
+                    }}
+                    onHighlight={capabilityMenu.setSelectedIndex}
                   />
                 </div>
-              )}
+              ) : null}
               <div className="rounded-[26px] border border-[var(--border)]/65 bg-[var(--bg-primary)] transition-colors duration-200">
               {attachments.length > 0 && (
                 <div className="px-5 pt-4">
@@ -922,10 +575,10 @@ export function NewSessionView() {
 
               <ComposerPromptEditor
                 ref={editorRef}
-                value={skillAutocomplete.displayPrompt}
+                value={capabilityMenu.displayPrompt}
                 cursorIndex={cursorIndex}
-                slashContext={skillAutocomplete.slashContext}
-                agentMentionLabels={projectAgentMentionLabels}
+                slashContext={capabilityMenu.slashContext}
+                agentMentionLabels={{}}
                 onChange={(value, nextCursorIndex) => {
                   void handlePromptChange(value, nextCursorIndex);
                 }}
@@ -944,14 +597,13 @@ export function NewSessionView() {
                 onKeyDown={handleKeyDown}
                 placeholder={
                   hasSelectedCwd
-                    ? 'Describe your task...'
+                    ? 'Message the agent...'
                     : 'Describe your task. Choose a project folder before it runs...'
                 }
                 className="w-full bg-transparent px-4 pt-3 pb-1 text-[14px] outline-none resize-none no-drag min-h-[56px] max-h-[200px]"
                 autoFocus
               />
 
-              {/* 底部工具栏 */}
               <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
               <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
               {!hasSelectedCwd ? (
@@ -968,30 +620,19 @@ export function NewSessionView() {
                   Choose project
                 </button>
               ) : null}
-              <ProjectAgentPicker
-                profiles={newSessionAgentProfiles}
-                selectedProfile={selectedProjectAgentProfile}
+              <ComposerAgentPicker
+                value={agentSelection.provider}
                 disabled={pendingStart}
-                onSelect={(profileId) => {
-                  setSelectedAgentId(profileId);
-                  if (cwd && projectAgentProfiles.some((profile) => profile.id === profileId)) {
-                    setSelectedProjectAgentForProject(cwd, profileId);
-                  }
-                }}
+                onChange={agentSelection.selectAgent}
               />
-              {activeProjectAgentRoutes.length === 0 ? (
-                <ProjectTeamPicker
-                  teams={teamOptions}
-                  selectedMode={selectedTeamMode}
-                  selectedTeam={sessionSelectedTeam}
-                  channelDefaultTeam={channelDefaultTeam}
-                  disabled={pendingStart}
-                  onSelect={(mode, teamId) => {
-                    setSelectedTeamMode(mode);
-                    setSelectedTeamId(teamId || null);
-                  }}
-                />
-              ) : null}
+              <ComposerModelPicker
+                value={agentSelection.model}
+                selectedKey={agentSelection.selectedModelOption?.key ?? null}
+                label={agentSelection.selectedModelLabel}
+                options={agentSelection.modelOptions}
+                disabled={pendingStart}
+                onChange={agentSelection.selectModel}
+              />
               <SavePromptButton content={promptLibraryContent} disabled={pendingStart} />
 
               <button
@@ -1026,6 +667,22 @@ export function NewSessionView() {
               </div>
               </div>
             </div>
+
+            {recentProjectOptions.length > 0 && !hasSelectedCwd ? (
+              <div className="mt-3 flex flex-wrap justify-center gap-2">
+                {recentProjectOptions.map((dir) => (
+                  <button
+                    key={dir}
+                    type="button"
+                    onClick={() => handleCwdChange(dir)}
+                    className="max-w-[240px] truncate rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                    title={dir}
+                  >
+                    {dir.split('/').filter(Boolean).pop() || dir}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

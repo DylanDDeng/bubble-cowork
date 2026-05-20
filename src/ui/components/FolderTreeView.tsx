@@ -1,91 +1,27 @@
-import { useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useMemo, useState, type DragEvent } from 'react';
 import {
-  Check,
   FolderClosed,
   FolderOpen,
-  Hash,
   Pin,
   Plus,
-  SlidersHorizontal,
-  Users,
-  X,
 } from './icons';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
-import { DEFAULT_WORKSPACE_CHANNEL_ID, type WorkspaceChannel } from '../../shared/types';
-import type { AgentProfile, AgentProvider, SessionView } from '../types';
-
-import { AgentAvatar } from './AgentAvatar';
+import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
+import type { AgentProvider, SessionView } from '../types';
 
 type ProjectGroup = {
   key: string;
   label: string;
   fullPath: string | null;
   sessions: SessionView[];
-  channels: ChannelGroup[];
 };
-
-type ChannelGroup = {
-  key: string;
-  id: string;
-  name: string;
-  session: SessionView | null;
-  updatedAt: number;
-};
-
-const CHANNEL_PREVIEW_LIMIT = 5;
 
 function getProjectLabel(fullPath: string | null): string {
   return fullPath
     ? fullPath.split('/').filter(Boolean).pop() || fullPath
     : 'No Project';
 }
-
-function createDefaultChannel(projectCwd?: string | null): WorkspaceChannel {
-  const now = Date.now();
-  return {
-    id: DEFAULT_WORKSPACE_CHANNEL_ID,
-    projectCwd: projectCwd?.trim() || '',
-    name: 'all',
-    defaultTeamId: null,
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-function ensureDefaultChannel(
-  channels: WorkspaceChannel[] | undefined,
-  projectCwd?: string | null
-): WorkspaceChannel[] {
-  const existing = channels || [];
-  if (existing.some((channel) => channel.id === DEFAULT_WORKSPACE_CHANNEL_ID)) {
-    return existing;
-  }
-  return [createDefaultChannel(projectCwd), ...existing];
-}
-
-function getSessionChannelId(session: SessionView): string {
-  return session.channelId?.trim() || DEFAULT_WORKSPACE_CHANNEL_ID;
-}
-
-function getChannelNameForSession(
-  session: SessionView,
-  configuredChannels: Map<string, WorkspaceChannel>,
-  duplicateChannelIds: Set<string>
-): string {
-  const channelId = getSessionChannelId(session);
-  const configuredChannel = configuredChannels.get(channelId);
-  if (configuredChannel && channelId !== DEFAULT_WORKSPACE_CHANNEL_ID && !duplicateChannelIds.has(channelId)) {
-    return configuredChannel.name || channelId;
-  }
-  return session.title || configuredChannel?.name || channelId;
-}
-
-type SplitPairState = {
-  primary: SessionView;
-  secondary: SessionView;
-};
 
 function formatSidebarTime(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
@@ -103,15 +39,7 @@ function formatSidebarTime(timestamp: number): string {
   return `${Math.floor(months / 12)}y`;
 }
 
-function getIndentedRowStyle(depth: number, rightInset = 4) {
-  const indent = depth * 16;
-  return {
-    marginLeft: `${indent}px`,
-    width: `calc(100% - ${indent + rightInset}px)`,
-  };
-}
-
-function setSessionDragData(event: React.DragEvent<HTMLElement>, session: SessionView) {
+function setSessionDragData(event: DragEvent<HTMLElement>, session: SessionView) {
   event.dataTransfer.effectAllowed = 'move';
   event.dataTransfer.setData('application/x-aegis-session-id', session.id);
   event.dataTransfer.setData('text/plain', session.title);
@@ -124,7 +52,7 @@ interface ProjectTreeViewProps {
   projectCwd: string | null;
 }
 
-function ProviderGlyph({ provider }: { provider?: AgentProvider }) {
+function ProviderGlyph({ provider: _provider }: { provider?: AgentProvider }) {
   return null;
 }
 
@@ -143,40 +71,12 @@ export function FolderTreeView({
     setChatLayoutMode,
     chatPanes,
     setActivePane,
-    openSplitChat,
-    workspaceChannelsByProject,
-    createWorkspaceChannel,
-    renameWorkspaceChannel,
-    setActiveChannelForProject,
-    setProjectCwd,
-    setProjectAgentRoster,
-    activeChannelByProject,
-    agentProfiles,
-    projectAgentRostersByProject,
     sidebarSearchQuery,
   } = useAppStore();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
-  const [expandedChannelGroups, setExpandedChannelGroups] = useState<Set<string>>(() => new Set());
-  const [channelDraftProjectKey, setChannelDraftProjectKey] = useState<string | null>(null);
-  const [channelDraftName, setChannelDraftName] = useState('');
-  const [agentRosterEditorProjectKey, setAgentRosterEditorProjectKey] = useState<string | null>(null);
-  const [contextMenuState, setContextMenuState] = useState<{
-    channelKey: string;
-    channelId: string;
-    channelName: string;
-    projectKey: string;
-    projectCwd: string | null;
-    sessionId: string | null;
-    x: number;
-    y: number;
-  } | null>(null);
-  const [renamingChannelKey, setRenamingChannelKey] = useState<string | null>(null);
-  const [renameDraftName, setRenameDraftName] = useState('');
-  const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const isChatWorkspaceActive = activeWorkspace === 'chat';
-  const activeProjectKey = activeSession?.cwd?.trim() || projectCwd?.trim() || '__no_project__';
 
-  const splitPair = useMemo<SplitPairState | null>(() => {
+  const splitPair = useMemo<{ primary: SessionView; secondary: SessionView } | null>(() => {
     if (!savedSplitVisible) {
       return null;
     }
@@ -240,7 +140,6 @@ export function FolderTreeView({
           label: getProjectLabel(fullPath),
           fullPath,
           sessions: [],
-          channels: [],
         });
       }
 
@@ -254,65 +153,14 @@ export function FolderTreeView({
         label: getProjectLabel(selectedProjectPath),
         fullPath: selectedProjectPath,
         sessions: [],
-        channels: [],
       });
     }
 
     const projectGroups = Array.from(grouped.values())
-      .map((group) => {
-        const sortedSessions = group.sessions.sort((left, right) => right.updatedAt - left.updatedAt);
-        const configuredChannels = ensureDefaultChannel(
-          workspaceChannelsByProject[group.key],
-          group.fullPath
-        );
-        const configuredChannelMap = new Map<string, WorkspaceChannel>(
-          configuredChannels.map((channel) => [channel.id, channel])
-        );
-        const channelIdCounts = new Map<string, number>();
-        for (const session of sortedSessions) {
-          const channelId = getSessionChannelId(session);
-          channelIdCounts.set(channelId, (channelIdCounts.get(channelId) || 0) + 1);
-        }
-        const duplicateChannelIds = new Set(
-          Array.from(channelIdCounts.entries())
-            .filter(([, count]) => count > 1)
-            .map(([channelId]) => channelId)
-        );
-        const representedChannelIds = new Set<string>();
-        const sessionChannels: ChannelGroup[] = sortedSessions.map((session) => {
-          const channelId = getSessionChannelId(session);
-          representedChannelIds.add(channelId);
-          return {
-            key: `session:${session.id}`,
-            id: channelId,
-            name: getChannelNameForSession(session, configuredChannelMap, duplicateChannelIds),
-            session,
-            updatedAt: session.updatedAt,
-          };
-        });
-        const emptyChannels = configuredChannels
-          .filter((channel) => {
-            if (representedChannelIds.has(channel.id)) {
-              return false;
-            }
-            return channel.id !== DEFAULT_WORKSPACE_CHANNEL_ID || sessionChannels.length === 0;
-          })
-          .map((channel) => ({
-            key: `channel:${channel.id}`,
-            id: channel.id,
-            name: channel.name,
-            session: null,
-            updatedAt: channel.updatedAt,
-          }));
-
-        return {
-          ...group,
-          sessions: sortedSessions,
-          channels: [...sessionChannels, ...emptyChannels].sort(
-            (left, right) => right.updatedAt - left.updatedAt
-          ),
-        };
-      })
+      .map((group) => ({
+        ...group,
+        sessions: group.sessions.sort((left, right) => right.updatedAt - left.updatedAt),
+      }))
       .sort((left, right) => {
         const leftLatest = left.sessions[0]?.updatedAt || 0;
         const rightLatest = right.sessions[0]?.updatedAt || 0;
@@ -320,69 +168,7 @@ export function FolderTreeView({
       });
 
     return { pinnedSessions, projectGroups };
-  }, [projectCwd, sessions, sidebarSearchQuery, splitPair, workspaceChannelsByProject]);
-
-  const startChannelDraft = (group: ProjectGroup) => {
-    setCollapsedGroups((current) => {
-      if (!current.has(group.key)) {
-        return current;
-      }
-      const next = new Set(current);
-      next.delete(group.key);
-      return next;
-    });
-    setChannelDraftProjectKey(group.key);
-    setChannelDraftName('');
-    if (group.fullPath) {
-      setProjectCwd(group.fullPath);
-    }
-  };
-
-  const cancelChannelDraft = () => {
-    setChannelDraftProjectKey(null);
-    setChannelDraftName('');
-  };
-
-  const submitChannelDraft = (group: ProjectGroup) => {
-    const nextChannelId = createWorkspaceChannel(group.fullPath || '', channelDraftName);
-    if (!nextChannelId) {
-      return;
-    }
-    const existingChannelSession = group.channels.find(
-      (channel) => channel.id === nextChannelId && channel.session
-    )?.session;
-    if (group.fullPath) {
-      setProjectCwd(group.fullPath);
-    }
-    setActiveChannelForProject(group.fullPath || '', nextChannelId);
-    if (existingChannelSession) {
-      onSessionClick(existingChannelSession.id);
-    } else if (group.fullPath) {
-      onNewSessionForProject(group.fullPath, nextChannelId);
-    }
-    cancelChannelDraft();
-  };
-
-  const startRenameChannel = (channelKey: string, channelName: string) => {
-    setRenamingChannelKey(channelKey);
-    setRenameDraftName(channelName);
-    setContextMenuState(null);
-  };
-
-  const cancelRenameChannel = () => {
-    setRenamingChannelKey(null);
-    setRenameDraftName('');
-  };
-
-  const submitRenameChannel = (projectCwd: string | null, channelId: string) => {
-    const trimmed = renameDraftName.trim();
-    if (!trimmed) {
-      cancelRenameChannel();
-      return;
-    }
-    renameWorkspaceChannel(projectCwd || '', channelId, trimmed);
-    cancelRenameChannel();
-  };
+  }, [projectCwd, sessions, sidebarSearchQuery, splitPair]);
 
   const isExpanded = (key: string) => !collapsedGroups.has(key);
 
@@ -396,43 +182,6 @@ export function FolderTreeView({
       }
       return next;
     });
-  };
-
-  const toggleChannelListExpanded = (key: string) => {
-    setExpandedChannelGroups((current) => {
-      const next = new Set(current);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  };
-
-  const enabledAgentProfiles = () =>
-    Object.values(agentProfiles)
-      .filter((profile) => profile.enabled)
-      .sort((left, right) => left.createdAt - right.createdAt);
-
-  const getProjectRosterIds = (fullPath: string | null) => {
-    if (!fullPath || !Object.prototype.hasOwnProperty.call(projectAgentRostersByProject, fullPath)) {
-      return [];
-    }
-    return projectAgentRostersByProject[fullPath].filter((profileId) => agentProfiles[profileId]?.enabled);
-  };
-
-  const getProjectAgentProfiles = (fullPath: string | null) =>
-    getProjectRosterIds(fullPath)
-      .map((profileId) => agentProfiles[profileId])
-      .filter((profile): profile is AgentProfile => Boolean(profile?.enabled));
-
-  const toggleProjectAgent = (projectPath: string, profileId: string) => {
-    const selectedIds = getProjectRosterIds(projectPath);
-    const nextIds = selectedIds.includes(profileId)
-      ? selectedIds.filter((id) => id !== profileId)
-      : [...selectedIds, profileId];
-    setProjectAgentRoster(projectPath, nextIds);
   };
 
   return (
@@ -503,11 +252,11 @@ export function FolderTreeView({
                 <button
                   type="button"
                   className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-0 transition-all duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] group-hover/project:opacity-100"
-                  title={`Create channel in ${group.label}`}
-                  aria-label={`Create channel in ${group.label}`}
+                  title={`New thread in ${group.label}`}
+                  aria-label={`New thread in ${group.label}`}
                   onClick={(event) => {
                     event.stopPropagation();
-                    startChannelDraft(group);
+                    onNewSessionForProject(group.fullPath!, DEFAULT_WORKSPACE_CHANNEL_ID);
                   }}
                 >
                   <Plus className="h-3.5 w-3.5" strokeWidth={1.9} />
@@ -515,69 +264,17 @@ export function FolderTreeView({
               )}
             </div>
 
-            {expanded && channelDraftProjectKey === group.key && (
-              <form
-                className="mb-1 ml-4 flex h-8 items-center gap-1 rounded-lg bg-[var(--bg-secondary)] px-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  submitChannelDraft(group);
-                }}
-              >
-                <Hash className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
-                <input
-                  autoFocus
-                  value={channelDraftName}
-                  onChange={(event) => setChannelDraftName(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Escape') {
-                      event.preventDefault();
-                      cancelChannelDraft();
-                    }
-                  }}
-                  className="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-                  placeholder="new-channel"
-                  aria-label="Channel name"
-                />
-                <button
-                  type="submit"
-                  className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                  aria-label="Create channel"
-                  title="Create channel"
-                >
-                  <Check className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={cancelChannelDraft}
-                  className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                  aria-label="Cancel"
-                  title="Cancel"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </form>
-            )}
+            {expanded && (
+              <div className="mt-1">
+                {group.sessions.length === 0 ? (
+                  <div className="ml-4 rounded-lg px-2 py-1.5 text-[12px] text-[var(--text-muted)]">
+                    No threads yet
+                  </div>
+                ) : (
+                  group.sessions.map((session) => {
+                    const isSessionActive = isChatWorkspaceActive && activeSessionId === session.id;
 
-            {expanded && (() => {
-              const listExpanded =
-                expandedChannelGroups.has(group.key) || sidebarSearchQuery.trim().length > 0;
-              const visibleChannels = listExpanded
-                ? group.channels
-                : group.channels.slice(0, CHANNEL_PREVIEW_LIMIT);
-              const hiddenChannelCount = group.channels.length - visibleChannels.length;
-
-              return (
-                <>
-                  {visibleChannels.map((channel) => {
-                    const activeChannelId =
-                      activeChannelByProject[group.key] || DEFAULT_WORKSPACE_CHANNEL_ID;
-                    const isChannelActive = channel.session
-                      ? isChatWorkspaceActive && activeSessionId === channel.session.id
-                      : isChatWorkspaceActive && activeChannelId === channel.id && activeProjectKey === group.key;
-
-                    const isRenaming = renamingChannelKey === channel.key;
-
-                    if (splitPair && channel.session?.id === splitPair.primary.id) {
+                    if (splitPair && session.id === splitPair.primary.id) {
                       return (
                         <SplitSessionRow
                           key={`split:${splitPair.primary.id}:${splitPair.secondary.id}`}
@@ -599,386 +296,34 @@ export function FolderTreeView({
                     }
 
                     return (
-                      <ChannelItem
-                        key={`${group.key}:${channel.key}`}
-                        channel={channel}
+                      <SessionItem
+                        key={session.id}
+                        session={session}
+                        isActive={isSessionActive}
+                        runtimeBadge={
+                          session.runtimeNotice
+                            ? session.runtimeNotice
+                            : !isSessionActive && session.status === 'running'
+                              ? 'running'
+                              : null
+                        }
                         depth={1}
-                        isActive={isChannelActive}
-                        onClick={() => {
-                          setActiveChannelForProject(group.fullPath || '', channel.id);
-                          if (group.fullPath) {
-                            setProjectCwd(group.fullPath);
-                          }
-                          if (channel.session) {
-                            onSessionClick(channel.session.id);
-                          } else if (group.fullPath) {
-                            onNewSessionForProject(group.fullPath, channel.id);
-                          }
-                        }}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          if (channel.id === DEFAULT_WORKSPACE_CHANNEL_ID && !channel.session) return;
-                          setContextMenuState({
-                            channelKey: channel.key,
-                            channelId: channel.id,
-                            channelName: channel.name,
-                            projectKey: group.key,
-                            projectCwd: group.fullPath,
-                            sessionId: channel.session?.id || null,
-                            x: e.clientX,
-                            y: e.clientY,
-                          });
-                        }}
-                        isRenaming={isRenaming}
-                        renameValue={isRenaming ? renameDraftName : undefined}
-                        onRenameChange={isRenaming ? setRenameDraftName : undefined}
-                        onRenameSubmit={isRenaming ? () => submitRenameChannel(group.fullPath, channel.id) : undefined}
-                        onRenameCancel={isRenaming ? cancelRenameChannel : undefined}
+                        onClick={() => onSessionClick(session.id)}
+                        onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
                       />
                     );
-                  })}
-
-                  {hiddenChannelCount > 0 && (
-                    <button
-                      type="button"
-                      className="ml-4 flex h-7 w-[calc(100%-20px)] items-center rounded-lg px-2 text-left text-[12px] font-normal text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                      onClick={() => toggleChannelListExpanded(group.key)}
-                    >
-                      Show {hiddenChannelCount} more
-                    </button>
-                  )}
-
-                  {expandedChannelGroups.has(group.key) &&
-                    sidebarSearchQuery.trim().length === 0 &&
-                    group.channels.length > CHANNEL_PREVIEW_LIMIT && (
-                      <button
-                        type="button"
-                        className="ml-4 flex h-7 w-[calc(100%-20px)] items-center rounded-lg px-2 text-left text-[12px] font-normal text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                        onClick={() => toggleChannelListExpanded(group.key)}
-                      >
-                        Show less
-                      </button>
-                    )}
-
-                  {group.fullPath && !sidebarSearchQuery.trim() && (
-                    <>
-                      <ProjectAgentSummary
-                        depth={1}
-                        profiles={getProjectAgentProfiles(group.fullPath)}
-                        editorOpen={agentRosterEditorProjectKey === group.key}
-                        onToggleEditor={() =>
-                          setAgentRosterEditorProjectKey((current) =>
-                            current === group.key ? null : group.key
-                          )
-                        }
-                      />
-                      {agentRosterEditorProjectKey === group.key && (
-                        <ProjectAgentRosterEditor
-                          depth={1}
-                          profiles={enabledAgentProfiles()}
-                          selectedIds={getProjectRosterIds(group.fullPath)}
-                          onToggleProfile={(profileId) => toggleProjectAgent(group.fullPath!, profileId)}
-                        />
-                      )}
-                    </>
-                  )}
-                </>
-              );
-            })()}
+                  })
+                )}
+              </div>
+            )}
           </div>
         );
       })}
 
       {projectGroups.length === 0 && pinnedSessions.length === 0 && (
         <div className="text-center text-[var(--text-muted)] py-8 text-[13px]">
-          {sidebarSearchQuery ? 'No matching sessions' : 'No sessions yet'}
+          {sidebarSearchQuery ? 'No matching threads' : 'No threads yet'}
         </div>
-      )}
-
-      {contextMenuState && createPortal(
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setContextMenuState(null)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setContextMenuState(null);
-            }}
-          />
-          <div
-            className="popover-surface fixed z-50 min-w-[144px] p-1.5"
-            style={{ left: contextMenuState.x, top: contextMenuState.y }}
-          >
-            {contextMenuState.sessionId && (
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-[13px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
-                onClick={() => {
-                  openSplitChat('secondary', contextMenuState.sessionId);
-                  setContextMenuState(null);
-                }}
-              >
-                Open in split view
-              </button>
-            )}
-            {contextMenuState.channelId !== DEFAULT_WORKSPACE_CHANNEL_ID && (
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-[13px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
-                onClick={() =>
-                  startRenameChannel(contextMenuState.channelKey, contextMenuState.channelName)
-                }
-              >
-                Rename channel
-              </button>
-            )}
-          </div>
-        </>,
-        document.body
-      )}
-    </div>
-  );
-}
-
-function ProjectAgentSummary({
-  depth,
-  profiles,
-  editorOpen,
-  onToggleEditor,
-}: {
-  depth: number;
-  profiles: AgentProfile[];
-  editorOpen: boolean;
-  onToggleEditor: () => void;
-}) {
-  const count = profiles.length;
-  const label =
-    count === 0 ? 'No agents active' : `${count} ${count === 1 ? 'agent' : 'agents'} active`;
-  const title = count > 0 ? profiles.map((profile) => profile.name).join(', ') : label;
-  return (
-    <button
-      type="button"
-      onClick={onToggleEditor}
-      className={`group/agents mt-1 flex h-8 min-w-0 items-center gap-2 rounded-lg px-2 text-left transition-colors duration-150 ${
-        editorOpen
-          ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
-          : 'text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-      }`}
-      style={getIndentedRowStyle(depth)}
-      title={title}
-      aria-expanded={editorOpen}
-      aria-label="Configure project agents"
-    >
-      <Users className="h-3.5 w-3.5 flex-shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-[12px] font-normal">
-        {label}
-      </span>
-      <span className="flex flex-shrink-0 items-center -space-x-1">
-        {profiles.slice(0, 3).map((profile) => (
-          <AgentAvatar
-            key={profile.id}
-            profile={profile}
-            size="sm"
-            decorative
-            className="h-5 w-5 rounded-[5px]"
-          />
-        ))}
-      </span>
-      <SlidersHorizontal className="h-3.5 w-3.5 flex-shrink-0 opacity-0 transition-opacity duration-150 group-hover/agents:opacity-100" />
-    </button>
-  );
-}
-
-function ProjectAgentRosterEditor({
-  depth,
-  profiles,
-  selectedIds,
-  onToggleProfile,
-}: {
-  depth: number;
-  profiles: AgentProfile[];
-  selectedIds: string[];
-  onToggleProfile: (profileId: string) => void;
-}) {
-  const selectedSet = new Set(selectedIds);
-
-  return (
-    <div
-      className="mb-1 mt-1 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-1"
-      style={getIndentedRowStyle(depth)}
-    >
-      <div className="mb-1 flex h-7 items-center justify-between px-2">
-        <span className="truncate text-[12px] font-normal text-[var(--text-secondary)]">
-          Project agents
-        </span>
-      </div>
-
-      {profiles.length === 0 ? (
-        <div className="px-2 py-2 text-[12px] text-[var(--text-muted)]">No enabled agents</div>
-      ) : (
-        profiles.map((profile) => {
-          const selected = selectedSet.has(profile.id);
-          return (
-            <button
-              key={profile.id}
-              type="button"
-              onClick={() => onToggleProfile(profile.id)}
-              className="flex h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-              aria-pressed={selected}
-            >
-              <span
-                className={`flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded border ${
-                  selected
-                    ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
-                    : 'border-[var(--border)] bg-[var(--bg-primary)] text-transparent'
-                }`}
-              >
-                <Check className="h-3 w-3" strokeWidth={2.2} />
-              </span>
-              <AgentAvatar profile={profile} size="sm" decorative />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[12px] font-normal text-[var(--text-primary)]">
-                  {profile.name.trim() || 'Untitled agent'}
-                </span>
-                <span className="block truncate text-[11px] text-[var(--text-muted)]">
-                  {profile.role.trim() || 'Agent'}
-                </span>
-              </span>
-              <ProviderGlyph provider={profile.provider} />
-            </button>
-          );
-        })
-      )}
-    </div>
-  );
-}
-
-function ChannelItem({
-  channel,
-  depth,
-  isActive,
-  onClick,
-  onContextMenu,
-  isRenaming,
-  renameValue,
-  onRenameChange,
-  onRenameSubmit,
-  onRenameCancel,
-}: {
-  channel: ChannelGroup;
-  depth: number;
-  isActive: boolean;
-  onClick: () => void;
-  onContextMenu?: (e: React.MouseEvent) => void;
-  isRenaming?: boolean;
-  renameValue?: string;
-  onRenameChange?: (value: string) => void;
-  onRenameSubmit?: () => void;
-  onRenameCancel?: () => void;
-}) {
-  const runtimeBadge = channel.session?.runtimeNotice
-    ? channel.session.runtimeNotice
-    : !isActive && channel.session?.status === 'running'
-      ? 'running'
-      : null;
-
-  if (isRenaming) {
-    return (
-      <form
-        className="mb-1 flex h-7 min-w-0 items-center gap-2 rounded-lg bg-[var(--sidebar-item-active)] px-2"
-        style={getIndentedRowStyle(depth)}
-        onSubmit={(e) => {
-          e.preventDefault();
-          onRenameSubmit?.();
-        }}
-      >
-        <Hash className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
-        <input
-          autoFocus
-          value={renameValue}
-          onChange={(e) => onRenameChange?.(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              e.preventDefault();
-              onRenameCancel?.();
-            }
-          }}
-          className="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-          placeholder={channel.name}
-          aria-label="Rename channel"
-        />
-        <button
-          type="submit"
-          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-          aria-label="Confirm rename"
-          title="Confirm rename"
-        >
-          <Check className="h-3 w-3" />
-        </button>
-        <button
-          type="button"
-          onClick={onRenameCancel}
-          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-          aria-label="Cancel rename"
-          title="Cancel rename"
-        >
-          <X className="h-3 w-3" />
-        </button>
-      </form>
-    );
-  }
-
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onClick();
-        }
-      }}
-      onContextMenu={onContextMenu}
-      draggable={Boolean(channel.session)}
-      onDragStart={(event) => {
-        if (!channel.session) return;
-        setSessionDragData(event, channel.session);
-      }}
-      className={`group/channel mb-1 flex h-7 min-w-0 items-center gap-2 rounded-lg px-2 text-left no-drag transition-colors duration-150 ${
-        isActive
-          ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
-          : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-      } ${channel.session ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
-      style={getIndentedRowStyle(depth)}
-      title={`# ${channel.name}`}
-      aria-label={`Open # ${channel.name}`}
-    >
-      <Hash className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
-      <span className="min-w-0 flex-1 truncate text-[13px] font-normal">{channel.name}</span>
-      {channel.session && (
-        <span className="flex-shrink-0 text-[12px] text-[var(--text-muted)]">
-          {formatSidebarTime(channel.updatedAt)}
-        </span>
-      )}
-      {runtimeBadge && (
-        <span
-          className={`status-dot ${runtimeBadge} flex-shrink-0`}
-          title={
-            runtimeBadge === 'running'
-              ? 'Session is running'
-              : runtimeBadge === 'completed'
-                ? 'Session completed'
-                : 'Session failed'
-          }
-          aria-label={
-            runtimeBadge === 'running'
-              ? 'Session is running'
-              : runtimeBadge === 'completed'
-                ? 'Session completed'
-                : 'Session failed'
-          }
-        />
       )}
     </div>
   );

@@ -1,5 +1,4 @@
 import {
-  Boxes,
   Brain,
   Bug,
   BookOpenText,
@@ -213,7 +212,7 @@ export function ClaudeSkillMenu({
                 : isSkill
                 ? suggestion.skill.source === 'plugin'
                   ? Plug
-                  : Boxes
+                  : Brain
                 : commandIcon(suggestion.command);
               const title =
                 suggestion.kind === 'prompt'

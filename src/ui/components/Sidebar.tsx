@@ -1,16 +1,21 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
 import {
   Bookmark,
   Brain,
   FolderOpen,
-  MessageCircle,
   Search,
   Settings,
   SquarePen,
 } from './icons';
 import { useAppStore } from '../store/useAppStore';
 import { SidebarSearchPalette } from './search/SidebarSearchPalette';
-import { AgentAvatar } from './AgentAvatar';
 import type {
   SidebarSearchAction,
   SidebarSearchProject,
@@ -18,17 +23,12 @@ import type {
 } from './search/SidebarSearchPalette.logic';
 import { FolderTreeView } from './FolderTreeView';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
-import type {
-  AgentProfile,
-} from '../types';
 import { getMessageContentBlocks } from '../utils/message-content';
 
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 420;
 const SIDEBAR_TRIGGER_CLASS =
   'no-drag inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] active:scale-95';
-
-type ThreadSidebarScope = 'projects' | 'dms';
 
 function SidebarToggleIcon({ className }: { className?: string }) {
   return (
@@ -90,7 +90,6 @@ export function Sidebar() {
     sidebarWidth,
     projectCwd,
     activeChannelByProject,
-    agentProfiles,
     sessions,
     activeWorkspace,
     chatLayoutMode,
@@ -105,26 +104,15 @@ export function Sidebar() {
     setShowNewSession,
     setShowSettings,
     createDraftSession,
-    openAgentDirectMessage,
     searchPaletteOpen,
     setSearchPaletteOpen,
   } = useAppStore();
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
-  const [threadSidebarScope, setThreadSidebarScope] = useState<ThreadSidebarScope>('projects');
   const sidebarResizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(sidebarWidth);
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
-  const activeDirectAgentId = activeSession?.scope === 'dm' ? activeSession.agentId || '' : '';
   const newThreadCwd = activeSession?.cwd || projectCwd;
-  const agentProfileList = useMemo(
-    () => Object.values(agentProfiles).sort((left, right) => left.createdAt - right.createdAt),
-    [agentProfiles]
-  );
-  const directMessageAgents = useMemo(
-    () => agentProfileList.filter((profile) => profile.enabled),
-    [agentProfileList]
-  );
 
   const getActiveChannelIdForProject = (cwd?: string | null) => {
     const key = cwd?.trim() || '__no_project__';
@@ -313,16 +301,13 @@ export function Sidebar() {
   const runPaletteAction = (actionId: string) => {
     switch (actionId) {
       case 'new-thread':
-        setThreadSidebarScope('projects');
         setShowSettings(false);
         createDraftSession(newThreadCwd, getActiveChannelIdForProject(newThreadCwd));
         break;
       case 'open-project':
-        setThreadSidebarScope('projects');
         void handleProjectFolderSelect();
         break;
       case 'switch-chat':
-        setThreadSidebarScope('projects');
         setActiveWorkspace('chat');
         setChatSidebarView('threads');
         setShowSettings(false);
@@ -344,7 +329,6 @@ export function Sidebar() {
   };
 
   const openThreadFromPalette = (sessionId: string) => {
-    setThreadSidebarScope('projects');
     setShowSettings(false);
     setChatLayoutMode('single');
     setActiveSession(sessionId);
@@ -354,7 +338,6 @@ export function Sidebar() {
   };
 
   const openProjectFromPalette = (projectId: string) => {
-    setThreadSidebarScope('projects');
     setActiveWorkspace('chat');
     setChatSidebarView('threads');
     setProjectCwd(projectId);
@@ -408,7 +391,6 @@ export function Sidebar() {
                       setShowSettings(false);
                       setActiveWorkspace('chat');
                       setChatSidebarView('threads');
-                      setThreadSidebarScope('projects');
                       createDraftSession(newThreadCwd, getActiveChannelIdForProject(newThreadCwd));
                     }}
                   />
@@ -438,46 +420,30 @@ export function Sidebar() {
               </div>
 
               <div className="flex min-h-0 flex-1 flex-col">
-                <ThreadScopeTabs
-                  activeScope={threadSidebarScope}
-                  onScopeChange={setThreadSidebarScope}
-                />
-                {threadSidebarScope === 'projects' ? (
-                  <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 pt-3">
-                    <FolderTreeView
-                      onSessionClick={(sessionId, options) => {
-                        setShowSettings(false);
-                        setChatLayoutMode(
-                          options?.preserveSplit || chatLayoutMode === 'split' ? 'split' : 'single'
-                        );
-                        setActiveSession(sessionId);
-                        setShowNewSession(false);
-                        setActiveWorkspace('chat');
-                        setChatSidebarView('threads');
-                      }}
-                      onSelectProjectFolder={handleProjectFolderSelect}
-                      projectCwd={projectCwd}
-                      onNewSessionForProject={(nextCwd, channelId) => {
-                        const nextChannelId = channelId || getActiveChannelIdForProject(nextCwd);
-                        setProjectCwd(nextCwd);
-                        setActiveChannelForProject(nextCwd, nextChannelId);
-                        setShowSettings(false);
-                        setChatSidebarView('threads');
-                        createDraftSession(nextCwd, nextChannelId);
-                      }}
-                    />
-                  </div>
-                ) : (
-                  <DirectMessagesPanel
-                    agents={directMessageAgents}
-                    selectedAgentId={activeDirectAgentId}
-                    onSelectAgent={(agentId) => {
+                <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 pt-3">
+                  <FolderTreeView
+                    onSessionClick={(sessionId, options) => {
                       setShowSettings(false);
-                      setChatLayoutMode('single');
-                      openAgentDirectMessage(agentId);
+                      setChatLayoutMode(
+                        options?.preserveSplit || chatLayoutMode === 'split' ? 'split' : 'single'
+                      );
+                      setActiveSession(sessionId);
+                      setShowNewSession(false);
+                      setActiveWorkspace('chat');
+                      setChatSidebarView('threads');
+                    }}
+                    onSelectProjectFolder={handleProjectFolderSelect}
+                    projectCwd={projectCwd}
+                    onNewSessionForProject={(nextCwd, channelId) => {
+                      const nextChannelId = channelId || getActiveChannelIdForProject(nextCwd);
+                      setProjectCwd(nextCwd);
+                      setActiveChannelForProject(nextCwd, nextChannelId);
+                      setShowSettings(false);
+                      setChatSidebarView('threads');
+                      createDraftSession(nextCwd, nextChannelId);
                     }}
                   />
-                )}
+                </div>
               </div>
 
               <div className="px-2 py-2">
@@ -525,7 +491,7 @@ function SidebarNavRow({
   active,
   onClick,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   active?: boolean;
   onClick: () => void;
@@ -548,148 +514,6 @@ function SidebarNavRow({
         {icon}
       </span>
       <span className="min-w-0 flex-1 truncate text-[13px] font-normal">{label}</span>
-    </button>
-  );
-}
-
-function ThreadScopeTabs({
-  activeScope,
-  onScopeChange,
-}: {
-  activeScope: ThreadSidebarScope;
-  onScopeChange: (scope: ThreadSidebarScope) => void;
-}) {
-  return (
-    <div className="px-3 pb-2">
-      <div className="relative grid h-6 w-full grid-cols-2 overflow-hidden rounded-full bg-[var(--sidebar-segment-bg)]">
-        <span
-          aria-hidden="true"
-          className={`absolute inset-y-0 left-0 w-1/2 rounded-full bg-[var(--sidebar-segment-active)] shadow-[var(--sidebar-segment-shadow-active)] transition-transform duration-180 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-            activeScope === 'dms' ? 'translate-x-full' : 'translate-x-0'
-          }`}
-        />
-        <ThreadScopeTab
-          icon={<FolderOpen className="h-3.5 w-3.5" />}
-          label="Projects"
-          active={activeScope === 'projects'}
-          onClick={() => onScopeChange('projects')}
-        />
-        <ThreadScopeTab
-          icon={<MessageCircle className="h-3.5 w-3.5" />}
-          label="DMs"
-          active={activeScope === 'dms'}
-          onClick={() => onScopeChange('dms')}
-        />
-      </div>
-    </div>
-  );
-}
-
-function ThreadScopeTab({
-  icon,
-  label,
-  active,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`relative z-10 flex min-w-0 items-center justify-center gap-1 px-2 text-[11px] font-medium outline-none transition-colors duration-150 ease-[cubic-bezier(0.2,0.8,0.2,1)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]/35 ${
-        active
-          ? 'text-[var(--text-primary)]'
-          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-      }`}
-      aria-pressed={active}
-    >
-      <span className="flex h-3 w-3 items-center justify-center opacity-85 [&>svg]:h-3 [&>svg]:w-3">{icon}</span>
-      <span className="truncate">{label}</span>
-    </button>
-  );
-}
-
-function DirectMessagesPanel({
-  agents,
-  selectedAgentId,
-  onSelectAgent,
-}: {
-  agents: AgentProfile[];
-  selectedAgentId: string;
-  onSelectAgent: (agentId: string) => void;
-}) {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 pt-3">
-        <div className="mb-2 px-1 text-[13px] text-[var(--text-primary)]">
-          Direct Messages
-        </div>
-        <div className="space-y-1">
-          {agents.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-[var(--border)] px-3 py-4 text-[13px] text-[var(--text-muted)]">
-              No active agents
-            </div>
-          ) : (
-            agents.map((agent) => (
-              <DirectAgentRow
-                key={agent.id}
-                agent={agent}
-                active={selectedAgentId === agent.id}
-                onClick={() => onSelectAgent(agent.id)}
-              />
-            ))
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DirectAgentRow({
-  agent,
-  active,
-  onClick,
-}: {
-  agent: AgentProfile;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const displayName = agent.name.trim() || 'Untitled agent';
-  const displayRole = agent.role.trim() || 'Agent';
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex h-10 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left no-drag transition-colors duration-150 ${
-        active
-          ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
-          : agent.enabled
-            ? 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-            : 'text-[var(--text-muted)] opacity-70 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-      }`}
-      aria-pressed={active}
-      aria-label={`Open direct message with ${displayName}`}
-      title={`${displayName} · ${displayRole}`}
-    >
-      <AgentAvatar profile={agent} size="sm" decorative />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-normal leading-[1.2]">{displayName}</span>
-        <span className="block truncate text-[11px] leading-[1.2] text-[var(--text-muted)]">
-          {displayRole}
-        </span>
-      </span>
-      <span
-        className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${
-          agent.enabled ? 'bg-emerald-500' : 'bg-[var(--text-muted)]'
-        }`}
-        title={agent.enabled ? 'Enabled' : 'Disabled'}
-        aria-label={agent.enabled ? 'Enabled' : 'Disabled'}
-      />
     </button>
   );
 }

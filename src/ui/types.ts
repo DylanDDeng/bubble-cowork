@@ -1,7 +1,7 @@
 // UI 层类型定义
 
 // Settings 标签类型
-export type SettingsTab = 'mcp' | 'general' | 'agents' | 'providers' | 'usage' | 'bridge';
+export type SettingsTab = 'mcp' | 'general' | 'aegis' | 'providers' | 'usage' | 'bridge';
 
 import type { ChromeTheme, ThemeFonts, ThemeMode, ThemePack, ThemeState, ThemeVariant } from './theme/theme-types';
 // 从共享类型导入

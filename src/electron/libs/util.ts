@@ -9,7 +9,7 @@ import { getClaudeCodeRuntime } from './claude-runtime';
 
 type ClaudeSettingSource = 'user' | 'project' | 'local';
 const CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local'];
-const OFFICIAL_CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['project'];
+const OFFICIAL_CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local'];
 const DEFAULT_CLAUDE_REASONING_EFFORT: ClaudeReasoningEffort = 'high';
 type ClaudeAgentSdkModule = typeof import('@anthropic-ai/claude-agent-sdk');
 

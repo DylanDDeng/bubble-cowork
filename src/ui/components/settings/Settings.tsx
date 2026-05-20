@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
-import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Bot, Users } from '../icons';
+import { useEffect, useState, type ReactNode } from 'react';
+import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartColumn, PlugZap, Bot } from '../icons';
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
-import { AgentsSettingsContent } from './AgentsSettings';
+import { AegisBuiltInSettingsContent } from './AegisBuiltInSettings';
 import { McpSettingsContent } from './McpSettings';
 import { BridgeSettingsContent } from './BridgeSettings';
 import { ThemePackEditor } from './ThemePackEditor';
@@ -18,11 +18,11 @@ const SETTINGS_TABS = {
     description: 'Adjust appearance and core workspace behavior.',
     icon: <SettingsIcon className="w-4 h-4" />,
   },
-  agents: {
-    label: 'Agents',
-    title: 'Agent Profiles',
-    description: 'Configure global agent profiles used by DMs and project rosters.',
-    icon: <Users className="w-4 h-4" />,
+  aegis: {
+    label: 'Aegis Built-in',
+    title: 'Aegis Built-in',
+    description: 'Configure the app-owned built-in agent runtime.',
+    icon: <Bot className="w-4 h-4" />,
   },
   mcp: {
     label: 'MCP Servers',
@@ -50,6 +50,12 @@ const SETTINGS_TABS = {
   },
 } as const;
 
+type SettingsTabKey = keyof typeof SETTINGS_TABS;
+
+function isSettingsTabKey(value: string): value is SettingsTabKey {
+  return Object.prototype.hasOwnProperty.call(SETTINGS_TABS, value);
+}
+
 // Settings 面板
 export function Settings() {
   const {
@@ -74,7 +80,7 @@ export function Settings() {
 
   if (!showSettings) return null;
 
-  const resolvedActiveSettingsTab = activeSettingsTab in SETTINGS_TABS
+  const resolvedActiveSettingsTab: SettingsTabKey = isSettingsTabKey(activeSettingsTab)
     ? activeSettingsTab
     : 'general';
   const activeMeta = SETTINGS_TABS[resolvedActiveSettingsTab];
@@ -109,7 +115,7 @@ export function Settings() {
                 label={tab.label}
                 icon={tab.icon}
                 active={resolvedActiveSettingsTab === key}
-                onClick={() => setActiveSettingsTab(key as keyof typeof SETTINGS_TABS)}
+                onClick={() => setActiveSettingsTab(key as SettingsTabKey)}
               />
             ))}
           </ul>
@@ -119,9 +125,7 @@ export function Settings() {
 
       <main className="min-w-0 flex-1 overflow-y-auto bg-[var(--bg-primary)]">
         <div
-          className={`mx-auto px-10 py-8 ${
-            resolvedActiveSettingsTab === 'agents' ? 'max-w-[1180px]' : 'max-w-3xl'
-          }`}
+          className="mx-auto max-w-3xl px-10 py-8"
         >
           <header className="mb-6">
             <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
@@ -149,7 +153,7 @@ export function Settings() {
               updateStatus={updateStatus}
             />
           )}
-          {resolvedActiveSettingsTab === 'agents' && <AgentsSettingsContent />}
+          {resolvedActiveSettingsTab === 'aegis' && <AegisBuiltInSettingsContent />}
           {resolvedActiveSettingsTab === 'mcp' && <McpSettingsContent />}
           {resolvedActiveSettingsTab === 'providers' && <CompatibleProviderSettingsContent />}
           {resolvedActiveSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}
@@ -168,7 +172,7 @@ function SettingsNavItem({
   onClick,
 }: {
   label: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   active: boolean;
   onClick: () => void;
 }) {
@@ -375,7 +379,7 @@ function ThemeOption({
   value: Theme;
   current: Theme;
   onClick: () => void;
-  icon: React.ReactNode;
+  icon: ReactNode;
 }) {
   const isActive = current === value;
   return (

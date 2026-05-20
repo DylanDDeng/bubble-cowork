@@ -984,11 +984,11 @@ export function ChatPane({
                 <>
                   <AgentAvatar profile={directAgent} size="sm" decorative />
                   <span className="truncate font-medium text-[var(--text-primary)]">
-                    {directAgent.name.trim() || session.title || 'Direct Message'}
+                    {directAgent.name.trim() || session.title || 'Agent thread'}
                   </span>
                   <span className="shrink-0 text-[var(--text-muted)]">·</span>
                   <span className="truncate text-[var(--text-muted)]">
-                    {directAgent.role.trim() || 'Direct message'} · No project context
+                    {directAgent.role.trim() || 'Agent'} · No project context
                   </span>
                 </>
               ) : (

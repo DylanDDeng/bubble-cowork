@@ -1,4 +1,4 @@
-import { Boxes, X } from './icons';
+import { Brain, X } from './icons';
 import type { ClaudeSkillSummary } from '../types';
 
 export function SelectedClaudeSkillChip({
@@ -44,7 +44,7 @@ export function SelectedClaudeSkillChip({
             : undefined
         }
       >
-        <Boxes className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
+        <Brain className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
       </div>
 
       <div
