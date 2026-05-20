@@ -10,6 +10,8 @@ import type {
   AegisBuiltInReasoningEffort,
   AppUpdateStatus,
   ClaudeCompatibleProviderId,
+  ClaudeCompatibleProviderConfig,
+  ClaudeCompatibleProvidersConfig,
   ClaudeReasoningEffort,
   CodexReasoningEffort,
   ProjectTreeNode,

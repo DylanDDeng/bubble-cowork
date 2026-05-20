@@ -120,7 +120,7 @@ export function getEnabledCompatibleProviderOptions(
   return (Object.entries(normalized.providers) as Array<
     [ClaudeCompatibleProviderId, ClaudeCompatibleProvidersConfig['providers'][ClaudeCompatibleProviderId]]
   >)
-    .filter(([, provider]) => provider.enabled && provider.model.trim())
+    .filter(([, provider]) => provider.enabled && provider.secret.trim() && provider.model.trim())
     .map(([id, provider]) => ({
       id,
       label: COMPATIBLE_PROVIDER_LABELS[id],

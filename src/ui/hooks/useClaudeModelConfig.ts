@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { ClaudeModelConfig } from '../types';
-import { CLAUDE_MODEL_PRESETS } from '../utils/claude-model';
 
 const FALLBACK_CONFIG: ClaudeModelConfig = {
   defaultModel: null,
-  options: CLAUDE_MODEL_PRESETS,
+  options: [],
 };
 
 export function useClaudeModelConfig() {
