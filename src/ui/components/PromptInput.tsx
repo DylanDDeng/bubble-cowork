@@ -59,6 +59,8 @@ export function PromptInput({
     activeChannelByProject,
     pendingStart,
     setShowNewSession,
+    setShowSettings,
+    setActiveSettingsTab,
     setPendingStart,
     promptLibraryInsertRequest,
     consumePromptLibraryInsert,
@@ -81,6 +83,7 @@ export function PromptInput({
   });
   const runtimeProvider = agentSelection.provider;
   const selectedModel = agentSelection.model;
+  const modelSetupRequired = Boolean(agentSelection.modelSetup);
 
   const codexContextSnapshot = useMemo(
     () =>
@@ -119,6 +122,15 @@ export function PromptInput({
       editorRef.current?.setCursorIndex(0);
     });
   }, []);
+
+  const openModelSetup = useCallback(() => {
+    const setup = agentSelection.modelSetup;
+    if (!setup) {
+      return;
+    }
+    setActiveSettingsTab(setup.settingsTab);
+    setShowSettings(true);
+  }, [agentSelection.modelSetup, setActiveSettingsTab, setShowSettings]);
 
   useEffect(() => {
     if (!promptLibraryInsertRequest) {
@@ -216,6 +228,11 @@ export function PromptInput({
 
   const handleSend = async () => {
     if (!prompt.trim() && attachments.length === 0) return;
+    if (agentSelection.modelSetup) {
+      toast.error(agentSelection.modelSetup.title);
+      openModelSetup();
+      return;
+    }
     if (!activeSession) {
       setShowNewSession(true);
       return;
@@ -501,7 +518,7 @@ export function PromptInput({
       e.preventDefault();
       if (isRunning) {
         handleStop();
-      } else if (!isBusy) {
+      } else if (!isBusy && !modelSetupRequired) {
         handleSend();
       }
     }
@@ -601,7 +618,9 @@ export function PromptInput({
                 selectedKey={agentSelection.selectedModelOption?.key ?? null}
                 label={agentSelection.selectedModelLabel}
                 options={agentSelection.modelOptions}
+                setupLabel={agentSelection.modelSetup?.label}
                 disabled={isBusy}
+                onSetup={openModelSetup}
                 onChange={agentSelection.selectModel}
               />
               <button
@@ -636,7 +655,8 @@ export function PromptInput({
                 onClick={handleSend}
                 disabled={
                   (!prompt.trim() && attachments.length === 0) ||
-                  isBusy
+                  isBusy ||
+                  modelSetupRequired
                 }
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-20 disabled:hover:scale-100"
                 title="Send"

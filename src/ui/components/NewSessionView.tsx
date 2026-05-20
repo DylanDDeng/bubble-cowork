@@ -53,6 +53,8 @@ export function NewSessionView() {
     setPendingStart,
     setProjectCwd,
     setActiveChannelForProject,
+    setShowSettings,
+    setActiveSettingsTab,
     promptLibraryInsertRequest,
     consumePromptLibraryInsert,
   } = useAppStore();
@@ -66,6 +68,7 @@ export function NewSessionView() {
   const cwd = projectCwd || '';
   const hasSelectedCwd = cwd.trim().length > 0;
   const agentSelection = useComposerAgentSelection({ selectionKey: '__new_session__' });
+  const modelSetupRequired = Boolean(agentSelection.modelSetup);
   const capabilityMenu = useComposerCapabilityMenu({
     enabled: true,
     enableSkills: true,
@@ -153,6 +156,15 @@ export function NewSessionView() {
     return selected;
   }, [pendingStart, setActiveChannelForProject, setProjectCwd]);
 
+  const openModelSetup = useCallback(() => {
+    const setup = agentSelection.modelSetup;
+    if (!setup) {
+      return;
+    }
+    setActiveSettingsTab(setup.settingsTab);
+    setShowSettings(true);
+  }, [agentSelection.modelSetup, setActiveSettingsTab, setShowSettings]);
+
   const autoConvertComposerTextToAttachment = useCallback(async (
     value: string,
     nextCursorIndex: number
@@ -193,6 +205,11 @@ export function NewSessionView() {
 
   const handleStart = async () => {
     if (!prompt.trim() && attachments.length === 0) return;
+    if (agentSelection.modelSetup) {
+      toast.error(agentSelection.modelSetup.title);
+      openModelSetup();
+      return;
+    }
     let dispatchCwd = cwd.trim();
     if (!dispatchCwd) {
       setShowCwdHint(true);
@@ -390,7 +407,8 @@ export function NewSessionView() {
 
   const canStartTask =
     (prompt.trim().length > 0 || attachments.length > 0) &&
-    !pendingStart;
+    !pendingStart &&
+    !modelSetupRequired;
 
   const handleKeyDown = (e: ReactKeyboardEvent) => {
     if (isImeComposingEvent(e, isComposingRef)) {
@@ -447,7 +465,7 @@ export function NewSessionView() {
       }
     }
 
-    if (e.key === 'Enter' && !e.shiftKey && (prompt.trim() || attachments.length > 0) && !pendingStart) {
+    if (e.key === 'Enter' && !e.shiftKey && canStartTask) {
       e.preventDefault();
       handleStart();
     }
@@ -630,7 +648,9 @@ export function NewSessionView() {
                 selectedKey={agentSelection.selectedModelOption?.key ?? null}
                 label={agentSelection.selectedModelLabel}
                 options={agentSelection.modelOptions}
+                setupLabel={agentSelection.modelSetup?.label}
                 disabled={pendingStart}
+                onSetup={openModelSetup}
                 onChange={agentSelection.selectModel}
               />
               <SavePromptButton content={promptLibraryContent} disabled={pendingStart} />
