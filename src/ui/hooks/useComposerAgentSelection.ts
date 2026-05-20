@@ -6,8 +6,9 @@ import { useOpencodeModelConfig } from './useOpencodeModelConfig';
 import { useCompatibleProviderConfig } from './useCompatibleProviderConfig';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import {
-  buildClaudeModelOptions,
+  canonicalizeClaudeModel,
   formatClaudeModelLabel,
+  isOfficialClaudeModel,
   loadPreferredClaudeCompatibleProviderId,
   loadPreferredClaudeModel,
   savePreferredClaudeCompatibleProviderId,
@@ -28,6 +29,7 @@ import {
 } from '../utils/opencode-model';
 import {
   AEGIS_BUILT_IN_MODELS,
+  AEGIS_BUILT_IN_PROVIDERS,
   getAegisBuiltInModel,
   getAegisBuiltInProvider,
   resolveAegisBuiltInModel,
@@ -43,6 +45,7 @@ export interface ComposerModelOption {
   description?: string;
   compatibleProviderId?: ClaudeCompatibleProviderId | null;
 }
+
 
 function loadPreferredAegisModel(): string | null {
   if (typeof window === 'undefined') return null;
@@ -81,8 +84,97 @@ function formatAegisModelLabel(value: string): string {
   return model?.name || `${provider?.name || selection.providerId} · ${selection.modelId}`;
 }
 
-function buildAegisModelOptions(currentModel?: string | null): ComposerModelOption[] {
-  const options = AEGIS_BUILT_IN_MODELS.map((model) => {
+function buildConfiguredClaudeModelValues(
+  config: { defaultModel: string | null; options: string[] },
+  compatibleOptions: Array<{ model: string }>
+): string[] {
+  const compatibleModels = new Set(compatibleOptions.map((option) => option.model.trim()).filter(Boolean));
+  const defaultModel = canonicalizeClaudeModel(config.defaultModel);
+  return Array.from(
+    new Set(
+      [config.defaultModel, ...config.options]
+        .map((value) => canonicalizeClaudeModel(value))
+        .filter((value): value is string => Boolean(value))
+        .filter((value) => isOfficialClaudeModel(value))
+        .filter((value) => value === defaultModel || !compatibleModels.has(value))
+    )
+  );
+}
+
+function resolveConfiguredClaudeSelection(
+  requestedModel: string | null,
+  requestedCompatibleProviderId: ClaudeCompatibleProviderId | null | undefined,
+  config: { defaultModel: string | null; options: string[] },
+  compatibleOptions: Array<{ id: ClaudeCompatibleProviderId; model: string }>
+): { model: string | null; compatibleProviderId: ClaudeCompatibleProviderId | null } {
+  const officialOptions = buildConfiguredClaudeModelValues(config, compatibleOptions);
+  const selectCandidate = (
+    candidateModel: string | null | undefined,
+    candidateCompatibleProviderId?: ClaudeCompatibleProviderId | null
+  ): { model: string; compatibleProviderId: ClaudeCompatibleProviderId | null } | null => {
+    const normalized = canonicalizeClaudeModel(candidateModel);
+    if (!normalized) return null;
+
+    if (candidateCompatibleProviderId) {
+      const compatibleMatch = compatibleOptions.find(
+        (option) => option.id === candidateCompatibleProviderId && option.model === normalized
+      );
+      if (compatibleMatch) {
+        return { model: compatibleMatch.model, compatibleProviderId: compatibleMatch.id };
+      }
+    }
+
+    if (officialOptions.includes(normalized)) {
+      return { model: normalized, compatibleProviderId: null };
+    }
+
+    const compatibleProviderId = resolveCompatibleProviderForModel(
+      normalized,
+      candidateCompatibleProviderId,
+      compatibleOptions
+    );
+    if (compatibleProviderId) {
+      return { model: normalized, compatibleProviderId };
+    }
+
+    return null;
+  };
+
+  return (
+    selectCandidate(requestedModel, requestedCompatibleProviderId) ||
+    selectCandidate(loadPreferredClaudeModel(), loadPreferredClaudeCompatibleProviderId()) ||
+    selectCandidate(config.defaultModel, null) ||
+    (officialOptions[0]
+      ? { model: officialOptions[0], compatibleProviderId: null }
+      : compatibleOptions[0]
+        ? { model: compatibleOptions[0].model, compatibleProviderId: compatibleOptions[0].id }
+        : { model: null, compatibleProviderId: null })
+  );
+}
+
+function getAegisProviderApiKey(config: AegisBuiltInAgentConfig, providerId: string): string {
+  return config.providerApiKeys?.[providerId] || (config.providerId === providerId ? config.apiKey : '');
+}
+
+function getConfiguredAegisProviderIds(config: AegisBuiltInAgentConfig | null): Set<string> {
+  if (!config) {
+    return new Set();
+  }
+
+  return new Set(
+    AEGIS_BUILT_IN_PROVIDERS
+      .map((provider) => provider.id)
+      .filter((providerId) => getAegisProviderApiKey(config, providerId).trim().length > 0)
+  );
+}
+
+function buildConfiguredAegisModelOptions(config: AegisBuiltInAgentConfig | null): ComposerModelOption[] {
+  const configuredProviderIds = getConfiguredAegisProviderIds(config);
+  if (configuredProviderIds.size === 0) {
+    return [];
+  }
+
+  return AEGIS_BUILT_IN_MODELS.filter((model) => configuredProviderIds.has(model.providerId)).map((model) => {
     const provider = getAegisBuiltInProvider(model.providerId);
     const encoded = `${model.providerId}:${model.id}`;
     return {
@@ -92,22 +184,32 @@ function buildAegisModelOptions(currentModel?: string | null): ComposerModelOpti
       description: provider?.name || model.providerId,
     };
   });
+}
 
-  const normalizedCurrent = currentModel?.trim();
-  if (
-    normalizedCurrent &&
-    !options.some((option) => option.value === normalizedCurrent)
-  ) {
-    const selection = resolveAegisBuiltInModel(normalizedCurrent);
-    options.unshift({
-      key: `aegis:${selection.encoded}`,
-      value: selection.encoded,
-      label: formatAegisModelLabel(selection.encoded),
-      description: getAegisBuiltInProvider(selection.providerId)?.name || selection.providerId,
-    });
+function resolveConfiguredAegisModel(
+  requestedModel: string | null | undefined,
+  config: AegisBuiltInAgentConfig | null
+): string | null {
+  const options = buildConfiguredAegisModelOptions(config);
+  if (options.length === 0) {
+    return null;
   }
 
-  return options;
+  const optionValues = new Set(options.map((option) => option.value));
+  const candidates = [
+    requestedModel,
+    loadPreferredAegisModel(),
+    config ? resolveAegisBuiltInModel(config.model, config.providerId).encoded : null,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = candidate ? resolveAegisBuiltInModel(candidate).encoded : null;
+    if (normalized && optionValues.has(normalized)) {
+      return normalized;
+    }
+  }
+
+  return options[0]?.value || null;
 }
 
 export function useComposerAgentSelection(input?: {
@@ -139,7 +241,7 @@ export function useComposerAgentSelection(input?: {
           }
         })
         .catch((error) => {
-          console.error('Failed to load Aegis built-in model config:', error);
+          console.error('Failed to load Aegis model config:', error);
         });
     };
 
@@ -154,7 +256,7 @@ export function useComposerAgentSelection(input?: {
 
   const modelOptions = useMemo<ComposerModelOption[]>(() => {
     if (provider === 'claude') {
-      const officialOptions = buildClaudeModelOptions(claudeModelConfig, [model]).map((option) => ({
+      const officialOptions = buildConfiguredClaudeModelValues(claudeModelConfig, compatibleOptions).map((option) => ({
         key: `claude:official:${option}`,
         value: option,
         label: formatClaudeModelLabel(option),
@@ -186,8 +288,8 @@ export function useComposerAgentSelection(input?: {
       }));
     }
 
-    return buildAegisModelOptions(model);
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, model, opencodeModelConfig, provider]);
+    return buildConfiguredAegisModelOptions(aegisConfig);
+  }, [aegisConfig, claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, provider]);
 
   const resolveModelForProvider = useCallback(
     (
@@ -197,21 +299,12 @@ export function useComposerAgentSelection(input?: {
     ): { model: string | null; compatibleProviderId: ClaudeCompatibleProviderId | null } => {
       const normalizedRequestedModel = requestedModel?.trim() || null;
       if (nextProvider === 'claude') {
-        const preferredModel = loadPreferredClaudeModel();
-        const nextModel =
-          normalizedRequestedModel ||
-          preferredModel ||
-          claudeModelConfig.defaultModel ||
-          buildClaudeModelOptions(claudeModelConfig)[0] ||
-          null;
-        return {
-          model: nextModel,
-          compatibleProviderId: resolveCompatibleProviderForModel(
-            nextModel,
-            requestedCompatibleProviderId || loadPreferredClaudeCompatibleProviderId(),
-            compatibleOptions
-          ),
-        };
+        return resolveConfiguredClaudeSelection(
+          normalizedRequestedModel,
+          requestedCompatibleProviderId,
+          claudeModelConfig,
+          compatibleOptions
+        );
       }
 
       if (nextProvider === 'codex') {
@@ -236,13 +329,8 @@ export function useComposerAgentSelection(input?: {
         };
       }
 
-      const configModel = aegisConfig
-        ? resolveAegisBuiltInModel(aegisConfig.model, aegisConfig.providerId).encoded
-        : null;
       return {
-        model: resolveAegisBuiltInModel(
-          normalizedRequestedModel || loadPreferredAegisModel() || configModel
-        ).encoded,
+        model: resolveConfiguredAegisModel(normalizedRequestedModel, aegisConfig),
         compatibleProviderId: null,
       };
     },
@@ -280,6 +368,26 @@ export function useComposerAgentSelection(input?: {
     setModelState(nextSelection.model);
     setCompatibleProviderId(nextSelection.compatibleProviderId);
   }, [model, provider, resolveModelForProvider]);
+
+  useEffect(() => {
+    const selectedModelStillConfigured = modelOptions.some(
+      (option) =>
+        option.value === model &&
+        (option.compatibleProviderId || null) === (compatibleProviderId || null)
+    );
+    if (selectedModelStillConfigured || (!model && modelOptions.length === 0)) {
+      return;
+    }
+
+    const nextSelection = resolveModelForProvider(provider);
+    if (
+      nextSelection.model !== model ||
+      nextSelection.compatibleProviderId !== (compatibleProviderId || null)
+    ) {
+      setModelState(nextSelection.model);
+      setCompatibleProviderId(nextSelection.compatibleProviderId);
+    }
+  }, [compatibleProviderId, model, modelOptions, provider, resolveModelForProvider]);
 
   const selectAgent = useCallback(
     (nextProvider: AgentProvider) => {
