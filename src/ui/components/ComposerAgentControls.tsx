@@ -91,14 +91,18 @@ export function ComposerModelPicker({
   selectedKey,
   label,
   options,
+  setupLabel,
   disabled,
+  onSetup,
   onChange,
 }: {
   value: string | null;
   selectedKey?: string | null;
   label: string;
   options: ComposerModelOption[];
+  setupLabel?: string | null;
   disabled?: boolean;
+  onSetup?: () => void;
   onChange: (option: ComposerModelOption) => void;
 }) {
   const [query, setQuery] = useState('');
@@ -115,6 +119,22 @@ export function ComposerModelPicker({
         .includes(normalizedQuery)
     );
   }, [options, query]);
+
+  if (options.length === 0 && setupLabel) {
+    return (
+      <button
+        type="button"
+        disabled={disabled || !onSetup}
+        onClick={onSetup}
+        className={`${triggerClassName} max-w-[240px]`}
+        title={setupLabel}
+        aria-label={setupLabel}
+      >
+        <span className="min-w-0 truncate">{setupLabel}</span>
+        <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+      </button>
+    );
+  }
 
   return (
     <DropdownMenu.Root onOpenChange={(open) => !open && setQuery('')}>

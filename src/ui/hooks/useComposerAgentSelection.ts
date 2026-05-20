@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentProvider, ClaudeCompatibleProviderId } from '../types';
+import type { AgentProvider, ClaudeCompatibleProviderId, SettingsTab } from '../types';
 import { useClaudeModelConfig } from './useClaudeModelConfig';
 import { useCodexModelConfig } from './useCodexModelConfig';
 import { useOpencodeModelConfig } from './useOpencodeModelConfig';
@@ -46,6 +46,11 @@ export interface ComposerModelOption {
   compatibleProviderId?: ClaudeCompatibleProviderId | null;
 }
 
+export interface ComposerModelSetupState {
+  label: string;
+  title: string;
+  settingsTab: SettingsTab;
+}
 
 function loadPreferredAegisModel(): string | null {
   if (typeof window === 'undefined') return null;
@@ -433,7 +438,44 @@ export function useComposerAgentSelection(input?: {
     );
   }, [compatibleProviderId, model, modelOptions]);
 
+  const modelSetup = useMemo<ComposerModelSetupState | null>(() => {
+    if (modelOptions.length > 0) {
+      return null;
+    }
+
+    if (provider === 'aegis') {
+      return {
+        label: 'Configure Aegis',
+        title: 'Configure Aegis model',
+        settingsTab: 'aegis',
+      };
+    }
+
+    if (provider === 'claude') {
+      return {
+        label: 'Setup Claude',
+        title: 'Configure Claude or Claude-compatible models',
+        settingsTab: 'providers',
+      };
+    }
+
+    if (provider === 'codex') {
+      return {
+        label: 'Setup Codex',
+        title: 'Configure Codex CLI models',
+        settingsTab: 'providers',
+      };
+    }
+
+    return {
+      label: 'Setup OpenCode',
+      title: 'Configure OpenCode models',
+      settingsTab: 'providers',
+    };
+  }, [modelOptions.length, provider]);
+
   const selectedModelLabel =
+    modelSetup?.label ||
     selectedModelOption?.label ||
     (model ? (provider === 'aegis' ? formatAegisModelLabel(model) : model) : 'Default');
 
@@ -442,6 +484,7 @@ export function useComposerAgentSelection(input?: {
     model,
     compatibleProviderId,
     modelOptions,
+    modelSetup,
     selectedModelOption,
     selectedModelLabel,
     selectAgent,
