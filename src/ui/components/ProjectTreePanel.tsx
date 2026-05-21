@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { MDContent } from '../render/markdown';
 import { HighlightedCode } from './HighlightedCode';
+import TextFileReader from './TextFileReader';
 import { FileTypeIcon } from './FileTypeIcon';
 import { ProjectMarkdownEditor } from './ProjectMarkdownEditor';
 import { IconButton } from './ui/icon-button';
@@ -2106,9 +2107,12 @@ export function ProjectTreePanel({
                     <X className="w-4 h-4" />
                   </IconButton>
                   <IconButton
-                    onClick={() => handleCopyPath(selectedFilePath)}
-                    tooltip={copiedPath ? 'Copied' : 'Copy path'}
-                    label="Copy path"
+                    onClick={() => {
+                      const isTxt = selectedPreview?.name?.toLowerCase().endsWith('.txt');
+                      handleCopyPath(isTxt && selectedPreview?.text ? selectedPreview.text : selectedFilePath);
+                    }}
+                    tooltip={copiedPath ? 'Copied' : (selectedPreview?.name?.toLowerCase().endsWith('.txt') ? 'Copy content' : 'Copy path')}
+                    label={selectedPreview?.name?.toLowerCase().endsWith('.txt') ? 'Copy content' : 'Copy path'}
                   >
                     {copiedPath ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                   </IconButton>
@@ -2224,6 +2228,11 @@ export function ProjectTreePanel({
                         onChange={(e) => setDraftText(e.target.value)}
                         className="w-full h-full min-h-[220px] resize-none bg-transparent outline-none font-mono text-sm whitespace-pre-wrap"
                         spellCheck={false}
+                      />
+                    ) : selectedPreview.name?.toLowerCase().endsWith('.txt') ? (
+                      <TextFileReader
+                        text={selectedPreview.text}
+                        fileName={selectedPreview.name}
                       />
                     ) : (
                       <HighlightedCode
