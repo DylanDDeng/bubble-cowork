@@ -1,5 +1,57 @@
 import type { BuiltinToolRegistryEntry, BuiltinToolResultStatus } from '../types';
 
+// Tools a subagent must never receive, regardless of profile or policy
+const SUBAGENT_FORBIDDEN_TOOLS = new Set([
+  'spawn_agent', 'wait_agent', 'send_input', 'close_agent',
+  'task', 'delegate', 'exit_plan_mode',
+]);
+
+// ── Subagent tool profiles (matches my-coding-agent's builtinAgentProfiles) ──
+
+/** Full read-only tool set for the `default` profile. */
+const DEFAULT_PROFILE: ReadonlySet<string> = new Set([
+  'read', 'glob', 'grep', 'lsp',
+  'web_search', 'web_fetch',
+  'skill', 'skill_read', 'skill_read_resource',
+  'todo_write', 'tool_search',
+  'memory_search', 'memory_read_summary',
+  'question',
+]);
+
+/** Explorer / worker profile — no external web tools. */
+const EXPLORER_WORKER_PROFILE: ReadonlySet<string> = new Set([
+  'read', 'glob', 'grep', 'lsp',
+  'skill', 'skill_read', 'skill_read_resource',
+  'todo_write', 'tool_search',
+  'memory_search', 'memory_read_summary',
+]);
+
+const SUBAGENT_TOOL_PROFILES: Record<string, ReadonlySet<string>> = {
+  default: DEFAULT_PROFILE,
+  explorer: EXPLORER_WORKER_PROFILE,
+  'explorer/review': EXPLORER_WORKER_PROFILE,
+  worker: EXPLORER_WORKER_PROFILE,
+};
+
+/**
+ * Select tools for a subagent profile.
+ * - Starts from the profile preset (or default if unknown).
+ * - Removes all forbidden lifecycle and delegation tools.
+ * - Safety gate: only keeps tools marked `readOnly: true`.
+ */
+export function selectToolsForProfile(
+  tools: BuiltinToolRegistryEntry[],
+  profile: string,
+): BuiltinToolRegistryEntry[] {
+  const allowedSet = SUBAGENT_TOOL_PROFILES[profile] ?? DEFAULT_PROFILE;
+  return tools.filter((t) => {
+    if (SUBAGENT_FORBIDDEN_TOOLS.has(t.name)) return false;
+    if (!allowedSet.has(t.name)) return false;
+    if (!t.readOnly) return false;
+    return true;
+  });
+}
+
 export type BuiltinSubtaskType =
   | 'search'
   | 'security_investigation'
@@ -70,8 +122,15 @@ export function getSubtaskPolicy(type: BuiltinSubtaskType | undefined): BuiltinS
 
 export function filterToolsForSubtask(
   tools: BuiltinToolRegistryEntry[],
-  type: BuiltinSubtaskType | undefined
+  type: BuiltinSubtaskType | undefined,
+  profile?: string,
 ): BuiltinToolRegistryEntry[] {
+  // Profile-based filtering takes priority when specified
+  if (profile) {
+    return selectToolsForProfile(tools, profile);
+  }
+
+  // Legacy policy-based fallback
   const policy = getSubtaskPolicy(type);
   return tools.filter((tool) => tool.name !== 'task' && policy.allowedTools.includes(tool.name));
 }

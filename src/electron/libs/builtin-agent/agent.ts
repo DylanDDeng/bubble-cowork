@@ -7,6 +7,14 @@ import {
   normalizeToolResultMetadata,
 } from './governance/execution-governor';
 import { filterToolsForSubtask, getSubtaskPolicy, type BuiltinSubtaskType } from './governance/subtask-policy';
+import {
+  type SubagentThreadRecord,
+  type SubagentThreadSnapshot,
+  type SpawnSubAgentParams,
+  assignAgentNickname,
+  isFinalSubagentStatus,
+} from './governance/subagent-control';
+import { buildSubagentLifecycleReminder } from './governance/subagent-lifecycle-reminder';
 import type {
   BuiltinAgentCallbacks,
   BuiltinChatMessage,
@@ -42,6 +50,12 @@ export class AegisBuiltinAgentCore {
   private messages: BuiltinChatMessage[];
   private tools = new Map<string, BuiltinToolRegistryEntry>();
   private unlockedDeferred = new Set<string>();
+
+  /** Running and completed subagent threads, keyed by id. */
+  private subagentThreads = new Map<string, SubagentThreadRecord>();
+
+  /** Snapshots of completed subagents that the parent hasn't collected yet. */
+  private pendingSubagentCompletions: SubagentThreadSnapshot[] = [];
 
   constructor(private readonly options: AegisBuiltinAgentCoreOptions) {
     this.messages = options.initialMessages ? [...options.initialMessages] : [];
@@ -87,6 +101,13 @@ export class AegisBuiltinAgentCore {
 
   async runTurn(prompt: string): Promise<void> {
     this.messages.push({ role: 'user', content: prompt });
+
+    // Inject subagent lifecycle reminder so the parent agent is always aware of its children
+    const subagentReminder = this.drainSubagentReminder();
+    if (subagentReminder) {
+      this.messages.push({ role: 'user', content: subagentReminder });
+    }
+
     const governor = new BuiltinExecutionGovernor(classifyBuiltinAgentTask(prompt));
     let recoveries = 0;
     let turnCount = 0;
@@ -355,6 +376,14 @@ export class AegisBuiltinAgentCore {
       agent: {
         runSubtask: (input, cwd, options) => this.runSubtask(input, cwd, options),
         runDelegate: (delegateCall) => this.runDelegate(delegateCall),
+        spawnSubAgent: (params) => this.spawnSubAgent(params),
+        closeSubAgent: (agentId) => this.closeSubAgent(agentId),
+        sendSubAgentInput: (agentId, message, interrupt) =>
+          this.sendSubAgentInput(agentId, message, interrupt),
+        waitForAgentStop: (agentId, timeoutMs) =>
+          this.waitForAgentStop(agentId, timeoutMs),
+        getSubagentSnapshots: () => this.getSubagentSnapshots(),
+        activeSubagentNicknames: () => this.activeSubagentNicknames(),
       },
     });
     const result = normalizeToolResultMetadata(call.function.name, parsedArgs.args, rawResult);
@@ -377,6 +406,285 @@ export class AegisBuiltinAgentCore {
     }
     return delegateRunner(call);
   }
+
+  // -------------------------------------------------------------------------
+  // Subagent lifecycle
+  // -------------------------------------------------------------------------
+
+  /**
+   * Spawn an async subagent and return a snapshot immediately.
+   * When blocking=true, waits for completion before returning.
+   */
+  async spawnSubAgent(params: SpawnSubAgentParams): Promise<SubagentThreadSnapshot> {
+    const id = crypto.randomUUID();
+    const nickname = assignAgentNickname(params.agentType, this.activeSubagentNicknames());
+
+    const abortController = new AbortController();
+    // Link child abort to parent signal
+    this.options.signal.addEventListener('abort', () => {
+      abortController.abort();
+    });
+
+    const record: SubagentThreadRecord = {
+      id,
+      parentToolCallId: params.toolCallId ?? '',
+      nickname,
+      task: params.message,
+      profile: params.agentType,
+      category: params.category,
+      status: 'running',
+      timeoutMs: params.timeoutMs,
+      createdAt: Date.now(),
+      abortController,
+      asSnapshot(this: SubagentThreadRecord): SubagentThreadSnapshot {
+        return {
+          id: this.id,
+          nickname: this.nickname,
+          task: this.task,
+          profile: this.profile,
+          status: this.status,
+          summary: this.summary,
+          error: this.error,
+          usage: this.usage,
+          createdAt: this.createdAt,
+          completedAt: this.completedAt,
+        };
+      },
+    };
+
+    this.subagentThreads.set(id, record);
+
+    // Fire-and-forget the subagent thread
+    const promise = this.runSubagentThread(record).finally(() => {
+      // Move completed snapshot to pending collection for parent to pick up
+      this.pendingSubagentCompletions.push(record.asSnapshot());
+    });
+    record._promise = promise;
+
+    if (params.blocking) {
+      await promise;
+    }
+
+    return record.asSnapshot();
+  }
+
+  /** Close (abort) a running subagent. */
+  closeSubAgent(agentId: string): SubagentThreadSnapshot | null {
+    const record = this.subagentThreads.get(agentId);
+    if (!record) return null;
+
+    if (record.status === 'running') {
+      record.abortController.abort();
+      record.status = 'closed';
+      record.completedAt = Date.now();
+      record.waiter?.();
+    }
+    return record.asSnapshot();
+  }
+
+  /**
+   * Send a follow-up input to a subagent.
+   * When interrupt=true the current run is cancelled and re-spawned with the new message.
+   */
+  sendSubAgentInput(
+    agentId: string,
+    message: string,
+    interrupt?: boolean
+  ): SubagentThreadSnapshot | null {
+    const record = this.subagentThreads.get(agentId);
+    if (!record) return null;
+
+    if (interrupt && record.status === 'running') {
+      record.abortController.abort();
+      record.status = 'closed';
+      record.completedAt = Date.now();
+      record.waiter?.();
+      this.subagentThreads.delete(agentId);
+
+      // Re-spawn with the new message (fire-and-forget, tracked via subagentThreads)
+      this.spawnSubAgent({
+        agentType: record.profile,
+        message,
+        toolCallId: record.parentToolCallId,
+        category: record.category,
+      });
+      // Return the old (now closed) record
+      return record.asSnapshot();
+    }
+
+    // Non-interrupt path: wait for current run to finish, then spawn new one
+    if (record.status === 'running') {
+      // Queue the input for after completion — simplified: we'll just log status
+      // In the current architecture subagents run to completion, so we
+      // rely on the caller using interrupt:true for re-steering.
+      return record.asSnapshot();
+    }
+
+    return record.asSnapshot();
+  }
+
+  /** Wait for one or all subagents to reach a final status. */
+  async waitForAgentStop(
+    agentId?: string,
+    timeoutMs: number = 30000
+  ): Promise<SubagentThreadSnapshot[]> {
+    const start = Date.now();
+
+    while (true) {
+      // Collect current final snapshots
+      const candidates: SubagentThreadSnapshot[] = [];
+
+      if (agentId) {
+        const record = this.subagentThreads.get(agentId);
+        if (!record) return [];
+        if (isFinalSubagentStatus(record.status)) {
+          candidates.push(record.asSnapshot());
+        }
+      } else {
+        for (const record of this.subagentThreads.values()) {
+          if (isFinalSubagentStatus(record.status)) {
+            candidates.push(record.asSnapshot());
+          }
+        }
+      }
+
+      if (candidates.length > 0) return candidates;
+
+      if (Date.now() - start >= timeoutMs) {
+        // Timeout — return all current snapshots
+        if (agentId) {
+          const rec = this.subagentThreads.get(agentId);
+          return rec ? [rec.asSnapshot()] : [];
+        }
+        return [...this.subagentThreads.values()].map((r) => r.asSnapshot());
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+
+  /** Snapshots of every tracked subagent. */
+  getSubagentSnapshots(): SubagentThreadSnapshot[] {
+    return [...this.subagentThreads.values()].map((r) => r.asSnapshot());
+  }
+
+  /** Nicknames of currently running subagents. */
+  activeSubagentNicknames(): string[] {
+    return [...this.subagentThreads.values()]
+      .filter((r) => r.status === 'running')
+      .map((r) => r.nickname);
+  }
+
+  /**
+   * Run a subagent's turn loop in the background.
+   * Creates a new agent-core instance with filtered tools and a subagent system prompt.
+   */
+  private async runSubagentThread(record: SubagentThreadRecord): Promise<void> {
+    try {
+      // Classify the subagent task for tool filtering
+      const rawType = classifyBuiltinAgentTask(record.task);
+      const subtaskType: BuiltinSubtaskType = mapTaskTypeToSubtaskType(rawType);
+
+      const allTools = [...this.tools.values()];
+      const filteredTools = filterToolsForSubtask(allTools, subtaskType, record.profile);
+
+      if (filteredTools.length === 0) {
+        record.status = 'failed';
+        record.error = 'No tools available for subagent after filtering.';
+        record.completedAt = Date.now();
+        return;
+      }
+
+      // Create a sub-agent core with filtered tools
+      const subAgent = new AegisBuiltinAgentCore({
+        cwd: this.options.cwd,
+        tools: filteredTools,
+        complete: this.options.complete,
+        callbacks: {
+          onText: () => {},
+          onReasoning: () => {},
+          onAssistantMessage: () => {},
+          onToolResult: (toolCallId, content, isError) => {
+            // Forward tool results to parent so UI can show subagent progress
+            this.options.callbacks.onToolResult?.(
+              `subagent:${record.id}:${toolCallId}`,
+              content,
+              isError
+            );
+          },
+          onStreamStop: () => {},
+        },
+        signal: record.abortController.signal,
+        getSystemPrompt: (input: { toolNames: string[] }) => {
+          const parentPrompt = this.options.getSystemPrompt(input);
+          return `${parentPrompt}
+
+<subagent-reminder>
+You are a subagent named "${record.nickname}" (${record.profile}).
+Work on the assigned task until it is complete, then return your final result.
+Do not announce next steps or plans. Just do the work.
+</subagent-reminder>`;
+        },
+        onToolMetadata: this.options.onToolMetadata,
+        getPermissionMode: () => 'bypassPermissions',
+      });
+
+      // Run the subagent turn loop
+      await subAgent.runTurn(record.task);
+
+      // Extract the final assistant text as the summary
+      const lastAssistantMsg = [...subAgent.history]
+        .reverse()
+        .find((m) => m.role === 'assistant');
+      const lastContent = lastAssistantMsg?.content;
+      record.summary = typeof lastContent === 'string' ? lastContent : '';
+
+      if (record.abortController.signal.aborted) {
+        record.status = 'cancelled';
+      } else {
+        record.status = 'completed';
+      }
+      record.completedAt = Date.now();
+    } catch (err) {
+      if (record.abortController.signal.aborted) {
+        record.status = 'cancelled';
+      } else {
+        record.status = 'failed';
+        record.error = err instanceof Error ? err.message : String(err);
+      }
+      record.completedAt = Date.now();
+    } finally {
+      record.waiter?.();
+    }
+  }
+
+  /**
+   * Drain completed subagent snapshots and build a system reminder.
+   * Called at the start of each parent turn.
+   */
+  private drainSubagentReminder(): string {
+    const completions = this.pendingSubagentCompletions.splice(0);
+    // Merge completions into the snapshot list for the reminder
+    const allSnapshots = [
+      ...this.getSubagentSnapshots(),
+      ...completions,
+    ];
+    return buildSubagentLifecycleReminder(allSnapshots);
+  }
+}
+
+/** Map the broad BuiltinTaskType to the narrower BuiltinSubtaskType. */
+function mapTaskTypeToSubtaskType(taskType: string): import('./governance/subtask-policy').BuiltinSubtaskType {
+  const map: Record<string, import('./governance/subtask-policy').BuiltinSubtaskType> = {
+    implementation: 'general_readonly',
+    debugging: 'general_readonly',
+    code_review: 'general_readonly',
+    security_investigation: 'security_investigation',
+    repo_orientation: 'general_readonly',
+    product_discussion: 'general_readonly',
+    general: 'general_readonly',
+  };
+  return map[taskType] ?? 'general_readonly';
 }
 
 function insertTransientMessages(

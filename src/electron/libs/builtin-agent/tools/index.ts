@@ -10,6 +10,7 @@ export { createQuestionTool } from './question';
 export { createReadTool } from './read';
 export { createSkillReadResourceTool, createSkillReadTool, createSkillTool } from './skill';
 export { createTaskTool } from './task';
+export { createSpawnAgentTool, createWaitAgentTool, createCloseAgentTool, createSendInputTool } from './agent-lifecycle';
 export { createTodoTool } from './todo';
 export { createToolSearchTool } from './tool-search';
 export { createWebFetchTool } from './web-fetch';
@@ -38,6 +39,12 @@ import { createLspTool } from './lsp';
 import { createMemoryReadSummaryTool, createMemorySearchTool } from './memory';
 import { createQuestionTool } from './question';
 import { createReadTool } from './read';
+import {
+  createSpawnAgentTool,
+  createWaitAgentTool,
+  createCloseAgentTool,
+  createSendInputTool,
+} from './agent-lifecycle';
 import { createSkillReadResourceTool, createSkillReadTool, createSkillTool } from './skill';
 import { createTaskTool } from './task';
 import { createTodoTool } from './todo';
@@ -85,6 +92,10 @@ export function createAllTools(cwd: string, options: CreateAllBuiltinToolsOption
     createTodoTool(options.todoStore),
     createExitPlanModeTool(options.planController),
     createToolSearchTool(options.toolSearchController),
+    createSpawnAgentTool(),
+    createWaitAgentTool(),
+    createCloseAgentTool(),
+    createSendInputTool(),
     skillReadTool,
     skillReadResourceTool,
     skillTool,

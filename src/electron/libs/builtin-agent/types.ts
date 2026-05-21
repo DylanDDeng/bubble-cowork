@@ -87,6 +87,24 @@ export interface BuiltinToolContext {
       options?: { subtaskType?: string; description?: string }
     ) => Promise<BuiltinToolResult>;
     runDelegate?: (call: DelegateCall) => Promise<DelegateResult>;
+    // Subagent lifecycle methods (implemented by BuiltinSubagentHost)
+    spawnSubAgent?: (
+      params: import('./governance/subagent-control').SpawnSubAgentParams
+    ) => Promise<import('./governance/subagent-control').SubagentThreadSnapshot>;
+    closeSubAgent?: (
+      agentId: string
+    ) => import('./governance/subagent-control').SubagentThreadSnapshot | null;
+    sendSubAgentInput?: (
+      agentId: string,
+      message: string,
+      interrupt?: boolean
+    ) => import('./governance/subagent-control').SubagentThreadSnapshot | null;
+    waitForAgentStop?: (
+      agentId?: string,
+      timeoutMs?: number
+    ) => Promise<import('./governance/subagent-control').SubagentThreadSnapshot[]>;
+    getSubagentSnapshots?: () => import('./governance/subagent-control').SubagentThreadSnapshot[];
+    activeSubagentNicknames?: () => string[];
   };
 }
 
