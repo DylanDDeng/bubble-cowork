@@ -184,6 +184,7 @@ function buildCodexEntry(
       state: 'missing',
       summary: 'Runtime missing',
       detail: 'Codex CLI with app-server support was not found on PATH.',
+      command: 'npm install -g @openai/codex',
     };
   }
 
@@ -227,6 +228,7 @@ function buildOpencodeEntry(
       state: 'missing',
       summary: 'Runtime missing',
       detail: 'opencode was not found on PATH.',
+      command: 'npm install -g opencode-ai',
     };
   }
 

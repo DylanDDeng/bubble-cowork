@@ -1,9 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Check, ChevronDown, Search } from './icons';
+import { Check, ChevronDown, Copy, Search } from './icons';
 import type { AgentProvider } from '../types';
 import type { ComposerModelOption } from '../hooks/useComposerAgentSelection';
 import { PROVIDERS } from '../utils/provider';
+import {
+  useAgentReadiness,
+  type AgentReadinessEntry,
+  type AgentReadinessState,
+} from '../hooks/useAgentReadiness';
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
 import aegisAvatar from '../assets/agent-avatars/anime-avatar-03.png';
@@ -32,6 +37,28 @@ function agentLabel(provider: AgentProvider): string {
 const triggerClassName =
   'flex h-8 min-w-0 items-center gap-1.5 rounded-lg bg-[var(--bg-tertiary)] px-2 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[color-mix(in_srgb,var(--bg-tertiary)_76%,var(--accent)_24%)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50';
 
+function readinessDotClass(state: AgentReadinessState): string {
+  switch (state) {
+    case 'ready':
+      return 'bg-emerald-500';
+    case 'checking':
+      return 'bg-[var(--text-muted)] animate-pulse';
+    case 'needs_login':
+    case 'needs_config':
+      return 'bg-amber-500';
+    case 'missing':
+    case 'error':
+      return 'bg-rose-500';
+    default:
+      return 'bg-[var(--text-muted)]';
+  }
+}
+
+function readinessHint(entry: AgentReadinessEntry): string | null {
+  if (entry.state === 'ready' || entry.state === 'checking') return null;
+  return entry.summary;
+}
+
 export function ComposerAgentPicker({
   value,
   disabled,
@@ -41,6 +68,36 @@ export function ComposerAgentPicker({
   disabled?: boolean;
   onChange: (provider: AgentProvider) => void;
 }) {
+  const { entries } = useAgentReadiness(null, true);
+  const readinessByProvider = useMemo(() => {
+    const map = new Map<AgentProvider, AgentReadinessEntry>();
+    entries.forEach((entry) => map.set(entry.provider, entry));
+    return map;
+  }, [entries]);
+  const currentReadiness = readinessByProvider.get(value);
+  const [copiedProvider, setCopiedProvider] = useState<AgentProvider | null>(null);
+
+  useEffect(() => {
+    if (!copiedProvider) return;
+    const timer = window.setTimeout(() => setCopiedProvider(null), 1800);
+    return () => window.clearTimeout(timer);
+  }, [copiedProvider]);
+
+  const handleCopyCommand = async (
+    event: React.MouseEvent<HTMLButtonElement>,
+    provider: AgentProvider,
+    command: string
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopiedProvider(provider);
+    } catch {
+      // ignore — clipboard may be unavailable in sandboxed contexts
+    }
+  };
+
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -48,11 +105,21 @@ export function ComposerAgentPicker({
           type="button"
           disabled={disabled}
           className={`${triggerClassName} max-w-[190px]`}
-          title={`Agent: ${agentLabel(value)}`}
+          title={
+            currentReadiness && currentReadiness.state !== 'ready'
+              ? `${agentLabel(value)} — ${currentReadiness.summary}`
+              : `Agent: ${agentLabel(value)}`
+          }
           aria-label="Select agent"
         >
           <AgentIcon provider={value} />
           <span className="min-w-0 truncate">{agentLabel(value)}</span>
+          {currentReadiness && currentReadiness.state !== 'ready' && currentReadiness.state !== 'checking' ? (
+            <span
+              className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${readinessDotClass(currentReadiness.state)}`}
+              aria-hidden="true"
+            />
+          ) : null}
           <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
         </button>
       </DropdownMenu.Trigger>
@@ -62,10 +129,19 @@ export function ComposerAgentPicker({
           align="start"
           side="top"
           sideOffset={8}
-          className="z-50 w-[240px] overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_18px_44px_rgba(15,23,42,0.14)]"
+          className="z-50 w-[280px] overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_18px_44px_rgba(15,23,42,0.14)]"
         >
           {PROVIDERS.map((provider) => {
             const selected = provider.id === value;
+            const readiness = readinessByProvider.get(provider.id);
+            const hint = readiness ? readinessHint(readiness) : null;
+            const command = readiness?.command ?? null;
+            const showCopy =
+              !!command &&
+              readiness !== undefined &&
+              readiness.state !== 'ready' &&
+              readiness.state !== 'checking';
+            const justCopied = copiedProvider === provider.id;
             return (
               <DropdownMenu.Item
                 key={provider.id}
@@ -73,10 +149,39 @@ export function ComposerAgentPicker({
                 className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
               >
                 <AgentIcon provider={provider.id} />
-                <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--text-primary)]">
-                  {provider.label}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12px] font-medium text-[var(--text-primary)]">
+                    {provider.label}
+                  </span>
+                  {hint ? (
+                    <span className="block truncate text-[11px] text-[var(--text-muted)]">
+                      {hint}
+                    </span>
+                  ) : null}
                 </span>
-                {selected ? <Check className="h-4 w-4 text-[var(--accent)]" /> : null}
+                {readiness && readiness.state !== 'ready' && readiness.state !== 'checking' ? (
+                  <span
+                    className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${readinessDotClass(readiness.state)}`}
+                    aria-hidden="true"
+                  />
+                ) : null}
+                {showCopy ? (
+                  <button
+                    type="button"
+                    onClick={(event) => handleCopyCommand(event, provider.id, command!)}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                    title={justCopied ? 'Copied!' : `Copy: ${command}`}
+                    aria-label={justCopied ? 'Copied' : `Copy install command: ${command}`}
+                  >
+                    {justCopied ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-500" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                ) : null}
+                {selected ? <Check className="h-4 w-4 flex-shrink-0 text-[var(--accent)]" /> : null}
               </DropdownMenu.Item>
             );
           })}
