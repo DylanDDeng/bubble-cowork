@@ -1710,22 +1710,22 @@ export function ProjectTreePanel({
       )}
 
       <div
-        className={`aegis-project-panel relative flex h-full flex-col border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] font-sans transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        className={`aegis-project-panel aegis-context-panel flex h-full flex-col font-sans transition-[width,opacity,transform,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
           isFullscreen ? 'flex-1 min-w-0' : 'flex-shrink-0'
-        } ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`}
+        } ${selectedFilePath ? 'aegis-project-panel--preview-open' : ''} ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`}
         style={
           isFullscreen
             ? {
                 width: 'auto',
                 opacity: 1,
                 transform: 'translateX(0)',
-                borderLeftWidth: 1,
+                marginLeft: 'var(--workbench-gap)',
               }
             : {
                 width: collapsed ? 0 : panelWidth,
                 opacity: collapsed ? 0 : 1,
                 transform: collapsed ? 'translateX(18px)' : 'translateX(0)',
-                borderLeftWidth: collapsed ? 0 : 1,
+                marginLeft: collapsed ? 0 : 'var(--workbench-gap)',
               }
         }
         aria-hidden={collapsed && !isFullscreen}
@@ -1738,7 +1738,7 @@ export function ProjectTreePanel({
             <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
           </div>
         )}
-        {!selectedFilePath && <div className="h-8 drag-region flex-shrink-0 bg-[var(--bg-primary)]" />}
+        {!selectedFilePath && <div className="h-8 aegis-workbench-drag-strip drag-region flex-shrink-0" />}
         <div className="pl-4 pr-2 pt-2 pb-2">
           <div className="flex items-center justify-between gap-2">
             <div
@@ -2008,7 +2008,7 @@ export function ProjectTreePanel({
 
         {selectedFilePath && (
           <div
-            className="absolute inset-y-0 z-20 border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]"
+            className="aegis-project-preview-panel absolute inset-y-0 z-20"
             style={
               isFullscreen
                 ? { left: 0, right: 0, width: 'auto' }

@@ -366,7 +366,7 @@ export function Sidebar() {
           style={{ width: sidebarCollapsed ? 0 : sidebarWidth }}
         >
           <div
-            className={`relative flex h-full min-h-0 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--app-sidebar-surface)] transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            className={`aegis-sidebar-surface relative flex h-full min-h-0 flex-col overflow-hidden transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
                 sidebarCollapsed
                   ? 'pointer-events-none -translate-x-2 opacity-0'
                   : 'translate-x-0 opacity-100'
@@ -374,9 +374,10 @@ export function Sidebar() {
             style={{ width: sidebarWidth, minWidth: sidebarWidth }}
             aria-hidden={sidebarCollapsed}
           >
-            <div className="drag-region flex h-12 flex-shrink-0 items-center gap-0.5 pl-[84px] pr-2">
+            <div className="drag-region flex h-9 flex-shrink-0 items-center gap-0.5 pl-[84px] pr-2">
               <SidebarToggleButton
                 collapsed={sidebarCollapsed}
+                className="-translate-y-[3px]"
                 onClick={toggleSidebarCollapsed}
               />
             </div>

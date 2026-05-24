@@ -162,14 +162,14 @@ export function WorkspaceHost({
         {renderPane('primary')}
       </div>
       <div
-        className="group relative z-10 w-2 shrink-0 cursor-col-resize bg-transparent"
+        className="group relative z-10 w-3 shrink-0 cursor-col-resize bg-transparent"
         onMouseDown={startResize}
         onDragOver={(event) => {
           event.preventDefault();
           setDragTarget(null);
         }}
       >
-        <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--border)] transition-colors group-hover:bg-[var(--accent)]/40" />
+        <div className="absolute inset-y-6 left-1/2 w-1 -translate-x-1/2 rounded-full bg-[var(--panel-soft-divider)] opacity-0 transition-opacity group-hover:opacity-100" />
       </div>
       <div
         className="min-h-0 min-w-0 flex flex-1 flex-col overflow-hidden"

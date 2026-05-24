@@ -85,14 +85,14 @@ export function Settings() {
     : 'general';
   const activeMeta = SETTINGS_TABS[resolvedActiveSettingsTab];
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-primary)]">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-transparent">
       <div className="flex h-8 flex-shrink-0">
-        <div className="aegis-window-left-surface drag-region w-[280px] flex-shrink-0 border-r border-[var(--border)] bg-[var(--app-sidebar-surface)]" />
-        <div className="drag-region flex-1 bg-[var(--bg-primary)]" />
+        <div className="aegis-window-left-surface drag-region w-[280px] flex-shrink-0 bg-[var(--workbench-surface-muted)]" />
+        <div className="drag-region flex-1 bg-transparent" />
       </div>
 
-      <div className="flex min-h-0 flex-1 bg-[var(--bg-primary)]">
-      <aside className="aegis-window-left-surface w-[280px] flex-shrink-0 select-none border-r border-[var(--border)] bg-[var(--app-sidebar-surface)]">
+      <div className="flex min-h-0 flex-1 bg-transparent">
+      <aside className="aegis-window-left-surface w-[280px] flex-shrink-0 select-none bg-[var(--workbench-surface-muted)]">
         <div className="flex h-full flex-col px-3 pb-6 pt-4">
           <button
             onClick={() => setShowSettings(false)}
@@ -102,7 +102,7 @@ export function Settings() {
             <span>Back</span>
           </button>
 
-          <div className="mb-3 border-b border-[var(--border)]" />
+          <div className="mb-3 h-px bg-[var(--panel-soft-divider)]" />
 
           <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
             Settings
@@ -123,12 +123,12 @@ export function Settings() {
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-y-auto bg-[var(--bg-primary)]">
+      <main className="min-w-0 flex-1 overflow-y-auto bg-transparent">
         <div
           className="mx-auto max-w-3xl px-10 py-8"
         >
           <header className="mb-6">
-            <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
+            <h1 className="text-[17px] font-semibold tracking-normal text-[var(--text-primary)]">
               {activeMeta.title}
             </h1>
             <p className="mt-1 text-[12px] leading-5 text-[var(--text-muted)]">

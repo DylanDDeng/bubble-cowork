@@ -655,18 +655,18 @@ export function App() {
           of the outer app row (preserves existing layout). */}
       <div className={rightPanelFullscreen ? 'hidden' : 'contents'}>
       {!showSettings && activeWorkspace === 'chat' && !sessionsLoaded ? (
-        <div className="flex-1 min-w-0 bg-[var(--bg-primary)]" />
+        <div className="aegis-workbench-frame aegis-workbench-frame--with-sidebar flex-1 min-w-0" />
       ) : showSettings ? (
-        <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
+        <div className="aegis-workbench-frame flex-1 min-w-0 flex flex-col">
           <div className="flex-1 min-h-0">
             <Settings />
           </div>
         </div>
       ) : activeWorkspace === 'skills' ? (
-        <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
-          <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0 bg-[var(--bg-primary)]`}>
+        <div className="aegis-workbench-frame aegis-workbench-frame--with-sidebar flex-1 min-w-0 flex flex-col">
+          <div className={`${sidebarCollapsed ? 'h-9' : 'h-8'} aegis-workbench-drag-strip drag-region flex-shrink-0`}>
             <div className="flex h-full items-center px-3">
-              {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
+              {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px] -translate-y-[3px]" /> : null}
             </div>
           </div>
           <main className="min-w-0 flex-1 overflow-y-auto">
@@ -676,17 +676,19 @@ export function App() {
           </main>
         </div>
       ) : activeWorkspace === 'prompts' ? (
-        <PromptLibraryView />
+        <div className="aegis-workbench-frame aegis-workbench-frame--with-sidebar flex-1 min-w-0 min-h-0 flex overflow-hidden">
+          <PromptLibraryView />
+        </div>
       ) : chatLayoutMode === 'split' || (activeSession && !showNewSession) ? (
         <div
-          className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden transition-[padding] duration-200"
+          className="aegis-workbench-frame aegis-workbench-frame--with-sidebar flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden transition-[padding] duration-200"
           style={{ paddingRight: 'var(--project-preview-space, 0px)' }}
         >
           {/* Top drag region */}
-          <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0 bg-[var(--bg-primary)]`}>
+          <div className={`${sidebarCollapsed ? 'h-9' : 'h-8'} aegis-workbench-drag-strip drag-region flex-shrink-0`}>
             <div className="flex h-full items-center justify-between px-3">
               <div className="flex items-center gap-0.5">
-                {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
+                {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px] -translate-y-[3px]" /> : null}
               </div>
               <div className="flex items-center justify-end">
                 <InlineProjectPanelHeaderActions
@@ -767,7 +769,9 @@ export function App() {
           </div>
         </div>
       ) : (
-        <NewSessionView key={newSessionKey} />
+        <div className="aegis-workbench-frame aegis-workbench-frame--with-sidebar flex-1 min-w-0 min-h-0 flex overflow-hidden">
+          <NewSessionView key={newSessionKey} />
+        </div>
       )}
       </div>
 

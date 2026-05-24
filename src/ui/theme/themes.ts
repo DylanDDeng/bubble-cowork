@@ -687,6 +687,20 @@ function buildThemeVariables(
   const popoverBackground = variant === 'light'
     ? formatOpaqueRgb(mixRgb(parseHexColor(panel), WHITE, 0.22))
     : formatOpaqueRgb(mixRgb(parseHexColor(panel), WHITE, 0.08));
+  const appCanvas = variant === 'light'
+    ? mixHex(surfaceUnder, pack.theme.ink, 0.045 + theme.contrast * 0.035)
+    : mixHex(surfaceUnder, '#000000', 0.22 + theme.contrast * 0.05);
+  const workbenchSurface = variant === 'light'
+    ? mixHex(pack.theme.surface, '#ffffff', 0.76)
+    : mixHex(panel, '#ffffff', 0.035 + theme.contrast * 0.035);
+  const contextPanelSurface = variant === 'light'
+    ? mixHex(panel, '#ffffff', 0.2)
+    : mixHex(panel, '#ffffff', 0.02 + theme.contrast * 0.02);
+  const sidebarSurface = variant === 'light'
+    ? mixHex(appCanvas, pack.theme.ink, 0.035)
+    : pack.theme.opaqueWindows
+      ? mixHex(surfaceUnder, '#000000', 0.08)
+      : `color-mix(in srgb, ${surfaceUnder} 72%, transparent)`;
   const accentForeground = getReadableTextColor(pack.theme.accent);
   const userBubbleBg = '#EBEBEB';
   const userBubbleText = '#111214';
@@ -780,6 +794,40 @@ function buildThemeVariables(
     '--sidebar-item-hover': variant === 'light' ? 'rgba(17, 24, 39, 0.05)' : 'rgba(255, 255, 255, 0.08)',
     '--sidebar-item-active': variant === 'light' ? 'rgba(17, 24, 39, 0.08)' : 'rgba(255, 255, 255, 0.13)',
     '--sidebar-item-border': borderLight,
+    '--app-canvas': appCanvas,
+    '--workbench-surface': workbenchSurface,
+    '--workbench-surface-muted': variant === 'light'
+      ? 'rgba(17, 24, 39, 0.035)'
+      : 'rgba(255, 255, 255, 0.035)',
+    '--workbench-radius': '22px',
+    '--workbench-outer-padding': '8px',
+    '--workbench-gap': '10px',
+    '--workbench-inset-shadow': variant === 'light'
+      ? 'inset 0 0 0 1px rgba(17, 24, 39, 0.045), inset 0 1px 0 rgba(255, 255, 255, 0.86)'
+      : 'inset 0 0 0 1px rgba(255, 255, 255, 0.055), inset 0 1px 0 rgba(255, 255, 255, 0.045)',
+    '--workbench-shadow': variant === 'light'
+      ? '0 1px 1px rgba(17, 24, 39, 0.025), 0 18px 50px -38px rgba(17, 24, 39, 0.58), 0 10px 26px -24px rgba(17, 24, 39, 0.42)'
+      : '0 1px 1px rgba(0, 0, 0, 0.22), 0 22px 60px -38px rgba(0, 0, 0, 0.78), 0 10px 28px -24px rgba(0, 0, 0, 0.68)',
+    '--context-panel-surface': contextPanelSurface,
+    '--context-panel-radius': '18px',
+    '--context-panel-shadow': variant === 'light'
+      ? 'inset 0 0 0 1px rgba(17, 24, 39, 0.045), inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 14px 42px -34px rgba(17, 24, 39, 0.5)'
+      : 'inset 0 0 0 1px rgba(255, 255, 255, 0.055), inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 18px 52px -36px rgba(0, 0, 0, 0.78)',
+    '--panel-soft-divider': variant === 'light' ? 'rgba(17, 24, 39, 0.075)' : 'rgba(255, 255, 255, 0.075)',
+    '--composer-surface': variant === 'light'
+      ? mixHex(workbenchSurface, '#ffffff', 0.66)
+      : mixHex(workbenchSurface, '#ffffff', 0.04),
+    '--composer-border': variant === 'light' ? 'rgba(17, 24, 39, 0.07)' : 'rgba(255, 255, 255, 0.075)',
+    '--composer-border-focus': variant === 'light' ? 'rgba(17, 24, 39, 0.13)' : 'rgba(255, 255, 255, 0.15)',
+    '--composer-shadow': variant === 'light'
+      ? 'inset 0 0 0 1px rgba(255, 255, 255, 0.82), 0 16px 44px -34px rgba(17, 24, 39, 0.58)'
+      : 'inset 0 0 0 1px rgba(255, 255, 255, 0.035), 0 18px 48px -34px rgba(0, 0, 0, 0.74)',
+    '--composer-shadow-focus': variant === 'light'
+      ? 'inset 0 0 0 1px rgba(255, 255, 255, 0.9), 0 18px 52px -32px rgba(17, 24, 39, 0.62)'
+      : 'inset 0 0 0 1px rgba(255, 255, 255, 0.055), 0 20px 56px -32px rgba(0, 0, 0, 0.82)',
+    '--border-focus': variant === 'light'
+      ? formatRgba(parseHexColor(pack.theme.accent), 0.45)
+      : formatRgba(parseHexColor(pack.theme.accent), 0.52),
     '--popover-bg': popoverBackground,
     '--popover-border': borderLight,
     '--popover-ring': variant === 'light' ? 'rgba(255, 255, 255, 0.72)' : 'rgba(255, 255, 255, 0.04)',
@@ -790,12 +838,8 @@ function buildThemeVariables(
     '--popover-shadow-lg': variant === 'light'
       ? '0 0 0 1px rgba(17, 24, 39, 0.04), 0 2px 4px rgba(15, 18, 25, 0.05), 0 24px 56px -14px rgba(15, 18, 25, 0.22)'
       : '0 0 0 1px rgba(0, 0, 0, 0.45), 0 4px 8px rgba(0, 0, 0, 0.35), 0 28px 64px -14px rgba(0, 0, 0, 0.65)',
-    '--app-shell-background': surfaceUnder,
-    '--app-sidebar-surface': variant === 'light'
-      ? '#dcdcddff'
-      : pack.theme.opaqueWindows
-        ? surfaceUnder
-        : `color-mix(in srgb, ${surfaceUnder} 72%, transparent)`,
+    '--app-shell-background': appCanvas,
+    '--app-sidebar-surface': sidebarSurface,
     '--app-sidebar-shadow': variant === 'dark'
       ? 'inset 0 1px 0 rgba(255,255,255,0.025)'
       : 'inset 0 1px 0 rgba(0,0,0,0.03)',

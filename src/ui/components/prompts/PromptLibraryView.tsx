@@ -215,10 +215,10 @@ export function PromptLibraryView() {
   const hasFilters = Boolean(searchQuery.trim()) || selectedCategory !== 'all';
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[color:color-mix(in_srgb,var(--bg-primary)_92%,var(--bg-tertiary))]">
-      <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0 bg-transparent`}>
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-transparent">
+      <div className={`${sidebarCollapsed ? 'h-9' : 'h-8'} aegis-workbench-drag-strip drag-region flex-shrink-0`}>
         <div className="flex h-full items-center px-3">
-          {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
+          {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px] -translate-y-[3px]" /> : null}
         </div>
       </div>
 
@@ -226,7 +226,7 @@ export function PromptLibraryView() {
         <div className="mx-auto max-w-[1500px] px-8 pb-8 pt-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
-              <h1 className="text-[13px] font-semibold leading-8 tracking-[-0.03em] text-[var(--text-primary)]">
+              <h1 className="text-[13px] font-semibold leading-8 tracking-normal text-[var(--text-primary)]">
                 Prompt Library
               </h1>
               <p className="mt-1 text-[13px] text-[var(--text-secondary)]">
@@ -414,7 +414,7 @@ function PromptCard({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="truncate text-[13px] font-semibold leading-5 tracking-[-0.01em] text-[var(--text-primary)]">
+              <h3 className="truncate text-[13px] font-semibold leading-5 tracking-normal text-[var(--text-primary)]">
                 {item.title}
               </h3>
               <div className="mt-1 text-[13px] text-[var(--text-secondary)]">
@@ -510,7 +510,7 @@ function PromptDetailDialog({
               <div className="border-b border-[color:color-mix(in_srgb,var(--border)_58%,transparent)] px-7 pb-5 pt-6">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <Dialog.Title className="break-words text-[13px] font-semibold leading-6 tracking-[-0.02em] text-[var(--text-primary)]">
+                    <Dialog.Title className="break-words text-[13px] font-semibold leading-6 tracking-normal text-[var(--text-primary)]">
                       {item.title}
                     </Dialog.Title>
                     <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-[var(--text-muted)]">
