@@ -134,7 +134,8 @@ function createTerminalSession(
 
   const existing = terminalSessions.get(sessionId)
   if (existing) {
-    disposeTerminalSession(terminalSessions, sessionId)
+    // Reuse the live PTY. Switching back to a previously-opened tab must NOT kill its process.
+    return { ok: true, history: existing.history }
   }
 
   const specs = getTerminalLaunchSpecs()

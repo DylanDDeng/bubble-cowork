@@ -146,7 +146,7 @@
     0 2px 4px rgba(15, 18, 25, 0.05),
     0 24px 56px -14px rgba(15, 18, 25, 0.22);
 
-  --terminal-font-family: "JetBrainsMono NFM", "JetBrainsMono NF", "JetBrains Mono", monospace;
+  --terminal-font-family: "0xProto Nerd Font Mono", "0xProto Nerd Font", "0xProtoNFM", "0xProtoNF", "MesloLGS NF", "MesloLGS Nerd Font Mono", "JetBrainsMono Nerd Font Mono", "JetBrainsMono Nerd Font", "JetBrainsMono NFM", "JetBrainsMono NF", "Hack Nerd Font Mono", "Symbols Nerd Font Mono", "Apple Symbols", "Apple Color Emoji", monospace;
 }
 
 /* Dark theme */
@@ -263,7 +263,7 @@
     0 4px 8px rgba(0, 0, 0, 0.35),
     0 28px 64px -14px rgba(0, 0, 0, 0.65);
 
-  --terminal-font-family: "JetBrainsMono NFM", "JetBrainsMono NF", "JetBrains Mono", monospace;
+  --terminal-font-family: "0xProto Nerd Font Mono", "0xProto Nerd Font", "0xProtoNFM", "0xProtoNF", "MesloLGS NF", "MesloLGS Nerd Font Mono", "JetBrainsMono Nerd Font Mono", "JetBrainsMono Nerd Font", "JetBrainsMono NFM", "JetBrainsMono NF", "Hack Nerd Font Mono", "Symbols Nerd Font Mono", "Apple Symbols", "Apple Color Emoji", monospace;
 }
 
 /* Unified popover / dropdown surface ---------------------------------------
