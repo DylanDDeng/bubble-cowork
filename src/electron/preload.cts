@@ -388,6 +388,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('move-project-entry', cwd, sourcePath, targetParentPath);
   },
 
+  deleteProjectEntry: (cwd: string, targetPath: string) => {
+    return ipcRenderer.invoke('delete-project-entry', cwd, targetPath);
+  },
+
   selectMarkdownImageAsset: (cwd: string, markdownFilePath: string) => {
     return ipcRenderer.invoke('select-markdown-image-asset', cwd, markdownFilePath);
   },

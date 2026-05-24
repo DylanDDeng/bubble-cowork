@@ -781,6 +781,50 @@ async function moveProjectEntry(
   }
 }
 
+async function deleteProjectEntry(
+  cwd: string,
+  targetPath: string
+): Promise<{ ok: true; tree: NonNullable<Awaited<ReturnType<typeof readProjectTree>>> } | { ok: false; message: string }> {
+  if (!cwd || !targetPath) {
+    return { ok: false, message: 'Missing project folder or file path.' };
+  }
+
+  const projectRoot = resolve(cwd);
+  const targetResolved = resolve(projectRoot, targetPath);
+
+  if (!isPathWithinRoot(projectRoot, targetResolved) || targetResolved === projectRoot) {
+    return { ok: false, message: 'Target is outside the selected project folder.' };
+  }
+
+  let rootReal: string;
+  let targetReal: string;
+  try {
+    [rootReal, targetReal] = await Promise.all([
+      fsPromises.realpath(projectRoot),
+      fsPromises.realpath(targetResolved),
+    ]);
+  } catch {
+    return { ok: false, message: 'File or folder was not found.' };
+  }
+
+  if (!isPathWithinRoot(rootReal, targetReal) || targetReal === rootReal) {
+    return { ok: false, message: 'Target is outside the selected project folder.' };
+  }
+
+  try {
+    // Move to OS trash for safety/recoverability. shell.trashItem works for files and folders.
+    await shell.trashItem(targetReal);
+  } catch (error) {
+    return { ok: false, message: `Failed to delete: ${String(error)}` };
+  }
+
+  const tree = await readProjectTree(projectRoot);
+  if (!tree) {
+    return { ok: false, message: 'Project folder was not found.' };
+  }
+  return { ok: true, tree };
+}
+
 function getLocalPreviewMimeType(filePath: string): string {
   return LOCAL_PREVIEW_MIME_TYPES[extname(filePath).toLowerCase()] || 'application/octet-stream';
 }
@@ -3795,6 +3839,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('move-project-entry', async (_event, cwd: string, sourcePath: string, targetParentPath: string) => {
     return moveProjectEntry(cwd, sourcePath, targetParentPath);
+  });
+
+  ipcMainHandle('delete-project-entry', async (_event, cwd: string, targetPath: string) => {
+    return deleteProjectEntry(cwd, targetPath);
   });
 
   ipcMainHandle(
