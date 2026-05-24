@@ -92,6 +92,15 @@ import type {
   ProviderReadPluginInput,
 } from '../shared/types';
 import { getProviderService } from './libs/provider/service';
+
+// === IPC 模块导入（从 ipc-handlers.ts 拆分） ===
+import { register as registerTerminal } from './ipc/terminal'
+import { register as registerFeishu } from './ipc/feishu'
+import { register as registerPromptLibrary } from './ipc/prompt-library'
+import { register as registerMemory } from './ipc/memory'
+import { register as registerFont } from './ipc/font'
+import { register as registerSkillMarket } from './ipc/skill-market'
+import { register as registerGit } from './ipc/git'
 import {
   applyStash,
   checkoutBranch,
@@ -4914,6 +4923,29 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       return { ok: false, message: String(error) };
     }
   });
+
+  // === IPC 模块注册（从 ipc-handlers.ts 拆分） ===
+  const ipcCtx: any = {
+    mainWindow,
+    terminalSessions,
+    localPreviewServers,
+    runnerHandles,
+    sessionStates,
+    activeRoutedAgentSequences,
+    broadcast,
+    broadcastFolderChanged,
+    ATTACHMENT_MIME_TYPES,
+    LOCAL_PREVIEW_MIME_TYPES,
+    TERMINAL_HISTORY_MAX_CHARS,
+    TERMINAL_STARTUP_BUFFER_MS,
+  }
+  registerTerminal(ipcCtx)
+  registerFeishu(ipcCtx)
+  registerPromptLibrary(ipcCtx)
+  registerFont(ipcCtx)
+  registerMemory(ipcCtx)
+  registerSkillMarket(ipcCtx)
+  registerGit(ipcCtx)
 }
 
 // 处理客户端事件

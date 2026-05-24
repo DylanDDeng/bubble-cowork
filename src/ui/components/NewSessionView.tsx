@@ -502,28 +502,7 @@ export function NewSessionView() {
                 <div className="mt-5 text-[13px] text-[var(--text-secondary)]">
                   Draft the task here, then choose a project folder to run it.
                 </div>
-              ) : (
-                <div className="mt-5 flex flex-wrap items-center justify-center gap-3 text-[12px] text-[var(--text-muted)]">
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-1">
-                    Agent
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-1">
-                    Model
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-1">
-                    <kbd className="rounded bg-[var(--bg-primary)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)] border border-[var(--border)]">/</kbd>
-                    Commands
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-1">
-                    <kbd className="rounded bg-[var(--bg-primary)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)] border border-[var(--border)]">$</kbd>
-                    Skills
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-tertiary)] px-2.5 py-1">
-                    <kbd className="rounded bg-[var(--bg-primary)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)] border border-[var(--border)]">@</kbd>
-                    Mention files
-                  </span>
-                </div>
-              )}
+              ) : null}
             </div>
           </div>
 

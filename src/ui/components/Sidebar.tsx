@@ -12,6 +12,8 @@ import {
   FolderOpen,
   Search,
   Settings,
+  SidebarCollapseIcon,
+  SidebarExpandIcon,
   SquarePen,
 } from './icons';
 import { useAppStore } from '../store/useAppStore';
@@ -30,21 +32,33 @@ const MAX_SIDEBAR_WIDTH = 420;
 const SIDEBAR_TRIGGER_CLASS =
   'no-drag inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] transition-[background-color,color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] active:scale-95';
 
-function SidebarToggleIcon({ className }: { className?: string }) {
+function SidebarToggleIcon({
+  collapsed,
+  className,
+}: {
+  collapsed: boolean;
+  className?: string;
+}) {
   return (
-    <svg
+    <span
       aria-hidden="true"
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
+      className={`relative inline-flex h-4 w-4 items-center justify-center overflow-hidden ${className ?? ''}`}
     >
-      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-      <line x1="9" y1="3" x2="9" y2="21" />
-    </svg>
+      <SidebarCollapseIcon
+        className={`absolute h-4 w-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          collapsed
+            ? '-translate-x-1 scale-90 rotate-[-8deg] opacity-0'
+            : 'translate-x-0 scale-100 rotate-0 opacity-100'
+        }`}
+      />
+      <SidebarExpandIcon
+        className={`absolute h-4 w-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          collapsed
+            ? 'translate-x-0 scale-100 rotate-0 opacity-100'
+            : 'translate-x-1 scale-90 rotate-[8deg] opacity-0'
+        }`}
+      />
+    </span>
   );
 }
 
@@ -65,7 +79,7 @@ function SidebarToggleButton({
       aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
     >
-      <SidebarToggleIcon className="h-4 w-4" />
+      <SidebarToggleIcon collapsed={collapsed} />
       <span className="sr-only">Toggle sidebar</span>
     </button>
   );
