@@ -17,7 +17,7 @@ const FALLBACK_STATUS: ClaudeRuntimeStatus = {
   requestedModel: null,
   summary: 'Checking Claude runtime…',
   detail: 'Aegis is verifying the Claude runtime and authentication state.',
-  installCommand: 'claude install stable',
+  installCommand: 'npm install -g @anthropic-ai/claude-code',
   loginCommand: 'claude auth login',
   setupTokenCommand: 'claude setup-token',
   checkedAt: 0,

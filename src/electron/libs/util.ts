@@ -5,7 +5,7 @@ import {
   reconcileClaudeDisplayModel,
   toClaudeCodeRuntimeModel,
 } from './claude-model-selection';
-import { getClaudeCodeRuntime } from './claude-runtime';
+import { getRequiredClaudeCodeRuntime } from './claude-runtime';
 
 type ClaudeSettingSource = 'user' | 'project' | 'local';
 const CLAUDE_SETTING_SOURCES: ClaudeSettingSource[] = ['user', 'project', 'local'];
@@ -113,7 +113,7 @@ export async function runClaudeOneShot(params: {
     effort: params.claudeReasoningEffort,
     compatibleProviderMatched: Boolean(providerOverride.matchedProviderId),
   });
-  const { executable, executableArgs, env: runtimeEnv, pathToClaudeCodeExecutable } = getClaudeCodeRuntime();
+  const { executable, executableArgs, env: runtimeEnv, pathToClaudeCodeExecutable } = getRequiredClaudeCodeRuntime();
   Object.assign(env, runtimeEnv);
 
   const result = sdk.query({

@@ -15,7 +15,7 @@ import {
   reconcileClaudeDisplayModel,
   toClaudeCodeRuntimeModel,
 } from './claude-model-selection';
-import { getClaudeCodeRuntime } from './claude-runtime';
+import { getRequiredClaudeCodeRuntime } from './claude-runtime';
 import { createAegisMemoryMcpServer, buildMemoryContext, MEMORY_SYSTEM_PROMPT } from './memory-mcp';
 import { shouldExtractMemory, hasMemoryWritesInTurn, extractMemories } from './memory-extractor';
 import {
@@ -481,7 +481,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       currentRuntimeModel = compatibleProviderMatched
         ? currentModel
         : toClaudeCodeRuntimeModel(currentModel, betas);
-      const { executable, executableArgs, env: runtimeEnv, pathToClaudeCodeExecutable } = getClaudeCodeRuntime();
+      const { executable, executableArgs, env: runtimeEnv, pathToClaudeCodeExecutable } = getRequiredClaudeCodeRuntime();
       Object.assign(env, runtimeEnv);
 
       // 调试日志

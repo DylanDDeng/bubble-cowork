@@ -1,5 +1,4 @@
 import { execFile } from 'child_process';
-import { sep } from 'path';
 import type { ClaudeRuntimeSource, ClaudeRuntimeStatus } from '../../shared/types';
 import { getClaudeEnv, hasClaudeCodeOAuthAccount, sanitizeOfficialClaudeEnv } from './claude-settings';
 import { normalizeClaudeRequestedModel } from './claude-model-selection';
@@ -9,7 +8,7 @@ import {
   type ClaudeCodeRuntime,
 } from './claude-runtime';
 
-const INSTALL_COMMAND = 'claude install stable';
+const INSTALL_COMMAND = 'npm install -g @anthropic-ai/claude-code';
 const LOGIN_COMMAND = 'claude auth login';
 const SETUP_TOKEN_COMMAND = 'claude setup-token';
 
@@ -39,28 +38,7 @@ function resolveRuntimeSource(cliPath?: string): ClaudeRuntimeSource {
   if (!cliPath) {
     return 'unknown';
   }
-
-  if (
-    cliPath.includes(`${sep}lib${sep}node_modules${sep}@anthropic-ai${sep}claude-code${sep}`) ||
-    cliPath.includes(`${sep}.nvm${sep}`) ||
-    cliPath.includes(`${sep}bin${sep}claude`)
-  ) {
-    return 'global';
-  }
-
-  if (process.resourcesPath && cliPath.startsWith(process.resourcesPath)) {
-    return 'bundled';
-  }
-
-  if (cliPath.includes('app.asar.unpacked')) {
-    return 'bundled';
-  }
-
-  if (cliPath.includes(`${sep}node_modules${sep}`)) {
-    return 'workspace';
-  }
-
-  return 'unknown';
+  return 'global';
 }
 
 function buildClaudeRuntimeEnv(
@@ -106,11 +84,7 @@ function parseClaudeVersion(output: string): string | null {
 function describeRuntimeLocation(source: ClaudeRuntimeSource): string {
   switch (source) {
     case 'global':
-      return 'the global Claude Code runtime';
-    case 'bundled':
-      return 'the bundled Aegis runtime';
-    case 'workspace':
-      return 'the local workspace runtime';
+      return 'the user Claude Code runtime';
     default:
       return 'the Claude runtime';
   }
@@ -194,9 +168,9 @@ function buildInstallRequiredStatus(
     cliPath: runtimePath,
     cliVersion: null,
     requestedModel,
-    summary: 'Claude Code runtime not found.',
+    summary: 'Claude Code is not installed.',
     detail:
-      'Aegis could not locate the Claude CLI it needs to start Claude sessions. Reinstall Aegis or install Claude Code in a terminal, then try again.',
+      'Aegis uses the Claude Code installed on this machine. Install Claude Code, make sure `claude` is available on PATH, then restart Aegis.',
     installCommand: INSTALL_COMMAND,
     loginCommand: LOGIN_COMMAND,
     setupTokenCommand: SETUP_TOKEN_COMMAND,

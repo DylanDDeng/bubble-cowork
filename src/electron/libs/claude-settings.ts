@@ -12,6 +12,53 @@ function canonicalizeClaudeModel(model?: string | null): string | null {
   return normalized.replace(/\[1m\]$/i, '');
 }
 
+const CLAUDE_CODE_MODEL_PRESETS = [
+  'claude-sonnet-4-6',
+  'claude-opus-4-7',
+  'claude-opus-4-6',
+  'claude-haiku-4-5',
+];
+const CLAUDE_CODE_MODEL_ALIASES = new Set(['sonnet', 'opus', 'haiku']);
+
+function isClaudeModelLike(value: string): boolean {
+  const normalized = canonicalizeClaudeModel(value);
+  if (!normalized) {
+    return false;
+  }
+  return normalized.startsWith('claude-') || CLAUDE_CODE_MODEL_ALIASES.has(normalized.toLowerCase());
+}
+
+function collectClaudeModelCandidates(value: unknown, models: Set<string>, depth = 0): void {
+  if (depth > 4 || value == null) {
+    return;
+  }
+
+  if (typeof value === 'string') {
+    const model = canonicalizeClaudeModel(value);
+    if (model && isClaudeModelLike(model)) {
+      models.add(model);
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectClaudeModelCandidates(item, models, depth + 1);
+    }
+    return;
+  }
+
+  if (typeof value !== 'object') {
+    return;
+  }
+
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (/model|name|label|value|id/i.test(key)) {
+      collectClaudeModelCandidates(child, models, depth + 1);
+    }
+  }
+}
+
 // Claude Code 主配置文件路径
 const CLAUDE_JSON_PATH = join(homedir(), '.claude.json');
 // 旧配置路径（向后兼容）
@@ -31,6 +78,11 @@ export interface McpServerConfig {
 interface ClaudeJsonConfig {
   mcpServers?: Record<string, McpServerConfig>;
   hasAvailableSubscription?: boolean;
+  model?: string;
+  defaultModel?: string;
+  lastSelectedModel?: string;
+  lastUsedModel?: string;
+  additionalModelOptionsCache?: unknown;
   oauthAccount?: {
     accountUuid?: string;
     [key: string]: unknown;
@@ -40,6 +92,27 @@ interface ClaudeJsonConfig {
     [key: string]: unknown;
   }>;
   [key: string]: unknown;
+}
+
+function getClaudeJsonModelCandidates(config: ClaudeJsonConfig): string[] {
+  const models = new Set<string>();
+  const topLevelFields = [
+    config.model,
+    config.defaultModel,
+    config.lastSelectedModel,
+    config.lastUsedModel,
+    config.additionalModelOptionsCache,
+  ];
+
+  for (const field of topLevelFields) {
+    collectClaudeModelCandidates(field, models);
+  }
+
+  for (const projectConfig of Object.values(config.projects || {})) {
+    collectClaudeModelCandidates(projectConfig, models);
+  }
+
+  return Array.from(models);
 }
 
 interface ClaudeSettings {
@@ -214,11 +287,13 @@ export function getClaudeSettings(): { apiKey?: string } | null {
 
 export function getClaudeModelConfig(): ClaudeModelConfig {
   const s = loadClaudeSettings();
+  const claudeJson = loadClaudeJson();
   const defaultModel = canonicalizeClaudeModel(s.model);
+  const claudeCodeModels = getClaudeJsonModelCandidates(claudeJson);
   const compatibleModels = getEnabledCompatibleProviderConfigs().map((provider) => provider.model);
   const options = Array.from(
     new Set(
-      [defaultModel, ...compatibleModels].filter(
+      [defaultModel, ...claudeCodeModels, ...CLAUDE_CODE_MODEL_PRESETS, ...compatibleModels].filter(
         (value): value is string => Boolean(value)
       )
     )

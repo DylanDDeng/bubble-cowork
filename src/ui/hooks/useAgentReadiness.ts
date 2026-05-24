@@ -163,7 +163,7 @@ function buildCodexEntry(
       label: 'Codex CLI',
       state: 'checking',
       summary: 'Checking Codex',
-      detail: 'Verifying codex-acp and model config.',
+      detail: 'Verifying Codex app-server and model config.',
     };
   }
 
@@ -173,7 +173,7 @@ function buildCodexEntry(
       label: 'Codex CLI',
       state: 'ready',
       summary: 'Ready',
-      detail: 'Codex ACP can start sessions.',
+      detail: 'Codex app-server can start sessions.',
     };
   }
 
@@ -183,7 +183,7 @@ function buildCodexEntry(
       label: 'Codex CLI',
       state: 'missing',
       summary: 'Runtime missing',
-      detail: 'codex-acp was not found on PATH.',
+      detail: 'Codex CLI with app-server support was not found on PATH.',
     };
   }
 

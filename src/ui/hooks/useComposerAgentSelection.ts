@@ -7,6 +7,7 @@ import { useCompatibleProviderConfig } from './useCompatibleProviderConfig';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import {
   canonicalizeClaudeModel,
+  buildClaudeModelOptions,
   formatClaudeModelLabel,
   isOfficialClaudeModel,
   loadPreferredClaudeCompatibleProviderId,
@@ -97,7 +98,7 @@ function buildConfiguredClaudeModelValues(
   const defaultModel = canonicalizeClaudeModel(config.defaultModel);
   return Array.from(
     new Set(
-      [config.defaultModel, ...config.options]
+      buildClaudeModelOptions(config)
         .map((value) => canonicalizeClaudeModel(value))
         .filter((value): value is string => Boolean(value))
         .filter((value) => isOfficialClaudeModel(value))
@@ -149,11 +150,7 @@ function resolveConfiguredClaudeSelection(
     selectCandidate(requestedModel, requestedCompatibleProviderId) ||
     selectCandidate(loadPreferredClaudeModel(), loadPreferredClaudeCompatibleProviderId()) ||
     selectCandidate(config.defaultModel, null) ||
-    (officialOptions[0]
-      ? { model: officialOptions[0], compatibleProviderId: null }
-      : compatibleOptions[0]
-        ? { model: compatibleOptions[0].model, compatibleProviderId: compatibleOptions[0].id }
-        : { model: null, compatibleProviderId: null })
+    { model: null, compatibleProviderId: null }
   );
 }
 
@@ -261,6 +258,13 @@ export function useComposerAgentSelection(input?: {
 
   const modelOptions = useMemo<ComposerModelOption[]>(() => {
     if (provider === 'claude') {
+      const defaultOption: ComposerModelOption = {
+        key: 'claude:official:default',
+        value: '',
+        label: 'Default',
+        description: 'Do not override the default model',
+        compatibleProviderId: null,
+      };
       const officialOptions = buildConfiguredClaudeModelValues(claudeModelConfig, compatibleOptions).map((option) => ({
         key: `claude:official:${option}`,
         value: option,
@@ -274,7 +278,7 @@ export function useComposerAgentSelection(input?: {
         description: option.label,
         compatibleProviderId: option.id,
       }));
-      return [...officialOptions, ...compatible];
+      return [defaultOption, ...officialOptions, ...compatible];
     }
 
     if (provider === 'codex') {
@@ -375,9 +379,10 @@ export function useComposerAgentSelection(input?: {
   }, [model, provider, resolveModelForProvider]);
 
   useEffect(() => {
+    const normalizedModel = model?.trim() || null;
     const selectedModelStillConfigured = modelOptions.some(
       (option) =>
-        option.value === model &&
+        (option.value.trim() || null) === normalizedModel &&
         (option.compatibleProviderId || null) === (compatibleProviderId || null)
     );
     if (selectedModelStillConfigured || (!model && modelOptions.length === 0)) {
@@ -427,13 +432,14 @@ export function useComposerAgentSelection(input?: {
   );
 
   const selectedModelOption = useMemo(() => {
+    const normalizedModel = model?.trim() || null;
     return (
       modelOptions.find(
         (option) =>
-          option.value === model &&
+          (option.value.trim() || null) === normalizedModel &&
           (option.compatibleProviderId || null) === (compatibleProviderId || null)
       ) ||
-      modelOptions.find((option) => option.value === model) ||
+      modelOptions.find((option) => (option.value.trim() || null) === normalizedModel) ||
       null
     );
   }, [compatibleProviderId, model, modelOptions]);
@@ -443,19 +449,15 @@ export function useComposerAgentSelection(input?: {
       return null;
     }
 
+    if (provider === 'claude') {
+      return null;
+    }
+
     if (provider === 'aegis') {
       return {
         label: 'Configure Aegis',
         title: 'Configure Aegis model',
         settingsTab: 'aegis',
-      };
-    }
-
-    if (provider === 'claude') {
-      return {
-        label: 'Setup Claude',
-        title: 'Configure Claude or Claude-compatible models',
-        settingsTab: 'providers',
       };
     }
 
@@ -477,7 +479,11 @@ export function useComposerAgentSelection(input?: {
   const selectedModelLabel =
     modelSetup?.label ||
     selectedModelOption?.label ||
-    (model ? (provider === 'aegis' ? formatAegisModelLabel(model) : model) : 'Default');
+    (model
+      ? provider === 'aegis'
+        ? formatAegisModelLabel(model)
+        : model
+      : 'Default');
 
   return {
     provider,

@@ -810,8 +810,8 @@ function getInputClassName(hasError: boolean, withTrailingControl = false) {
 
 function buildCodexSummary(status: CodexRuntimeStatus, loading: boolean): string {
   if (loading) return 'Checking Codex runtime…';
-  if (status.ready) return 'Codex CLI ACP is ready.';
-  if (!status.cliAvailable) return 'Codex CLI ACP was not found.';
+  if (status.ready) return 'Codex app-server is ready.';
+  if (!status.cliAvailable) return 'Codex app-server was not found.';
   return 'Codex needs local setup.';
 }
 

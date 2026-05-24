@@ -72,7 +72,7 @@ export function getClaudeReasoningOptions(model: string | null): ClaudeReasoning
   const options: ClaudeReasoningLevelOption[] = [
     { effort: 'low', description: 'Minimal thinking, fastest responses' },
     { effort: 'medium', description: 'Moderate thinking for everyday tasks' },
-    { effort: 'high', description: 'Deep reasoning, Claude Code default' },
+    { effort: 'high', description: 'Deep reasoning, default' },
     { effort: 'xhigh', description: 'Extra high reasoning depth for complex tasks' },
     { effort: 'max', description: 'Maximum effort for supported Claude Code runs' },
   ];

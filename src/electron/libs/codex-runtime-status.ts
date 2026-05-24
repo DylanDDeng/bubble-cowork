@@ -7,18 +7,17 @@ import { getCodexModelConfig } from './codex-settings';
 
 const CODEX_CONFIG_PATH = join(homedir(), '.codex', 'config.toml');
 
-function checkCommandOnPath(command: string): Promise<boolean> {
-  const locator = process.platform === 'win32' ? 'where' : 'which';
-
+function checkCodexAppServer(): Promise<boolean> {
   return new Promise((resolve) => {
-    execFile(locator, [command], { timeout: 2500 }, (error, stdout) => {
-      resolve(!error && stdout.trim().length > 0);
+    execFile('codex', ['app-server', '--help'], { timeout: 2500 }, (error, stdout, stderr) => {
+      const output = `${stdout}\n${stderr}`;
+      resolve(!error && output.includes('app-server'));
     });
   });
 }
 
 export async function getCodexRuntimeStatus(): Promise<CodexRuntimeStatus> {
-  const cliAvailable = await checkCommandOnPath('codex-acp');
+  const cliAvailable = await checkCodexAppServer();
   const configExists = existsSync(CODEX_CONFIG_PATH);
   const modelConfig = getCodexModelConfig();
   const hasModelConfig = Boolean(modelConfig.defaultModel || modelConfig.options.length > 0);

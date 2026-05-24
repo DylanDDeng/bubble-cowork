@@ -564,7 +564,7 @@ async function runAcpOneShot(
     const line = String(chunk).trim();
     if (line) {
       activeRequestWatchdog?.touch();
-      console.warn('[Codex ACP one-shot]', line);
+      console.warn(`[${adapter.label} ACP one-shot]`, line);
     }
   });
 

@@ -130,7 +130,7 @@ export function ProvidersRuntimeStatusPanel({
             showCodexLoading
               ? []
               : [
-                  { label: 'CLI', value: codexStatus.cliAvailable ? 'Detected' : 'Missing' },
+                  { label: 'App server', value: codexStatus.cliAvailable ? 'Detected' : 'Missing' },
                   { label: 'Config', value: codexStatus.configExists ? 'Found' : 'Not found' },
                   { label: 'Models', value: codexStatus.hasModelConfig ? 'Ready' : 'Empty' },
                 ]
@@ -243,11 +243,11 @@ function buildCodexSummary(status: CodexRuntimeStatus, loading: boolean): string
   }
 
   if (status.ready) {
-    return 'Codex ACP is ready.';
+    return 'Codex app-server is ready.';
   }
 
   if (!status.cliAvailable) {
-    return 'Codex ACP was not found.';
+    return 'Codex app-server was not found.';
   }
 
   return 'Codex needs local setup.';
