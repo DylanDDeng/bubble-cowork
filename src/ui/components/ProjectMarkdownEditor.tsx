@@ -91,6 +91,14 @@ const HEADING_FLASH_META = 'aegis-markdown-heading-flash';
 const OUTLINE_TARGET_MIN_TOP_OFFSET_PX = 72;
 const OUTLINE_TARGET_MAX_TOP_OFFSET_PX = 140;
 const OUTLINE_TARGET_VIEWPORT_RATIO = 0.16;
+const MARKDOWN_IMAGE_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml',
+]);
+const MARKDOWN_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg']);
 
 function splitFrontmatter(markdown: string): FrontmatterParts {
   const text = String(markdown || '').replace(/\r\n/g, '\n');
@@ -132,18 +140,50 @@ function normalizeAssetSrc(cwd: string, filePath: string, src: string): string {
   const trimmed = src.trim();
   if (!trimmed || /^(https?:|data:|blob:|file:|mailto:)/i.test(trimmed)) return trimmed;
 
-  const baseParts = filePath.split(/[\\/]/);
+  const normalizedCwd = cwd.replace(/\\/g, '/').replace(/\/+$/, '');
+  const normalizedFilePath = filePath.replace(/\\/g, '/');
+  const baseParts = normalizedFilePath.split('/');
   baseParts.pop();
   const baseDir = baseParts.join('/');
+  const baseDirIsAbsolute = baseDir.startsWith('/') || /^[A-Za-z]:\//.test(baseDir);
   const joined = trimmed.startsWith('/')
     ? trimmed
-    : [cwd.replace(/\/$/, ''), baseDir, trimmed].filter(Boolean).join('/');
+    : baseDirIsAbsolute
+      ? [baseDir, trimmed].filter(Boolean).join('/')
+      : [normalizedCwd, baseDir, trimmed].filter(Boolean).join('/');
 
   try {
     return `file://${encodeURI(joined.replace(/\\/g, '/'))}`;
   } catch {
     return trimmed;
   }
+}
+
+function isRemoteOrInlineAssetSrc(src: string): boolean {
+  return /^(https?:|data:|blob:|mailto:)/i.test(src.trim());
+}
+
+function getFileExtension(fileName: string): string {
+  const match = fileName.toLowerCase().match(/\.[^.\\/]+$/);
+  return match?.[0] || '';
+}
+
+function isSupportedMarkdownImageFile(file: File): boolean {
+  const mimeType = file.type.toLowerCase();
+  if (mimeType && MARKDOWN_IMAGE_MIME_TYPES.has(mimeType)) return true;
+  return MARKDOWN_IMAGE_EXTENSIONS.has(getFileExtension(file.name));
+}
+
+function getImageFilesFromTransfer(dataTransfer: DataTransfer | null): File[] {
+  if (!dataTransfer) return [];
+
+  const files = Array.from(dataTransfer.files || []).filter(isSupportedMarkdownImageFile);
+  if (files.length > 0) return files;
+
+  return Array.from(dataTransfer.items || [])
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file && isSupportedMarkdownImageFile(file)));
 }
 
 function collectOutlineItems(view: ProseEditorView): MarkdownOutlineItem[] {
@@ -240,21 +280,98 @@ function createImageView(cwd: string, filePath: string) {
   return $view(imageSchema.node, (): NodeViewConstructor => {
     return (node) => {
       const img = document.createElement('img');
+      let loadRequestId = 0;
+      let destroyed = false;
+
+      const loadImage = async (src: string) => {
+        const requestId = ++loadRequestId;
+        const trimmed = src.trim();
+        img.removeAttribute('data-error');
+        if (!trimmed) {
+          img.removeAttribute('src');
+          return;
+        }
+        if (isRemoteOrInlineAssetSrc(trimmed)) {
+          img.src = trimmed;
+          return;
+        }
+
+        const reader = window.electron.readMarkdownImageAsset;
+        if (typeof reader === 'function') {
+          const result = await reader(cwd, filePath, trimmed);
+          if (destroyed || requestId !== loadRequestId) return;
+          if (result?.ok && result.dataUrl) {
+            img.src = result.dataUrl;
+            return;
+          }
+          img.dataset.error = result?.message || 'Unable to load image.';
+          img.removeAttribute('src');
+          return;
+        }
+
+        img.src = normalizeAssetSrc(cwd, filePath, trimmed);
+      };
+
       img.className = 'aegis-md-image';
       img.alt = String(node.attrs.alt || '');
       img.title = String(node.attrs.title || '');
-      img.src = normalizeAssetSrc(cwd, filePath, String(node.attrs.src || ''));
+      void loadImage(String(node.attrs.src || ''));
       return {
         dom: img,
         update: (nextNode: ProseNode) => {
           if (nextNode.type !== node.type) return false;
           img.alt = String(nextNode.attrs.alt || '');
           img.title = String(nextNode.attrs.title || '');
-          img.src = normalizeAssetSrc(cwd, filePath, String(nextNode.attrs.src || ''));
+          void loadImage(String(nextNode.attrs.src || ''));
           return true;
         },
+        destroy: () => {
+          destroyed = true;
+          loadRequestId += 1;
+        },
+        ignoreMutation: () => true,
       };
     };
+  });
+}
+
+function insertImageIntoView(view: ProseEditorView, src: string, alt: string) {
+  const imageNode = view.state.schema.nodes.image;
+  if (!imageNode) return;
+  const tr = view.state.tr
+    .replaceSelectionWith(imageNode.create({ src, alt, title: '' }))
+    .scrollIntoView();
+  view.dispatch(tr);
+  view.focus();
+}
+
+function createImageInputPlugin(
+  insertFiles: (view: ProseEditorView, files: File[]) => Promise<void>
+) {
+  return $prose(() => {
+    return new Plugin({
+      props: {
+        handlePaste: (view, event) => {
+          const files = getImageFilesFromTransfer(event.clipboardData);
+          if (files.length === 0) return false;
+          event.preventDefault();
+          void insertFiles(view, files);
+          return true;
+        },
+        handleDrop: (view, event, _slice, moved) => {
+          if (moved) return false;
+          const files = getImageFilesFromTransfer(event.dataTransfer);
+          if (files.length === 0) return false;
+          event.preventDefault();
+          const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
+          if (coords) {
+            view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(coords.pos))));
+          }
+          void insertFiles(view, files);
+          return true;
+        },
+      },
+    });
   });
 }
 
@@ -480,6 +597,23 @@ export function ProjectMarkdownEditor({
     setEditorFocused(false);
     let disposed = false;
 
+    const insertImageFiles = async (view: ProseEditorView, files: File[]) => {
+      const createAsset = window.electron.createMarkdownImageAsset;
+      if (typeof createAsset !== 'function') return;
+
+      for (const file of files) {
+        try {
+          const data = new Uint8Array(await file.arrayBuffer());
+          const result = await createAsset(cwd, filePath, file.name || 'image', file.type, data);
+          if (!result?.ok || !result.relativePath) continue;
+          insertImageIntoView(view, result.relativePath, result.name || file.name || 'Image');
+        } catch (error) {
+          console.warn('Failed to insert Markdown image asset:', error);
+        }
+      }
+      refreshDerivedUi(view);
+    };
+
     const setup = async () => {
       const editor = await Editor.make()
         .config((ctx) => {
@@ -505,6 +639,7 @@ export function ProjectMarkdownEditor({
         .use(gfm)
         .use(history)
         .use(listener)
+        .use(createImageInputPlugin(insertImageFiles))
         .use(clipboard)
         .use(trailingParagraphPlugin)
         .use(headingFlashPlugin)
@@ -540,7 +675,7 @@ export function ProjectMarkdownEditor({
         headingFlashTimerRef.current = null;
       }
     };
-  }, [cwd, filePath]);
+  }, [cwd, filePath, refreshDerivedUi]);
 
   useEffect(() => {
     const editor = editorRef.current;

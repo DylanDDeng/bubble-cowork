@@ -5,6 +5,7 @@ import { execFile } from 'child_process';
 import type { AddressInfo } from 'net';
 import { spawn as spawnPty, type IPty } from 'node-pty';
 import { promisify } from 'util';
+import { fileURLToPath } from 'url';
 import { basename, dirname, extname, resolve, relative, isAbsolute, join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
@@ -156,6 +157,14 @@ const ATTACHMENT_MIME_TYPES: Record<string, string> = {
   '.mp3': 'audio/mpeg',
   '.wav': 'audio/wav',
   '.m4a': 'audio/mp4',
+};
+const MARKDOWN_IMAGE_MIME_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
 };
 
 const LOCAL_PREVIEW_MIME_TYPES: Record<string, string> = {
@@ -823,6 +832,178 @@ async function deleteProjectEntry(
     return { ok: false, message: 'Project folder was not found.' };
   }
   return { ok: true, tree };
+}
+
+function decodeMarkdownAssetPath(assetPath: string): string {
+  try {
+    return decodeURI(assetPath);
+  } catch {
+    return assetPath;
+  }
+}
+
+function getMarkdownImageExtension(fileName: string, mimeType?: string): string | null {
+  const ext = extname(fileName || '').toLowerCase();
+  if (MARKDOWN_IMAGE_MIME_TYPES[ext]) return ext;
+
+  switch ((mimeType || '').toLowerCase()) {
+    case 'image/png':
+      return '.png';
+    case 'image/jpeg':
+      return '.jpg';
+    case 'image/gif':
+      return '.gif';
+    case 'image/webp':
+      return '.webp';
+    case 'image/svg+xml':
+      return '.svg';
+    default:
+      return null;
+  }
+}
+
+function toIpcBuffer(data: unknown): Buffer | null {
+  if (Buffer.isBuffer(data)) return data;
+  if (data instanceof Uint8Array) return Buffer.from(data);
+  if (data instanceof ArrayBuffer) return Buffer.from(data);
+  if (Array.isArray(data)) return Buffer.from(data);
+  return null;
+}
+
+async function createMarkdownImageAsset(
+  cwd: string,
+  markdownFilePath: string,
+  sourceFileName: string,
+  mimeType: string | undefined,
+  data: unknown
+): Promise<{ ok: true; relativePath: string; name: string } | { ok: false; message: string }> {
+  if (!cwd || !markdownFilePath) {
+    return { ok: false, message: 'Missing project or Markdown file path.' };
+  }
+
+  const buffer = toIpcBuffer(data);
+  if (!buffer || buffer.length === 0) {
+    return { ok: false, message: 'Missing image data.' };
+  }
+  if (buffer.length > MAX_ATTACHMENT_BYTES) {
+    return { ok: false, message: 'Selected image is too large.' };
+  }
+
+  const ext = getMarkdownImageExtension(sourceFileName, mimeType);
+  if (!ext) {
+    return { ok: false, message: 'Only image files can be inserted.' };
+  }
+
+  const resolvedMarkdown = resolve(cwd || '.', markdownFilePath || '');
+  const markdownValidation = await validateProjectFilePath(cwd, resolvedMarkdown);
+  if (!markdownValidation.ok) {
+    return { ok: false, message: markdownValidation.message };
+  }
+
+  const markdownDir = resolve(markdownValidation.targetReal, '..');
+  const markdownBase = basename(markdownValidation.targetReal).replace(/\.(md|markdown)$/i, '') || 'document';
+  const assetDir = resolve(markdownDir, `${markdownBase}.assets`);
+  if (!isPathWithinRoot(cwd, assetDir)) {
+    return { ok: false, message: 'Image asset directory is outside the project.' };
+  }
+
+  const safeBaseName = basename(sourceFileName || 'image', ext)
+    .replace(/[^\w.-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 72) || 'image';
+
+  let fileName = `${safeBaseName}${ext}`;
+  let targetPath = resolve(assetDir, fileName);
+  let suffix = 2;
+  while (existsSync(targetPath)) {
+    fileName = `${safeBaseName}-${suffix}${ext}`;
+    targetPath = resolve(assetDir, fileName);
+    suffix += 1;
+  }
+
+  if (!isPathWithinRoot(cwd, targetPath)) {
+    return { ok: false, message: 'Image asset target is outside the project.' };
+  }
+
+  try {
+    await fsPromises.mkdir(assetDir, { recursive: true });
+    await fsPromises.writeFile(targetPath, buffer);
+  } catch (error) {
+    return { ok: false, message: `Failed to write image: ${String(error)}` };
+  }
+
+  const relativePath = relative(markdownDir, targetPath).replace(/\\/g, '/');
+  return { ok: true, relativePath, name: fileName };
+}
+
+async function readMarkdownImageAsset(
+  cwd: string,
+  markdownFilePath: string,
+  imageSrc: string
+): Promise<{ ok: true; dataUrl: string } | { ok: false; message: string }> {
+  const trimmedSrc = imageSrc.trim();
+  if (!cwd || !markdownFilePath || !trimmedSrc) {
+    return { ok: false, message: 'Missing project, Markdown file, or image path.' };
+  }
+
+  if (/^(https?:|data:|blob:|mailto:)/i.test(trimmedSrc)) {
+    return { ok: false, message: 'Remote or inline images do not need local resolution.' };
+  }
+
+  const markdownResolved = resolve(cwd || '.', markdownFilePath || '');
+  const markdownValidation = await validateProjectFilePath(cwd, markdownResolved);
+  if (!markdownValidation.ok) {
+    return { ok: false, message: markdownValidation.message };
+  }
+
+  let imagePath: string;
+  if (/^file:/i.test(trimmedSrc)) {
+    try {
+      imagePath = fileURLToPath(trimmedSrc);
+    } catch {
+      return { ok: false, message: 'Invalid file URL for image.' };
+    }
+  } else {
+    const normalizedSrc = decodeMarkdownAssetPath(trimmedSrc).replace(/\\/g, '/');
+    imagePath = isAbsolute(normalizedSrc)
+      ? normalizedSrc
+      : resolve(dirname(markdownValidation.targetReal), normalizedSrc);
+  }
+
+  const imageValidation = await validateProjectFilePath(cwd, imagePath);
+  if (!imageValidation.ok) {
+    return { ok: false, message: imageValidation.message };
+  }
+
+  const ext = extname(imageValidation.targetReal).toLowerCase();
+  const mimeType = MARKDOWN_IMAGE_MIME_TYPES[ext];
+  if (!mimeType) {
+    return { ok: false, message: 'Only image files can be rendered in Markdown.' };
+  }
+
+  let stat;
+  try {
+    stat = await fsPromises.stat(imageValidation.targetReal);
+  } catch {
+    return { ok: false, message: 'Image file was not found.' };
+  }
+  if (!stat.isFile()) {
+    return { ok: false, message: 'Image path is not a file.' };
+  }
+  if (stat.size > MAX_ATTACHMENT_BYTES) {
+    return { ok: false, message: 'Image is too large to preview inline.' };
+  }
+
+  try {
+    const buffer = await fsPromises.readFile(imageValidation.targetReal);
+    return {
+      ok: true,
+      dataUrl: `data:${mimeType};base64,${buffer.toString('base64')}`,
+    };
+  } catch (error) {
+    return { ok: false, message: `Failed to read image: ${String(error)}` };
+  }
 }
 
 function getLocalPreviewMimeType(filePath: string): string {
@@ -3926,6 +4107,32 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
       const relativePath = relative(markdownDir, targetPath).replace(/\\/g, '/');
       return { ok: true, relativePath, name: fileName };
+    }
+  );
+
+  ipcMainHandle(
+    'read-markdown-image-asset',
+    async (
+      _event,
+      cwd: string,
+      markdownFilePath: string,
+      imageSrc: string
+    ): Promise<{ ok: true; dataUrl: string } | { ok: false; message: string }> => {
+      return readMarkdownImageAsset(cwd, markdownFilePath, imageSrc);
+    }
+  );
+
+  ipcMainHandle(
+    'create-markdown-image-asset',
+    async (
+      _event,
+      cwd: string,
+      markdownFilePath: string,
+      fileName: string,
+      mimeType: string | undefined,
+      data: unknown
+    ): Promise<{ ok: true; relativePath: string; name: string } | { ok: false; message: string }> => {
+      return createMarkdownImageAsset(cwd, markdownFilePath, fileName, mimeType, data);
     }
   );
 

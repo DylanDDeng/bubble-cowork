@@ -396,6 +396,20 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('select-markdown-image-asset', cwd, markdownFilePath);
   },
 
+  readMarkdownImageAsset: (cwd: string, markdownFilePath: string, imageSrc: string) => {
+    return ipcRenderer.invoke('read-markdown-image-asset', cwd, markdownFilePath, imageSrc);
+  },
+
+  createMarkdownImageAsset: (
+    cwd: string,
+    markdownFilePath: string,
+    fileName: string,
+    mimeType: string | undefined,
+    data: Uint8Array
+  ) => {
+    return ipcRenderer.invoke('create-markdown-image-asset', cwd, markdownFilePath, fileName, mimeType, data);
+  },
+
   createInlineTextAttachment: (cwd: string, text: string) => {
     return ipcRenderer.invoke('create-inline-text-attachment', cwd, text);
   },
