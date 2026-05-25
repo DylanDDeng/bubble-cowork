@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Plus, X } from './icons';
 import { Terminal } from '@xterm/xterm';
 import { useAgentReadiness, type AgentReadinessEntry } from '../hooks/useAgentReadiness';
@@ -650,48 +651,51 @@ export function SessionTerminal({
           </div>
           <div className="min-w-0 flex-1 border-b border-[var(--border)]/70" />
         </div>
-        {pickerOpen && pickerAnchor ? (
-          <div
-            ref={pickerMenuRef}
-            role="menu"
-            style={{ position: 'fixed', top: pickerAnchor.top, left: pickerAnchor.left }}
-            className="z-50 w-56 overflow-hidden rounded-md border border-[var(--border)]/80 bg-[var(--bg-primary)] py-1 shadow-lg"
-          >
-            {TERMINAL_AGENT_SPECS.map((spec) => {
-              const readiness = spec.provider ? readinessByProvider.get(spec.provider) : null;
-              const dimmed =
-                readiness != null &&
-                readiness.state !== 'ready' &&
-                readiness.state !== 'checking';
-              return (
-                <button
-                  key={spec.kind}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => handleAddTabWithAgent(spec.kind)}
-                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)]/60"
-                >
-                  <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-[var(--bg-secondary)]/60 text-[10px] text-[var(--text-muted)]">
-                    {spec.shortcut}
-                  </span>
-                  <span className={`flex-1 truncate ${dimmed ? 'text-[var(--text-muted)]' : ''}`}>
-                    {spec.label}
-                  </span>
-                  {readiness && readiness.state !== 'ready' && readiness.state !== 'checking' ? (
-                    <span
-                      className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-400"
-                      aria-hidden="true"
-                      title={readiness.summary}
-                    />
-                  ) : null}
-                  {spec.kind === lastAgentKind ? (
-                    <span className="text-[10px] text-[var(--text-muted)]">default</span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
+        {pickerOpen && pickerAnchor
+          ? createPortal(
+              <div
+                ref={pickerMenuRef}
+                role="menu"
+                style={{ position: 'fixed', top: pickerAnchor.top, left: pickerAnchor.left }}
+                className="z-[200] w-56 overflow-hidden rounded-md border border-[var(--border)]/80 bg-[var(--bg-primary)] py-1 shadow-lg"
+              >
+                {TERMINAL_AGENT_SPECS.map((spec) => {
+                  const readiness = spec.provider ? readinessByProvider.get(spec.provider) : null;
+                  const dimmed =
+                    readiness != null &&
+                    readiness.state !== 'ready' &&
+                    readiness.state !== 'checking';
+                  return (
+                    <button
+                      key={spec.kind}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => handleAddTabWithAgent(spec.kind)}
+                      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)]/60"
+                    >
+                      <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-[var(--bg-secondary)]/60 text-[10px] text-[var(--text-muted)]">
+                        {spec.shortcut}
+                      </span>
+                      <span className={`flex-1 truncate ${dimmed ? 'text-[var(--text-muted)]' : ''}`}>
+                        {spec.label}
+                      </span>
+                      {readiness && readiness.state !== 'ready' && readiness.state !== 'checking' ? (
+                        <span
+                          className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-400"
+                          aria-hidden="true"
+                          title={readiness.summary}
+                        />
+                      ) : null}
+                      {spec.kind === lastAgentKind ? (
+                        <span className="text-[10px] text-[var(--text-muted)]">default</span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>,
+              document.body,
+            )
+          : null}
       </div>
 
       {!canStart ? (
