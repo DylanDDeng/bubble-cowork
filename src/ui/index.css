@@ -1417,11 +1417,13 @@ button.md-inline-file-code:hover {
 }
 
 .aegis-md-editor {
+  --aegis-md-editor-surface: var(--workbench-surface, var(--bg-primary));
+  --aegis-md-editor-chrome-surface: color-mix(in srgb, var(--aegis-md-editor-surface) 96%, var(--bg-primary));
   display: flex;
   min-height: 100%;
   height: 100%;
   flex-direction: column;
-  background: var(--bg-primary);
+  background: var(--aegis-md-editor-surface);
   color: var(--text-primary);
 }
 
@@ -1434,7 +1436,7 @@ button.md-inline-file-code:hover {
   min-height: 48px;
   padding: 7px 176px 5px 132px;
   border-bottom: 0;
-  background: var(--bg-primary);
+  background: var(--aegis-md-editor-chrome-surface);
 }
 
 .aegis-md-title-cluster {
@@ -1501,7 +1503,7 @@ button.md-inline-file-code:hover {
   padding: 5px 12px;
   border-top: 1px solid color-mix(in srgb, var(--border) 48%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-  background: var(--bg-primary);
+  background: var(--aegis-md-editor-chrome-surface);
   overflow-x: auto;
 }
 
@@ -1569,6 +1571,7 @@ button.md-inline-file-code:hover {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  background: var(--aegis-md-editor-surface);
 }
 
 .aegis-md-canvas {
@@ -1577,7 +1580,7 @@ button.md-inline-file-code:hover {
   min-width: 0;
   min-height: 100%;
   overflow: visible;
-  background: var(--bg-primary);
+  background: var(--aegis-md-editor-surface);
 }
 
 .aegis-md-milkdown-root {

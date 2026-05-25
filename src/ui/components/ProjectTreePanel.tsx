@@ -561,6 +561,9 @@ export function ProjectTreePanel({
   const createDraftIdRef = useRef(0);
   const [createDraft, setCreateDraft] = useState<CreateDraftState | null>(null);
   const [projectTreeContextMenu, setProjectTreeContextMenu] = useState<ProjectTreeContextMenuState | null>(null);
+  const projectTreeContextMenuRef = useRef<HTMLDivElement | null>(null);
+  const swallowProjectTreeContextMenuClickRef = useRef(false);
+  const swallowProjectTreeContextMenuClickTimerRef = useRef<number | null>(null);
   const [draggedProjectEntry, setDraggedProjectEntry] = useState<ProjectDraggedEntry | null>(null);
   const draggedProjectEntryRef = useRef<ProjectDraggedEntry | null>(null);
   const [projectDropHoverId, setProjectDropHoverId] = useState<string | null>(null);
@@ -1417,17 +1420,58 @@ export function ProjectTreePanel({
   }, [cwd, selectExternalFilePath, selectFilePath]);
 
   useEffect(() => {
+    const clearSwallowedClick = () => {
+      swallowProjectTreeContextMenuClickRef.current = false;
+      if (swallowProjectTreeContextMenuClickTimerRef.current) {
+        window.clearTimeout(swallowProjectTreeContextMenuClickTimerRef.current);
+        swallowProjectTreeContextMenuClickTimerRef.current = null;
+      }
+    };
+    const handleClick = (event: MouseEvent) => {
+      if (!swallowProjectTreeContextMenuClickRef.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      clearSwallowedClick();
+    };
+    window.addEventListener('click', handleClick, true);
+    return () => {
+      window.removeEventListener('click', handleClick, true);
+      clearSwallowedClick();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!projectTreeContextMenu) return;
     const closeMenu = () => setProjectTreeContextMenu(null);
+    const swallowNextClick = () => {
+      swallowProjectTreeContextMenuClickRef.current = true;
+      if (swallowProjectTreeContextMenuClickTimerRef.current) {
+        window.clearTimeout(swallowProjectTreeContextMenuClickTimerRef.current);
+      }
+      swallowProjectTreeContextMenuClickTimerRef.current = window.setTimeout(() => {
+        swallowProjectTreeContextMenuClickRef.current = false;
+        swallowProjectTreeContextMenuClickTimerRef.current = null;
+      }, 750);
+    };
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (target instanceof Node && projectTreeContextMenuRef.current?.contains(target)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      swallowNextClick();
+      closeMenu();
+    };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         closeMenu();
       }
     };
-    window.addEventListener('mousedown', closeMenu);
+    window.addEventListener('mousedown', handleMouseDown, true);
     window.addEventListener('keydown', handleKeyDown);
     return () => {
-      window.removeEventListener('mousedown', closeMenu);
+      window.removeEventListener('mousedown', handleMouseDown, true);
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [projectTreeContextMenu]);
@@ -2027,6 +2071,7 @@ export function ProjectTreePanel({
 
         {projectTreeContextMenu && activeTab === 'files' ? createPortal(
           <div
+            ref={projectTreeContextMenuRef}
             className="fixed z-[1000] min-w-[168px] overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] py-1 shadow-[0_18px_42px_rgba(15,23,42,0.18)]"
             style={{ left: projectTreeContextMenu.x, top: projectTreeContextMenu.y }}
             onMouseDown={(event) => event.stopPropagation()}

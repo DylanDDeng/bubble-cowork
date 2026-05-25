@@ -88,6 +88,9 @@ type ProjectMarkdownEditorProps = {
 
 const headingFlashKey = new PluginKey<DecorationSet>('aegisMarkdownHeadingFlash');
 const HEADING_FLASH_META = 'aegis-markdown-heading-flash';
+const OUTLINE_TARGET_MIN_TOP_OFFSET_PX = 72;
+const OUTLINE_TARGET_MAX_TOP_OFFSET_PX = 140;
+const OUTLINE_TARGET_VIEWPORT_RATIO = 0.16;
 
 function splitFrontmatter(markdown: string): FrontmatterParts {
   const text = String(markdown || '').replace(/\r\n/g, '\n');
@@ -157,6 +160,36 @@ function collectOutlineItems(view: ProseEditorView): MarkdownOutlineItem[] {
   });
 
   return items;
+}
+
+function scrollHeadingIntoOutlinePosition(
+  view: ProseEditorView,
+  host: HTMLElement | null,
+  headingPos: number
+) {
+  const scroller = host?.closest<HTMLElement>('.aegis-md-main');
+  const node = view.nodeDOM(headingPos);
+  const headingElement = node instanceof HTMLElement
+    ? node
+    : node instanceof Text
+      ? node.parentElement
+      : null;
+
+  if (!scroller || !headingElement) return;
+
+  const scrollerRect = scroller.getBoundingClientRect();
+  const headingRect = headingElement.getBoundingClientRect();
+  const topOffset = Math.min(
+    OUTLINE_TARGET_MAX_TOP_OFFSET_PX,
+    Math.max(OUTLINE_TARGET_MIN_TOP_OFFSET_PX, scroller.clientHeight * OUTLINE_TARGET_VIEWPORT_RATIO)
+  );
+  const nextScrollTop = scroller.scrollTop + headingRect.top - scrollerRect.top - topOffset;
+  const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+
+  scroller.scrollTo({
+    top: Math.min(maxScrollTop, Math.max(0, nextScrollTop)),
+    behavior: 'smooth',
+  });
 }
 
 const trailingParagraphPlugin = $prose(() => {
@@ -396,10 +429,15 @@ export function ProjectMarkdownEditor({
     view.dispatch(
       view.state.tr
         .setSelection(TextSelection.near(view.state.doc.resolve(pos)))
-        .scrollIntoView()
         .setMeta(HEADING_FLASH_META, { type: 'flash', pos: item.pos })
     );
     view.focus();
+    window.requestAnimationFrame(() => {
+      const currentView = viewRef.current;
+      if (currentView) {
+        scrollHeadingIntoOutlinePosition(currentView, hostRef.current, item.pos);
+      }
+    });
     setActiveOutlineId(item.id);
 
     if (headingFlashTimerRef.current) {
