@@ -4260,6 +4260,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       // Markdown + text-like preview
       if (
         ext === '.md' ||
+        ext === '.mdx' ||
         ext === '.txt' ||
         ext === '.json' ||
         ext === '.log' ||
@@ -4289,13 +4290,13 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         try {
           const text = await fsPromises.readFile(validation.targetReal, 'utf8');
           return {
-            kind: ext === '.md' ? 'markdown' : ext === '.html' || ext === '.htm' ? 'html' : 'text',
+            kind: ext === '.md' || ext === '.mdx' ? 'markdown' : ext === '.html' || ext === '.htm' ? 'html' : 'text',
             path: validation.targetReal,
             name,
             ext,
             size: stat.size,
             text,
-            editable: ext === '.txt' || ext === '.md',
+            editable: ext === '.txt' || ext === '.md' || ext === '.mdx',
           };
         } catch (error) {
           return {
