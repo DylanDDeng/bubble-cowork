@@ -61,6 +61,7 @@ function inferLanguage(fileName?: string): string | undefined {
     yml: 'yaml',
     yaml: 'yaml',
     md: 'markdown',
+    mdx: 'markdown',
     sql: 'sql',
     java: 'java',
     go: 'go',

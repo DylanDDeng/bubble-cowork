@@ -4290,7 +4290,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         try {
           const text = await fsPromises.readFile(validation.targetReal, 'utf8');
           return {
-            kind: ext === '.md' || ext === '.mdx' ? 'markdown' : ext === '.html' || ext === '.htm' ? 'html' : 'text',
+            // MDX must stay on the raw text path: the Markdown rich editor
+            // serializes CommonMark/GFM and can rewrite MDX source.
+            kind: ext === '.md' ? 'markdown' : ext === '.html' || ext === '.htm' ? 'html' : 'text',
             path: validation.targetReal,
             name,
             ext,
@@ -4340,7 +4342,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   );
 
-  // RPC: 写入项目文本文件（当前允许写 .txt / .md，安全：cwd 内，<=5MB）
+  // RPC: 写入项目文本文件（当前允许写 .txt / .md / .mdx，安全：cwd 内，<=5MB）
   ipcMainHandle(
     'write-project-text-file',
     async (
@@ -4352,8 +4354,8 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       const resolved = resolve(cwd || '.', filePath || '');
       const ext = extname(resolved).toLowerCase();
 
-      if (ext !== '.txt' && ext !== '.md') {
-        return { ok: false, message: 'Only .txt and .md files are editable right now.' };
+      if (ext !== '.txt' && ext !== '.md' && ext !== '.mdx') {
+        return { ok: false, message: 'Only .txt, .md, and .mdx files are editable right now.' };
       }
 
       const validation = await validateProjectFilePath(cwd, resolved);
