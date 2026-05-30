@@ -192,6 +192,48 @@ const projectWatchers = new Map<
   string,
   { watcher: FSWatcher; timer?: NodeJS.Timeout }
 >();
+const projectTreeVersions = new Map<string, number>();
+const PROJECT_TREE_REFRESH_DELAY_MS = 200;
+const PROJECT_TREE_DELETE_SETTLE_TIMEOUT_MS = 2500;
+const PROJECT_TREE_DELETE_SETTLE_INTERVAL_MS = 50;
+
+function getProjectTreeVersionKey(cwd: string): string {
+  return resolve(cwd);
+}
+
+function getProjectTreeVersion(cwd: string): number {
+  return projectTreeVersions.get(getProjectTreeVersionKey(cwd)) ?? 0;
+}
+
+function bumpProjectTreeVersion(cwd: string): void {
+  const key = getProjectTreeVersionKey(cwd);
+  projectTreeVersions.set(key, (projectTreeVersions.get(key) ?? 0) + 1);
+}
+
+function isMissingPathError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((done) => setTimeout(done, ms));
+}
+
+async function waitForPathToDisappear(filePath: string): Promise<boolean> {
+  const deadline = Date.now() + PROJECT_TREE_DELETE_SETTLE_TIMEOUT_MS;
+  while (Date.now() <= deadline) {
+    try {
+      await fsPromises.lstat(filePath);
+    } catch (error) {
+      if (isMissingPathError(error)) return true;
+      throw error;
+    }
+
+    if (Date.now() >= deadline) break;
+    await wait(PROJECT_TREE_DELETE_SETTLE_INTERVAL_MS);
+  }
+  return false;
+}
 
 async function isReadableDirectory(path: string): Promise<boolean> {
   try {
@@ -210,6 +252,7 @@ function closeProjectTreeWatcher(cwd: string): void {
   }
   entry.watcher.close();
   projectWatchers.delete(cwd);
+  projectTreeVersions.delete(getProjectTreeVersionKey(cwd));
 }
 
 const terminalSessions = new Map<string, {
@@ -819,11 +862,18 @@ async function deleteProjectEntry(
     return { ok: false, message: 'Target is outside the selected project folder.' };
   }
 
+  bumpProjectTreeVersion(projectRoot);
   try {
     // Move to OS trash for safety/recoverability. shell.trashItem works for files and folders.
-    await shell.trashItem(targetReal);
+    await shell.trashItem(targetResolved);
+    const removed = await waitForPathToDisappear(targetResolved);
+    if (!removed) {
+      return { ok: false, message: 'File still exists after moving to Trash.' };
+    }
   } catch (error) {
     return { ok: false, message: `Failed to delete: ${String(error)}` };
+  } finally {
+    bumpProjectTreeVersion(projectRoot);
   }
 
   const tree = await readProjectTree(projectRoot);
@@ -3129,9 +3179,12 @@ function broadcast(mainWindow: BrowserWindow, event: ServerEvent): void {
   mainWindow.webContents.send('server-event', JSON.stringify(event));
 }
 
-async function emitProjectTree(mainWindow: BrowserWindow, cwd: string): Promise<void> {
+async function emitProjectTree(mainWindow: BrowserWindow, cwd: string, scheduledVersion: number): Promise<void> {
   try {
     const tree = await readProjectTree(cwd);
+    if (!projectWatchers.has(cwd) || getProjectTreeVersion(cwd) !== scheduledVersion) {
+      return;
+    }
     if (!tree) {
       closeProjectTreeWatcher(cwd);
       broadcast(mainWindow, { type: 'project.tree', payload: { cwd, tree: null } });
@@ -3140,6 +3193,9 @@ async function emitProjectTree(mainWindow: BrowserWindow, cwd: string): Promise<
     broadcast(mainWindow, { type: 'project.tree', payload: { cwd, tree } });
   } catch (error) {
     console.error('Failed to read project tree:', error);
+    if (!projectWatchers.has(cwd) || getProjectTreeVersion(cwd) !== scheduledVersion) {
+      return;
+    }
     closeProjectTreeWatcher(cwd);
     broadcast(mainWindow, { type: 'project.tree', payload: { cwd, tree: null } });
   }
@@ -3151,9 +3207,10 @@ function scheduleProjectTree(mainWindow: BrowserWindow, cwd: string): void {
   if (entry.timer) {
     clearTimeout(entry.timer);
   }
+  const scheduledVersion = getProjectTreeVersion(cwd);
   entry.timer = setTimeout(() => {
-    emitProjectTree(mainWindow, cwd);
-  }, 200);
+    void emitProjectTree(mainWindow, cwd, scheduledVersion);
+  }, PROJECT_TREE_REFRESH_DELAY_MS);
 }
 
 function mapGitChangeStatus(indexStatus: string, workStatus: string): {
