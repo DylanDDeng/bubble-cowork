@@ -215,10 +215,10 @@ export function PromptLibraryView() {
   const hasFilters = Boolean(searchQuery.trim()) || selectedCategory !== 'all';
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-transparent">
-      <div className={`${sidebarCollapsed ? 'h-9' : 'h-8'} aegis-workbench-drag-strip drag-region flex-shrink-0`}>
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[color:color-mix(in_srgb,var(--bg-primary)_92%,var(--bg-tertiary))]">
+      <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0 bg-transparent`}>
         <div className="flex h-full items-center px-3">
-          {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px] -translate-y-[3px]" /> : null}
+          {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
         </div>
       </div>
 

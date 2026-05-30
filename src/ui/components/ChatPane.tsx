@@ -944,10 +944,10 @@ export function ChatPane({
 
   return (
     <div
-      className={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-colors ${
+      className={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--bg-primary)] transition-colors ${
         isActive
-          ? 'bg-transparent'
-          : 'bg-[var(--workbench-surface-muted)]'
+          ? 'bg-[var(--bg-primary)]'
+          : 'bg-[color-mix(in_srgb,var(--bg-primary)_96%,var(--bg-secondary))]'
       }`}
       onMouseDown={() => {
         if (!isActive) {
@@ -978,7 +978,7 @@ export function ChatPane({
         </div>
       ) : (
         <>
-          <div className="flex h-9 items-center justify-between bg-transparent px-3">
+          <div className="flex h-9 items-center justify-between bg-[var(--bg-primary)] px-3">
             <div className="flex min-w-0 items-center gap-2 text-[12px] text-[var(--text-secondary)]">
               {directAgent ? (
                 <>
@@ -1017,7 +1017,7 @@ export function ChatPane({
               ) : null}
             </div>
           </div>
-          <div ref={scrollContainerRef} className="flex-1 overflow-auto p-5 relative">
+          <div ref={scrollContainerRef} className="flex-1 overflow-auto p-4 relative">
             {isActive ? <InSessionSearch /> : null}
 
             {session.readOnly && (
@@ -1231,7 +1231,7 @@ export function ChatPane({
           </div>
 
           {session.readOnly ? null : (
-            <div className="px-6 pb-5">
+            <div className="px-8 pb-4">
               {activePermissionRequest ? (
                 <PromptInput
                   sessionId={sessionId}

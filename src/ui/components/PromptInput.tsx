@@ -558,7 +558,7 @@ export function PromptInput({
           {approvalPending && approvalPanel ? (
             approvalPanel
           ) : (
-          <div className="aegis-composer-surface rounded-[26px]">
+          <div className="rounded-[26px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)] transition-[border-color,box-shadow] duration-200 focus-within:border-[color-mix(in_srgb,var(--border)_92%,transparent)] focus-within:shadow-[0_20px_52px_rgba(15,23,42,0.12)]">
           {attachments.length > 0 && (
             <div className="px-5 pt-4">
               <AttachmentChips

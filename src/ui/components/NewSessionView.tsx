@@ -472,10 +472,10 @@ export function NewSessionView() {
   };
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col bg-transparent">
-      <div className={`${sidebarCollapsed ? 'h-9' : 'h-8'} aegis-workbench-drag-strip drag-region flex-shrink-0`}>
+    <div className="flex-1 min-w-0 flex flex-col">
+      <div className={`${sidebarCollapsed ? 'h-12' : 'h-8'} drag-region flex-shrink-0`}>
         <div className="flex h-full items-center px-3">
-          {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px] -translate-y-[3px]" /> : null}
+          {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
         </div>
       </div>
 
@@ -530,140 +530,140 @@ export function NewSessionView() {
             </div>
 
             <div className="mx-auto max-w-4xl">
-              <div className="relative">
-                {projectFileMentions.hasMentionQuery ? (
-                  <div className="absolute inset-x-0 bottom-full z-40">
-                    <ProjectFileMentionMenu
-                      suggestions={projectFileMentions.suggestions}
-                      selectedIndex={projectFileMentions.selectedIndex}
-                      loading={projectFileMentions.loading}
-                      onSelect={(suggestion) => {
-                        void handleSelectProjectFile(suggestion);
-                      }}
-                    />
-                  </div>
-                ) : capabilityMenu.hasSlashQuery ? (
-                  <div className="absolute inset-x-0 bottom-full z-40">
-                    <ClaudeSkillMenu
-                      suggestions={capabilityMenu.suggestions}
-                      selectedIndex={capabilityMenu.selectedIndex}
-                      empty={capabilityMenu.suggestions.length === 0}
-                      title={capabilityMenu.menuTitle}
-                      emptyMessage={capabilityMenu.emptyMessage}
-                      onSelect={(suggestion) => {
-                        capabilityMenu.selectSuggestion(suggestion);
-                        window.requestAnimationFrame(() => editorRef.current?.focus());
-                      }}
-                      onHighlight={capabilityMenu.setSelectedIndex}
-                    />
-                  </div>
-                ) : null}
-                <div className="aegis-composer-surface rounded-[26px]">
-                  {attachments.length > 0 && (
-                    <div className="px-5 pt-4">
-                      <AttachmentChips
-                        attachments={attachments}
-                        onRemove={(id) =>
-                          setAttachments((prev) => prev.filter((a) => a.id !== id))
-                        }
-                      />
-                    </div>
-                  )}
-
-                  <ComposerPromptEditor
-                    ref={editorRef}
-                    value={capabilityMenu.displayPrompt}
-                    cursorIndex={cursorIndex}
-                    slashContext={capabilityMenu.slashContext}
-                    agentMentionLabels={{}}
-                    onChange={(value, nextCursorIndex) => {
-                      void handlePromptChange(value, nextCursorIndex);
+              <div className="group relative rounded-[28px] bg-[var(--border)]/45 p-px transition-colors duration-200 focus-within:bg-[var(--border)]/70">
+              {projectFileMentions.hasMentionQuery ? (
+                <div className="absolute inset-x-0 bottom-full z-40">
+                  <ProjectFileMentionMenu
+                    suggestions={projectFileMentions.suggestions}
+                    selectedIndex={projectFileMentions.selectedIndex}
+                    loading={projectFileMentions.loading}
+                    onSelect={(suggestion) => {
+                      void handleSelectProjectFile(suggestion);
                     }}
-                    onPasteText={(context) => {
-                      return handleLongPaste(context);
-                    }}
-                    onPasteImages={(images) => {
-                      void handlePasteImages(images);
-                    }}
-                    onCompositionStart={() => {
-                      isComposingRef.current = true;
-                    }}
-                    onCompositionEnd={() => {
-                      isComposingRef.current = false;
-                    }}
-                    onKeyDown={handleKeyDown}
-                    placeholder={
-                      hasSelectedCwd
-                        ? 'Message the agent...'
-                        : 'Describe your task. Choose a project folder before it runs...'
-                    }
-                    className="w-full bg-transparent px-4 pt-3 pb-1 text-[14px] outline-none resize-none no-drag min-h-[56px] max-h-[200px]"
-                    autoFocus
                   />
-
-                  <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
-                    <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
-                      {!hasSelectedCwd ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void handleSelectProjectFolder();
-                          }}
-                          disabled={pendingStart}
-                          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-[var(--bg-tertiary)] px-2.5 text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[color-mix(in_srgb,var(--bg-tertiary)_76%,var(--accent)_24%)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-                          title="Choose project folder"
-                        >
-                          <FolderOpen className="h-3.5 w-3.5" />
-                          Choose project
-                        </button>
-                      ) : null}
-                      <ComposerAgentPicker
-                        value={agentSelection.provider}
-                        disabled={pendingStart}
-                        onChange={agentSelection.selectAgent}
-                      />
-                      <ComposerModelPicker
-                        value={agentSelection.model}
-                        selectedKey={agentSelection.selectedModelOption?.key ?? null}
-                        label={agentSelection.selectedModelLabel}
-                        options={agentSelection.modelOptions}
-                        setupLabel={agentSelection.modelSetup?.label}
-                        disabled={pendingStart}
-                        onSetup={openModelSetup}
-                        onChange={agentSelection.selectModel}
-                      />
-                      <SavePromptButton content={promptLibraryContent} disabled={pendingStart} />
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void handleAddAttachments();
-                        }}
-                        disabled={pendingStart}
-                        className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-all duration-150 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-                        title="Add files or photos"
-                        aria-label="Add files or photos"
-                      >
-                        <PlusIcon />
-                      </button>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <button
-                        onClick={handleStart}
-                        disabled={!canStartTask}
-                        className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105 no-drag disabled:cursor-not-allowed disabled:opacity-20 disabled:hover:scale-100"
-                      >
-                        {pendingStart ? (
-                          <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        ) : !hasSelectedCwd ? (
-                          <FolderOpen className="h-[18px] w-[18px]" />
-                        ) : (
-                          <ArrowUpIcon />
-                        )}
-                      </button>
-                    </div>
-                  </div>
                 </div>
+              ) : capabilityMenu.hasSlashQuery ? (
+                <div className="absolute inset-x-0 bottom-full z-40">
+                  <ClaudeSkillMenu
+                    suggestions={capabilityMenu.suggestions}
+                    selectedIndex={capabilityMenu.selectedIndex}
+                    empty={capabilityMenu.suggestions.length === 0}
+                    title={capabilityMenu.menuTitle}
+                    emptyMessage={capabilityMenu.emptyMessage}
+                    onSelect={(suggestion) => {
+                      capabilityMenu.selectSuggestion(suggestion);
+                      window.requestAnimationFrame(() => editorRef.current?.focus());
+                    }}
+                    onHighlight={capabilityMenu.setSelectedIndex}
+                  />
+                </div>
+              ) : null}
+              <div className="rounded-[26px] border border-[var(--border)]/65 bg-[var(--bg-primary)] transition-colors duration-200">
+              {attachments.length > 0 && (
+                <div className="px-5 pt-4">
+                  <AttachmentChips
+                    attachments={attachments}
+                    onRemove={(id) =>
+                      setAttachments((prev) => prev.filter((a) => a.id !== id))
+                    }
+                  />
+                </div>
+              )}
+
+              <ComposerPromptEditor
+                ref={editorRef}
+                value={capabilityMenu.displayPrompt}
+                cursorIndex={cursorIndex}
+                slashContext={capabilityMenu.slashContext}
+                agentMentionLabels={{}}
+                onChange={(value, nextCursorIndex) => {
+                  void handlePromptChange(value, nextCursorIndex);
+                }}
+                onPasteText={(context) => {
+                  return handleLongPaste(context);
+                }}
+                onPasteImages={(images) => {
+                  void handlePasteImages(images);
+                }}
+                onCompositionStart={() => {
+                  isComposingRef.current = true;
+                }}
+                onCompositionEnd={() => {
+                  isComposingRef.current = false;
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  hasSelectedCwd
+                    ? 'Message the agent...'
+                    : 'Describe your task. Choose a project folder before it runs...'
+                }
+                className="w-full bg-transparent px-4 pt-3 pb-1 text-[14px] outline-none resize-none no-drag min-h-[56px] max-h-[200px]"
+                autoFocus
+              />
+
+              <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
+              <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
+              {!hasSelectedCwd ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleSelectProjectFolder();
+                  }}
+                  disabled={pendingStart}
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-[var(--bg-tertiary)] px-2.5 text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[color-mix(in_srgb,var(--bg-tertiary)_76%,var(--accent)_24%)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Choose project folder"
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                  Choose project
+                </button>
+              ) : null}
+              <ComposerAgentPicker
+                value={agentSelection.provider}
+                disabled={pendingStart}
+                onChange={agentSelection.selectAgent}
+              />
+              <ComposerModelPicker
+                value={agentSelection.model}
+                selectedKey={agentSelection.selectedModelOption?.key ?? null}
+                label={agentSelection.selectedModelLabel}
+                options={agentSelection.modelOptions}
+                setupLabel={agentSelection.modelSetup?.label}
+                disabled={pendingStart}
+                onSetup={openModelSetup}
+                onChange={agentSelection.selectModel}
+              />
+              <SavePromptButton content={promptLibraryContent} disabled={pendingStart} />
+
+              <button
+                type="button"
+                onClick={() => {
+                  void handleAddAttachments();
+                }}
+                disabled={pendingStart}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-all duration-150 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                title="Add files or photos"
+                aria-label="Add files or photos"
+              >
+                <PlusIcon />
+              </button>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+              <button
+                onClick={handleStart}
+                disabled={!canStartTask}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105 no-drag disabled:cursor-not-allowed disabled:opacity-20 disabled:hover:scale-100"
+              >
+                {pendingStart ? (
+                  <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : !hasSelectedCwd ? (
+                  <FolderOpen className="h-[18px] w-[18px]" />
+                ) : (
+                  <ArrowUpIcon />
+                )}
+              </button>
+              </div>
+              </div>
+              </div>
               </div>
             </div>
 
