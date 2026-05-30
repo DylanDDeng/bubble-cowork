@@ -103,6 +103,12 @@ type ProjectMarkdownEditorProps = {
   onKeepLocal: () => void;
 };
 
+type PendingLocalMarkdownValue = {
+  baseValue: string;
+  latestValue: string;
+  localValues: Set<string>;
+};
+
 const headingFlashKey = new PluginKey<DecorationSet>('aegisMarkdownHeadingFlash');
 const HEADING_FLASH_META = 'aegis-markdown-heading-flash';
 const OUTLINE_TARGET_MIN_TOP_OFFSET_PX = 72;
@@ -733,6 +739,10 @@ export function ProjectMarkdownEditor({
   const viewRef = useRef<ProseEditorView | null>(null);
   const currentFullMarkdownRef = useRef(value);
   const frontmatterRef = useRef(splitFrontmatter(value).frontmatter);
+  const pendingLocalValueRef = useRef<PendingLocalMarkdownValue | null>(null);
+  const lastPropValueRef = useRef(value);
+  const applyingPropValueRef = useRef(false);
+  const previousExternalChangeRef = useRef(externalChange);
   const outlineItemsRef = useRef<MarkdownOutlineItem[]>([]);
   const headingFlashTimerRef = useRef<number | null>(null);
   const outlineCloseTimerRef = useRef<number | null>(null);
@@ -874,13 +884,28 @@ export function ProjectMarkdownEditor({
     focusEditor();
   }, [focusEditor, runCommand]);
 
+  const emitLocalChange = useCallback((next: string) => {
+    const pending = pendingLocalValueRef.current;
+    if (pending) {
+      pending.latestValue = next;
+      pending.localValues.add(next);
+    } else {
+      pendingLocalValueRef.current = {
+        baseValue: lastPropValueRef.current,
+        latestValue: next,
+        localValues: new Set([next]),
+      };
+    }
+    currentFullMarkdownRef.current = next;
+    onChange(next);
+  }, [onChange]);
+
   const applyFrontmatterChange = useCallback((nextFrontmatter: string) => {
     const currentParts = splitFrontmatter(currentFullMarkdownRef.current);
     const next = combineFrontmatter(nextFrontmatter, currentParts.body);
     frontmatterRef.current = nextFrontmatter;
-    currentFullMarkdownRef.current = next;
-    onChange(next);
-  }, [onChange]);
+    emitLocalChange(next);
+  }, [emitLocalChange]);
 
   const updateMetadataValue = useCallback((field: MarkdownMetadataField, nextValue: string) => {
     applyFrontmatterChange(updateMarkdownMetadataValue(frontmatterRef.current, field, nextValue));
@@ -897,6 +922,10 @@ export function ProjectMarkdownEditor({
     const parts = splitFrontmatter(value);
     frontmatterRef.current = parts.frontmatter;
     currentFullMarkdownRef.current = value;
+    lastPropValueRef.current = value;
+    pendingLocalValueRef.current = null;
+    applyingPropValueRef.current = false;
+    previousExternalChangeRef.current = externalChange;
     setEditorFocused(false);
     let disposed = false;
 
@@ -925,8 +954,11 @@ export function ProjectMarkdownEditor({
           const listeners = ctx.get(listenerCtx);
           listeners.markdownUpdated((innerCtx, markdown) => {
             const next = combineFrontmatter(frontmatterRef.current, markdown);
-            currentFullMarkdownRef.current = next;
-            onChange(next);
+            if (applyingPropValueRef.current) {
+              currentFullMarkdownRef.current = next;
+            } else {
+              emitLocalChange(next);
+            }
             refreshDerivedUi(innerCtx.get(editorViewCtx));
           });
           listeners.focus((innerCtx) => {
@@ -978,19 +1010,54 @@ export function ProjectMarkdownEditor({
         headingFlashTimerRef.current = null;
       }
     };
-  }, [cwd, filePath, refreshDerivedUi]);
+  }, [cwd, emitLocalChange, filePath, refreshDerivedUi]);
 
   useEffect(() => {
+    const wasExternalChange = previousExternalChangeRef.current;
+    const resolvedExternalChange = wasExternalChange && !externalChange;
+    previousExternalChangeRef.current = externalChange;
+
     const editor = editorRef.current;
-    if (!editor) return;
+    const pending = pendingLocalValueRef.current;
+    if (pending) {
+      if (value === pending.latestValue) {
+        pendingLocalValueRef.current = null;
+        lastPropValueRef.current = value;
+        return;
+      }
+
+      if (
+        !resolvedExternalChange &&
+        (value === pending.baseValue || pending.localValues.has(value))
+      ) {
+        lastPropValueRef.current = value;
+        return;
+      }
+
+      pendingLocalValueRef.current = null;
+    }
+
+    lastPropValueRef.current = value;
+
+    if (!editor) {
+      const parts = splitFrontmatter(value);
+      frontmatterRef.current = parts.frontmatter;
+      currentFullMarkdownRef.current = value;
+      return;
+    }
     if (value === currentFullMarkdownRef.current) return;
 
     const parts = splitFrontmatter(value);
     frontmatterRef.current = parts.frontmatter;
     currentFullMarkdownRef.current = value;
-    editor.action(replaceAll(parts.body));
+    applyingPropValueRef.current = true;
+    try {
+      editor.action(replaceAll(parts.body));
+    } finally {
+      applyingPropValueRef.current = false;
+    }
     editor.action((ctx) => refreshDerivedUi(ctx.get(editorViewCtx)));
-  }, [refreshDerivedUi, value]);
+  }, [externalChange, refreshDerivedUi, value]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
