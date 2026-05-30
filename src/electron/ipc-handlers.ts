@@ -101,7 +101,6 @@ import { register as registerPromptLibrary } from './ipc/prompt-library'
 import { register as registerMemory } from './ipc/memory'
 import { register as registerFont } from './ipc/font'
 import { register as registerSkillMarket } from './ipc/skill-market'
-import { register as registerGit } from './ipc/git'
 import {
   applyStash,
   checkoutBranch,
@@ -5203,7 +5202,6 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   registerFont(ipcCtx)
   registerMemory(ipcCtx)
   registerSkillMarket(ipcCtx)
-  registerGit(ipcCtx)
 }
 
 // 处理客户端事件
