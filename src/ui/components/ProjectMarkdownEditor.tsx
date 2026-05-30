@@ -697,7 +697,7 @@ function ToolbarButton({
   return (
     <button
       type="button"
-      className={`aegis-md-toolbar-button${active ? ' active' : ''}`}
+      className={`aegis-md-toolbar-button no-drag${active ? ' active' : ''}`}
       title={title}
       aria-label={title}
       aria-pressed={active}
@@ -1051,7 +1051,7 @@ export function ProjectMarkdownEditor({
         </div>
       )}
 
-      <div className="aegis-md-toolbar" aria-label="Markdown formatting toolbar">
+      <div className="aegis-md-toolbar drag-region" aria-label="Markdown formatting toolbar">
         <div className="aegis-md-toolbar-tools">
         <ToolbarButton title="Undo" onClick={() => { viewRef.current && undo(viewRef.current.state, viewRef.current.dispatch); focusEditor(); }}>
           <Undo2 className="h-4 w-4" />
