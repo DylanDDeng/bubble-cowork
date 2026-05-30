@@ -544,7 +544,7 @@ export function BrowserPanel({
   // ===== Render =====
   return (
     <div
-      className={`aegis-context-panel flex h-full flex-col transition-[width,opacity,transform,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+      className={`relative flex h-full flex-col border-l border-[var(--border)] bg-[var(--bg-primary)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
         isFullscreen ? 'flex-1 min-w-0' : 'flex-shrink-0'
       } ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`}
       style={
@@ -553,13 +553,13 @@ export function BrowserPanel({
               width: 'auto',
               opacity: 1,
               transform: 'translateX(0)',
-              marginLeft: 'var(--workbench-gap)',
+              borderLeftWidth: 1,
             }
           : {
               width: collapsed ? 0 : width,
               opacity: collapsed ? 0 : 1,
               transform: collapsed ? 'translateX(18px)' : 'translateX(0)',
-              marginLeft: collapsed ? 0 : 'var(--workbench-gap)',
+              borderLeftWidth: collapsed ? 0 : 1,
             }
       }
       aria-hidden={collapsed && !isFullscreen}
@@ -574,7 +574,7 @@ export function BrowserPanel({
       )}
 
       {/* Top drag strip */}
-      <div className="h-8 aegis-workbench-drag-strip drag-region flex-shrink-0" />
+      <div className="h-8 drag-region flex-shrink-0" />
 
       {/* Chrome */}
       <div className="no-drag flex-shrink-0 bg-[var(--bg-secondary)]/45">

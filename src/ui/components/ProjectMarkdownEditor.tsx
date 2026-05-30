@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Bold,
   CheckSquare,
+  ChevronDown,
+  ChevronUp,
   Code,
   Heading1,
   Heading2,
@@ -11,11 +13,13 @@ import {
   Link,
   List,
   ListOrdered,
+  Plus,
   Quote,
   Redo2,
   Strikethrough,
   Table,
   Undo2,
+  X,
 } from './icons';
 import {
   Editor,
@@ -71,12 +75,25 @@ type FrontmatterParts = {
   body: string;
 };
 
+type MarkdownMetadataFieldKind = 'array' | 'boolean' | 'number' | 'text';
+
+type MarkdownMetadataField = {
+  key: string;
+  value: string;
+  kind: MarkdownMetadataFieldKind;
+  items: string[];
+  arrayStyle: 'inline' | 'list' | null;
+  line: number;
+};
+
 type ProjectMarkdownEditorProps = {
   value: string;
   cwd: string;
   filePath: string;
   fileName: string;
   hideTitleBar?: boolean;
+  windowControlsInset?: boolean;
+  toolbarActions?: ReactNode;
   saveState: SaveState;
   saveError: string | null;
   externalChange: boolean;
@@ -91,6 +108,7 @@ const HEADING_FLASH_META = 'aegis-markdown-heading-flash';
 const OUTLINE_TARGET_MIN_TOP_OFFSET_PX = 72;
 const OUTLINE_TARGET_MAX_TOP_OFFSET_PX = 140;
 const OUTLINE_TARGET_VIEWPORT_RATIO = 0.16;
+const METADATA_VISIBLE_ROWS = 8;
 const MARKDOWN_IMAGE_MIME_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -122,6 +140,268 @@ function combineFrontmatter(frontmatter: string, body: string): string {
   const normalizedBody = String(body || '').replace(/\r\n/g, '\n');
   if (!frontmatter) return normalizedBody;
   return `${frontmatter}${normalizedBody.replace(/^\n+/, '')}`;
+}
+
+function stripYamlQuote(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function parseYamlArrayItems(value: string): string[] {
+  return value
+    .replace(/^\[|\]$/g, '')
+    .split(',')
+    .map((item) => stripYamlQuote(item.trim()))
+    .filter(Boolean);
+}
+
+function formatYamlScalar(value: string, kind: MarkdownMetadataFieldKind = 'text'): string {
+  const trimmed = value.trim();
+  if (kind === 'boolean') return trimmed.toLowerCase() === 'true' ? 'true' : 'false';
+  if (kind === 'number' && /^-?\d+(?:\.\d+)?$/.test(trimmed)) return trimmed;
+  if (!trimmed) return '""';
+  if (/^(true|false|null|~|-?\d|\[|\{)/i.test(trimmed) || /[:#\n]/.test(trimmed)) {
+    return JSON.stringify(trimmed);
+  }
+  return trimmed;
+}
+
+function formatYamlInlineArray(items: string[]): string {
+  return `[${items.map((item) => JSON.stringify(item.trim())).join(', ')}]`;
+}
+
+function detectMetadataKind(value: string, items: string[]): MarkdownMetadataFieldKind {
+  const trimmed = value.trim();
+  if (items.length > 0 || /^\[[\s\S]*\]$/.test(trimmed)) return 'array';
+  if (/^(true|false)$/i.test(trimmed)) return 'boolean';
+  if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) return 'number';
+  return 'text';
+}
+
+function parseMarkdownMetadata(frontmatter: string): MarkdownMetadataField[] {
+  if (!frontmatter) return [];
+  const lines = frontmatter.replace(/\r\n/g, '\n').split('\n');
+  const fields: MarkdownMetadataField[] = [];
+  const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === '---');
+  const contentLines = lines[0]?.trim() === '---' && closingIndex > 0
+    ? lines.slice(1, closingIndex)
+    : lines;
+
+  contentLines.forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#') || /^\s/.test(line)) return;
+
+    const match = /^([A-Za-z0-9_.-]+):(?:\s*(.*))?$/.exec(line);
+    if (!match) return;
+
+    const rawValue = match[2] ?? '';
+    const listItems: string[] = [];
+    if (!rawValue.trim()) {
+      for (let nextIndex = index + 1; nextIndex < contentLines.length; nextIndex += 1) {
+        const listMatch = /^\s*-\s+(.+)$/.exec(contentLines[nextIndex]);
+        if (!listMatch) break;
+        listItems.push(stripYamlQuote(listMatch[1]));
+      }
+    }
+
+    const items = /^\[[\s\S]*\]$/.test(rawValue.trim())
+      ? parseYamlArrayItems(rawValue)
+      : listItems;
+    const kind = detectMetadataKind(rawValue, items);
+    const value = kind === 'array' ? items.join(', ') : stripYamlQuote(rawValue);
+
+    fields.push({
+      key: match[1],
+      value,
+      kind,
+      items,
+      arrayStyle: kind === 'array' ? (rawValue.trim() ? 'inline' : 'list') : null,
+      line: index + 2,
+    });
+  });
+
+  return fields;
+}
+
+function updateMarkdownMetadataValue(
+  frontmatter: string,
+  field: MarkdownMetadataField,
+  nextValue: string
+): string {
+  const lines = frontmatter.replace(/\r\n/g, '\n').split('\n');
+  const targetIndex = field.line - 1;
+  if (targetIndex <= 0 || targetIndex >= lines.length) return frontmatter;
+
+  const nextLines = [...lines];
+  nextLines[targetIndex] = `${field.key}: ${formatYamlScalar(nextValue, field.kind)}`;
+  return nextLines.join('\n');
+}
+
+function updateMarkdownMetadataArray(
+  frontmatter: string,
+  field: MarkdownMetadataField,
+  nextItems: string[]
+): string {
+  const lines = frontmatter.replace(/\r\n/g, '\n').split('\n');
+  const targetIndex = field.line - 1;
+  if (targetIndex <= 0 || targetIndex >= lines.length) return frontmatter;
+
+  const normalizedItems = nextItems.map((item) => item.trim()).filter(Boolean);
+  const closingIndex = lines.findIndex((line, index) => index > targetIndex && line.trim() === '---');
+  const blockEnd = closingIndex > targetIndex ? closingIndex : lines.length;
+  let removeTo = targetIndex + 1;
+  while (removeTo < blockEnd && /^\s*-\s+/.test(lines[removeTo])) {
+    removeTo += 1;
+  }
+
+  const nextLines = [...lines];
+  if (field.arrayStyle === 'list') {
+    nextLines.splice(
+      targetIndex,
+      removeTo - targetIndex,
+      `${field.key}:`,
+      ...normalizedItems.map((item) => `  - ${formatYamlScalar(item)}`)
+    );
+  } else {
+    nextLines.splice(
+      targetIndex,
+      removeTo - targetIndex,
+      `${field.key}: ${formatYamlInlineArray(normalizedItems)}`
+    );
+  }
+  return nextLines.join('\n');
+}
+
+function MarkdownMetadataCard({
+  fields,
+  expanded,
+  onToggleExpanded,
+  onUpdateValue,
+  onUpdateArray,
+}: {
+  fields: MarkdownMetadataField[];
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  onUpdateValue: (field: MarkdownMetadataField, value: string) => void;
+  onUpdateArray: (field: MarkdownMetadataField, items: string[]) => void;
+}) {
+  const [arrayDrafts, setArrayDrafts] = useState<Record<string, string>>({});
+  if (fields.length === 0) return null;
+
+  const visibleFields = expanded ? fields : fields.slice(0, METADATA_VISIBLE_ROWS);
+  const hasMore = fields.length > METADATA_VISIBLE_ROWS;
+
+  return (
+    <section className="aegis-mdx-metadata-card aegis-md-editor-metadata" aria-label="Metadata">
+      <div className="aegis-mdx-metadata-title">Metadata</div>
+      <div className="aegis-mdx-metadata-grid">
+        {visibleFields.map((field) => (
+          <div key={`${field.key}-${field.line}`} className="aegis-mdx-metadata-row">
+            <span className="aegis-mdx-metadata-key" title={field.key}>
+              {field.key}
+            </span>
+            {field.kind === 'array' ? (
+              <div className="aegis-mdx-metadata-chips" aria-label={field.key}>
+                {field.items.map((item, index) => (
+                  <span key={`${field.key}-${field.line}-${index}`} className="aegis-mdx-metadata-chip aegis-mdx-metadata-chip-editable">
+                    <input
+                      value={item}
+                      aria-label={`${field.key} ${index + 1}`}
+                      onChange={(event) => {
+                        const nextItems = [...field.items];
+                        nextItems[index] = event.target.value;
+                        onUpdateArray(field, nextItems);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="aegis-mdx-metadata-chip-remove"
+                      aria-label={`Remove ${item}`}
+                      onClick={() => onUpdateArray(field, field.items.filter((_, itemIndex) => itemIndex !== index))}
+                    >
+                      <X className="h-3 w-3" aria-hidden="true" />
+                    </button>
+                  </span>
+                ))}
+                <span className="aegis-mdx-metadata-chip aegis-mdx-metadata-chip-add">
+                  <input
+                    value={arrayDrafts[`${field.key}-${field.line}`] || ''}
+                    placeholder="Add"
+                    aria-label={`Add ${field.key}`}
+                    onChange={(event) => {
+                      const draftKey = `${field.key}-${field.line}`;
+                      setArrayDrafts((current) => ({ ...current, [draftKey]: event.target.value }));
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter') return;
+                      event.preventDefault();
+                      const draftKey = `${field.key}-${field.line}`;
+                      const nextItem = (arrayDrafts[draftKey] || '').trim();
+                      if (!nextItem) return;
+                      onUpdateArray(field, [...field.items, nextItem]);
+                      setArrayDrafts((current) => ({ ...current, [draftKey]: '' }));
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="aegis-mdx-metadata-chip-remove"
+                    aria-label={`Add ${field.key}`}
+                    onClick={() => {
+                      const draftKey = `${field.key}-${field.line}`;
+                      const nextItem = (arrayDrafts[draftKey] || '').trim();
+                      if (!nextItem) return;
+                      onUpdateArray(field, [...field.items, nextItem]);
+                      setArrayDrafts((current) => ({ ...current, [draftKey]: '' }));
+                    }}
+                  >
+                    <Plus className="h-3 w-3" aria-hidden="true" />
+                  </button>
+                </span>
+              </div>
+            ) : field.kind === 'boolean' ? (
+              <label className="aegis-mdx-metadata-boolean">
+                <input
+                  type="checkbox"
+                  checked={field.value.trim().toLowerCase() === 'true'}
+                  onChange={(event) => onUpdateValue(field, event.target.checked ? 'true' : 'false')}
+                />
+                <span>{field.value.trim().toLowerCase() === 'true' ? 'true' : 'false'}</span>
+              </label>
+            ) : (
+              <input
+                className={`aegis-mdx-metadata-input kind-${field.kind}`}
+                type="text"
+                inputMode={field.kind === 'number' ? 'decimal' : undefined}
+                value={field.value}
+                aria-label={field.key}
+                onChange={(event) => onUpdateValue(field, event.target.value)}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+      {hasMore ? (
+        <button
+          type="button"
+          className="aegis-mdx-metadata-toggle"
+          onClick={onToggleExpanded}
+        >
+          {expanded ? 'Show less' : 'Show more'}
+          {expanded ? (
+            <ChevronUp className="h-4 w-4" aria-hidden="true" />
+          ) : (
+            <ChevronDown className="h-4 w-4" aria-hidden="true" />
+          )}
+        </button>
+      ) : null}
+    </section>
+  );
 }
 
 function formatBreadcrumb(cwd: string, filePath: string): string {
@@ -438,6 +718,8 @@ export function ProjectMarkdownEditor({
   filePath,
   fileName,
   hideTitleBar = false,
+  windowControlsInset = false,
+  toolbarActions,
   saveState,
   saveError,
   externalChange,
@@ -459,7 +741,12 @@ export function ProjectMarkdownEditor({
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [editorFocused, setEditorFocused] = useState(false);
   const [, forceToolbarState] = useState(0);
+  const [metadataExpanded, setMetadataExpanded] = useState(false);
   const breadcrumb = useMemo(() => formatBreadcrumb(cwd, filePath), [cwd, filePath]);
+  const metadataFields = useMemo(
+    () => parseMarkdownMetadata(splitFrontmatter(value).frontmatter),
+    [value]
+  );
 
   const runCommand = useCallback(<T,>(key: { id: string } | unknown, payload?: T) => {
     const editor = editorRef.current;
@@ -587,6 +874,22 @@ export function ProjectMarkdownEditor({
     focusEditor();
   }, [focusEditor, runCommand]);
 
+  const applyFrontmatterChange = useCallback((nextFrontmatter: string) => {
+    const currentParts = splitFrontmatter(currentFullMarkdownRef.current);
+    const next = combineFrontmatter(nextFrontmatter, currentParts.body);
+    frontmatterRef.current = nextFrontmatter;
+    currentFullMarkdownRef.current = next;
+    onChange(next);
+  }, [onChange]);
+
+  const updateMetadataValue = useCallback((field: MarkdownMetadataField, nextValue: string) => {
+    applyFrontmatterChange(updateMarkdownMetadataValue(frontmatterRef.current, field, nextValue));
+  }, [applyFrontmatterChange]);
+
+  const updateMetadataArray = useCallback((field: MarkdownMetadataField, nextItems: string[]) => {
+    applyFrontmatterChange(updateMarkdownMetadataArray(frontmatterRef.current, field, nextItems));
+  }, [applyFrontmatterChange]);
+
   useEffect(() => {
     const root = hostRef.current;
     if (!root) return;
@@ -708,6 +1011,10 @@ export function ProjectMarkdownEditor({
     };
   }, []);
 
+  useEffect(() => {
+    setMetadataExpanded(false);
+  }, [filePath]);
+
   const view = viewRef.current;
   const showActiveFormatting = editorFocused;
   const active = {
@@ -725,7 +1032,11 @@ export function ProjectMarkdownEditor({
   };
 
   return (
-    <div className={`aegis-md-editor${hideTitleBar ? ' title-hidden' : ''}`}>
+    <div
+      className={`aegis-md-editor${hideTitleBar ? ' title-hidden' : ''}${
+        windowControlsInset ? ' window-controls-inset' : ''
+      }`}
+    >
       {!hideTitleBar && (
         <div className="aegis-md-editor-top drag-region">
           <div className="aegis-md-title-cluster">
@@ -741,6 +1052,7 @@ export function ProjectMarkdownEditor({
       )}
 
       <div className="aegis-md-toolbar" aria-label="Markdown formatting toolbar">
+        <div className="aegis-md-toolbar-tools">
         <ToolbarButton title="Undo" onClick={() => { viewRef.current && undo(viewRef.current.state, viewRef.current.dispatch); focusEditor(); }}>
           <Undo2 className="h-4 w-4" />
         </ToolbarButton>
@@ -796,6 +1108,12 @@ export function ProjectMarkdownEditor({
         <ToolbarButton title="Image" onClick={() => void insertImage()}>
           <ImageIcon className="h-4 w-4" />
         </ToolbarButton>
+        </div>
+        {toolbarActions ? (
+          <div className="aegis-md-toolbar-actions no-drag">
+            {toolbarActions}
+          </div>
+        ) : null}
       </div>
 
       {externalChange && (
@@ -812,6 +1130,13 @@ export function ProjectMarkdownEditor({
 
       <div className="aegis-md-main">
         <div className="aegis-md-canvas">
+          <MarkdownMetadataCard
+            fields={metadataFields}
+            expanded={metadataExpanded}
+            onToggleExpanded={() => setMetadataExpanded((current) => !current)}
+            onUpdateValue={updateMetadataValue}
+            onUpdateArray={updateMetadataArray}
+          />
           <div
             ref={hostRef}
             className="aegis-md-milkdown-root"

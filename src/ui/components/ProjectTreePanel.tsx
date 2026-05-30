@@ -1871,22 +1871,22 @@ export function ProjectTreePanel({
       )}
 
       <div
-        className={`aegis-project-panel aegis-context-panel flex h-full flex-col font-sans transition-[width,opacity,transform,margin] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        className={`aegis-project-panel relative flex h-full flex-col border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] font-sans transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
           isFullscreen ? 'flex-1 min-w-0' : 'flex-shrink-0'
-        } ${selectedFilePath ? 'aegis-project-panel--preview-open' : ''} ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`}
+        } ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`}
         style={
           isFullscreen
             ? {
                 width: 'auto',
                 opacity: 1,
                 transform: 'translateX(0)',
-                marginLeft: 'var(--workbench-gap)',
+                borderLeftWidth: 1,
               }
             : {
                 width: collapsed ? 0 : panelWidth,
                 opacity: collapsed ? 0 : 1,
                 transform: collapsed ? 'translateX(18px)' : 'translateX(0)',
-                marginLeft: collapsed ? 0 : 'var(--workbench-gap)',
+                borderLeftWidth: collapsed ? 0 : 1,
               }
         }
         aria-hidden={collapsed && !isFullscreen}
@@ -1899,7 +1899,7 @@ export function ProjectTreePanel({
             <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
           </div>
         )}
-        {!selectedFilePath && <div className="h-8 aegis-workbench-drag-strip drag-region flex-shrink-0" />}
+        {!selectedFilePath && <div className="h-8 drag-region flex-shrink-0 bg-[var(--bg-primary)]" />}
         <div className="pl-4 pr-2 pt-2 pb-2">
           <div className="flex items-center justify-between gap-2">
             <div
@@ -2198,7 +2198,7 @@ export function ProjectTreePanel({
 
         {selectedFilePath && (
           <div
-            className="aegis-project-preview-panel absolute inset-y-0 z-20"
+            className="absolute inset-y-0 z-20 border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]"
             style={
               isFullscreen
                 ? { left: 0, right: 0, width: 'auto' }
@@ -2215,35 +2215,7 @@ export function ProjectTreePanel({
             )}
 
             <div className={`h-full min-w-0 flex flex-col ${isEditableMarkdownPreview ? '' : 'px-3 py-3'}`}>
-              {isEditableMarkdownPreview ? (
-                <div
-                  className={`flex h-10 flex-shrink-0 items-center justify-end gap-2 border-b border-[var(--border)]/60 bg-[var(--bg-primary)] px-4 ${
-                    isFullscreen ? 'drag-region' : 'no-drag'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 no-drag">
-                    {onToggleFullscreen && (
-                      <IconButton
-                        onClick={onToggleFullscreen}
-                        tooltip={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
-                        label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-                      >
-                        {isFullscreen ? (
-                          <Minimize2 className="w-4 h-4" />
-                        ) : (
-                          <Maximize2 className="w-4 h-4" />
-                        )}
-                      </IconButton>
-                    )}
-                    <IconButton
-                      onClick={closePreview}
-                      label="Close preview"
-                    >
-                      <X className="w-4 h-4" />
-                    </IconButton>
-                  </div>
-                </div>
-              ) : (
+              {!isEditableMarkdownPreview ? (
                 <div className="drag-region flex items-center justify-between gap-2 pb-2">
                   <div className="min-w-0">
                     <div className="text-xs text-[var(--text-muted)]">Preview</div>
@@ -2322,7 +2294,7 @@ export function ProjectTreePanel({
                     </IconButton>
                   </div>
                 </div>
-              )}
+              ) : null}
 
               <div
                 className={`flex-1 min-h-0 overflow-auto ${
@@ -2392,9 +2364,33 @@ export function ProjectTreePanel({
                       filePath={selectedFilePath}
                       fileName={selectedPreview.name}
                       hideTitleBar
+                      windowControlsInset={isFullscreen}
                       saveState={saveState}
                       saveError={saveError}
                       externalChange={externalDiskText !== null}
+                      toolbarActions={
+                        <>
+                          {onToggleFullscreen && (
+                            <IconButton
+                              onClick={onToggleFullscreen}
+                              tooltip={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+                              label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                            >
+                              {isFullscreen ? (
+                                <Minimize2 className="w-4 h-4" />
+                              ) : (
+                                <Maximize2 className="w-4 h-4" />
+                              )}
+                            </IconButton>
+                          )}
+                          <IconButton
+                            onClick={closePreview}
+                            label="Close preview"
+                          >
+                            <X className="w-4 h-4" />
+                          </IconButton>
+                        </>
+                      }
                       onChange={setDraftText}
                       onSave={handleSaveText}
                       onReloadExternal={handleReloadMarkdownExternal}
