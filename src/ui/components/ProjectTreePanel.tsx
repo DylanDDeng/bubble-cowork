@@ -9,6 +9,8 @@ import { HighlightedCode } from './HighlightedCode';
 import TextFileReader from './TextFileReader';
 import { FileTypeIcon } from './FileTypeIcon';
 import { ProjectMarkdownEditor } from './ProjectMarkdownEditor';
+import { ProjectMdxPreview, ProjectMdxProperties, parseMdxDocument } from './ProjectMdxPreview';
+import { ProjectTextEditor } from './ProjectTextEditor';
 import { IconButton } from './ui/icon-button';
 import { isHtmlFilePath, openHtmlFileInBrowserTab } from '../utils/html-preview';
 import {
@@ -24,6 +26,7 @@ import {
 import type { ProjectTreeNode } from '../types';
 
 type ProjectPanelTab = 'files' | 'changes';
+type ViewMode = 'view' | 'code' | 'split';
 type ProjectPanelDimensions = {
   defaultWidth: number;
   minWidth: number;
@@ -549,7 +552,9 @@ export function ProjectTreePanel({
   const [selectedFileCwd, setSelectedFileCwd] = useState<string | null>(null);
   const [selectedPreview, setSelectedPreview] = useState<ProjectFilePreview | null>(null);
   const [pptxSlideIndex, setPptxSlideIndex] = useState(0);
-  const [viewMode, setViewMode] = useState<'view' | 'code'>('view');
+  const [viewMode, setViewMode] = useState<ViewMode>('view');
+  const [mdxRevealTarget, setMdxRevealTarget] = useState<{ line: number; token: number } | null>(null);
+  const mdxRevealTokenRef = useRef(0);
   const [previewLoading, setPreviewLoading] = useState(false);
   const previewRequestIdRef = useRef(0);
   const [draftText, setDraftText] = useState('');
@@ -803,6 +808,7 @@ export function ProjectTreePanel({
     setSelectedFileCwd(null);
     setSelectedPreview(null);
     setViewMode('view');
+    setMdxRevealTarget(null);
     setPreviewLoading(false);
     setDraftText('');
     setSaveState('idle');
@@ -905,6 +911,7 @@ export function ProjectTreePanel({
       setSelectedFilePath(null);
       setSelectedFileCwd(null);
       setSelectedPreview(null);
+      setMdxRevealTarget(null);
       return;
     }
 
@@ -917,6 +924,7 @@ export function ProjectTreePanel({
       setSelectedFileCwd(null);
       setPreviewLoading(false);
       setSelectedPreview(null);
+      setMdxRevealTarget(null);
       setDraftText('');
       setSaveState('idle');
       setSaveError(null);
@@ -948,6 +956,7 @@ export function ProjectTreePanel({
     setSelectedFileCwd(cwd);
     expandParentsForPath(filePath);
     setViewMode('view');
+    setMdxRevealTarget(null);
     setPreviewLoading(true);
     setSelectedPreview(null);
     setDraftText('');
@@ -975,6 +984,11 @@ export function ProjectTreePanel({
       const preview = (await reader(cwd, filePath)) as ProjectFilePreview;
       if (previewRequestIdRef.current !== requestId) return;
       setSelectedPreview(preview);
+      if (preview.kind === 'text' && preview.ext === '.mdx') {
+        setDraftText(preview.text);
+        setViewMode('code');
+        return;
+      }
       if ((preview.kind === 'text' || preview.kind === 'markdown') && preview.editable) {
         setDraftText(preview.text);
       }
@@ -1290,6 +1304,7 @@ export function ProjectTreePanel({
     setSelectedFilePath(filePath);
     setSelectedFileCwd(fileCwd);
     setViewMode('view');
+    setMdxRevealTarget(null);
     setPreviewLoading(true);
     setSelectedPreview(null);
     setDraftText('');
@@ -1302,6 +1317,20 @@ export function ProjectTreePanel({
     try {
       const preview = (await reader(fileCwd, filePath)) as ProjectFilePreview;
       if (previewRequestIdRef.current !== requestId) return;
+      // MDX files: use CodeMirror plain-text editor (default), with toggle to rendered preview.
+      if (preview.kind === 'text' && preview.ext === '.mdx') {
+        setSelectedPreview(preview);
+        setDraftText(preview.text);
+        setViewMode('code'); // default to source editing like Cursor
+        if (typeof options.lineStart === 'number') {
+          mdxRevealTokenRef.current += 1;
+          setMdxRevealTarget({
+            line: options.lineStart,
+            token: mdxRevealTokenRef.current,
+          });
+        }
+        return;
+      }
       if (preview.kind === 'markdown') {
         setSelectedPreview(preview);
         if (preview.editable) {
@@ -1326,7 +1355,7 @@ export function ProjectTreePanel({
         });
         return;
       }
-      if (preview.kind === 'text' || preview.kind === 'markdown' || preview.kind === 'html') {
+      if (preview.kind === 'text' || preview.kind === 'html') {
         setSelectedPreview({ ...preview, editable: false });
         return;
       }
@@ -1352,6 +1381,7 @@ export function ProjectTreePanel({
     setSelectedFileCwd(null);
     setSelectedPreview(null);
     setViewMode('view');
+    setMdxRevealTarget(null);
     setDraftText('');
     setSaveState('idle');
     setSaveError(null);
@@ -1517,20 +1547,22 @@ export function ProjectTreePanel({
     };
   }, [collapsed, selectedFilePath, previewPanelWidth]);
 
+  const selectedEditableTextPreview =
+    selectedPreview &&
+    (selectedPreview.kind === 'markdown' ||
+      (selectedPreview.kind === 'text' && selectedPreview.ext === '.mdx')) &&
+    selectedPreview.editable
+      ? selectedPreview
+      : null;
+
   const canSaveText =
     !!selectedFileCwd &&
-    !!selectedPreview &&
-    (selectedPreview.kind === 'text' || selectedPreview.kind === 'markdown') &&
-    selectedPreview.editable &&
-    draftText !== selectedPreview.text;
+    !!selectedEditableTextPreview &&
+    draftText !== selectedEditableTextPreview.text;
 
   const handleSaveText = async () => {
     if (!selectedFileCwd) return;
-    if (
-      !selectedPreview ||
-      (selectedPreview.kind !== 'text' && selectedPreview.kind !== 'markdown') ||
-      !selectedPreview.editable
-    ) {
+    if (!selectedEditableTextPreview) {
       return;
     }
     if (!selectedFilePath) return;
@@ -1549,7 +1581,7 @@ export function ProjectTreePanel({
         setSaveError(result?.message || 'Failed to save');
         return;
       }
-      setSelectedPreview({ ...selectedPreview, text: draftText });
+      setSelectedPreview({ ...selectedEditableTextPreview, text: draftText });
       setExternalDiskText(null);
       void loadChangeRecords();
       setSaveState('saved');
@@ -1584,9 +1616,7 @@ export function ProjectTreePanel({
       !cwd ||
       !selectedFileCwd ||
       !selectedFilePath ||
-      !selectedPreview ||
-      selectedPreview.kind !== 'markdown' ||
-      !selectedPreview.editable
+      !selectedEditableTextPreview
     ) {
       return;
     }
@@ -1598,10 +1628,17 @@ export function ProjectTreePanel({
       void (async () => {
         try {
           const latest = (await reader(selectedFileCwd, selectedFilePath)) as ProjectFilePreview;
-          if (latest.kind !== 'markdown' || !latest.editable) return;
-          if (latest.text === selectedPreview.text) return;
+          if (
+            (latest.kind !== 'markdown' && latest.kind !== 'text') ||
+            !latest.editable ||
+            latest.kind !== selectedEditableTextPreview.kind ||
+            latest.ext !== selectedEditableTextPreview.ext
+          ) {
+            return;
+          }
+          if (latest.text === selectedEditableTextPreview.text) return;
 
-          if (draftText === selectedPreview.text) {
+          if (draftText === selectedEditableTextPreview.text) {
             setSelectedPreview(latest);
             setDraftText(latest.text);
             setExternalDiskText(null);
@@ -1615,18 +1652,17 @@ export function ProjectTreePanel({
     }, 4000);
 
     return () => window.clearInterval(intervalId);
-  }, [cwd, draftText, selectedFileCwd, selectedFilePath, selectedPreview]);
+  }, [cwd, draftText, selectedEditableTextPreview, selectedFileCwd, selectedFilePath]);
 
   const handleReloadMarkdownExternal = () => {
     if (
-      !selectedPreview ||
-      selectedPreview.kind !== 'markdown' ||
+      !selectedEditableTextPreview ||
       externalDiskText === null
     ) {
       return;
     }
 
-    setSelectedPreview({ ...selectedPreview, text: externalDiskText });
+    setSelectedPreview({ ...selectedEditableTextPreview, text: externalDiskText });
     setDraftText(externalDiskText);
     setExternalDiskText(null);
     setSaveState('idle');
@@ -1635,14 +1671,13 @@ export function ProjectTreePanel({
 
   const handleKeepMarkdownLocal = () => {
     if (
-      !selectedPreview ||
-      selectedPreview.kind !== 'markdown' ||
+      !selectedEditableTextPreview ||
       externalDiskText === null
     ) {
       return;
     }
 
-    setSelectedPreview({ ...selectedPreview, text: externalDiskText });
+    setSelectedPreview({ ...selectedEditableTextPreview, text: externalDiskText });
     setExternalDiskText(null);
     setSaveState('idle');
     setSaveError(null);
@@ -1763,8 +1798,12 @@ export function ProjectTreePanel({
     (
       (selectedPreview.kind === 'markdown' && viewMode === 'code') ||
       (selectedPreview.kind === 'html' && viewMode === 'code') ||
-      (selectedPreview.kind === 'text' && !selectedPreview.editable)
+      (selectedPreview.kind === 'text' && !selectedPreview.editable && selectedPreview.ext !== '.mdx')
     );
+  const isMdxFilePreview =
+    !previewLoading &&
+    selectedPreview?.kind === 'text' &&
+    selectedPreview.ext === '.mdx';
   const isMarkdownCodePreviewSurface =
     !previewLoading &&
     selectedPreview?.kind === 'markdown' &&
@@ -1773,6 +1812,32 @@ export function ProjectTreePanel({
     !previewLoading &&
     selectedPreview?.kind === 'markdown' &&
     viewMode === 'view';
+  const isMdxCodePreviewSurface =
+    isMdxFilePreview &&
+    viewMode === 'code';
+  const isMdxPreviewSurface =
+    isMdxFilePreview &&
+    viewMode === 'view';
+  const isMdxSplitPreviewSurface =
+    isMdxFilePreview &&
+    viewMode === 'split';
+  const mdxDocumentModel = useMemo(
+    () => (isMdxFilePreview ? parseMdxDocument(draftText) : null),
+    [draftText, isMdxFilePreview]
+  );
+  const mdxIssueCount =
+    (mdxDocumentModel?.issues.length ?? 0) +
+    (mdxDocumentModel?.frontmatter?.parseError ? 1 : 0);
+
+  const handleRevealMdxSource = useCallback((line: number) => {
+    mdxRevealTokenRef.current += 1;
+    setMdxRevealTarget({
+      line,
+      token: mdxRevealTokenRef.current,
+    });
+    setViewMode((current) => (current === 'split' ? 'split' : 'code'));
+  }, []);
+
   const isEditableMarkdownPreview =
     isMarkdownPreviewSurface &&
     selectedPreview?.editable &&
@@ -2193,61 +2258,77 @@ export function ProjectTreePanel({
                   </div>
 
                   <div className="flex items-center gap-1 flex-shrink-0 no-drag">
-                  {selectedPreview?.kind === 'html' && (
-                    <ViewModeToggle value={viewMode} onChange={setViewMode} />
-                  )}
+                    {(selectedPreview?.kind === 'html' || isMdxFilePreview) && (
+                      <ViewModeToggle
+                        value={viewMode}
+                        onChange={setViewMode}
+                        options={
+                          isMdxFilePreview
+                            ? [
+                                { value: 'code', label: 'Source', title: 'Edit source' },
+                                { value: 'view', label: 'Preview', title: 'Preview MDX' },
+                                { value: 'split', label: 'Split', title: 'Source and preview' },
+                              ]
+                            : undefined
+                        }
+                      />
+                    )}
 
-                  {canSaveText && (
-                    <button
-                      onClick={handleSaveText}
-                      disabled={saveState === 'saving'}
-                      className="px-2 py-1 text-xs rounded-md bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Save"
-                    >
-                      {saveState === 'saving'
-                        ? 'Saving...'
-                        : saveState === 'saved'
-                          ? 'Saved'
-                          : 'Save'}
-                    </button>
-                  )}
+                    {canSaveText && (
+                      <button
+                        onClick={handleSaveText}
+                        disabled={saveState === 'saving'}
+                        className="px-2 py-1 text-xs rounded-md bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Save"
+                      >
+                        {saveState === 'saving'
+                          ? 'Saving...'
+                          : saveState === 'saved'
+                            ? 'Saved'
+                            : 'Save'}
+                      </button>
+                    )}
 
-                  {onToggleFullscreen && (
+                    {onToggleFullscreen && (
+                      <IconButton
+                        onClick={onToggleFullscreen}
+                        tooltip={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+                        label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                      >
+                        {isFullscreen ? (
+                          <Minimize2 className="w-4 h-4" />
+                        ) : (
+                          <Maximize2 className="w-4 h-4" />
+                        )}
+                      </IconButton>
+                    )}
                     <IconButton
-                      onClick={onToggleFullscreen}
-                      tooltip={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
-                      label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                      onClick={closePreview}
+                      label="Close preview"
                     >
-                      {isFullscreen ? (
-                        <Minimize2 className="w-4 h-4" />
-                      ) : (
-                        <Maximize2 className="w-4 h-4" />
-                      )}
+                      <X className="w-4 h-4" />
                     </IconButton>
-                  )}
-                  <IconButton
-                    onClick={closePreview}
-                    label="Close preview"
-                  >
-                    <X className="w-4 h-4" />
-                  </IconButton>
-                  <IconButton
-                    onClick={() => {
-                      const isTxt = selectedPreview?.name?.toLowerCase().endsWith('.txt');
-                      handleCopyPath(isTxt && selectedPreview?.text ? selectedPreview.text : selectedFilePath);
-                    }}
-                    tooltip={copiedPath ? 'Copied' : (selectedPreview?.name?.toLowerCase().endsWith('.txt') ? 'Copy content' : 'Copy path')}
-                    label={selectedPreview?.name?.toLowerCase().endsWith('.txt') ? 'Copy content' : 'Copy path'}
-                  >
-                    {copiedPath ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  </IconButton>
-                </div>
+                    <IconButton
+                      onClick={() => {
+                        const isTxt =
+                          selectedPreview?.kind === 'text' &&
+                          selectedPreview.name?.toLowerCase().endsWith('.txt');
+                        handleCopyPath(isTxt ? selectedPreview.text : selectedFilePath);
+                      }}
+                      tooltip={copiedPath ? 'Copied' : (selectedPreview?.name?.toLowerCase().endsWith('.txt') ? 'Copy content' : 'Copy path')}
+                      label={selectedPreview?.name?.toLowerCase().endsWith('.txt') ? 'Copy content' : 'Copy path'}
+                    >
+                      {copiedPath ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    </IconButton>
+                  </div>
                 </div>
               )}
 
               <div
                 className={`flex-1 min-h-0 overflow-auto ${
                   isMarkdownCodePreviewSurface
+                    ? 'bg-[var(--bg-primary)] p-0'
+                    : isMdxFilePreview
                     ? 'bg-[var(--bg-primary)] p-0'
                     : isCodePreviewSurface
                     ? 'rounded-lg border border-[var(--border)] bg-[var(--code-block-bg)] p-0'
@@ -2347,7 +2428,71 @@ export function ProjectTreePanel({
 
                 {!previewLoading && selectedPreview?.kind === 'text' && (
                   <>
-                    {selectedPreview.editable ? (
+                    {isMdxCodePreviewSurface ? (
+                      <div className="aegis-mdx-editor-shell">
+                        <ProjectMdxProperties
+                          content={draftText}
+                          onChange={setDraftText}
+                          onRevealSource={handleRevealMdxSource}
+                          compact
+                        />
+                        <div className="aegis-mdx-source-fill">
+                          <ProjectTextEditor
+                            value={draftText}
+                            onChange={setDraftText}
+                            onSave={() => handleSaveText()}
+                            revealTarget={mdxRevealTarget}
+                          />
+                        </div>
+                        <MdxStatusBar
+                          dirty={canSaveText}
+                          saveState={saveState}
+                          saveError={saveError}
+                          issueCount={mdxIssueCount}
+                          externalChange={externalDiskText !== null}
+                        />
+                      </div>
+                    ) : isMdxPreviewSurface ? (
+                      <ProjectMdxPreview
+                        content={draftText}
+                        onChange={setDraftText}
+                        onRevealSource={handleRevealMdxSource}
+                      />
+                    ) : isMdxSplitPreviewSurface ? (
+                      <div className="aegis-mdx-split">
+                        <div className="aegis-mdx-split-pane aegis-mdx-split-source">
+                          <ProjectMdxProperties
+                            content={draftText}
+                            onChange={setDraftText}
+                            onRevealSource={handleRevealMdxSource}
+                            compact
+                          />
+                          <div className="aegis-mdx-source-fill">
+                            <ProjectTextEditor
+                              value={draftText}
+                              onChange={setDraftText}
+                              onSave={() => handleSaveText()}
+                              revealTarget={mdxRevealTarget}
+                            />
+                          </div>
+                          <MdxStatusBar
+                            dirty={canSaveText}
+                            saveState={saveState}
+                            saveError={saveError}
+                            issueCount={mdxIssueCount}
+                            externalChange={externalDiskText !== null}
+                          />
+                        </div>
+                        <div className="aegis-mdx-split-pane aegis-mdx-split-preview">
+                          <ProjectMdxPreview
+                            content={draftText}
+                            onChange={setDraftText}
+                            onRevealSource={handleRevealMdxSource}
+                            showProperties={false}
+                          />
+                        </div>
+                      </div>
+                    ) : selectedPreview.editable ? (
                       <textarea
                         value={draftText}
                         onChange={(e) => setDraftText(e.target.value)}
@@ -2692,37 +2837,70 @@ function formatBytes(bytes: number): string {
   return `${rounded} ${units[unit]}`;
 }
 
+function MdxStatusBar({
+  dirty,
+  saveState,
+  saveError,
+  issueCount,
+  externalChange,
+}: {
+  dirty: boolean;
+  saveState: 'idle' | 'saving' | 'saved' | 'error';
+  saveError: string | null;
+  issueCount: number;
+  externalChange: boolean;
+}) {
+  const saveLabel =
+    saveState === 'saving'
+      ? 'Saving'
+      : saveState === 'saved'
+        ? 'Saved'
+        : saveState === 'error'
+          ? 'Save failed'
+          : dirty
+            ? 'Unsaved'
+            : 'Saved';
+  const previewLabel = issueCount > 0 ? `${issueCount} degraded` : 'Preview ready';
+
+  return (
+    <div className="aegis-mdx-statusbar">
+      <span>MDX</span>
+      <span className={dirty || saveState === 'error' ? 'is-attention' : ''}>{saveLabel}</span>
+      <span className={issueCount > 0 ? 'is-attention' : ''}>{previewLabel}</span>
+      {externalChange ? <span className="is-attention">Disk changed</span> : null}
+      {saveError ? <span className="is-error">{saveError}</span> : null}
+    </div>
+  );
+}
+
 function ViewModeToggle({
   value,
   onChange,
+  options = [
+    { value: 'view', label: 'View', title: 'View' },
+    { value: 'code', label: 'Code', title: 'Code' },
+  ],
 }: {
-  value: 'view' | 'code';
-  onChange: (next: 'view' | 'code') => void;
+  value: ViewMode;
+  onChange: (next: ViewMode) => void;
+  options?: Array<{ value: ViewMode; label: string; title: string }>;
 }) {
   return (
     <div className="mr-1 flex items-center overflow-hidden rounded-lg border border-[var(--border)]">
-      <button
-        onClick={() => onChange('view')}
-        className={`px-2 py-1 text-xs ${
-          value === 'view'
-            ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
-            : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-        }`}
-        title="View"
-      >
-        View
-      </button>
-      <button
-        onClick={() => onChange('code')}
-        className={`px-2 py-1 text-xs ${
-          value === 'code'
-            ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
-            : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-        }`}
-        title="Code"
-      >
-        Code
-      </button>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          className={`px-2 py-1 text-xs ${
+            value === option.value
+              ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+              : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+          }`}
+          title={option.title}
+        >
+          {option.label}
+        </button>
+      ))}
     </div>
   );
 }
