@@ -54,7 +54,147 @@ let latestUpdateStatus: AppUpdateStatus = {
 };
 let latestUiResumeState: import('../shared/types').UiResumeState | null = null;
 let isQuitting = false;
+let allowCloseAfterProjectEditorFlush = false;
+let projectEditorCloseFlushInProgress = false;
+
+// Mirror the current unsaved editor content in the main process so close/quit
+// can write it synchronously without depending on late renderer IPC.
+type PendingProjectEditorDraft = {
+  cwd: string;
+  filePath: string;
+  content: string;
+};
+let pendingProjectEditorDraft: PendingProjectEditorDraft | null = null;
+const EDITABLE_PROJECT_EDITOR_EXTENSIONS = new Set(['.txt', '.md', '.mdx']);
+let handledTerminationSignal = false;
+
+function setPendingProjectEditorDraft(draft: PendingProjectEditorDraft | null): void {
+  pendingProjectEditorDraft =
+    draft && typeof draft.filePath === 'string' && draft.filePath.length > 0
+      ? { cwd: draft.cwd || '', filePath: draft.filePath, content: draft.content ?? '' }
+      : null;
+}
+
+// Synchronous close/quit fallback. Only writes existing editable text files
+// inside the current project root.
+function flushPendingProjectEditorDraftSync(): void {
+  const draft = pendingProjectEditorDraft;
+  if (!draft) return;
+  pendingProjectEditorDraft = null;
+  try {
+    const root = path.resolve(draft.cwd || '.');
+    const resolved = path.resolve(root, draft.filePath || '');
+    const ext = path.extname(resolved).toLowerCase();
+    if (!EDITABLE_PROJECT_EDITOR_EXTENSIONS.has(ext)) {
+      return;
+    }
+    const rel = path.relative(root, resolved);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      return;
+    }
+    const stat = fs.existsSync(resolved) ? fs.statSync(resolved) : null;
+    if (!stat?.isFile()) {
+      return;
+    }
+    const tempPath = path.join(
+      path.dirname(resolved),
+      `.${path.basename(resolved)}.${process.pid}.${Date.now()}.${Math.random()
+        .toString(36)
+        .slice(2)}.tmp`
+    );
+    try {
+      fs.writeFileSync(tempPath, draft.content ?? '', { encoding: 'utf8', mode: stat.mode });
+      fs.renameSync(tempPath, resolved);
+    } finally {
+      try {
+        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+      } catch {
+        // ignore cleanup failures
+      }
+    }
+  } catch (error) {
+    console.warn('[ProjectEditor] Failed to flush pending draft synchronously:', error);
+  }
+}
+
+function flushPendingProjectEditorDraftForTermination(signal: NodeJS.Signals): void {
+  if (handledTerminationSignal) return;
+  handledTerminationSignal = true;
+  isQuitting = true;
+  logDevLifecycle('process.signal', { signal });
+  flushPendingProjectEditorDraftSync();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    saveWindowState(mainWindow);
+  }
+  if (latestUiResumeState) {
+    saveUiResumeState(latestUiResumeState);
+  }
+  try {
+    devFileWatcher?.close();
+  } catch {
+    // ignore cleanup failures during termination
+  }
+  devFileWatcher = null;
+  disposeBrowserIpc();
+  cleanup();
+  process.exit(0);
+}
+
+process.once('SIGINT', flushPendingProjectEditorDraftForTermination);
+process.once('SIGTERM', flushPendingProjectEditorDraftForTermination);
+
 const RELEASES_URL = 'https://github.com/DylanDDeng/bubble-cowork/releases';
+const PROJECT_EDITOR_FLUSH_REQUEST_CHANNEL = 'project-editor-flush-request';
+const PROJECT_EDITOR_FLUSH_RESPONSE_CHANNEL = 'project-editor-flush-response';
+
+type ProjectEditorFlushResponse = {
+  requestId?: string;
+  ok?: boolean;
+  message?: string;
+};
+
+function requestProjectEditorFlush(
+  win: BrowserWindow,
+  timeoutMs = 5000
+): Promise<{ ok: boolean; message?: string }> {
+  if (win.isDestroyed() || win.webContents.isDestroyed()) {
+    return Promise.resolve({ ok: true });
+  }
+
+  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result: { ok: boolean; message?: string }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      ipcMain.removeListener(PROJECT_EDITOR_FLUSH_RESPONSE_CHANNEL, handleResponse);
+      resolve(result);
+    };
+    const handleResponse = (_event: Electron.IpcMainEvent, response: ProjectEditorFlushResponse) => {
+      if (!response || response.requestId !== requestId) return;
+      finish({
+        ok: response.ok !== false,
+        message: response.message,
+      });
+    };
+    const timeoutId = setTimeout(() => {
+      finish({ ok: false, message: 'Timed out while saving the project editor before closing.' });
+    }, timeoutMs);
+
+    ipcMain.on(PROJECT_EDITOR_FLUSH_RESPONSE_CHANNEL, handleResponse);
+
+    try {
+      win.webContents.send(PROJECT_EDITOR_FLUSH_REQUEST_CHANNEL, { requestId });
+    } catch (error) {
+      finish({
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+}
 
 function getMainWindowBackgroundColor(): string {
   return nativeTheme.shouldUseDarkColors ? '#111214' : '#ffffff';
@@ -352,7 +492,10 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       plugins: true,
-      sandbox: false, // better-sqlite3 需要
+      sandbox: false, // required by better-sqlite3
+      // Keep debounce timers running in the background so editor autosave
+      // still fires when the user switches away and immediately quits.
+      backgroundThrottling: false,
     },
   });
 
@@ -411,24 +554,62 @@ function createWindow(): void {
 
   // 保存窗口状态
   mainWindow.on('close', (event) => {
+    const win = mainWindow;
     logDevLifecycle('mainWindow.close', {
       isQuitting,
       visible: mainWindow?.isVisible() ?? false,
       destroyed: mainWindow?.isDestroyed() ?? false,
     });
-    if (!mainWindow) {
+    if (!win) {
       return;
     }
 
-    saveWindowState(mainWindow);
+    saveWindowState(win);
     if (latestUiResumeState) {
       saveUiResumeState(latestUiResumeState);
     }
 
-    if (process.platform === 'darwin' && !isQuitting) {
-      event.preventDefault();
-      mainWindow.hide();
+    if (allowCloseAfterProjectEditorFlush) {
+      allowCloseAfterProjectEditorFlush = false;
+      return;
     }
+
+    // Write the mirrored draft before the async renderer flush. The second
+    // allowed close must not flush again because the mirror may be stale after
+    // the renderer has already saved newer content.
+    flushPendingProjectEditorDraftSync();
+
+    event.preventDefault();
+    if (projectEditorCloseFlushInProgress) {
+      return;
+    }
+
+    projectEditorCloseFlushInProgress = true;
+    void (async () => {
+      const flushResult = await requestProjectEditorFlush(win);
+      projectEditorCloseFlushInProgress = false;
+
+      if (!flushResult.ok) {
+        console.warn('[ProjectEditor] Failed to flush before close:', flushResult.message);
+      }
+
+      if (win.isDestroyed()) {
+        return;
+      }
+
+      saveWindowState(win);
+      if (latestUiResumeState) {
+        saveUiResumeState(latestUiResumeState);
+      }
+
+      if (process.platform === 'darwin' && !isQuitting) {
+        win.hide();
+        return;
+      }
+
+      allowCloseAfterProjectEditorFlush = true;
+      win.close();
+    })();
   });
 
   mainWindow.on('closed', () => {
@@ -704,6 +885,22 @@ app.whenReady().then(() => {
     saveUiResumeState(state);
     event.returnValue = { ok: true };
   });
+  // Keep the pending editor draft mirrored in the main process. Normal edits
+  // use async IPC; blur/unload paths use sync IPC before the renderer freezes.
+  ipcMain.on('project-editor-draft-update', (_event, draft: PendingProjectEditorDraft | null) => {
+    setPendingProjectEditorDraft(draft);
+  });
+  ipcMain.on('project-editor-draft-update-sync', (event, draft: PendingProjectEditorDraft | null) => {
+    setPendingProjectEditorDraft(draft);
+    event.returnValue = { ok: true };
+  });
+  // Called from beforeunload/pagehide to synchronously finish the file write
+  // without depending on close/before-quit ordering or in-flight async IPC.
+  ipcMain.on('write-project-text-file-sync', (event, draft: PendingProjectEditorDraft | null) => {
+    setPendingProjectEditorDraft(draft);
+    flushPendingProjectEditorDraftSync();
+    event.returnValue = { ok: true };
+  });
   ipcMainHandle('get-app-version', async () => {
     return app.getVersion();
   });
@@ -727,7 +924,7 @@ app.whenReady().then(() => {
 // 窗口全部关闭时退出（macOS 除外）
 app.on('window-all-closed', () => {
   logDevLifecycle('app.window-all-closed', { platform: process.platform });
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'darwin' || isQuitting) {
     app.quit();
   }
 });
@@ -736,6 +933,8 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   logDevLifecycle('app.before-quit');
   isQuitting = true;
+  // Persist unsaved editor content before cleanup tears down shared resources.
+  flushPendingProjectEditorDraftSync();
   if (mainWindow && !mainWindow.isDestroyed()) {
     saveWindowState(mainWindow);
   }
@@ -750,6 +949,8 @@ app.on('before-quit', () => {
 
 app.on('will-quit', () => {
   logDevLifecycle('app.will-quit');
+  // Last fallback for quit paths that bypass before-quit.
+  flushPendingProjectEditorDraftSync();
 });
 
 app.on('child-process-gone', (_event, details) => {

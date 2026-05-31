@@ -235,6 +235,50 @@ async function waitForPathToDisappear(filePath: string): Promise<boolean> {
   return false;
 }
 
+const projectFileWatchers = new Map<
+  string,
+  { watcher: FSWatcher; timer?: NodeJS.Timeout; cwd: string; filePath: string; base: string }
+>();
+
+function projectFileWatchKey(cwd: string, filePath: string): string {
+  return `${resolve(cwd || '.')}\u0000${resolve(cwd || '.', filePath || '')}`;
+}
+
+function closeProjectFileWatcher(key: string): void {
+  const entry = projectFileWatchers.get(key);
+  if (!entry) return;
+  if (entry.timer) {
+    clearTimeout(entry.timer);
+  }
+  try {
+    entry.watcher.close();
+  } catch {
+    // watcher may already be closed
+  }
+  projectFileWatchers.delete(key);
+}
+
+async function writeTextFileAtomic(filePath: string, content: string, mode: number): Promise<void> {
+  const tempPath = join(
+    dirname(filePath),
+    `.${basename(filePath)}.${process.pid}.${Date.now()}.${Math.random()
+      .toString(36)
+      .slice(2)}.tmp`
+  );
+
+  try {
+    await fsPromises.writeFile(tempPath, content, { encoding: 'utf8', mode });
+    await fsPromises.rename(tempPath, filePath);
+  } catch (error) {
+    try {
+      await fsPromises.unlink(tempPath);
+    } catch {
+      // ignore cleanup failures
+    }
+    throw error;
+  }
+}
+
 async function isReadableDirectory(path: string): Promise<boolean> {
   try {
     const stat = await fsPromises.stat(path);
@@ -547,6 +591,7 @@ type ProjectFilePreview =
       name: string;
       ext: string;
       size: number;
+      mtimeMs: number;
       text: string;
       editable: boolean;
     }
@@ -3213,6 +3258,39 @@ function scheduleProjectTree(mainWindow: BrowserWindow, cwd: string): void {
   }, PROJECT_TREE_REFRESH_DELAY_MS);
 }
 
+async function emitProjectFile(
+  mainWindow: BrowserWindow,
+  cwd: string,
+  filePath: string
+): Promise<void> {
+  const resolved = resolve(cwd || '.', filePath || '');
+  try {
+    const stat = await fsPromises.stat(resolved);
+    if (!stat.isFile()) return;
+    const text = await fsPromises.readFile(resolved, 'utf8');
+    broadcast(mainWindow, {
+      type: 'project.file',
+      payload: { cwd, filePath, text, mtimeMs: stat.mtimeMs, size: stat.size, exists: true },
+    });
+  } catch {
+    broadcast(mainWindow, {
+      type: 'project.file',
+      payload: { cwd, filePath, text: '', mtimeMs: 0, size: 0, exists: false },
+    });
+  }
+}
+
+function scheduleProjectFile(mainWindow: BrowserWindow, key: string): void {
+  const entry = projectFileWatchers.get(key);
+  if (!entry) return;
+  if (entry.timer) {
+    clearTimeout(entry.timer);
+  }
+  entry.timer = setTimeout(() => {
+    emitProjectFile(mainWindow, entry.cwd, entry.filePath);
+  }, 150);
+}
+
 function mapGitChangeStatus(indexStatus: string, workStatus: string): {
   status: 'M' | 'A' | 'D' | 'R' | '?';
   staged: boolean;
@@ -4353,6 +4431,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
             name,
             ext,
             size: stat.size,
+            mtimeMs: stat.mtimeMs,
             text,
             editable: ext === '.txt' || ext === '.md' || ext === '.mdx',
           };
@@ -4406,7 +4485,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       cwd: string,
       filePath: string,
       content: string
-    ): Promise<{ ok: true } | { ok: false; message: string }> => {
+    ): Promise<{ ok: true; size: number; mtimeMs: number } | { ok: false; message: string }> => {
       const resolved = resolve(cwd || '.', filePath || '');
       const ext = extname(resolved).toLowerCase();
 
@@ -4436,8 +4515,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       }
 
       try {
-        await fsPromises.writeFile(validation.targetReal, content ?? '', 'utf8');
-        return { ok: true };
+        await writeTextFileAtomic(validation.targetReal, content ?? '', stat.mode);
+        const savedStat = await fsPromises.stat(validation.targetReal);
+        return { ok: true, size: savedStat.size, mtimeMs: savedStat.mtimeMs };
       } catch (error) {
         return { ok: false, message: `Failed to save file: ${String(error)}` };
       }
@@ -4520,6 +4600,50 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // RPC: 取消订阅项目文件树更新
   ipcMainHandle('unwatch-project-tree', async (_event, cwd: string) => {
     closeProjectTreeWatcher(cwd);
+    return true;
+  });
+
+  // RPC: 订阅单个可编辑文件的磁盘变化（用于编辑器同步外部改动）
+  ipcMainHandle('watch-project-file', async (_event, cwd: string, filePath: string) => {
+    if (!cwd || !filePath) {
+      return false;
+    }
+    const resolved = resolve(cwd, filePath);
+    const ext = extname(resolved).toLowerCase();
+    if (ext !== '.md' && ext !== '.mdx' && ext !== '.txt') {
+      return false;
+    }
+    const validation = await validateProjectFilePath(cwd, resolved);
+    if (!validation.ok) {
+      return false;
+    }
+
+    const key = projectFileWatchKey(cwd, filePath);
+    const base = basename(resolved);
+    // Close any stale watcher pointing at a different file under the same key bucket.
+    const existing = projectFileWatchers.get(key);
+    if (existing) {
+      return true;
+    }
+
+    try {
+      // Watch the parent directory (not the file) so atomic saves that rename
+      // the file into place still surface changes.
+      const watcher = watch(dirname(resolved), (_eventType, changed) => {
+        if (changed && basename(String(changed)) !== base) return;
+        scheduleProjectFile(mainWindow, key);
+      });
+      projectFileWatchers.set(key, { watcher, cwd, filePath, base });
+      return true;
+    } catch (error) {
+      console.error('Failed to watch project file:', error);
+      return false;
+    }
+  });
+
+  // RPC: 取消订阅单个文件的磁盘变化
+  ipcMainHandle('unwatch-project-file', async (_event, cwd: string, filePath: string) => {
+    closeProjectFileWatcher(projectFileWatchKey(cwd, filePath));
     return true;
   });
 

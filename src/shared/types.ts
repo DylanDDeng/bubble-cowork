@@ -545,6 +545,17 @@ export type ServerEvent =
   | { type: 'permission.request'; payload: PermissionRequestPayload }
   | { type: 'runner.error'; payload: { message: string; sessionId?: string } }
   | { type: 'project.tree'; payload: { cwd: string; tree: ProjectTreeNode | null } }
+  | {
+      type: 'project.file';
+      payload: {
+        cwd: string;
+        filePath: string;
+        text: string;
+        mtimeMs: number;
+        size: number;
+        exists: boolean;
+      };
+    }
   | { type: 'app.update'; payload: AppUpdateStatus }
   // MCP 事件
   | { type: 'mcp.config'; payload: {

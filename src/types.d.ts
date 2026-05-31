@@ -61,6 +61,9 @@ declare global {
     sendClientEvent: (event: ClientEvent) => void;
     onTerminalEvent: (callback: (event: { type: 'data' | 'exit'; sessionId: string; data?: string; exitCode?: number | null }) => void) => () => void;
     onWindowShellState: (callback: (state: { rounded: boolean }) => void) => () => void;
+    registerProjectEditorFlushHandler: (
+      callback: () => { ok: boolean; message?: string } | Promise<{ ok: boolean; message?: string }>
+    ) => () => void;
     generateSessionTitle: (prompt: string) => Promise<string>;
     getRecentCwds: (limit?: number) => Promise<string[]>;
     startTerminalSession: (sessionId: string, cwd: string, cols?: number, rows?: number) => Promise<{ ok: boolean; history?: string; message?: string }>;
@@ -74,6 +77,15 @@ declare global {
     getUiResumeState: () => Promise<UiResumeState | null>;
     getUiResumeStateSync: () => UiResumeState | null;
     saveUiResumeState: (state: UiResumeState) => Promise<{ ok: boolean }>;
+    updateProjectEditorDraft: (
+      draft: { cwd: string; filePath: string; content: string } | null
+    ) => void;
+    commitProjectEditorDraftSync: (
+      draft: { cwd: string; filePath: string; content: string } | null
+    ) => void;
+    writeProjectTextFileSync: (
+      draft: { cwd: string; filePath: string; content: string }
+    ) => void;
     loadOlderSessionHistory: (sessionId: string, cursor: string, limit?: number) => Promise<import('./shared/types').SessionHistoryPayload>;
     loadSessionHistoryAround: (
       sessionId: string,
@@ -140,13 +152,15 @@ declare global {
     createMarkdownImageAsset: (cwd: string, markdownFilePath: string, fileName: string, mimeType: string | undefined, data: Uint8Array) => Promise<{ ok: boolean; relativePath?: string; name?: string; message?: string }>;
     createInlineTextAttachment: (cwd: string, text: string) => Promise<Attachment | null>;
     createInlineImageAttachment: (mimeType: string, data: Uint8Array) => Promise<Attachment | null>;
-    writeProjectTextFile: (cwd: string, filePath: string, content: string) => Promise<{ ok: boolean; message?: string }>;
+    writeProjectTextFile: (cwd: string, filePath: string, content: string) => Promise<{ ok: boolean; message?: string; size?: number; mtimeMs?: number }>;
     previewArtifactPath: (cwd: string, filePath: string, options?: { openInBrowser?: boolean }) => Promise<{ ok: boolean; url?: string; message?: string }>;
     openPath: (filePath: string) => Promise<{ ok: boolean; message?: string }>;
     revealPath: (filePath: string) => Promise<{ ok: boolean; message?: string }>;
     getProjectTree: (cwd: string) => Promise<ProjectTreeNode | null>;
     watchProjectTree: (cwd: string) => Promise<boolean>;
     unwatchProjectTree: (cwd: string) => Promise<boolean>;
+    watchProjectFile: (cwd: string, filePath: string) => Promise<boolean>;
+    unwatchProjectFile: (cwd: string, filePath: string) => Promise<boolean>;
     getGitChanges: (cwd: string) => Promise<{ ok: boolean; error: string | null; entries: Array<{ filePath: string; status: string; staged: boolean }> }>;
     getGitWorkingTreeSummary: (cwd: string) => Promise<{ ok: boolean; error: string | null; insertions: number; deletions: number }>;
     getGitOverview: (cwd: string) => Promise<{
