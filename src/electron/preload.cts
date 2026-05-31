@@ -58,6 +58,36 @@ const BROWSER_CHANNELS = {
   sendSelection: 'desktop:browser-send-selection',
 } as const;
 
+const PROJECT_EDITOR_FLUSH_REQUEST_CHANNEL = 'project-editor-flush-request';
+const PROJECT_EDITOR_FLUSH_RESPONSE_CHANNEL = 'project-editor-flush-response';
+
+type ProjectEditorFlushResult = { ok: boolean; message?: string };
+type ProjectEditorFlushHandler = () => ProjectEditorFlushResult | Promise<ProjectEditorFlushResult>;
+
+let projectEditorFlushHandler: ProjectEditorFlushHandler | null = null;
+
+ipcRenderer.on(
+  PROJECT_EDITOR_FLUSH_REQUEST_CHANNEL,
+  async (_event: unknown, request: { requestId?: string } | null) => {
+    try {
+      const result = projectEditorFlushHandler
+        ? await projectEditorFlushHandler()
+        : { ok: true };
+      ipcRenderer.send(PROJECT_EDITOR_FLUSH_RESPONSE_CHANNEL, {
+        requestId: request?.requestId,
+        ok: result?.ok !== false,
+        message: result?.message,
+      });
+    } catch (error) {
+      ipcRenderer.send(PROJECT_EDITOR_FLUSH_RESPONSE_CHANNEL, {
+        requestId: request?.requestId,
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+);
+
 // 暴露 API 到渲染进程
 contextBridge.exposeInMainWorld('electron', {
   // 订阅服务器事件
@@ -107,6 +137,15 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('window-shell-state', handler);
     return () => {
       ipcRenderer.removeListener('window-shell-state', handler);
+    };
+  },
+
+  registerProjectEditorFlushHandler: (callback: ProjectEditorFlushHandler) => {
+    projectEditorFlushHandler = callback;
+    return () => {
+      if (projectEditorFlushHandler === callback) {
+        projectEditorFlushHandler = null;
+      }
     };
   },
 
@@ -166,6 +205,35 @@ contextBridge.exposeInMainWorld('electron', {
 
   saveUiResumeState: (state: UiResumeState) => {
     return Promise.resolve(ipcRenderer.sendSync('save-ui-resume-state-sync', state));
+  },
+
+  // Mirror unsaved editor content to the main process during normal edits.
+  updateProjectEditorDraft: (
+    draft: { cwd: string; filePath: string; content: string } | null
+  ) => {
+    ipcRenderer.send('project-editor-draft-update', draft);
+  },
+
+  // Use sync IPC at blur/hidden/unload boundaries before the renderer freezes.
+  commitProjectEditorDraftSync: (
+    draft: { cwd: string; filePath: string; content: string } | null
+  ) => {
+    try {
+      ipcRenderer.sendSync('project-editor-draft-update-sync', draft);
+    } catch {
+      // ignore - best-effort flush during teardown
+    }
+  },
+
+  // Synchronously block during renderer teardown until the file write finishes.
+  writeProjectTextFileSync: (
+    draft: { cwd: string; filePath: string; content: string }
+  ) => {
+    try {
+      ipcRenderer.sendSync('write-project-text-file-sync', draft);
+    } catch {
+      // ignore - best-effort write during teardown
+    }
   },
 
   loadOlderSessionHistory: (sessionId: string, cursor: string, limit?: number) => {
@@ -451,6 +519,16 @@ contextBridge.exposeInMainWorld('electron', {
   // 取消订阅项目文件树更新
   unwatchProjectTree: (cwd: string) => {
     return ipcRenderer.invoke('unwatch-project-tree', cwd);
+  },
+
+  // 订阅单个可编辑文件的磁盘变化
+  watchProjectFile: (cwd: string, filePath: string) => {
+    return ipcRenderer.invoke('watch-project-file', cwd, filePath);
+  },
+
+  // 取消订阅单个文件的磁盘变化
+  unwatchProjectFile: (cwd: string, filePath: string) => {
+    return ipcRenderer.invoke('unwatch-project-file', cwd, filePath);
   },
 
   // Git 变更

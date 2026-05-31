@@ -96,15 +96,17 @@ type ProjectMarkdownEditorProps = {
   toolbarActions?: ReactNode;
   saveState: SaveState;
   saveError: string | null;
-  externalChange: boolean;
   onChange: (next: string) => void;
   onSave: () => void;
-  onReloadExternal: () => void;
-  onKeepLocal: () => void;
+  onRegisterBridge?: (bridge: ProjectMarkdownEditorBridge | null) => void;
+};
+
+export type ProjectMarkdownEditorBridge = {
+  flush: () => void;
+  isComposing: () => boolean;
 };
 
 type PendingLocalMarkdownValue = {
-  baseValue: string;
   latestValue: string;
   localValues: Set<string>;
 };
@@ -661,6 +663,28 @@ function createImageInputPlugin(
   });
 }
 
+function createCompositionTrackingPlugin(
+  onCompositionStart: () => void,
+  onCompositionEnd: () => void
+) {
+  return $prose(() => {
+    return new Plugin({
+      props: {
+        handleDOMEvents: {
+          compositionstart: () => {
+            onCompositionStart();
+            return false;
+          },
+          compositionend: () => {
+            onCompositionEnd();
+            return false;
+          },
+        },
+      },
+    });
+  });
+}
+
 function nodeIsActive(view: ProseEditorView | null, nodeName: string, attrs?: Record<string, unknown>): boolean {
   if (!view) return false;
   const { $from } = view.state.selection;
@@ -728,11 +752,9 @@ export function ProjectMarkdownEditor({
   toolbarActions,
   saveState,
   saveError,
-  externalChange,
   onChange,
   onSave,
-  onReloadExternal,
-  onKeepLocal,
+  onRegisterBridge,
 }: ProjectMarkdownEditorProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -740,9 +762,11 @@ export function ProjectMarkdownEditor({
   const currentFullMarkdownRef = useRef(value);
   const frontmatterRef = useRef(splitFrontmatter(value).frontmatter);
   const pendingLocalValueRef = useRef<PendingLocalMarkdownValue | null>(null);
-  const lastPropValueRef = useRef(value);
+  const onSaveRef = useRef(onSave);
   const applyingPropValueRef = useRef(false);
-  const previousExternalChangeRef = useRef(externalChange);
+  const composingInputRef = useRef(false);
+  const composingMarkdownRef = useRef<string | null>(null);
+  const compositionFlushTimerRef = useRef<number | null>(null);
   const outlineItemsRef = useRef<MarkdownOutlineItem[]>([]);
   const headingFlashTimerRef = useRef<number | null>(null);
   const outlineCloseTimerRef = useRef<number | null>(null);
@@ -757,6 +781,10 @@ export function ProjectMarkdownEditor({
     () => parseMarkdownMetadata(splitFrontmatter(value).frontmatter),
     [value]
   );
+
+  useEffect(() => {
+    onSaveRef.current = onSave;
+  }, [onSave]);
 
   const runCommand = useCallback(<T,>(key: { id: string } | unknown, payload?: T) => {
     const editor = editorRef.current;
@@ -891,7 +919,6 @@ export function ProjectMarkdownEditor({
       pending.localValues.add(next);
     } else {
       pendingLocalValueRef.current = {
-        baseValue: lastPropValueRef.current,
         latestValue: next,
         localValues: new Set([next]),
       };
@@ -899,6 +926,59 @@ export function ProjectMarkdownEditor({
     currentFullMarkdownRef.current = next;
     onChange(next);
   }, [onChange]);
+
+  const flushComposedMarkdown = useCallback(() => {
+    const next = composingMarkdownRef.current;
+    composingMarkdownRef.current = null;
+    if (next === null) return;
+
+    emitLocalChange(next);
+    const view = viewRef.current;
+    if (view) refreshDerivedUi(view);
+  }, [emitLocalChange, refreshDerivedUi]);
+
+  const flushPendingMarkdownToParent = useCallback(() => {
+    if (compositionFlushTimerRef.current) {
+      window.clearTimeout(compositionFlushTimerRef.current);
+      compositionFlushTimerRef.current = null;
+    }
+    composingInputRef.current = false;
+    flushComposedMarkdown();
+  }, [flushComposedMarkdown]);
+
+  const scheduleCompositionFlush = useCallback(() => {
+    if (compositionFlushTimerRef.current) {
+      window.clearTimeout(compositionFlushTimerRef.current);
+    }
+    compositionFlushTimerRef.current = window.setTimeout(() => {
+      compositionFlushTimerRef.current = null;
+      flushComposedMarkdown();
+    }, 0);
+  }, [flushComposedMarkdown]);
+
+  const handleMarkdownChange = useCallback((view: ProseEditorView, markdown: string) => {
+    const next = combineFrontmatter(frontmatterRef.current, markdown);
+    if (applyingPropValueRef.current) {
+      composingMarkdownRef.current = null;
+      currentFullMarkdownRef.current = next;
+    } else if (composingInputRef.current || view.composing) {
+      composingMarkdownRef.current = next;
+      currentFullMarkdownRef.current = next;
+    } else {
+      composingMarkdownRef.current = null;
+      emitLocalChange(next);
+    }
+    if (!composingInputRef.current && !view.composing) {
+      refreshDerivedUi(view);
+    }
+  }, [emitLocalChange, refreshDerivedUi]);
+
+  const isComposing = useCallback(() => composingInputRef.current, []);
+
+  useEffect(() => {
+    onRegisterBridge?.({ flush: flushPendingMarkdownToParent, isComposing });
+    return () => onRegisterBridge?.(null);
+  }, [flushPendingMarkdownToParent, isComposing, onRegisterBridge]);
 
   const applyFrontmatterChange = useCallback((nextFrontmatter: string) => {
     const currentParts = splitFrontmatter(currentFullMarkdownRef.current);
@@ -922,10 +1002,14 @@ export function ProjectMarkdownEditor({
     const parts = splitFrontmatter(value);
     frontmatterRef.current = parts.frontmatter;
     currentFullMarkdownRef.current = value;
-    lastPropValueRef.current = value;
     pendingLocalValueRef.current = null;
     applyingPropValueRef.current = false;
-    previousExternalChangeRef.current = externalChange;
+    composingInputRef.current = false;
+    composingMarkdownRef.current = null;
+    if (compositionFlushTimerRef.current) {
+      window.clearTimeout(compositionFlushTimerRef.current);
+      compositionFlushTimerRef.current = null;
+    }
     setEditorFocused(false);
     let disposed = false;
 
@@ -953,13 +1037,7 @@ export function ProjectMarkdownEditor({
           ctx.set(defaultValueCtx, parts.body);
           const listeners = ctx.get(listenerCtx);
           listeners.markdownUpdated((innerCtx, markdown) => {
-            const next = combineFrontmatter(frontmatterRef.current, markdown);
-            if (applyingPropValueRef.current) {
-              currentFullMarkdownRef.current = next;
-            } else {
-              emitLocalChange(next);
-            }
-            refreshDerivedUi(innerCtx.get(editorViewCtx));
+            handleMarkdownChange(innerCtx.get(editorViewCtx), markdown);
           });
           listeners.focus((innerCtx) => {
             setEditorFocused(true);
@@ -974,6 +1052,19 @@ export function ProjectMarkdownEditor({
         .use(gfm)
         .use(history)
         .use(listener)
+        .use(createCompositionTrackingPlugin(
+          () => {
+            composingInputRef.current = true;
+            if (compositionFlushTimerRef.current) {
+              window.clearTimeout(compositionFlushTimerRef.current);
+              compositionFlushTimerRef.current = null;
+            }
+          },
+          () => {
+            composingInputRef.current = false;
+            scheduleCompositionFlush();
+          }
+        ))
         .use(createImageInputPlugin(insertImageFiles))
         .use(clipboard)
         .use(trailingParagraphPlugin)
@@ -999,6 +1090,7 @@ export function ProjectMarkdownEditor({
 
     return () => {
       disposed = true;
+      flushPendingMarkdownToParent();
       const editor = editorRef.current;
       editorRef.current = null;
       viewRef.current = null;
@@ -1009,35 +1101,30 @@ export function ProjectMarkdownEditor({
         window.clearTimeout(headingFlashTimerRef.current);
         headingFlashTimerRef.current = null;
       }
+      if (compositionFlushTimerRef.current) {
+        window.clearTimeout(compositionFlushTimerRef.current);
+        compositionFlushTimerRef.current = null;
+      }
+      composingInputRef.current = false;
+      composingMarkdownRef.current = null;
     };
-  }, [cwd, emitLocalChange, filePath, refreshDerivedUi]);
+  }, [cwd, filePath, flushPendingMarkdownToParent, handleMarkdownChange, refreshDerivedUi, scheduleCompositionFlush]);
 
   useEffect(() => {
-    const wasExternalChange = previousExternalChangeRef.current;
-    const resolvedExternalChange = wasExternalChange && !externalChange;
-    previousExternalChangeRef.current = externalChange;
-
     const editor = editorRef.current;
     const pending = pendingLocalValueRef.current;
     if (pending) {
       if (value === pending.latestValue) {
         pendingLocalValueRef.current = null;
-        lastPropValueRef.current = value;
         return;
       }
 
-      if (
-        !resolvedExternalChange &&
-        (value === pending.baseValue || pending.localValues.has(value))
-      ) {
-        lastPropValueRef.current = value;
+      if (pending.localValues.has(value)) {
         return;
       }
 
       pendingLocalValueRef.current = null;
     }
-
-    lastPropValueRef.current = value;
 
     if (!editor) {
       const parts = splitFrontmatter(value);
@@ -1057,18 +1144,18 @@ export function ProjectMarkdownEditor({
       applyingPropValueRef.current = false;
     }
     editor.action((ctx) => refreshDerivedUi(ctx.get(editorViewCtx)));
-  }, [externalChange, refreshDerivedUi, value]);
+  }, [refreshDerivedUi, value]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();
-        onSave();
+        onSaveRef.current();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onSave]);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -1182,14 +1269,6 @@ export function ProjectMarkdownEditor({
           </div>
         ) : null}
       </div>
-
-      {externalChange && (
-        <div className="aegis-md-conflict">
-          <span>The file changed on disk while this document was open.</span>
-          <button type="button" onClick={onReloadExternal}>Reload disk version</button>
-          <button type="button" onClick={onKeepLocal}>Keep my edits</button>
-        </div>
-      )}
 
       {saveState === 'error' && saveError && (
         <div className="aegis-md-error">{saveError}</div>

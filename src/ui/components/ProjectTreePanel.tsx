@@ -8,7 +8,7 @@ import { MDContent } from '../render/markdown';
 import { HighlightedCode } from './HighlightedCode';
 import TextFileReader from './TextFileReader';
 import { FileTypeIcon } from './FileTypeIcon';
-import { ProjectMarkdownEditor } from './ProjectMarkdownEditor';
+import { ProjectMarkdownEditor, type ProjectMarkdownEditorBridge } from './ProjectMarkdownEditor';
 import { ProjectMdxPreview, ProjectMdxProperties, parseMdxDocument } from './ProjectMdxPreview';
 import { ProjectTextEditor } from './ProjectTextEditor';
 import { IconButton } from './ui/icon-button';
@@ -27,6 +27,7 @@ import type { ProjectTreeNode } from '../types';
 
 type ProjectPanelTab = 'files' | 'changes';
 type ViewMode = 'view' | 'code' | 'split';
+type ProjectEditorFlushResult = { ok: boolean; message?: string };
 type ProjectPanelDimensions = {
   defaultWidth: number;
   minWidth: number;
@@ -70,6 +71,7 @@ type ProjectFilePreview =
       name: string;
       ext: string;
       size: number;
+      mtimeMs: number;
       text: string;
       editable: boolean;
     }
@@ -560,7 +562,84 @@ export function ProjectTreePanel({
   const [draftText, setDraftText] = useState('');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [externalDiskText, setExternalDiskText] = useState<string | null>(null);
+  const draftTextRef = useRef('');
+  const saveErrorRef = useRef<string | null>(null);
+  const saveStateRef = useRef<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const selectedEditableTextPreviewRef = useRef<ProjectFilePreview | null>(null);
+  const activeMarkdownBridgeRef = useRef<ProjectMarkdownEditorBridge | null>(null);
+  // Every disk content we have loaded, saved, or applied for the open file.
+  // The watcher only treats an event as a genuine external change when its
+  // content is NOT in this set. A set (not a single value) is required because
+  // the editor's serialization jitters between keystrokes and autosave writes
+  // several variants, while watcher events arrive debounced and out of order.
+  const knownDiskContentsRef = useRef<Set<string>>(new Set());
+  const rememberDiskContent = useCallback((text: string) => {
+    const set = knownDiskContentsRef.current;
+    set.add(text);
+    if (set.size > 64) {
+      const oldest = set.values().next().value;
+      if (oldest !== undefined) set.delete(oldest);
+    }
+  }, []);
+  const pendingExternalReloadRef = useRef<{
+    cwd: string;
+    filePath: string;
+    text: string;
+    mtimeMs: number;
+    size: number;
+    exists: boolean;
+  } | null>(null);
+  const saveInFlightRef = useRef(false);
+  const saveAgainAfterInFlightRef = useRef(false);
+  const savePromiseRef = useRef<Promise<boolean> | null>(null);
+  const projectEditorFlushRef = useRef<() => Promise<ProjectEditorFlushResult>>(async () => ({ ok: true }));
+  const setDraftTextSynced = useCallback((next: string) => {
+    draftTextRef.current = next;
+    if (saveInFlightRef.current) {
+      saveAgainAfterInFlightRef.current = true;
+    }
+    setDraftText(next);
+  }, []);
+  const mirrorProjectEditorDraftSync = useCallback(
+    (next: string) => {
+      const preview = selectedEditableTextPreviewRef.current;
+      if (
+        selectedFileCwd &&
+        selectedFilePath &&
+        preview &&
+        (preview.kind === 'markdown' || preview.kind === 'text') &&
+        preview.editable &&
+        next !== preview.text
+      ) {
+        window.electron.commitProjectEditorDraftSync?.({
+          cwd: selectedFileCwd,
+          filePath: selectedFilePath,
+          content: next,
+        });
+        return;
+      }
+      window.electron.commitProjectEditorDraftSync?.(null);
+    },
+    [selectedFileCwd, selectedFilePath]
+  );
+  const handleDraftTextChange = useCallback(
+    (next: string) => {
+      setDraftTextSynced(next);
+      mirrorProjectEditorDraftSync(next);
+    },
+    [mirrorProjectEditorDraftSync, setDraftTextSynced]
+  );
+  const setSaveStateSynced = useCallback((next: 'idle' | 'saving' | 'saved' | 'error') => {
+    saveStateRef.current = next;
+    setSaveState(next);
+  }, []);
+  const setSaveErrorSynced = useCallback((next: string | null) => {
+    saveErrorRef.current = next;
+    setSaveError(next);
+  }, []);
+  const registerMarkdownBridge = useCallback((bridge: ProjectMarkdownEditorBridge | null) => {
+    activeMarkdownBridgeRef.current = bridge;
+  }, []);
   const copiedTimerRef = useRef<number | null>(null);
   const [copiedPath, setCopiedPath] = useState(false);
   const createDraftIdRef = useRef(0);
@@ -810,9 +889,9 @@ export function ProjectTreePanel({
     setViewMode('view');
     setMdxRevealTarget(null);
     setPreviewLoading(false);
-    setDraftText('');
-    setSaveState('idle');
-    setSaveError(null);
+    setDraftTextSynced('');
+    setSaveStateSynced('idle');
+    setSaveErrorSynced(null);
     setProjectTreeError(null);
     setPptxSlideIndex(0);
     setCreateDraft(null);
@@ -824,7 +903,7 @@ export function ProjectTreePanel({
     setChangeRecords([]);
     setChangesError(null);
     setExpandedChangeId(null);
-  }, [cwd]);
+  }, [cwd, setDraftTextSynced, setSaveStateSynced]);
 
   useEffect(() => {
     setPanelWidth((current) =>
@@ -925,10 +1004,9 @@ export function ProjectTreePanel({
       setPreviewLoading(false);
       setSelectedPreview(null);
       setMdxRevealTarget(null);
-      setDraftText('');
-      setSaveState('idle');
-      setSaveError(null);
-      setExternalDiskText(null);
+      setDraftTextSynced('');
+      setSaveStateSynced('idle');
+      setSaveErrorSynced(null);
       setPptxSlideIndex(0);
 
       if (!activeSessionId) {
@@ -959,10 +1037,9 @@ export function ProjectTreePanel({
     setMdxRevealTarget(null);
     setPreviewLoading(true);
     setSelectedPreview(null);
-    setDraftText('');
-    setSaveState('idle');
-    setSaveError(null);
-    setExternalDiskText(null);
+    setDraftTextSynced('');
+    setSaveStateSynced('idle');
+    setSaveErrorSynced(null);
     setPptxSlideIndex(0);
 
     const reader = window.electron.readProjectFilePreview;
@@ -985,12 +1062,12 @@ export function ProjectTreePanel({
       if (previewRequestIdRef.current !== requestId) return;
       setSelectedPreview(preview);
       if (preview.kind === 'text' && preview.ext === '.mdx') {
-        setDraftText(preview.text);
+        setDraftTextSynced(preview.text);
         setViewMode('code');
         return;
       }
       if ((preview.kind === 'text' || preview.kind === 'markdown') && preview.editable) {
-        setDraftText(preview.text);
+        setDraftTextSynced(preview.text);
       }
     } catch (error) {
       if (previewRequestIdRef.current !== requestId) return;
@@ -1013,6 +1090,8 @@ export function ProjectTreePanel({
     selectedFilePath,
     setBrowserPanelOpen,
     setProjectTreeCollapsed,
+    setDraftTextSynced,
+    setSaveStateSynced,
   ]);
 
   const selectFile = async (node: ProjectTreeNode) => {
@@ -1307,10 +1386,9 @@ export function ProjectTreePanel({
     setMdxRevealTarget(null);
     setPreviewLoading(true);
     setSelectedPreview(null);
-    setDraftText('');
-    setSaveState('idle');
-    setSaveError(null);
-    setExternalDiskText(null);
+    setDraftTextSynced('');
+    setSaveStateSynced('idle');
+    setSaveErrorSynced(null);
     setPptxSlideIndex(0);
 
     const requestId = (previewRequestIdRef.current += 1);
@@ -1320,7 +1398,7 @@ export function ProjectTreePanel({
       // MDX files: use CodeMirror plain-text editor (default), with toggle to rendered preview.
       if (preview.kind === 'text' && preview.ext === '.mdx') {
         setSelectedPreview(preview);
-        setDraftText(preview.text);
+        setDraftTextSynced(preview.text);
         setViewMode('code'); // default to source editing like Cursor
         if (typeof options.lineStart === 'number') {
           mdxRevealTokenRef.current += 1;
@@ -1334,7 +1412,7 @@ export function ProjectTreePanel({
       if (preview.kind === 'markdown') {
         setSelectedPreview(preview);
         if (preview.editable) {
-          setDraftText(preview.text);
+          setDraftTextSynced(preview.text);
         }
         return;
       }
@@ -1350,6 +1428,7 @@ export function ProjectTreePanel({
           }`,
           ext: preview.ext,
           size: preview.size,
+          mtimeMs: preview.mtimeMs,
           text: sliceTextLineRange(preview.text, options.lineStart, options.lineEnd),
           editable: false,
         });
@@ -1374,7 +1453,7 @@ export function ProjectTreePanel({
         setPreviewLoading(false);
       }
     }
-  }, []);
+  }, [setDraftTextSynced, setSaveStateSynced]);
 
   const closePreview = useCallback(() => {
     setSelectedFilePath(null);
@@ -1382,13 +1461,12 @@ export function ProjectTreePanel({
     setSelectedPreview(null);
     setViewMode('view');
     setMdxRevealTarget(null);
-    setDraftText('');
-    setSaveState('idle');
-    setSaveError(null);
-    setExternalDiskText(null);
+    setDraftTextSynced('');
+    setSaveStateSynced('idle');
+    setSaveErrorSynced(null);
     setPptxSlideIndex(0);
     if (isFullscreen && onToggleFullscreen) onToggleFullscreen();
-  }, [isFullscreen, onToggleFullscreen]);
+  }, [isFullscreen, onToggleFullscreen, setDraftTextSynced, setSaveStateSynced]);
 
   const deleteEntry = useCallback(async (node: ProjectTreeNode) => {
     if (!cwd) return;
@@ -1554,134 +1632,372 @@ export function ProjectTreePanel({
     selectedPreview.editable
       ? selectedPreview
       : null;
+  const hasEditableTextOpen = Boolean(selectedEditableTextPreview);
+
+  useEffect(() => {
+    draftTextRef.current = draftText;
+  }, [draftText]);
+
+  useEffect(() => {
+    saveStateRef.current = saveState;
+  }, [saveState]);
+
+  useEffect(() => {
+    selectedEditableTextPreviewRef.current = selectedEditableTextPreview;
+  }, [selectedEditableTextPreview]);
+
+  // Mirror unsaved text to the main process for the synchronous quit fallback.
+  useEffect(() => {
+    const updateDraft = window.electron.updateProjectEditorDraft;
+    if (typeof updateDraft !== 'function') return;
+    if (
+      selectedFileCwd &&
+      selectedFilePath &&
+      selectedEditableTextPreview &&
+      draftText !== selectedEditableTextPreview.text
+    ) {
+      updateDraft({ cwd: selectedFileCwd, filePath: selectedFilePath, content: draftText });
+    } else {
+      updateDraft(null);
+    }
+  }, [draftText, selectedEditableTextPreview, selectedFileCwd, selectedFilePath]);
 
   const canSaveText =
     !!selectedFileCwd &&
     !!selectedEditableTextPreview &&
     draftText !== selectedEditableTextPreview.text;
 
-  const handleSaveText = async () => {
-    if (!selectedFileCwd) return;
-    if (!selectedEditableTextPreview) {
-      return;
+  const handleSaveText = useCallback(async (): Promise<boolean> => {
+    if (!selectedFileCwd) return true;
+    const previewToSave = selectedEditableTextPreviewRef.current;
+    if (
+      !previewToSave ||
+      (previewToSave.kind !== 'markdown' && previewToSave.kind !== 'text') ||
+      (previewToSave.kind === 'text' && previewToSave.ext !== '.mdx') ||
+      !previewToSave.editable
+    ) {
+      return true;
     }
-    if (!selectedFilePath) return;
-    if (!canSaveText) return;
+    if (!selectedFilePath) return true;
+    const textToSave = draftTextRef.current;
+    if (textToSave === previewToSave.text) {
+      window.electron.commitProjectEditorDraftSync?.(null);
+      return true;
+    }
+    if (saveInFlightRef.current) {
+      saveAgainAfterInFlightRef.current = true;
+      const inFlightSave = savePromiseRef.current;
+      if (!inFlightSave) return true;
+      const inFlightOk = await inFlightSave;
+      if (!inFlightOk) return false;
+      const latestPreview = selectedEditableTextPreviewRef.current;
+      const stillDirty =
+        !!latestPreview &&
+        (latestPreview.kind === 'markdown' || latestPreview.kind === 'text') &&
+        latestPreview.editable &&
+        draftTextRef.current !== latestPreview.text;
+      return stillDirty ? handleSaveText() : true;
+    }
 
-    setSaveState('saving');
-    setSaveError(null);
-    try {
-      const result = (await window.electron.writeProjectTextFile(
-        selectedFileCwd,
-        selectedFilePath,
-        draftText
-      )) as { ok: boolean; message?: string };
-      if (!result?.ok) {
-        setSaveState('error');
-        setSaveError(result?.message || 'Failed to save');
-        return;
+    saveInFlightRef.current = true;
+    setSaveStateSynced('saving');
+    setSaveErrorSynced(null);
+
+    const savePromise = (async (): Promise<boolean> => {
+      let savedOk = false;
+      try {
+        const result = await window.electron.writeProjectTextFile(
+          selectedFileCwd,
+          selectedFilePath,
+          textToSave
+        );
+        if (!result?.ok) {
+          setSaveStateSynced('error');
+          setSaveErrorSynced(result?.message || 'Failed to save');
+          return false;
+        }
+        const savedPreview = {
+          ...previewToSave,
+          text: textToSave,
+          size: result.size ?? previewToSave.size,
+          mtimeMs: result.mtimeMs ?? previewToSave.mtimeMs,
+        };
+        selectedEditableTextPreviewRef.current = savedPreview;
+        rememberDiskContent(textToSave);
+        setSelectedPreview(savedPreview);
+        void loadChangeRecords();
+        savedOk = true;
+        setSaveStateSynced('saved');
+        window.setTimeout(() => {
+          if (saveStateRef.current === 'saved') {
+            setSaveStateSynced('idle');
+          }
+        }, 1200);
+      } catch (error) {
+        setSaveStateSynced('error');
+        setSaveErrorSynced(String(error));
+        return false;
+      } finally {
+        saveInFlightRef.current = false;
       }
-      setSelectedPreview({ ...selectedEditableTextPreview, text: draftText });
-      setExternalDiskText(null);
-      void loadChangeRecords();
-      setSaveState('saved');
-      window.setTimeout(() => setSaveState('idle'), 1200);
-    } catch (error) {
-      setSaveState('error');
-      setSaveError(String(error));
+
+      if (!savedOk) return false;
+      const currentPreview = selectedEditableTextPreviewRef.current;
+      const stillDirty =
+        !!currentPreview &&
+        (currentPreview.kind === 'markdown' || currentPreview.kind === 'text') &&
+        currentPreview.editable &&
+        draftTextRef.current !== currentPreview.text;
+      if (saveAgainAfterInFlightRef.current || stillDirty) {
+        saveAgainAfterInFlightRef.current = false;
+        return handleSaveText();
+      }
+      window.electron.commitProjectEditorDraftSync?.(null);
+      return true;
+    })();
+
+    savePromiseRef.current = savePromise;
+    const saveOk = await savePromise;
+    if (savePromiseRef.current === savePromise) {
+      savePromiseRef.current = null;
     }
-  };
+    return saveOk;
+  }, [selectedFileCwd, selectedFilePath, setSaveErrorSynced, setSaveStateSynced]);
 
   useEffect(() => {
     if (
-      !selectedPreview ||
-      selectedPreview.kind !== 'markdown' ||
-      !selectedPreview.editable ||
-      !canSaveText ||
-      externalDiskText !== null ||
-      saveState === 'saving'
+      !selectedEditableTextPreview ||
+      !canSaveText
     ) {
       return;
     }
 
     const timerId = window.setTimeout(() => {
       void handleSaveText();
-    }, 1200);
+    }, 350);
 
     return () => window.clearTimeout(timerId);
-  }, [canSaveText, draftText, externalDiskText, saveState, selectedPreview]);
+  }, [canSaveText, draftText, handleSaveText, selectedEditableTextPreview]);
+
+  const flushProjectEditorBeforeClose = useCallback(async (): Promise<ProjectEditorFlushResult> => {
+    activeMarkdownBridgeRef.current?.flush();
+    const saveOk = await handleSaveText();
+    const currentPreview = selectedEditableTextPreviewRef.current;
+    const stillDirty =
+      !!currentPreview &&
+      (currentPreview.kind === 'markdown' || currentPreview.kind === 'text') &&
+      currentPreview.editable &&
+      draftTextRef.current !== currentPreview.text;
+
+    if (!saveOk || stillDirty) {
+      return {
+        ok: false,
+        message: saveErrorRef.current || 'Failed to save pending editor changes.',
+      };
+    }
+
+    return { ok: true };
+  }, [handleSaveText]);
 
   useEffect(() => {
-    if (
-      !cwd ||
-      !selectedFileCwd ||
-      !selectedFilePath ||
-      !selectedEditableTextPreview
-    ) {
+    projectEditorFlushRef.current = flushProjectEditorBeforeClose;
+  }, [flushProjectEditorBeforeClose]);
+
+  useEffect(() => {
+    const registerFlushHandler = window.electron.registerProjectEditorFlushHandler;
+    if (typeof registerFlushHandler !== 'function') return;
+    return registerFlushHandler(() => projectEditorFlushRef.current());
+  }, []);
+
+  useEffect(() => {
+    if (!selectedFileCwd || !selectedFilePath || !selectedEditableTextPreview) {
       return;
     }
 
-    const reader = window.electron.readProjectFilePreview;
-    if (typeof reader !== 'function') return;
+    // Blur/visibility saves only the draft emitted by Milkdown. The final
+    // close path also flushes pending composition state, but never resaves a
+    // freshly serialized ProseMirror document because that can fold blank lines.
+    const getDirtyContent = (flushEditor: boolean): string | null => {
+      if (flushEditor) {
+        activeMarkdownBridgeRef.current?.flush();
+      }
+      const currentPreview = selectedEditableTextPreviewRef.current;
+      if (
+        !currentPreview ||
+        (currentPreview.kind !== 'markdown' && currentPreview.kind !== 'text') ||
+        !currentPreview.editable ||
+        draftTextRef.current === currentPreview.text
+      ) {
+        return null;
+      }
+      return draftTextRef.current;
+    };
 
-    const intervalId = window.setInterval(() => {
-      void (async () => {
-        try {
-          const latest = (await reader(selectedFileCwd, selectedFilePath)) as ProjectFilePreview;
-          if (
-            (latest.kind !== 'markdown' && latest.kind !== 'text') ||
-            !latest.editable ||
-            latest.kind !== selectedEditableTextPreview.kind ||
-            latest.ext !== selectedEditableTextPreview.ext
-          ) {
-            return;
-          }
-          if (latest.text === selectedEditableTextPreview.text) return;
+    const flushPendingDraft = () => {
+      const content = getDirtyContent(false);
+      if (content === null) return;
+      window.electron.commitProjectEditorDraftSync?.({
+        cwd: selectedFileCwd,
+        filePath: selectedFilePath,
+        content,
+      });
+      void handleSaveText();
+    };
 
-          if (draftText === selectedEditableTextPreview.text) {
-            setSelectedPreview(latest);
-            setDraftText(latest.text);
-            setExternalDiskText(null);
-          } else {
-            setExternalDiskText(latest.text);
-          }
-        } catch {
-          // Polling is only a conflict detector; preview load/save surfaces real errors.
+    const flushPendingDraftSync = () => {
+      const content = getDirtyContent(true);
+      if (content === null) return;
+      window.electron.writeProjectTextFileSync?.({
+        cwd: selectedFileCwd,
+        filePath: selectedFilePath,
+        content,
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        flushPendingDraft();
+      }
+    };
+
+    window.addEventListener('blur', flushPendingDraft);
+    window.addEventListener('pagehide', flushPendingDraftSync);
+    window.addEventListener('beforeunload', flushPendingDraftSync);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('blur', flushPendingDraft);
+      window.removeEventListener('pagehide', flushPendingDraftSync);
+      window.removeEventListener('beforeunload', flushPendingDraftSync);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [handleSaveText, selectedEditableTextPreview, selectedFileCwd, selectedFilePath]);
+
+  const applyExternalReload = useCallback(
+    (payload: { text: string; mtimeMs: number; size: number }) => {
+      const currentPreview = selectedEditableTextPreviewRef.current;
+      if (!currentPreview) return;
+      const latest = {
+        ...currentPreview,
+        text: payload.text,
+        mtimeMs: payload.mtimeMs,
+        size: payload.size,
+      };
+      selectedEditableTextPreviewRef.current = latest;
+      rememberDiskContent(payload.text);
+      setSelectedPreview(latest);
+      setDraftTextSynced(payload.text);
+      setSaveStateSynced('idle');
+      setSaveErrorSynced(null);
+    },
+    [rememberDiskContent, setDraftTextSynced, setSaveErrorSynced, setSaveStateSynced]
+  );
+
+  // Subscribe to disk changes for the open editable file. Event-driven via the
+  // main-process file watcher; replaces the previous 4s polling loop.
+  useEffect(() => {
+    if (!selectedFileCwd || !selectedFilePath || !hasEditableTextOpen) {
+      return;
+    }
+    const watcher = window.electron.watchProjectFile;
+    const unwatcher = window.electron.unwatchProjectFile;
+    if (typeof watcher !== 'function' || typeof unwatcher !== 'function') return;
+
+    void watcher(selectedFileCwd, selectedFilePath);
+    return () => {
+      void unwatcher(selectedFileCwd, selectedFilePath);
+    };
+  }, [selectedFileCwd, selectedFilePath, hasEditableTextOpen]);
+
+  // Reconcile external disk changes pushed by the file watcher.
+  useEffect(() => {
+    if (!selectedFileCwd || !selectedFilePath) return;
+
+    // New file context: drop all remembered disk content so every watcher event
+    // is evaluated fresh against whatever the file actually contains.
+    knownDiskContentsRef.current = new Set();
+
+    const handleFileChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        cwd: string;
+        filePath: string;
+        text: string;
+        mtimeMs: number;
+        size: number;
+        exists: boolean;
+      }>).detail;
+      if (!detail || detail.cwd !== selectedFileCwd || detail.filePath !== selectedFilePath) {
+        return;
+      }
+
+      const currentPreview = selectedEditableTextPreviewRef.current;
+      if (
+        !currentPreview ||
+        (currentPreview.kind !== 'markdown' && currentPreview.kind !== 'text') ||
+        !currentPreview.editable
+      ) {
+        return;
+      }
+      // File removed/renamed away: keep the in-editor buffer rather than wiping it.
+      if (!detail.exists) return;
+
+      const composing = activeMarkdownBridgeRef.current?.isComposing() ?? false;
+
+      // Seed the known-contents set on the very first event so the originally
+      // loaded preview text is recognised as "ours".
+      if (knownDiskContentsRef.current.size === 0) {
+        rememberDiskContent(currentPreview.text);
+      }
+
+      // Content we have previously loaded, saved, or applied: not external.
+      // Using a set instead of a single value avoids false positives from
+      // serialization jitter (210/211) and out-of-order debounced events.
+      if (knownDiskContentsRef.current.has(detail.text)) {
+        if (detail.mtimeMs !== currentPreview.mtimeMs || detail.size !== currentPreview.size) {
+          const refreshed = {
+            ...currentPreview,
+            mtimeMs: detail.mtimeMs,
+            size: detail.size,
+          };
+          selectedEditableTextPreviewRef.current = refreshed;
+          setSelectedPreview(refreshed);
         }
-      })();
-    }, 4000);
+        return;
+      }
 
-    return () => window.clearInterval(intervalId);
-  }, [cwd, draftText, selectedEditableTextPreview, selectedFileCwd, selectedFilePath]);
+      // Never-before-seen disk content. Remember it so future echoes are ignored.
+      rememberDiskContent(detail.text);
 
-  const handleReloadMarkdownExternal = () => {
-    if (
-      !selectedEditableTextPreview ||
-      externalDiskText === null
-    ) {
-      return;
+      // The user has unsaved local edits or a save is in flight: never clobber.
+      if (draftTextRef.current !== detail.text && saveStateRef.current !== 'idle') {
+        return;
+      }
+      if (draftTextRef.current !== currentPreview.text && draftTextRef.current !== detail.text) {
+        return;
+      }
+
+      // Genuine external change with no local edits. Defer while composing.
+      if (composing) {
+        pendingExternalReloadRef.current = detail;
+        return;
+      }
+      applyExternalReload(detail);
+    };
+
+    window.addEventListener('aegis:project-file-changed', handleFileChanged);
+    return () => window.removeEventListener('aegis:project-file-changed', handleFileChanged);
+  }, [applyExternalReload, rememberDiskContent, selectedFileCwd, selectedFilePath]);
+
+  // Apply a deferred external reload once IME composition settles.
+  useEffect(() => {
+    const pending = pendingExternalReloadRef.current;
+    if (!pending) return;
+    if (activeMarkdownBridgeRef.current?.isComposing()) return;
+    pendingExternalReloadRef.current = null;
+    if (pending.text !== draftTextRef.current) {
+      applyExternalReload(pending);
     }
-
-    setSelectedPreview({ ...selectedEditableTextPreview, text: externalDiskText });
-    setDraftText(externalDiskText);
-    setExternalDiskText(null);
-    setSaveState('idle');
-    setSaveError(null);
-  };
-
-  const handleKeepMarkdownLocal = () => {
-    if (
-      !selectedEditableTextPreview ||
-      externalDiskText === null
-    ) {
-      return;
-    }
-
-    setSelectedPreview({ ...selectedEditableTextPreview, text: externalDiskText });
-    setExternalDiskText(null);
-    setSaveState('idle');
-    setSaveError(null);
-  };
+  }, [applyExternalReload, draftText]);
 
   const handlePreviewResizeMove = (clientX: number) => {
     if (!previewResizingRef.current) return;
@@ -2248,7 +2564,9 @@ export function ProjectTreePanel({
 
                     {canSaveText && (
                       <button
-                        onClick={handleSaveText}
+                        onClick={() => {
+                          void handleSaveText();
+                        }}
                         disabled={saveState === 'saving'}
                         className="px-2 py-1 text-xs rounded-md bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
                         title="Save"
@@ -2367,7 +2685,6 @@ export function ProjectTreePanel({
                       windowControlsInset={isFullscreen}
                       saveState={saveState}
                       saveError={saveError}
-                      externalChange={externalDiskText !== null}
                       toolbarActions={
                         <>
                           {onToggleFullscreen && (
@@ -2391,10 +2708,9 @@ export function ProjectTreePanel({
                           </IconButton>
                         </>
                       }
-                      onChange={setDraftText}
+                      onChange={handleDraftTextChange}
                       onSave={handleSaveText}
-                      onReloadExternal={handleReloadMarkdownExternal}
-                      onKeepLocal={handleKeepMarkdownLocal}
+                      onRegisterBridge={registerMarkdownBridge}
                     />
                   ) : (
                     <MDContent
@@ -2428,14 +2744,14 @@ export function ProjectTreePanel({
                       <div className="aegis-mdx-editor-shell">
                         <ProjectMdxProperties
                           content={draftText}
-                          onChange={setDraftText}
+                          onChange={handleDraftTextChange}
                           onRevealSource={handleRevealMdxSource}
                           compact
                         />
                         <div className="aegis-mdx-source-fill">
                           <ProjectTextEditor
                             value={draftText}
-                            onChange={setDraftText}
+                            onChange={handleDraftTextChange}
                             onSave={() => handleSaveText()}
                             revealTarget={mdxRevealTarget}
                           />
@@ -2445,13 +2761,12 @@ export function ProjectTreePanel({
                           saveState={saveState}
                           saveError={saveError}
                           issueCount={mdxIssueCount}
-                          externalChange={externalDiskText !== null}
                         />
                       </div>
                     ) : isMdxPreviewSurface ? (
                       <ProjectMdxPreview
                         content={draftText}
-                        onChange={setDraftText}
+                        onChange={handleDraftTextChange}
                         onRevealSource={handleRevealMdxSource}
                       />
                     ) : isMdxSplitPreviewSurface ? (
@@ -2459,14 +2774,14 @@ export function ProjectTreePanel({
                         <div className="aegis-mdx-split-pane aegis-mdx-split-source">
                           <ProjectMdxProperties
                             content={draftText}
-                            onChange={setDraftText}
+                            onChange={handleDraftTextChange}
                             onRevealSource={handleRevealMdxSource}
                             compact
                           />
                           <div className="aegis-mdx-source-fill">
                             <ProjectTextEditor
                               value={draftText}
-                              onChange={setDraftText}
+                              onChange={handleDraftTextChange}
                               onSave={() => handleSaveText()}
                               revealTarget={mdxRevealTarget}
                             />
@@ -2476,13 +2791,12 @@ export function ProjectTreePanel({
                             saveState={saveState}
                             saveError={saveError}
                             issueCount={mdxIssueCount}
-                            externalChange={externalDiskText !== null}
                           />
                         </div>
                         <div className="aegis-mdx-split-pane aegis-mdx-split-preview">
                           <ProjectMdxPreview
                             content={draftText}
-                            onChange={setDraftText}
+                            onChange={handleDraftTextChange}
                             onRevealSource={handleRevealMdxSource}
                             showProperties={false}
                           />
@@ -2491,7 +2805,7 @@ export function ProjectTreePanel({
                     ) : selectedPreview.editable ? (
                       <textarea
                         value={draftText}
-                        onChange={(e) => setDraftText(e.target.value)}
+                        onChange={(e) => handleDraftTextChange(e.target.value)}
                         className="w-full h-full min-h-[220px] resize-none bg-transparent outline-none font-mono text-sm whitespace-pre-wrap"
                         spellCheck={false}
                       />
@@ -2838,13 +3152,11 @@ function MdxStatusBar({
   saveState,
   saveError,
   issueCount,
-  externalChange,
 }: {
   dirty: boolean;
   saveState: 'idle' | 'saving' | 'saved' | 'error';
   saveError: string | null;
   issueCount: number;
-  externalChange: boolean;
 }) {
   const saveLabel =
     saveState === 'saving'
@@ -2863,7 +3175,6 @@ function MdxStatusBar({
       <span>MDX</span>
       <span className={dirty || saveState === 'error' ? 'is-attention' : ''}>{saveLabel}</span>
       <span className={issueCount > 0 ? 'is-attention' : ''}>{previewLabel}</span>
-      {externalChange ? <span className="is-attention">Disk changed</span> : null}
       {saveError ? <span className="is-error">{saveError}</span> : null}
     </div>
   );

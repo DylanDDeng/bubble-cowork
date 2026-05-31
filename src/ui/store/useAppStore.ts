@@ -1063,6 +1063,14 @@ export const useAppStore = create<Store>()(
         });
         break;
 
+      case 'project.file':
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('aegis:project-file-changed', { detail: event.payload })
+          );
+        }
+        break;
+
       case 'app.update':
         set({
           updateStatus: {

@@ -5,7 +5,7 @@
   "author": "Your Name",
   "main": "dist-electron/electron/main.js",
   "scripts": {
-    "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",
+    "dev": "concurrently --kill-others-on-fail \"npm run dev:react\" \"npm run dev:electron\"",
     "dev:react": "node scripts/dev-react.mjs",
     "dev:electron": "npm run transpile:electron && node scripts/prepare-electron-native-deps.mjs && node scripts/launch-electron.mjs",
     "transpile:electron": "tsc -p src/electron/tsconfig.json",
