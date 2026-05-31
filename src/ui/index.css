@@ -282,7 +282,7 @@ body {
 }
 
 .aegis-project-panel,
-.aegis-project-panel :is(button, input, textarea, select, div, span, p, label, td, th, pre, code):not(.project-markdown-preview, .project-markdown-preview *) {
+.aegis-project-panel :is(button, input, textarea, select, div, span, p, label, td, th, pre, code):not(.project-markdown-preview, .project-markdown-preview *, .aegis-md-editor, .aegis-md-editor *) {
   font-size: 13px !important;
   font-weight: 400;
 }
@@ -1766,6 +1766,10 @@ button.aegis-mdx-metadata-key:hover {
   --aegis-md-page-width: 780px;
   --aegis-md-page-padding-x: 34px;
   --aegis-md-body-width: calc(var(--aegis-md-page-width) - (var(--aegis-md-page-padding-x) * 2));
+  --aegis-md-prose-font: var(--font-sans), -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --aegis-md-prose-font-size: 16px;
+  --aegis-md-prose-line-height: 1.78;
+  --aegis-md-paragraph-gap: 0.82em;
   display: flex;
   min-height: 100%;
   height: 100%;
@@ -1967,8 +1971,9 @@ button.aegis-mdx-metadata-key:hover {
   border: 0;
   background: transparent;
   color: color-mix(in srgb, var(--text-primary) 94%, #37352f);
-  font-size: 14px;
-  line-height: 1.65;
+  font-family: var(--aegis-md-prose-font);
+  font-size: var(--aegis-md-prose-font-size) !important;
+  line-height: var(--aegis-md-prose-line-height);
 }
 
 .aegis-md-milkdown-root .ProseMirror h1,
@@ -1985,24 +1990,37 @@ button.aegis-mdx-metadata-key:hover {
 
 .aegis-md-milkdown-root .ProseMirror h1 {
   margin: 0 0 0.85rem;
-  font-size: 34px;
+  font-size: 34px !important;
   font-weight: 760;
   letter-spacing: -0.01em;
 }
 
 .aegis-md-milkdown-root .ProseMirror h2 {
   margin: 1.35rem 0 0.65rem;
-  font-size: 20px;
+  font-size: 20px !important;
   font-weight: 720;
 }
 
 .aegis-md-milkdown-root .ProseMirror h3 {
   margin: 1.15rem 0 0.42rem;
-  font-size: 15px;
+  font-size: 17px !important;
 }
 
 .aegis-md-milkdown-root .ProseMirror p {
-  margin: 1em 0;
+  font-size: inherit !important;
+  line-height: var(--aegis-md-prose-line-height);
+}
+
+.aegis-md-milkdown-root .ProseMirror > p {
+  margin: 0;
+}
+
+.aegis-md-milkdown-root .ProseMirror > p + p {
+  margin-top: var(--aegis-md-paragraph-gap);
+}
+
+.aegis-md-milkdown-root .ProseMirror li p {
+  margin: 0;
 }
 
 .aegis-md-milkdown-root .ProseMirror blockquote {
@@ -2278,7 +2296,7 @@ button.aegis-mdx-metadata-key:hover {
   border-spacing: 0;
   border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
   border-radius: 5px;
-  font-size: 13px;
+  font-size: 0.9em;
   line-height: 1.45;
 }
 
