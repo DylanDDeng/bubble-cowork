@@ -1,8 +1,12 @@
 {
   "name": "aegis",
-  "version": "0.0.30",
+  "version": "0.0.31",
   "description": "Aegis Desktop Application",
   "author": "Your Name",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DylanDDeng/bubble-cowork.git"
+  },
   "main": "dist-electron/electron/main.js",
   "scripts": {
     "dev": "concurrently --kill-others-on-fail \"npm run dev:react\" \"npm run dev:electron\"",
@@ -13,7 +17,7 @@
     "check:builtin-agent": "npm run transpile:electron && node scripts/check-builtin-agent.mjs",
     "check:icons": "node scripts/check-ui-icon-imports.mjs",
     "build:electron": "electron-builder",
-    "dist": "npm run build && npm run build:electron"
+    "dist": "npm run build && npm run build:electron -- --publish never"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.150",
