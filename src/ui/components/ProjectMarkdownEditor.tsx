@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronUp,
   Code,
+  MoreHorizontal,
   Heading1,
   Heading2,
   Heading3,
@@ -60,6 +61,14 @@ import { $prose, $view } from '@milkdown/utils';
 import { undo, redo } from '@milkdown/kit/prose/history';
 import { projectMarkdownCodeBlockView } from './ProjectMarkdownCodeBlockView';
 import '@milkdown/kit/prose/view/style/prosemirror.css';
+import { toast } from 'sonner';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
+import { copyMarkdownAsWechatHtml } from '../lib/wechatMarkdown';
 
 export type MarkdownOutlineItem = {
   id: string;
@@ -995,6 +1004,19 @@ export function ProjectMarkdownEditor({
     applyFrontmatterChange(updateMarkdownMetadataArray(frontmatterRef.current, field, nextItems));
   }, [applyFrontmatterChange]);
 
+  const [wechatCopied, setWechatCopied] = useState(false);
+  const handleCopyWechatHtml = useCallback(async () => {
+    const markdown = currentFullMarkdownRef.current ?? value;
+    const result = await copyMarkdownAsWechatHtml(markdown);
+    if (result.ok) {
+      setWechatCopied(true);
+      toast.success('公众号 HTML 已复制到剪贴板');
+      window.setTimeout(() => setWechatCopied(false), 2000);
+    } else {
+      toast.error(`复制失败: ${result.error}`);
+    }
+  }, [value]);
+
   useEffect(() => {
     const root = hostRef.current;
     if (!root) return;
@@ -1263,11 +1285,35 @@ export function ProjectMarkdownEditor({
           <ImageIcon className="h-4 w-4" />
         </ToolbarButton>
         </div>
-        {toolbarActions ? (
-          <div className="aegis-md-toolbar-actions no-drag">
-            {toolbarActions}
-          </div>
-        ) : null}
+        <div className="aegis-md-toolbar-actions no-drag">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="aegis-md-toolbar-button"
+                title="更多操作"
+                aria-label="更多操作"
+                data-testid="aegis-md-toolbar-more"
+              >
+                <MoreHorizontal size={16} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={6}>
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  void handleCopyWechatHtml();
+                }}
+              >
+                <span className="aegis-md-toolbar-more-check" aria-hidden="true">
+                  {wechatCopied ? '✓' : '⧉'}
+                </span>
+                <span>复制公众号HTML</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {toolbarActions}
+        </div>
       </div>
 
       {saveState === 'error' && saveError && (
