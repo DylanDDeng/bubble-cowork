@@ -61,8 +61,9 @@ const C = {
   red: '#F87B02',
   redBright: '#FF8E1A',
   redTagText: '#fff5ea',
-  redCardBg: '#fff4e8',
-  redCardBorder: '#f3d6b3',
+  redCardBg: '#3a2410',
+  redCardBorder: '#5a3a1f',
+  redCardText: '#f0e0c8',
   redHighlightBg: '#3a2410',
   redHighlightText: '#FFB04A',
   // misc
@@ -695,7 +696,7 @@ function tipCardHtml(lines: string[]): string {
     `提示` +
     `</div>` +
     `<p style="margin:0;font-family:${FONT_STACK};font-size:14px;` +
-    `line-height:1.85;letter-spacing:1px;color:#2b1d1f;">${inner}</p>` +
+    `line-height:1.85;letter-spacing:1px;color:${C.redCardText};">${inner}</p>` +
     `</section>`
   );
 }
@@ -715,7 +716,7 @@ function noteCardHtml(lines: string[]): string {
     `备注` +
     `</div>` +
     `<p style="margin:0;font-family:${FONT_STACK};font-size:14px;` +
-    `line-height:1.85;letter-spacing:1px;color:#2b1d1f;">${inner}</p>` +
+    `line-height:1.85;letter-spacing:1px;color:${C.redCardText};">${inner}</p>` +
     `</section>`
   );
 }
