@@ -63,7 +63,8 @@ const C = {
   redTagText: '#fff5ea',
   redCardBg: '#fff4e8',
   redCardBorder: '#f3d6b3',
-  redHighlightBg: '#ffe6c7',
+  redHighlightBg: '#3a2410',
+  redHighlightText: '#FFB04A',
   // misc
   yellowHighlightBg: '#fff1bf',
   border: '#d9d0d1',
@@ -425,12 +426,13 @@ function strikeHtml(text: string): string {
 // prompt. (The fourth — 核心概念 下划线 — overlaps with our link style
 // and is left to the link/strong renderers.)
 function highlightRedHtml(text: string): string {
-  // 关键句: 浅红底条 #f7e4e5, 圆角 3px, weight 600, 1px padding
-  return (
-    `<span style="background:${C.redHighlightBg};` +
-    `color:${C.text};font-weight:600;` +
-    `padding:1px 4px;border-radius:3px;">${text}</span>`
-  );
+    // 关键句: 深棕底条 #3a2410, 浅亮橙文字 #FFB04A,
+    // 圆角 3px, weight 600, 1px padding.
+    return (
+      `<span style="background:${C.redHighlightBg};` +
+      `color:${C.redHighlightText};font-weight:600;` +
+      `padding:1px 4px;border-radius:3px;">${text}</span>`
+    );
 }
 
 function highlightYellowHtml(text: string): string {
