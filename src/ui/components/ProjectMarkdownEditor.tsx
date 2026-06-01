@@ -5,7 +5,6 @@ import {
   ChevronDown,
   ChevronUp,
   Code,
-  MoreHorizontal,
   Heading1,
   Heading2,
   Heading3,
@@ -1004,14 +1003,11 @@ export function ProjectMarkdownEditor({
     applyFrontmatterChange(updateMarkdownMetadataArray(frontmatterRef.current, field, nextItems));
   }, [applyFrontmatterChange]);
 
-  const [wechatCopied, setWechatCopied] = useState(false);
   const handleCopyWechatHtml = useCallback(async () => {
     const markdown = currentFullMarkdownRef.current ?? value;
     const result = await copyMarkdownAsWechatHtml(markdown);
     if (result.ok) {
-      setWechatCopied(true);
-      toast.success('公众号 HTML 已复制到剪贴板');
-      window.setTimeout(() => setWechatCopied(false), 2000);
+      toast.success('已复制到公众号剪贴板');
     } else {
       toast.error(`复制失败: ${result.error}`);
     }
@@ -1290,25 +1286,18 @@ export function ProjectMarkdownEditor({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="aegis-md-toolbar-button"
-                title="更多操作"
-                aria-label="更多操作"
+                className="aegis-md-toolbar-button aegis-md-toolbar-button--text"
+                title="公众号主题"
+                aria-label="公众号主题"
                 data-testid="aegis-md-toolbar-more"
               >
-                <MoreHorizontal size={16} />
+                <span className="aegis-md-toolbar-button-text-label">公众号主题</span>
+                <ChevronDown size={14} aria-hidden="true" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={6}>
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  void handleCopyWechatHtml();
-                }}
-              >
-                <span className="aegis-md-toolbar-more-check" aria-hidden="true">
-                  {wechatCopied ? '✓' : '⧉'}
-                </span>
-                <span>复制公众号HTML</span>
+              <DropdownMenuItem onSelect={() => void handleCopyWechatHtml()}>
+                <span>BubbleBrain</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
