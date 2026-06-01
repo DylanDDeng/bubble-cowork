@@ -44,6 +44,10 @@ const FONT_STACK =
 const MONO_STACK =
   "'SFMono-Regular',Menlo,Consolas,'Courier New',monospace";
 
+const SERIF_STACK =
+  "'Source Serif Pro','Source Han Serif SC','Noto Serif SC'," +
+  "'Songti SC','SimSun',Georgia,'Times New Roman',serif";
+
 const C = {
   // surfaces
   pageBg: '#fbfaf8', // 骨白
@@ -506,6 +510,40 @@ function renderBlock(b: Block, state: RenderState): string {
 
 // ----- Block element builders ----------------------------------------------
 
+/**
+ * 将 inner HTML 文本节点中的数字串包成 <span style="font-family:SERIF_STACK">,
+ * 用于标题中"印出数字"的刊刻感. 状态机区分 tag 内外, 不污染属性值.
+ */
+function wrapNumbersInSerif(html: string): string {
+  let out = '';
+  let inTag = false;
+  let buf = '';
+  const flush = () => {
+    out += buf.replace(
+      /(\d+)/g,
+      `<span style="font-family:${SERIF_STACK};">$1</span>`
+    );
+    buf = '';
+  };
+  for (let i = 0; i < html.length; i++) {
+    const ch = html[i];
+    if (ch === '<') {
+      flush();
+      inTag = true;
+      out += ch;
+    } else if (ch === '>') {
+      inTag = false;
+      out += ch;
+    } else if (inTag) {
+      out += ch;
+    } else {
+      buf += ch;
+    }
+  }
+  flush();
+  return out;
+}
+
 function h2SectionHtml(inner: string, n: number): string {
   const tag = `Section ${String(n).padStart(2, '0')}`;
   return (
@@ -518,7 +556,7 @@ function h2SectionHtml(inner: string, n: number): string {
     `text-transform:uppercase;">${tag}</span>` +
     `<span style="font-family:${FONT_STACK};font-size:18px;` +
     `line-height:1.4;font-weight:700;color:#111111;` +
-    `letter-spacing:0.3px;">${inner}</span>` +
+    `letter-spacing:0.3px;">${wrapNumbersInSerif(inner)}</span>` +
     `</div>` +
     `<div style="width:48%;height:2px;` +
     `background:linear-gradient(90deg,#111111 0%,${C.red} 62%,` +
@@ -534,7 +572,7 @@ function h3SubsectionHtml(inner: string): string {
     `<h3 style="font-family:${FONT_STACK};font-size:16px;` +
     `font-weight:700;color:#1f1f1f;line-height:1.5;` +
     `margin:28px 0 12px;letter-spacing:0.3px;` +
-    `padding-left:10px;border-left:2px solid ${C.red};">${inner}</h3>`
+    `padding-left:10px;border-left:2px solid ${C.red};">${wrapNumbersInSerif(inner)}</h3>`
   );
 }
 
@@ -547,7 +585,7 @@ function h4SubSubsectionHtml(inner: string): string {
     `gap:8px;letter-spacing:0.3px;">` +
     `<span style="display:inline-block;width:6px;height:6px;` +
     `background:${C.red};border-radius:50%;` +
-    `flex-shrink:0;"></span>${inner}</h4>`
+    `flex-shrink:0;"></span>${wrapNumbersInSerif(inner)}</h4>`
   );
 }
 
@@ -559,7 +597,7 @@ function h5MinorHtml(inner: string): string {
     `margin:18px 0 8px;display:flex;align-items:center;` +
     `gap:8px;">` +
     `<span style="display:inline-block;width:14px;height:2px;` +
-    `background:${C.red};flex-shrink:0;"></span>${inner}</h5>`
+    `background:${C.red};flex-shrink:0;"></span>${wrapNumbersInSerif(inner)}</h5>`
   );
 }
 
@@ -572,7 +610,7 @@ function h6MinorHtml(inner: string): string {
     `gap:6px;">` +
     `<span style="display:inline-block;width:6px;height:6px;` +
     `background:${C.textMuted};transform:rotate(45deg);` +
-    `flex-shrink:0;"></span>${inner}</h6>`
+    `flex-shrink:0;"></span>${wrapNumbersInSerif(inner)}</h6>`
   );
 }
 
