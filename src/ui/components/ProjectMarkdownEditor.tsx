@@ -60,6 +60,14 @@ import { $prose, $view } from '@milkdown/utils';
 import { undo, redo } from '@milkdown/kit/prose/history';
 import { projectMarkdownCodeBlockView } from './ProjectMarkdownCodeBlockView';
 import '@milkdown/kit/prose/view/style/prosemirror.css';
+import { toast } from 'sonner';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
+import { copyMarkdownAsWechatHtml, type WeChatThemeId } from '../lib/wechatMarkdown';
 
 export type MarkdownOutlineItem = {
   id: string;
@@ -995,6 +1003,16 @@ export function ProjectMarkdownEditor({
     applyFrontmatterChange(updateMarkdownMetadataArray(frontmatterRef.current, field, nextItems));
   }, [applyFrontmatterChange]);
 
+  const handleCopyWechatHtml = useCallback(async (themeId: WeChatThemeId = 'bubblebrain') => {
+    const markdown = currentFullMarkdownRef.current ?? value;
+    const result = await copyMarkdownAsWechatHtml(markdown, themeId);
+    if (result.ok) {
+      toast.success('已复制到公众号剪贴板');
+    } else {
+      toast.error(`复制失败: ${result.error}`);
+    }
+  }, [value]);
+
   useEffect(() => {
     const root = hostRef.current;
     if (!root) return;
@@ -1263,11 +1281,31 @@ export function ProjectMarkdownEditor({
           <ImageIcon className="h-4 w-4" />
         </ToolbarButton>
         </div>
-        {toolbarActions ? (
-          <div className="aegis-md-toolbar-actions no-drag">
-            {toolbarActions}
-          </div>
-        ) : null}
+        <div className="aegis-md-toolbar-actions no-drag">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="aegis-md-toolbar-button aegis-md-toolbar-button--text"
+                title="公众号主题"
+                aria-label="公众号主题"
+                data-testid="aegis-md-toolbar-more"
+              >
+                <span className="aegis-md-toolbar-button-text-label">公众号主题</span>
+                <ChevronDown size={14} aria-hidden="true" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={6}>
+              <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('bubblebrain')}>
+                <span>BubbleBrain</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('lapis')}>
+                <span>Lapis</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {toolbarActions}
+        </div>
       </div>
 
       {saveState === 'error' && saveError && (
