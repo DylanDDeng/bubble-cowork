@@ -108,19 +108,11 @@ function parseBlocks(src: string): Block[] {
     }
   }
 
-  // Track whether the last emitted block was preceded by a blank line in
-  // the source. We use that to decide whether to emit a 14px 'break'
-  // placeholder before the NEXT non-empty block.
-  let pendingBreak = false;
-
-  // Helper: if the source had a blank line before this point and we have
-  // already emitted at least one block, push a 'break' block first.
-  const flushBreak = () => {
-    if (pendingBreak && out.length > 0) {
-      out.push({ kind: 'break' });
-    }
-    pendingBreak = false;
-  };
+  // Markdown blank lines separate blocks; they should not become visible
+  // <br/> elements in the copied WeChat HTML. Hard line breaks inside
+  // paragraphs are still represented by the mdast `break` node and are
+  // rendered by renderMdastInline().
+  const flushBreak = () => {};
 
   while (i < lines.length) {
     const raw = lines[i];
@@ -128,7 +120,15 @@ function parseBlocks(src: string): Block[] {
 
     // Blank line — don't emit a block, just remember the gap.
     if (/^\s*$/.test(line)) {
-      pendingBreak = true;
+      // Blank line: end the current paragraph/block only.
+      i++;
+      continue;
+    }
+
+    // Some pasted/exported Markdown files contain literal HTML line-break
+    // tags as standalone lines. Treat those like source blank lines too;
+    // otherwise they become visible "<br />" text paragraphs in WeChat.
+    if (/^<br\s*\/?>$/i.test(line.trim())) {
       i++;
       continue;
     }
