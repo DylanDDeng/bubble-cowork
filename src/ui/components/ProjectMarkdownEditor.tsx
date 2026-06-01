@@ -67,7 +67,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { copyMarkdownAsWechatHtml } from '../lib/wechatMarkdown';
+import { copyMarkdownAsWechatHtml, type WeChatThemeId } from '../lib/wechatMarkdown';
 
 export type MarkdownOutlineItem = {
   id: string;
@@ -1003,9 +1003,9 @@ export function ProjectMarkdownEditor({
     applyFrontmatterChange(updateMarkdownMetadataArray(frontmatterRef.current, field, nextItems));
   }, [applyFrontmatterChange]);
 
-  const handleCopyWechatHtml = useCallback(async () => {
+  const handleCopyWechatHtml = useCallback(async (themeId: WeChatThemeId = 'bubblebrain') => {
     const markdown = currentFullMarkdownRef.current ?? value;
-    const result = await copyMarkdownAsWechatHtml(markdown);
+    const result = await copyMarkdownAsWechatHtml(markdown, themeId);
     if (result.ok) {
       toast.success('已复制到公众号剪贴板');
     } else {
@@ -1296,8 +1296,11 @@ export function ProjectMarkdownEditor({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={6}>
-              <DropdownMenuItem onSelect={() => void handleCopyWechatHtml()}>
+              <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('bubblebrain')}>
                 <span>BubbleBrain</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('lapis')}>
+                <span>Lapis</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

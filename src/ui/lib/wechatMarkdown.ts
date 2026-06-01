@@ -35,11 +35,19 @@ export type WeChatCopyResult =
   | { ok: true; html: string; bytes: number }
   | { ok: false; error: string };
 
+export type WeChatThemeId = 'bubblebrain' | 'lapis';
+
 // ----- Design tokens (verbatim from BLACK_RED_IMPRINT_SYSTEM_PROMPT) -------
 
-const FONT_STACK =
+const BUBBLEBRAIN_FONT_STACK =
   "-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC'," +
   "'Hiragino Sans GB','Microsoft YaHei',sans-serif";
+
+const LAPIS_FONT_STACK =
+  "'Inter','Helvetica Neue',Helvetica,Arial,'PingFang SC'," +
+  "'Hiragino Sans GB','Microsoft YaHei',sans-serif";
+
+let FONT_STACK = BUBBLEBRAIN_FONT_STACK;
 
 const MONO_STACK =
   "'SFMono-Regular',Menlo,Consolas,'Courier New',monospace";
@@ -48,7 +56,33 @@ const SERIF_STACK =
   "'Source Serif Pro','Source Han Serif SC','Noto Serif SC'," +
   "'Songti SC','SimSun',Georgia,'Times New Roman',serif";
 
-const C = {
+type WeChatThemeColors = Record<
+  | 'pageBg'
+  | 'cardBg'
+  | 'codeBarBg'
+  | 'text'
+  | 'textBody'
+  | 'textSoft'
+  | 'textDim'
+  | 'textMuted'
+  | 'textCaption'
+  | 'textItalic'
+  | 'red'
+  | 'redBright'
+  | 'redTagText'
+  | 'redCardBg'
+  | 'redCardBorder'
+  | 'redCardText'
+  | 'redHighlightBg'
+  | 'redHighlightText'
+  | 'yellowHighlightBg'
+  | 'border'
+  | 'codeBorder'
+  | 'shadow',
+  string
+>;
+
+const BUBBLEBRAIN_COLORS: WeChatThemeColors = {
   // surfaces
   pageBg: '#fbfaf8', // 骨白
   cardBg: '#fffdfb', // 纸白
@@ -76,6 +110,83 @@ const C = {
   codeBorder: '#1a1a1a',
   shadow: 'rgba(17,17,17,0.05)',
 } as const;
+
+const LAPIS_COLORS: WeChatThemeColors = {
+  // surfaces
+  pageBg: '#F7F9FC',
+  cardBg: '#ffffff',
+  codeBarBg: '#161626',
+  // text
+  text: '#0A0A0A',
+  textBody: '#0A0A0A',
+  textSoft: '#111111',
+  textDim: '#2A3344',
+  textMuted: '#5A6478',
+  textCaption: '#6B7280',
+  textItalic: '#4B5563',
+  // brand (international Swiss blue)
+  red: '#0033A0',
+  redBright: '#0033A0',
+  redTagText: '#ffffff',
+  redCardBg: '#F4F7FC',
+  redCardBorder: '#D8E2F3',
+  redCardText: '#0A0A0A',
+  redHighlightBg: '#E7EEF9',
+  redHighlightText: '#C2410C',
+  // misc
+  yellowHighlightBg: '#FFF4CC',
+  border: '#D8E2F3',
+  codeBorder: '#111827',
+  shadow: 'rgba(0,51,160,0.06)',
+} as const;
+
+interface WeChatThemeRuntime {
+  id: WeChatThemeId;
+  htmlName: string;
+  fontStack: string;
+  colors: WeChatThemeColors;
+  useSerifForHeadingNumbers: boolean;
+}
+
+const WECHAT_THEMES: Record<WeChatThemeId, WeChatThemeRuntime> = {
+  bubblebrain: {
+    id: 'bubblebrain',
+    htmlName: 'bubblebrain',
+    fontStack: BUBBLEBRAIN_FONT_STACK,
+    colors: BUBBLEBRAIN_COLORS,
+    useSerifForHeadingNumbers: true,
+  },
+  lapis: {
+    id: 'lapis',
+    htmlName: 'lapis',
+    fontStack: LAPIS_FONT_STACK,
+    colors: LAPIS_COLORS,
+    useSerifForHeadingNumbers: false,
+  },
+};
+
+let currentTheme = WECHAT_THEMES.bubblebrain;
+let C = currentTheme.colors;
+
+function resolveWechatTheme(themeId: WeChatThemeId = 'bubblebrain'): WeChatThemeRuntime {
+  return WECHAT_THEMES[themeId] ?? WECHAT_THEMES.bubblebrain;
+}
+
+function withWechatTheme<T>(themeId: WeChatThemeId | undefined, render: () => T): T {
+  const previousTheme = currentTheme;
+  const previousColors = C;
+  const previousFontStack = FONT_STACK;
+  currentTheme = resolveWechatTheme(themeId);
+  C = currentTheme.colors;
+  FONT_STACK = currentTheme.fontStack;
+  try {
+    return render();
+  } finally {
+    currentTheme = previousTheme;
+    C = previousColors;
+    FONT_STACK = previousFontStack;
+  }
+}
 
 // ----- Block-level parser ---------------------------------------------------
 //
@@ -431,13 +542,17 @@ function strikeHtml(text: string): string {
 // prompt. (The fourth — 核心概念 下划线 — overlaps with our link style
 // and is left to the link/strong renderers.)
 function highlightRedHtml(text: string): string {
-    // 关键句: 深棕底条 #3a2410, 浅亮橙文字 #FFB04A,
-    // 圆角 3px, weight 600, 1px padding.
-    return (
-      `<span style="background:${C.redHighlightBg};` +
-      `color:${C.redHighlightText};font-weight:600;` +
-      `padding:1px 4px;border-radius:3px;">${text}</span>`
-    );
+  if (currentTheme.id === 'lapis') {
+    return `<span style="color:${C.redHighlightText};font-weight:700;">${text}</span>`;
+  }
+
+  // 关键句: 深棕底条 #3a2410, 浅亮橙文字 #FFB04A,
+  // 圆角 3px, weight 600, 1px padding.
+  return (
+    `<span style="background:${C.redHighlightBg};` +
+    `color:${C.redHighlightText};font-weight:600;` +
+    `padding:1px 4px;border-radius:3px;">${text}</span>`
+  );
 }
 
 function highlightYellowHtml(text: string): string {
@@ -545,6 +660,7 @@ function wrapNumbersInSerif(html: string): string {
 }
 
 function h2SectionHtml(inner: string, n: number): string {
+  if (currentTheme.id === 'lapis') return h2LapisSectionHtml(inner);
   const tag = `Section ${String(n).padStart(2, '0')}`;
   return (
     `<div style="margin:42px 0 22px;">` +
@@ -556,7 +672,7 @@ function h2SectionHtml(inner: string, n: number): string {
     `text-transform:uppercase;">${tag}</span>` +
     `<span style="font-family:${FONT_STACK};font-size:18px;` +
     `line-height:1.4;font-weight:700;color:#111111;` +
-    `letter-spacing:0.3px;">${wrapNumbersInSerif(inner)}</span>` +
+    `letter-spacing:0.3px;">${formatHeadingInner(inner)}</span>` +
     `</div>` +
     `<div style="width:48%;height:2px;` +
     `background:linear-gradient(90deg,#111111 0%,${C.red} 62%,` +
@@ -565,18 +681,49 @@ function h2SectionHtml(inner: string, n: number): string {
   );
 }
 
+function h2LapisSectionHtml(inner: string): string {
+  return (
+    `<div style="margin:42px 0 22px;">` +
+    `<h2 style="font-family:${FONT_STACK};font-size:20px;` +
+    `line-height:1.35;font-weight:800;color:${C.text};` +
+    `letter-spacing:-0.2px;margin:0 0 10px;">${formatHeadingInner(inner)}</h2>` +
+    `<div style="width:100%;height:1px;background:${C.red};"></div>` +
+    `</div>`
+  );
+}
+
 function h3SubsectionHtml(inner: string): string {
+  if (currentTheme.id === 'lapis') {
+    return (
+      `<h3 style="font-family:${FONT_STACK};font-size:16px;` +
+      `font-weight:800;color:${C.textSoft};line-height:1.5;` +
+      `margin:28px 0 12px;letter-spacing:0.1px;` +
+      `display:flex;align-items:center;gap:8px;">` +
+      `<span style="display:inline-block;color:${C.red};font-size:12px;` +
+      `line-height:1;flex-shrink:0;">■</span>` +
+      `${formatHeadingInner(inner)}</h3>`
+    );
+  }
   // H3 三级: 红 1px 左边框 + 近黑 #1f1f1f + 16px / weight 700. 比 H2 收敛
   // 但仍带橙色触点, 维持刊刻风的色系节奏.
   return (
     `<h3 style="font-family:${FONT_STACK};font-size:16px;` +
     `font-weight:700;color:#1f1f1f;line-height:1.5;` +
     `margin:28px 0 12px;letter-spacing:0.3px;` +
-    `padding-left:10px;border-left:2px solid ${C.red};">${wrapNumbersInSerif(inner)}</h3>`
+    `padding-left:10px;border-left:2px solid ${C.red};">${formatHeadingInner(inner)}</h3>`
   );
 }
 
 function h4SubSubsectionHtml(inner: string): string {
+  if (currentTheme.id === 'lapis') {
+    return (
+      `<h4 style="font-family:${FONT_STACK};font-size:15px;` +
+      `font-weight:800;color:${C.textSoft};line-height:1.5;` +
+      `margin:22px 0 10px;padding-left:10px;` +
+      `border-left:3px solid ${C.red};letter-spacing:0.1px;">` +
+      `${formatHeadingInner(inner)}</h4>`
+    );
+  }
   // H4 四级: 仅 15px 近黑文字, 不再带色块, 用 0.5em 红小方块作 bullet.
   return (
     `<h4 style="font-family:${FONT_STACK};font-size:15px;` +
@@ -585,7 +732,7 @@ function h4SubSubsectionHtml(inner: string): string {
     `gap:8px;letter-spacing:0.3px;">` +
     `<span style="display:inline-block;width:6px;height:6px;` +
     `background:${C.red};border-radius:50%;` +
-    `flex-shrink:0;"></span>${wrapNumbersInSerif(inner)}</h4>`
+    `flex-shrink:0;"></span>${formatHeadingInner(inner)}</h4>`
   );
 }
 
@@ -597,11 +744,21 @@ function h5MinorHtml(inner: string): string {
     `margin:18px 0 8px;display:flex;align-items:center;` +
     `gap:8px;">` +
     `<span style="display:inline-block;width:14px;height:2px;` +
-    `background:${C.red};flex-shrink:0;"></span>${wrapNumbersInSerif(inner)}</h5>`
+    `background:${C.red};flex-shrink:0;"></span>${formatHeadingInner(inner)}</h5>`
   );
 }
 
 function h6MinorHtml(inner: string): string {
+  if (currentTheme.id === 'lapis') {
+    return (
+      `<h6 style="font-family:${FONT_STACK};font-size:13px;` +
+      `font-weight:700;color:${C.textMuted};line-height:1.5;` +
+      `margin:18px 0 8px;display:flex;align-items:center;` +
+      `gap:6px;letter-spacing:0.2px;">` +
+      `<span style="display:inline-block;color:${C.red};font-size:18px;` +
+      `line-height:1;flex-shrink:0;">·</span>${formatHeadingInner(inner)}</h6>`
+    );
+  }
   // H6 六级: 13px + 灰底小标签, 用于最末级附注.
   return (
     `<h6 style="font-family:${FONT_STACK};font-size:13px;` +
@@ -610,8 +767,12 @@ function h6MinorHtml(inner: string): string {
     `gap:6px;">` +
     `<span style="display:inline-block;width:6px;height:6px;` +
     `background:${C.textMuted};transform:rotate(45deg);` +
-    `flex-shrink:0;"></span>${wrapNumbersInSerif(inner)}</h6>`
+    `flex-shrink:0;"></span>${formatHeadingInner(inner)}</h6>`
   );
+}
+
+function formatHeadingInner(inner: string): string {
+  return currentTheme.useSerifForHeadingNumbers ? wrapNumbersInSerif(inner) : inner;
 }
 
 function paragraphHtml(text: string): string {
@@ -861,24 +1022,32 @@ function renderWechatBody(markdown: string): string {
   return blocks.map((b) => renderBlock(b, state)).join('\n');
 }
 
-function markdownToWechatHtmlFragment(markdown: string): string {
-  const body = renderWechatBody(markdown);
-  return (
-    `<section data-aegis-wechat-theme="black-red-imprint" ` +
-    `style="font-family:${FONT_STACK};background:${C.pageBg};` +
+function markdownToWechatHtmlFragment(
+  markdown: string,
+  themeId: WeChatThemeId = 'bubblebrain',
+): string {
+  return withWechatTheme(themeId, () => {
+    const body = renderWechatBody(markdown);
+    return (
+      `<section data-aegis-wechat-theme="${currentTheme.htmlName}" ` +
+      `style="font-family:${FONT_STACK};background:${C.pageBg};` +
     `color:${C.text};max-width:700px;margin:0 auto;` +
     `padding:22px 20px;font-size:15px;line-height:1.85;">` +
-    body +
-    WECHAT_STYLE_MARKER +
-    `</section>`
-  );
+      body +
+      WECHAT_STYLE_MARKER +
+      `</section>`
+    );
+  });
 }
 
-export function markdownToWechatHtml(markdown: string): string {
+export function markdownToWechatHtml(
+  markdown: string,
+  themeId: WeChatThemeId = 'bubblebrain',
+): string {
   const blocks = parseBlocks(markdown);
   const title = extractDocumentTitle(blocks);
 
-  const fragment = markdownToWechatHtmlFragment(markdown);
+  const fragment = markdownToWechatHtmlFragment(markdown, themeId);
 
   return (
     `<!DOCTYPE html>\n` +
@@ -920,9 +1089,10 @@ export function markdownToWechatHtml(markdown: string): string {
  */
 export async function copyMarkdownAsWechatHtml(
   markdown: string,
+  themeId: WeChatThemeId = 'bubblebrain',
 ): Promise<WeChatCopyResult> {
-  const html = markdownToWechatHtml(markdown);
-  const clipboardHtml = markdownToWechatHtmlFragment(markdown);
+  const html = markdownToWechatHtml(markdown, themeId);
+  const clipboardHtml = markdownToWechatHtmlFragment(markdown, themeId);
 
   // 1. Prefer the modern Clipboard API. For clipboard text/html, write the
   // WeChat body fragment rather than a full <!doctype><html><body> document.
