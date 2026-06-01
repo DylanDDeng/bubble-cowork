@@ -32,7 +32,7 @@
  */
 
 export type WeChatCopyResult =
-  | { ok: true; html: string; bytes: number }
+  | { ok: true; html: string; bytes: number; format: 'html' | 'markdown' }
   | { ok: false; error: string };
 
 export type WeChatThemeId = 'bubblebrain' | 'lapis';
@@ -1080,9 +1080,9 @@ export function markdownToWechatHtml(
  *     fallback also writes text/html only instead of letting Chromium
  *     synthesize a text/plain flavor from a selected rich DOM range.
  *
- *  3. navigator.clipboard.writeText(html). Last-resort. Pastes the
- *     HTML string as plain text — not what the user wanted, but at
- *     least something is on the clipboard.
+ *  3. navigator.clipboard.writeText(markdown). Last-resort. This keeps
+ *     the clipboard useful as the original Markdown instead of pasting
+ *     escaped HTML markup into plain-text targets.
  */
 export async function copyMarkdownAsWechatHtml(
   markdown: string,
@@ -1101,7 +1101,7 @@ export async function copyMarkdownAsWechatHtml(
         'text/html': new Blob([clipboardHtml], { type: 'text/html' }),
       });
       await navigator.clipboard.write([item]);
-      return { ok: true, html, bytes: html.length };
+      return { ok: true, html, bytes: html.length, format: 'html' };
     }
   } catch (err) {
     void err;
@@ -1111,17 +1111,19 @@ export async function copyMarkdownAsWechatHtml(
   // clipboard.write is blocked by browser/Electron security policy.
   try {
     if (copyViaCopyEvent(clipboardHtml)) {
-      return { ok: true, html, bytes: html.length };
+      return { ok: true, html, bytes: html.length, format: 'html' };
     }
   } catch (err) {
     void err;
   }
 
-  // 3. writeText fallback (HTML written as text)
+  // 3. Plain Markdown fallback. Never write the HTML template as text; that
+  // produces visible entities such as &quot; and &amp; when pasted outside a rich
+  // editor.
   try {
     if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(html);
-      return { ok: true, html, bytes: html.length };
+      await navigator.clipboard.writeText(markdown);
+      return { ok: true, html, bytes: markdown.length, format: 'markdown' };
     }
   } catch (err) {
     void err;

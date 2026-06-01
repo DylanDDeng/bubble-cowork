@@ -65,6 +65,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { copyMarkdownAsWechatHtml, type WeChatThemeId } from '../lib/wechatMarkdown';
@@ -750,6 +751,16 @@ function ToolbarButton({
   );
 }
 
+function normalizeCopiedMarkdownSource(markdown: string): string {
+  // Milkdown's serializer escapes HTML-like prompt tags and identifier
+  // underscores (for example `\<title\_rules>`). Keep those guards out of
+  // copy/export output without touching intentional escapes elsewhere.
+  return markdown.replace(
+    /\\(<\/?)([A-Za-z][A-Za-z0-9\\_-]*)(\\?>)/g,
+    (_match, open: string, name: string) => `${open}${name.replace(/\\_/g, '_')}>`
+  );
+}
+
 export function ProjectMarkdownEditor({
   value,
   cwd,
@@ -1004,12 +1015,26 @@ export function ProjectMarkdownEditor({
   }, [applyFrontmatterChange]);
 
   const handleCopyWechatHtml = useCallback(async (themeId: WeChatThemeId = 'bubblebrain') => {
-    const markdown = currentFullMarkdownRef.current ?? value;
+    const markdown = normalizeCopiedMarkdownSource(currentFullMarkdownRef.current ?? value);
     const result = await copyMarkdownAsWechatHtml(markdown, themeId);
     if (result.ok) {
-      toast.success('已复制到公众号剪贴板');
+      toast.success(
+        result.format === 'html'
+          ? '已复制到公众号剪贴板'
+          : '富文本复制不可用，已复制原始 Markdown'
+      );
     } else {
       toast.error(`复制失败: ${result.error}`);
+    }
+  }, [value]);
+
+  const handleCopyRawMarkdown = useCallback(async () => {
+    const markdown = normalizeCopiedMarkdownSource(currentFullMarkdownRef.current ?? value);
+    try {
+      await navigator.clipboard.writeText(markdown);
+      toast.success('已复制原始 Markdown');
+    } catch (error) {
+      toast.error(`复制失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }, [value]);
 
@@ -1301,6 +1326,10 @@ export function ProjectMarkdownEditor({
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('lapis')}>
                 <span>Lapis</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => void handleCopyRawMarkdown()}>
+                <span>原始 Markdown</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
