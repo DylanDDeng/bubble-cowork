@@ -257,6 +257,18 @@ function parseBlocks(src: string): Block[] {
   return out;
 }
 
+function collapseBreakRuns(html: string): string {
+  // The renderer can emit several consecutive <br/> tags when a markdown
+  // paragraph has trailing spaces on every line, or when a user types
+  // literal "<br/>" markers into the source. WeChat's editor faithfully
+  // pastes them all, which produces visible "walls" of empty lines.
+  // Collapse any run of <br/> (with optional surrounding whitespace and
+  // the placeholder we use for blank lines) down to a single <br/>.
+  return html
+    .replace(/(?:<br\s*\/?>(?:\s|<p>&nbsp;<\/p>)*){2,}/gi, '<br/>')
+    .replace(/(?:<p>&nbsp;<\/p>\s*){2,}/gi, '<p>&nbsp;</p>');
+}
+
 // ----- Inline parser --------------------------------------------------------
 //
 // Order matters: code is stashed first so its content is never re-escaped;
@@ -330,7 +342,7 @@ function renderInline(src: string): string {
   working = working.replace(/~~(.+?)~~/g, (_m, t: string) => strikeHtml(t));
 
   // 9. Hard line breaks (two trailing spaces) → <br>
-  working = working.replace(/  \n/g, '<br/>');
+  working = working.replace(/(?:  \n)+/g, '<br/>\n');
 
   // 10. Restore inline code stashes
   working = working.replace(/\u0000CODE(\d+)\u0000/g, (_m, idx: string) => {
@@ -352,10 +364,30 @@ function inlineCodeHtml(escaped: string): string {
   );
 }
 
+function escapeAttr(value: string): string {
+  // Escape `& " < >` for safe use inside an HTML attribute. We must
+  // be careful: remark/mdast hands us URLs and alt text that are
+  // ALREADY HTML-escaped (e.g. `&` -> `&amp;`). A naive
+  // `.replace(/&/g, '&amp;')` would then turn `&amp;` into
+  // `&amp;amp;`, which browsers and the WeChat editor decode back
+  // to the literal string `&amp;` — breaking any URL whose query
+  // string contains `&` and any alt text that mentions `&`. So this
+  // function is IDEMPOTENT: it never re-escapes a `&` that is already
+  // part of a valid HTML entity (named, decimal, or hex). It still
+  // escapes `&` that is a bare ampersand (e.g. inside a URL query).
+  return value
+    .replace(/&(?!(?:amp|quot|lt|gt|apos|nbsp|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function imageHtml(srcUrl: string, alt: string): string {
+  const safeSrc = escapeAttr(srcUrl);
+  const safeAlt = escapeAttr(alt);
   return (
-    `<img src="${srcUrl}" alt="${alt}" style="display:block;` +
-    `width:100%;margin:24px 0;border-radius:6px;` +
+    `<img src="${safeSrc}" alt="${safeAlt}" data-aegis-image="1" ` +
+    `style="display:block;width:100%;margin:24px 0;border-radius:6px;` +
     `border:1px solid ${C.border};" />`
   );
 }
@@ -545,7 +577,7 @@ function paragraphHtml(text: string): string {
   return (
     `<p style="margin:16px 0;color:${C.textBody};font-size:14px;` +
     `line-height:1.85;letter-spacing:1px;">` +
-    renderInline(text) +
+    collapseBreakRuns(renderInline(text)) +
     `</p>`
   );
 }
