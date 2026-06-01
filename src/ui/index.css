@@ -2449,7 +2449,7 @@ button.aegis-mdx-metadata-key:hover {
   padding: 4px 9px;
   color: var(--text-muted);
   font-size: 15px;
-  font-weight: 520;
+  font-weight: 400;
   line-height: 1.28;
   text-align: left;
   text-overflow: ellipsis;
@@ -2477,7 +2477,6 @@ button.aegis-mdx-metadata-key:hover {
 .aegis-md-outline-list button.active {
   background: transparent;
   color: var(--accent);
-  font-weight: 650;
 }
 
 @media (max-width: 900px) {
