@@ -1069,19 +1069,16 @@ export function markdownToWechatHtml(
  *
  * Strategy order (each step falls through to the next on failure):
  *
- *  1. contenteditable + execCommand('copy')  ← the canonical "copy rich
- *     text from a web view" technique. Chromium computes both the
- *     text/html and text/plain flavors from the selected range and
- *     pushes them onto the OS clipboard. This is the most reliable
- *     path inside Electron renderers, where navigator.clipboard
- *     permissioning and the secure-context check can be flaky.
- *
- *  2. navigator.clipboard.write with text/html only. We intentionally
+ *  1. navigator.clipboard.write with text/html only. We intentionally
  *     do NOT set text/plain=markdown here. When both flavors are
  *     present, some Chromium-based editors (notably the 公众号
- *     editor) read text/plain and end up pasting the raw markdown
- *     source instead of the styled HTML. Sending only text/html forces
- *     the editor to take the rich path.
+ *     editor) may consume both clipboard flavors and paste duplicated
+ *     content. Sending only text/html forces the editor to take the
+ *     rich path once.
+ *
+ *  2. execCommand('copy') with an explicit copy event payload. This
+ *     fallback also writes text/html only instead of letting Chromium
+ *     synthesize a text/plain flavor from a selected rich DOM range.
  *
  *  3. navigator.clipboard.writeText(html). Last-resort. Pastes the
  *     HTML string as plain text — not what the user wanted, but at
@@ -1102,7 +1099,6 @@ export async function copyMarkdownAsWechatHtml(
     if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
       const item = new ClipboardItem({
         'text/html': new Blob([clipboardHtml], { type: 'text/html' }),
-        'text/plain': new Blob([markdown], { type: 'text/plain' }),
       });
       await navigator.clipboard.write([item]);
       return { ok: true, html, bytes: html.length };
@@ -1111,10 +1107,10 @@ export async function copyMarkdownAsWechatHtml(
     void err;
   }
 
-  // 2. Fallback: contenteditable + execCommand. This helps in environments
-  // where clipboard.write is blocked by browser/Electron security policy.
+  // 2. Fallback: explicit copy event. This helps in environments where
+  // clipboard.write is blocked by browser/Electron security policy.
   try {
-    if (copyViaContentEditable(clipboardHtml)) {
+    if (copyViaCopyEvent(clipboardHtml)) {
       return { ok: true, html, bytes: html.length };
     }
   } catch (err) {
@@ -1138,17 +1134,15 @@ export async function copyMarkdownAsWechatHtml(
 }
 
 /**
- * Place HTML into a hidden contentEditable element, select it, and ask
- * the browser to copy it. Chromium converts the selection into the
- * text/html + text/plain pair that the OS clipboard expects, and
- * downstream apps (including the 公众号 editor) read text/html first.
+ * Trigger a trusted copy command while overriding the clipboard payload.
+ * This avoids Chromium's default range-copy behavior, which also synthesizes
+ * text/plain and can make paste targets insert the document twice.
  */
-function copyViaContentEditable(html: string): boolean {
+function copyViaCopyEvent(html: string): boolean {
   if (typeof document === 'undefined' || !document.body) return false;
 
   const container = document.createElement('div');
-  container.contentEditable = 'true';
-  container.innerHTML = html;
+  container.textContent = ' ';
   // Off-screen, invisible, non-interactive. The element still has to
   // be in the layout tree for the Range selection to be valid.
   container.style.position = 'fixed';
@@ -1161,8 +1155,6 @@ function copyViaContentEditable(html: string): boolean {
   container.style.border = '0';
   container.style.opacity = '0';
   container.style.pointerEvents = 'none';
-  // Disable spell-check on the off-screen element so the browser
-  // doesn't briefly underline text in the user's view.
   container.setAttribute('spellcheck', 'false');
   document.body.appendChild(container);
 
@@ -1177,11 +1169,21 @@ function copyViaContentEditable(html: string): boolean {
   selection.removeAllRanges();
   selection.addRange(range);
 
+  const handleCopy = (event: ClipboardEvent) => {
+    if (!event.clipboardData) return;
+    event.clipboardData.clearData();
+    event.clipboardData.setData('text/html', html);
+    event.preventDefault();
+  };
+
+  document.addEventListener('copy', handleCopy, true);
   let ok = false;
   try {
     ok = document.execCommand('copy');
   } catch {
     ok = false;
+  } finally {
+    document.removeEventListener('copy', handleCopy, true);
   }
 
   selection.removeAllRanges();
