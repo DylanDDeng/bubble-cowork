@@ -20,7 +20,7 @@
  *     warm off-white background.
  *   - End Note (:::endnote) gets the "End Note" red tag + 收束句 + 副小字.
  *   - Four inline emphasis styles: ==text== (浅红底), !!text!! (浅黄底),
- *     ++text++ (方法名深红).
+ *     ++text++ (方法名暖橙).
  *   - A 14px vertical placeholder is inserted between blocks to keep
  *     sections from sticking together.
  *   - At the very end, append the WeChat editor magic marker so the editor
@@ -57,13 +57,13 @@ const C = {
   textMuted: '#5b4b4d',
   textCaption: '#6a4b4d',
   textItalic: '#5f5355',
-  // brand
-  red: '#8f1d22',
-  redBright: '#b3262d',
-  redTagText: '#fff6f4',
-  redCardBg: '#fff7f7',
-  redCardBorder: '#ead9db',
-  redHighlightBg: '#f7e4e5',
+  // brand (warm orange)
+  red: '#F87B02',
+  redBright: '#FF8E1A',
+  redTagText: '#fff5ea',
+  redCardBg: '#fff4e8',
+  redCardBorder: '#f3d6b3',
+  redHighlightBg: '#ffe6c7',
   // misc
   yellowHighlightBg: '#fff1bf',
   border: '#d9d0d1',
@@ -299,7 +299,7 @@ function renderInline(src: string): string {
   //    don't collide with ** / __ / * / _).
   //    ==...==  → 关键句 (浅红底, weight 600)
   //    !!...!!  → 警示 / 转折 (浅黄底, weight 600)
-  //    ++...++  → 方法名 / 操作项 (深红文字, weight 700)
+  //    ++...++  → 方法名 / 操作项 (暖橙文字, weight 700)
   working = working.replace(
     /==([^=\n][^\n]*?)==/g,
     (_m, t: string) => highlightRedHtml(t),
@@ -407,7 +407,7 @@ function strongHtml(text: string): string {
   // Bold is rendered WITHOUT the body's letter-spacing:1px; the spec is
   // explicit that 1px tracking is for continuous prose, not for short
   // emphatic spans like titles, labels, or bolded words.
-  return `<strong style="color:${C.textSoft};font-weight:700;">${text}</strong>`;
+  return `<strong style="color:${C.red};font-weight:700;">${text}</strong>`;
 }
 
 function emHtml(text: string): string {
@@ -443,7 +443,7 @@ function highlightYellowHtml(text: string): string {
 }
 
 function methodNameHtml(text: string): string {
-  // 方法名 / 操作项: 深红文字 #8f1d22, weight 700
+  // 方法名 / 操作项: 暖橙文字 #F87B02, weight 700
   return (
     `<span style="color:${C.red};font-weight:700;">${text}</span>`
   );
@@ -526,7 +526,7 @@ function h2SectionHtml(inner: string, n: number): string {
 
 function h3SubsectionHtml(inner: string): string {
   // H3 三级: 红 1px 左边框 + 近黑 #1f1f1f + 16px / weight 700. 比 H2 收敛
-  // 但仍带红色触点, 维持刊刻风的色系节奏.
+  // 但仍带橙色触点, 维持刊刻风的色系节奏.
   return (
     `<h3 style="font-family:${FONT_STACK};font-size:16px;` +
     `font-weight:700;color:#1f1f1f;line-height:1.5;` +
@@ -720,7 +720,7 @@ function noteCardHtml(lines: string[]): string {
 
 function endNoteHtml(lines: string[]): string {
   // 结尾收束. The spec says:
-  //   1. 顶部一个 "End Note" 红色 section 标签
+  //   1. 顶部一个 "End Note" 橙色 section 标签
   //   2. 一句收束话 (18px, weight 700, color #111)
   //   3. 后续一行小字 (14px, color #5b4b4d)
   // The container accepts up to two non-blank lines: the first becomes
