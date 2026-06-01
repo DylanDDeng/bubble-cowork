@@ -360,7 +360,7 @@ function inlineCodeHtml(escaped: string): string {
   return (
     `<code style="font-family:${MONO_STACK};font-size:13px;` +
     `background:#f5efea;color:${C.red};padding:1px 6px;` +
-    `border-radius:3px;border:1px solid ${C.border};">` +
+    `border-radius:3px;">` +
     escaped +
     `</code>`
   );
@@ -578,7 +578,7 @@ function h6MinorHtml(inner: string): string {
 
 function paragraphHtml(text: string): string {
   return (
-    `<p style="margin:16px 0;color:${C.textBody};font-size:14px;` +
+    `<p style="margin:16px 0;color:${C.textBody};font-size:15px;` +
     `line-height:1.85;letter-spacing:1px;">` +
     collapseBreakRuns(renderInline(text)) +
     `</p>`
@@ -621,7 +621,7 @@ function ulHtml(items: string[]): string {
   const lis = items
     .map(
       (t) =>
-        `<li style="font-family:${FONT_STACK};font-size:14px;` +
+        `<li style="font-family:${FONT_STACK};font-size:15px;` +
         `line-height:1.85;color:${C.textBody};margin:6px 0;` +
         `letter-spacing:1px;list-style:none;">` +
         `<span style="display:inline-block;color:${C.red};` +
@@ -637,7 +637,7 @@ function olHtml(items: string[]): string {
   const lis = items
     .map(
       (t, idx) =>
-        `<li style="font-family:${FONT_STACK};font-size:14px;` +
+        `<li style="font-family:${FONT_STACK};font-size:15px;` +
         `line-height:1.85;color:${C.textBody};margin:6px 0;` +
         `letter-spacing:1px;list-style:none;">` +
         `<span style="display:inline-block;color:${C.red};` +
@@ -655,7 +655,7 @@ function blockquoteHtml(lines: string[]): string {
   return (
     `<blockquote style="margin:24px 0;padding:8px 0 8px 16px;` +
     `border-left:3px solid #111111;">` +
-    `<p style="margin:0;color:${C.textDim};font-size:14px;` +
+    `<p style="margin:0;color:${C.textDim};font-size:15px;` +
     `line-height:1.9;letter-spacing:1px;">${inner}</p>` +
     `</blockquote>`
   );
@@ -695,7 +695,7 @@ function tipCardHtml(lines: string[]): string {
     `color:${C.red};text-transform:uppercase;margin-bottom:6px;">` +
     `提示` +
     `</div>` +
-    `<p style="margin:0;font-family:${FONT_STACK};font-size:14px;` +
+    `<p style="margin:0;font-family:${FONT_STACK};font-size:15px;` +
     `line-height:1.85;letter-spacing:1px;color:${C.redCardText};">${inner}</p>` +
     `</section>`
   );
@@ -715,7 +715,7 @@ function noteCardHtml(lines: string[]): string {
     `color:${C.red};text-transform:uppercase;margin-bottom:6px;">` +
     `备注` +
     `</div>` +
-    `<p style="margin:0;font-family:${FONT_STACK};font-size:14px;` +
+    `<p style="margin:0;font-family:${FONT_STACK};font-size:15px;` +
     `line-height:1.85;letter-spacing:1px;color:${C.redCardText};">${inner}</p>` +
     `</section>`
   );
@@ -748,7 +748,7 @@ function endNoteHtml(lines: string[]): string {
     renderInline(headline) +
     `</p>` +
     (sub
-      ? `<p style="margin:0;font-family:${FONT_STACK};font-size:14px;` +
+      ? `<p style="margin:0;font-family:${FONT_STACK};font-size:15px;` +
         `line-height:1.85;color:${C.textMuted};letter-spacing:1px;">` +
         renderInline(sub) +
         `</p>`
@@ -829,7 +829,7 @@ function markdownToWechatHtmlFragment(markdown: string): string {
     `<section data-aegis-wechat-theme="black-red-imprint" ` +
     `style="font-family:${FONT_STACK};background:${C.pageBg};` +
     `color:${C.text};max-width:700px;margin:0 auto;` +
-    `padding:22px 20px;font-size:14px;line-height:1.85;">` +
+    `padding:22px 20px;font-size:15px;line-height:1.85;">` +
     body +
     WECHAT_STYLE_MARKER +
     `</section>`
