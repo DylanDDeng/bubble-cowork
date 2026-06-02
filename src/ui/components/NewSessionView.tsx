@@ -19,6 +19,7 @@ import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './Compose
 import { SidebarHeaderTrigger } from './Sidebar';
 import { SavePromptButton } from './prompts/SavePromptButton';
 import { ComposerAgentPicker, ComposerModelPicker } from './ComposerAgentControls';
+import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { FolderOpen } from './icons';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
@@ -264,12 +265,16 @@ export function NewSessionView() {
         channelId,
         attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
         provider: agentSelection.provider,
-        model: agentSelection.model || undefined,
-        compatibleProviderId:
-          agentSelection.provider === 'claude'
-            ? agentSelection.compatibleProviderId || undefined
-            : undefined,
-        ...codexReferences,
+            model: agentSelection.model || undefined,
+            compatibleProviderId:
+            agentSelection.provider === 'claude'
+                ? agentSelection.compatibleProviderId || undefined
+                : undefined,
+            ...codexReferences,
+            codexPermissionMode:
+            agentSelection.provider === 'codex'
+                ? agentSelection.codexPermissionMode
+                : undefined,
         ...aegisReferences,
         teamMode: 'solo',
         teamId: null,
@@ -638,6 +643,13 @@ export function NewSessionView() {
               codexFastMode={agentSelection.codexFastMode}
               onCodexFastModeChange={agentSelection.setCodexFastMode}
             />
+              {agentSelection.provider === 'codex' && (
+                <CodexPermissionModePicker
+                  value={agentSelection.codexPermissionMode}
+                  onChange={agentSelection.setCodexPermissionMode}
+                  disabled={pendingStart}
+                />
+              )}
               <SavePromptButton content={promptLibraryContent} disabled={pendingStart} />
 
               <button

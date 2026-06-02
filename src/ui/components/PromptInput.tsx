@@ -299,6 +299,10 @@ export function PromptInput({
           compatibleProviderId:
             runtimeProvider === 'claude' ? agentSelection.compatibleProviderId || undefined : undefined,
           ...codexReferences,
+          codexPermissionMode:
+            runtimeProvider === 'codex'
+              ? agentSelection.codexPermissionMode
+              : undefined,
           ...aegisReferences,
           teamMode: 'solo',
           teamId: null,
@@ -320,6 +324,10 @@ export function PromptInput({
         compatibleProviderId:
           runtimeProvider === 'claude' ? agentSelection.compatibleProviderId || undefined : undefined,
         ...codexReferences,
+        codexPermissionMode:
+          runtimeProvider === 'codex'
+            ? agentSelection.codexPermissionMode
+            : undefined,
         ...aegisReferences,
         teamMode: 'solo',
         teamId: null,

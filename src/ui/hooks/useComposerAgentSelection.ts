@@ -24,6 +24,7 @@ import {
 } from '../utils/codex-model';
 import {
   CodexReasoningEffort,
+  CodexPermissionMode,
 } from '../../shared/types';
 import {
   getDefaultCodexReasoningEffort,
@@ -566,6 +567,8 @@ export function useComposerAgentSelection(input?: {
     [codexModelConfig, model]
   );
 
+  const [codexPermissionMode, setCodexPermissionMode] = useState<CodexPermissionMode>('defaultPermissions');
+
   return {
     provider,
     model,
@@ -582,5 +585,7 @@ export function useComposerAgentSelection(input?: {
     setCodexReasoningEffort,
     codexFastMode,
     setCodexFastMode,
+    codexPermissionMode,
+    setCodexPermissionMode,
   };
 }
