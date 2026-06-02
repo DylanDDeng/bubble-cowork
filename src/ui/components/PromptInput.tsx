@@ -19,6 +19,7 @@ import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
 import { CodexContextIndicator } from './CodexContextIndicator';
 import { ComposerAgentPicker, ComposerModelPicker } from './ComposerAgentControls';
+import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
@@ -637,6 +638,13 @@ export function PromptInput({
                 codexFastMode={agentSelection.codexFastMode}
                 onCodexFastModeChange={agentSelection.setCodexFastMode}
               />
+              {runtimeProvider === 'codex' && (
+                <CodexPermissionModePicker
+                  value={agentSelection.codexPermissionMode}
+                  onChange={agentSelection.setCodexPermissionMode}
+                  disabled={isBusy}
+                />
+              )}
               <button
                 type="button"
                 onClick={() => {
