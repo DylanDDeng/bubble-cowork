@@ -18,8 +18,7 @@ import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
 import { CodexContextIndicator } from './CodexContextIndicator';
-import { ComposerAgentPicker, ComposerModelPicker } from './ComposerAgentControls';
-import { CodexPermissionModePicker } from './CodexPermissionModePicker';
+import { ComposerAgentModelPicker } from './ComposerAgentControls';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
@@ -617,34 +616,22 @@ export function PromptInput({
 
           <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
             <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
-              <ComposerAgentPicker
-                value={runtimeProvider}
+              <ComposerAgentModelPicker
+                agentProvider={runtimeProvider}
+                modelLabel={agentSelection.selectedModelLabel}
+                modelValue={selectedModel}
+                allAgentModelOptions={agentSelection.allAgentModelOptions}
                 disabled={isBusy}
-                onChange={agentSelection.selectAgent}
-              />
-              <ComposerModelPicker
-                value={selectedModel}
-                selectedKey={agentSelection.selectedModelOption?.key ?? null}
-                label={agentSelection.selectedModelLabel}
-                options={agentSelection.modelOptions}
-                setupLabel={agentSelection.modelSetup?.label}
-                disabled={isBusy}
-                onSetup={openModelSetup}
-                onChange={agentSelection.selectModel}
-                codexModelConfig={agentSelection.codexModelConfig ?? undefined}
+                onAgentChange={agentSelection.selectAgent}
+                onModelChange={agentSelection.selectModel}
                 codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
                 codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
                 onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
                 codexFastMode={agentSelection.codexFastMode}
                 onCodexFastModeChange={agentSelection.setCodexFastMode}
+                codexPermissionMode={agentSelection.codexPermissionMode}
+                onCodexPermissionModeChange={agentSelection.setCodexPermissionMode}
               />
-              {runtimeProvider === 'codex' && (
-                <CodexPermissionModePicker
-                  value={agentSelection.codexPermissionMode}
-                  onChange={agentSelection.setCodexPermissionMode}
-                  disabled={isBusy}
-                />
-              )}
               <button
                 type="button"
                 onClick={() => {

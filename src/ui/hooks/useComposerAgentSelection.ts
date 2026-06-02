@@ -270,6 +270,45 @@ export function useComposerAgentSelection(input?: {
     };
   }, []);
 
+  const allAgentModelOptions = useMemo(() => {
+    return {
+      claude: (() => {
+        const defaultOption: ComposerModelOption = {
+          key: 'claude:official:default',
+          value: '',
+          label: 'Default',
+          description: 'Do not override the default model',
+          compatibleProviderId: null,
+        };
+        const officialOptions = buildConfiguredClaudeModelValues(claudeModelConfig, compatibleOptions).map((option) => ({
+          key: `claude:official:${option}`,
+          value: option,
+          label: formatClaudeModelLabel(option),
+          compatibleProviderId: null,
+        }));
+        const compatible = compatibleOptions.map((option) => ({
+          key: `claude:compatible:${option.id}:${option.model}`,
+          value: option.model,
+          label: option.model,
+          description: option.label,
+          compatibleProviderId: option.id,
+        }));
+        return [defaultOption, ...officialOptions, ...compatible];
+      })(),
+      codex: buildCodexModelOptions(codexModelConfig).map((option) => ({
+        key: `codex:${option}`,
+        value: option,
+        label: formatCodexModelLabel(option),
+      })),
+      opencode: buildOpencodeModelOptions(opencodeModelConfig).map((option) => ({
+        key: `opencode:${option}`,
+        value: option,
+        label: formatOpencodeModelLabel(option),
+      })),
+      aegis: buildConfiguredAegisModelOptions(aegisConfig),
+    };
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, aegisConfig]);
+
   const modelOptions = useMemo<ComposerModelOption[]>(() => {
     if (provider === 'claude') {
       const defaultOption: ComposerModelOption = {
@@ -573,6 +612,7 @@ export function useComposerAgentSelection(input?: {
     provider,
     model,
     compatibleProviderId,
+    allAgentModelOptions,
     modelOptions,
     modelSetup,
     selectedModelOption,

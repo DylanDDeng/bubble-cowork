@@ -18,8 +18,7 @@ import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
 import { SidebarHeaderTrigger } from './Sidebar';
 import { SavePromptButton } from './prompts/SavePromptButton';
-import { ComposerAgentPicker, ComposerModelPicker } from './ComposerAgentControls';
-import { CodexPermissionModePicker } from './CodexPermissionModePicker';
+import { ComposerAgentModelPicker } from './ComposerAgentControls';
 import { FolderOpen } from './icons';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
@@ -622,34 +621,22 @@ export function NewSessionView() {
                   Choose project
                 </button>
               ) : null}
-              <ComposerAgentPicker
-                value={agentSelection.provider}
+              <ComposerAgentModelPicker
+                agentProvider={agentSelection.provider}
+                modelLabel={agentSelection.selectedModelLabel}
+                modelValue={agentSelection.model}
+                allAgentModelOptions={agentSelection.allAgentModelOptions}
                 disabled={pendingStart}
-                onChange={agentSelection.selectAgent}
-              />
-              <ComposerModelPicker
-                value={agentSelection.model}
-                selectedKey={agentSelection.selectedModelOption?.key ?? null}
-                label={agentSelection.selectedModelLabel}
-                options={agentSelection.modelOptions}
-                setupLabel={agentSelection.modelSetup?.label}
-                disabled={pendingStart}
-                onSetup={openModelSetup}
-                onChange={agentSelection.selectModel}
-                codexModelConfig={agentSelection.codexModelConfig ?? undefined}
+                onAgentChange={agentSelection.selectAgent}
+                onModelChange={agentSelection.selectModel}
                 codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
                 codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
-              onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
-              codexFastMode={agentSelection.codexFastMode}
-              onCodexFastModeChange={agentSelection.setCodexFastMode}
-            />
-              {agentSelection.provider === 'codex' && (
-                <CodexPermissionModePicker
-                  value={agentSelection.codexPermissionMode}
-                  onChange={agentSelection.setCodexPermissionMode}
-                  disabled={pendingStart}
-                />
-              )}
+                onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
+                codexFastMode={agentSelection.codexFastMode}
+                onCodexFastModeChange={agentSelection.setCodexFastMode}
+                codexPermissionMode={agentSelection.codexPermissionMode}
+                onCodexPermissionModeChange={agentSelection.setCodexPermissionMode}
+              />
               <SavePromptButton content={promptLibraryContent} disabled={pendingStart} />
 
               <button
