@@ -276,10 +276,14 @@ export function ComposerModelPicker({
             type="button"
             disabled={disabled || codexModels.length === 0}
             className={`${triggerClassName} max-w-[240px]`}
-            title={`Model: ${label}`}
+            title={`Model: ${label}${codexReasoningEffort ? ` – ${codexReasoningEffort}` : ''}`}
             aria-label="Select model"
           >
-            <span className="min-w-0 truncate">{label || value || 'Default model'}</span>
+            <span className="min-w-0 truncate">
+              {codexReasoningEffort
+                ? `${label.replace(/^GPT-/, '')} ${codexReasoningEffort}`
+                : (label || value || 'Default model')}
+            </span>
             <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
           </button>
         </DropdownMenu.Trigger>
