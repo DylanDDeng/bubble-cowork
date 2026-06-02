@@ -23,6 +23,14 @@ import {
   savePreferredCodexModel,
 } from '../utils/codex-model';
 import {
+  CodexReasoningEffort,
+} from '../../shared/types';
+import {
+  getDefaultCodexReasoningEffort,
+  loadPreferredCodexReasoningEffort,
+  savePreferredCodexReasoningEffort,
+} from '../utils/codex-reasoning';
+import {
   buildOpencodeModelOptions,
   formatOpencodeModelLabel,
   loadPreferredOpencodeModel,
@@ -485,6 +493,43 @@ export function useComposerAgentSelection(input?: {
         : model
       : 'Default');
 
+  const [codexReasoningEffort, setCodexReasoningEffortState] = useState<CodexReasoningEffort | null>(() => {
+    if (provider !== 'codex' || !model) return null;
+    const preferred = loadPreferredCodexReasoningEffort(model);
+    if (preferred) return preferred;
+    return getDefaultCodexReasoningEffort(codexModelConfig, model) || null;
+  });
+
+  // Sync reasoning effort when model changes
+  useEffect(() => {
+    if (provider === 'codex' && model) {
+      const preferred = loadPreferredCodexReasoningEffort(model);
+      if (preferred) {
+        setCodexReasoningEffortState(preferred);
+      } else {
+        const defaultEffort = getDefaultCodexReasoningEffort(codexModelConfig, model);
+        setCodexReasoningEffortState(defaultEffort || null);
+      }
+    } else {
+      setCodexReasoningEffortState(null);
+    }
+  }, [provider, model, codexModelConfig]);
+
+  const setCodexReasoningEffort = useCallback(
+    (effort: CodexReasoningEffort) => {
+      setCodexReasoningEffortState(effort);
+      if (model) {
+        savePreferredCodexReasoningEffort(model, effort);
+      }
+    },
+    [model]
+  );
+
+  const codexModels = useMemo(() => {
+    if (provider !== 'codex' || !codexModelConfig) return [];
+    return codexModelConfig.availableModels;
+  }, [provider, codexModelConfig]);
+
   return {
     provider,
     model,
@@ -495,5 +540,9 @@ export function useComposerAgentSelection(input?: {
     selectedModelLabel,
     selectAgent,
     selectModel,
+    codexModelConfig,
+    codexModels,
+    codexReasoningEffort,
+    setCodexReasoningEffort,
   };
 }

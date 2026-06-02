@@ -622,6 +622,10 @@ export function PromptInput({
                 disabled={isBusy}
                 onSetup={openModelSetup}
                 onChange={agentSelection.selectModel}
+                codexModelConfig={agentSelection.codexModelConfig ?? undefined}
+                codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
+                codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
+                onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
               />
               <button
                 type="button"
