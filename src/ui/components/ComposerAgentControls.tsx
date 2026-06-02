@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Check, ChevronDown, Copy, Search } from './icons';
+import { Check, ChevronDown, ChevronRight, Copy, Search, Zap } from './icons';
 import type { AgentProvider } from '../types';
 import type { ComposerModelOption } from '../hooks/useComposerAgentSelection';
 import { PROVIDERS } from '../utils/provider';
@@ -194,17 +194,6 @@ export function ComposerAgentPicker({
 
 const codexEffortOptions: CodexReasoningEffort[] = ['low', 'medium', 'high', 'xhigh'];
 
-const EFFORT_LABELS: Record<CodexReasoningEffort, string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'X-High',
-};
-
-function reasoningEffortLabel(effort: CodexReasoningEffort): string {
-  return EFFORT_LABELS[effort] || effort;
-}
-
 export function ComposerModelPicker({
   value,
   selectedKey,
@@ -219,6 +208,8 @@ export function ComposerModelPicker({
   codexModels,
   codexReasoningEffort,
   onCodexReasoningEffortChange,
+  codexFastMode,
+  onCodexFastModeChange,
 }: {
   value: string | null;
   selectedKey?: string | null;
@@ -233,6 +224,8 @@ export function ComposerModelPicker({
   codexModels?: CodexModelConfig['availableModels'];
   codexReasoningEffort?: CodexReasoningEffort | null;
   onCodexReasoningEffortChange?: (effort: CodexReasoningEffort) => void;
+  codexFastMode?: boolean;
+  onCodexFastModeChange?: (enabled: boolean) => void;
 }) {
   const [query, setQuery] = useState('');
   const filteredOptions = useMemo(() => {
@@ -249,26 +242,15 @@ export function ComposerModelPicker({
     );
   }, [options, query]);
 
-  // Derive Codex model options from config
-  const codexModelOptions = useMemo(() => {
-    if (!codexModelConfig || !codexModels) return [];
-    return codexModels.map((m) => ({
-      ...m,
-      optionKey: m.name,
-      optionValue: m.name,
-    }));
-  }, [codexModelConfig, codexModels]);
-
-  const filteredCodexModels = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return codexModelOptions;
-    return codexModelOptions.filter((m) =>
-      m.name.toLowerCase().includes(normalizedQuery)
-    );
-  }, [codexModelOptions, query]);
-
-  // Cascading Codex picker
+  // Cascading Codex picker — ChatGPT-style compact cascading menu
   if (codexModelConfig && codexModels) {
+    const codexEffortLabels: Record<CodexReasoningEffort, string> = {
+      low: 'Low',
+      medium: 'Medium',
+      high: 'High',
+      xhigh: 'X-High',
+    };
+
     return (
       <DropdownMenu.Root onOpenChange={(open) => !open && setQuery('')}>
         <DropdownMenu.Trigger asChild>
@@ -279,10 +261,13 @@ export function ComposerModelPicker({
             title={`Model: ${label}${codexReasoningEffort ? ` – ${codexReasoningEffort}` : ''}`}
             aria-label="Select model"
           >
-            <span className="min-w-0 truncate">
-              {codexReasoningEffort
-                ? `${label.replace(/^GPT-/, '')} ${codexReasoningEffort}`
-                : (label || value || 'Default model')}
+            <span className="flex min-w-0 items-center gap-1 truncate">
+              {codexFastMode && <Zap className="h-3 w-3 flex-shrink-0 text-[var(--accent)]" />}
+              <span className="truncate">
+                {codexReasoningEffort
+                  ? `${label} ${codexEffortLabels[codexReasoningEffort]}`
+                  : (label || value || 'Default model')}
+              </span>
             </span>
             <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
           </button>
@@ -293,11 +278,11 @@ export function ComposerModelPicker({
             align="start"
             side="top"
             sideOffset={8}
-            className="z-50 w-[280px] overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_18px_44px_rgba(15,23,42,0.14)]"
+            className="z-50 w-[200px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)]"
           >
             {/* Section: Reasoning Effort */}
             <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
-              Reasoning effort
+              Reasoning
             </div>
             {codexEffortOptions.map((effort) => {
               const isSelected = codexReasoningEffort === effort;
@@ -305,69 +290,126 @@ export function ComposerModelPicker({
                 <DropdownMenu.Item
                   key={effort}
                   onSelect={() => onCodexReasoningEffortChange?.(effort)}
-                  className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
+                  className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
                 >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[12px] font-medium text-[var(--text-primary)]">
-                      {reasoningEffortLabel(effort)}
-                    </span>
-                    <span className="block truncate text-[11px] text-[var(--text-muted)]">
-                      {effort === 'low' && 'Quick answers, basic reasoning'}
-                      {effort === 'medium' && 'Balanced speed and depth'}
-                      {effort === 'high' && 'Thorough analysis, slower'}
-                      {effort === 'xhigh' && 'Maximum reasoning depth'}
-                    </span>
+                  <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
+                    {codexEffortLabels[effort]}
                   </span>
-                  {isSelected ? <Check className="h-4 w-4 flex-shrink-0 text-[var(--accent)]" /> : null}
+                  {isSelected ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
                 </DropdownMenu.Item>
               );
             })}
 
             <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
 
-            {/* Section: Models */}
-            <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
-              Models
-            </div>
-            {codexModels.length > 8 ? (
-              <div className="mb-1 flex h-8 items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-2">
-                <Search className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search models"
-                  className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-                />
-              </div>
-            ) : null}
-            <div className="max-h-[200px] overflow-y-auto">
-              {filteredCodexModels.length === 0 ? (
-                <div className="px-2.5 py-3 text-[12px] text-[var(--text-muted)]">No models found</div>
-              ) : (
-                filteredCodexModels.map((codexModel) => {
-                  const option: ComposerModelOption = {
-                    key: codexModel.optionKey,
-                    value: codexModel.optionValue,
-                    label: codexModel.name,
-                  };
-                  const isSelected = value === codexModel.name;
-                  return (
-                    <DropdownMenu.Item
-                      key={codexModel.optionKey}
-                      onSelect={() => onChange(option)}
-                      className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
-                    >
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[12px] font-medium text-[var(--text-primary)]">
-                          {codexModel.name}
+            {/* Model submenu trigger */}
+            <DropdownMenu.Sub>
+              <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[state=open]:bg-[var(--bg-tertiary)]">
+                <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                  {codexFastMode && <Zap className="h-3 w-3 flex-shrink-0 text-[var(--accent)]" />}
+                  <span className="truncate text-[12px] text-[var(--text-primary)]">
+                    {label || value || 'Model'}
+                  </span>
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+              </DropdownMenu.SubTrigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.SubContent
+                  sideOffset={6}
+                  alignOffset={-4}
+                  className="z-50 w-[200px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)]"
+                >
+                  <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
+                    Models
+                  </div>
+                  <div className="max-h-[240px] overflow-y-auto">
+                    {codexModels.map((codexModel) => {
+                      const option: ComposerModelOption = {
+                        key: codexModel.name,
+                        value: codexModel.name,
+                        label: codexModel.name,
+                      };
+                      const isSelected = value === codexModel.name;
+                      return (
+                        <DropdownMenu.Item
+                          key={codexModel.name}
+                          onSelect={() => onChange(option)}
+                          className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[12px] text-[var(--text-primary)]">
+                              {codexFastMode ? (
+                                <>
+                                  <Zap className="mr-1 inline h-3 w-3 text-[var(--accent)]" />
+                                  {codexModel.name}
+                                </>
+                              ) : (
+                                codexModel.name
+                              )}
+                            </span>
+                          </span>
+                          {isSelected ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
+                        </DropdownMenu.Item>
+                      );
+                    })}
+                  </div>
+                </DropdownMenu.SubContent>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Sub>
+
+            {/* Speed submenu trigger */}
+            <DropdownMenu.Sub>
+              <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[state=open]:bg-[var(--bg-tertiary)]">
+                <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
+                  Speed
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+              </DropdownMenu.SubTrigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.SubContent
+                  sideOffset={6}
+                  alignOffset={-4}
+                  className="z-50 w-[200px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)]"
+                >
+                  <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
+                    Speed
+                  </div>
+                  {/* Standard */}
+                  <DropdownMenu.Item
+                    onSelect={() => onCodexFastModeChange?.(false)}
+                    className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12px] text-[var(--text-primary)]">
+                        Standard
+                      </span>
+                      <span className="block truncate text-[11px] text-[var(--text-muted)]">
+                        Default speed
+                      </span>
+                    </span>
+                    {!codexFastMode ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
+                  </DropdownMenu.Item>
+                  {/* Fast */}
+                  <DropdownMenu.Item
+                    onSelect={() => onCodexFastModeChange?.(true)}
+                    className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <Zap className="h-3 w-3 text-[var(--accent)]" />
+                        <span className="truncate text-[12px] text-[var(--text-primary)]">
+                          Fast
                         </span>
                       </span>
-                      {isSelected ? <Check className="h-4 w-4 flex-shrink-0 text-[var(--accent)]" /> : null}
-                    </DropdownMenu.Item>
-                  );
-                })
-              )}
-            </div>
+                      <span className="block truncate text-[11px] text-[var(--text-muted)]">
+                        1.5x speed, increased usage
+                      </span>
+                    </span>
+                    {codexFastMode ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
+                  </DropdownMenu.Item>
+                </DropdownMenu.SubContent>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Sub>
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>

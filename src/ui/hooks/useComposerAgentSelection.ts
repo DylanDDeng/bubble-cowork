@@ -31,6 +31,11 @@ import {
   savePreferredCodexReasoningEffort,
 } from '../utils/codex-reasoning';
 import {
+  loadPreferredCodexFastMode,
+  savePreferredCodexFastMode,
+  supportsCodexFastMode,
+} from '../utils/codex-fast';
+import {
   buildOpencodeModelOptions,
   formatOpencodeModelLabel,
   loadPreferredOpencodeModel,
@@ -530,6 +535,37 @@ export function useComposerAgentSelection(input?: {
     return codexModelConfig.availableModels;
   }, [provider, codexModelConfig]);
 
+  // Fast mode state
+  const supportsCodexFastModeCheck = useMemo(
+    () => provider === 'codex' && supportsCodexFastMode(codexModelConfig, model ?? undefined),
+    [provider, codexModelConfig, model]
+  );
+
+  const [codexFastMode, setCodexFastModeState] = useState<boolean>(() => {
+    if (!supportsCodexFastModeCheck || !model) return false;
+    return loadPreferredCodexFastMode(codexModelConfig, model) === true;
+  });
+
+  // Sync fast mode when model changes
+  useEffect(() => {
+    if (supportsCodexFastModeCheck && model) {
+      const preferred = loadPreferredCodexFastMode(codexModelConfig, model);
+      setCodexFastModeState(preferred === true);
+    } else {
+      setCodexFastModeState(false);
+    }
+  }, [supportsCodexFastModeCheck, codexModelConfig, model]);
+
+  const setCodexFastMode = useCallback(
+    (enabled: boolean) => {
+      setCodexFastModeState(enabled);
+      if (model) {
+        savePreferredCodexFastMode(codexModelConfig, model, enabled);
+      }
+    },
+    [codexModelConfig, model]
+  );
+
   return {
     provider,
     model,
@@ -544,5 +580,7 @@ export function useComposerAgentSelection(input?: {
     codexModels,
     codexReasoningEffort,
     setCodexReasoningEffort,
+    codexFastMode,
+    setCodexFastMode,
   };
 }

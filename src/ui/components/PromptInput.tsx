@@ -626,6 +626,8 @@ export function PromptInput({
                 codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
                 codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
                 onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
+                codexFastMode={agentSelection.codexFastMode}
+                onCodexFastModeChange={agentSelection.setCodexFastMode}
               />
               <button
                 type="button"

@@ -634,8 +634,10 @@ export function NewSessionView() {
                 codexModelConfig={agentSelection.codexModelConfig ?? undefined}
                 codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
                 codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
-                onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
-              />
+              onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
+              codexFastMode={agentSelection.codexFastMode}
+              onCodexFastModeChange={agentSelection.setCodexFastMode}
+            />
               <SavePromptButton content={promptLibraryContent} disabled={pendingStart} />
 
               <button
