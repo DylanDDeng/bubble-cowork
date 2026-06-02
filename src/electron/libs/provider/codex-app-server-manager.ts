@@ -537,7 +537,9 @@ export class CodexAppServerManager extends EventEmitter {
   private normalizeCodexPermissionMode(
     mode: CodexPermissionMode | undefined
   ): CodexPermissionMode {
-    return mode === 'fullAccess' ? 'fullAccess' : 'defaultPermissions';
+    if (mode === 'fullAccess') return 'fullAccess';
+    if (mode === 'auto') return 'auto';
+    return 'defaultPermissions';
   }
 
   private normalizeCodexExecutionMode(
@@ -564,6 +566,15 @@ export class CodexAppServerManager extends EventEmitter {
         approvalPolicy: 'never',
         approvalsReviewer: 'user',
         sandbox: 'danger-full-access',
+      };
+    }
+
+    if (this.normalizeCodexPermissionMode(mode) === 'auto') {
+      return {
+        permissionMode: 'auto',
+        approvalPolicy: 'on-request',
+        approvalsReviewer: 'user',
+        sandbox: 'workspace-write',
       };
     }
 
@@ -596,6 +607,22 @@ export class CodexAppServerManager extends EventEmitter {
         approvalPolicy: 'never',
         approvalsReviewer: 'user',
         sandboxPolicy: { type: 'dangerFullAccess' },
+      };
+    }
+
+    if (this.normalizeCodexPermissionMode(mode) === 'auto') {
+      return {
+        permissionMode: 'auto',
+        approvalPolicy: 'on-request',
+        approvalsReviewer: 'user',
+        sandboxPolicy: {
+          type: 'workspaceWrite',
+          writableRoots: [cwd || process.cwd()],
+          readOnlyAccess: { type: 'fullAccess' },
+          networkAccess: false,
+          excludeTmpdirEnvVar: false,
+          excludeSlashTmp: false,
+        },
       };
     }
 

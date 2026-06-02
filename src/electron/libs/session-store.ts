@@ -155,9 +155,13 @@ function normalizeClaudeReasoningEffort(
 function normalizeCodexPermissionMode(
   value?: string | null
 ): CodexPermissionMode {
-  return value === 'fullAccess' || value === 'fullAuto'
-    ? 'fullAccess'
-    : 'defaultPermissions';
+  if (value === 'fullAccess' || value === 'fullAuto') {
+    return 'fullAccess';
+  }
+  if (value === 'auto' || value === 'autoReview') {
+    return 'auto';
+  }
+  return 'defaultPermissions';
 }
 
 function normalizeCodexExecutionMode(
