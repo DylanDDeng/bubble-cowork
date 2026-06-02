@@ -1028,16 +1028,6 @@ export function ProjectMarkdownEditor({
     }
   }, [value]);
 
-  const handleCopyRawMarkdown = useCallback(async () => {
-    const markdown = normalizeCopiedMarkdownSource(currentFullMarkdownRef.current ?? value);
-    try {
-      await navigator.clipboard.writeText(markdown);
-      toast.success('已复制原始 Markdown');
-    } catch (error) {
-      toast.error(`复制失败: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }, [value]);
-
   useEffect(() => {
     const root = hostRef.current;
     if (!root) return;
@@ -1326,10 +1316,6 @@ export function ProjectMarkdownEditor({
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('lapis')}>
                 <span>Lapis</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => void handleCopyRawMarkdown()}>
-                <span>原始 Markdown</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
