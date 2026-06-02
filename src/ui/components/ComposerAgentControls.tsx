@@ -4,7 +4,7 @@ import { Check, ChevronDown, ChevronRight, Copy, Search, Zap } from './icons';
 import type { AgentProvider } from '../types';
 import type { ComposerModelOption } from '../hooks/useComposerAgentSelection';
 import { PROVIDERS } from '../utils/provider';
-import type { CodexPermissionMode, CodexReasoningEffort, CodexModelConfig } from '../../shared/types';
+import type { CodexReasoningEffort, CodexModelConfig } from '../../shared/types';
 import {
   useAgentReadiness,
   type AgentReadinessEntry,
@@ -562,21 +562,17 @@ const CodexAgentSubContent: FC<{
   selectedModel: string | null;
   codexReasoningEffort: CodexReasoningEffort | null;
   codexFastMode: boolean;
-  codexPermissionMode: CodexPermissionMode;
   onSelectModel: (option: ComposerModelOption) => void;
   onCodexReasoningEffortChange: (effort: CodexReasoningEffort) => void;
   onCodexFastModeChange: (enabled: boolean) => void;
-  onCodexPermissionModeChange: (mode: CodexPermissionMode) => void;
 }> = ({
   codexModels,
   selectedModel,
   codexReasoningEffort,
   codexFastMode,
-  codexPermissionMode,
   onSelectModel,
   onCodexReasoningEffortChange,
   onCodexFastModeChange,
-  onCodexPermissionModeChange,
 }) => {
   const models = codexModels ?? [];
   return (
@@ -708,23 +704,6 @@ const CodexAgentSubContent: FC<{
         </DropdownMenu.Portal>
       </DropdownMenu.Sub>
 
-      {/* Permission Mode */}
-      <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
-      <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
-        Permission
-      </div>
-      {(['defaultPermissions', 'auto', 'fullAccess'] as const).map((mode) => (
-        <DropdownMenu.Item
-          key={mode}
-          onSelect={() => onCodexPermissionModeChange?.(mode)}
-          className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
-        >
-          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
-            {mode === 'defaultPermissions' ? 'Default' : mode === 'auto' ? 'Auto' : 'Full Access'}
-          </span>
-          {codexPermissionMode === mode ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
-        </DropdownMenu.Item>
-      ))}
     </>
   );
 };
@@ -743,8 +722,6 @@ export function ComposerAgentModelPicker({
   onCodexReasoningEffortChange,
   codexFastMode,
   onCodexFastModeChange,
-  codexPermissionMode,
-  onCodexPermissionModeChange,
 }: {
   agentProvider: AgentProvider;
   modelLabel: string;
@@ -758,8 +735,6 @@ export function ComposerAgentModelPicker({
   onCodexReasoningEffortChange?: (effort: CodexReasoningEffort) => void;
   codexFastMode?: boolean;
   onCodexFastModeChange?: (enabled: boolean) => void;
-  codexPermissionMode?: CodexPermissionMode;
-  onCodexPermissionModeChange?: (mode: CodexPermissionMode) => void;
 }) {
   const { entries } = useAgentReadiness(null, true);
   const readinessByProvider = useMemo(() => {
@@ -859,11 +834,6 @@ export function ComposerAgentModelPicker({
                           onCodexFastModeChange={(enabled) => {
                             onAgentChange(provider);
                             onCodexFastModeChange?.(enabled);
-                          }}
-                          codexPermissionMode={codexPermissionMode ?? 'defaultPermissions'}
-                          onCodexPermissionModeChange={(mode) => {
-                            onAgentChange(provider);
-                            onCodexPermissionModeChange?.(mode);
                           }}
                         />
                       ) : (

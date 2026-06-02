@@ -19,6 +19,7 @@ import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './Compose
 import { SidebarHeaderTrigger } from './Sidebar';
 import { SavePromptButton } from './prompts/SavePromptButton';
 import { ComposerAgentModelPicker } from './ComposerAgentControls';
+import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { FolderOpen } from './icons';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
@@ -634,9 +635,13 @@ export function NewSessionView() {
                 onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
                 codexFastMode={agentSelection.codexFastMode}
                 onCodexFastModeChange={agentSelection.setCodexFastMode}
-                codexPermissionMode={agentSelection.codexPermissionMode}
-                onCodexPermissionModeChange={agentSelection.setCodexPermissionMode}
               />
+              {agentSelection.provider === 'codex' && (
+                <CodexPermissionModePicker
+                  value={agentSelection.codexPermissionMode}
+                  onChange={agentSelection.setCodexPermissionMode}
+                />
+              )}
               <SavePromptButton content={promptLibraryContent} disabled={pendingStart} />
 
               <button
