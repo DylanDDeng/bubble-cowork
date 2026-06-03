@@ -52,6 +52,17 @@ function normalizeAgentMentionHandle(value: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+function normalizeSlashDisplayKey(value: string): string {
+  return value.replace(/^[/$]/, '').trim().toLowerCase();
+}
+
+function stripCapabilityPrefix(value: string): string {
+  return value
+    .replace(/^[/$]/, '')
+    .replace(/^plugin:/i, '')
+    .trim();
+}
+
 function isSegmentElement(node: Node | null | undefined): boolean {
   return (
     node instanceof HTMLElement &&
@@ -295,7 +306,12 @@ function createAgentMentionNode(label: string, rawText: string): HTMLSpanElement
   return chip;
 }
 
-function createSlashNode(kind: SlashSegmentKind, name: string, rawText: string): HTMLSpanElement {
+function createSlashNode(
+  kind: SlashSegmentKind,
+  name: string,
+  rawText: string,
+  slashDisplayLabels?: Record<string, string>
+): HTMLSpanElement {
   const chip = document.createElement('span');
   chip.dataset.segmentType = 'slash';
   chip.dataset.slashKind = kind;
@@ -304,18 +320,11 @@ function createSlashNode(kind: SlashSegmentKind, name: string, rawText: string):
   chip.contentEditable = 'false';
   chip.spellcheck = false;
   chip.title = rawText;
-  chip.className =
-    'mx-[1px] inline-flex max-w-[240px] select-none items-center gap-1 rounded-md border px-1.5 py-0.5 align-baseline text-[12px] leading-none';
   const isSkillLike = kind === 'skill' || kind === 'plugin';
-  chip.style.borderColor =
-    isSkillLike ? 'var(--composer-skill-chip-border)' : 'var(--composer-chip-border)';
-  chip.style.backgroundColor =
-    isSkillLike ? 'var(--composer-skill-chip-bg)' : 'var(--composer-chip-bg)';
-  chip.style.color =
-    isSkillLike ? 'var(--composer-skill-chip-text)' : 'var(--composer-chip-text)';
+  chip.className = `composer-inline-chip composer-inline-chip--${kind}`;
 
   const iconBox = document.createElement('span');
-  iconBox.className = 'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center';
+  iconBox.className = 'composer-inline-chip__icon';
   iconBox.setAttribute('aria-hidden', 'true');
   if (kind === 'plugin') {
     iconBox.innerHTML =
@@ -329,8 +338,10 @@ function createSlashNode(kind: SlashSegmentKind, name: string, rawText: string):
   }
 
   const label = document.createElement('span');
-  label.className = 'truncate font-mono text-[11px]';
-  label.textContent = rawText;
+  label.className = 'composer-inline-chip__label';
+  label.textContent = isSkillLike
+    ? slashDisplayLabels?.[normalizeSlashDisplayKey(name)] || stripCapabilityPrefix(name) || rawText
+    : rawText;
 
   chip.append(iconBox, label);
   return chip;
@@ -340,7 +351,8 @@ function renderSegments(
   root: HTMLDivElement,
   value: string,
   slashContext?: SlashTokenContext,
-  agentMentionLabels?: Record<string, string>
+  agentMentionLabels?: Record<string, string>,
+  slashDisplayLabels?: Record<string, string>
 ): void {
   const segments: PromptSegment[] = splitPromptIntoComposerSegments(value, slashContext);
   root.replaceChildren();
@@ -361,7 +373,7 @@ function renderSegments(
       continue;
     }
 
-    root.append(createSlashNode(segment.kind, segment.name, segment.text));
+    root.append(createSlashNode(segment.kind, segment.name, segment.text, slashDisplayLabels));
   }
 }
 
@@ -419,6 +431,7 @@ export const ComposerPromptEditor = forwardRef<
     autoFocus?: boolean;
     className?: string;
     slashContext?: SlashTokenContext;
+    slashDisplayLabels?: Record<string, string>;
     agentMentionLabels?: Record<string, string>;
   }
 >(function ComposerPromptEditor(props, ref) {
@@ -429,6 +442,7 @@ export const ComposerPromptEditor = forwardRef<
   const isApplyingSelectionRef = useRef(false);
   const didAutoFocusRef = useRef(false);
   const lastRenderedSlashContextRef = useRef<SlashTokenContext | undefined>(undefined);
+  const lastRenderedSlashDisplayLabelsRef = useRef<Record<string, string> | undefined>(undefined);
   const lastRenderedAgentMentionLabelsRef = useRef<Record<string, string> | undefined>(undefined);
   const displayHasValue = useMemo(() => props.value.length > 0, [props.value]);
   const [fakeCaret, setFakeCaret] = useState({
@@ -555,15 +569,25 @@ export const ComposerPromptEditor = forwardRef<
     }
 
     const slashContextChanged = lastRenderedSlashContextRef.current !== props.slashContext;
+    const slashDisplayLabelsChanged =
+      lastRenderedSlashDisplayLabelsRef.current !== props.slashDisplayLabels;
     const agentMentionLabelsChanged =
       lastRenderedAgentMentionLabelsRef.current !== props.agentMentionLabels;
     if (
       serializeEditorValue(editorRef.current) !== props.value ||
       slashContextChanged ||
+      slashDisplayLabelsChanged ||
       agentMentionLabelsChanged
     ) {
-      renderSegments(editorRef.current, props.value, props.slashContext, props.agentMentionLabels);
+      renderSegments(
+        editorRef.current,
+        props.value,
+        props.slashContext,
+        props.agentMentionLabels,
+        props.slashDisplayLabels
+      );
       lastRenderedSlashContextRef.current = props.slashContext;
+      lastRenderedSlashDisplayLabelsRef.current = props.slashDisplayLabels;
       lastRenderedAgentMentionLabelsRef.current = props.agentMentionLabels;
     }
 
@@ -577,7 +601,14 @@ export const ComposerPromptEditor = forwardRef<
       isApplyingSelectionRef.current = false;
       syncFakeCaret();
     });
-  }, [props.agentMentionLabels, props.cursorIndex, props.value, props.slashContext, syncFakeCaret]);
+  }, [
+    props.agentMentionLabels,
+    props.cursorIndex,
+    props.slashContext,
+    props.slashDisplayLabels,
+    props.value,
+    syncFakeCaret,
+  ]);
 
   useEffect(() => {
     const handleSelectionChange = () => {

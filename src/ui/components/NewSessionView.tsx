@@ -580,6 +580,7 @@ export function NewSessionView() {
                 value={capabilityMenu.displayPrompt}
                 cursorIndex={cursorIndex}
                 slashContext={capabilityMenu.slashContext}
+                slashDisplayLabels={capabilityMenu.slashDisplayLabels}
                 agentMentionLabels={{}}
                 onChange={(value, nextCursorIndex) => {
                   void handlePromptChange(value, nextCursorIndex);

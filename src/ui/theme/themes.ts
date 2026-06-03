@@ -723,14 +723,14 @@ function buildThemeVariables(
     ? formatRgba(parseHexColor(pack.theme.accent), 0.12)
     : formatRgba(parseHexColor(pack.theme.accent), 0.2);
   const skillChipBackground = variant === 'light'
-    ? formatRgba(skillChipColor, 0.1)
+    ? formatRgba(skillChipColor, 0.09)
     : formatRgba(skillChipColor, 0.16);
   const skillChipBorder = variant === 'light'
-    ? formatRgba(skillChipColor, 0.16)
-    : formatRgba(skillChipColor, 0.22);
+    ? formatRgba(skillChipColor, 0.24)
+    : formatRgba(skillChipColor, 0.28);
   const skillChipText = variant === 'light'
-    ? mixHex(pack.theme.accent, pack.theme.ink, 0.28)
-    : mixHex(pack.theme.accent, '#ffffff', 0.16);
+    ? pack.theme.accent
+    : mixHex(pack.theme.accent, '#ffffff', 0.18);
 
   return {
     '--bg-primary': surfaceUnder,

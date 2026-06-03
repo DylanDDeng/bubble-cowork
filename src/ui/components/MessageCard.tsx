@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight, Copy, Check, Pencil, RotateCcw } from './icons';
+import { ChevronRight, Copy, Check, Pencil, Plug, RotateCcw, Terminal } from './icons';
 import { cn } from '@/ui/lib/utils';
 import { useAppStore } from '../store/useAppStore';
 import { AttachmentChips } from './AttachmentChips';
@@ -24,14 +24,17 @@ import type {
 type UserPromptPrefixDisplay =
   | { kind: 'command'; command: ClaudeSlashCommand; remainder: string }
   | { kind: 'skill'; skill: ClaudeSkillSummary; remainder: string }
-  | { kind: 'generic'; name: string; remainder: string };
+  | { kind: 'generic'; name: string; prefix: '/' | '$'; remainder: string };
 
 // 工具结果块类型
 type ToolResultBlock = ContentBlock & { type: 'tool_result' };
 
-function extractGenericSlashPrompt(prompt: string): { name: string; remainder: string } | null {
+function extractGenericSlashPrompt(
+  prompt: string
+): { name: string; prefix: '/' | '$'; remainder: string } | null {
   const trimmed = prompt.trimStart();
-  if (!trimmed.startsWith('/')) {
+  const prefix = trimmed[0];
+  if (prefix !== '/' && prefix !== '$') {
     return null;
   }
 
@@ -48,7 +51,7 @@ function extractGenericSlashPrompt(prompt: string): { name: string; remainder: s
   const remainder =
     firstWhitespaceIndex === -1 ? '' : trimmed.slice(firstWhitespaceIndex).replace(/^\s+/, '');
 
-  return { name, remainder };
+  return { name, prefix, remainder };
 }
 
 interface MessageCardProps {
@@ -292,7 +295,7 @@ function UserPromptCard({
     [activeSession?.provider, activeSessionMessages]
   );
   const promptPrefixDisplay = useMemo<UserPromptPrefixDisplay | null>(() => {
-    const skillState = parseSelectedSkillPrompt(prompt, availableSkills);
+    const skillState = parseSelectedSkillPrompt(prompt, availableSkills, ['/', '$']);
     if (skillState) {
       return {
         kind: 'skill',
@@ -315,6 +318,7 @@ function UserPromptCard({
       return {
         kind: 'generic',
         name: genericState.name,
+        prefix: genericState.prefix,
         remainder: genericState.remainder,
       };
     }
@@ -446,7 +450,11 @@ function UserPromptCard({
                     ) : promptPrefixDisplay.kind === 'command' ? (
                       <SelectedClaudeCommandChip command={promptPrefixDisplay.command} compact />
                     ) : (
-                      <GenericSlashChip name={promptPrefixDisplay.name} compact />
+                      <GenericSlashChip
+                        name={promptPrefixDisplay.name}
+                        prefix={promptPrefixDisplay.prefix}
+                        compact
+                      />
                     )}
                   </div>
                 )}
@@ -550,33 +558,32 @@ function IconButton({
   );
 }
 
-function GenericSlashChip({ name, compact = false }: { name: string; compact?: boolean }) {
-  const label = compact ? name.replace(/^\//, '') : `/${name}`;
+function GenericSlashChip({
+  name,
+  prefix = '/',
+  compact = false,
+}: {
+  name: string;
+  prefix?: '/' | '$';
+  compact?: boolean;
+}) {
+  const cleanedName = name.replace(/^plugin:/i, '').replace(/^\//, '');
+  const label = prefix === '$' || compact ? cleanedName : `/${cleanedName}`;
+  const Icon = prefix === '$' ? Plug : Terminal;
 
   return (
     <div
-      className={`inline-flex max-w-full items-center shadow-sm ${
-        compact
-          ? 'rounded-[var(--radius-lg)] px-2 py-0.5 border'
-          : 'rounded-[var(--radius-xl)] px-2.5 py-2 border border-[var(--border)] bg-[var(--bg-tertiary)]'
-      }`}
-      style={
-        compact
-          ? {
-              borderColor: 'var(--composer-chip-border)',
-              backgroundColor: 'var(--composer-chip-bg)',
-              color: 'var(--composer-chip-text)',
-            }
-          : undefined
-      }
+      className={`composer-inline-chip composer-inline-chip--message ${
+        prefix === '$' ? 'composer-inline-chip--plugin' : 'composer-inline-chip--command'
+      } ${compact ? '' : 'composer-inline-chip--large'}`}
+      title={`${prefix}${name}`}
     >
-      <div
-        className={`truncate font-medium ${
-          compact ? 'max-w-[180px] text-[11px] text-inherit' : 'max-w-[260px] text-sm text-[var(--text-primary)]'
-        }`}
-      >
+      <span className="composer-inline-chip__icon" aria-hidden="true">
+        <Icon />
+      </span>
+      <span className="composer-inline-chip__label max-w-[180px]">
         {label}
-      </div>
+      </span>
     </div>
   );
 }
