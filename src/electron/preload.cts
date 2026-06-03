@@ -129,6 +129,44 @@ contextBridge.exposeInMainWorld('electron', {
     };
   },
 
+  terminal: {
+    open: (input: unknown) => {
+      return ipcRenderer.invoke('terminal:open', input);
+    },
+    write: (input: unknown) => {
+      return ipcRenderer.invoke('terminal:write', input);
+    },
+    resize: (input: unknown) => {
+      return ipcRenderer.invoke('terminal:resize', input);
+    },
+    clear: (input: unknown) => {
+      return ipcRenderer.invoke('terminal:clear', input);
+    },
+    restart: (input: unknown) => {
+      return ipcRenderer.invoke('terminal:restart', input);
+    },
+    close: (input: unknown) => {
+      return ipcRenderer.invoke('terminal:close', input);
+    },
+    getTransportInfo: () => {
+      return ipcRenderer.invoke('get-terminal-transport-info');
+    },
+    onEvent: (callback: (event: unknown) => void) => {
+      const handler = (_: unknown, eventJson: string) => {
+        try {
+          callback(JSON.parse(eventJson));
+        } catch (error) {
+          console.error('Failed to parse terminal event:', error);
+        }
+      };
+
+      ipcRenderer.on('terminal-event', handler);
+      return () => {
+        ipcRenderer.removeListener('terminal-event', handler);
+      };
+    },
+  },
+
   onWindowShellState: (callback: (state: { rounded: boolean }) => void) => {
     const handler = (_: unknown, state: { rounded: boolean }) => {
       callback(state);
@@ -159,8 +197,14 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-recent-cwds', limit);
   },
 
-  startTerminalSession: (sessionId: string, cwd: string, cols?: number, rows?: number) => {
-    return ipcRenderer.invoke('start-terminal-session', sessionId, cwd, cols, rows);
+  startTerminalSession: (
+    sessionId: string,
+    cwd: string,
+    cols?: number,
+    rows?: number,
+    agentKind?: string
+  ) => {
+    return ipcRenderer.invoke('start-terminal-session', sessionId, cwd, cols, rows, agentKind);
   },
 
   writeTerminalSession: (sessionId: string, data: string) => {
@@ -173,6 +217,10 @@ contextBridge.exposeInMainWorld('electron', {
 
   stopTerminalSession: (sessionId: string) => {
     return ipcRenderer.invoke('stop-terminal-session', sessionId);
+  },
+
+  getTerminalTransportInfo: () => {
+    return ipcRenderer.invoke('get-terminal-transport-info');
   },
 
   setWindowMinSize: (width: number, height: number) => {

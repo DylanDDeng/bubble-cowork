@@ -54,22 +54,46 @@ import type {
   BrowserTabInput,
   SessionBrowserState,
 } from './shared/browser-types';
+import type {
+  StartTerminalSessionResult,
+  TerminalAgentKind,
+  TerminalClearInput,
+  TerminalCloseInput,
+  TerminalEventPayload,
+  TerminalOpenInput,
+  TerminalOpenResult,
+  TerminalResizeInput,
+  TerminalRestartInput,
+  TerminalTransportInfo,
+  TerminalWriteInput,
+} from './shared/terminal';
 
 declare global {
   interface ElectronAPI {
     onServerEvent: (callback: (event: ServerEvent) => void) => () => void;
     sendClientEvent: (event: ClientEvent) => void;
-    onTerminalEvent: (callback: (event: { type: 'data' | 'exit'; sessionId: string; data?: string; exitCode?: number | null }) => void) => () => void;
+    onTerminalEvent: (callback: (event: TerminalEventPayload) => void) => () => void;
+    terminal: {
+      open: (input: TerminalOpenInput) => Promise<TerminalOpenResult>;
+      write: (input: TerminalWriteInput) => Promise<{ ok: boolean; message?: string }>;
+      resize: (input: TerminalResizeInput) => Promise<{ ok: boolean; message?: string }>;
+      clear: (input: TerminalClearInput) => Promise<{ ok: boolean; message?: string }>;
+      restart: (input: TerminalRestartInput) => Promise<TerminalOpenResult>;
+      close: (input: TerminalCloseInput) => Promise<{ ok: boolean; message?: string }>;
+      getTransportInfo: () => Promise<TerminalTransportInfo>;
+      onEvent: (callback: (event: TerminalEventPayload) => void) => () => void;
+    };
     onWindowShellState: (callback: (state: { rounded: boolean }) => void) => () => void;
     registerProjectEditorFlushHandler: (
       callback: () => { ok: boolean; message?: string } | Promise<{ ok: boolean; message?: string }>
     ) => () => void;
     generateSessionTitle: (prompt: string) => Promise<string>;
     getRecentCwds: (limit?: number) => Promise<string[]>;
-    startTerminalSession: (sessionId: string, cwd: string, cols?: number, rows?: number) => Promise<{ ok: boolean; history?: string; message?: string }>;
+    startTerminalSession: (sessionId: string, cwd: string, cols?: number, rows?: number, agentKind?: TerminalAgentKind) => Promise<StartTerminalSessionResult>;
     writeTerminalSession: (sessionId: string, data: string) => Promise<{ ok: boolean; message?: string }>;
     resizeTerminalSession: (sessionId: string, cols: number, rows: number) => Promise<{ ok: boolean; message?: string }>;
     stopTerminalSession: (sessionId: string) => Promise<{ ok: boolean; message?: string }>;
+    getTerminalTransportInfo: () => Promise<TerminalTransportInfo>;
     setWindowMinSize: (width: number, height: number) => Promise<{ ok: boolean }>;
     getAppVersion: () => Promise<string>;
     getWindowShellState: () => Promise<{ rounded: boolean }>;

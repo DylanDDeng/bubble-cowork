@@ -14,6 +14,8 @@
     "dev:electron": "npm run transpile:electron && node scripts/prepare-electron-native-deps.mjs && node scripts/launch-electron.mjs",
     "transpile:electron": "tsc -p src/electron/tsconfig.json",
     "build": "npm run transpile:electron && vite build",
+    "test": "npm run validate:terminal && npm run check:builtin-agent && npm run check:icons",
+    "validate:terminal": "npm run transpile:electron && node scripts/validate-terminal-runtime.cjs",
     "check:builtin-agent": "npm run transpile:electron && node scripts/check-builtin-agent.mjs",
     "check:icons": "node scripts/check-ui-icon-imports.mjs",
     "build:electron": "electron-builder",

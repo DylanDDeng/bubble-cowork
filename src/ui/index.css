@@ -411,6 +411,28 @@ body {
   background: var(--text-muted);
 }
 
+.aegis-terminal-pane .xterm,
+.aegis-terminal-pane .xterm .xterm-viewport,
+.aegis-terminal-pane .xterm .xterm-screen {
+  background-color: var(--bg-secondary) !important;
+}
+
+.aegis-terminal-pane .xterm .xterm-viewport {
+  scrollbar-color: var(--border) transparent;
+}
+
+.aegis-terminal-pane .xterm .xterm-scrollable-element > .scrollbar {
+  background: transparent !important;
+}
+
+.aegis-terminal-pane .xterm .xterm-scrollable-element > .scrollbar > div {
+  background: color-mix(in srgb, var(--text-muted) 28%, transparent) !important;
+}
+
+.aegis-terminal-pane .xterm .xterm-scrollable-element > .shadow {
+  box-shadow: none !important;
+}
+
 /* Markdown content */
 .markdown-content {
   line-height: 1.5;
