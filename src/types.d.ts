@@ -21,6 +21,7 @@ import type {
   ClaudeModelConfig,
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
+  CodexRateLimitReport,
   UpsertPromptLibraryItemInput,
   CodexModelConfig,
   CodexRuntimeStatus,
@@ -126,6 +127,7 @@ declare global {
     saveAegisBuiltInAgentConfig: (config: AegisBuiltInAgentConfig) => Promise<AegisBuiltInAgentConfig>;
     getClaudeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getCodexUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
+    getCodexRateLimits: () => Promise<CodexRateLimitReport>;
     getOpencodeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getPromptLibrary: () => Promise<PromptLibraryItem[]>;
     savePromptLibraryItem: (input: UpsertPromptLibraryItemInput) => Promise<PromptLibraryItem[]>;

@@ -30,6 +30,7 @@ import type {
   ProviderReadPluginInput,
   ProviderReadPluginResult,
   StreamMessage,
+  CodexRateLimitReport,
 } from '../../../shared/types';
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -703,6 +704,10 @@ export class CodexAdapter implements ProviderAdapter {
       supportsThreadCompaction: false,
       supportsThreadImport: false,
     };
+  }
+
+  async getRateLimits(): Promise<CodexRateLimitReport> {
+    return this.manager.readAccountRateLimits(process.cwd());
   }
 
   async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {

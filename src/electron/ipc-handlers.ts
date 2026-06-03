@@ -3661,6 +3661,15 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return getCodexRuntimeStatus();
   });
 
+  ipcMainHandle('get-codex-rate-limits', async () => {
+    ensureProviderService();
+    const rateLimits = await getProviderService().getRateLimits('codex');
+    if (!rateLimits) {
+      throw new Error('Codex rate limits are not available from this runtime.');
+    }
+    return rateLimits;
+  });
+
   ipcMainHandle('codex-get-composer-capabilities', async () => {
     ensureProviderService();
     return getProviderService().getComposerCapabilities('codex');

@@ -1184,6 +1184,43 @@ export interface ClaudeUsageReport {
   daily: ClaudeUsageDailyPoint[];
 }
 
+export type CodexRateLimitReachedType =
+  | 'rate_limit_reached'
+  | 'workspace_owner_credits_depleted'
+  | 'workspace_member_credits_depleted'
+  | 'workspace_owner_usage_limit_reached'
+  | 'workspace_member_usage_limit_reached';
+
+export interface CodexRateLimitWindow {
+  usedPercent: number;
+  remainingPercent: number;
+  windowDurationMins: number | null;
+  resetsAt: number | null;
+}
+
+export interface CodexCreditsSnapshot {
+  hasCredits: boolean;
+  unlimited: boolean;
+  balance: string | null;
+}
+
+export interface CodexRateLimitSnapshot {
+  limitId: string | null;
+  limitName: string | null;
+  primary: CodexRateLimitWindow | null;
+  secondary: CodexRateLimitWindow | null;
+  credits: CodexCreditsSnapshot | null;
+  planType: string | null;
+  rateLimitReachedType: CodexRateLimitReachedType | null;
+}
+
+export interface CodexRateLimitReport {
+  source: 'codex-app-server';
+  fetchedAt: number;
+  rateLimits: CodexRateLimitSnapshot | null;
+  rateLimitsByLimitId: Record<string, CodexRateLimitSnapshot>;
+}
+
 export interface ChatMessageSearchMatch {
   snippet: string;
   messageType: 'user_prompt' | 'assistant' | 'user';

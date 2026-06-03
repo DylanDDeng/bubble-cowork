@@ -337,6 +337,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-codex-usage-report', days);
   },
 
+  getCodexRateLimits: () => {
+    return ipcRenderer.invoke('get-codex-rate-limits');
+  },
+
   getOpencodeUsageReport: (days?: ClaudeUsageRangeDays) => {
     return ipcRenderer.invoke('get-opencode-usage-report', days);
   },

@@ -14,6 +14,7 @@ import { providerSessionDirectory } from './directory';
 import type { PermissionResult } from '../../../shared/types';
 import type {
   ProviderComposerCapabilities,
+  CodexRateLimitReport,
   ProviderListPluginsInput,
   ProviderListPluginsResult,
   ProviderListSkillsInput,
@@ -154,6 +155,15 @@ class ProviderServiceImpl implements ProviderService {
     }
 
     return adapter.getComposerCapabilities();
+  }
+
+  async getRateLimits(provider: ProviderKind): Promise<CodexRateLimitReport | null> {
+    const adapter = registry.getAdapter(provider);
+    if (!adapter?.getRateLimits) {
+      return null;
+    }
+
+    return adapter.getRateLimits();
   }
 
   async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {
