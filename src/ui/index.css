@@ -91,6 +91,7 @@
   --app-sidebar-surface: #dcdcddff;
   --panel-soft-divider: rgba(17, 24, 39, 0.075);
   --border-focus: rgba(79, 70, 229, 0.45);
+  --focus-ring: rgba(98, 100, 106, 0.34);
 
   /* Radius system */
   --radius: 0.5rem;
@@ -190,6 +191,7 @@
   --sidebar-segment-shadow-active: 0 1px 3px rgba(0, 0, 0, 0.24);
   --panel-soft-divider: rgba(255, 255, 255, 0.075);
   --border-focus: rgba(129, 140, 248, 0.5);
+  --focus-ring: rgba(178, 181, 187, 0.36);
 
   /* Popover / dropdown surface (unified) */
   --popover-bg: #1E2025;
@@ -228,6 +230,14 @@
 
 .popover-surface--lg {
   box-shadow: var(--popover-shadow-lg);
+}
+
+:where(button):focus {
+  outline: none;
+}
+
+:where(button):focus-visible {
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 /* Base styles */
