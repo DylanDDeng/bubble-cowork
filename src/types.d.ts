@@ -220,15 +220,9 @@ declare global {
         worktreePath?: string | null;
       }>;
     }>;
-    gitCheckoutBranch: (cwd: string, branch: string) => Promise<{ ok: boolean; output?: string; message?: string }>;
-    gitSessionHandoff: (input: {
-      sessionId: string;
-      targetMode: import('./shared/types').ThreadEnvironmentMode;
-      branch?: string | null;
-      newBranch?: string | null;
-      worktreePath?: string | null;
-      includeChanges?: boolean;
-    }) => Promise<{ ok: boolean; message?: string; worktree?: import('./shared/types').GitWorktree | null; session?: unknown }>;
+    gitCheckoutBranch: (input: import('./shared/types').GitCheckoutBranchInput) => Promise<{ ok: boolean; output?: string; message?: string }>;
+    gitCreateWorktree: (input: import('./shared/types').GitCreateWorktreeInput) => Promise<{ ok: boolean; message?: string; worktree?: import('./shared/types').GitWorktree | null }>;
+    gitSessionHandoff: (input: import('./shared/types').GitSessionHandoffInput) => Promise<{ ok: boolean; message?: string; worktree?: import('./shared/types').GitWorktree | null; session?: unknown }>;
     getGitHistory: (cwd: string) => Promise<{
       ok: boolean;
       error: string | null;

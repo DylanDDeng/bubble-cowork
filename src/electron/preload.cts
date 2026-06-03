@@ -600,8 +600,12 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-git-branches', cwd);
   },
 
-  gitCheckoutBranch: (cwd: string, branch: string) => {
-    return ipcRenderer.invoke('git-checkout-branch', cwd, branch);
+  gitCheckoutBranch: (input: unknown) => {
+    return ipcRenderer.invoke('git-checkout-branch', input);
+  },
+
+  gitCreateWorktree: (input: unknown) => {
+    return ipcRenderer.invoke('git-create-worktree', input);
   },
 
   gitSessionHandoff: (input: unknown) => {

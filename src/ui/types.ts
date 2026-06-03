@@ -354,7 +354,20 @@ export interface AppActions {
   applyUiResumeState: (state: import('../shared/types').UiResumeState | null) => void;
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;
-  createDraftSession: (cwd?: string | null, channelId?: string | null) => string;
+  createDraftSession: (
+    cwd?: string | null,
+    channelId?: string | null,
+    workspace?: Partial<Pick<
+      SessionView,
+      | 'projectCwd'
+      | 'envMode'
+      | 'worktreePath'
+      | 'associatedWorktreePath'
+      | 'associatedWorktreeBranch'
+      | 'associatedWorktreeRef'
+      | 'title'
+    >>
+  ) => string;
   removeDraftSession: (sessionId: string) => void;
   loadOlderSessionHistory: (sessionId: string) => void;
   removePermissionRequest: (sessionId: string, toolUseId: string) => void;

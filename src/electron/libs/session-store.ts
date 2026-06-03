@@ -1154,6 +1154,11 @@ export function listSessions(): SessionRow[] {
   return stmt.all() as SessionRow[];
 }
 
+export function listRunningSessions(): SessionRow[] {
+  const stmt = getDb().prepare("SELECT * FROM sessions WHERE status = 'running' ORDER BY updated_at DESC");
+  return stmt.all() as SessionRow[];
+}
+
 export function getLatestClaudeModelUsageBySession(): Record<string, LatestClaudeModelUsage> {
   const rows = getDb().prepare(`
     SELECT

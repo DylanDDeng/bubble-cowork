@@ -737,6 +737,12 @@ function createDraftSessionView(
     | 'aegisReasoningEffort'
     | 'teamMode'
     | 'teamId'
+    | 'projectCwd'
+    | 'envMode'
+    | 'worktreePath'
+    | 'associatedWorktreePath'
+    | 'associatedWorktreeBranch'
+    | 'associatedWorktreeRef'
   >>
 ): SessionView {
   const now = Date.now();
@@ -752,12 +758,12 @@ function createDraftSessionView(
     readOnly: false,
     isDraft: true,
     cwd: cwd || undefined,
-    projectCwd: cwd || null,
-    envMode: 'local',
-    worktreePath: null,
-    associatedWorktreePath: null,
-    associatedWorktreeBranch: null,
-    associatedWorktreeRef: null,
+    projectCwd: options?.projectCwd !== undefined ? options.projectCwd : cwd || null,
+    envMode: options?.envMode || 'local',
+    worktreePath: options?.worktreePath ?? null,
+    associatedWorktreePath: options?.associatedWorktreePath ?? null,
+    associatedWorktreeBranch: options?.associatedWorktreeBranch ?? null,
+    associatedWorktreeRef: options?.associatedWorktreeRef ?? null,
     channelId: normalizeWorkspaceChannelId(channelId),
     teamMode: options?.teamMode || 'channel_default',
     teamId: options?.teamId || null,
@@ -2055,11 +2061,12 @@ export const useAppStore = create<Store>()(
 
   setPendingStart: (pending) => set({ pendingStart: pending }),
 
-  createDraftSession: (cwd, channelId) => {
+  createDraftSession: (cwd, channelId, workspace) => {
     const draftCwd = cwd ?? get().projectCwd;
+    const draftProjectCwd = workspace?.projectCwd ?? draftCwd;
     const draftChannelId =
-      channelId ?? resolveActiveChannelIdForProject(get().activeChannelByProject, draftCwd);
-    const draft = createDraftSessionView(draftCwd, draftChannelId);
+      channelId ?? resolveActiveChannelIdForProject(get().activeChannelByProject, draftProjectCwd);
+    const draft = createDraftSessionView(draftCwd, draftChannelId, workspace);
     set((state) => ({
       sessions: {
         ...state.sessions,
@@ -2067,7 +2074,7 @@ export const useAppStore = create<Store>()(
       },
       activeChannelByProject: {
         ...state.activeChannelByProject,
-        [getProjectChannelKey(draftCwd)]: normalizeWorkspaceChannelId(draftChannelId),
+        [getProjectChannelKey(draftProjectCwd)]: normalizeWorkspaceChannelId(draftChannelId),
       },
       activeSessionId: draft.id,
       chatPanes: {

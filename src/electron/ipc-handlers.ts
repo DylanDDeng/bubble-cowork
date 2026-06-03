@@ -90,6 +90,9 @@ import type {
   ProviderListPluginsInput,
   ProviderListSkillsInput,
   ProviderReadPluginInput,
+  GitCheckoutBranchInput,
+  GitCreateWorktreeInput,
+  GitSessionHandoffInput,
 } from '../shared/types';
 import { getProviderService } from './libs/provider/service';
 import { disposeTerminalRuntime } from './libs/terminal-runtime';
@@ -106,6 +109,7 @@ import {
   applyStash,
   checkoutBranch,
   createWorktree,
+  dropStash,
   getCurrentBranch,
   getGitTopLevel,
   listBranches as listGitBranches,
@@ -4718,6 +4722,55 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
+  const normalizeGitCheckoutInput = (
+    input: GitCheckoutBranchInput | string,
+    branchArg?: string
+  ): GitCheckoutBranchInput => {
+    if (typeof input === 'string') {
+      return { cwd: input, branch: branchArg || '' };
+    }
+    return input;
+  };
+
+  const getRunningSessionRows = (): Array<NonNullable<ReturnType<typeof sessions.getSession>>> => {
+    const byId = new Map<string, NonNullable<ReturnType<typeof sessions.getSession>>>();
+    for (const row of sessions.listRunningSessions()) {
+      byId.set(row.id, row);
+    }
+    for (const sessionId of runnerHandles.keys()) {
+      const row = sessions.getSession(sessionId);
+      if (row) {
+        byId.set(row.id, row);
+      }
+    }
+    return Array.from(byId.values());
+  };
+
+  const findRunningSessionSharingGitRoot = async (
+    cwd: string,
+    excludedSessionId?: string | null
+  ): Promise<NonNullable<ReturnType<typeof sessions.getSession>> | null> => {
+    const targetRoot = resolve(await getGitTopLevel(cwd));
+    for (const row of getRunningSessionRows()) {
+      if (excludedSessionId && row.id === excludedSessionId) {
+        continue;
+      }
+      const rowCwd = row.cwd || row.project_cwd;
+      if (!rowCwd) {
+        continue;
+      }
+      try {
+        const rowRoot = resolve(await getGitTopLevel(rowCwd));
+        if (rowRoot === targetRoot) {
+          return row;
+        }
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  };
+
   ipcMainHandle('get-git-branches', async (_event, cwd: string) => {
     if (!cwd) return { ok: false, error: 'no-cwd', detachedHead: false, headShortHash: null, entries: [] };
 
@@ -4733,8 +4786,27 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
-  ipcMainHandle('git-checkout-branch', async (_event, cwd: string, branch: string) => {
+  ipcMainHandle('git-checkout-branch', async (_event, rawInput: GitCheckoutBranchInput | string, branchArg?: string) => {
+    const input = normalizeGitCheckoutInput(rawInput, branchArg);
+    const cwd = input.cwd?.trim();
+    const branch = input.branch?.trim();
+    if (!cwd || !branch) {
+      return { ok: false, message: 'Branch checkout requires a workspace and branch.' };
+    }
     try {
+      const session = input.sessionId ? sessions.getSession(input.sessionId) : null;
+      if (session && (runnerHandles.has(session.id) || session.status === 'running')) {
+        return { ok: false, message: 'Stop the current task before switching branches.' };
+      }
+
+      const blockingSession = await findRunningSessionSharingGitRoot(cwd, input.sessionId || null);
+      if (blockingSession) {
+        return {
+          ok: false,
+          message: `Another running session is using this workspace: ${blockingSession.title || blockingSession.id}. Open a worktree/new thread or wait for it to finish before switching branches.`,
+        };
+      }
+
       const output = await checkoutBranch({ cwd, branch });
       return { ok: true, output };
     } catch (error) {
@@ -4742,19 +4814,28 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
+  ipcMainHandle('git-create-worktree', async (_event, input: GitCreateWorktreeInput) => {
+    const cwd = input.cwd?.trim();
+    const branch = input.branch?.trim();
+    if (!cwd || !branch) {
+      return { ok: false, message: 'Creating a worktree requires a workspace and branch.', worktree: null };
+    }
+    try {
+      const worktree = await createWorktree({
+        cwd,
+        branch,
+        newBranch: input.newBranch ?? null,
+        path: input.path ?? null,
+      });
+      return { ok: true, worktree };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error), worktree: null };
+    }
+  });
+
   ipcMainHandle(
     'git-session-handoff',
-    async (
-      _event,
-      input: {
-        sessionId: string;
-        targetMode: 'local' | 'worktree';
-        branch?: string | null;
-        newBranch?: string | null;
-        worktreePath?: string | null;
-        includeChanges?: boolean;
-      }
-    ) => {
+    async (_event, input: GitSessionHandoffInput) => {
       const session = sessions.getSession(input.sessionId);
       if (!session) return { ok: false, message: 'Unknown session.' };
       const projectCwd = session.project_cwd || session.cwd;
@@ -4778,113 +4859,171 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       };
       try {
         if (runnerHandles.has(input.sessionId) || session.status === 'running') {
-          handleSessionStop(mainWindow, input.sessionId);
+          return { ok: false, message: 'Stop the current task before switching workspaces.' };
         }
 
         if (input.targetMode === 'local') {
           const sourceCwd = session.worktree_path || session.cwd || projectCwd;
           const sourceIsWorktree = resolve(sourceCwd) !== resolve(projectCwd);
-          const sourceStash = sourceIsWorktree
-            ? await stashWorkingTree({
-                cwd: sourceCwd,
-                message: `Aegis handoff to local ${new Date().toISOString()}`,
-              })
-            : { created: false, stashSha: null, output: '' };
-          const localStash = await stashWorkingTree({
-            cwd: projectCwd,
-            message: `Aegis preserve local workspace ${new Date().toISOString()}`,
-          });
+          const includeChanges = input.includeChanges === true;
+          const targetBranch = input.branch?.trim() || null;
+
+          if (!includeChanges && !targetBranch) {
+            sessions.updateSessionWorkspace(input.sessionId, {
+              projectCwd,
+              envMode: 'local',
+              worktreePath: null,
+            });
+            const updated = sessions.getSession(input.sessionId);
+            broadcastWorkspaceStatus(updated);
+            return { ok: true, session: updated, worktree: null };
+          }
+
+          let sourceStash: { created: boolean; stashSha: string | null; output: string } = {
+            created: false,
+            stashSha: null,
+            output: '',
+          };
+          let localStash: { created: boolean; stashSha: string | null; output: string } = {
+            created: false,
+            stashSha: null,
+            output: '',
+          };
           try {
-            if (input.branch?.trim()) {
-              const currentBranch = await getCurrentBranch(projectCwd).catch(() => null);
-              if (currentBranch !== input.branch.trim()) {
-                await checkoutBranch({ cwd: projectCwd, branch: input.branch.trim() });
+            const currentLocalBranch = targetBranch
+              ? await getCurrentBranch(projectCwd).catch(() => null)
+              : null;
+            const willCheckoutLocalBranch = Boolean(targetBranch && currentLocalBranch !== targetBranch);
+            if (includeChanges || willCheckoutLocalBranch) {
+              const blockingSession = await findRunningSessionSharingGitRoot(projectCwd, input.sessionId);
+              if (blockingSession) {
+                throw new Error(`Another running session is using the local workspace: ${blockingSession.title || blockingSession.id}.`);
+              }
+            }
+            sourceStash = includeChanges && sourceIsWorktree
+              ? await stashWorkingTree({
+                  cwd: sourceCwd,
+                  message: `Aegis handoff to local ${new Date().toISOString()}`,
+                })
+              : sourceStash;
+            localStash = includeChanges
+              ? await stashWorkingTree({
+                  cwd: projectCwd,
+                  message: `Aegis preserve local workspace ${new Date().toISOString()}`,
+                })
+              : localStash;
+            if (targetBranch) {
+              if (currentLocalBranch !== targetBranch) {
+                await checkoutBranch({ cwd: projectCwd, branch: targetBranch });
               }
             }
             if (sourceStash.created && sourceStash.stashSha) {
-              await applyStash({ cwd: projectCwd, stashSha: sourceStash.stashSha, drop: true });
+              await applyStash({ cwd: projectCwd, stashSha: sourceStash.stashSha });
             }
             if (localStash.created && localStash.stashSha) {
-              await applyStash({ cwd: projectCwd, stashSha: localStash.stashSha, drop: true });
+              await applyStash({ cwd: projectCwd, stashSha: localStash.stashSha });
             }
-          } catch (error) {
+            sessions.updateSessionWorkspace(input.sessionId, {
+              projectCwd,
+              envMode: 'local',
+              worktreePath: null,
+            });
+            const updated = sessions.getSession(input.sessionId);
+            broadcastWorkspaceStatus(updated);
             if (sourceStash.created && sourceStash.stashSha) {
-              await applyStash({ cwd: sourceCwd, stashSha: sourceStash.stashSha }).catch(() => undefined);
+              await dropStash({ cwd: sourceCwd, stashSha: sourceStash.stashSha }).catch(() => undefined);
             }
             if (localStash.created && localStash.stashSha) {
-              await applyStash({ cwd: projectCwd, stashSha: localStash.stashSha }).catch(() => undefined);
+              await dropStash({ cwd: projectCwd, stashSha: localStash.stashSha }).catch(() => undefined);
             }
-            throw error;
+            return { ok: true, session: updated, worktree: null };
+          } catch (error) {
+            const preserved = [
+              sourceStash.created && sourceStash.stashSha
+                ? `worktree changes: ${sourceStash.stashSha}`
+                : null,
+              localStash.created && localStash.stashSha
+                ? `local changes: ${localStash.stashSha}`
+                : null,
+            ].filter(Boolean);
+            const detail = error instanceof Error ? error.message : String(error);
+            throw new Error(
+              `Unable to bring changes to Local.${preserved.length > 0 ? ` Preserved stash refs: ${preserved.join(', ')}.` : ''}${detail ? `\n\n${detail}` : ''}`
+            );
           }
-          sessions.updateSessionWorkspace(input.sessionId, {
-            projectCwd,
-            envMode: 'local',
-            worktreePath: null,
-          });
-          const updated = sessions.getSession(input.sessionId);
-          broadcastWorkspaceStatus(updated);
-          return { ok: true, session: updated, worktree: null };
         }
         const sourceCwd = session.cwd || projectCwd;
         const includeChanges = input.includeChanges === true;
-        const sourceStash = includeChanges
-          ? await stashWorkingTree({
-              cwd: sourceCwd,
-              message: `Aegis handoff to worktree ${new Date().toISOString()}`,
-            })
-          : { created: false, stashSha: null, output: '' };
-        const branch = input.branch || (await getCurrentBranch(projectCwd)) || 'HEAD';
-        const defaultNewBranch =
-          branch === 'HEAD'
-            ? `aegis/worktree-${Date.now().toString(36)}`
-            : `aegis/${branch.replace(/[^a-zA-Z0-9._/-]+/g, '-').replace(/[\\/]+/g, '-')}-${Date.now().toString(36)}`;
-        const newBranch = input.newBranch?.trim() || defaultNewBranch;
+        let sourceStash: { created: boolean; stashSha: string | null; output: string } = {
+          created: false,
+          stashSha: null,
+          output: '',
+        };
         let createdWorktreePath: string | null = null;
-        const worktree = input.worktreePath
-          ? {
-              path: input.worktreePath,
-              branch: (await getCurrentBranch(input.worktreePath).catch(() => null)) || newBranch || branch,
-              head: null,
-              detached: false,
-              locked: false,
-              prunable: false,
-              current: false,
-            }
-          : await createWorktree({
-              cwd: projectCwd,
-              branch,
-              newBranch,
-            });
-        if (!input.worktreePath) {
-          createdWorktreePath = worktree.path;
-        }
+        let worktree: Awaited<ReturnType<typeof createWorktree>> | null = null;
         try {
-          if (sourceStash.created && sourceStash.stashSha) {
-            await applyStash({ cwd: worktree.path, stashSha: sourceStash.stashSha, drop: true });
+          sourceStash = includeChanges
+            ? await stashWorkingTree({
+                cwd: sourceCwd,
+                message: `Aegis handoff to worktree ${new Date().toISOString()}`,
+              })
+            : sourceStash;
+          const branch = input.branch || (await getCurrentBranch(projectCwd)) || 'HEAD';
+          const defaultNewBranch =
+            branch === 'HEAD'
+              ? `aegis/worktree-${Date.now().toString(36)}`
+              : `aegis/${branch.replace(/[^a-zA-Z0-9._/-]+/g, '-').replace(/[\\/]+/g, '-')}-${Date.now().toString(36)}`;
+          const newBranch = input.newBranch?.trim() || defaultNewBranch;
+          worktree = input.worktreePath
+            ? {
+                path: input.worktreePath,
+                branch: (await getCurrentBranch(input.worktreePath).catch(() => null)) || newBranch || branch,
+                head: null,
+                detached: false,
+                locked: false,
+                prunable: false,
+                current: false,
+              }
+            : await createWorktree({
+                cwd: projectCwd,
+                branch,
+                newBranch,
+              });
+          if (!input.worktreePath) {
+            createdWorktreePath = worktree.path;
           }
-        } catch (error) {
           if (sourceStash.created && sourceStash.stashSha) {
-            await applyStash({ cwd: sourceCwd, stashSha: sourceStash.stashSha }).catch(() => undefined);
+            await applyStash({ cwd: worktree.path, stashSha: sourceStash.stashSha });
+          }
+          sessions.updateSessionWorkspace(input.sessionId, {
+            projectCwd,
+            envMode: 'worktree',
+            worktreePath: worktree.path,
+            associatedWorktreePath: worktree.path,
+            associatedWorktreeBranch: worktree.branch || newBranch || branch,
+            associatedWorktreeRef: worktree.branch || newBranch || branch,
+          });
+          const updated = sessions.getSession(input.sessionId);
+          broadcastWorkspaceStatus(updated);
+          if (sourceStash.created && sourceStash.stashSha) {
+            await dropStash({ cwd: sourceCwd, stashSha: sourceStash.stashSha }).catch(() => undefined);
+          }
+          return { ok: true, session: updated, worktree };
+        } catch (error) {
+          const preserved = sourceStash.created && sourceStash.stashSha
+            ? `current changes: ${sourceStash.stashSha}`
+            : null;
+          if (preserved) {
+            await applyStash({ cwd: sourceCwd, stashSha: sourceStash.stashSha! }).catch(() => undefined);
           }
           if (createdWorktreePath) {
             await removeWorktree({ cwd: projectCwd, path: createdWorktreePath, force: true }).catch(() => undefined);
           }
           const detail = error instanceof Error ? error.message : String(error);
           throw new Error(
-            `Unable to bring current changes into the worktree. The original workspace was restored and the new worktree was cancelled.${detail ? `\n\n${detail}` : ''}`
+            `Unable to bring current changes into the worktree.${preserved ? ` Preserved stash refs: ${preserved}.` : ''} The new worktree was cancelled when possible.${detail ? `\n\n${detail}` : ''}`
           );
         }
-        sessions.updateSessionWorkspace(input.sessionId, {
-          projectCwd,
-          envMode: 'worktree',
-          worktreePath: worktree.path,
-          associatedWorktreePath: worktree.path,
-          associatedWorktreeBranch: worktree.branch || newBranch || branch,
-          associatedWorktreeRef: worktree.branch || newBranch || branch,
-        });
-        const updated = sessions.getSession(input.sessionId);
-        broadcastWorkspaceStatus(updated);
-        return { ok: true, session: updated, worktree };
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) };
       }

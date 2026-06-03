@@ -690,6 +690,28 @@ export interface GitBranchInfo {
   worktreePath?: string | null;
 }
 
+export interface GitCheckoutBranchInput {
+  cwd: string;
+  branch: string;
+  sessionId?: string | null;
+}
+
+export interface GitCreateWorktreeInput {
+  cwd: string;
+  branch: string;
+  newBranch?: string | null;
+  path?: string | null;
+}
+
+export interface GitSessionHandoffInput {
+  sessionId: string;
+  targetMode: ThreadEnvironmentMode;
+  branch?: string | null;
+  newBranch?: string | null;
+  worktreePath?: string | null;
+  includeChanges?: boolean;
+}
+
 export interface RoutedAgentPublicProfile {
   id: string;
   name: string;
