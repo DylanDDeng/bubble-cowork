@@ -42,6 +42,9 @@ import type {
   ProviderListSkillsResult,
   ProviderReadPluginInput,
   ProviderReadPluginResult,
+  WechatMarkdownHtmlGenerationInput,
+  WechatMarkdownHtmlGenerationResult,
+  WechatMarkdownHtmlGeneratorConfig,
 } from './shared/types';
 import type {
   BrowserCapturePageResult,
@@ -125,6 +128,9 @@ declare global {
     saveClaudeCompatibleProviderConfig: (config: ClaudeCompatibleProvidersConfig) => Promise<ClaudeCompatibleProvidersConfig>;
     getAegisBuiltInAgentConfig: () => Promise<AegisBuiltInAgentConfig>;
     saveAegisBuiltInAgentConfig: (config: AegisBuiltInAgentConfig) => Promise<AegisBuiltInAgentConfig>;
+    getWechatHtmlGeneratorConfig: () => Promise<WechatMarkdownHtmlGeneratorConfig>;
+    saveWechatHtmlGeneratorConfig: (config: WechatMarkdownHtmlGeneratorConfig) => Promise<WechatMarkdownHtmlGeneratorConfig>;
+    generateWechatMarkdownHtml: (input: WechatMarkdownHtmlGenerationInput) => Promise<WechatMarkdownHtmlGenerationResult>;
     getClaudeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getCodexUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getCodexRateLimits: () => Promise<CodexRateLimitReport>;

@@ -23,6 +23,11 @@ import {
   loadAegisBuiltInAgentConfig,
   saveAegisBuiltInAgentConfig,
 } from './libs/aegis-built-in-config';
+import { generateWechatMarkdownHtml } from './libs/wechat-html-generator';
+import {
+  loadWechatHtmlGeneratorConfig,
+  saveWechatHtmlGeneratorConfig,
+} from './libs/wechat-html-generator-config';
 import {
   deleteImportedFont,
   getFontSettings,
@@ -93,6 +98,8 @@ import type {
   GitCheckoutBranchInput,
   GitCreateWorktreeInput,
   GitSessionHandoffInput,
+  WechatMarkdownHtmlGenerationInput,
+  WechatMarkdownHtmlGeneratorConfig,
 } from '../shared/types';
 import { getProviderService } from './libs/provider/service';
 import { disposeTerminalRuntime } from './libs/terminal-runtime';
@@ -3576,6 +3583,18 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // RPC: 保存 Aegis Built-in Agent 配置
   ipcMainHandle('save-aegis-built-in-agent-config', async (_, config: AegisBuiltInAgentConfig) => {
     return saveAegisBuiltInAgentConfig(config);
+  });
+
+  ipcMainHandle('get-wechat-html-generator-config', async () => {
+    return loadWechatHtmlGeneratorConfig();
+  });
+
+  ipcMainHandle('save-wechat-html-generator-config', async (_, config: WechatMarkdownHtmlGeneratorConfig) => {
+    return saveWechatHtmlGeneratorConfig(config);
+  });
+
+  ipcMainHandle('generate-wechat-markdown-html', async (_, input: WechatMarkdownHtmlGenerationInput) => {
+    return generateWechatMarkdownHtml(input);
   });
 
   // RPC: 获取 Claude usage 报表

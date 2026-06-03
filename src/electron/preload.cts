@@ -23,6 +23,9 @@ import type {
   ProviderListSkillsResult,
   ProviderReadPluginInput,
   ProviderReadPluginResult,
+  WechatMarkdownHtmlGenerationInput,
+  WechatMarkdownHtmlGenerationResult,
+  WechatMarkdownHtmlGeneratorConfig,
 } from '../shared/types';
 import type {
   BrowserCapturePageResult,
@@ -326,6 +329,22 @@ contextBridge.exposeInMainWorld('electron', {
 
   saveAegisBuiltInAgentConfig: (config: AegisBuiltInAgentConfig) => {
     return ipcRenderer.invoke('save-aegis-built-in-agent-config', config);
+  },
+
+  getWechatHtmlGeneratorConfig: (): Promise<WechatMarkdownHtmlGeneratorConfig> => {
+    return ipcRenderer.invoke('get-wechat-html-generator-config');
+  },
+
+  saveWechatHtmlGeneratorConfig: (
+    config: WechatMarkdownHtmlGeneratorConfig
+  ): Promise<WechatMarkdownHtmlGeneratorConfig> => {
+    return ipcRenderer.invoke('save-wechat-html-generator-config', config);
+  },
+
+  generateWechatMarkdownHtml: (
+    input: WechatMarkdownHtmlGenerationInput
+  ): Promise<WechatMarkdownHtmlGenerationResult> => {
+    return ipcRenderer.invoke('generate-wechat-markdown-html', input);
   },
 
   // 获取 Claude usage 报表

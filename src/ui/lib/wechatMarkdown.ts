@@ -32,10 +32,20 @@
  */
 
 export type WeChatCopyResult =
-  | { ok: true; html: string; bytes: number; format: 'html' | 'markdown' }
+  | {
+      ok: true;
+      html: string;
+      bytes: number;
+      format: 'html' | 'markdown' | 'source-html';
+      model?: string;
+      providerId?: string;
+      runtime?: 'aegis' | 'claude' | 'codex' | 'opencode';
+    }
   | { ok: false; error: string };
 
-export type WeChatThemeId = 'bubblebrain' | 'lapis';
+export type WeChatStaticThemeId = 'bubblebrain' | 'lapis';
+export type WeChatAiThemeId = 'black-red-imprint';
+export type WeChatThemeId = WeChatStaticThemeId | WeChatAiThemeId;
 
 // ----- Design tokens (verbatim from BLACK_RED_IMPRINT_SYSTEM_PROMPT) -------
 
@@ -141,14 +151,14 @@ const LAPIS_COLORS: WeChatThemeColors = {
 } as const;
 
 interface WeChatThemeRuntime {
-  id: WeChatThemeId;
+  id: WeChatStaticThemeId;
   htmlName: string;
   fontStack: string;
   colors: WeChatThemeColors;
   useSerifForHeadingNumbers: boolean;
 }
 
-const WECHAT_THEMES: Record<WeChatThemeId, WeChatThemeRuntime> = {
+const WECHAT_THEMES: Record<WeChatStaticThemeId, WeChatThemeRuntime> = {
   bubblebrain: {
     id: 'bubblebrain',
     htmlName: 'bubblebrain',
@@ -168,11 +178,11 @@ const WECHAT_THEMES: Record<WeChatThemeId, WeChatThemeRuntime> = {
 let currentTheme = WECHAT_THEMES.bubblebrain;
 let C = currentTheme.colors;
 
-function resolveWechatTheme(themeId: WeChatThemeId = 'bubblebrain'): WeChatThemeRuntime {
+function resolveWechatTheme(themeId: WeChatStaticThemeId = 'bubblebrain'): WeChatThemeRuntime {
   return WECHAT_THEMES[themeId] ?? WECHAT_THEMES.bubblebrain;
 }
 
-function withWechatTheme<T>(themeId: WeChatThemeId | undefined, render: () => T): T {
+function withWechatTheme<T>(themeId: WeChatStaticThemeId | undefined, render: () => T): T {
   const previousTheme = currentTheme;
   const previousColors = C;
   const previousFontStack = FONT_STACK;
@@ -1024,7 +1034,7 @@ function renderWechatBody(markdown: string): string {
 
 function markdownToWechatHtmlFragment(
   markdown: string,
-  themeId: WeChatThemeId = 'bubblebrain',
+  themeId: WeChatStaticThemeId = 'bubblebrain',
 ): string {
   return withWechatTheme(themeId, () => {
     const body = renderWechatBody(markdown);
@@ -1042,7 +1052,7 @@ function markdownToWechatHtmlFragment(
 
 export function markdownToWechatHtml(
   markdown: string,
-  themeId: WeChatThemeId = 'bubblebrain',
+  themeId: WeChatStaticThemeId = 'bubblebrain',
 ): string {
   const blocks = parseBlocks(markdown);
   const title = extractDocumentTitle(blocks);
@@ -1063,45 +1073,223 @@ export function markdownToWechatHtml(
   );
 }
 
-/**
- * Copy the WeChat-flavored HTML for the given markdown to the clipboard.
- * Returns a tagged result so the caller can surface a success/error toast.
- *
- * Strategy order (each step falls through to the next on failure):
- *
- *  1. navigator.clipboard.write with text/html only. We intentionally
- *     do NOT set text/plain=markdown here. When both flavors are
- *     present, some Chromium-based editors (notably the 公众号
- *     editor) may consume both clipboard flavors and paste duplicated
- *     content. Sending only text/html forces the editor to take the
- *     rich path once.
- *
- *  2. execCommand('copy') with an explicit copy event payload. This
- *     fallback also writes text/html only instead of letting Chromium
- *     synthesize a text/plain flavor from a selected rich DOM range.
- *
- *  3. navigator.clipboard.writeText(markdown). Last-resort. This keeps
- *     the clipboard useful as the original Markdown instead of pasting
- *     escaped HTML markup into plain-text targets.
- */
-export async function copyMarkdownAsWechatHtml(
-  markdown: string,
-  themeId: WeChatThemeId = 'bubblebrain',
-): Promise<WeChatCopyResult> {
-  const html = markdownToWechatHtml(markdown, themeId);
-  const clipboardHtml = markdownToWechatHtmlFragment(markdown, themeId);
+function stripGeneratedHtmlFence(html: string): string {
+  const trimmed = html.trim();
+  const match = /^```(?:html)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
+  return (match?.[1] || trimmed).trim();
+}
 
+type SourceCodeBlock = {
+  lang: string;
+  code: string;
+};
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extractFencedCodeBlocks(markdown: string): SourceCodeBlock[] {
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
+  const blocks: SourceCodeBlock[] = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const open = /^\s*(`{3,}|~{3,})\s*([A-Za-z0-9_.+-]*)?.*$/.exec(lines[i] || '');
+    if (!open) continue;
+
+    const fence = open[1];
+    const fenceChar = fence[0];
+    const closePattern = new RegExp(`^\\s*${escapeRegExp(fence)}${escapeRegExp(fenceChar)}*\\s*$`);
+    const buf: string[] = [];
+    i += 1;
+    while (i < lines.length && !closePattern.test(lines[i] || '')) {
+      buf.push(lines[i] || '');
+      i += 1;
+    }
+    blocks.push({
+      lang: (open[2] || '').trim(),
+      code: buf.join('\n'),
+    });
+  }
+
+  return blocks;
+}
+
+function normalizeDomText(text: string): string {
+  return text
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function isCodeLabelText(text: string, block: SourceCodeBlock): boolean {
+  const normalized = normalizeDomText(text);
+  if (!normalized || normalized.length > 80) return false;
+
+  const lang = block.lang.trim().toLowerCase();
+  if (/^(code|command|commands|terminal|shell|snippet)(\s+[a-z0-9_.+-]+)?$/.test(normalized)) {
+    return true;
+  }
+  if (lang && normalized === lang) return true;
+  if (lang && normalized.includes(lang) && /\b(code|command|commands|lang|language|terminal|shell)\b/.test(normalized)) {
+    return true;
+  }
+
+  return false;
+}
+
+function isCodeLabelElement(element: Element, block: SourceCodeBlock): boolean {
+  const tag = element.tagName.toLowerCase();
+  if (!['p', 'div', 'span'].includes(tag)) return false;
+  if (element.querySelector('pre,table,img,blockquote,ul,ol')) return false;
+  return isCodeLabelText(element.textContent || '', block);
+}
+
+function removeAdjacentCodeLabels(target: Element, block: SourceCodeBlock): void {
+  let previous = target.previousElementSibling;
+  while (previous && isCodeLabelElement(previous, block)) {
+    const toRemove = previous;
+    previous = previous.previousElementSibling;
+    toRemove.remove();
+  }
+}
+
+function createVsCodeCodeBlockElement(doc: Document, block: SourceCodeBlock): HTMLElement {
+  const wrapper = doc.createElement('div');
+  wrapper.setAttribute('data-aegis-code-block', 'vscode');
+  wrapper.setAttribute(
+    'style',
+    'margin:22px 0;border:1px solid #30363d;border-radius:8px;overflow:hidden;background:#1e1e1e;box-shadow:0 10px 22px rgba(17,17,17,0.10);box-sizing:border-box;'
+  );
+
+  const topBar = doc.createElement('div');
+  topBar.setAttribute(
+    'style',
+    'display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:#252526;border-bottom:1px solid #343434;box-sizing:border-box;'
+  );
+
+  const lights = doc.createElement('div');
+  lights.setAttribute('style', 'display:flex;align-items:center;');
+  ['#ff5f57', '#ffbd2e', '#28c840'].forEach((color, index) => {
+    const light = doc.createElement('span');
+    light.setAttribute(
+      'style',
+      `display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;${index < 2 ? 'margin-right:7px;' : ''}`
+    );
+    lights.appendChild(light);
+  });
+
+  const label = doc.createElement('span');
+  label.textContent = block.lang ? block.lang.toUpperCase() : 'CODE';
+  label.setAttribute(
+    'style',
+    `font-family:${MONO_STACK};font-size:12px;line-height:1.3;color:#c8c8c8;text-transform:uppercase;letter-spacing:0.6px;`
+  );
+
+  topBar.appendChild(lights);
+  topBar.appendChild(label);
+
+  const pre = doc.createElement('pre');
+  pre.setAttribute(
+    'style',
+    'margin:0;padding:14px 16px;background:#1e1e1e;overflow-x:auto;white-space:pre;box-sizing:border-box;'
+  );
+
+  const code = doc.createElement('code');
+  code.textContent = block.code;
+  code.setAttribute(
+    'style',
+    `display:block;font-family:${MONO_STACK};font-size:14px;line-height:1.8;color:#d4d4d4;white-space:pre;letter-spacing:0;`
+  );
+
+  pre.appendChild(code);
+  wrapper.appendChild(topBar);
+  wrapper.appendChild(pre);
+  return wrapper;
+}
+
+function isGeneratedCodeBlockWrapper(element: Element, pre: HTMLPreElement, block: SourceCodeBlock): boolean {
+  const tag = element.tagName.toLowerCase();
+  if (!['div', 'section', 'figure'].includes(tag)) return false;
+  if (element.querySelectorAll('pre').length !== 1) return false;
+  if (element.children.length > 5) return false;
+  if (element.getAttribute('data-aegis-wechat-theme')) return false;
+
+  const style = element.getAttribute('style') || '';
+  const allText = normalizeDomText(element.textContent || '');
+  const preText = normalizeDomText(pre.textContent || '');
+  const extraText = preText ? allText.replace(preText, '').trim() : allText;
+
+  if (isCodeLabelText(extraText, block)) return true;
+  if (element.children.length <= 2 && extraText.length <= 40) return true;
+  return /border|background|box-shadow|border-radius|overflow/i.test(style) && extraText.length <= 80;
+}
+
+function findGeneratedCodeBlockTarget(pre: HTMLPreElement, block: SourceCodeBlock): Element {
+  const parent = pre.parentElement;
+  if (parent && parent !== pre.ownerDocument.body && isGeneratedCodeBlockWrapper(parent, pre, block)) {
+    return parent;
+  }
+  return pre;
+}
+
+function normalizeGeneratedCodeBlocks(doc: Document, markdown?: string): void {
+  const sourceBlocks = markdown ? extractFencedCodeBlocks(markdown) : [];
+  if (!sourceBlocks.length) return;
+
+  const pres = Array.from(doc.body.querySelectorAll('pre'));
+  const count = Math.min(pres.length, sourceBlocks.length);
+  for (let i = 0; i < count; i += 1) {
+    const pre = pres[i];
+    if (!pre.isConnected) continue;
+
+    const block = sourceBlocks[i];
+    const replacement = createVsCodeCodeBlockElement(doc, block);
+    const target = findGeneratedCodeBlockTarget(pre, block);
+    removeAdjacentCodeLabels(target, block);
+    target.replaceWith(replacement);
+  }
+}
+
+function normalizeGeneratedWechatHtmlForCopy(html: string, markdown?: string): string {
+  let next = stripGeneratedHtmlFence(html);
+  try {
+    const doc = new DOMParser().parseFromString(next, 'text/html');
+    doc.querySelectorAll('script').forEach((script) => script.remove());
+    normalizeGeneratedCodeBlocks(doc, markdown);
+    next = doc.body.innerHTML.trim() || next;
+  } catch {
+    next = next.replace(/<script\b[\s\S]*?<\/script>/gi, '').trim();
+  }
+
+  if (!next.includes('<mp-style-type data-value="3"></mp-style-type>')) {
+    next = `${next}\n${WECHAT_STYLE_MARKER}`;
+  }
+  return next;
+}
+
+async function copyWechatHtmlPayload(
+  html: string,
+  clipboardHtml: string,
+  fallbackText: string,
+  fallbackFormat: 'markdown' | 'source-html',
+  meta?: { model?: string; providerId?: string; runtime?: 'aegis' | 'claude' | 'codex' | 'opencode' },
+): Promise<WeChatCopyResult> {
   // 1. Prefer the modern Clipboard API. For clipboard text/html, write the
   // WeChat body fragment rather than a full <!doctype><html><body> document.
   // Rich-text editors normally paste fragments; full documents are commonly
   // sanitized into plain structure before inline styles are preserved.
+  //
+  // We intentionally do NOT set text/plain here. When both flavors are
+  // present, some Chromium-based editors (notably the 公众号 editor) may
+  // consume both clipboard flavors and paste duplicated content.
   try {
     if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
       const item = new ClipboardItem({
         'text/html': new Blob([clipboardHtml], { type: 'text/html' }),
       });
       await navigator.clipboard.write([item]);
-      return { ok: true, html, bytes: html.length, format: 'html' };
+      return { ok: true, html, bytes: html.length, format: 'html', ...meta };
     }
   } catch (err) {
     void err;
@@ -1111,19 +1299,19 @@ export async function copyMarkdownAsWechatHtml(
   // clipboard.write is blocked by browser/Electron security policy.
   try {
     if (copyViaCopyEvent(clipboardHtml)) {
-      return { ok: true, html, bytes: html.length, format: 'html' };
+      return { ok: true, html, bytes: html.length, format: 'html', ...meta };
     }
   } catch (err) {
     void err;
   }
 
-  // 3. Plain Markdown fallback. Never write the HTML template as text; that
-  // produces visible entities such as &quot; and &amp; when pasted outside a rich
-  // editor.
+  // 3. Last-resort text fallback. Static themes keep original Markdown so the
+  // clipboard is still useful. AI themes preserve the generated HTML source,
+  // because the generated styling is the actual artifact the user requested.
   try {
     if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(markdown);
-      return { ok: true, html, bytes: markdown.length, format: 'markdown' };
+      await navigator.clipboard.writeText(fallbackText);
+      return { ok: true, html, bytes: fallbackText.length, format: fallbackFormat, ...meta };
     }
   } catch (err) {
     void err;
@@ -1133,6 +1321,54 @@ export async function copyMarkdownAsWechatHtml(
     ok: false,
     error: '所有剪贴板写入路径都不可用(可能被浏览器/Electron 安全策略禁用)',
   };
+}
+
+/**
+ * Copy the WeChat-flavored HTML for the given markdown to the clipboard.
+ * Returns a tagged result so the caller can surface a success/error toast.
+ */
+export async function copyMarkdownAsWechatHtml(
+  markdown: string,
+  themeId: WeChatStaticThemeId = 'bubblebrain',
+): Promise<WeChatCopyResult> {
+  const html = markdownToWechatHtml(markdown, themeId);
+  const clipboardHtml = markdownToWechatHtmlFragment(markdown, themeId);
+
+  return copyWechatHtmlPayload(html, clipboardHtml, markdown, 'markdown');
+}
+
+export async function copyMarkdownAsWechatAiHtml(
+  markdown: string,
+  themeId: WeChatAiThemeId = 'black-red-imprint',
+  filePath?: string,
+): Promise<WeChatCopyResult> {
+  if (typeof window === 'undefined' || typeof window.electron?.generateWechatMarkdownHtml !== 'function') {
+    return {
+      ok: false,
+      error: '当前版本未暴露公众号 AI HTML 生成接口，请重启应用后再试',
+    };
+  }
+
+  try {
+    const result = await window.electron.generateWechatMarkdownHtml({
+      markdown,
+      themeId,
+      filePath,
+    });
+    const clipboardHtml = normalizeGeneratedWechatHtmlForCopy(result.html, markdown);
+    return copyWechatHtmlPayload(
+      clipboardHtml,
+      clipboardHtml,
+      clipboardHtml,
+      'source-html',
+      { model: result.model, providerId: result.providerId, runtime: result.runtime },
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 /**

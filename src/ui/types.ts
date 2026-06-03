@@ -87,6 +87,7 @@ export type {
   AgentProvider,
   AegisBuiltInAgentConfig,
   AegisBuiltInReasoningEffort,
+  WechatMarkdownHtmlGeneratorConfig,
   ProviderComposerCapabilities,
   ProviderListPluginsInput,
   ProviderListPluginsResult,

@@ -273,6 +273,31 @@ export interface AegisBuiltInAgentConfig {
   maxOutputTokens?: number;
 }
 
+export type WechatMarkdownHtmlThemeId = 'black-red-imprint';
+export type WechatMarkdownHtmlGeneratorRuntime = AgentProvider;
+
+export interface WechatMarkdownHtmlGeneratorConfig {
+  runtime: WechatMarkdownHtmlGeneratorRuntime;
+  providerId: string;
+  model: string;
+  temperature: number;
+  maxOutputTokens?: number;
+}
+
+export interface WechatMarkdownHtmlGenerationInput {
+  markdown: string;
+  themeId: WechatMarkdownHtmlThemeId;
+  filePath?: string;
+}
+
+export interface WechatMarkdownHtmlGenerationResult {
+  html: string;
+  model: string;
+  providerId: string;
+  runtime: WechatMarkdownHtmlGeneratorRuntime;
+  themeId: WechatMarkdownHtmlThemeId;
+}
+
 // 附件类型（文件/图片）
 export type AttachmentKind = 'file' | 'image';
 

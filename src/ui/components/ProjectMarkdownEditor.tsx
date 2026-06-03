@@ -68,7 +68,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { copyMarkdownAsWechatHtml, type WeChatThemeId } from '../lib/wechatMarkdown';
+import {
+  copyMarkdownAsWechatAiHtml,
+  copyMarkdownAsWechatHtml,
+  type WeChatStaticThemeId,
+} from '../lib/wechatMarkdown';
 
 export type MarkdownOutlineItem = {
   id: string;
@@ -795,6 +799,7 @@ export function ProjectMarkdownEditor({
   const [editorFocused, setEditorFocused] = useState(false);
   const [, forceToolbarState] = useState(0);
   const [metadataExpanded, setMetadataExpanded] = useState(false);
+  const [wechatAiGenerating, setWechatAiGenerating] = useState(false);
   const breadcrumb = useMemo(() => formatBreadcrumb(cwd, filePath), [cwd, filePath]);
   const metadataFields = useMemo(
     () => parseMarkdownMetadata(splitFrontmatter(value).frontmatter),
@@ -1014,19 +1019,62 @@ export function ProjectMarkdownEditor({
     applyFrontmatterChange(updateMarkdownMetadataArray(frontmatterRef.current, field, nextItems));
   }, [applyFrontmatterChange]);
 
-  const handleCopyWechatHtml = useCallback(async (themeId: WeChatThemeId = 'bubblebrain') => {
+  const showWechatCopyResult = useCallback((
+    result: Awaited<ReturnType<typeof copyMarkdownAsWechatHtml>>,
+    toastId?: string | number,
+  ) => {
+    const modelDescription = result.ok && result.model
+      ? `使用：${result.runtime || 'aegis'} · ${result.model}`
+      : undefined;
+    const resultToastOptions = {
+      closeButton: true,
+      dismissible: true,
+      ...(modelDescription ? { description: modelDescription } : {}),
+    };
+    const toastOptions = toastId === undefined
+      ? resultToastOptions
+      : { ...resultToastOptions, id: toastId };
+    if (result.ok) {
+      if (result.format === 'html') {
+        toast.success('已复制到公众号剪贴板', toastOptions);
+      } else if (result.format === 'source-html') {
+        toast.success('富文本复制不可用，已复制生成的 HTML 源码', toastOptions);
+      } else {
+        toast.success('富文本复制不可用，已复制原始 Markdown', toastOptions);
+      }
+    } else {
+      toast.error(`复制失败: ${result.error}`, toastOptions);
+    }
+  }, []);
+
+  const handleCopyWechatHtml = useCallback(async (themeId: WeChatStaticThemeId = 'bubblebrain') => {
     const markdown = normalizeCopiedMarkdownSource(currentFullMarkdownRef.current ?? value);
     const result = await copyMarkdownAsWechatHtml(markdown, themeId);
-    if (result.ok) {
-      toast.success(
-        result.format === 'html'
-          ? '已复制到公众号剪贴板'
-          : '富文本复制不可用，已复制原始 Markdown'
-      );
-    } else {
-      toast.error(`复制失败: ${result.error}`);
+    showWechatCopyResult(result);
+  }, [showWechatCopyResult, value]);
+
+  const handleCopyBlackRedWechatHtml = useCallback(async () => {
+    if (wechatAiGenerating) return;
+    const markdown = normalizeCopiedMarkdownSource(currentFullMarkdownRef.current ?? value);
+    setWechatAiGenerating(true);
+    const loadingToastId = toast.loading('正在生成黑红刊刻风 HTML...', {
+      description: '生成完成后会自动复制到公众号剪贴板',
+      duration: Infinity,
+      dismissible: false,
+    });
+    try {
+      const result = await copyMarkdownAsWechatAiHtml(markdown, 'black-red-imprint', filePath);
+      showWechatCopyResult(result, loadingToastId);
+    } catch (error) {
+      toast.error(`复制失败: ${error instanceof Error ? error.message : String(error)}`, {
+        id: loadingToastId,
+        closeButton: true,
+        dismissible: true,
+      });
+    } finally {
+      setWechatAiGenerating(false);
     }
-  }, [value]);
+  }, [filePath, showWechatCopyResult, value, wechatAiGenerating]);
 
   useEffect(() => {
     const root = hostRef.current;
@@ -1316,6 +1364,13 @@ export function ProjectMarkdownEditor({
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('lapis')}>
                 <span>Lapis</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={wechatAiGenerating}
+                onSelect={() => void handleCopyBlackRedWechatHtml()}
+              >
+                <span>{wechatAiGenerating ? '黑红刊刻风生成中...' : '黑红刊刻风（AI）'}</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
