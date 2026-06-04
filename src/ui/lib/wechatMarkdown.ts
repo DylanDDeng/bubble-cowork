@@ -44,7 +44,7 @@ export type WeChatCopyResult =
   | { ok: false; error: string };
 
 export type WeChatStaticThemeId = 'bubblebrain' | 'lapis';
-export type WeChatAiThemeId = 'black-red-imprint';
+export type WeChatAiThemeId = 'black-red-imprint' | 'black-orange-imprint';
 export type WeChatThemeId = WeChatStaticThemeId | WeChatAiThemeId;
 
 // ----- Design tokens (verbatim from BLACK_RED_IMPRINT_SYSTEM_PROMPT) -------
@@ -106,7 +106,7 @@ const BUBBLEBRAIN_COLORS: WeChatThemeColors = {
   textCaption: '#6a4b4d',
   textItalic: '#5f5355',
   // brand (warm orange)
-  red: '#F87B02',
+  red: '#FF7401',
   redBright: '#FF8E1A',
   redTagText: '#fff5ea',
   redCardBg: '#3a2410',
@@ -575,7 +575,7 @@ function highlightYellowHtml(text: string): string {
 }
 
 function methodNameHtml(text: string): string {
-  // 方法名 / 操作项: 暖橙文字 #F87B02, weight 700
+  // 方法名 / 操作项: 暖橙文字 #FF7401, weight 700
   return (
     `<span style="color:${C.red};font-weight:700;">${text}</span>`
   );
@@ -686,7 +686,7 @@ function h2SectionHtml(inner: string, n: number): string {
     `</div>` +
     `<div style="width:48%;height:2px;` +
     `background:linear-gradient(90deg,#111111 0%,${C.red} 62%,` +
-    `rgba(143,29,34,0.12) 100%);"></div>` +
+    `rgba(255,116,1,0.14) 100%);"></div>` +
     `</div>`
   );
 }
@@ -874,7 +874,7 @@ function hrHtml(): string {
   return (
     `<hr style="border:none;margin:36px auto;height:2px;width:42%;` +
     `background:linear-gradient(90deg,${C.text} 0%,${C.red} 62%,` +
-    `rgba(143,29,34,0.12) 100%);" />`
+    `rgba(255,116,1,0.14) 100%);" />`
   );
 }
 
@@ -891,7 +891,7 @@ function breakHtml(): string {
 // ----- Container blocks (黑红刊刻风 tip / note / endnote) -------------------
 
 function tipCardHtml(lines: string[]): string {
-  // 提示卡: 背景 #fff7f7, 边框 1px #ead9db, 左边框 4px #8f1d22,
+  // 提示卡: 暖橙触点, 左边框使用主题主色,
   // padding 14px 16px, 内部 14px 颜色 #2b1d1f 行高 1.85.
   // We add a small "提示 / TIP" tag at the top.
   const inner = lines.map(renderInline).join('<br/>');
@@ -964,7 +964,7 @@ function endNoteHtml(lines: string[]): string {
       : ``) +
     `<div style="width:48%;height:2px;margin-top:18px;` +
     `background:linear-gradient(90deg,#111111 0%,${C.red} 62%,` +
-    `rgba(143,29,34,0.12) 100%);"></div>` +
+    `rgba(255,116,1,0.14) 100%);"></div>` +
     `</section>`
   );
 }
@@ -1305,7 +1305,21 @@ async function copyWechatHtmlPayload(
     void err;
   }
 
-  // 3. Last-resort text fallback. Static themes keep original Markdown so the
+  // 3. Electron fallback. In packaged/dev Electron builds the Web Clipboard
+  // API can be blocked by renderer security policy, while the main process can
+  // still write text/html to the system clipboard.
+  try {
+    if (typeof window !== 'undefined' && typeof window.electron?.writeWechatClipboardHtml === 'function') {
+      const result = await window.electron.writeWechatClipboardHtml({ html: clipboardHtml });
+      if (result.ok) {
+        return { ok: true, html, bytes: html.length, format: 'html', ...meta };
+      }
+    }
+  } catch (err) {
+    void err;
+  }
+
+  // 4. Last-resort text fallback. Static themes keep original Markdown so the
   // clipboard is still useful. AI themes preserve the generated HTML source,
   // because the generated styling is the actual artifact the user requested.
   try {

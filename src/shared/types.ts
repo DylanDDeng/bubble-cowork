@@ -273,7 +273,7 @@ export interface AegisBuiltInAgentConfig {
   maxOutputTokens?: number;
 }
 
-export type WechatMarkdownHtmlThemeId = 'black-red-imprint';
+export type WechatMarkdownHtmlThemeId = 'black-red-imprint' | 'black-orange-imprint';
 export type WechatMarkdownHtmlGeneratorRuntime = AgentProvider;
 
 export interface WechatMarkdownHtmlGeneratorConfig {
@@ -296,6 +296,15 @@ export interface WechatMarkdownHtmlGenerationResult {
   providerId: string;
   runtime: WechatMarkdownHtmlGeneratorRuntime;
   themeId: WechatMarkdownHtmlThemeId;
+}
+
+export interface WechatClipboardHtmlWriteInput {
+  html: string;
+}
+
+export interface WechatClipboardHtmlWriteResult {
+  ok: boolean;
+  error?: string;
 }
 
 // 附件类型（文件/图片）

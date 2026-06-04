@@ -71,6 +71,7 @@ import {
 import {
   copyMarkdownAsWechatAiHtml,
   copyMarkdownAsWechatHtml,
+  type WeChatAiThemeId,
   type WeChatStaticThemeId,
 } from '../lib/wechatMarkdown';
 
@@ -799,7 +800,7 @@ export function ProjectMarkdownEditor({
   const [editorFocused, setEditorFocused] = useState(false);
   const [, forceToolbarState] = useState(0);
   const [metadataExpanded, setMetadataExpanded] = useState(false);
-  const [wechatAiGenerating, setWechatAiGenerating] = useState(false);
+  const [wechatAiGeneratingTheme, setWechatAiGeneratingTheme] = useState<WeChatAiThemeId | null>(null);
   const breadcrumb = useMemo(() => formatBreadcrumb(cwd, filePath), [cwd, filePath]);
   const metadataFields = useMemo(
     () => parseMarkdownMetadata(splitFrontmatter(value).frontmatter),
@@ -1053,17 +1054,20 @@ export function ProjectMarkdownEditor({
     showWechatCopyResult(result);
   }, [showWechatCopyResult, value]);
 
-  const handleCopyBlackRedWechatHtml = useCallback(async () => {
-    if (wechatAiGenerating) return;
+  const handleCopyAiWechatHtml = useCallback(async (
+    themeId: WeChatAiThemeId,
+    themeLabel: string,
+  ) => {
+    if (wechatAiGeneratingTheme) return;
     const markdown = normalizeCopiedMarkdownSource(currentFullMarkdownRef.current ?? value);
-    setWechatAiGenerating(true);
-    const loadingToastId = toast.loading('正在生成黑红刊刻风 HTML...', {
+    setWechatAiGeneratingTheme(themeId);
+    const loadingToastId = toast.loading(`正在生成${themeLabel} HTML...`, {
       description: '生成完成后会自动复制到公众号剪贴板',
       duration: Infinity,
       dismissible: false,
     });
     try {
-      const result = await copyMarkdownAsWechatAiHtml(markdown, 'black-red-imprint', filePath);
+      const result = await copyMarkdownAsWechatAiHtml(markdown, themeId, filePath);
       showWechatCopyResult(result, loadingToastId);
     } catch (error) {
       toast.error(`复制失败: ${error instanceof Error ? error.message : String(error)}`, {
@@ -1072,9 +1076,9 @@ export function ProjectMarkdownEditor({
         dismissible: true,
       });
     } finally {
-      setWechatAiGenerating(false);
+      setWechatAiGeneratingTheme(null);
     }
-  }, [filePath, showWechatCopyResult, value, wechatAiGenerating]);
+  }, [filePath, showWechatCopyResult, value, wechatAiGeneratingTheme]);
 
   useEffect(() => {
     const root = hostRef.current;
@@ -1367,10 +1371,24 @@ export function ProjectMarkdownEditor({
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                disabled={wechatAiGenerating}
-                onSelect={() => void handleCopyBlackRedWechatHtml()}
+                disabled={wechatAiGeneratingTheme !== null}
+                onSelect={() => void handleCopyAiWechatHtml('black-red-imprint', '黑红刊刻风')}
               >
-                <span>{wechatAiGenerating ? '黑红刊刻风生成中...' : '黑红刊刻风（AI）'}</span>
+                <span>
+                  {wechatAiGeneratingTheme === 'black-red-imprint'
+                    ? '黑红刊刻风生成中...'
+                    : '黑红刊刻风（AI）'}
+                </span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={wechatAiGeneratingTheme !== null}
+                onSelect={() => void handleCopyAiWechatHtml('black-orange-imprint', '黑橙刊刻风')}
+              >
+                <span>
+                  {wechatAiGeneratingTheme === 'black-orange-imprint'
+                    ? '黑橙刊刻风生成中...'
+                    : '黑橙刊刻风（AI）'}
+                </span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

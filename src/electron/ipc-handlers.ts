@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'http';
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, watch, type FSWatcher, promises as fsPromises } from 'fs';
 import { execFile } from 'child_process';
@@ -98,6 +98,7 @@ import type {
   GitCheckoutBranchInput,
   GitCreateWorktreeInput,
   GitSessionHandoffInput,
+  WechatClipboardHtmlWriteInput,
   WechatMarkdownHtmlGenerationInput,
   WechatMarkdownHtmlGeneratorConfig,
 } from '../shared/types';
@@ -3595,6 +3596,22 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('generate-wechat-markdown-html', async (_, input: WechatMarkdownHtmlGenerationInput) => {
     return generateWechatMarkdownHtml(input);
+  });
+
+  ipcMainHandle('write-wechat-clipboard-html', async (_, input: WechatClipboardHtmlWriteInput) => {
+    try {
+      const html = typeof input?.html === 'string' ? input.html : '';
+      if (!html.trim()) {
+        return { ok: false, error: 'HTML 内容为空' };
+      }
+      clipboard.writeHTML(html);
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   });
 
   // RPC: 获取 Claude usage 报表

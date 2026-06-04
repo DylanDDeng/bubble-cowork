@@ -42,6 +42,8 @@ import type {
   ProviderListSkillsResult,
   ProviderReadPluginInput,
   ProviderReadPluginResult,
+  WechatClipboardHtmlWriteInput,
+  WechatClipboardHtmlWriteResult,
   WechatMarkdownHtmlGenerationInput,
   WechatMarkdownHtmlGenerationResult,
   WechatMarkdownHtmlGeneratorConfig,
@@ -131,6 +133,7 @@ declare global {
     getWechatHtmlGeneratorConfig: () => Promise<WechatMarkdownHtmlGeneratorConfig>;
     saveWechatHtmlGeneratorConfig: (config: WechatMarkdownHtmlGeneratorConfig) => Promise<WechatMarkdownHtmlGeneratorConfig>;
     generateWechatMarkdownHtml: (input: WechatMarkdownHtmlGenerationInput) => Promise<WechatMarkdownHtmlGenerationResult>;
+    writeWechatClipboardHtml: (input: WechatClipboardHtmlWriteInput) => Promise<WechatClipboardHtmlWriteResult>;
     getClaudeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getCodexUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getCodexRateLimits: () => Promise<CodexRateLimitReport>;

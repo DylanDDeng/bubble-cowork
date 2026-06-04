@@ -23,6 +23,8 @@ import type {
   ProviderListSkillsResult,
   ProviderReadPluginInput,
   ProviderReadPluginResult,
+  WechatClipboardHtmlWriteInput,
+  WechatClipboardHtmlWriteResult,
   WechatMarkdownHtmlGenerationInput,
   WechatMarkdownHtmlGenerationResult,
   WechatMarkdownHtmlGeneratorConfig,
@@ -345,6 +347,12 @@ contextBridge.exposeInMainWorld('electron', {
     input: WechatMarkdownHtmlGenerationInput
   ): Promise<WechatMarkdownHtmlGenerationResult> => {
     return ipcRenderer.invoke('generate-wechat-markdown-html', input);
+  },
+
+  writeWechatClipboardHtml: (
+    input: WechatClipboardHtmlWriteInput
+  ): Promise<WechatClipboardHtmlWriteResult> => {
+    return ipcRenderer.invoke('write-wechat-clipboard-html', input);
   },
 
   // 获取 Claude usage 报表

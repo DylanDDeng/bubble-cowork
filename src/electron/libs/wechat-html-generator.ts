@@ -196,6 +196,39 @@ H2 使用“深红章节签 + 黑色结构线”：
 - 禁止无意义高亮、满篇红字、促销风 CTA。
 - 禁止正文、代码块字号偏离：正文必须 14px，代码块必须 14px，H2 必须 18px。`;
 
+const BLACK_ORANGE_IMPRINT_SYSTEM_PROMPT = BLACK_RED_IMPRINT_SYSTEM_PROMPT
+  .replace(/黑红刊刻风/g, '黑橙刊刻风')
+  .replace('黑色 + 深红色 + 骨白底', '黑色 + 暖橙色 #ff7401 + 骨白底')
+  .replace('#8f1d22 / #b3262d', '#ff7401 / #ff8e1a')
+  .replace('禁止高饱和纯红大面积铺底', '禁止高饱和纯红或橙色大面积铺底')
+  .replace('深红章节签', '暖橙章节签')
+  .replace('background:#8f1d22;color:#fff6f4', 'background:#ff7401;color:#fff5ea')
+  .replace(
+    '#111111 0%,#8f1d22 62%,rgba(143,29,34,0.12)',
+    '#111111 0%,#ff7401 62%,rgba(255,116,1,0.14)'
+  )
+  .replace('红色标签小而利落', '暖橙标签小而利落')
+  .replace('深红下划线', '暖橙下划线')
+  .replace('border-bottom:1.5px solid #b3262d', 'border-bottom:1.5px solid #ff7401')
+  .replace('深红实线下划线', '暖橙实线下划线')
+  .replace('浅红底条 #f7e4e5', '浅暖橙底条 #fff3e6')
+  .replace('深红文字 #8f1d22', '暖橙文字 #ff7401')
+  .replace(
+    'background:#fff7f7; border:1px solid #ead9db; border-left:4px solid #8f1d22',
+    'background:#fff7f0; border:1px solid #f1dcc9; border-left:4px solid #ff7401'
+  )
+  .replace('满篇红字', '满篇橙字');
+
+function getWechatHtmlThemeName(themeId: WechatMarkdownHtmlThemeId): string {
+  return themeId === 'black-orange-imprint' ? '黑橙刊刻风' : '黑红刊刻风';
+}
+
+function getWechatHtmlSystemPrompt(themeId: WechatMarkdownHtmlThemeId): string {
+  return themeId === 'black-orange-imprint'
+    ? BLACK_ORANGE_IMPRINT_SYSTEM_PROMPT
+    : BLACK_RED_IMPRINT_SYSTEM_PROMPT;
+}
+
 function readFirstEnv(names: string[]): string {
   for (const name of names) {
     const value = process.env[name]?.trim();
@@ -378,15 +411,16 @@ function buildUserPrompt(input: WechatMarkdownHtmlGenerationInput): string {
   const markdownWithoutFrontmatter = stripFrontmatter(input.markdown);
   const title = extractFirstHeading(markdownWithoutFrontmatter) || deriveTitleFromFilePath(input.filePath);
   const markdownForPrompt = stripLeadingTitleHeading(markdownWithoutFrontmatter, title);
+  const themeName = getWechatHtmlThemeName(input.themeId || 'black-red-imprint');
   const parts = [
-    '请根据系统提示词中的「黑红刊刻风」规范，排版以下 Markdown，并直接输出可粘贴到公众号后台的 HTML 片段。',
+    `请根据系统提示词中的「${themeName}」规范，排版以下 Markdown，并直接输出可粘贴到公众号后台的 HTML 片段。`,
     '',
     '输出要求：',
     '1. 只能输出 HTML，不要解释，不要 Markdown 代码块。',
     '2. 所有样式必须使用 inline style。',
     '3. 文末必须包含 <p style="display: none;"><mp-style-type data-value="3"></mp-style-type></p>。',
     '4. 不要输出文章标题、刊头、封面标题区块，正文直接从正文内容开始。',
-    '5. 不要输出公众号关注名片、二维码区或黑红封面 HTML。',
+    '5. 不要输出公众号关注名片、二维码区或主题封面 HTML。',
     '',
   ];
   if (title.trim()) {
@@ -500,8 +534,9 @@ function deriveWorkingDirectory(filePath?: string): string | undefined {
 }
 
 function buildAgentOneShotPrompt(input: WechatMarkdownHtmlGenerationInput): string {
+  const systemPrompt = getWechatHtmlSystemPrompt(input.themeId || 'black-red-imprint');
   return [
-    BLACK_RED_IMPRINT_SYSTEM_PROMPT,
+    systemPrompt,
     '',
     '# 当前任务',
     buildUserPrompt(input),
@@ -514,11 +549,12 @@ async function requestAgentText(input: {
   promptInput: WechatMarkdownHtmlGenerationInput;
   selection: RuntimeSelection;
 }): Promise<{ text: string; model?: string }> {
+  const systemPrompt = getWechatHtmlSystemPrompt(input.promptInput.themeId || 'black-red-imprint');
   if (input.selection.runtime === 'aegis') {
     const text = await requestChatText({
       selection: input.selection,
       messages: [
-        { role: 'system', content: BLACK_RED_IMPRINT_SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: buildUserPrompt(input.promptInput) },
       ],
     });
@@ -561,7 +597,7 @@ export async function generateWechatMarkdownHtml(
   input: WechatMarkdownHtmlGenerationInput,
 ): Promise<WechatMarkdownHtmlGenerationResult> {
   const themeId: WechatMarkdownHtmlThemeId = input.themeId || 'black-red-imprint';
-  if (themeId !== 'black-red-imprint') {
+  if (themeId !== 'black-red-imprint' && themeId !== 'black-orange-imprint') {
     throw new Error(`Unsupported WeChat HTML theme: ${themeId}`);
   }
   if (!input.markdown.trim()) {
