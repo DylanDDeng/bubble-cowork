@@ -7,9 +7,9 @@ import {
   type ReactNode,
 } from 'react';
 import {
-  Bookmark,
-  Brain,
+  BookOpenText,
   FolderOpen,
+  Script,
   Search,
   Settings,
   SidebarCollapseIcon,
@@ -415,7 +415,7 @@ export function Sidebar() {
                     onClick={() => setSearchPaletteOpen(true)}
                   />
                   <SidebarNavRow
-                    icon={<Bookmark className="h-[15px] w-[15px]" />}
+                    icon={<BookOpenText className="h-[15px] w-[15px]" />}
                     label="Prompt Library"
                     active={activeWorkspace === 'prompts'}
                     onClick={() => {
@@ -425,7 +425,7 @@ export function Sidebar() {
                     }}
                   />
                   <SidebarNavRow
-                    icon={<Brain className="h-[15px] w-[15px]" />}
+                    icon={<Script className="h-[15px] w-[15px]" />}
                     label="Skill Library"
                     active={activeWorkspace === 'skills'}
                     onClick={openSkillWorkspace}
