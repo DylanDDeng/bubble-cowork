@@ -151,9 +151,21 @@ type MarkdownImageMatch = {
   src: string;
 };
 
+type MarkdownFrontmatterBlock = {
+  from: number;
+  to: number;
+  startLine: number;
+  endLine: number;
+  frontmatter: string;
+};
+
 const updateListenerFacet = EditorView.updateListener;
 const markdownHeadingFlashEffect = StateEffect.define<number | null>();
+const markdownPointerSelectingEffect = StateEffect.define<boolean>();
 const METADATA_VISIBLE_ROWS = 8;
+const OUTLINE_TARGET_MIN_TOP_OFFSET_PX = 72;
+const OUTLINE_TARGET_MAX_TOP_OFFSET_PX = 140;
+const OUTLINE_TARGET_VIEWPORT_RATIO = 0.16;
 const URL_CANDIDATE_RE = /(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
 const TRAILING_URL_PUNCTUATION_RE = /[.,;:!?，。！？；：、)\]}）】》]+$/u;
 const MARKDOWN_IMAGE_MIME_TYPES = new Set([
@@ -177,6 +189,11 @@ const EMPTY_TOOLBAR_STATE: MarkdownToolbarState = {
   task: false,
   quote: false,
   codeBlock: false,
+};
+
+type LivePreviewDecorationState = {
+  decorations: DecorationSet;
+  pointerSelecting: boolean;
 };
 
 function splitFrontmatter(markdown: string): FrontmatterParts {
@@ -571,6 +588,33 @@ function openMarkdownExternalUrl(rawUrl: string): boolean {
   return true;
 }
 
+function findFrontmatterBlock(state: EditorState): MarkdownFrontmatterBlock | null {
+  if (state.doc.lines < 2) return null;
+  const firstLine = state.doc.line(1);
+  if (firstLine.text.trim() !== '---') return null;
+
+  for (let lineNumber = 2; lineNumber <= state.doc.lines; lineNumber += 1) {
+    const line = state.doc.line(lineNumber);
+    if (line.text.trim() !== '---') continue;
+    return {
+      from: firstLine.from,
+      to: line.to,
+      startLine: 1,
+      endLine: lineNumber,
+      frontmatter: state.sliceDoc(firstLine.from, line.to),
+    };
+  }
+  return null;
+}
+
+function frontmatterBlockIsActive(state: EditorState, block: MarkdownFrontmatterBlock): boolean {
+  return state.selection.ranges.some((range) => (
+    (range.from > block.from && range.from < block.to)
+    || (range.to > block.from && range.to < block.to)
+    || (!range.empty && range.from <= block.from && range.to >= block.to)
+  ));
+}
+
 function collectOutlineItemsFromDoc(state: EditorState): MarkdownOutlineItem[] {
   const items: MarkdownOutlineItem[] = [];
   let inFrontmatter = false;
@@ -724,6 +768,29 @@ function replaceRange(view: EditorView, from: number, to: number, insert: string
     scrollIntoView: true,
   });
   view.focus();
+}
+
+function scrollEditorPositionIntoMainView(view: EditorView, host: HTMLElement | null, pos: number) {
+  const scroller = host?.closest<HTMLElement>('.aegis-md-main');
+  if (!scroller) return;
+
+  window.requestAnimationFrame(() => {
+    const coords = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
+    const scrollerRect = scroller.getBoundingClientRect();
+    const contentRect = view.contentDOM.getBoundingClientRect();
+    const lineBlock = view.lineBlockAt(pos);
+    const targetTop = coords?.top ?? contentRect.top + lineBlock.top;
+    const topOffset = Math.min(
+      OUTLINE_TARGET_MAX_TOP_OFFSET_PX,
+      Math.max(OUTLINE_TARGET_MIN_TOP_OFFSET_PX, scroller.clientHeight * OUTLINE_TARGET_VIEWPORT_RATIO)
+    );
+    const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const nextScrollTop = scroller.scrollTop + targetTop - scrollerRect.top - topOffset;
+    scroller.scrollTo({
+      top: Math.min(maxScrollTop, Math.max(0, nextScrollTop)),
+      behavior: 'smooth',
+    });
+  });
 }
 
 function normalizeLineSelection(state: EditorState) {
@@ -1039,6 +1106,91 @@ class TablePreviewWidget extends WidgetType {
   }
 }
 
+class FrontmatterPreviewWidget extends WidgetType {
+  private readonly fields: MarkdownMetadataField[];
+
+  constructor(
+    private readonly frontmatter: string,
+    private readonly editPos: number
+  ) {
+    super();
+    this.fields = parseMarkdownMetadata(frontmatter);
+  }
+
+  eq(other: FrontmatterPreviewWidget) {
+    return other.frontmatter === this.frontmatter && other.editPos === this.editPos;
+  }
+
+  toDOM(view: EditorView) {
+    const section = document.createElement('section');
+    section.className = 'aegis-mdx-metadata-card aegis-md-editor-metadata aegis-cm-frontmatter-widget';
+    section.setAttribute('aria-label', 'Metadata');
+
+    const title = document.createElement('div');
+    title.className = 'aegis-mdx-metadata-title';
+    title.textContent = 'Metadata';
+    section.appendChild(title);
+
+    const grid = document.createElement('div');
+    grid.className = 'aegis-mdx-metadata-grid';
+    section.appendChild(grid);
+
+    this.fields.forEach((field) => {
+      const row = document.createElement('div');
+      row.className = 'aegis-mdx-metadata-row';
+
+      const key = document.createElement('span');
+      key.className = 'aegis-mdx-metadata-key';
+      key.title = field.key;
+      key.textContent = field.key;
+      row.appendChild(key);
+
+      if (field.kind === 'array') {
+        const chips = document.createElement('div');
+        chips.className = 'aegis-mdx-metadata-chips';
+        chips.setAttribute('aria-label', field.key);
+        field.items.forEach((item) => {
+          const chip = document.createElement('span');
+          chip.className = 'aegis-mdx-metadata-chip';
+          chip.textContent = item;
+          chips.appendChild(chip);
+        });
+        row.appendChild(chips);
+      } else {
+        const value = document.createElement('span');
+        value.className = `aegis-mdx-metadata-value kind-${field.kind}`;
+        value.textContent = field.value;
+        row.appendChild(value);
+      }
+
+      grid.appendChild(row);
+    });
+
+    if (this.fields.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'aegis-mdx-metadata-value';
+      empty.textContent = 'No metadata';
+      grid.appendChild(empty);
+    }
+
+    section.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const pos = Math.min(this.editPos, view.state.doc.length);
+      view.dispatch({
+        selection: EditorSelection.cursor(pos),
+        effects: EditorView.scrollIntoView(pos, { y: 'center' }),
+      });
+      view.focus();
+    });
+    return section;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
 function addHiddenRange(decorations: Array<Range<Decoration>>, from: number, to: number) {
   if (to > from) {
     decorations.push(Decoration.replace({ inclusive: false }).range(from, to));
@@ -1161,9 +1313,18 @@ function addInlineMarkdownDecorations(
 
 function buildLivePreviewDecorations(state: EditorState, cwd: string, filePath: string): DecorationSet {
   const decorations: Array<Range<Decoration>> = [];
+  const frontmatter = findFrontmatterBlock(state);
   const codeBlocks = scanCodeBlocks(state);
   const tableBlocks = scanTableBlocks(state);
   const blockLines = new Set<number>();
+
+  if (frontmatter && !frontmatterBlockIsActive(state, frontmatter)) {
+    for (let line = frontmatter.startLine; line <= frontmatter.endLine; line += 1) blockLines.add(line);
+    decorations.push(Decoration.replace({
+      widget: new FrontmatterPreviewWidget(frontmatter.frontmatter, frontmatter.from + 4),
+      block: true,
+    }).range(frontmatter.from, frontmatter.to));
+  }
 
   for (const block of codeBlocks) {
     for (let line = block.startLine; line <= block.endLine; line += 1) blockLines.add(line);
@@ -1228,21 +1389,76 @@ const headingFlashField = StateField.define<number | null>({
   },
 });
 
-function createLivePreviewDecorationsField(cwd: string, filePath: string): StateField<DecorationSet> {
-  return StateField.define<DecorationSet>({
+function createLivePreviewDecorationsField(cwd: string, filePath: string): StateField<LivePreviewDecorationState> {
+  return StateField.define<LivePreviewDecorationState>({
     create(state) {
-      return buildLivePreviewDecorations(state, cwd, filePath);
+      return {
+        decorations: buildLivePreviewDecorations(state, cwd, filePath),
+        pointerSelecting: false,
+      };
     },
-    update(decorations, transaction) {
+    update(value, transaction) {
+      const pointerSelectingEffect = transaction.effects.find((effect) => effect.is(markdownPointerSelectingEffect));
+      const nextPointerSelecting = pointerSelectingEffect
+        ? pointerSelectingEffect.value
+        : value.pointerSelecting;
+
+      if (nextPointerSelecting) {
+        return {
+          decorations: transaction.docChanged
+            ? buildLivePreviewDecorations(transaction.state, cwd, filePath)
+            : value.decorations.map(transaction.changes),
+          pointerSelecting: true,
+        };
+      }
+
+      if (value.pointerSelecting !== nextPointerSelecting) {
+        return {
+          decorations: buildLivePreviewDecorations(transaction.state, cwd, filePath),
+          pointerSelecting: false,
+        };
+      }
+
       const shouldRebuild = transaction.docChanged
         || transaction.selection
         || transaction.effects.some((effect) => effect.is(markdownHeadingFlashEffect));
       if (shouldRebuild) {
-        return buildLivePreviewDecorations(transaction.state, cwd, filePath);
+        return {
+          decorations: buildLivePreviewDecorations(transaction.state, cwd, filePath),
+          pointerSelecting: false,
+        };
       }
-      return decorations.map(transaction.changes);
+      return {
+        decorations: value.decorations.map(transaction.changes),
+        pointerSelecting: false,
+      };
     },
-    provide: (field) => EditorView.decorations.from(field),
+    provide: (field) => EditorView.decorations.from(field, (value) => value.decorations),
+  });
+}
+
+function createPointerStablePreviewExtension(): Extension {
+  const startPointerSelection = (event: MouseEvent, view: EditorView) => {
+    if (event.button !== 0) return false;
+    view.dispatch({ effects: markdownPointerSelectingEffect.of(true) });
+    return false;
+  };
+  const endPointerSelection = (_event: Event, view: EditorView) => {
+    view.dispatch({ effects: markdownPointerSelectingEffect.of(false) });
+    return false;
+  };
+
+  return EditorView.domEventHandlers({
+    mousedown: startPointerSelection,
+    mouseup: endPointerSelection,
+    mouseleave: endPointerSelection,
+    touchstart: (_event, view) => {
+      view.dispatch({ effects: markdownPointerSelectingEffect.of(true) });
+      return false;
+    },
+    touchend: endPointerSelection,
+    touchcancel: endPointerSelection,
+    blur: endPointerSelection,
   });
 }
 
@@ -1250,6 +1466,7 @@ function createLivePreviewExtension(cwd: string, filePath: string): Extension {
   return [
     headingFlashField,
     createLivePreviewDecorationsField(cwd, filePath),
+    createPointerStablePreviewExtension(),
     EditorView.domEventHandlers({
       click: (event) => {
         const element = findClosestElement(event.target);
@@ -1552,13 +1769,8 @@ export function ProjectMarkdownEditor({
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [editorFocused, setEditorFocused] = useState(false);
   const [active, setActive] = useState<MarkdownToolbarState>(EMPTY_TOOLBAR_STATE);
-  const [metadataExpanded, setMetadataExpanded] = useState(false);
   const [wechatAiGeneratingTheme, setWechatAiGeneratingTheme] = useState<WeChatAiThemeId | null>(null);
   const breadcrumb = useMemo(() => formatBreadcrumb(cwd, filePath), [cwd, filePath]);
-  const metadataFields = useMemo(
-    () => parseMarkdownMetadata(splitFrontmatter(value).frontmatter),
-    [value]
-  );
 
   useEffect(() => {
     onSaveRef.current = onSave;
@@ -1674,21 +1886,6 @@ export function ProjectMarkdownEditor({
     });
   }, [emitLocalChange]);
 
-  const applyFrontmatterChange = useCallback((nextFrontmatter: string) => {
-    const currentParts = splitFrontmatter(currentFullMarkdownRef.current);
-    applyFullMarkdownChange(combineFrontmatter(nextFrontmatter, currentParts.body));
-  }, [applyFullMarkdownChange]);
-
-  const updateMetadataValue = useCallback((field: MarkdownMetadataField, nextValue: string) => {
-    const frontmatter = splitFrontmatter(currentFullMarkdownRef.current).frontmatter;
-    applyFrontmatterChange(updateMarkdownMetadataValue(frontmatter, field, nextValue));
-  }, [applyFrontmatterChange]);
-
-  const updateMetadataArray = useCallback((field: MarkdownMetadataField, nextItems: string[]) => {
-    const frontmatter = splitFrontmatter(currentFullMarkdownRef.current).frontmatter;
-    applyFrontmatterChange(updateMarkdownMetadataArray(frontmatter, field, nextItems));
-  }, [applyFrontmatterChange]);
-
   const jumpToOutlineItem = useCallback((item: MarkdownOutlineItem) => {
     const view = viewRef.current;
     if (!view) return;
@@ -1700,6 +1897,7 @@ export function ProjectMarkdownEditor({
         markdownHeadingFlashEffect.of(pos),
       ],
     });
+    scrollEditorPositionIntoMainView(view, hostRef.current, pos);
     view.focus();
     setActiveOutlineId(item.id);
 
@@ -1964,10 +2162,6 @@ export function ProjectMarkdownEditor({
     };
   }, []);
 
-  useEffect(() => {
-    setMetadataExpanded(false);
-  }, [filePath]);
-
   const toolbarActive = editorFocused ? active : EMPTY_TOOLBAR_STATE;
 
   return (
@@ -2102,13 +2296,6 @@ export function ProjectMarkdownEditor({
 
       <div className="aegis-md-main">
         <div className="aegis-md-canvas">
-          <MarkdownMetadataCard
-            fields={metadataFields}
-            expanded={metadataExpanded}
-            onToggleExpanded={() => setMetadataExpanded((current) => !current)}
-            onUpdateValue={updateMetadataValue}
-            onUpdateArray={updateMetadataArray}
-          />
           <div
             ref={hostRef}
             className="aegis-md-codemirror-root"

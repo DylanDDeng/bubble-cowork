@@ -66,6 +66,8 @@ import { ProjectMarkdownEditor } from '/src/ui/components/ProjectMarkdownEditor.
 import '/src/ui/index.css';
 
 const remoteImage = window.location.origin + ${JSON.stringify(remoteImagePath)};
+const filler = Array.from({ length: 48 }, (_, index) => \`Filler paragraph \${index + 1}: keep the outline target below the first viewport.\`).join('\\n\\n');
+const tailFiller = Array.from({ length: 12 }, (_, index) => \`Tail paragraph \${index + 1}: leave enough room after the outline target.\`).join('\\n\\n');
 const initialMarkdown = \`---
 title: Harness
 tags:
@@ -77,7 +79,7 @@ draft: false
 
 This line has [Baidu](www.baidu.com), [GitHub](https://github.com/DylanDDeng), and https://example.com/plain.
 
-Inline probe:
+Inline probe: anchor
 
 Inline \\\`code\\\`, **bold**, *italic*, and ~~strike~~.
 
@@ -94,6 +96,14 @@ const value = 1;
 | Name | Value |
 | --- | --- |
 | A | 1 |
+
+\${filler}
+
+## Deep Target
+
+Target paragraph after the outline jump.
+
+\${tailFiller}
 \`;
 
 function findView() {
@@ -133,7 +143,62 @@ function Harness() {
       },
       flush: () => bridgeRef.current?.flush(),
       getSaveCount: () => saveCountRef.current,
+      getMainScrollTop: () => document.querySelector('.aegis-md-main')?.scrollTop || 0,
+      clickFrontmatterWidget: () => {
+        const widget = document.querySelector('.aegis-cm-frontmatter-widget');
+        if (!widget) return null;
+        const rect = widget.getBoundingClientRect();
+        widget.dispatchEvent(new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + Math.min(rect.height / 2, 40),
+        }));
+        return { text: widget.textContent || '' };
+      },
+      clickOutlineItem: (text) => {
+        const main = document.querySelector('.aegis-md-main');
+        const button = Array.from(document.querySelectorAll('.aegis-md-outline-list button'))
+          .find((node) => (node.textContent || '').trim() === text);
+        if (!main || !button) return null;
+        main.scrollTop = 0;
+        const before = main.scrollTop;
+        button.click();
+        return { before, text: button.textContent || '' };
+      },
+      getLineViewportPosition: (needle) => {
+        const line = Array.from(document.querySelectorAll('.cm-line'))
+          .find((node) => (node.textContent || '').includes(needle));
+        const main = document.querySelector('.aegis-md-main');
+        if (!line || !main) return null;
+        const lineRect = line.getBoundingClientRect();
+        const mainRect = main.getBoundingClientRect();
+        return {
+          lineTop: lineRect.top,
+          mainTop: mainRect.top,
+          offset: lineRect.top - mainRect.top,
+          text: line.textContent || '',
+        };
+      },
+      getSelectionLineText: () => {
+        const view = findView();
+        if (!view) return '';
+        return view.state.doc.lineAt(view.state.selection.main.from).text;
+      },
+      findLineClickPoint: (needle) => {
+        const line = Array.from(document.querySelectorAll('.cm-line'))
+          .find((node) => (node.textContent || '').includes(needle));
+        if (!line) return null;
+        const rect = line.getBoundingClientRect();
+        return {
+          x: rect.left + Math.min(Math.max(rect.width * 0.45, 12), Math.max(12, rect.width - 12)),
+          y: rect.top + (rect.height / 2),
+          text: line.textContent || '',
+          height: rect.height,
+        };
+      },
       snapshot: () => {
+        const view = findView();
         const links = Array.from(document.querySelectorAll('.aegis-cm-link')).map((node) => ({
           text: node.textContent,
           url: node.getAttribute('data-aegis-url'),
@@ -147,6 +212,9 @@ function Harness() {
         return {
           hasEditor: Boolean(document.querySelector('.aegis-md-codemirror-root .cm-editor')),
           oldRoots: document.querySelectorAll('.aegis-md-milkdown-root, .ProseMirror').length,
+          editorText: view?.state.doc.toString() || '',
+          frontmatterWidgetCount: document.querySelectorAll('.aegis-cm-frontmatter-widget').length,
+          frontmatterWidgetText: document.querySelector('.aegis-cm-frontmatter-widget')?.textContent || '',
           links,
           bodyText: document.body.innerText,
           codeHeader: document.querySelector('.aegis-cm-code-header')?.textContent || '',
@@ -228,6 +296,15 @@ async function pressEnter(win) {
   await delay(100);
 }
 
+async function clickPoint(win, point) {
+  const x = Math.round(point.x);
+  const y = Math.round(point.y);
+  win.webContents.sendInputEvent({ type: 'mouseMove', x, y });
+  win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+  win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+  await delay(160);
+}
+
 function withTimeout(promise, ms, message) {
   return Promise.race([
     promise,
@@ -274,6 +351,22 @@ app.whenReady().then(async () => {
     await delay(100);
 
     const initialSnapshot = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.snapshot()', true);
+    const frontmatterClickResult = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.clickFrontmatterWidget()', true);
+    if (!frontmatterClickResult) throw new Error('Unable to click front matter widget.');
+    await delay(120);
+    const frontmatterSelectionLine = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getSelectionLineText()', true);
+    const frontmatterEditSnapshot = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.snapshot()', true);
+
+    const headingClickPoint = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.findLineClickPoint("Heading One")', true);
+    if (!headingClickPoint) throw new Error('Unable to find heading line click point.');
+    await clickPoint(win, headingClickPoint);
+    const headingSelectionLine = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getSelectionLineText()', true);
+
+    const paragraphClickPoint = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.findLineClickPoint("This line has")', true);
+    if (!paragraphClickPoint) throw new Error('Unable to find paragraph line click point.');
+    await clickPoint(win, paragraphClickPoint);
+    const paragraphSelectionLine = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getSelectionLineText()', true);
+
     await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.focusAfterInlineProbe()', true);
     await win.webContents.insertText('\`');
     await delay(50);
@@ -281,24 +374,42 @@ app.whenReady().then(async () => {
     await delay(100);
     const afterInline = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getViewText()', true);
 
+    await win.webContents.executeJavaScript('document.querySelector(".aegis-cm-task-checkbox").click()', true);
+    await delay(100);
+    const afterTask = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getViewText()', true);
+
     await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.focusEnd()', true);
     await win.webContents.insertText('\\n\`\`\`');
     await pressEnter(win);
     const afterFence = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getViewText()', true);
 
-    await win.webContents.executeJavaScript('document.querySelector(".aegis-cm-task-checkbox").click()', true);
-    await delay(100);
-    const afterTask = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getViewText()', true);
+    const outlineJumpStart = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.clickOutlineItem("Deep Target")', true);
+    if (!outlineJumpStart) throw new Error('Unable to click Deep Target outline item.');
+    await delay(900);
+    const outlineScrollTop = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getMainScrollTop()', true);
+    const outlineTargetPosition = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getLineViewportPosition("Deep Target")', true);
     const imageReads = await win.webContents.executeJavaScript('window.electron.__getMarkdownImageReads()', true);
+    const finalFullValue = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getValue()', true);
     const finalSnapshot = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.snapshot()', true);
 
     console.log(JSON.stringify({
       ok: true,
       initialSnapshot,
+      frontmatterClickResult,
+      frontmatterSelectionLine,
+      frontmatterEditSnapshot,
       finalSnapshot,
       afterInline,
       afterFence,
       afterTask,
+      headingClickPoint,
+      headingSelectionLine,
+      paragraphClickPoint,
+      paragraphSelectionLine,
+      outlineJumpStart,
+      outlineScrollTop,
+      outlineTargetPosition,
+      finalFullValue,
       imageReads,
       logs,
     }));
@@ -347,9 +458,45 @@ async function main() {
     const result = JSON.parse(resultLine);
     assert(result.ok, 'Electron verification returned ok=false.');
 
-    const { initialSnapshot, finalSnapshot, afterInline, afterFence, afterTask, imageReads, logs } = result;
+    const {
+      initialSnapshot,
+      frontmatterClickResult,
+      frontmatterSelectionLine,
+      frontmatterEditSnapshot,
+      finalSnapshot,
+      afterInline,
+      afterFence,
+      afterTask,
+      headingClickPoint,
+      headingSelectionLine,
+      paragraphClickPoint,
+      paragraphSelectionLine,
+      outlineJumpStart,
+      outlineScrollTop,
+      outlineTargetPosition,
+      finalFullValue,
+      imageReads,
+      logs,
+    } = result;
     assert(initialSnapshot.hasEditor, 'CodeMirror editor did not mount.');
     assert(initialSnapshot.oldRoots === 0, 'Old Milkdown/ProseMirror roots are still present.');
+    assert(
+      initialSnapshot.frontmatterWidgetCount === 1
+        && initialSnapshot.frontmatterWidgetText.includes('tags')
+        && initialSnapshot.frontmatterWidgetText.includes('markdown'),
+      `Front matter metadata card did not render: ${JSON.stringify({
+        count: initialSnapshot.frontmatterWidgetCount,
+        text: initialSnapshot.frontmatterWidgetText,
+      })}`
+    );
+    assert(initialSnapshot.editorText.startsWith('---\ntitle: Harness'), 'CodeMirror source lost the front matter block.');
+    assert(!initialSnapshot.bodyText.includes('---\ntitle: Harness'), 'Front matter source is visible while metadata preview is inactive.');
+    assert(!initialSnapshot.bodyText.includes('\ntags:\n'), 'Front matter field source is visible while metadata preview is inactive.');
+    assert(
+      frontmatterSelectionLine.includes('title: Harness'),
+      `Clicking front matter preview did not enter source editing mode: ${JSON.stringify({ frontmatterClickResult, frontmatterSelectionLine })}`
+    );
+    assert(frontmatterEditSnapshot.frontmatterWidgetCount === 0, 'Front matter preview stayed visible while cursor was inside the source block.');
     assert(initialSnapshot.links.some((link) => link.text === 'Baidu' && link.url === 'www.baidu.com'), 'Markdown link label did not render as a clickable link.');
     assert(initialSnapshot.links.some((link) => link.text === 'https://example.com/plain' && link.url === 'https://example.com/plain'), 'Bare URL did not render as a clickable link.');
     assert(!initialSnapshot.bodyText.includes('[Baidu](www.baidu.com)'), 'Markdown link source syntax is visible in live preview.');
@@ -357,6 +504,22 @@ async function main() {
     assert(initialSnapshot.codeLineText.includes('const value = 1;'), 'Code block body did not render.');
     assert(initialSnapshot.tableHeader === 'Name', 'Markdown table preview did not render.');
     assert(initialSnapshot.taskCount === 1, 'Task checkbox widget did not render.');
+    assert(
+      headingSelectionLine.includes('# Heading One'),
+      `Clicking the rendered heading selected the wrong source line: ${JSON.stringify({ headingClickPoint, headingSelectionLine })}`
+    );
+    assert(
+      paragraphSelectionLine.includes('This line has'),
+      `Clicking the rendered paragraph selected the wrong source line: ${JSON.stringify({ paragraphClickPoint, paragraphSelectionLine })}`
+    );
+    assert(
+      outlineScrollTop > outlineJumpStart.before + 100,
+      `Clicking an outline item did not scroll the main editor viewport: ${JSON.stringify({ outlineJumpStart, outlineScrollTop })}`
+    );
+    assert(
+      outlineTargetPosition && outlineTargetPosition.offset >= 48 && outlineTargetPosition.offset <= 260,
+      `Outline jump did not place the target heading in view: ${JSON.stringify({ outlineScrollTop, outlineTargetPosition })}`
+    );
     assert(
       initialSnapshot.outlineTriggerTexts.length > 0
         && initialSnapshot.outlineTriggerTexts.every((text) => text.trim() === ''),
@@ -374,12 +537,14 @@ async function main() {
       imageReads.some((read) => read.imageSrc === './local-image.svg'),
       `Local image reader was not called: ${JSON.stringify(imageReads)}`
     );
-    assert(afterInline.includes('Inline probe: `ok`'), 'Inline code backtick pairing did not keep the cursor inside the pair.');
+    assert(afterInline.includes('Inline probe: `ok`anchor'), 'Inline code backtick pairing did not keep the cursor inside the pair.');
     assert(
       afterFence.includes('\n```\n\n```'),
       `Triple backtick Enter shortcut did not create a fenced code block. Tail: ${JSON.stringify(afterFence.slice(-120))}`
     );
     assert(afterTask.includes('- [x] todo item'), 'Task checkbox click did not update Markdown source.');
+    assert(finalFullValue.startsWith('---\ntitle: Harness'), 'Full Markdown value lost its front matter.');
+    assert(finalFullValue.includes('- [x] todo item'), 'Full Markdown value did not include body edits.');
     assert(finalSnapshot.oldRoots === 0, 'Old editor roots appeared after interactions.');
 
     const severeLogs = logs.filter((entry) => entry.level >= 3 && !String(entry.message).includes('Download the React DevTools'));

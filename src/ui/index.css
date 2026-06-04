@@ -1678,6 +1678,12 @@ button.aegis-mdx-metadata-key:hover {
   );
 }
 
+.aegis-cm-frontmatter-widget {
+  cursor: text;
+  margin: 0 auto;
+  user-select: none;
+}
+
 .aegis-md-editor-metadata + .aegis-md-codemirror-root {
   padding-top: 28px;
 }
