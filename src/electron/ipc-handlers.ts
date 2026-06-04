@@ -376,6 +376,12 @@ function normalizeOpenCodePermissionMode(
     : 'defaultPermissions';
 }
 
+function normalizeKimiPermissionMode(
+  value?: string | null
+): import('../shared/types').KimiPermissionMode {
+  return value === 'plan' || value === 'auto' || value === 'yolo' ? value : 'default';
+}
+
 function normalizeAegisPermissionMode(
   value?: string | null
 ): import('../shared/types').AegisPermissionMode {
@@ -3024,9 +3030,10 @@ const runnerHandles = new Map<
     claudeReasoningEffort?: import('../shared/types').ClaudeReasoningEffort;
     codexExecutionMode?: import('../shared/types').CodexExecutionMode;
     codexPermissionMode?: import('../shared/types').CodexPermissionMode;
-    codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
-    codexFastMode?: boolean;
-    opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
+	    codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
+	    codexFastMode?: boolean;
+	    kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
+	    opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
     aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
     aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort;
     activeAgentId?: string | null;
@@ -6465,6 +6472,7 @@ async function runRoutedAgentTurn(
       runtime.provider === 'opencode'
         ? (runtime.selectedOpenCodePermissionMode || 'defaultPermissions')
         : undefined,
+      runtime.provider === 'kimi' ? normalizeKimiPermissionMode(turn.kimiPermissionMode) : undefined,
       runtime.provider === 'aegis'
         ? (runtime.selectedAegisPermissionMode || 'defaultPermissions')
         : undefined,
@@ -6518,6 +6526,7 @@ async function handleSessionStart(
     codexMentions,
     aegisSkills,
     aegisMentions,
+    kimiPermissionMode,
     opencodePermissionMode,
     aegisPermissionMode,
     aegisReasoningEffort,
@@ -6573,6 +6582,8 @@ async function handleSessionStart(
     chosenProvider === 'claude' ? normalizeClaudeReasoningEffort(claudeReasoningEffort) : undefined;
   const selectedAegisReasoningEffort =
     chosenProvider === 'aegis' ? normalizeAegisReasoningEffort(aegisReasoningEffort) : undefined;
+  const selectedKimiPermissionMode =
+    chosenProvider === 'kimi' ? normalizeKimiPermissionMode(kimiPermissionMode) : undefined;
   const normalizedTeamMode = normalizeSessionTeamMode(teamMode);
   const normalizedTeamId =
     normalizedTeamMode === 'team' || normalizedTeamMode === 'manual'
@@ -6661,6 +6672,7 @@ async function handleSessionStart(
       codexReasoningEffort:
         chosenProvider === 'codex' ? normalizeCodexReasoningEffort(codexReasoningEffort) : undefined,
       codexFastMode: chosenProvider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
+      kimiPermissionMode: selectedKimiPermissionMode,
       opencodePermissionMode:
         chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
       aegisPermissionMode:
@@ -6797,6 +6809,7 @@ async function handleSessionStart(
     chosenProvider === 'codex' ? normalizeCodexReasoningEffort(codexReasoningEffort) : undefined,
     chosenProvider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
     chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
+    selectedKimiPermissionMode,
     chosenProvider === 'aegis' ? normalizeAegisPermissionMode(aegisPermissionMode) : undefined,
     chosenProvider === 'aegis' ? selectedAegisReasoningEffort : undefined,
     chosenProvider === 'codex' ? codexSkills : undefined,
@@ -6836,6 +6849,7 @@ async function handleSessionContinue(
     codexMentions,
     aegisSkills,
     aegisMentions,
+    kimiPermissionMode,
     opencodePermissionMode,
     aegisPermissionMode,
     aegisReasoningEffort,
@@ -6981,6 +6995,9 @@ async function handleSessionContinue(
   const nextOpenCodePermissionMode = nextProvider === 'opencode'
     ? normalizeOpenCodePermissionMode(opencodePermissionMode || previousOpenCodePermissionMode)
     : undefined;
+  const nextKimiPermissionMode = nextProvider === 'kimi'
+    ? normalizeKimiPermissionMode(kimiPermissionMode)
+    : undefined;
   const nextAegisPermissionMode = nextProvider === 'aegis'
     ? normalizeAegisPermissionMode(aegisPermissionMode)
     : undefined;
@@ -7057,6 +7074,7 @@ async function handleSessionContinue(
       codexPermissionModeChanged,
       codexReasoningEffortChanged,
       codexFastModeChanged,
+      kimiPermissionMode: nextKimiPermissionMode,
       opencodePermissionModeChanged,
       aegisPermissionModeChanged,
       aegisReasoningEffortChanged,
@@ -7125,6 +7143,7 @@ async function handleSessionContinue(
       codexPermissionMode: nextProvider === 'codex' ? (nextCodexPermissionMode || 'defaultPermissions') : undefined,
       codexReasoningEffort: nextProvider === 'codex' ? nextCodexReasoningEffort : undefined,
       codexFastMode: nextProvider === 'codex' ? nextCodexFastMode : undefined,
+      kimiPermissionMode: nextKimiPermissionMode,
       opencodePermissionMode:
         nextProvider === 'opencode' ? (nextOpenCodePermissionMode || 'defaultPermissions') : undefined,
       aegisPermissionMode:
@@ -7219,13 +7238,17 @@ async function handleSessionContinue(
       existingEntry.activeAgentRunId = createAgentRunId(turnAgentId, 'continue');
       const sendOptions =
         nextProvider === 'codex'
-          ? {
-              codexExecutionMode: nextCodexExecutionMode,
-              codexPermissionMode: nextCodexPermissionMode,
-              codexReasoningEffort: nextCodexReasoningEffort || undefined,
-              codexFastMode: nextCodexFastMode,
-            }
-          : nextProvider === 'aegis'
+	          ? {
+	              codexExecutionMode: nextCodexExecutionMode,
+	              codexPermissionMode: nextCodexPermissionMode,
+	              codexReasoningEffort: nextCodexReasoningEffort || undefined,
+	              codexFastMode: nextCodexFastMode,
+	            }
+	          : nextProvider === 'kimi'
+	          ? {
+	              kimiPermissionMode: nextKimiPermissionMode,
+	            }
+	          : nextProvider === 'aegis'
           ? {
               aegisPermissionMode: nextAegisPermissionMode || 'defaultPermissions',
               aegisReasoningEffort: nextAegisReasoningEffort,
@@ -7244,13 +7267,16 @@ async function handleSessionContinue(
         nextProvider === 'aegis' ? aegisMentions : undefined,
         sendOptions
       );
-      if (nextProvider === 'codex') {
-        existingEntry.codexExecutionMode = nextCodexExecutionMode;
-        existingEntry.codexPermissionMode = nextCodexPermissionMode;
-        existingEntry.codexReasoningEffort = nextCodexReasoningEffort || undefined;
-        existingEntry.codexFastMode = nextCodexFastMode;
-      }
-      if (nextProvider === 'aegis') {
+	      if (nextProvider === 'codex') {
+	        existingEntry.codexExecutionMode = nextCodexExecutionMode;
+	        existingEntry.codexPermissionMode = nextCodexPermissionMode;
+	        existingEntry.codexReasoningEffort = nextCodexReasoningEffort || undefined;
+	        existingEntry.codexFastMode = nextCodexFastMode;
+	      }
+	      if (nextProvider === 'kimi') {
+	        existingEntry.kimiPermissionMode = nextKimiPermissionMode;
+	      }
+	      if (nextProvider === 'aegis') {
         existingEntry.aegisPermissionMode = nextAegisPermissionMode || 'defaultPermissions';
         existingEntry.aegisReasoningEffort = nextAegisReasoningEffort;
       }
@@ -7338,6 +7364,7 @@ async function handleSessionContinue(
     nextProvider === 'codex' ? nextCodexReasoningEffort : undefined,
     nextProvider === 'codex' ? nextCodexFastMode : undefined,
     nextProvider === 'opencode' ? (nextOpenCodePermissionMode || 'defaultPermissions') : undefined,
+    nextProvider === 'kimi' ? nextKimiPermissionMode : undefined,
     nextProvider === 'aegis' ? (nextAegisPermissionMode || 'defaultPermissions') : undefined,
     nextProvider === 'aegis' ? nextAegisReasoningEffort : undefined,
     nextProvider === 'codex' ? codexSkills : undefined,
@@ -7371,6 +7398,7 @@ function startRunner(
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort,
   codexFastMode?: boolean,
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode,
+  kimiPermissionMode?: import('../shared/types').KimiPermissionMode,
   aegisPermissionMode?: import('../shared/types').AegisPermissionMode,
   aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort,
   codexSkills?: ProviderInputReference[],
@@ -7440,6 +7468,7 @@ function startRunner(
     codexPermissionMode,
     codexReasoningEffort,
     codexFastMode,
+    kimiPermissionMode,
     codexSkills: provider === 'codex' ? codexSkills : undefined,
     codexMentions: provider === 'codex' ? codexMentions : undefined,
     aegisSkills: provider === 'aegis' ? aegisSkills : undefined,
@@ -7835,9 +7864,10 @@ function startRunner(
       provider === 'codex' ? normalizeCodexReasoningEffort(codexReasoningEffort) : undefined,
     codexFastMode:
       provider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
-    opencodePermissionMode:
-      provider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
-    aegisPermissionMode:
+	    opencodePermissionMode:
+	      provider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
+	    kimiPermissionMode: provider === 'kimi' ? normalizeKimiPermissionMode(kimiPermissionMode) : undefined,
+	    aegisPermissionMode:
       provider === 'aegis' ? normalizeAegisPermissionMode(aegisPermissionMode) : undefined,
     aegisReasoningEffort:
       provider === 'aegis' ? normalizeAegisReasoningEffort(aegisReasoningEffort) : undefined,

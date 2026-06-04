@@ -734,6 +734,7 @@ function createDraftSessionView(
     | 'codexPermissionMode'
     | 'codexReasoningEffort'
     | 'codexFastMode'
+    | 'kimiPermissionMode'
     | 'opencodePermissionMode'
     | 'aegisPermissionMode'
     | 'aegisReasoningEffort'
@@ -779,6 +780,7 @@ function createDraftSessionView(
     codexPermissionMode: options?.codexPermissionMode,
     codexReasoningEffort: options?.codexReasoningEffort,
     codexFastMode: options?.codexFastMode,
+    kimiPermissionMode: options?.kimiPermissionMode,
     opencodePermissionMode: options?.opencodePermissionMode,
     aegisPermissionMode: options?.aegisPermissionMode,
     aegisReasoningEffort: options?.aegisReasoningEffort,
@@ -2548,6 +2550,7 @@ function handleSessionList(
       codexPermissionMode: session.codexPermissionMode,
       codexReasoningEffort: session.codexReasoningEffort,
       codexFastMode: session.codexFastMode,
+      kimiPermissionMode: session.kimiPermissionMode,
       opencodePermissionMode: session.opencodePermissionMode,
       aegisPermissionMode: session.aegisPermissionMode,
       aegisReasoningEffort: session.aegisReasoningEffort,
@@ -2664,6 +2667,7 @@ function handleSessionStatus(
     codexPermissionMode?: SessionInfo['codexPermissionMode'];
     codexReasoningEffort?: SessionInfo['codexReasoningEffort'];
     codexFastMode?: SessionInfo['codexFastMode'];
+    kimiPermissionMode?: SessionInfo['kimiPermissionMode'];
     opencodePermissionMode?: SessionInfo['opencodePermissionMode'];
     aegisPermissionMode?: SessionInfo['aegisPermissionMode'];
     aegisReasoningEffort?: SessionInfo['aegisReasoningEffort'];
@@ -2699,6 +2703,7 @@ function handleSessionStatus(
     codexPermissionMode,
     codexReasoningEffort,
     codexFastMode,
+    kimiPermissionMode,
     opencodePermissionMode,
     aegisPermissionMode,
     aegisReasoningEffort,
@@ -2781,6 +2786,8 @@ function handleSessionStatus(
               : session.codexReasoningEffort,
           codexFastMode:
             codexFastMode !== undefined ? codexFastMode : session.codexFastMode,
+          kimiPermissionMode:
+            kimiPermissionMode !== undefined ? kimiPermissionMode : session.kimiPermissionMode,
           opencodePermissionMode:
             opencodePermissionMode !== undefined
               ? opencodePermissionMode
@@ -2848,6 +2855,7 @@ function handleSessionStatus(
       codexPermissionMode,
       codexReasoningEffort,
       codexFastMode,
+      kimiPermissionMode,
       opencodePermissionMode,
       hiddenFromThreads: hiddenFromThreads === true,
       channelId: normalizeWorkspaceChannelId(channelId),

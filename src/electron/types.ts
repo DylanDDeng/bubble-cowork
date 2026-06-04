@@ -119,6 +119,7 @@ export interface RunnerOptions {
   codexPermissionMode?: import('../shared/types').CodexPermissionMode;
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
   codexSkills?: import('../shared/types').ProviderInputReference[];
   codexMentions?: import('../shared/types').ProviderInputReference[];
   aegisSkills?: import('../shared/types').ProviderInputReference[];
@@ -157,6 +158,7 @@ export interface RunnerHandle {
       codexPermissionMode?: import('../shared/types').CodexPermissionMode;
       codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
       codexFastMode?: boolean;
+      kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
       aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
       aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort;
       aegisAgentProfile?: import('../shared/types').RoutedAgentRuntimePayload | null;

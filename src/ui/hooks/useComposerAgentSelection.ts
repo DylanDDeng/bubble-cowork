@@ -26,6 +26,7 @@ import {
 import {
   CodexReasoningEffort,
   CodexPermissionMode,
+  KimiPermissionMode,
 } from '../../shared/types';
 import {
   getDefaultCodexReasoningEffort,
@@ -43,6 +44,10 @@ import {
   loadPreferredOpencodeModel,
   savePreferredOpencodeModel,
 } from '../utils/opencode-model';
+import {
+  loadPreferredKimiPermissionMode,
+  savePreferredKimiPermissionMode,
+} from '../utils/kimi-permission';
 import {
   AEGIS_BUILT_IN_MODELS,
   AEGIS_BUILT_IN_PROVIDERS,
@@ -695,6 +700,14 @@ export function useComposerAgentSelection(input?: {
   );
 
   const [codexPermissionMode, setCodexPermissionMode] = useState<CodexPermissionMode>('defaultPermissions');
+  const [kimiPermissionMode, setKimiPermissionModeState] = useState<KimiPermissionMode>(() =>
+    loadPreferredKimiPermissionMode()
+  );
+
+  const setKimiPermissionMode = useCallback((mode: KimiPermissionMode) => {
+    setKimiPermissionModeState(mode);
+    savePreferredKimiPermissionMode(mode);
+  }, []);
 
   return {
     provider,
@@ -715,5 +728,7 @@ export function useComposerAgentSelection(input?: {
     setCodexFastMode,
     codexPermissionMode,
     setCodexPermissionMode,
+    kimiPermissionMode,
+    setKimiPermissionMode,
   };
 }

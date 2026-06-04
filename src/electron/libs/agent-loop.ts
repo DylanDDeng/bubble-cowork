@@ -112,6 +112,7 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
     codexPermissionMode: options.codexPermissionMode,
     codexReasoningEffort: options.codexReasoningEffort,
     codexFastMode: options.codexFastMode,
+    kimiPermissionMode: options.kimiPermissionMode,
     codexSkills: options.codexSkills,
     codexMentions: options.codexMentions,
   });
@@ -131,41 +132,43 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
       });
       service.events.off('event', handleEvent);
     },
-	    send: (
-	      prompt: string,
-	      attachments?: import('../../shared/types').Attachment[],
-	      model?: string,
-	      codexSkills?: import('../../shared/types').ProviderInputReference[],
-	      codexMentions?: import('../../shared/types').ProviderInputReference[],
-	      _aegisSkills?: import('../../shared/types').ProviderInputReference[],
-	      _aegisMentions?: import('../../shared/types').ProviderInputReference[],
-	      sendOptions?: {
-	        codexExecutionMode?: import('../../shared/types').CodexExecutionMode;
-	        codexPermissionMode?: import('../../shared/types').CodexPermissionMode;
-	        codexReasoningEffort?: import('../../shared/types').CodexReasoningEffort;
-	        codexFastMode?: boolean;
-	        aegisPermissionMode?: import('../../shared/types').AegisPermissionMode;
-	        aegisReasoningEffort?: import('../../shared/types').AegisBuiltInReasoningEffort;
-	        aegisAgentProfile?: import('../../shared/types').RoutedAgentRuntimePayload | null;
-	        aegisTeam?: import('../../shared/types').TeamProfile | null;
-	        aegisTeamAgents?: import('../../shared/types').RoutedAgentRuntimePayload[];
-	      }
-	    ) => {
-	      if (abortController.signal.aborted) return;
+    send: (
+      prompt: string,
+      attachments?: import('../../shared/types').Attachment[],
+      model?: string,
+      codexSkills?: import('../../shared/types').ProviderInputReference[],
+      codexMentions?: import('../../shared/types').ProviderInputReference[],
+      _aegisSkills?: import('../../shared/types').ProviderInputReference[],
+      _aegisMentions?: import('../../shared/types').ProviderInputReference[],
+      sendOptions?: {
+        codexExecutionMode?: import('../../shared/types').CodexExecutionMode;
+        codexPermissionMode?: import('../../shared/types').CodexPermissionMode;
+        codexReasoningEffort?: import('../../shared/types').CodexReasoningEffort;
+        codexFastMode?: boolean;
+        kimiPermissionMode?: import('../../shared/types').KimiPermissionMode;
+        aegisPermissionMode?: import('../../shared/types').AegisPermissionMode;
+        aegisReasoningEffort?: import('../../shared/types').AegisBuiltInReasoningEffort;
+        aegisAgentProfile?: import('../../shared/types').RoutedAgentRuntimePayload | null;
+        aegisTeam?: import('../../shared/types').TeamProfile | null;
+        aegisTeamAgents?: import('../../shared/types').RoutedAgentRuntimePayload[];
+      }
+    ) => {
+      if (abortController.signal.aborted) return;
 
-	      service
-	        .sendTurn({
-	          threadId,
-	          prompt,
-	          attachments,
-	          model,
-	          codexExecutionMode: sendOptions?.codexExecutionMode ?? options.codexExecutionMode,
-	          codexPermissionMode: sendOptions?.codexPermissionMode ?? options.codexPermissionMode,
-	          codexReasoningEffort: sendOptions?.codexReasoningEffort ?? options.codexReasoningEffort,
-	          codexFastMode: sendOptions?.codexFastMode ?? options.codexFastMode,
-	          codexSkills,
-	          codexMentions,
-	        })
+      service
+        .sendTurn({
+          threadId,
+          prompt,
+          attachments,
+          model,
+          codexExecutionMode: sendOptions?.codexExecutionMode ?? options.codexExecutionMode,
+          codexPermissionMode: sendOptions?.codexPermissionMode ?? options.codexPermissionMode,
+          codexReasoningEffort: sendOptions?.codexReasoningEffort ?? options.codexReasoningEffort,
+          codexFastMode: sendOptions?.codexFastMode ?? options.codexFastMode,
+          kimiPermissionMode: sendOptions?.kimiPermissionMode ?? options.kimiPermissionMode,
+          codexSkills,
+          codexMentions,
+        })
         .catch((error) => {
           if (!abortController.signal.aborted) {
             options.onError?.(error instanceof Error ? error : new Error(String(error)));

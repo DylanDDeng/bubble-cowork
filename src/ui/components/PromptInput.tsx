@@ -20,6 +20,7 @@ import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './Compose
 import { CodexContextIndicator } from './CodexContextIndicator';
 import { ComposerAgentModelPicker } from './ComposerAgentControls';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
+import { KimiPermissionModePicker } from './KimiPermissionModePicker';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
@@ -304,6 +305,10 @@ export function PromptInput({
             runtimeProvider === 'codex'
               ? agentSelection.codexPermissionMode
               : undefined,
+          kimiPermissionMode:
+            runtimeProvider === 'kimi'
+              ? agentSelection.kimiPermissionMode
+              : undefined,
           ...aegisReferences,
           teamMode: 'solo',
           teamId: null,
@@ -328,6 +333,10 @@ export function PromptInput({
         codexPermissionMode:
           runtimeProvider === 'codex'
             ? agentSelection.codexPermissionMode
+            : undefined,
+        kimiPermissionMode:
+          runtimeProvider === 'kimi'
+            ? agentSelection.kimiPermissionMode
             : undefined,
         ...aegisReferences,
         teamMode: 'solo',
@@ -636,6 +645,12 @@ export function PromptInput({
                 <CodexPermissionModePicker
                   value={agentSelection.codexPermissionMode}
                   onChange={agentSelection.setCodexPermissionMode}
+                />
+              )}
+              {agentSelection.provider === 'kimi' && (
+                <KimiPermissionModePicker
+                  value={agentSelection.kimiPermissionMode}
+                  onChange={agentSelection.setKimiPermissionMode}
                 />
               )}
               <button

@@ -19,6 +19,7 @@ import type {
   CodexPermissionMode,
   CodexExecutionMode,
   CodexReasoningEffort,
+  KimiPermissionMode,
   OpenCodePermissionMode,
   ClaudeAccessMode,
   ClaudeExecutionMode,
@@ -75,6 +76,7 @@ export interface ProviderSessionStartInput {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: KimiPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
@@ -94,6 +96,7 @@ export interface ProviderSendTurnInput {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: KimiPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
 }

@@ -20,6 +20,7 @@ import { SidebarHeaderTrigger } from './Sidebar';
 import { SavePromptButton } from './prompts/SavePromptButton';
 import { ComposerAgentModelPicker } from './ComposerAgentControls';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
+import { KimiPermissionModePicker } from './KimiPermissionModePicker';
 import { FolderOpen } from './icons';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
@@ -274,6 +275,10 @@ export function NewSessionView() {
             codexPermissionMode:
             agentSelection.provider === 'codex'
                 ? agentSelection.codexPermissionMode
+                : undefined,
+            kimiPermissionMode:
+              agentSelection.provider === 'kimi'
+                ? agentSelection.kimiPermissionMode
                 : undefined,
         ...aegisReferences,
         teamMode: 'solo',
@@ -641,6 +646,12 @@ export function NewSessionView() {
                 <CodexPermissionModePicker
                   value={agentSelection.codexPermissionMode}
                   onChange={agentSelection.setCodexPermissionMode}
+                />
+              )}
+              {agentSelection.provider === 'kimi' && (
+                <KimiPermissionModePicker
+                  value={agentSelection.kimiPermissionMode}
+                  onChange={agentSelection.setKimiPermissionMode}
                 />
               )}
               <SavePromptButton content={promptLibraryContent} disabled={pendingStart} />

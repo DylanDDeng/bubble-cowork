@@ -72,6 +72,7 @@ export type {
   OpenCodeModelConfig,
   OpenCodeRuntimeStatus,
   KimiModelConfig,
+  KimiPermissionMode,
   KimiRuntimeStatus,
   ClaudeRuntimeStatus,
   SkillMarketDetail,
@@ -208,6 +209,7 @@ export interface SessionView {
   codexPermissionMode?: import('../shared/types').CodexPermissionMode;
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
   aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort;

@@ -264,13 +264,14 @@ class ProviderServiceImpl implements ProviderService {
       await adapter.sendTurn({
         threadId: input.threadId,
         prompt: input.prompt,
-	        attachments: input.attachments,
-	        model: input.model,
-	        codexExecutionMode: input.codexExecutionMode,
-	        codexPermissionMode: input.codexPermissionMode,
-	        codexReasoningEffort: input.codexReasoningEffort,
-	        codexFastMode: input.codexFastMode,
-	      });
+        attachments: input.attachments,
+        model: input.model,
+        codexExecutionMode: input.codexExecutionMode,
+        codexPermissionMode: input.codexPermissionMode,
+        codexReasoningEffort: input.codexReasoningEffort,
+        codexFastMode: input.codexFastMode,
+        kimiPermissionMode: input.kimiPermissionMode,
+      });
 
       // Wait a bit for the turn to complete
       await new Promise((resolve) => setTimeout(resolve, 2000));

@@ -19,6 +19,7 @@ import type {
   AcpPermissionOption,
   Attachment,
   ContentBlock,
+  KimiPermissionMode,
   PermissionResult,
   PlanStepStatus,
   ProviderComposerCapabilities,
@@ -42,6 +43,7 @@ interface ActiveKimiSession {
   currentAssistant?: { uuid: string; text: string; createdAt: number };
   currentThinking?: { uuid: string; thinking: string; createdAt: number };
   toolCalls: Map<string, { name: string; input: Record<string, unknown>; createdAt: number }>;
+  permissionMode?: KimiPermissionMode;
 }
 
 const CAPABILITIES: ProviderAdapterCapabilities = {
@@ -104,6 +106,25 @@ function extractModelConfigId(value: unknown): string {
     }
   }
   return 'model';
+}
+
+function extractConfigId(value: unknown, targetId: string, fallback: string): string {
+  for (const option of getArray(value)) {
+    const record = getRecord(option);
+    if (!record) continue;
+    const id = getString(record.configId || record.id || record.name);
+    const category = getString(record.category);
+    if (id === targetId || category === targetId) {
+      return id || fallback;
+    }
+  }
+  return fallback;
+}
+
+function normalizeKimiPermissionMode(value: unknown): KimiPermissionMode | undefined {
+  return value === 'default' || value === 'plan' || value === 'auto' || value === 'yolo'
+    ? value
+    : undefined;
 }
 
 function parseJsonRecord(value: string): Record<string, unknown> | null {
@@ -228,6 +249,16 @@ export class KimiAcpAdapter implements ProviderAdapter {
       sessionRecord = getRecord(configResult) || sessionRecord;
       model = extractModelFromConfigOptions(sessionRecord?.configOptions) || input.model.trim();
     }
+    const permissionMode = normalizeKimiPermissionMode(input.kimiPermissionMode);
+    if (permissionMode) {
+      const configId = extractConfigId(sessionRecord?.configOptions, 'mode', 'mode');
+      const configResult = await rpc.request('session/set_config_option', {
+        sessionId: providerSessionId,
+        configId,
+        value: permissionMode,
+      });
+      sessionRecord = getRecord(configResult) || sessionRecord;
+    }
 
     const active: ActiveKimiSession = {
       threadId: input.threadId,
@@ -238,6 +269,7 @@ export class KimiAcpAdapter implements ProviderAdapter {
       proc,
       rpc,
       toolCalls: new Map(),
+      permissionMode,
     };
     this.sessions.set(input.threadId, active);
 
@@ -262,6 +294,7 @@ export class KimiAcpAdapter implements ProviderAdapter {
         prompt: input.prompt,
         attachments: input.attachments,
         model: input.model || model,
+        kimiPermissionMode: permissionMode,
       });
     }
 
@@ -286,6 +319,7 @@ export class KimiAcpAdapter implements ProviderAdapter {
     this.emit({ type: 'status_change', threadId: input.threadId, status: 'running' });
 
     try {
+      await this.applyPermissionMode(session, input.kimiPermissionMode);
       await session.rpc.request('session/prompt', {
         sessionId: session.providerSessionId,
         prompt: buildPromptBlocks(input.prompt, input.attachments),
@@ -355,6 +389,22 @@ export class KimiAcpAdapter implements ProviderAdapter {
 
   hasSession(threadId: string): boolean {
     return this.sessions.has(threadId);
+  }
+
+  private async applyPermissionMode(
+    session: ActiveKimiSession,
+    mode: KimiPermissionMode | undefined
+  ): Promise<void> {
+    const permissionMode = normalizeKimiPermissionMode(mode);
+    if (!permissionMode || session.permissionMode === permissionMode) {
+      return;
+    }
+    await session.rpc.request('session/set_config_option', {
+      sessionId: session.providerSessionId,
+      configId: 'mode',
+      value: permissionMode,
+    });
+    session.permissionMode = permissionMode;
   }
 
   async respondToRequest(

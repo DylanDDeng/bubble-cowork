@@ -104,6 +104,7 @@ export type ClaudeExecutionMode = 'execute' | 'plan';
 export type ClaudeReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type CodexExecutionMode = 'execute' | 'plan';
 export type CodexPermissionMode = 'defaultPermissions' | 'auto' | 'fullAccess';
+export type KimiPermissionMode = 'default' | 'plan' | 'auto' | 'yolo';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'fullAccess';
 export type AegisPermissionMode = 'defaultPermissions' | 'readOnly' | 'fullAccess';
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
@@ -670,6 +671,7 @@ export interface SessionStartPayload {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: KimiPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   aegisSkills?: ProviderInputReference[];
@@ -705,6 +707,7 @@ export interface SessionContinuePayload {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: KimiPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   aegisSkills?: ProviderInputReference[];
@@ -799,6 +802,7 @@ export interface RoutedAgentRuntimePayload {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: KimiPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   aegisSkills?: ProviderInputReference[];
@@ -909,6 +913,7 @@ export interface SessionInfo {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: KimiPermissionMode;
   opencodePermissionMode?: OpenCodePermissionMode;
   aegisPermissionMode?: AegisPermissionMode;
   aegisReasoningEffort?: AegisBuiltInReasoningEffort;
@@ -952,6 +957,7 @@ export interface SessionStatusPayload {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: KimiPermissionMode;
   opencodePermissionMode?: OpenCodePermissionMode;
   aegisPermissionMode?: AegisPermissionMode;
   aegisReasoningEffort?: AegisBuiltInReasoningEffort;
