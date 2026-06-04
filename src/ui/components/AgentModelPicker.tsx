@@ -89,6 +89,10 @@ function ProviderIcon({ provider }: { provider: AgentProvider }) {
     return <OpenCodeLogo />;
   }
 
+  if (provider === 'kimi') {
+    return <img src={moonshotLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
+  }
+
   return null;
 }
 

@@ -39,6 +39,8 @@ import { getCodexModelConfig, saveCodexModelVisibility } from './libs/codex-sett
 import { getCodexRuntimeStatus } from './libs/codex-runtime-status';
 import { getOpencodeModelConfig, saveOpencodeModelVisibility } from './libs/opencode-settings';
 import { getOpencodeRuntimeStatus } from './libs/opencode-runtime-status';
+import { getKimiModelConfig } from './libs/kimi-settings';
+import { formatKimiRuntimeBlockingMessage, getKimiRuntimeStatus } from './libs/kimi-runtime-status';
 import {
   deletePromptLibraryItem,
   exportPromptLibraryFile,
@@ -1351,6 +1353,7 @@ function formatProviderLabel(provider: SessionInfo['provider']): string {
   if (provider === 'aegis') return 'Aegis Built-in';
   if (provider === 'codex') return 'Codex';
   if (provider === 'opencode') return 'OpenCode';
+  if (provider === 'kimi') return 'Kimi Code';
   return 'Claude Code';
 }
 
@@ -3014,7 +3017,7 @@ const runnerHandles = new Map<
   string,
   {
     handle: RunnerHandle;
-    provider: 'aegis' | 'claude' | 'codex' | 'opencode';
+    provider: 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi';
     compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
     claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
     claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode;
@@ -3759,6 +3762,14 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('get-opencode-runtime-status', async () => {
     return getOpencodeRuntimeStatus();
+  });
+
+  ipcMainHandle('get-kimi-model-config', async () => {
+    return getKimiModelConfig();
+  });
+
+  ipcMainHandle('get-kimi-runtime-status', async () => {
+    return getKimiRuntimeStatus();
   });
 
   ipcMainHandle('get-claude-runtime-status', async (_event, model?: string | null) => {
@@ -5427,7 +5438,16 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     status: row.status as SessionInfo['status'],
     scope: normalizeSessionScope(row.conversation_scope),
     agentId: row.agent_id || null,
-    source: row.session_origin || 'aegis',
+    source:
+      row.session_origin === 'claude_remote'
+        ? 'claude_remote'
+        : row.provider === 'codex'
+          ? 'codex_local'
+          : row.provider === 'opencode'
+            ? 'opencode_local'
+            : row.provider === 'kimi'
+              ? 'kimi_local'
+              : 'aegis',
     readOnly: row.session_origin === 'claude_remote',
     cwd: row.cwd || undefined,
     projectCwd: row.project_cwd || row.cwd || null,
@@ -5519,6 +5539,7 @@ function normalizeRoutedAgentRuntimePayload(
     turn?.provider === 'aegis' ||
     turn?.provider === 'codex' ||
     turn?.provider === 'opencode' ||
+    turn?.provider === 'kimi' ||
     turn?.provider === 'claude'
       ? turn.provider
       : 'claude';
@@ -5578,7 +5599,8 @@ function buildAegisTeamRuntimeFromStore(
     const provider = profile.provider === 'aegis' ||
       profile.provider === 'claude' ||
       profile.provider === 'codex' ||
-      profile.provider === 'opencode'
+      profile.provider === 'opencode' ||
+      profile.provider === 'kimi'
       ? profile.provider
       : 'claude';
     agentsById.set(profile.id, {
@@ -5760,6 +5782,23 @@ async function ensureRoutedAgentTurnRuntimeReady(
         type: 'runner.error',
         payload: {
           message: 'OpenCode ACP is not ready. Check Settings > Providers.',
+          sessionId,
+        },
+      });
+      return false;
+    }
+  } else if (provider === 'kimi') {
+    const runtimeStatus = await getKimiRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(sessionId, 'error');
+      broadcast(mainWindow, {
+        type: 'session.status',
+        payload: { sessionId, status: 'error' },
+      });
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatKimiRuntimeBlockingMessage(runtimeStatus),
           sessionId,
         },
       });
@@ -6364,6 +6403,8 @@ async function runRoutedAgentTurn(
         ? sessions.getSession(sessionId)?.codex_session_id ?? undefined
         : runtime.provider === 'opencode'
           ? sessions.getSession(sessionId)?.opencode_session_id ?? undefined
+          : runtime.provider === 'kimi'
+            ? sessions.getSession(sessionId)?.kimi_session_id ?? undefined
           : undefined;
 
   if (runtime.provider === 'claude' && !resumeSessionId && historyBeforeTurn.length > 0) {
@@ -6668,6 +6709,18 @@ async function handleSessionStart(
         type: 'runner.error',
         payload: {
           message: 'OpenCode ACP is not ready. Check Settings > Providers.',
+        },
+      });
+      return null;
+    }
+  } else if (chosenProvider === 'kimi') {
+    const runtimeStatus = await getKimiRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(session.id, 'error');
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatKimiRuntimeBlockingMessage(runtimeStatus),
         },
       });
       return null;
@@ -7125,11 +7178,24 @@ async function handleSessionContinue(
       });
       return false;
     }
+  } else if (nextProvider === 'kimi') {
+    const runtimeStatus = await getKimiRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(sessionId, 'error');
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatKimiRuntimeBlockingMessage(runtimeStatus),
+          sessionId,
+        },
+      });
+      return false;
+    }
   }
 
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
     if (
-      ((nextProvider === 'codex' || nextProvider === 'opencode') && modelChanged) ||
+      ((nextProvider === 'codex' || nextProvider === 'opencode' || nextProvider === 'kimi') && modelChanged) ||
       (nextProvider === 'codex' && codexPermissionModeChanged) ||
       (nextProvider === 'codex' && codexReasoningEffortChanged) ||
       (nextProvider === 'codex' && codexFastModeChanged) ||
@@ -7209,6 +7275,8 @@ async function handleSessionContinue(
           ? session.codex_session_id ?? undefined
           : nextProvider === 'opencode'
             ? session.opencode_session_id ?? undefined
+            : nextProvider === 'kimi'
+              ? session.kimi_session_id ?? undefined
             : undefined;
   let nextResumeSessionId = resumeSessionId;
 
@@ -7291,7 +7359,7 @@ function startRunner(
   prompt: string,
   resumeSessionId?: string,
   attachments?: Attachment[],
-  providerOverride?: 'aegis' | 'claude' | 'codex' | 'opencode',
+  providerOverride?: 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi',
   modelOverride?: string,
   compatibleProviderOverride?: import('../shared/types').ClaudeCompatibleProviderId,
   betasOverride?: string[],
@@ -7343,7 +7411,9 @@ function startRunner(
           ? 'claude-agent-sdk'
           : provider === 'codex'
           ? 'codex-app-server'
-          : 'opencode acp',
+          : provider === 'kimi'
+            ? 'kimi acp'
+            : 'opencode acp',
       model: modelOverride,
       compatibleProviderId,
       cwd: runnerSession.cwd || process.cwd(),
@@ -7391,6 +7461,11 @@ function startRunner(
           }
         } else if (provider === 'opencode') {
           sessions.updateOpencodeSessionId(session.id, message.session_id);
+          if (message.model) {
+            sessions.updateSessionModel(session.id, message.model);
+          }
+        } else if (provider === 'kimi') {
+          sessions.updateKimiSessionId(session.id, message.session_id);
           if (message.model) {
             sessions.updateSessionModel(session.id, message.model);
           }

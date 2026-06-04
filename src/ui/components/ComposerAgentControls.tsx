@@ -12,6 +12,7 @@ import {
 } from '../hooks/useAgentReadiness';
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
+import moonshotLogo from '../assets/moonshot.svg';
 import aegisAvatar from '../assets/agent-avatars/anime-avatar-03.png';
 import { OpenCodeLogo } from './OpenCodeLogo';
 
@@ -27,6 +28,9 @@ function AgentIcon({ provider }: { provider: AgentProvider }) {
   }
   if (provider === 'opencode') {
     return <OpenCodeLogo />;
+  }
+  if (provider === 'kimi') {
+    return <img src={moonshotLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
   }
   return null;
 }
@@ -532,7 +536,7 @@ function ModelSubContent({
   return (
     <>
       {modelOptions.map((option) => {
-        const selected = option.value === selectedValue;
+        const selected = (option.value.trim() || null) === (selectedValue?.trim() || null);
         return (
           <DropdownMenu.Item
             key={option.key}

@@ -223,6 +223,7 @@ export function initialize(): void {
       claude_session_id TEXT,
       codex_session_id TEXT,
       opencode_session_id TEXT,
+      kimi_session_id TEXT,
       provider TEXT NOT NULL DEFAULT 'claude',
       model TEXT,
       conversation_scope TEXT DEFAULT 'project',
@@ -362,6 +363,7 @@ export function initialize(): void {
 
   ensureColumn('sessions', 'codex_session_id', 'TEXT');
   ensureColumn('sessions', 'opencode_session_id', 'TEXT');
+  ensureColumn('sessions', 'kimi_session_id', 'TEXT');
   ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
   ensureColumn('sessions', 'model', 'TEXT');
   ensureColumn('sessions', 'conversation_scope', "TEXT DEFAULT 'project'");
@@ -595,6 +597,9 @@ function getSessionSourceOrigin(sessionId: string): SessionSource {
   }
   if (row.provider === 'opencode') {
     return 'opencode_local';
+  }
+  if (row.provider === 'kimi') {
+    return 'kimi_local';
   }
   return 'aegis';
 }
@@ -843,7 +848,9 @@ function backfillMessageMetadata(): void {
               ? 'codex_local'
               : row.provider === 'opencode'
                 ? 'opencode_local'
-                : 'aegis';
+                : row.provider === 'kimi'
+                  ? 'kimi_local'
+                  : 'aegis';
         const searchText = normalizeSearchText(extractSearchableMessageText(parsed));
         updateStmt.run(extractMessageType(parsed), sourceOrigin, searchText, row.created_at, row.id);
         upsertSearchIndexStmt.run(row.id, row.session_id, sourceOrigin, searchText, row.created_at);
@@ -1061,7 +1068,7 @@ export function createSession(params: {
   associatedWorktreeRef?: string | null;
   allowedTools?: string;
   prompt?: string;
-  provider?: 'aegis' | 'claude' | 'codex' | 'opencode';
+  provider?: 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi';
   model?: string;
   scope?: SessionScope;
   agentId?: string | null;
@@ -1254,8 +1261,25 @@ export function setOpencodeSessionId(sessionId: string, opencodeSessionId: strin
   stmt.run(opencodeSessionId, now, sessionId);
 }
 
+// 更新 Kimi Session ID
+export function updateKimiSessionId(sessionId: string, kimiSessionId: string): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET kimi_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(kimiSessionId, now, sessionId);
+}
+
+export function setKimiSessionId(sessionId: string, kimiSessionId: string | null): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET kimi_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(kimiSessionId, now, sessionId);
+}
+
 // 更新 Session Provider
-export function updateSessionProvider(sessionId: string, provider: 'aegis' | 'claude' | 'codex' | 'opencode'): void {
+export function updateSessionProvider(sessionId: string, provider: 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi'): void {
   const now = Date.now();
   const stmt = getDb().prepare(`
     UPDATE sessions SET provider = ?, updated_at = ? WHERE id = ?

@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react';
 import { Loader2, ShieldAlert } from './icons';
 import { DecisionPanel } from './DecisionPanel';
 import type {
+  AcpPermissionInput,
   AskUserQuestionInput,
   CodexApprovalPermissionInput,
   ExternalFilePermissionInput,
@@ -28,7 +29,7 @@ type ParsedPermission = {
   command: string | null;
   fallback: string | null;
   canAllowForSession: boolean;
-  mode: 'approval' | 'question';
+  mode: 'approval' | 'question' | 'acp';
 };
 
 export const ComposerPendingPermissionPanel = memo(function ComposerPendingPermissionPanel({
@@ -102,6 +103,38 @@ export const ComposerPendingPermissionActions = memo(function ComposerPendingPer
 
   if (parsed.mode === 'question') {
     return null;
+  }
+
+  if (parsed.mode === 'acp' && isAcpPermissionInput(request.input)) {
+    return (
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {request.input.options.map((option) => {
+          const isReject =
+            `${option.kind || ''} ${option.optionId}`.toLowerCase().includes('reject');
+          return (
+            <button
+              key={option.optionId}
+              type="button"
+              onClick={() =>
+                onSubmit(request.toolUseId, {
+                  behavior: isReject ? 'deny' : 'allow',
+                  scope: option.kind === 'allow_always' ? 'session' : 'once',
+                  updatedInput: { optionId: option.optionId },
+                })
+              }
+              className={
+                isReject
+                  ? 'rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+                  : 'rounded-lg bg-[var(--text-primary)] px-3 py-1.5 text-sm font-medium text-[var(--bg-primary)] transition-colors hover:opacity-90'
+              }
+              title={option.description || option.optionId}
+            >
+              {option.name}
+            </button>
+          );
+        })}
+      </div>
+    );
   }
 
   return (
@@ -257,6 +290,19 @@ function parsePermissionRequest(request: PermissionRequestPayload): ParsedPermis
     };
   }
 
+  if (isAcpPermissionInput(input)) {
+    return {
+      kindLabel: 'KIMI ACP',
+      tool: input.toolName || request.toolName,
+      fileName: null,
+      fileDir: null,
+      command: null,
+      fallback: input.question || input.title,
+      canAllowForSession: false,
+      mode: 'acp',
+    };
+  }
+
   return {
     kindLabel: 'APPROVAL',
     tool: request.toolName,
@@ -300,6 +346,15 @@ function isAskUserQuestionInput(input: unknown): input is AskUserQuestionInput {
     input !== null &&
     'questions' in input &&
     Array.isArray((input as { questions?: unknown }).questions)
+  );
+}
+
+function isAcpPermissionInput(input: unknown): input is AcpPermissionInput {
+  return (
+    typeof input === 'object' &&
+    input !== null &&
+    'kind' in input &&
+    (input as { kind?: unknown }).kind === 'acp-permission'
   );
 }
 

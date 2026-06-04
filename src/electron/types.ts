@@ -26,7 +26,8 @@ export interface SessionRow {
   claude_session_id: string | null;
   codex_session_id: string | null;
   opencode_session_id: string | null;
-  provider: 'aegis' | 'claude' | 'codex' | 'opencode';
+  kimi_session_id: string | null;
+  provider: 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi';
   model: string | null;
   conversation_scope: import('../shared/types').SessionScope | null;
   agent_id: string | null;

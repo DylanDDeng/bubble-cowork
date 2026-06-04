@@ -149,6 +149,20 @@ export interface OpenCodeModelConfig {
   }>;
 }
 
+export interface KimiModelConfig {
+  defaultModel: string | null;
+  options: string[];
+  availableModels: Array<{
+    name: string;
+    label?: string;
+    provider?: string | null;
+    enabled: boolean;
+    isDefault: boolean;
+    maxContextSize?: number | null;
+    capabilities?: string[];
+  }>;
+}
+
 export interface CodexRuntimeStatus {
   ready: boolean;
   cliAvailable: boolean;
@@ -162,6 +176,21 @@ export interface OpenCodeRuntimeStatus {
   cliAvailable: boolean;
   configExists: boolean;
   hasModelConfig: boolean;
+  checkedAt: number;
+}
+
+export type KimiRuntimeAuthState = 'unknown' | 'ready' | 'login_required' | 'error';
+
+export interface KimiRuntimeStatus {
+  ready: boolean;
+  cliAvailable: boolean;
+  cliPath: string | null;
+  cliVersion: string | null;
+  acpAvailable: boolean;
+  authState: KimiRuntimeAuthState;
+  loginCommand: string | null;
+  summary: string;
+  detail: string;
   checkedAt: number;
 }
 
@@ -359,12 +388,13 @@ export interface WorkspaceChannel {
 }
 
 // Agent 提供商 / runtime
-export type AgentProvider = 'aegis' | 'claude' | 'codex' | 'opencode';
+export type AgentProvider = 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi';
 export type SessionSource =
   | 'aegis'
   | 'claude_remote'
   | 'codex_local'
-  | 'opencode_local';
+  | 'opencode_local'
+  | 'kimi_local';
 
 export interface ProviderComposerCapabilities {
   provider: AgentProvider;
@@ -999,10 +1029,28 @@ export interface CodexApprovalPermissionInput {
   canAllowForSession?: boolean;
 }
 
+export interface AcpPermissionOption {
+  optionId: string;
+  name: string;
+  kind?: string;
+  description?: string;
+}
+
+export interface AcpPermissionInput {
+  kind: 'acp-permission';
+  provider: 'kimi';
+  question: string;
+  title: string;
+  toolName: string;
+  options: AcpPermissionOption[];
+  toolCall?: Record<string, unknown> | null;
+}
+
 export type PermissionRequestInput =
   | AskUserQuestionInput
   | ExternalFilePermissionInput
-  | CodexApprovalPermissionInput;
+  | CodexApprovalPermissionInput
+  | AcpPermissionInput;
 
 // StreamMessage 类型（SDK 消息或内部消息）
 export type StreamMessageBase = {

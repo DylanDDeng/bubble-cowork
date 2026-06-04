@@ -5,7 +5,7 @@
  * Electron architecture without Effect-TS.
  *
  * Core concepts:
- * - ProviderKind: identifies agent type (claude | codex | opencode)
+ * - ProviderKind: identifies agent type (claude | codex | opencode | kimi)
  * - ProviderAdapter: encapsulates provider-specific process management and protocol
  * - ProviderSessionDirectory: maps threadId -> provider binding + resume cursor
  * - ProviderService: orchestrates multiple adapters, routes by threadId
@@ -38,7 +38,7 @@ import type { SessionRow } from '../../types';
 
 // ── Provider Identity ──────────────────────────────────────────────────────
 
-export type ProviderKind = 'claude' | 'codex' | 'opencode';
+export type ProviderKind = 'claude' | 'codex' | 'opencode' | 'kimi';
 
 export interface ProviderAdapterCapabilities {
   /** Supports switching model mid-session */
@@ -62,6 +62,7 @@ export interface ProviderAdapterCapabilities {
 // ── Session Lifecycle Input ────────────────────────────────────────────────
 
 export interface ProviderSessionStartInput {
+  provider: ProviderKind;
   threadId: string;
   cwd: string;
   prompt: string;

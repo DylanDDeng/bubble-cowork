@@ -241,7 +241,9 @@ function normalizeAgentPermissionPolicyForProfile(
 }
 
 function normalizeAgentProvider(value: unknown): AgentProvider {
-  return value === 'aegis' || value === 'codex' || value === 'opencode' ? value : 'claude';
+  return value === 'aegis' || value === 'codex' || value === 'opencode' || value === 'kimi'
+    ? value
+    : 'claude';
 }
 
 function normalizeClaudeCompatibleProviderId(value: unknown): ClaudeCompatibleProviderId | undefined {

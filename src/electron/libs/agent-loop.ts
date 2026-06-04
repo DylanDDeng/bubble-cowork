@@ -2,6 +2,7 @@ import type { RunnerHandle, RunnerOptions } from '../types';
 import { ensureAgentRuntimeRegistry, resolveRuntime } from './runtime';
 import { getProviderService } from './provider/service';
 import { CodexAdapter } from './provider/codex-adapter';
+import { KimiAcpAdapter } from './provider/kimi-acp-adapter';
 import { isDev } from '../util';
 
 let providerServiceInitialized = false;
@@ -17,6 +18,7 @@ export function ensureProviderService(): void {
   // Register Codex adapter (uses codex app-server)
   const codexAdapter = new CodexAdapter();
   service.registerAdapter(codexAdapter);
+  service.registerAdapter(new KimiAcpAdapter());
 
   if (isDev()) {
     console.log('[ProviderService] initialized with adapters:', service.listAdapters().map((a) => a.provider));
@@ -26,9 +28,9 @@ export function ensureProviderService(): void {
 export function runAgentLoop(options: RunnerOptions): RunnerHandle {
   const provider = options.session.provider || 'claude';
 
-  // For Codex, use the new ProviderAdapter architecture
-  if (provider === 'codex') {
-    return runCodexViaProviderService(options);
+  // Codex and Kimi use the ProviderAdapter architecture.
+  if (provider === 'codex' || provider === 'kimi') {
+    return runProviderServiceAgent(options);
   }
 
   // For Claude and OpenCode, keep using the existing RuntimeRegistry
@@ -37,11 +39,12 @@ export function runAgentLoop(options: RunnerOptions): RunnerHandle {
   return runtime.run(options);
 }
 
-function runCodexViaProviderService(options: RunnerOptions): RunnerHandle {
+function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
   ensureProviderService();
   const service = getProviderService();
 
   const threadId = options.session.id;
+  const provider = options.session.provider === 'kimi' ? 'kimi' : 'codex';
   let abortController = new AbortController();
 
   // Subscribe to provider events
@@ -92,12 +95,13 @@ function runCodexViaProviderService(options: RunnerOptions): RunnerHandle {
       const result = await options.onPermissionRequest(requestId, toolName, input);
       await service.respondToRequest(threadId, requestId, result);
     } catch (error) {
-      console.error('[Codex Provider] Permission request failed:', error);
+      console.error('[ProviderService] Permission request failed:', error);
     }
   }
 
   // Start the session
   const startPromise = service.startSession({
+    provider,
     threadId,
     cwd: options.session.cwd || process.cwd(),
     prompt: options.prompt,
@@ -123,7 +127,7 @@ function runCodexViaProviderService(options: RunnerOptions): RunnerHandle {
     abort: () => {
       abortController.abort();
       service.stopSession(threadId).catch((error) => {
-        console.error('[Codex Provider] Failed to stop session:', error);
+        console.error('[ProviderService] Failed to stop session:', error);
       });
       service.events.off('event', handleEvent);
     },

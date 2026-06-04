@@ -3,6 +3,7 @@ import type { AgentProvider, ClaudeCompatibleProviderId, SettingsTab } from '../
 import { useClaudeModelConfig } from './useClaudeModelConfig';
 import { useCodexModelConfig } from './useCodexModelConfig';
 import { useOpencodeModelConfig } from './useOpencodeModelConfig';
+import { useKimiModelConfig } from './useKimiModelConfig';
 import { useCompatibleProviderConfig } from './useCompatibleProviderConfig';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import {
@@ -52,6 +53,7 @@ import {
 import type { AegisBuiltInAgentConfig } from '../../shared/types';
 
 const AEGIS_MODEL_STORAGE_KEY = 'cowork.preferredAegisModel';
+const KIMI_MODEL_STORAGE_KEY = 'cowork.preferredKimiModel';
 
 export interface ComposerModelOption {
   key: string;
@@ -80,6 +82,21 @@ function savePreferredAegisModel(model: string | null): void {
     return;
   }
   window.localStorage.setItem(AEGIS_MODEL_STORAGE_KEY, model);
+}
+
+function loadPreferredKimiModel(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(KIMI_MODEL_STORAGE_KEY);
+  return raw?.trim() || null;
+}
+
+function savePreferredKimiModel(model: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (!model) {
+    window.localStorage.removeItem(KIMI_MODEL_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(KIMI_MODEL_STORAGE_KEY, model);
 }
 
 function resolveCompatibleProviderForModel(
@@ -228,6 +245,52 @@ function resolveConfiguredAegisModel(
   return options[0]?.value || null;
 }
 
+function buildKimiModelOptions(config: ReturnType<typeof useKimiModelConfig>): ComposerModelOption[] {
+  const defaultOption: ComposerModelOption = {
+    key: 'kimi:default',
+    value: '',
+    label: 'Default',
+    description: config.defaultModel ? `Use ${formatKimiModelLabel(config.defaultModel, config)}` : 'Use Kimi Code default model',
+  };
+  const models = config.availableModels.length > 0
+    ? config.availableModels
+    : config.options.map((name) => ({ name, label: name, provider: null, enabled: true, isDefault: config.defaultModel === name }));
+  const explicitOptions = models
+    .filter((model) => model.enabled !== false)
+    .map((model) => ({
+      key: `kimi:${model.name}`,
+      value: model.name,
+      label: model.label || model.name,
+      description: model.isDefault
+        ? 'Configured default'
+        : model.provider
+          ? model.provider
+          : undefined,
+    }));
+  return [defaultOption, ...explicitOptions];
+}
+
+function formatKimiModelLabel(value: string, config: ReturnType<typeof useKimiModelConfig>): string {
+  const match = config.availableModels.find((model) => model.name === value);
+  return match?.label || value;
+}
+
+function resolveConfiguredKimiModel(
+  requestedModel: string | null | undefined,
+  config: ReturnType<typeof useKimiModelConfig>
+): string | null {
+  const options = buildKimiModelOptions(config);
+  const optionValues = new Set(options.map((option) => option.value.trim()));
+  const candidates = [requestedModel, loadPreferredKimiModel()];
+  for (const candidate of candidates) {
+    const normalized = candidate?.trim() || null;
+    if (normalized && optionValues.has(normalized)) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
 export function useComposerAgentSelection(input?: {
   selectionKey?: string | null;
   provider?: AgentProvider | null;
@@ -237,6 +300,7 @@ export function useComposerAgentSelection(input?: {
   const claudeModelConfig = useClaudeModelConfig();
   const codexModelConfig = useCodexModelConfig();
   const opencodeModelConfig = useOpencodeModelConfig();
+  const kimiModelConfig = useKimiModelConfig();
   const { compatibleOptions } = useCompatibleProviderConfig();
   const [aegisConfig, setAegisConfig] = useState<AegisBuiltInAgentConfig | null>(null);
   const [provider, setProviderState] = useState<AgentProvider>(() => input?.provider || loadPreferredProvider());
@@ -305,9 +369,10 @@ export function useComposerAgentSelection(input?: {
         value: option,
         label: formatOpencodeModelLabel(option),
       })),
+      kimi: buildKimiModelOptions(kimiModelConfig),
       aegis: buildConfiguredAegisModelOptions(aegisConfig),
     };
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, aegisConfig]);
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, aegisConfig]);
 
   const modelOptions = useMemo<ComposerModelOption[]>(() => {
     if (provider === 'claude') {
@@ -350,8 +415,12 @@ export function useComposerAgentSelection(input?: {
       }));
     }
 
+    if (provider === 'kimi') {
+      return buildKimiModelOptions(kimiModelConfig);
+    }
+
     return buildConfiguredAegisModelOptions(aegisConfig);
-  }, [aegisConfig, claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, provider]);
+  }, [aegisConfig, claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, provider]);
 
   const resolveModelForProvider = useCallback(
     (
@@ -391,12 +460,19 @@ export function useComposerAgentSelection(input?: {
         };
       }
 
+      if (nextProvider === 'kimi') {
+        return {
+          model: resolveConfiguredKimiModel(normalizedRequestedModel, kimiModelConfig),
+          compatibleProviderId: null,
+        };
+      }
+
       return {
         model: resolveConfiguredAegisModel(normalizedRequestedModel, aegisConfig),
         compatibleProviderId: null,
       };
     },
-    [aegisConfig, claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig]
+    [aegisConfig, claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig]
   );
 
   useEffect(() => {
@@ -477,6 +553,8 @@ export function useComposerAgentSelection(input?: {
         savePreferredCodexModel(nextModel);
       } else if (provider === 'opencode') {
         savePreferredOpencodeModel(nextModel);
+      } else if (provider === 'kimi') {
+        savePreferredKimiModel(nextModel);
       } else {
         savePreferredAegisModel(nextModel);
       }
@@ -504,6 +582,14 @@ export function useComposerAgentSelection(input?: {
 
     if (provider === 'claude') {
       return null;
+    }
+
+    if (provider === 'kimi') {
+      return {
+        label: 'Setup Kimi',
+        title: 'Configure Kimi Code models',
+        settingsTab: 'providers',
+      };
     }
 
     if (provider === 'aegis') {
@@ -535,6 +621,8 @@ export function useComposerAgentSelection(input?: {
     (model
       ? provider === 'aegis'
         ? formatAegisModelLabel(model)
+        : provider === 'kimi'
+          ? formatKimiModelLabel(model, kimiModelConfig)
         : model
       : 'Default');
 

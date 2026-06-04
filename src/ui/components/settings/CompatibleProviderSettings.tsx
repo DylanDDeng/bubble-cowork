@@ -11,6 +11,7 @@ import zhipuLogo from '../../assets/zhipu-color.svg';
 import aegisAvatar from '../../assets/agent-avatars/anime-avatar-03.png';
 import { useClaudeRuntimeStatus } from '../../hooks/useClaudeRuntimeStatus';
 import { useCodexRuntimeStatus } from '../../hooks/useCodexRuntimeStatus';
+import { useKimiRuntimeStatus } from '../../hooks/useKimiRuntimeStatus';
 import { useOpencodeRuntimeStatus } from '../../hooks/useOpencodeRuntimeStatus';
 import { OpenCodeLogo } from '../OpenCodeLogo';
 import {
@@ -26,6 +27,7 @@ import type {
   ClaudeCompatibleProvidersConfig,
   ClaudeRuntimeStatus,
   CodexRuntimeStatus,
+  KimiRuntimeStatus,
   OpenCodeRuntimeStatus,
 } from '../../types';
 import {
@@ -232,6 +234,7 @@ export function CompatibleProviderSettingsContent() {
   const { status: claudeRuntimeStatus, loading: claudeRuntimeLoading } = useClaudeRuntimeStatus();
   const { status: codexRuntimeStatus, loading: codexRuntimeLoading } = useCodexRuntimeStatus();
   const { status: opencodeRuntimeStatus, loading: opencodeRuntimeLoading } = useOpencodeRuntimeStatus();
+  const { status: kimiRuntimeStatus, loading: kimiRuntimeLoading } = useKimiRuntimeStatus();
 
   useEffect(() => {
     let cancelled = false;
@@ -430,6 +433,12 @@ export function CompatibleProviderSettingsContent() {
           logo={<OpenCodeLogo className="h-5 w-5 flex-shrink-0" />}
           detail={!opencodeRuntimeLoading && !opencodeRuntimeStatus.ready ? buildOpencodeSummary(opencodeRuntimeStatus, opencodeRuntimeLoading) : undefined}
           status={buildOpencodeRailStatus(opencodeRuntimeStatus, opencodeRuntimeLoading)}
+        />
+        <RuntimeStatusRow
+          title="Kimi Code"
+          logo={<img src={moonshotLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
+          detail={!kimiRuntimeLoading && !kimiRuntimeStatus.ready ? buildKimiSummary(kimiRuntimeStatus, kimiRuntimeLoading) : undefined}
+          status={buildKimiRailStatus(kimiRuntimeStatus, kimiRuntimeLoading)}
         />
       </SettingsGroup>
 
@@ -822,6 +831,11 @@ function buildOpencodeSummary(status: OpenCodeRuntimeStatus, loading: boolean): 
   return 'OpenCode needs local setup.';
 }
 
+function buildKimiSummary(status: KimiRuntimeStatus, loading: boolean): string {
+  if (loading) return 'Checking Kimi Code runtime...';
+  return status.summary || (status.ready ? 'Kimi Code ACP is ready.' : 'Kimi Code needs local setup.');
+}
+
 function buildClaudeRailStatus(status: ClaudeRuntimeStatus, loading: boolean) {
   if (loading) {
     return {
@@ -900,6 +914,38 @@ function buildOpencodeRailStatus(status: OpenCodeRuntimeStatus, loading: boolean
       label: 'Connected',
       tone: 'text-emerald-700',
       dot: 'bg-emerald-500',
+    };
+  }
+
+  return {
+    label: 'Setup',
+    tone: 'text-amber-700',
+    dot: 'bg-amber-500',
+  };
+}
+
+function buildKimiRailStatus(status: KimiRuntimeStatus, loading: boolean) {
+  if (loading) {
+    return {
+      label: 'Checking',
+      tone: 'text-[var(--text-secondary)]',
+      dot: 'bg-[var(--text-muted)]/60',
+    };
+  }
+
+  if (status.ready) {
+    return {
+      label: 'Connected',
+      tone: 'text-emerald-700',
+      dot: 'bg-emerald-500',
+    };
+  }
+
+  if (status.authState === 'login_required') {
+    return {
+      label: 'Sign in',
+      tone: 'text-amber-700',
+      dot: 'bg-amber-500',
     };
   }
 

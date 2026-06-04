@@ -366,6 +366,7 @@ export async function runCodexOneShot(params: {
 
   const threadId = `codex-oneshot-${Date.now()}`;
   return service.runOneShot({
+    provider: 'codex',
     threadId,
     cwd: params.cwd || process.cwd(),
     prompt: params.prompt,

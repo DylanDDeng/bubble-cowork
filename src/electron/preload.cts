@@ -440,6 +440,14 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-opencode-runtime-status');
   },
 
+  getKimiModelConfig: () => {
+    return ipcRenderer.invoke('get-kimi-model-config');
+  },
+
+  getKimiRuntimeStatus: () => {
+    return ipcRenderer.invoke('get-kimi-runtime-status');
+  },
+
   getClaudeRuntimeStatus: (model?: string | null) => {
     return ipcRenderer.invoke('get-claude-runtime-status', model);
   },

@@ -25,8 +25,10 @@ import type {
   UpsertPromptLibraryItemInput,
   CodexModelConfig,
   CodexRuntimeStatus,
+  KimiModelConfig,
   OpenCodeModelConfig,
   OpenCodeRuntimeStatus,
+  KimiRuntimeStatus,
   ClaudeRuntimeStatus,
   UiResumeState,
   SkillMarketItem,
@@ -155,6 +157,8 @@ declare global {
     getOpencodeModelConfig: () => Promise<OpenCodeModelConfig>;
     saveOpencodeModelVisibility: (enabledModels: string[]) => Promise<OpenCodeModelConfig>;
     getOpencodeRuntimeStatus: () => Promise<OpenCodeRuntimeStatus>; 
+    getKimiModelConfig: () => Promise<KimiModelConfig>;
+    getKimiRuntimeStatus: () => Promise<KimiRuntimeStatus>;
     getClaudeRuntimeStatus: (model?: string | null) => Promise<ClaudeRuntimeStatus>;
     getSkillMarketHot: (limit?: number) => Promise<SkillMarketItem[]>;
     searchSkillMarket: (query: string, limit?: number) => Promise<SkillMarketItem[]>;

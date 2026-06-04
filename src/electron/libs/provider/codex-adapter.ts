@@ -805,6 +805,7 @@ export class CodexAdapter implements ProviderAdapter {
       }
       await this.startSession({
         ...cached,
+        provider: 'codex',
         prompt: '',
         // Drop any prior resume cursor — it's tied to the invalidated auth.
         resumeSessionId: undefined,

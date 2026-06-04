@@ -1,9 +1,10 @@
 import claudeLogo from '../assets/claude-color.svg';
+import moonshotLogo from '../assets/moonshot.svg';
 import openaiLogo from '../assets/openai.svg';
 import { AlertTriangle, CheckCircle2, RefreshCw } from './icons';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Badge } from './ui/badge';
-import type { ClaudeRuntimeStatus, CodexRuntimeStatus, OpenCodeRuntimeStatus } from '../types';
+import type { ClaudeRuntimeStatus, CodexRuntimeStatus, KimiRuntimeStatus, OpenCodeRuntimeStatus } from '../types';
 import { OpenCodeLogo } from './OpenCodeLogo';
 
 type Props = {
@@ -13,6 +14,8 @@ type Props = {
   codexLoading: boolean;
   opencodeStatus: OpenCodeRuntimeStatus;
   opencodeLoading: boolean;
+  kimiStatus: KimiRuntimeStatus;
+  kimiLoading: boolean;
   onRefresh: () => void;
 };
 
@@ -23,6 +26,8 @@ export function ProvidersRuntimeStatusPanel({
   codexLoading,
   opencodeStatus,
   opencodeLoading,
+  kimiStatus,
+  kimiLoading,
   onRefresh,
 }: Props) {
   const [refreshPulse, setRefreshPulse] = useState(false);
@@ -30,7 +35,8 @@ export function ProvidersRuntimeStatusPanel({
   const showClaudeLoading = claudeLoading || refreshPulse;
   const showCodexLoading = codexLoading || refreshPulse;
   const showOpencodeLoading = opencodeLoading || refreshPulse;
-  const busy = showClaudeLoading || showCodexLoading || showOpencodeLoading;
+  const showKimiLoading = kimiLoading || refreshPulse;
+  const busy = showClaudeLoading || showCodexLoading || showOpencodeLoading || showKimiLoading;
 
   useEffect(() => {
     return () => {
@@ -66,7 +72,7 @@ export function ProvidersRuntimeStatusPanel({
               Connectivity
             </div>
             <div className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
-              Check whether Claude, Codex, and OpenCode are available for new sessions.
+              Check whether Claude, Codex, OpenCode, and Kimi Code are available for new sessions.
             </div>
           </div>
 
@@ -151,6 +157,37 @@ export function ProvidersRuntimeStatusPanel({
                   { label: 'CLI', value: opencodeStatus.cliAvailable ? 'Detected' : 'Missing' },
                   { label: 'Config', value: opencodeStatus.configExists ? 'Found' : 'Not found' },
                   { label: 'Models', value: opencodeStatus.hasModelConfig ? 'Ready' : 'Empty' },
+            ]
+          }
+        />
+
+        <RuntimeRow
+          loading={showKimiLoading}
+          connected={kimiStatus.ready}
+          summary={buildKimiSummary(kimiStatus, showKimiLoading)}
+          icon={
+            <img
+              src={moonshotLogo}
+              alt=""
+              className="h-[18px] w-[18px]"
+              aria-hidden="true"
+            />
+          }
+          meta={
+            showKimiLoading
+              ? []
+              : [
+                  { label: 'CLI', value: kimiStatus.cliAvailable ? 'Detected' : 'Missing' },
+                  { label: 'Version', value: kimiStatus.cliVersion || 'Unknown' },
+                  {
+                    label: 'Auth',
+                    value:
+                      kimiStatus.authState === 'ready'
+                        ? 'Ready'
+                        : kimiStatus.authState === 'login_required'
+                          ? 'Login required'
+                          : kimiStatus.authState,
+                  },
                 ]
           }
         />
@@ -267,4 +304,12 @@ function buildOpencodeSummary(status: OpenCodeRuntimeStatus, loading: boolean): 
   }
 
   return 'OpenCode needs local setup.';
+}
+
+function buildKimiSummary(status: KimiRuntimeStatus, loading: boolean): string {
+  if (loading) {
+    return 'Checking Kimi Code runtime…';
+  }
+
+  return status.summary || (status.ready ? 'Kimi Code ACP is ready.' : 'Kimi Code needs local setup.');
 }
