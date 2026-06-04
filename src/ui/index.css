@@ -2175,6 +2175,24 @@ button.aegis-mdx-metadata-key:hover {
   margin: 0;
 }
 
+.aegis-md-milkdown-root .ProseMirror a[href],
+.aegis-md-milkdown-root .ProseMirror .aegis-md-autolink {
+  color: color-mix(in srgb, var(--accent) 82%, var(--text-primary));
+  cursor: pointer;
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--accent) 52%, transparent);
+  text-underline-offset: 0.16em;
+  transition: color 120ms ease, text-decoration-color 120ms ease, background-color 120ms ease;
+}
+
+.aegis-md-milkdown-root .ProseMirror a[href]:hover,
+.aegis-md-milkdown-root .ProseMirror .aegis-md-autolink:hover {
+  color: var(--accent);
+  text-decoration-color: color-mix(in srgb, var(--accent) 78%, transparent);
+  background: color-mix(in srgb, var(--accent-light) 36%, transparent);
+}
+
 .aegis-md-milkdown-root .ProseMirror blockquote {
   position: relative;
   margin: 0.9rem 0;

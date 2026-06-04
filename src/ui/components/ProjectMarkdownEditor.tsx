@@ -30,8 +30,9 @@ import {
 } from '@milkdown/kit/core';
 import type { EditorView as ProseEditorView, NodeViewConstructor } from '@milkdown/kit/prose/view';
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
-import type { Node as ProseNode } from '@milkdown/kit/prose/model';
+import type { Mark as ProseMark, Node as ProseNode } from '@milkdown/kit/prose/model';
 import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
+import type { EditorState, Transaction } from '@milkdown/kit/prose/state';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 import {
   createCodeBlockCommand,
@@ -125,8 +126,24 @@ type PendingLocalMarkdownValue = {
   localValues: Set<string>;
 };
 
+type MarkdownLinkSyntaxReplacement = {
+  from: number;
+  to: number;
+  label: string;
+  marks: readonly ProseMark[];
+};
+
+type TextblockCharacter = {
+  pos: number;
+  marks: readonly ProseMark[];
+};
+
 const headingFlashKey = new PluginKey<DecorationSet>('aegisMarkdownHeadingFlash');
+const markdownExternalLinkKey = new PluginKey<DecorationSet>('aegisMarkdownExternalLink');
 const HEADING_FLASH_META = 'aegis-markdown-heading-flash';
+const URL_CANDIDATE_RE = /(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
+const MARKDOWN_LINK_RE = /\[([^\]\n]+)\]\(([^()\s]+)\)/g;
+const TRAILING_URL_PUNCTUATION_RE = /[.,;:!?，。！？；：、)\]}）】》]+$/u;
 const OUTLINE_TARGET_MIN_TOP_OFFSET_PX = 72;
 const OUTLINE_TARGET_MAX_TOP_OFFSET_PX = 140;
 const OUTLINE_TARGET_VIEWPORT_RATIO = 0.16;
@@ -533,6 +550,202 @@ function scrollHeadingIntoOutlinePosition(
     behavior: 'smooth',
   });
 }
+
+function trimMatchedUrl(rawUrl: string): string {
+  return rawUrl.replace(TRAILING_URL_PUNCTUATION_RE, '');
+}
+
+function normalizeExternalMarkdownUrl(rawUrl: string): string | null {
+  const trimmed = rawUrl.trim();
+  const candidate = /^www\./i.test(trimmed) ? `https://${trimmed}` : trimmed;
+  if (!/^https?:\/\//i.test(candidate)) return null;
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function findClosestElement(target: EventTarget | null): Element | null {
+  if (target instanceof Element) return target;
+  if (target instanceof Node) return target.parentElement;
+  return null;
+}
+
+function openMarkdownExternalUrl(rawUrl: string): boolean {
+  const url = normalizeExternalMarkdownUrl(rawUrl);
+  if (!url) return false;
+
+  const opener = window.electron?.openExternalUrl;
+  if (typeof opener === 'function') {
+    void opener(url)
+      .then((result) => {
+        if (!result?.ok) {
+          toast.error(`打开链接失败: ${result?.message || url}`);
+        }
+      })
+      .catch((error) => {
+        toast.error(`打开链接失败: ${error instanceof Error ? error.message : String(error)}`);
+      });
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+  return true;
+}
+
+function buildExternalLinkDecorations(doc: ProseNode): DecorationSet {
+  const decorations: Decoration[] = [];
+  doc.descendants((node, pos, parent) => {
+    if (!node.isText || !node.text) return true;
+    if (parent?.type.name === 'code_block') return false;
+    if (node.marks.some((mark) => mark.type.name === 'link' || mark.type.name === 'inlineCode')) {
+      return true;
+    }
+
+    URL_CANDIDATE_RE.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = URL_CANDIDATE_RE.exec(node.text)) !== null) {
+      const url = trimMatchedUrl(match[0]);
+      if (!normalizeExternalMarkdownUrl(url)) continue;
+      const from = pos + match.index;
+      const to = from + url.length;
+      decorations.push(Decoration.inline(from, to, {
+        class: 'aegis-md-autolink',
+        'data-aegis-url': url,
+      }));
+    }
+    return true;
+  });
+  return DecorationSet.create(doc, decorations);
+}
+
+function collectMarkdownLinkSyntaxReplacements(state: EditorState): MarkdownLinkSyntaxReplacement[] {
+  const linkMarkType = state.schema.marks.link;
+  if (!linkMarkType) return [];
+
+  const replacements: MarkdownLinkSyntaxReplacement[] = [];
+  state.doc.descendants((node, pos) => {
+    if (!node.isTextblock || node.type.name === 'code_block') return true;
+
+    const textParts: string[] = [];
+    const characters: TextblockCharacter[] = [];
+    node.descendants((child, childPos) => {
+      if (!child.isText || !child.text) return true;
+
+      textParts.push(child.text);
+      for (let index = 0; index < child.text.length; index += 1) {
+        characters.push({
+          pos: pos + 1 + childPos + index,
+          marks: child.marks,
+        });
+      }
+      return true;
+    });
+
+    const text = textParts.join('');
+    if (!text) return false;
+    MARKDOWN_LINK_RE.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = MARKDOWN_LINK_RE.exec(text)) !== null) {
+      const previousChar = match.index > 0 ? text[match.index - 1] : '';
+      if (previousChar === '!' || previousChar === '\\') continue;
+
+      const label = match[1]?.trim();
+      const href = (match[2] || '').replace(/^<|>$/g, '').trim();
+      if (!label || !href) continue;
+
+      const fromCharacter = characters[match.index];
+      const toCharacter = characters[match.index + match[0].length - 1];
+      const labelCharacter = characters[match.index + 1];
+      if (!fromCharacter || !toCharacter || !labelCharacter) continue;
+
+      const matchedCharacters = characters.slice(match.index, match.index + match[0].length);
+      if (matchedCharacters.some((character) => (
+        character.marks.some((mark) => mark.type.name === 'inlineCode')
+      ))) {
+        continue;
+      }
+
+      const linkMark = linkMarkType.create({ href, title: null });
+      const baseMarks = labelCharacter.marks.filter((mark) => mark.type.name !== 'link');
+      replacements.push({
+        from: fromCharacter.pos,
+        to: toCharacter.pos + 1,
+        label,
+        marks: linkMark.addToSet(baseMarks),
+      });
+    }
+    return false;
+  });
+  return replacements;
+}
+
+function createMarkdownLinkSyntaxTransaction(state: EditorState): Transaction | null {
+  const replacements = collectMarkdownLinkSyntaxReplacements(state);
+  if (replacements.length === 0) return null;
+
+  const tr = state.tr;
+  for (const replacement of replacements.reverse()) {
+    tr.replaceWith(
+      replacement.from,
+      replacement.to,
+      state.schema.text(replacement.label, replacement.marks)
+    );
+  }
+  return tr.docChanged ? tr : null;
+}
+
+const markdownLinkSyntaxPlugin = $prose(() => {
+  return new Plugin({
+    view: (view) => {
+      let cancelled = false;
+      window.setTimeout(() => {
+        if (cancelled) return;
+        const tr = createMarkdownLinkSyntaxTransaction(view.state);
+        if (tr?.docChanged) {
+          view.dispatch(tr);
+        }
+      }, 0);
+      return {
+        destroy: () => {
+          cancelled = true;
+        },
+      };
+    },
+    appendTransaction: (transactions, _oldState, newState) => {
+      if (!transactions.some((transaction) => transaction.docChanged)) return null;
+      return createMarkdownLinkSyntaxTransaction(newState);
+    },
+  });
+});
+
+const markdownExternalLinkPlugin = $prose(() => {
+  return new Plugin<DecorationSet>({
+    key: markdownExternalLinkKey,
+    state: {
+      init: (_config, state) => buildExternalLinkDecorations(state.doc),
+      apply: (tr, value) => {
+        if (!tr.docChanged) return value.map(tr.mapping, tr.doc);
+        return buildExternalLinkDecorations(tr.doc);
+      },
+    },
+    props: {
+      decorations: (state) => markdownExternalLinkKey.getState(state),
+      handleClick: (_view, _pos, event) => {
+        const element = findClosestElement(event.target);
+        const anchor = element?.closest('a[href]');
+        const decoratedUrlElement = element?.closest<HTMLElement>('[data-aegis-url]');
+        const rawUrl = anchor?.getAttribute('href') || decoratedUrlElement?.dataset.aegisUrl;
+        if (!rawUrl || !openMarkdownExternalUrl(rawUrl)) return false;
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
+      },
+    },
+  });
+});
 
 const trailingParagraphPlugin = $prose(() => {
   return new Plugin({
@@ -1151,6 +1364,8 @@ export function ProjectMarkdownEditor({
           }
         ))
         .use(createImageInputPlugin(insertImageFiles))
+        .use(markdownLinkSyntaxPlugin)
+        .use(markdownExternalLinkPlugin)
         .use(clipboard)
         .use(trailingParagraphPlugin)
         .use(headingFlashPlugin)
