@@ -6,17 +6,10 @@
  */
 
 import { BrowserWindow } from 'electron'
-import { IPty } from 'node-pty'
 import * as http from 'http'
 
 // --- 第三方导入（由各模块按需 import） ---
 // 以下类型在此声明以便 context 中使用：
-
-export interface TerminalSession {
-  process: IPty
-  cwd: string
-  history: string
-}
 
 export interface LocalPreviewServer {
   server: http.Server
@@ -45,7 +38,6 @@ export interface IPCHandlerContext {
   mainWindow: BrowserWindow
 
   // --- 模块级可变状态 ---
-  terminalSessions: Map<string, TerminalSession>
   localPreviewServers: Map<string, LocalPreviewServer>
   runnerHandles: Map<string, RunnerHandle>
   sessionStates: Map<string, SessionStateEntry>
@@ -61,8 +53,6 @@ export interface IPCHandlerContext {
   SEARCH_GLOBS: string[]
   MAX_CONCURRENT_TASKS: number
   KEEP_ALIVE_TIMEOUT: number
-  TERMINAL_HISTORY_MAX_CHARS: number
-  TERMINAL_STARTUP_BUFFER_MS: number
 }
 
 /**
@@ -71,7 +61,6 @@ export interface IPCHandlerContext {
  * 在各 ipc/ 模块中直接 import，不通过 context 传递。
  */
 export function createIPCHandlerContext(mainWindow: BrowserWindow): IPCHandlerContext {
-  const terminalSessions = new Map<string, TerminalSession>()
   const localPreviewServers = new Map<string, LocalPreviewServer>()
   const runnerHandles = new Map<string, RunnerHandle>()
   const sessionStates = new Map<string, SessionStateEntry>()
@@ -111,7 +100,6 @@ export function createIPCHandlerContext(mainWindow: BrowserWindow): IPCHandlerCo
 
   return {
     mainWindow,
-    terminalSessions,
     localPreviewServers,
     runnerHandles,
     sessionStates,
@@ -123,7 +111,5 @@ export function createIPCHandlerContext(mainWindow: BrowserWindow): IPCHandlerCo
     SEARCH_GLOBS,
     MAX_CONCURRENT_TASKS: 8,
     KEEP_ALIVE_TIMEOUT: 60000,
-    TERMINAL_HISTORY_MAX_CHARS: 200000,
-    TERMINAL_STARTUP_BUFFER_MS: 200,
   }
 }

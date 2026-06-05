@@ -30,6 +30,7 @@ import type {
   ProviderReadPluginInput,
   ProviderReadPluginResult,
   StreamMessage,
+  CodexRateLimitReport,
 } from '../../../shared/types';
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -705,6 +706,10 @@ export class CodexAdapter implements ProviderAdapter {
     };
   }
 
+  async getRateLimits(): Promise<CodexRateLimitReport> {
+    return this.manager.readAccountRateLimits(process.cwd());
+  }
+
   async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {
     return this.manager.listSkills({
       cwd: input.cwd,
@@ -800,6 +805,7 @@ export class CodexAdapter implements ProviderAdapter {
       }
       await this.startSession({
         ...cached,
+        provider: 'codex',
         prompt: '',
         // Drop any prior resume cursor — it's tied to the invalidated auth.
         resumeSessionId: undefined,

@@ -14,6 +14,14 @@ import type {
   ClaudeExecutionMode,
   ClaudeReasoningEffort,
   ClaudeCompatibleProviderId,
+  AgentProvider,
+  AegisBuiltInReasoningEffort,
+  AutomationDefinition,
+  AutomationRunRecord,
+  AutomationRunStatus,
+  AutomationSchedule,
+  AutomationRuntimeConfig,
+  UpsertAutomationInput,
   CodexExecutionMode,
   CodexPermissionMode,
   CodexReasoningEffort,
@@ -125,6 +133,46 @@ export interface BuiltinMemoryCandidateRow {
   consolidated_at: number | null;
 }
 
+interface AutomationRow {
+  id: string;
+  name: string;
+  project_cwd: string;
+  prompt: string;
+  provider: AgentProvider;
+  model: string | null;
+  compatible_provider_id: ClaudeCompatibleProviderId | null;
+  codex_reasoning_effort: CodexReasoningEffort | null;
+  codex_fast_mode: number | null;
+  aegis_reasoning_effort: AegisBuiltInReasoningEffort | null;
+  team_mode: SessionTeamMode | null;
+  team_id: string | null;
+  schedule_kind: AutomationSchedule['kind'];
+  schedule_time_of_day: string | null;
+  schedule_day_of_week: number | null;
+  schedule_interval_minutes: number | null;
+  schedule_run_at: number | null;
+  enabled: number;
+  next_run_at: number | null;
+  last_run_at: number | null;
+  last_run_status: AutomationRunStatus | null;
+  last_run_session_id: string | null;
+  run_count: number | null;
+  failure_count: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+interface AutomationRunRow {
+  id: string;
+  automation_id: string;
+  session_id: string | null;
+  status: AutomationRunStatus;
+  error: string | null;
+  started_at: number | null;
+  finished_at: number | null;
+  created_at: number;
+}
+
 function normalizeClaudeAccessMode(
   value?: string | null
 ): ClaudeAccessMode {
@@ -155,9 +203,13 @@ function normalizeClaudeReasoningEffort(
 function normalizeCodexPermissionMode(
   value?: string | null
 ): CodexPermissionMode {
-  return value === 'fullAccess' || value === 'fullAuto'
-    ? 'fullAccess'
-    : 'defaultPermissions';
+  if (value === 'fullAccess' || value === 'fullAuto') {
+    return 'fullAccess';
+  }
+  if (value === 'auto' || value === 'autoReview') {
+    return 'auto';
+  }
+  return 'defaultPermissions';
 }
 
 function normalizeCodexExecutionMode(
@@ -203,6 +255,146 @@ function normalizeSessionTeamMode(value?: string | null): SessionTeamMode {
     : 'channel_default';
 }
 
+function normalizeAutomationProvider(value?: string | null): AgentProvider {
+  return value === 'aegis' ||
+    value === 'claude' ||
+    value === 'codex' ||
+    value === 'opencode' ||
+    value === 'kimi'
+    ? value
+    : 'claude';
+}
+
+function parseAutomationTimeOfDay(value?: string | null): { hours: number; minutes: number; text: string } {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value?.trim() || '');
+  const hours = match ? Math.min(23, Math.max(0, Number(match[1]))) : 9;
+  const minutes = match ? Math.min(59, Math.max(0, Number(match[2]))) : 0;
+  return {
+    hours,
+    minutes,
+    text: `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`,
+  };
+}
+
+function normalizeAutomationSchedule(schedule?: AutomationSchedule | null): AutomationSchedule {
+  const kind = schedule?.kind === 'once' ||
+    schedule?.kind === 'weekly' ||
+    schedule?.kind === 'interval'
+    ? schedule.kind
+    : 'daily';
+  const time = parseAutomationTimeOfDay(schedule?.timeOfDay);
+  const dayOfWeek =
+    typeof schedule?.dayOfWeek === 'number' && Number.isFinite(schedule.dayOfWeek)
+      ? Math.min(6, Math.max(0, Math.floor(schedule.dayOfWeek)))
+      : 1;
+  const intervalMinutes =
+    typeof schedule?.intervalMinutes === 'number' && Number.isFinite(schedule.intervalMinutes)
+      ? Math.max(1, Math.floor(schedule.intervalMinutes))
+      : 60;
+  const runAt =
+    typeof schedule?.runAt === 'number' && Number.isFinite(schedule.runAt)
+      ? Math.max(0, Math.floor(schedule.runAt))
+      : Date.now();
+
+  if (kind === 'once') {
+    return { kind, runAt };
+  }
+  if (kind === 'weekly') {
+    return { kind, timeOfDay: time.text, dayOfWeek };
+  }
+  if (kind === 'interval') {
+    return { kind, intervalMinutes };
+  }
+  return { kind: 'daily', timeOfDay: time.text };
+}
+
+function computeNextAutomationRunAt(schedule: AutomationSchedule, from = Date.now()): number | null {
+  const normalized = normalizeAutomationSchedule(schedule);
+  if (normalized.kind === 'once') {
+    const runAt = normalized.runAt || 0;
+    return runAt > from ? runAt : null;
+  }
+  if (normalized.kind === 'interval') {
+    const intervalMinutes = normalized.intervalMinutes || 60;
+    return from + intervalMinutes * 60 * 1000;
+  }
+
+  const time = parseAutomationTimeOfDay(normalized.timeOfDay);
+  const next = new Date(from);
+  next.setHours(time.hours, time.minutes, 0, 0);
+
+  if (normalized.kind === 'weekly') {
+    const targetDay = normalized.dayOfWeek ?? 1;
+    const currentDay = next.getDay();
+    let daysToAdd = targetDay - currentDay;
+    if (daysToAdd < 0 || (daysToAdd === 0 && next.getTime() <= from)) {
+      daysToAdd += 7;
+    }
+    next.setDate(next.getDate() + daysToAdd);
+    return next.getTime();
+  }
+
+  if (next.getTime() <= from) {
+    next.setDate(next.getDate() + 1);
+  }
+  return next.getTime();
+}
+
+function normalizeAutomationRuntime(runtime?: AutomationRuntimeConfig | null): AutomationRuntimeConfig {
+  const provider = normalizeAutomationProvider(runtime?.provider);
+  return {
+    provider,
+    model: runtime?.model?.trim() || null,
+    compatibleProviderId:
+      provider === 'claude'
+        ? runtime?.compatibleProviderId || null
+        : null,
+    codexReasoningEffort:
+      provider === 'codex'
+        ? runtime?.codexReasoningEffort || null
+        : null,
+    codexFastMode: provider === 'codex' ? runtime?.codexFastMode === true : false,
+    aegisReasoningEffort:
+      provider === 'aegis'
+        ? runtime?.aegisReasoningEffort || null
+        : null,
+    teamMode: normalizeSessionTeamMode(runtime?.teamMode),
+    teamId: runtime?.teamId?.trim() || null,
+  };
+}
+
+function normalizeAutomationInput(input: UpsertAutomationInput): {
+  id: string;
+  name: string;
+  projectCwd: string;
+  prompt: string;
+  schedule: AutomationSchedule;
+  runtime: AutomationRuntimeConfig;
+  enabled: boolean;
+} {
+  const name = input.name?.trim();
+  const projectCwd = input.projectCwd?.trim();
+  const prompt = input.prompt?.trim();
+  if (!name) {
+    throw new Error('Automation name is required.');
+  }
+  if (!projectCwd) {
+    throw new Error('Project folder is required.');
+  }
+  if (!prompt) {
+    throw new Error('Prompt is required.');
+  }
+  return {
+    id: input.id?.trim() || uuidv4(),
+    name,
+    projectCwd,
+    prompt,
+    schedule: normalizeAutomationSchedule(input.schedule),
+    runtime: normalizeAutomationRuntime(input.runtime),
+    enabled: input.enabled !== false,
+  };
+}
+
 // 初始化数据库
 export function initialize(): void {
   const dbPath = join(app.getPath('userData'), 'sessions.db');
@@ -219,6 +411,7 @@ export function initialize(): void {
       claude_session_id TEXT,
       codex_session_id TEXT,
       opencode_session_id TEXT,
+      kimi_session_id TEXT,
       provider TEXT NOT NULL DEFAULT 'claude',
       model TEXT,
       conversation_scope TEXT DEFAULT 'project',
@@ -354,10 +547,53 @@ export function initialize(): void {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS automations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      project_cwd TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT,
+      compatible_provider_id TEXT,
+      codex_reasoning_effort TEXT,
+      codex_fast_mode INTEGER DEFAULT 0,
+      aegis_reasoning_effort TEXT,
+      team_mode TEXT DEFAULT 'channel_default',
+      team_id TEXT,
+      schedule_kind TEXT NOT NULL,
+      schedule_time_of_day TEXT,
+      schedule_day_of_week INTEGER,
+      schedule_interval_minutes INTEGER,
+      schedule_run_at INTEGER,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      next_run_at INTEGER,
+      last_run_at INTEGER,
+      last_run_status TEXT,
+      last_run_session_id TEXT,
+      run_count INTEGER NOT NULL DEFAULT 0,
+      failure_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS automation_runs (
+      id TEXT PRIMARY KEY,
+      automation_id TEXT NOT NULL,
+      session_id TEXT,
+      status TEXT NOT NULL,
+      error TEXT,
+      started_at INTEGER,
+      finished_at INTEGER,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL
+    );
   `);
 
   ensureColumn('sessions', 'codex_session_id', 'TEXT');
   ensureColumn('sessions', 'opencode_session_id', 'TEXT');
+  ensureColumn('sessions', 'kimi_session_id', 'TEXT');
   ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
   ensureColumn('sessions', 'model', 'TEXT');
   ensureColumn('sessions', 'conversation_scope', "TEXT DEFAULT 'project'");
@@ -412,6 +648,10 @@ export function initialize(): void {
     CREATE INDEX IF NOT EXISTS idx_builtin_memory_candidates_agent_pending ON builtin_memory_candidates(agent_id, consolidated_at, created_at);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_builtin_memory_candidates_dedupe ON builtin_memory_candidates(agent_id, dedupe_key);
     CREATE INDEX IF NOT EXISTS idx_builtin_memory_consolidations_agent ON builtin_memory_consolidations(agent_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_automations_next_run ON automations(enabled, next_run_at);
+    CREATE INDEX IF NOT EXISTS idx_automations_project ON automations(project_cwd, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_automation_runs_automation_created ON automation_runs(automation_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs(status, created_at);
   `);
 
   purgeImportedClaudeCodeSessions();
@@ -591,6 +831,9 @@ function getSessionSourceOrigin(sessionId: string): SessionSource {
   }
   if (row.provider === 'opencode') {
     return 'opencode_local';
+  }
+  if (row.provider === 'kimi') {
+    return 'kimi_local';
   }
   return 'aegis';
 }
@@ -839,7 +1082,9 @@ function backfillMessageMetadata(): void {
               ? 'codex_local'
               : row.provider === 'opencode'
                 ? 'opencode_local'
-                : 'aegis';
+                : row.provider === 'kimi'
+                  ? 'kimi_local'
+                  : 'aegis';
         const searchText = normalizeSearchText(extractSearchableMessageText(parsed));
         updateStmt.run(extractMessageType(parsed), sourceOrigin, searchText, row.created_at, row.id);
         upsertSearchIndexStmt.run(row.id, row.session_id, sourceOrigin, searchText, row.created_at);
@@ -1057,7 +1302,7 @@ export function createSession(params: {
   associatedWorktreeRef?: string | null;
   allowedTools?: string;
   prompt?: string;
-  provider?: 'aegis' | 'claude' | 'codex' | 'opencode';
+  provider?: 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi';
   model?: string;
   scope?: SessionScope;
   agentId?: string | null;
@@ -1148,6 +1393,305 @@ export function getSession(sessionId: string): SessionRow | undefined {
 export function listSessions(): SessionRow[] {
   const stmt = getDb().prepare('SELECT * FROM sessions WHERE COALESCE(hidden_from_threads, 0) = 0 ORDER BY updated_at DESC');
   return stmt.all() as SessionRow[];
+}
+
+export function listRunningSessions(): SessionRow[] {
+  const stmt = getDb().prepare("SELECT * FROM sessions WHERE status = 'running' ORDER BY updated_at DESC");
+  return stmt.all() as SessionRow[];
+}
+
+function automationRowToDefinition(row: AutomationRow): AutomationDefinition {
+  const schedule = normalizeAutomationSchedule({
+    kind: row.schedule_kind,
+    timeOfDay: row.schedule_time_of_day,
+    dayOfWeek: row.schedule_day_of_week,
+    intervalMinutes: row.schedule_interval_minutes,
+    runAt: row.schedule_run_at,
+  });
+  const runtime = normalizeAutomationRuntime({
+    provider: row.provider,
+    model: row.model,
+    compatibleProviderId: row.compatible_provider_id,
+    codexReasoningEffort: row.codex_reasoning_effort,
+    codexFastMode: row.codex_fast_mode === 1,
+    aegisReasoningEffort: row.aegis_reasoning_effort,
+    teamMode: row.team_mode || 'channel_default',
+    teamId: row.team_id,
+  });
+
+  return {
+    id: row.id,
+    name: row.name,
+    projectCwd: row.project_cwd,
+    prompt: row.prompt,
+    schedule,
+    runtime,
+    enabled: row.enabled === 1,
+    nextRunAt: row.next_run_at ?? null,
+    lastRunAt: row.last_run_at ?? null,
+    lastRunStatus: row.last_run_status ?? null,
+    lastRunSessionId: row.last_run_session_id ?? null,
+    runCount: row.run_count ?? 0,
+    failureCount: row.failure_count ?? 0,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function automationRunRowToRecord(row: AutomationRunRow): AutomationRunRecord {
+  return {
+    id: row.id,
+    automationId: row.automation_id,
+    sessionId: row.session_id ?? null,
+    status: row.status,
+    error: row.error ?? null,
+    startedAt: row.started_at ?? null,
+    finishedAt: row.finished_at ?? null,
+    createdAt: row.created_at,
+  };
+}
+
+export function listAutomations(): AutomationDefinition[] {
+  const rows = getDb().prepare(`
+    SELECT *
+    FROM automations
+    ORDER BY
+      enabled DESC,
+      CASE WHEN next_run_at IS NULL THEN 1 ELSE 0 END ASC,
+      next_run_at ASC,
+      updated_at DESC
+  `).all() as AutomationRow[];
+  return rows.map(automationRowToDefinition);
+}
+
+export function getAutomation(automationId: string): AutomationDefinition | null {
+  const row = getDb().prepare('SELECT * FROM automations WHERE id = ?').get(automationId) as AutomationRow | undefined;
+  return row ? automationRowToDefinition(row) : null;
+}
+
+export function listAutomationRuns(options?: {
+  automationId?: string | null;
+  limit?: number;
+}): AutomationRunRecord[] {
+  const limit = Math.min(200, Math.max(1, Math.floor(options?.limit || 80)));
+  const rows = options?.automationId
+    ? getDb().prepare(`
+        SELECT *
+        FROM automation_runs
+        WHERE automation_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `).all(options.automationId, limit) as AutomationRunRow[]
+    : getDb().prepare(`
+        SELECT *
+        FROM automation_runs
+        ORDER BY created_at DESC
+        LIMIT ?
+      `).all(limit) as AutomationRunRow[];
+  return rows.map(automationRunRowToRecord);
+}
+
+export function saveAutomation(input: UpsertAutomationInput): AutomationDefinition {
+  const normalized = normalizeAutomationInput(input);
+  const existing = getAutomation(normalized.id);
+  const now = Date.now();
+  const nextRunAt = normalized.enabled
+    ? computeNextAutomationRunAt(normalized.schedule, now - 1000)
+    : null;
+  const stmt = getDb().prepare(`
+    INSERT INTO automations (
+      id,
+      name,
+      project_cwd,
+      prompt,
+      provider,
+      model,
+      compatible_provider_id,
+      codex_reasoning_effort,
+      codex_fast_mode,
+      aegis_reasoning_effort,
+      team_mode,
+      team_id,
+      schedule_kind,
+      schedule_time_of_day,
+      schedule_day_of_week,
+      schedule_interval_minutes,
+      schedule_run_at,
+      enabled,
+      next_run_at,
+      last_run_at,
+      last_run_status,
+      last_run_session_id,
+      run_count,
+      failure_count,
+      created_at,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
+      project_cwd = excluded.project_cwd,
+      prompt = excluded.prompt,
+      provider = excluded.provider,
+      model = excluded.model,
+      compatible_provider_id = excluded.compatible_provider_id,
+      codex_reasoning_effort = excluded.codex_reasoning_effort,
+      codex_fast_mode = excluded.codex_fast_mode,
+      aegis_reasoning_effort = excluded.aegis_reasoning_effort,
+      team_mode = excluded.team_mode,
+      team_id = excluded.team_id,
+      schedule_kind = excluded.schedule_kind,
+      schedule_time_of_day = excluded.schedule_time_of_day,
+      schedule_day_of_week = excluded.schedule_day_of_week,
+      schedule_interval_minutes = excluded.schedule_interval_minutes,
+      schedule_run_at = excluded.schedule_run_at,
+      enabled = excluded.enabled,
+      next_run_at = excluded.next_run_at,
+      updated_at = excluded.updated_at
+  `);
+  stmt.run(
+    normalized.id,
+    normalized.name,
+    normalized.projectCwd,
+    normalized.prompt,
+    normalized.runtime.provider,
+    normalized.runtime.model || null,
+    normalized.runtime.compatibleProviderId || null,
+    normalized.runtime.codexReasoningEffort || null,
+    normalized.runtime.codexFastMode ? 1 : 0,
+    normalized.runtime.aegisReasoningEffort || null,
+    normalizeSessionTeamMode(normalized.runtime.teamMode),
+    normalized.runtime.teamId || null,
+    normalized.schedule.kind,
+    normalized.schedule.timeOfDay || null,
+    normalized.schedule.dayOfWeek ?? null,
+    normalized.schedule.intervalMinutes ?? null,
+    normalized.schedule.runAt ?? null,
+    normalized.enabled ? 1 : 0,
+    nextRunAt,
+    existing?.lastRunAt ?? null,
+    existing?.lastRunStatus ?? null,
+    existing?.lastRunSessionId ?? null,
+    existing?.runCount ?? 0,
+    existing?.failureCount ?? 0,
+    existing?.createdAt ?? now,
+    now
+  );
+  return getAutomation(normalized.id)!;
+}
+
+export function deleteAutomation(automationId: string): boolean {
+  const result = getDb().prepare('DELETE FROM automations WHERE id = ?').run(automationId);
+  return (result.changes || 0) > 0;
+}
+
+export function setAutomationEnabled(automationId: string, enabled: boolean): AutomationDefinition | null {
+  const automation = getAutomation(automationId);
+  if (!automation) return null;
+  const now = Date.now();
+  const nextRunAt = enabled ? computeNextAutomationRunAt(automation.schedule, now - 1000) : null;
+  getDb().prepare(`
+    UPDATE automations
+    SET enabled = ?, next_run_at = ?, updated_at = ?
+    WHERE id = ?
+  `).run(enabled ? 1 : 0, nextRunAt, now, automationId);
+  return getAutomation(automationId);
+}
+
+export function listDueAutomations(now = Date.now(), limit = 5): AutomationDefinition[] {
+  const rows = getDb().prepare(`
+    SELECT *
+    FROM automations
+    WHERE enabled = 1
+      AND next_run_at IS NOT NULL
+      AND next_run_at <= ?
+      AND NOT EXISTS (
+        SELECT 1
+        FROM automation_runs
+        WHERE automation_runs.automation_id = automations.id
+          AND automation_runs.status = 'running'
+      )
+    ORDER BY next_run_at ASC
+    LIMIT ?
+  `).all(now, Math.max(1, Math.floor(limit))) as AutomationRow[];
+  return rows.map(automationRowToDefinition);
+}
+
+export function createAutomationRun(automationId: string): AutomationRunRecord {
+  const now = Date.now();
+  const id = uuidv4();
+  getDb().prepare(`
+    INSERT INTO automation_runs (id, automation_id, session_id, status, error, started_at, finished_at, created_at)
+    VALUES (?, ?, NULL, 'running', NULL, ?, NULL, ?)
+  `).run(id, automationId, now, now);
+  const row = getDb().prepare('SELECT * FROM automation_runs WHERE id = ?').get(id) as AutomationRunRow;
+  return automationRunRowToRecord(row);
+}
+
+export function hasRunningAutomationRun(automationId: string): boolean {
+  const row = getDb().prepare(`
+    SELECT id
+    FROM automation_runs
+    WHERE automation_id = ? AND status = 'running'
+    LIMIT 1
+  `).get(automationId) as { id: string } | undefined;
+  return Boolean(row);
+}
+
+export function setAutomationRunSession(runId: string, sessionId: string | null): AutomationRunRecord | null {
+  getDb().prepare('UPDATE automation_runs SET session_id = ? WHERE id = ?').run(sessionId, runId);
+  const row = getDb().prepare('SELECT * FROM automation_runs WHERE id = ?').get(runId) as AutomationRunRow | undefined;
+  return row ? automationRunRowToRecord(row) : null;
+}
+
+export function finishAutomationRun(
+  runId: string,
+  status: AutomationRunStatus,
+  error?: string | null
+): AutomationRunRecord | null {
+  const row = getDb().prepare('SELECT * FROM automation_runs WHERE id = ?').get(runId) as AutomationRunRow | undefined;
+  if (!row) return null;
+  if (row.status !== 'running') {
+    return automationRunRowToRecord(row);
+  }
+  const automation = getAutomation(row.automation_id);
+  const finishedAt = Date.now();
+  const normalizedStatus: AutomationRunStatus = status === 'completed' ? 'completed' : 'failed';
+  getDb().prepare(`
+    UPDATE automation_runs
+    SET status = ?, error = ?, finished_at = ?
+    WHERE id = ?
+  `).run(normalizedStatus, normalizedStatus === 'failed' ? error || 'Automation failed.' : null, finishedAt, runId);
+
+  if (automation) {
+    const isOneShot = automation.schedule.kind === 'once';
+    const nextEnabled = !isOneShot && automation.enabled;
+    const nextRunAt = nextEnabled ? computeNextAutomationRunAt(automation.schedule, finishedAt) : null;
+    getDb().prepare(`
+      UPDATE automations
+      SET enabled = ?,
+          next_run_at = ?,
+          last_run_at = ?,
+          last_run_status = ?,
+          last_run_session_id = ?,
+          run_count = COALESCE(run_count, 0) + 1,
+          failure_count = COALESCE(failure_count, 0) + ?,
+          updated_at = ?
+      WHERE id = ?
+    `).run(
+      nextEnabled ? 1 : 0,
+      nextRunAt,
+      finishedAt,
+      normalizedStatus,
+      row.session_id,
+      normalizedStatus === 'failed' ? 1 : 0,
+      finishedAt,
+      row.automation_id
+    );
+  }
+
+  const updated = getDb().prepare('SELECT * FROM automation_runs WHERE id = ?').get(runId) as AutomationRunRow | undefined;
+  return updated ? automationRunRowToRecord(updated) : null;
 }
 
 export function getLatestClaudeModelUsageBySession(): Record<string, LatestClaudeModelUsage> {
@@ -1245,8 +1789,25 @@ export function setOpencodeSessionId(sessionId: string, opencodeSessionId: strin
   stmt.run(opencodeSessionId, now, sessionId);
 }
 
+// 更新 Kimi Session ID
+export function updateKimiSessionId(sessionId: string, kimiSessionId: string): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET kimi_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(kimiSessionId, now, sessionId);
+}
+
+export function setKimiSessionId(sessionId: string, kimiSessionId: string | null): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET kimi_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(kimiSessionId, now, sessionId);
+}
+
 // 更新 Session Provider
-export function updateSessionProvider(sessionId: string, provider: 'aegis' | 'claude' | 'codex' | 'opencode'): void {
+export function updateSessionProvider(sessionId: string, provider: 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi'): void {
   const now = Date.now();
   const stmt = getDb().prepare(`
     UPDATE sessions SET provider = ?, updated_at = ? WHERE id = ?

@@ -14,6 +14,7 @@ import { providerSessionDirectory } from './directory';
 import type { PermissionResult } from '../../../shared/types';
 import type {
   ProviderComposerCapabilities,
+  CodexRateLimitReport,
   ProviderListPluginsInput,
   ProviderListPluginsResult,
   ProviderListSkillsInput,
@@ -23,7 +24,7 @@ import type {
 } from '../../../shared/types';
 
 function isProviderKind(provider: string): provider is ProviderKind {
-  return provider === 'claude' || provider === 'codex' || provider === 'opencode';
+  return provider === 'claude' || provider === 'codex' || provider === 'opencode' || provider === 'kimi';
 }
 
 class ProviderServiceImpl implements ProviderService {
@@ -58,13 +59,28 @@ class ProviderServiceImpl implements ProviderService {
   }
 
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {
-    const provider = this.directory.getProvider(input.threadId) || 'codex';
+    const provider = input.provider || this.directory.getProvider(input.threadId) || 'codex';
     const adapter = registry.getAdapter(provider);
     if (!adapter) {
       throw new Error(`No adapter registered for provider "${provider}"`);
     }
 
-    const session = await adapter.startSession(input);
+    // Register before adapter.startSession resolves: ACP providers can request
+    // tool permissions while starting the first turn.
+    this.directory.upsert({
+      threadId: input.threadId,
+      provider,
+      status: 'connecting',
+      resumeCursor: input.resumeSessionId || null,
+    });
+
+    let session: ProviderSession;
+    try {
+      session = await adapter.startSession(input);
+    } catch (error) {
+      this.directory.remove(input.threadId);
+      throw error;
+    }
 
     // Persist binding with resume cursor
     this.directory.upsert({
@@ -156,6 +172,15 @@ class ProviderServiceImpl implements ProviderService {
     return adapter.getComposerCapabilities();
   }
 
+  async getRateLimits(provider: ProviderKind): Promise<CodexRateLimitReport | null> {
+    const adapter = registry.getAdapter(provider);
+    if (!adapter?.getRateLimits) {
+      return null;
+    }
+
+    return adapter.getRateLimits();
+  }
+
   async listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult> {
     if (!isProviderKind(input.provider)) {
       return { skills: [], source: 'unsupported', cached: false };
@@ -213,7 +238,7 @@ class ProviderServiceImpl implements ProviderService {
   async runOneShot(
     input: ProviderSessionStartInput
   ): Promise<{ text: string; sessionId?: string; model?: string }> {
-    const provider = this.directory.getProvider(input.threadId) || 'codex';
+    const provider = input.provider || this.directory.getProvider(input.threadId) || 'codex';
     const adapter = registry.getAdapter(provider);
     if (!adapter) {
       throw new Error(`No adapter registered for provider "${provider}"`);
@@ -239,13 +264,14 @@ class ProviderServiceImpl implements ProviderService {
       await adapter.sendTurn({
         threadId: input.threadId,
         prompt: input.prompt,
-	        attachments: input.attachments,
-	        model: input.model,
-	        codexExecutionMode: input.codexExecutionMode,
-	        codexPermissionMode: input.codexPermissionMode,
-	        codexReasoningEffort: input.codexReasoningEffort,
-	        codexFastMode: input.codexFastMode,
-	      });
+        attachments: input.attachments,
+        model: input.model,
+        codexExecutionMode: input.codexExecutionMode,
+        codexPermissionMode: input.codexPermissionMode,
+        codexReasoningEffort: input.codexReasoningEffort,
+        codexFastMode: input.codexFastMode,
+        kimiPermissionMode: input.kimiPermissionMode,
+      });
 
       // Wait a bit for the turn to complete
       await new Promise((resolve) => setTimeout(resolve, 2000));

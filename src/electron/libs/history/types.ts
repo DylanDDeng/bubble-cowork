@@ -5,7 +5,8 @@ export type UnifiedSessionSource =
   | 'aegis'
   | 'claude_remote'
   | 'codex_local'
-  | 'opencode_local';
+  | 'opencode_local'
+  | 'kimi_local';
 
 export interface UnifiedSessionRecord {
   id: string;

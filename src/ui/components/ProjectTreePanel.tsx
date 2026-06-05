@@ -1814,9 +1814,8 @@ export function ProjectTreePanel({
       return;
     }
 
-    // Blur/visibility saves only the draft emitted by Milkdown. The final
-    // close path also flushes pending composition state, but never resaves a
-    // freshly serialized ProseMirror document because that can fold blank lines.
+    // Blur/visibility saves only the latest draft emitted by the active editor.
+    // The final close path also flushes pending composition state before saving.
     const getDirtyContent = (flushEditor: boolean): string | null => {
       if (flushEditor) {
         activeMarkdownBridgeRef.current?.flush();

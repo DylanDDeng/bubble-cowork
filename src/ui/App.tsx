@@ -26,6 +26,7 @@ import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { Sidebar, SidebarHeaderTrigger } from './components/Sidebar';
 import { PromptLibraryView } from './components/prompts/PromptLibraryView';
+import { AutomationsView } from './components/AutomationsView';
 import { NewSessionView } from './components/NewSessionView';
 import { PromptInput } from './components/PromptInput';
 import { InSessionSearch } from './components/search/InSessionSearch';
@@ -139,6 +140,7 @@ export function App() {
   const pendingAutoPreviewSessionsRef = useRef(new Set<string>());
   const autoPreviewedArtifactsRef = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
+  const effectiveGitCwd = activeSession?.cwd || projectCwd || null;
 
   useEffect(() => {
     if (!electronAvailable) {
@@ -302,7 +304,7 @@ export function App() {
   }, [connected]);
 
   const loadGitOverview = useCallback(async () => {
-    const cwd = (projectCwd || activeSession?.cwd || '').trim();
+    const cwd = (effectiveGitCwd || '').trim();
     if (!cwd) {
       setGitHeaderState({
         hasRepo: false,
@@ -375,7 +377,7 @@ export function App() {
         pr: null,
       });
     }
-  }, [activeSession?.cwd, projectCwd]);
+  }, [effectiveGitCwd]);
 
   useEffect(() => {
     let cancelled = false;
@@ -677,6 +679,8 @@ export function App() {
         </div>
       ) : activeWorkspace === 'prompts' ? (
         <PromptLibraryView />
+      ) : activeWorkspace === 'automations' ? (
+        <AutomationsView />
       ) : chatLayoutMode === 'split' || (activeSession && !showNewSession) ? (
         <div
           className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden transition-[padding] duration-200"
@@ -740,7 +744,7 @@ export function App() {
                   <Globe className="h-[13px] w-[13px] shrink-0" />
                 </button>
                 <GitHeaderActions
-                  cwd={activeSession?.cwd || projectCwd || null}
+                  cwd={effectiveGitCwd}
                   state={gitHeaderState}
                   onRefreshGitState={loadGitOverview}
                 />
@@ -749,7 +753,10 @@ export function App() {
           </div>
 
           <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-            <WorkspaceHost codexModelConfig={codexModelConfig} />
+            <WorkspaceHost
+              codexModelConfig={codexModelConfig}
+              onWorkspaceGitChanged={loadGitOverview}
+            />
 
             <TerminalDrawer
               open={terminalDrawerOpen}

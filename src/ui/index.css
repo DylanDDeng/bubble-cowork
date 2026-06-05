@@ -64,6 +64,15 @@
   --user-bubble-text: #111214;
   --user-bubble-border: transparent;
   --user-bubble-shadow: none;
+  --composer-chip-bg: rgba(79, 70, 229, 0.08);
+  --composer-chip-border: rgba(79, 70, 229, 0.16);
+  --composer-chip-text: #111111;
+  --composer-skill-chip-bg: rgba(79, 70, 229, 0.09);
+  --composer-skill-chip-border: rgba(79, 70, 229, 0.24);
+  --composer-skill-chip-text: #4F46E5;
+  --composer-mention-chip-bg: rgba(79, 70, 229, 0.08);
+  --composer-mention-chip-border: rgba(79, 70, 229, 0.12);
+  --composer-mention-chip-text: #4F46E5;
   --tree-item-hover: rgba(17, 24, 39, 0.05);
   --tree-item-active: rgba(17, 24, 39, 0.08);
   --tree-item-border: rgba(17, 24, 39, 0.12);
@@ -91,6 +100,7 @@
   --app-sidebar-surface: #dcdcddff;
   --panel-soft-divider: rgba(17, 24, 39, 0.075);
   --border-focus: rgba(79, 70, 229, 0.45);
+  --focus-ring: rgba(98, 100, 106, 0.34);
 
   /* Radius system */
   --radius: 0.5rem;
@@ -164,6 +174,15 @@
   --user-bubble-text: #111214;
   --user-bubble-border: transparent;
   --user-bubble-shadow: none;
+  --composer-chip-bg: rgba(245, 245, 245, 0.07);
+  --composer-chip-border: rgba(245, 245, 245, 0.15);
+  --composer-chip-text: #F5F5F5;
+  --composer-skill-chip-bg: rgba(129, 140, 248, 0.16);
+  --composer-skill-chip-border: rgba(129, 140, 248, 0.28);
+  --composer-skill-chip-text: #A5B4FC;
+  --composer-mention-chip-bg: rgba(129, 140, 248, 0.14);
+  --composer-mention-chip-border: rgba(129, 140, 248, 0.2);
+  --composer-mention-chip-text: #A5B4FC;
   --tree-item-hover: rgba(255, 255, 255, 0.05);
   --tree-item-active: rgba(255, 255, 255, 0.09);
   --tree-item-border: rgba(255, 255, 255, 0.14);
@@ -190,6 +209,7 @@
   --sidebar-segment-shadow-active: 0 1px 3px rgba(0, 0, 0, 0.24);
   --panel-soft-divider: rgba(255, 255, 255, 0.075);
   --border-focus: rgba(129, 140, 248, 0.5);
+  --focus-ring: rgba(178, 181, 187, 0.36);
 
   /* Popover / dropdown surface (unified) */
   --popover-bg: #1E2025;
@@ -228,6 +248,104 @@
 
 .popover-surface--lg {
   box-shadow: var(--popover-shadow-lg);
+}
+
+:where(button):focus {
+  outline: none;
+}
+
+:where(button):focus-visible {
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.composer-inline-chip {
+  --composer-inline-chip-bg: var(--composer-chip-bg);
+  --composer-inline-chip-text: var(--composer-chip-text);
+
+  display: inline-flex;
+  align-items: center;
+  max-width: 240px;
+  min-height: 20px;
+  margin: 0 1px;
+  padding: 0 6px;
+  gap: 4px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--composer-inline-chip-bg);
+  color: var(--composer-inline-chip-text);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 58%, transparent);
+  font-family: var(--font-sans, inherit);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  vertical-align: -2px;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.composer-inline-chip--skill,
+.composer-inline-chip--plugin {
+  --composer-inline-chip-bg: var(--composer-skill-chip-bg);
+  --composer-inline-chip-text: var(--composer-skill-chip-text);
+}
+
+.composer-inline-chip--mention {
+  --composer-inline-chip-bg: var(--composer-mention-chip-bg);
+  --composer-inline-chip-text: var(--composer-mention-chip-text);
+}
+
+.composer-inline-chip--large {
+  min-height: 24px;
+  padding-inline: 8px;
+  gap: 5px;
+}
+
+.composer-inline-chip--message {
+  margin: 0;
+  vertical-align: middle;
+}
+
+.composer-inline-chip__icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+}
+
+.composer-inline-chip__icon > svg,
+.composer-inline-chip__icon > img {
+  width: 14px;
+  height: 14px;
+}
+
+.composer-inline-chip__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-inline-chip__clear {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  margin-right: -3px;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: color-mix(in srgb, currentColor 62%, transparent);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.composer-inline-chip__clear:hover {
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  color: currentColor;
 }
 
 /* Base styles */
@@ -409,6 +527,28 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
+}
+
+.aegis-terminal-pane .xterm,
+.aegis-terminal-pane .xterm .xterm-viewport,
+.aegis-terminal-pane .xterm .xterm-screen {
+  background-color: var(--bg-secondary) !important;
+}
+
+.aegis-terminal-pane .xterm .xterm-viewport {
+  scrollbar-color: var(--border) transparent;
+}
+
+.aegis-terminal-pane .xterm .xterm-scrollable-element > .scrollbar {
+  background: transparent !important;
+}
+
+.aegis-terminal-pane .xterm .xterm-scrollable-element > .scrollbar > div {
+  background: color-mix(in srgb, var(--text-muted) 28%, transparent) !important;
+}
+
+.aegis-terminal-pane .xterm .xterm-scrollable-element > .shadow {
+  box-shadow: none !important;
 }
 
 /* Markdown content */
@@ -1538,7 +1678,13 @@ button.aegis-mdx-metadata-key:hover {
   );
 }
 
-.aegis-md-editor-metadata + .aegis-md-milkdown-root {
+.aegis-cm-frontmatter-widget {
+  cursor: text;
+  margin: 0 auto;
+  user-select: none;
+}
+
+.aegis-md-editor-metadata + .aegis-md-codemirror-root {
   padding-top: 28px;
 }
 
@@ -1969,7 +2115,7 @@ button.aegis-mdx-metadata-key:hover {
   background: var(--aegis-md-editor-surface);
 }
 
-.aegis-md-milkdown-root {
+.aegis-md-codemirror-root {
   box-sizing: border-box;
   width: min(100%, var(--aegis-md-page-width));
   min-height: 100%;
@@ -1977,169 +2123,102 @@ button.aegis-mdx-metadata-key:hover {
   padding: 30px var(--aegis-md-page-padding-x) 120px;
 }
 
-.aegis-md-milkdown-root .ProseMirror {
+.aegis-md-codemirror-root .cm-editor {
   min-height: 62vh;
   outline: none;
-  border: 0;
   background: transparent;
   color: color-mix(in srgb, var(--text-primary) 94%, #37352f);
   font-family: var(--aegis-md-prose-font);
-  font-size: var(--aegis-md-prose-font-size) !important;
+  font-size: var(--aegis-md-prose-font-size);
   line-height: var(--aegis-md-prose-line-height);
 }
 
-.aegis-md-milkdown-root .ProseMirror h1,
-.aegis-md-milkdown-root .ProseMirror h2,
-.aegis-md-milkdown-root .ProseMirror h3,
-.aegis-md-milkdown-root .ProseMirror h4,
-.aegis-md-milkdown-root .ProseMirror h5,
-.aegis-md-milkdown-root .ProseMirror h6 {
+.aegis-md-codemirror-root .cm-editor.cm-focused {
+  outline: none;
+}
+
+.aegis-md-codemirror-root .cm-scroller {
+  min-height: 62vh;
+  overflow: visible;
+  font-family: var(--aegis-md-prose-font);
+  line-height: var(--aegis-md-prose-line-height);
+}
+
+.aegis-md-codemirror-root .cm-content {
+  min-height: 62vh;
+  padding: 0;
+  caret-color: var(--text-primary);
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: plaintext;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+
+.aegis-md-codemirror-root .cm-line {
+  padding: 0;
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: plaintext;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+
+.aegis-md-codemirror-root .cm-gutters {
+  display: none;
+}
+
+.aegis-md-codemirror-root .cm-activeLine {
+  background: color-mix(in srgb, var(--accent-light) 16%, transparent);
+}
+
+.aegis-md-codemirror-root .cm-selectionBackground,
+.aegis-md-codemirror-root .cm-content ::selection {
+  background: color-mix(in srgb, var(--accent-light) 68%, transparent) !important;
+}
+
+.aegis-cm-heading-line {
   color: var(--text-primary);
   letter-spacing: 0;
   line-height: 1.25;
   font-weight: 720;
 }
 
-.aegis-md-milkdown-root .ProseMirror h1 {
-  margin: 0 0 0.85rem;
-  font-size: 34px !important;
+.aegis-cm-heading-line.level-1 {
+  padding: 0 0 0.85rem;
+  font-size: 34px;
   font-weight: 760;
-  letter-spacing: -0.01em;
 }
 
-.aegis-md-milkdown-root .ProseMirror h2 {
-  margin: 1.35rem 0 0.65rem;
-  font-size: 20px !important;
-  font-weight: 720;
+.aegis-cm-heading-line.level-2 {
+  padding: 1.35rem 0 0.65rem;
+  font-size: 20px;
 }
 
-.aegis-md-milkdown-root .ProseMirror h3 {
-  margin: 1.15rem 0 0.42rem;
-  font-size: 17px !important;
+.aegis-cm-heading-line.level-3,
+.aegis-cm-heading-line.level-4,
+.aegis-cm-heading-line.level-5,
+.aegis-cm-heading-line.level-6 {
+  padding: 1.15rem 0 0.42rem;
+  font-size: 17px;
 }
 
-.aegis-md-milkdown-root .ProseMirror p {
-  font-size: inherit !important;
-  line-height: var(--aegis-md-prose-line-height);
+.aegis-cm-link {
+  color: color-mix(in srgb, var(--accent) 82%, var(--text-primary));
+  cursor: pointer;
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--accent) 52%, transparent);
+  text-underline-offset: 0.16em;
 }
 
-.aegis-md-milkdown-root .ProseMirror > p {
-  margin: 0;
+.aegis-cm-link:hover {
+  color: var(--accent);
+  text-decoration-color: color-mix(in srgb, var(--accent) 78%, transparent);
+  background: color-mix(in srgb, var(--accent-light) 36%, transparent);
 }
 
-.aegis-md-milkdown-root .ProseMirror > p + p {
-  margin-top: var(--aegis-md-paragraph-gap);
-}
-
-.aegis-md-milkdown-root .ProseMirror li p {
-  margin: 0;
-}
-
-.aegis-md-milkdown-root .ProseMirror blockquote {
-  position: relative;
-  margin: 0.9rem 0;
-  padding: 0.72rem 0.9rem 0.72rem 2.25rem;
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  border-left: 2px solid #2563eb;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--bg-tertiary) 48%, var(--preview-surface));
-  color: color-mix(in srgb, var(--text-primary) 78%, var(--text-secondary));
-}
-
-.aegis-md-milkdown-root .ProseMirror blockquote::before {
-  content: "“";
-  position: absolute;
-  left: 0.85rem;
-  top: 0.68rem;
-  width: 1rem;
-  height: 1rem;
-  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
-  border-radius: 999px;
-  color: var(--text-muted);
-  background: var(--preview-surface);
-  font-family: Georgia, serif;
-  font-size: 16px;
-  line-height: 1rem;
-  text-align: center;
-}
-
-.aegis-md-milkdown-root .ProseMirror ul,
-.aegis-md-milkdown-root .ProseMirror ol {
-  --aegis-md-list-marker: #2563eb;
-  counter-reset: aegis-md-list;
-  margin: 0.48rem 0;
-  padding-left: 0;
-  list-style: none;
-}
-
-.aegis-md-milkdown-root .ProseMirror ul ul,
-.aegis-md-milkdown-root .ProseMirror ol ol,
-.aegis-md-milkdown-root .ProseMirror ul ol,
-.aegis-md-milkdown-root .ProseMirror ol ul {
-  position: relative;
-  margin: 0.24rem 0;
-}
-
-.aegis-md-milkdown-root .ProseMirror li {
-  margin: 0.18rem 0;
-  padding-left: 1.1rem;
-}
-
-.aegis-md-milkdown-root .ProseMirror ul > li::before {
-  content: "";
-  position: absolute;
-  top: 0.7em;
-  left: 0.12rem;
-  width: 0.32rem;
-  height: 0.32rem;
-  border-radius: 999px;
-  background: var(--aegis-md-list-marker);
-  z-index: 1;
-}
-
-.aegis-md-milkdown-root .ProseMirror ul ul > li::before {
-  width: 0.28rem;
-  height: 0.28rem;
-  border: 1px solid var(--aegis-md-list-marker);
-  background: transparent;
-}
-
-.aegis-md-milkdown-root .ProseMirror ul ul ul > li::before {
-  width: 0.28rem;
-  height: 0.28rem;
-  border-radius: 2px;
-  border: 0;
-  background: var(--aegis-md-list-marker);
-}
-
-.aegis-md-milkdown-root .ProseMirror ol > li {
-  counter-increment: aegis-md-list;
-}
-
-.aegis-md-milkdown-root .ProseMirror ol > li::before {
-  content: counter(aegis-md-list);
-  position: absolute;
-  top: 0;
-  left: 0;
-  min-width: 0.82rem;
-  height: auto;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--aegis-md-list-marker);
-  font-size: 1em;
-  font-weight: 700;
-  line-height: inherit;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  z-index: 1;
-}
-
-.aegis-md-milkdown-root .ProseMirror li[data-item-type="task"]::before {
-  content: none;
-}
-
-.aegis-md-milkdown-root .ProseMirror code {
+.aegis-cm-inline-code {
   border: 1px solid color-mix(in srgb, var(--code-inline-border) 52%, transparent);
   border-radius: 4px;
   background: var(--code-inline-bg);
@@ -2149,160 +2228,161 @@ button.aegis-mdx-metadata-key:hover {
   font-size: 0.88em;
 }
 
-.aegis-md-milkdown-root .ProseMirror pre {
-  margin: 1rem 0;
-  overflow-x: auto;
+.aegis-cm-inline-code-source {
+  padding-inline: 0.24rem;
+}
+
+.aegis-cm-strong {
+  font-weight: 700;
+}
+
+.aegis-cm-emphasis {
+  font-style: italic;
+}
+
+.aegis-cm-strike {
+  text-decoration: line-through;
+  color: color-mix(in srgb, var(--text-primary) 72%, var(--text-muted));
+}
+
+.aegis-cm-task-checkbox {
+  width: 15px;
+  height: 15px;
+  margin: 0 0.35rem 0 0;
+  transform: translateY(2px);
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.aegis-cm-code-widget {
+  overflow: hidden;
+  margin: 0.95rem 0 0.72rem;
   border: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
   border-radius: 6px;
   background: color-mix(in srgb, var(--preview-surface) 92%, var(--bg-tertiary));
-  padding: 12px 14px;
+  cursor: text;
 }
 
-.aegis-md-milkdown-root .ProseMirror pre code {
-  border: 0;
-  background: transparent;
-  padding: 0;
-  color: var(--code-block-text);
-}
-
-.aegis-md-code-block {
-  --aegis-md-code-surface: color-mix(in srgb, var(--preview-surface) 92%, var(--bg-tertiary));
-  --aegis-md-code-header-surface: color-mix(in srgb, var(--preview-surface) 88%, var(--bg-tertiary));
-  --aegis-md-code-gutter-surface: color-mix(in srgb, var(--bg-tertiary) 74%, var(--preview-surface));
-  --aegis-md-code-border: color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
-  --aegis-md-code-label-bg: color-mix(in srgb, var(--accent-light) 64%, var(--preview-surface));
-  --aegis-md-code-label-color: color-mix(in srgb, var(--accent) 78%, var(--text-primary));
-  margin: 0.9rem 0 1rem;
-  overflow: hidden;
-  border: 1px solid var(--aegis-md-code-border);
-  border-radius: 6px;
-  background: var(--aegis-md-code-surface);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 5%, transparent);
-}
-
-.aegis-md-code-block.selected {
-  outline: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
-}
-
-.aegis-md-code-tools {
+.aegis-cm-code-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   min-height: 38px;
-  padding: 8px 13px 7px 16px;
-  border-bottom: 1px solid var(--aegis-md-code-border);
-  background: var(--aegis-md-code-header-surface);
+  background: color-mix(in srgb, var(--preview-surface) 88%, var(--bg-tertiary));
+  padding: 7px 13px 6px 16px;
 }
 
-.aegis-md-code-language {
-  min-width: 0;
-  width: min(128px, 38%);
-  height: 24px;
-  border: 1px solid color-mix(in srgb, var(--accent) 8%, transparent);
+.aegis-cm-code-language-label {
   border-radius: 5px;
-  outline: 0;
-  background: var(--aegis-md-code-label-bg);
-  color: var(--aegis-md-code-label-color);
-  font-family: var(--font-sans), 'IBM Plex Serif Var', 'IBM Plex Serif', ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;
+  background: color-mix(in srgb, var(--accent-light) 64%, var(--preview-surface));
+  color: color-mix(in srgb, var(--accent) 78%, var(--text-primary));
   font-size: 12px;
   font-weight: 650;
   line-height: 22px;
   padding: 0 9px;
 }
 
-.aegis-md-code-language::placeholder {
-  color: var(--aegis-md-code-label-color);
-  opacity: 1;
-}
-
-.aegis-md-code-copy {
-  display: inline-flex;
+.aegis-cm-code-copy {
   height: 26px;
-  align-items: center;
-  gap: 6px;
   border-radius: 4px;
-  padding: 0 7px;
+  padding: 0 8px;
   color: color-mix(in srgb, var(--text-secondary) 82%, var(--code-block-text));
   font-size: 12px;
   font-weight: 500;
 }
 
-.aegis-md-code-copy:hover,
-.aegis-md-code-copy[data-copied="true"] {
+.aegis-cm-code-copy:hover {
   background: var(--code-copy-hover);
   color: color-mix(in srgb, var(--text-primary) 86%, var(--accent));
 }
 
-.aegis-md-code-copy-mark {
-  position: relative;
-  width: 13px;
-  height: 13px;
-  flex: 0 0 auto;
-}
-
-.aegis-md-code-copy-mark::before,
-.aegis-md-code-copy-mark::after {
-  content: "";
-  position: absolute;
-  width: 8px;
-  height: 9px;
-  border: 1.5px solid currentColor;
-  border-radius: 2px;
-}
-
-.aegis-md-code-copy-mark::before {
-  left: 1px;
-  top: 1px;
-  opacity: 0.56;
-}
-
-.aegis-md-code-copy-mark::after {
-  left: 4px;
-  top: 3px;
-}
-
-.aegis-md-codemirror-host .cm-editor {
-  background: transparent;
+.aegis-cm-code-body {
+  margin: 0;
+  min-height: calc(var(--aegis-md-prose-font-size) * var(--aegis-md-prose-line-height));
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: color-mix(in srgb, var(--preview-surface) 94%, var(--bg-tertiary));
   color: var(--code-block-text);
+  padding: 0.78rem 1rem 0.86rem;
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
 }
 
-.aegis-md-codemirror-host .cm-editor.cm-focused {
-  outline: none;
+.aegis-cm-code-body code {
+  font: inherit;
 }
 
-.aegis-md-codemirror-host .cm-scroller {
-  padding: 6px 0;
+.aegis-cm-code-source-line {
+  border-left: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
+  border-right: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
+  background: color-mix(in srgb, var(--preview-surface) 90%, var(--bg-tertiary));
+  color: var(--code-block-text);
+  padding: 0 1rem;
   font-family: var(--font-mono);
-  line-height: 1.7;
+  font-size: 13px;
+  line-height: 1.65;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
 }
 
-.aegis-md-codemirror-host .cm-gutters {
-  border-right: 1px solid var(--aegis-md-code-border);
-  background: var(--aegis-md-code-gutter-surface);
-  color: var(--code-token-comment);
+.aegis-cm-code-source-line.is-first {
+  margin-top: 0.95rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
+  border-radius: 6px 6px 0 0;
+  padding-top: 0.54rem;
 }
 
-.aegis-md-codemirror-host .cm-lineNumbers .cm-gutterElement {
-  min-width: 3.1ch;
-  padding: 0 11px 0 15px;
-  opacity: 0.64;
+.aegis-cm-code-source-line.is-last {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
+  border-radius: 0 0 6px 6px;
+  padding-bottom: 0.58rem;
+  margin-bottom: 0.72rem;
 }
 
-.aegis-md-codemirror-host .cm-content {
-  padding: 0 16px;
+.aegis-cm-code-source-line.is-marker {
+  color: color-mix(in srgb, var(--code-block-text) 72%, var(--text-muted));
 }
 
-.aegis-md-codemirror-host .cm-activeLine,
-.aegis-md-codemirror-host .cm-activeLineGutter {
-  background: color-mix(in srgb, var(--accent-light) 34%, transparent);
+.aegis-cm-image-widget {
+  display: block;
+  max-width: 100%;
+  margin: 1rem 0 0.45rem;
+  cursor: text;
 }
 
-.aegis-md-milkdown-root .ProseMirror table {
-  width: 100%;
+.aegis-cm-image-widget img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 5px;
+}
+
+.aegis-cm-image-status {
+  display: inline-flex;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg-tertiary) 48%, var(--preview-surface));
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.aegis-cm-image-widget[data-error="true"] .aegis-cm-image-status {
+  color: var(--error);
+}
+
+.aegis-cm-table-widget {
   margin: 1rem 0;
+  cursor: text;
+}
+
+.aegis-cm-table-widget table {
+  width: 100%;
   overflow: hidden;
   border-collapse: separate;
   border-spacing: 0;
@@ -2312,30 +2392,20 @@ button.aegis-mdx-metadata-key:hover {
   line-height: 1.45;
 }
 
-.aegis-md-milkdown-root .ProseMirror th,
-.aegis-md-milkdown-root .ProseMirror td {
+.aegis-cm-table-widget th,
+.aegis-cm-table-widget td {
   border-right: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   padding: 0.42rem 0.65rem;
   vertical-align: top;
 }
 
-.aegis-md-milkdown-root .ProseMirror th {
+.aegis-cm-table-widget th {
   background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent);
   font-weight: 650;
 }
 
-.aegis-md-milkdown-root .ProseMirror img,
-.aegis-md-image {
-  display: block;
-  max-width: 100%;
-  height: auto;
-  margin: 1rem 0 0.45rem;
-  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-  border-radius: 5px;
-}
-
-.aegis-md-milkdown-root .ProseMirror .aegis-md-heading-flash {
+.aegis-cm-heading-flash {
   background: color-mix(in srgb, var(--accent-light) 72%, transparent);
   transition: background-color 160ms ease;
 }
@@ -2500,7 +2570,7 @@ button.aegis-mdx-metadata-key:hover {
     display: none;
   }
 
-  .aegis-md-milkdown-root {
+  .aegis-md-codemirror-root {
     padding: 26px 22px 100px;
   }
 }

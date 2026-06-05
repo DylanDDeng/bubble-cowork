@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 import type {
   AegisBuiltInAgentConfig,
+  AutomationDefinition,
+  AutomationSnapshot,
   ClaudeCompatibleProvidersConfig,
   ClaudeUsageRangeDays,
   FeishuBridgeConfig,
@@ -16,6 +18,7 @@ import type {
   SystemFontOption,
   UiResumeState,
   UpsertPromptLibraryItemInput,
+  UpsertAutomationInput,
   ProviderComposerCapabilities,
   ProviderListPluginsInput,
   ProviderListPluginsResult,
@@ -23,6 +26,11 @@ import type {
   ProviderListSkillsResult,
   ProviderReadPluginInput,
   ProviderReadPluginResult,
+  WechatClipboardHtmlWriteInput,
+  WechatClipboardHtmlWriteResult,
+  WechatMarkdownHtmlGenerationInput,
+  WechatMarkdownHtmlGenerationResult,
+  WechatMarkdownHtmlGeneratorConfig,
 } from '../shared/types';
 import type {
   BrowserCapturePageResult,
@@ -129,6 +137,44 @@ contextBridge.exposeInMainWorld('electron', {
     };
   },
 
+  terminal: {
+    open: (input: unknown) => {
+      return ipcRenderer.invoke('terminal:open', input);
+    },
+    write: (input: unknown) => {
+      return ipcRenderer.invoke('terminal:write', input);
+    },
+    resize: (input: unknown) => {
+      return ipcRenderer.invoke('terminal:resize', input);
+    },
+    clear: (input: unknown) => {
+      return ipcRenderer.invoke('terminal:clear', input);
+    },
+    restart: (input: unknown) => {
+      return ipcRenderer.invoke('terminal:restart', input);
+    },
+    close: (input: unknown) => {
+      return ipcRenderer.invoke('terminal:close', input);
+    },
+    getTransportInfo: () => {
+      return ipcRenderer.invoke('get-terminal-transport-info');
+    },
+    onEvent: (callback: (event: unknown) => void) => {
+      const handler = (_: unknown, eventJson: string) => {
+        try {
+          callback(JSON.parse(eventJson));
+        } catch (error) {
+          console.error('Failed to parse terminal event:', error);
+        }
+      };
+
+      ipcRenderer.on('terminal-event', handler);
+      return () => {
+        ipcRenderer.removeListener('terminal-event', handler);
+      };
+    },
+  },
+
   onWindowShellState: (callback: (state: { rounded: boolean }) => void) => {
     const handler = (_: unknown, state: { rounded: boolean }) => {
       callback(state);
@@ -159,8 +205,39 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-recent-cwds', limit);
   },
 
-  startTerminalSession: (sessionId: string, cwd: string, cols?: number, rows?: number) => {
-    return ipcRenderer.invoke('start-terminal-session', sessionId, cwd, cols, rows);
+  getAutomations: (): Promise<AutomationSnapshot> => {
+    return ipcRenderer.invoke('get-automations');
+  },
+
+  saveAutomation: (input: UpsertAutomationInput): Promise<AutomationDefinition> => {
+    return ipcRenderer.invoke('save-automation', input);
+  },
+
+  deleteAutomation: (automationId: string): Promise<{ ok: boolean }> => {
+    return ipcRenderer.invoke('delete-automation', automationId);
+  },
+
+  setAutomationEnabled: (
+    automationId: string,
+    enabled: boolean
+  ): Promise<AutomationDefinition | null> => {
+    return ipcRenderer.invoke('set-automation-enabled', automationId, enabled);
+  },
+
+  runAutomationNow: (
+    automationId: string
+  ): Promise<{ ok: boolean; sessionId?: string; message?: string }> => {
+    return ipcRenderer.invoke('run-automation-now', automationId);
+  },
+
+  startTerminalSession: (
+    sessionId: string,
+    cwd: string,
+    cols?: number,
+    rows?: number,
+    agentKind?: string
+  ) => {
+    return ipcRenderer.invoke('start-terminal-session', sessionId, cwd, cols, rows, agentKind);
   },
 
   writeTerminalSession: (sessionId: string, data: string) => {
@@ -173,6 +250,10 @@ contextBridge.exposeInMainWorld('electron', {
 
   stopTerminalSession: (sessionId: string) => {
     return ipcRenderer.invoke('stop-terminal-session', sessionId);
+  },
+
+  getTerminalTransportInfo: () => {
+    return ipcRenderer.invoke('get-terminal-transport-info');
   },
 
   setWindowMinSize: (width: number, height: number) => {
@@ -280,6 +361,28 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('save-aegis-built-in-agent-config', config);
   },
 
+  getWechatHtmlGeneratorConfig: (): Promise<WechatMarkdownHtmlGeneratorConfig> => {
+    return ipcRenderer.invoke('get-wechat-html-generator-config');
+  },
+
+  saveWechatHtmlGeneratorConfig: (
+    config: WechatMarkdownHtmlGeneratorConfig
+  ): Promise<WechatMarkdownHtmlGeneratorConfig> => {
+    return ipcRenderer.invoke('save-wechat-html-generator-config', config);
+  },
+
+  generateWechatMarkdownHtml: (
+    input: WechatMarkdownHtmlGenerationInput
+  ): Promise<WechatMarkdownHtmlGenerationResult> => {
+    return ipcRenderer.invoke('generate-wechat-markdown-html', input);
+  },
+
+  writeWechatClipboardHtml: (
+    input: WechatClipboardHtmlWriteInput
+  ): Promise<WechatClipboardHtmlWriteResult> => {
+    return ipcRenderer.invoke('write-wechat-clipboard-html', input);
+  },
+
   // 获取 Claude usage 报表
   getClaudeUsageReport: (days?: ClaudeUsageRangeDays) => {
     return ipcRenderer.invoke('get-claude-usage-report', days);
@@ -287,6 +390,10 @@ contextBridge.exposeInMainWorld('electron', {
 
   getCodexUsageReport: (days?: ClaudeUsageRangeDays) => {
     return ipcRenderer.invoke('get-codex-usage-report', days);
+  },
+
+  getCodexRateLimits: () => {
+    return ipcRenderer.invoke('get-codex-rate-limits');
   },
 
   getOpencodeUsageReport: (days?: ClaudeUsageRangeDays) => {
@@ -359,6 +466,14 @@ contextBridge.exposeInMainWorld('electron', {
 
   getOpencodeRuntimeStatus: () => {
     return ipcRenderer.invoke('get-opencode-runtime-status');
+  },
+
+  getKimiModelConfig: () => {
+    return ipcRenderer.invoke('get-kimi-model-config');
+  },
+
+  getKimiRuntimeStatus: () => {
+    return ipcRenderer.invoke('get-kimi-runtime-status');
   },
 
   getClaudeRuntimeStatus: (model?: string | null) => {
@@ -552,8 +667,12 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-git-branches', cwd);
   },
 
-  gitCheckoutBranch: (cwd: string, branch: string) => {
-    return ipcRenderer.invoke('git-checkout-branch', cwd, branch);
+  gitCheckoutBranch: (input: unknown) => {
+    return ipcRenderer.invoke('git-checkout-branch', input);
+  },
+
+  gitCreateWorktree: (input: unknown) => {
+    return ipcRenderer.invoke('git-create-worktree', input);
   },
 
   gitSessionHandoff: (input: unknown) => {

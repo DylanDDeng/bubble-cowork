@@ -103,7 +103,8 @@ export type ClaudeAccessMode = 'default' | 'fullAccess';
 export type ClaudeExecutionMode = 'execute' | 'plan';
 export type ClaudeReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type CodexExecutionMode = 'execute' | 'plan';
-export type CodexPermissionMode = 'defaultPermissions' | 'fullAccess';
+export type CodexPermissionMode = 'defaultPermissions' | 'auto' | 'fullAccess';
+export type KimiPermissionMode = 'default' | 'plan' | 'auto' | 'yolo';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'fullAccess';
 export type AegisPermissionMode = 'defaultPermissions' | 'readOnly' | 'fullAccess';
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
@@ -149,6 +150,20 @@ export interface OpenCodeModelConfig {
   }>;
 }
 
+export interface KimiModelConfig {
+  defaultModel: string | null;
+  options: string[];
+  availableModels: Array<{
+    name: string;
+    label?: string;
+    provider?: string | null;
+    enabled: boolean;
+    isDefault: boolean;
+    maxContextSize?: number | null;
+    capabilities?: string[];
+  }>;
+}
+
 export interface CodexRuntimeStatus {
   ready: boolean;
   cliAvailable: boolean;
@@ -162,6 +177,21 @@ export interface OpenCodeRuntimeStatus {
   cliAvailable: boolean;
   configExists: boolean;
   hasModelConfig: boolean;
+  checkedAt: number;
+}
+
+export type KimiRuntimeAuthState = 'unknown' | 'ready' | 'login_required' | 'error';
+
+export interface KimiRuntimeStatus {
+  ready: boolean;
+  cliAvailable: boolean;
+  cliPath: string | null;
+  cliVersion: string | null;
+  acpAvailable: boolean;
+  authState: KimiRuntimeAuthState;
+  loginCommand: string | null;
+  summary: string;
+  detail: string;
   checkedAt: number;
 }
 
@@ -273,6 +303,40 @@ export interface AegisBuiltInAgentConfig {
   maxOutputTokens?: number;
 }
 
+export type WechatMarkdownHtmlThemeId = 'black-red-imprint' | 'black-orange-imprint';
+export type WechatMarkdownHtmlGeneratorRuntime = AgentProvider;
+
+export interface WechatMarkdownHtmlGeneratorConfig {
+  runtime: WechatMarkdownHtmlGeneratorRuntime;
+  providerId: string;
+  model: string;
+  temperature: number;
+  maxOutputTokens?: number;
+}
+
+export interface WechatMarkdownHtmlGenerationInput {
+  markdown: string;
+  themeId: WechatMarkdownHtmlThemeId;
+  filePath?: string;
+}
+
+export interface WechatMarkdownHtmlGenerationResult {
+  html: string;
+  model: string;
+  providerId: string;
+  runtime: WechatMarkdownHtmlGeneratorRuntime;
+  themeId: WechatMarkdownHtmlThemeId;
+}
+
+export interface WechatClipboardHtmlWriteInput {
+  html: string;
+}
+
+export interface WechatClipboardHtmlWriteResult {
+  ok: boolean;
+  error?: string;
+}
+
 // 附件类型（文件/图片）
 export type AttachmentKind = 'file' | 'image';
 
@@ -325,12 +389,13 @@ export interface WorkspaceChannel {
 }
 
 // Agent 提供商 / runtime
-export type AgentProvider = 'aegis' | 'claude' | 'codex' | 'opencode';
+export type AgentProvider = 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi';
 export type SessionSource =
   | 'aegis'
   | 'claude_remote'
   | 'codex_local'
-  | 'opencode_local';
+  | 'opencode_local'
+  | 'kimi_local';
 
 export interface ProviderComposerCapabilities {
   provider: AgentProvider;
@@ -483,6 +548,73 @@ export interface ProviderReadPluginResult {
   cached?: boolean;
 }
 
+export type AutomationScheduleKind = 'once' | 'daily' | 'weekly' | 'interval';
+
+export interface AutomationSchedule {
+  kind: AutomationScheduleKind;
+  timeOfDay?: string | null;
+  dayOfWeek?: number | null;
+  intervalMinutes?: number | null;
+  runAt?: number | null;
+}
+
+export interface AutomationRuntimeConfig {
+  provider: AgentProvider;
+  model?: string | null;
+  compatibleProviderId?: ClaudeCompatibleProviderId | null;
+  codexReasoningEffort?: CodexReasoningEffort | null;
+  codexFastMode?: boolean;
+  aegisReasoningEffort?: AegisBuiltInReasoningEffort | null;
+  teamMode?: SessionTeamMode;
+  teamId?: string | null;
+}
+
+export type AutomationRunStatus = 'running' | 'completed' | 'failed';
+
+export interface AutomationDefinition {
+  id: string;
+  name: string;
+  projectCwd: string;
+  prompt: string;
+  schedule: AutomationSchedule;
+  runtime: AutomationRuntimeConfig;
+  enabled: boolean;
+  nextRunAt: number | null;
+  lastRunAt: number | null;
+  lastRunStatus: AutomationRunStatus | null;
+  lastRunSessionId: string | null;
+  runCount: number;
+  failureCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AutomationRunRecord {
+  id: string;
+  automationId: string;
+  sessionId: string | null;
+  status: AutomationRunStatus;
+  error: string | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  createdAt: number;
+}
+
+export interface UpsertAutomationInput {
+  id?: string;
+  name: string;
+  projectCwd: string;
+  prompt: string;
+  schedule: AutomationSchedule;
+  runtime: AutomationRuntimeConfig;
+  enabled?: boolean;
+}
+
+export interface AutomationSnapshot {
+  automations: AutomationDefinition[];
+  recentRuns: AutomationRunRecord[];
+}
+
 // 项目文件树节点
 export interface ProjectTreeNode {
   name: string;
@@ -577,6 +709,7 @@ export type ServerEvent =
   | { type: 'session.folderChanged'; payload: { sessionId: string; folderPath: string | null } }
   | { type: 'session.channelChanged'; payload: { sessionId: string; channelId: string } }
   | { type: 'session.teamChanged'; payload: { sessionId: string; teamMode: SessionTeamMode; teamId: string | null } }
+  | { type: 'automation.changed'; payload: AutomationSnapshot }
   | { type: 'profiles.list'; payload: ProfileSnapshotPayload };
 
 // Payload 类型
@@ -584,6 +717,8 @@ export interface SessionStartPayload {
   title: string;
   prompt: string;
   effectivePrompt?: string;
+  automationRunId?: string;
+  skipTitleGeneration?: boolean;
   cwd?: string;
   projectCwd?: string | null;
   envMode?: ThreadEnvironmentMode;
@@ -606,6 +741,7 @@ export interface SessionStartPayload {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: KimiPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   aegisSkills?: ProviderInputReference[];
@@ -641,6 +777,7 @@ export interface SessionContinuePayload {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: KimiPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   aegisSkills?: ProviderInputReference[];
@@ -690,6 +827,28 @@ export interface GitBranchInfo {
   worktreePath?: string | null;
 }
 
+export interface GitCheckoutBranchInput {
+  cwd: string;
+  branch: string;
+  sessionId?: string | null;
+}
+
+export interface GitCreateWorktreeInput {
+  cwd: string;
+  branch: string;
+  newBranch?: string | null;
+  path?: string | null;
+}
+
+export interface GitSessionHandoffInput {
+  sessionId: string;
+  targetMode: ThreadEnvironmentMode;
+  branch?: string | null;
+  newBranch?: string | null;
+  worktreePath?: string | null;
+  includeChanges?: boolean;
+}
+
 export interface RoutedAgentPublicProfile {
   id: string;
   name: string;
@@ -713,6 +872,7 @@ export interface RoutedAgentRuntimePayload {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: KimiPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   aegisSkills?: ProviderInputReference[];
@@ -823,6 +983,7 @@ export interface SessionInfo {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: KimiPermissionMode;
   opencodePermissionMode?: OpenCodePermissionMode;
   aegisPermissionMode?: AegisPermissionMode;
   aegisReasoningEffort?: AegisBuiltInReasoningEffort;
@@ -866,6 +1027,7 @@ export interface SessionStatusPayload {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: KimiPermissionMode;
   opencodePermissionMode?: OpenCodePermissionMode;
   aegisPermissionMode?: AegisPermissionMode;
   aegisReasoningEffort?: AegisBuiltInReasoningEffort;
@@ -943,10 +1105,28 @@ export interface CodexApprovalPermissionInput {
   canAllowForSession?: boolean;
 }
 
+export interface AcpPermissionOption {
+  optionId: string;
+  name: string;
+  kind?: string;
+  description?: string;
+}
+
+export interface AcpPermissionInput {
+  kind: 'acp-permission';
+  provider: 'kimi';
+  question: string;
+  title: string;
+  toolName: string;
+  options: AcpPermissionOption[];
+  toolCall?: Record<string, unknown> | null;
+}
+
 export type PermissionRequestInput =
   | AskUserQuestionInput
   | ExternalFilePermissionInput
-  | CodexApprovalPermissionInput;
+  | CodexApprovalPermissionInput
+  | AcpPermissionInput;
 
 // StreamMessage 类型（SDK 消息或内部消息）
 export type StreamMessageBase = {
@@ -1160,6 +1340,43 @@ export interface ClaudeUsageReport {
   };
   models: ClaudeUsageModelSummary[];
   daily: ClaudeUsageDailyPoint[];
+}
+
+export type CodexRateLimitReachedType =
+  | 'rate_limit_reached'
+  | 'workspace_owner_credits_depleted'
+  | 'workspace_member_credits_depleted'
+  | 'workspace_owner_usage_limit_reached'
+  | 'workspace_member_usage_limit_reached';
+
+export interface CodexRateLimitWindow {
+  usedPercent: number;
+  remainingPercent: number;
+  windowDurationMins: number | null;
+  resetsAt: number | null;
+}
+
+export interface CodexCreditsSnapshot {
+  hasCredits: boolean;
+  unlimited: boolean;
+  balance: string | null;
+}
+
+export interface CodexRateLimitSnapshot {
+  limitId: string | null;
+  limitName: string | null;
+  primary: CodexRateLimitWindow | null;
+  secondary: CodexRateLimitWindow | null;
+  credits: CodexCreditsSnapshot | null;
+  planType: string | null;
+  rateLimitReachedType: CodexRateLimitReachedType | null;
+}
+
+export interface CodexRateLimitReport {
+  source: 'codex-app-server';
+  fetchedAt: number;
+  rateLimits: CodexRateLimitSnapshot | null;
+  rateLimitsByLimitId: Record<string, CodexRateLimitSnapshot>;
 }
 
 export interface ChatMessageSearchMatch {

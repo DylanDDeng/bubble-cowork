@@ -108,6 +108,18 @@ export async function applyStash(input: {
   return output;
 }
 
+export async function dropStash(input: {
+  cwd: string;
+  stashSha: string;
+}): Promise<string> {
+  const selector = await findStashSelectorBySha(input.cwd, input.stashSha);
+  if (!selector) {
+    return '';
+  }
+  const { stdout, stderr } = await runGit(input.cwd, ['stash', 'drop', selector], 30_000);
+  return `${stdout || ''}${stderr || ''}`.trim();
+}
+
 export async function listWorktrees(cwd: string): Promise<GitWorktree[]> {
   const repoRoot = await getGitTopLevel(cwd);
   const { stdout } = await runGit(cwd, ['worktree', 'list', '--porcelain']);

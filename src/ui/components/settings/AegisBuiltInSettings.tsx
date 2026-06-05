@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Eye, EyeOff } from '../icons';
-import type { AegisBuiltInAgentConfig } from '../../types';
+import type {
+  AegisBuiltInAgentConfig,
+  AgentProvider,
+  ClaudeModelConfig,
+  CodexModelConfig,
+  OpenCodeModelConfig,
+  WechatMarkdownHtmlGeneratorConfig,
+} from '../../types';
 import {
   AEGIS_BUILT_IN_DEFAULT_MODEL,
   AEGIS_BUILT_IN_DEFAULT_PROVIDER_ID,
@@ -22,6 +29,31 @@ const DEFAULT_CONFIG: AegisBuiltInAgentConfig = {
   providerApiKeys: {},
   model: AEGIS_BUILT_IN_DEFAULT_MODEL,
   temperature: 0.2,
+};
+
+const DEFAULT_WECHAT_CONFIG: WechatMarkdownHtmlGeneratorConfig = {
+  runtime: 'aegis',
+  providerId: AEGIS_BUILT_IN_DEFAULT_PROVIDER_ID,
+  model: '',
+  temperature: 0.2,
+};
+
+const DEFAULT_CLAUDE_MODEL_CONFIG: ClaudeModelConfig = {
+  defaultModel: null,
+  options: [],
+};
+
+const DEFAULT_CODEX_MODEL_CONFIG: CodexModelConfig = {
+  defaultModel: null,
+  defaultReasoningEffort: null,
+  options: [],
+  availableModels: [],
+};
+
+const DEFAULT_OPENCODE_MODEL_CONFIG: OpenCodeModelConfig = {
+  defaultModel: null,
+  options: [],
+  availableModels: [],
 };
 
 const FIELD_CONTROL_CLASS =
@@ -50,6 +82,40 @@ function normalizeConfig(raw: unknown): AegisBuiltInAgentConfig {
       typeof input.temperature === 'number' && Number.isFinite(input.temperature)
         ? Math.max(0, Math.min(2, input.temperature))
         : DEFAULT_CONFIG.temperature,
+    ...(maxOutputTokens ? { maxOutputTokens } : {}),
+  };
+}
+
+function normalizeWechatRuntime(value: unknown): AgentProvider {
+  switch (value) {
+    case 'claude':
+    case 'codex':
+    case 'opencode':
+    case 'aegis':
+      return value;
+    default:
+      return DEFAULT_WECHAT_CONFIG.runtime;
+  }
+}
+
+function normalizeWechatConfig(raw: unknown): WechatMarkdownHtmlGeneratorConfig {
+  const input = raw && typeof raw === 'object'
+    ? raw as Partial<WechatMarkdownHtmlGeneratorConfig> & { mode?: string }
+    : {};
+  const runtime = normalizeWechatRuntime(input.runtime);
+  const selection = resolveAegisBuiltInModel(input.model, input.providerId);
+  const maxOutputTokens =
+    typeof input.maxOutputTokens === 'number' && Number.isFinite(input.maxOutputTokens)
+      ? Math.max(1, Math.trunc(input.maxOutputTokens))
+      : undefined;
+  return {
+    runtime,
+    providerId: selection.providerId,
+    model: runtime === 'aegis' ? '' : input.model?.trim() || '',
+    temperature:
+      typeof input.temperature === 'number' && Number.isFinite(input.temperature)
+        ? Math.max(0, Math.min(2, input.temperature))
+        : DEFAULT_WECHAT_CONFIG.temperature,
     ...(maxOutputTokens ? { maxOutputTokens } : {}),
   };
 }
@@ -83,9 +149,13 @@ function setProviderApiKey(
     delete providerApiKeys[providerId];
   }
 
+  const nextApiKey = config.providerId === providerId
+    ? apiKey
+    : providerApiKeys[config.providerId] || config.apiKey;
+
   return {
     ...config,
-    apiKey,
+    apiKey: nextApiKey,
     providerApiKeys,
   };
 }
@@ -93,19 +163,35 @@ function setProviderApiKey(
 export function AegisBuiltInSettingsContent() {
   const [savedConfig, setSavedConfig] = useState<AegisBuiltInAgentConfig>(DEFAULT_CONFIG);
   const [draftConfig, setDraftConfig] = useState<AegisBuiltInAgentConfig>(DEFAULT_CONFIG);
+  const [savedWechatConfig, setSavedWechatConfig] = useState<WechatMarkdownHtmlGeneratorConfig>(DEFAULT_WECHAT_CONFIG);
+  const [draftWechatConfig, setDraftWechatConfig] = useState<WechatMarkdownHtmlGeneratorConfig>(DEFAULT_WECHAT_CONFIG);
+  const [claudeModelConfig, setClaudeModelConfig] = useState<ClaudeModelConfig>(DEFAULT_CLAUDE_MODEL_CONFIG);
+  const [codexModelConfig, setCodexModelConfig] = useState<CodexModelConfig>(DEFAULT_CODEX_MODEL_CONFIG);
+  const [opencodeModelConfig, setOpencodeModelConfig] = useState<OpenCodeModelConfig>(DEFAULT_OPENCODE_MODEL_CONFIG);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    window.electron
-      .getAegisBuiltInAgentConfig()
-      .then((config) => {
+    Promise.all([
+      window.electron.getAegisBuiltInAgentConfig(),
+      window.electron.getWechatHtmlGeneratorConfig(),
+      window.electron.getClaudeModelConfig().catch(() => DEFAULT_CLAUDE_MODEL_CONFIG),
+      window.electron.getCodexModelConfig().catch(() => DEFAULT_CODEX_MODEL_CONFIG),
+      window.electron.getOpencodeModelConfig().catch(() => DEFAULT_OPENCODE_MODEL_CONFIG),
+    ])
+      .then(([config, wechatConfig, claudeConfig, codexConfig, opencodeConfig]) => {
         if (cancelled) return;
         const normalized = normalizeConfig(config);
+        const normalizedWechat = normalizeWechatConfig(wechatConfig);
         setSavedConfig(normalized);
         setDraftConfig(normalized);
+        setSavedWechatConfig(normalizedWechat);
+        setDraftWechatConfig(normalizedWechat);
+        setClaudeModelConfig(claudeConfig);
+        setCodexModelConfig(codexConfig);
+        setOpencodeModelConfig(opencodeConfig);
       })
       .catch((error) => {
         console.error('Failed to load Aegis config:', error);
@@ -128,9 +214,34 @@ export function AegisBuiltInSettingsContent() {
     () => listAegisBuiltInModels(selection.providerId),
     [selection.providerId]
   );
+  const wechatAgentModelOptions = useMemo(() => {
+    if (draftWechatConfig.runtime === 'claude') {
+      return Array.from(new Set([
+        claudeModelConfig.defaultModel,
+        ...claudeModelConfig.options,
+      ].filter((value): value is string => Boolean(value?.trim()))));
+    }
+    if (draftWechatConfig.runtime === 'codex') {
+      return Array.from(new Set([
+        codexModelConfig.defaultModel,
+        ...codexModelConfig.options,
+        ...codexModelConfig.availableModels.map((model) => model.name),
+      ].filter((value): value is string => Boolean(value?.trim()))));
+    }
+    if (draftWechatConfig.runtime === 'opencode') {
+      return Array.from(new Set([
+        opencodeModelConfig.defaultModel,
+        ...opencodeModelConfig.options,
+        ...opencodeModelConfig.availableModels.map((model) => model.name),
+      ].filter((value): value is string => Boolean(value?.trim()))));
+    }
+    return [];
+  }, [claudeModelConfig, codexModelConfig, draftWechatConfig.runtime, opencodeModelConfig]);
   const currentApiKey = getProviderApiKey(draftConfig, selection.providerId);
   const hasApiKey = currentApiKey.trim().length > 0;
-  const dirty = JSON.stringify(normalizeConfig(savedConfig)) !== JSON.stringify(normalizeConfig(draftConfig));
+  const dirty =
+    JSON.stringify(normalizeConfig(savedConfig)) !== JSON.stringify(normalizeConfig(draftConfig))
+    || JSON.stringify(normalizeWechatConfig(savedWechatConfig)) !== JSON.stringify(normalizeWechatConfig(draftWechatConfig));
 
   const handleProviderChange = (providerId: string) => {
     const nextProvider = getAegisBuiltInProvider(providerId);
@@ -160,13 +271,30 @@ export function AegisBuiltInSettingsContent() {
     }));
   };
 
+  const handleWechatRuntimeChange = (runtime: AgentProvider) => {
+    setDraftWechatConfig((current) => ({
+      ...current,
+      runtime,
+      model: runtime === 'aegis' ? '' : current.runtime === runtime ? current.model : '',
+      providerId: AEGIS_BUILT_IN_DEFAULT_PROVIDER_ID,
+    }));
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
       const normalized = normalizeConfig(draftConfig);
-      const saved = normalizeConfig(await window.electron.saveAegisBuiltInAgentConfig(normalized));
+      const normalizedWechat = normalizeWechatConfig(draftWechatConfig);
+      const [savedAegis, savedWechat] = await Promise.all([
+        window.electron.saveAegisBuiltInAgentConfig(normalized),
+        window.electron.saveWechatHtmlGeneratorConfig(normalizedWechat),
+      ]);
+      const saved = normalizeConfig(savedAegis);
+      const wechatSaved = normalizeWechatConfig(savedWechat);
       setSavedConfig(saved);
       setDraftConfig(saved);
+      setSavedWechatConfig(wechatSaved);
+      setDraftWechatConfig(wechatSaved);
       window.dispatchEvent(new CustomEvent('aegis-built-in-agent-config-updated'));
       toast.success('Aegis settings saved.');
     } catch (error) {
@@ -331,6 +459,82 @@ export function AegisBuiltInSettingsContent() {
             disabled={loading || saving}
           />
         </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="WeChat HTML"
+        description="Choose which agent runtime generates Markdown editor WeChat HTML."
+      >
+        <SettingsRow
+          variant="card"
+          label="Runtime"
+          description="Aegis calls the app-owned model directly. Claude, Codex, and OpenCode use their one-shot agent runtimes."
+        >
+          <select
+            value={draftWechatConfig.runtime}
+            onChange={(event) => handleWechatRuntimeChange(event.target.value as AgentProvider)}
+            className={FIELD_CONTROL_CLASS}
+            disabled={loading || saving}
+          >
+            <option value="aegis">Aegis</option>
+            <option value="claude">Claude Agent</option>
+            <option value="codex">Codex Agent</option>
+            <option value="opencode">OpenCode Agent</option>
+          </select>
+        </SettingsRow>
+
+        {draftWechatConfig.runtime === 'aegis' ? (
+          <SettingsRow
+            variant="card"
+            label="Active model"
+            description="Aegis uses the model configured above in this Settings panel."
+          >
+            <input
+              value={`${provider?.name || selection.providerId} · ${selection.modelId}`}
+              readOnly
+              className={FIELD_CONTROL_CLASS}
+            />
+          </SettingsRow>
+        ) : (
+          <>
+            <SettingsRow
+              variant="card"
+              label="Model"
+              description="Leave as Default to use the selected agent runtime's own default model."
+            >
+              <select
+                value={draftWechatConfig.model}
+                onChange={(event) =>
+                  setDraftWechatConfig((current) => ({
+                    ...current,
+                    model: event.target.value,
+                  }))
+                }
+                className={FIELD_CONTROL_CLASS}
+                disabled={loading || saving}
+              >
+                <option value="">Default</option>
+                {wechatAgentModelOptions.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+            </SettingsRow>
+
+            <SettingsRow
+              variant="card"
+              label="Execution"
+              description="The generator runs one agent turn and instructs it not to use tools or write files."
+            >
+              <input
+                value={`${draftWechatConfig.runtime} one-shot${draftWechatConfig.model ? ` · ${draftWechatConfig.model}` : ' · default model'}`}
+                readOnly
+                className={FIELD_CONTROL_CLASS}
+              />
+            </SettingsRow>
+          </>
+        )}
       </SettingsGroup>
 
       <div className="flex justify-end">

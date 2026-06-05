@@ -3,10 +3,12 @@ import type {
   AgentProvider,
   ClaudeRuntimeStatus,
   CodexRuntimeStatus,
+  KimiRuntimeStatus,
   OpenCodeRuntimeStatus,
 } from '../types';
 import { useClaudeRuntimeStatus } from './useClaudeRuntimeStatus';
 import { useCodexRuntimeStatus } from './useCodexRuntimeStatus';
+import { useKimiRuntimeStatus } from './useKimiRuntimeStatus';
 import { useOpencodeRuntimeStatus } from './useOpencodeRuntimeStatus';
 
 export type AgentReadinessState =
@@ -53,10 +55,16 @@ export function useAgentReadiness(
     loading: opencodeLoading,
     refresh: refreshOpencode,
   } = useOpencodeRuntimeStatus(enabled);
+  const {
+    status: kimiStatus,
+    loading: kimiLoading,
+    refresh: refreshKimi,
+  } = useKimiRuntimeStatus(enabled);
 
   const claudeChecking = enabled && (claudeLoading || claudeStatus.checkedAt === 0);
   const codexChecking = enabled && (codexLoading || codexStatus.checkedAt === 0);
   const opencodeChecking = enabled && (opencodeLoading || opencodeStatus.checkedAt === 0);
+  const kimiChecking = enabled && (kimiLoading || kimiStatus.checkedAt === 0);
 
   const entries = useMemo(
     () => [
@@ -64,6 +72,7 @@ export function useAgentReadiness(
       buildClaudeEntry(claudeStatus, claudeChecking),
       buildCodexEntry(codexStatus, codexChecking),
       buildOpencodeEntry(opencodeStatus, opencodeChecking),
+      buildKimiEntry(kimiStatus, kimiChecking),
     ],
     [
       claudeChecking,
@@ -72,6 +81,8 @@ export function useAgentReadiness(
       codexStatus,
       opencodeChecking,
       opencodeStatus,
+      kimiChecking,
+      kimiStatus,
     ]
   );
 
@@ -79,11 +90,12 @@ export function useAgentReadiness(
     entries,
     readyCount: entries.filter((entry) => entry.state === 'ready').length,
     setupCount: entries.filter((entry) => entry.state !== 'ready' && entry.state !== 'checking').length,
-    loading: claudeChecking || codexChecking || opencodeChecking,
+    loading: claudeChecking || codexChecking || opencodeChecking || kimiChecking,
     refresh: () => {
       refreshClaude();
       refreshCodex();
       refreshOpencode();
+      refreshKimi();
     },
   };
 }
@@ -238,5 +250,60 @@ function buildOpencodeEntry(
     state: 'needs_config',
     summary: 'Config required',
     detail: 'OpenCode needs a config file or model configuration before it can run.',
+  };
+}
+
+function buildKimiEntry(
+  status: KimiRuntimeStatus,
+  loading: boolean
+): AgentReadinessEntry {
+  if (loading) {
+    return {
+      provider: 'kimi',
+      label: 'Kimi Code',
+      state: 'checking',
+      summary: 'Checking Kimi Code',
+      detail: 'Verifying Kimi Code ACP and authentication.',
+    };
+  }
+
+  if (status.ready) {
+    return {
+      provider: 'kimi',
+      label: 'Kimi Code',
+      state: 'ready',
+      summary: 'Ready',
+      detail: status.detail || 'Kimi Code can start ACP sessions.',
+    };
+  }
+
+  if (!status.cliAvailable) {
+    return {
+      provider: 'kimi',
+      label: 'Kimi Code',
+      state: 'missing',
+      summary: 'Runtime missing',
+      detail: status.detail || 'Kimi Code was not found on this machine.',
+      command: 'Install Kimi Code',
+    };
+  }
+
+  if (status.authState === 'login_required') {
+    return {
+      provider: 'kimi',
+      label: 'Kimi Code',
+      state: 'needs_login',
+      summary: 'Login required',
+      detail: status.detail || 'Kimi Code needs authentication.',
+      command: status.loginCommand,
+    };
+  }
+
+  return {
+    provider: 'kimi',
+    label: 'Kimi Code',
+    state: 'error',
+    summary: status.summary || 'Check failed',
+    detail: status.detail || 'Aegis could not verify the Kimi Code runtime.',
   };
 }

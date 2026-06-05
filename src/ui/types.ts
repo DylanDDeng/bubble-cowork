@@ -27,6 +27,8 @@ export type {
   ProjectTreeNode,
   AskUserQuestionInput,
   AskUserQuestion,
+  AcpPermissionInput,
+  AcpPermissionOption,
   CodexApprovalPermissionInput,
   ExternalFilePermissionInput,
   PermissionRequestInput,
@@ -36,6 +38,10 @@ export type {
   ClientEvent,
   ServerEvent,
   AppUpdateStatus,
+  AutomationDefinition,
+  AutomationRunRecord,
+  AutomationSchedule,
+  AutomationSnapshot,
   UiResumeState,
   McpServerConfig,
   McpServerStatus,
@@ -58,6 +64,9 @@ export type {
   ClaudeUsageModelSummary,
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
+  CodexRateLimitReport,
+  CodexRateLimitSnapshot,
+  CodexRateLimitWindow,
   ChatSessionSearchResult,
   SessionHistoryPayload,
   ClaudeModelUsage,
@@ -66,6 +75,9 @@ export type {
   CodexRuntimeStatus,
   OpenCodeModelConfig,
   OpenCodeRuntimeStatus,
+  KimiModelConfig,
+  KimiPermissionMode,
+  KimiRuntimeStatus,
   ClaudeRuntimeStatus,
   SkillMarketDetail,
   SkillMarketInstallResult,
@@ -82,8 +94,10 @@ export type {
   MemoryDocument,
   MemoryWorkspace,
   AgentProvider,
+  UpsertAutomationInput,
   AegisBuiltInAgentConfig,
   AegisBuiltInReasoningEffort,
+  WechatMarkdownHtmlGeneratorConfig,
   ProviderComposerCapabilities,
   ProviderListPluginsInput,
   ProviderListPluginsResult,
@@ -132,7 +146,7 @@ export interface SessionStreamingState {
   thinking: string;
 }
 
-export type ActiveWorkspace = 'chat' | 'skills' | 'prompts';
+export type ActiveWorkspace = 'chat' | 'skills' | 'prompts' | 'automations';
 export type ChatSidebarView = 'threads' | 'prompts' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
 export type AgentProfileColor = 'amber' | 'sky' | 'emerald' | 'violet' | 'rose' | 'slate';
@@ -200,6 +214,7 @@ export interface SessionView {
   codexPermissionMode?: import('../shared/types').CodexPermissionMode;
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
   aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort;
@@ -354,7 +369,20 @@ export interface AppActions {
   applyUiResumeState: (state: import('../shared/types').UiResumeState | null) => void;
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;
-  createDraftSession: (cwd?: string | null, channelId?: string | null) => string;
+  createDraftSession: (
+    cwd?: string | null,
+    channelId?: string | null,
+    workspace?: Partial<Pick<
+      SessionView,
+      | 'projectCwd'
+      | 'envMode'
+      | 'worktreePath'
+      | 'associatedWorktreePath'
+      | 'associatedWorktreeBranch'
+      | 'associatedWorktreeRef'
+      | 'title'
+    >>
+  ) => string;
   removeDraftSession: (sessionId: string) => void;
   loadOlderSessionHistory: (sessionId: string) => void;
   removePermissionRequest: (sessionId: string, toolUseId: string) => void;

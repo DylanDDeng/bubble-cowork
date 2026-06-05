@@ -43,6 +43,10 @@ import type { GitBranchInfo } from '../../shared/types';
 
 type ToolResultBlock = ContentBlock & { type: 'tool_result' };
 type ChatScrollPosition = { scrollTop: number; stickToBottom: boolean };
+type PendingStopWorkspaceAction =
+  | { kind: 'branch'; entry: GitBranchInfo }
+  | { kind: 'local' }
+  | { kind: 'new-worktree' };
 
 const CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 120;
 const chatPaneScrollPositions = new Map<string, ChatScrollPosition>();
@@ -81,21 +85,45 @@ function restoreChatScrollPosition(key: string, container: HTMLDivElement): void
   container.scrollTop = container.scrollHeight;
 }
 
+function buildAegisWorktreeBranch(baseBranch: string): string {
+  const suffix = Date.now().toString(36);
+  if (baseBranch === 'HEAD') {
+    return `aegis/worktree-${suffix}`;
+  }
+  const sanitized = baseBranch
+    .replace(/[^a-zA-Z0-9._/-]+/g, '-')
+    .replace(/[\\/]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `aegis/${sanitized || 'worktree'}-${suffix}`;
+}
+
 function SessionWorkspaceControl({
   session,
   sessionId,
+  onWorkspaceGitChanged,
 }: {
   session: SessionView;
   sessionId: string;
+  onWorkspaceGitChanged?: () => Promise<void>;
 }) {
+  const createDraftSession = useAppStore((state) => state.createDraftSession);
   const projectCwd = session.projectCwd || session.cwd || null;
   const effectiveCwd = session.worktreePath || session.cwd || projectCwd;
   const isWorktree = session.envMode === 'worktree' && Boolean(session.worktreePath);
+  const isRunning = session.status === 'running';
   const [branches, setBranches] = useState<GitBranchInfo[]>([]);
   const [branchesError, setBranchesError] = useState<string | null>(null);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [busyAction, setBusyAction] = useState<'local' | 'worktree' | 'branch' | null>(null);
   const [worktreeDialogOpen, setWorktreeDialogOpen] = useState(false);
+  const [localDialogOpen, setLocalDialogOpen] = useState(false);
+  const [branchDialog, setBranchDialog] = useState<{
+    entry: GitBranchInfo;
+    reason: 'running' | 'dirty';
+    dirtyCount?: number | null;
+  } | null>(null);
+  const [pendingStopAction, setPendingStopAction] = useState<PendingStopWorkspaceAction | null>(null);
+  const [stopConfirmAction, setStopConfirmAction] = useState<PendingStopWorkspaceAction | null>(null);
   const [worktreeChanges, setWorktreeChanges] = useState<{
     loading: boolean;
     totalChanges: number | null;
@@ -127,6 +155,11 @@ function SessionWorkspaceControl({
     void refreshBranches();
   }, [refreshBranches]);
 
+  const refreshWorkspaceGit = useCallback(async () => {
+    await refreshBranches();
+    await onWorkspaceGitChanged?.();
+  }, [onWorkspaceGitChanged, refreshBranches]);
+
   const branchOptions = useMemo(() => {
     const byName = new Map<string, GitBranchInfo>();
     for (const entry of branches) {
@@ -152,6 +185,7 @@ function SessionWorkspaceControl({
 
   useEffect(() => {
     if (!worktreeDialogOpen) return;
+    if (isRunning) return;
     const cwd = effectiveCwd || projectCwd;
     if (!cwd) return;
     let cancelled = false;
@@ -180,7 +214,7 @@ function SessionWorkspaceControl({
     return () => {
       cancelled = true;
     };
-  }, [effectiveCwd, projectCwd, worktreeDialogOpen]);
+  }, [effectiveCwd, isRunning, projectCwd, worktreeDialogOpen]);
 
   const runHandoff = useCallback(async (
     targetMode: 'local' | 'worktree',
@@ -202,23 +236,141 @@ function SessionWorkspaceControl({
         return;
       }
       toast.success(targetMode === 'worktree' ? 'Session moved to worktree.' : 'Session moved to local workspace.');
-      await refreshBranches();
+      await refreshWorkspaceGit();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Workspace switch failed.');
     } finally {
       setBusyAction(null);
     }
-  }, [refreshBranches, sessionId]);
+  }, [refreshWorkspaceGit, sessionId]);
+
+  const openDraftInWorkspace = useCallback((input: {
+    cwd: string;
+    projectCwd: string;
+    envMode: 'local' | 'worktree';
+    worktreePath?: string | null;
+    branch?: string | null;
+    title?: string;
+  }) => {
+    createDraftSession(input.cwd, session.channelId || null, {
+      title: input.title || `New Chat - ${input.branch || (input.envMode === 'worktree' ? 'Worktree' : 'Local')}`,
+      projectCwd: input.projectCwd,
+      envMode: input.envMode,
+      worktreePath: input.worktreePath ?? null,
+      associatedWorktreePath: input.worktreePath ?? null,
+      associatedWorktreeBranch: input.branch ?? null,
+      associatedWorktreeRef: input.branch ?? null,
+    });
+  }, [createDraftSession, session.channelId]);
+
+  const openExistingWorktreeInNewThread = useCallback((entry: GitBranchInfo) => {
+    if (!projectCwd || !entry.worktreePath) return;
+    openDraftInWorkspace({
+      cwd: entry.worktreePath,
+      projectCwd,
+      envMode: 'worktree',
+      worktreePath: entry.worktreePath,
+      branch: entry.name,
+      title: `New Chat - ${entry.name}`,
+    });
+    toast.success(`Opened ${entry.name} in a new thread.`);
+  }, [openDraftInWorkspace, projectCwd]);
+
+  const openLocalInNewThread = useCallback(() => {
+    if (!projectCwd) return;
+    openDraftInWorkspace({
+      cwd: projectCwd,
+      projectCwd,
+      envMode: 'local',
+      title: 'New Chat - Local',
+    });
+    toast.success('Opened Local in a new thread.');
+  }, [openDraftInWorkspace, projectCwd]);
+
+  const createWorktreeAndOpenThread = useCallback(async (
+    branch: string,
+    options?: { newBranch?: string | null }
+  ) => {
+    if (!projectCwd) return;
+    setBusyAction('worktree');
+    try {
+      const result = await window.electron.gitCreateWorktree({
+        cwd: projectCwd,
+        branch,
+        newBranch: options?.newBranch ?? null,
+      });
+      if (!result.ok || !result.worktree) {
+        toast.error(result.message || 'Worktree creation failed.');
+        return;
+      }
+      openDraftInWorkspace({
+        cwd: result.worktree.path,
+        projectCwd,
+        envMode: 'worktree',
+        worktreePath: result.worktree.path,
+        branch: result.worktree.branch || branch,
+        title: `New Chat - ${result.worktree.branch || branch}`,
+      });
+      toast.success(`Created worktree for ${branch}.`);
+      await refreshWorkspaceGit();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Worktree creation failed.');
+    } finally {
+      setBusyAction(null);
+    }
+  }, [openDraftInWorkspace, projectCwd, refreshWorkspaceGit]);
+
+  const requestStopThenSwitch = useCallback((action: PendingStopWorkspaceAction) => {
+    setBranchDialog(null);
+    setLocalDialogOpen(false);
+    setWorktreeDialogOpen(false);
+    setPendingStopAction(action);
+    sendEvent({ type: 'session.stop', payload: { sessionId } });
+    toast.info('Stopping current task before switching workspace.');
+  }, [sessionId]);
 
   const createNewWorktree = useCallback((includeChanges: boolean) => {
     setWorktreeDialogOpen(false);
+    if (isRunning) {
+      void createWorktreeAndOpenThread(currentBranch, {
+        newBranch: buildAegisWorktreeBranch(currentBranch),
+      });
+      return;
+    }
     void runHandoff('worktree', currentBranch, null, includeChanges);
-  }, [currentBranch, runHandoff]);
+  }, [createWorktreeAndOpenThread, currentBranch, isRunning, runHandoff]);
+
+  const runBranchCheckout = useCallback(async (entry: GitBranchInfo) => {
+    const cwd = effectiveCwd || projectCwd;
+    if (!cwd) return;
+    setBusyAction('branch');
+    try {
+      const result = await window.electron.gitCheckoutBranch({
+        cwd,
+        branch: entry.name,
+        sessionId,
+      });
+      if (!result.ok) {
+        toast.error(result.message || 'Branch checkout failed.');
+        return;
+      }
+      toast.success(`Checked out ${entry.name}.`);
+      await refreshWorkspaceGit();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Branch checkout failed.');
+    } finally {
+      setBusyAction(null);
+    }
+  }, [effectiveCwd, projectCwd, refreshWorkspaceGit, sessionId]);
 
   const handleSelectBranch = useCallback(async (entry: GitBranchInfo) => {
     const cwd = effectiveCwd || projectCwd;
     if (!cwd) return;
     if (entry.current && (!entry.worktreePath || entry.worktreePath === cwd)) {
+      return;
+    }
+    if (isRunning) {
+      setBranchDialog({ entry, reason: 'running' });
       return;
     }
     if (entry.worktreePath && entry.worktreePath !== cwd) {
@@ -227,19 +379,31 @@ function SessionWorkspaceControl({
     }
     setBusyAction('branch');
     try {
-      const result = await window.electron.gitCheckoutBranch(cwd, entry.name);
-      if (!result.ok) {
-        toast.error(result.message || 'Branch checkout failed.');
+      const overview = await window.electron.getGitOverview(cwd);
+      if (overview.ok && overview.totalChanges > 0) {
+        setBranchDialog({ entry, reason: 'dirty', dirtyCount: overview.totalChanges });
         return;
       }
-      toast.success(`Checked out ${entry.name}.`);
-      await refreshBranches();
+      await runBranchCheckout(entry);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Branch checkout failed.');
+      toast.error(error instanceof Error ? error.message : 'Unable to inspect git status.');
     } finally {
       setBusyAction(null);
     }
-  }, [effectiveCwd, projectCwd, refreshBranches, runHandoff]);
+  }, [effectiveCwd, isRunning, projectCwd, runBranchCheckout, runHandoff]);
+
+  useEffect(() => {
+    if (!pendingStopAction || isRunning) return;
+    const action = pendingStopAction;
+    setPendingStopAction(null);
+    if (action.kind === 'branch') {
+      void handleSelectBranch(action.entry);
+    } else if (action.kind === 'local') {
+      setLocalDialogOpen(true);
+    } else {
+      setWorktreeDialogOpen(true);
+    }
+  }, [handleSelectBranch, isRunning, pendingStopAction]);
 
   if (session.isDraft || session.scope === 'dm' || !projectCwd || !effectiveCwd) {
     return null;
@@ -272,7 +436,7 @@ function SessionWorkspaceControl({
               disabled={!isWorktree || busyAction !== null}
               onSelect={(event) => {
                 event.preventDefault();
-                void runHandoff('local');
+                setLocalDialogOpen(true);
               }}
               className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
             >
@@ -295,6 +459,81 @@ function SessionWorkspaceControl({
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
 
+      <Dialog.Root open={localDialogOpen} onOpenChange={setLocalDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[90] bg-black/20 backdrop-blur-[1px]" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[100] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
+            <div className="border-b border-[var(--border)] px-4 py-3">
+              <Dialog.Title className="text-[14px] font-semibold text-[var(--text-primary)]">
+                Switch to Local
+              </Dialog.Title>
+              <Dialog.Description className="mt-1 text-[12px] leading-5 text-[var(--text-muted)]">
+                {isRunning
+                  ? 'The current task is running. Open Local in a new thread or stop the task before moving this session.'
+                  : 'Uncommitted changes in the worktree will stay in the worktree unless you choose to bring them.'}
+              </Dialog.Description>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setLocalDialogOpen(false)}
+                className="rounded-md px-3 py-1.5 text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+              >
+                Cancel
+              </button>
+              {isRunning ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={busyAction !== null}
+                    onClick={() => {
+                      setLocalDialogOpen(false);
+                      openLocalInNewThread();
+                    }}
+                    className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Open Local in new thread
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyAction !== null}
+                    onClick={() => setStopConfirmAction({ kind: 'local' })}
+                    className="rounded-md bg-[var(--error)] px-3 py-1.5 text-[12px] font-semibold text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Stop task and switch
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    disabled={busyAction !== null}
+                    onClick={() => {
+                      setLocalDialogOpen(false);
+                      void runHandoff('local', null, null, false);
+                    }}
+                    className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Switch only
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyAction !== null}
+                    onClick={() => {
+                      setLocalDialogOpen(false);
+                      void runHandoff('local', null, null, true);
+                    }}
+                    className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-[12px] font-semibold text-[var(--accent-foreground)] transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Bring changes to Local
+                  </button>
+                </>
+              )}
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
       <Dialog.Root open={worktreeDialogOpen} onOpenChange={setWorktreeDialogOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-[90] bg-black/20 backdrop-blur-[1px]" />
@@ -304,7 +543,9 @@ function SessionWorkspaceControl({
                 Create isolated worktree
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-[12px] leading-5 text-[var(--text-muted)]">
-                Aegis will create a separate working directory for this session. It will not commit anything.
+                {isRunning
+                  ? 'The current task is running. Create a separate worktree in a new thread or stop the task before moving this session.'
+                  : 'Aegis will create a separate working directory for this session. It will not commit anything.'}
               </Dialog.Description>
             </div>
             <div className="space-y-3 px-4 py-4 text-[12px] text-[var(--text-secondary)]">
@@ -317,7 +558,7 @@ function SessionWorkspaceControl({
                   New worktree branch will be created from this branch.
                 </div>
               </div>
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2.5">
+              {!isRunning ? <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2.5">
                 {worktreeChanges.loading ? (
                   <div className="flex items-center gap-2 text-[var(--text-muted)]">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -339,7 +580,7 @@ function SessionWorkspaceControl({
                     No uncommitted changes found. A clean worktree will be created.
                   </div>
                 )}
-              </div>
+              </div> : null}
             </div>
             <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
               <button
@@ -349,21 +590,183 @@ function SessionWorkspaceControl({
               >
                 Cancel
               </button>
+              {isRunning ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={busyAction !== null}
+                    onClick={() => createNewWorktree(false)}
+                    className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Create worktree + new thread
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyAction !== null}
+                    onClick={() => setStopConfirmAction({ kind: 'new-worktree' })}
+                    className="rounded-md bg-[var(--error)] px-3 py-1.5 text-[12px] font-semibold text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Stop task and switch
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    disabled={busyAction !== null || worktreeChanges.loading}
+                    onClick={() => createNewWorktree(false)}
+                    className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Create clean worktree
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyAction !== null || worktreeChanges.loading || !worktreeChanges.totalChanges}
+                    onClick={() => createNewWorktree(true)}
+                    className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-[12px] font-semibold text-[var(--accent-foreground)] transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Bring current changes
+                  </button>
+                </>
+              )}
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root open={branchDialog !== null} onOpenChange={(open) => { if (!open) setBranchDialog(null); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[90] bg-black/20 backdrop-blur-[1px]" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[100] w-[min(440px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
+            <div className="border-b border-[var(--border)] px-4 py-3">
+              <Dialog.Title className="text-[14px] font-semibold text-[var(--text-primary)]">
+                {branchDialog?.reason === 'running' ? 'Open branch safely' : 'Uncommitted changes'}
+              </Dialog.Title>
+              <Dialog.Description className="mt-1 text-[12px] leading-5 text-[var(--text-muted)]">
+                {branchDialog?.reason === 'running'
+                  ? 'The current task is running. Use a separate worktree/thread or stop the task before switching this session.'
+                  : `${branchDialog?.dirtyCount ?? 'Some'} uncommitted file${branchDialog?.dirtyCount === 1 ? '' : 's'} found. Switching branches may carry these changes to the target branch or fail if files conflict.`}
+              </Dialog.Description>
+            </div>
+            {branchDialog ? (
+              <div className="px-4 py-3 text-[12px] text-[var(--text-secondary)]">
+                <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2.5 text-[var(--text-primary)]">
+                  <GitBranch className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                  <span className="min-w-0 truncate">{branchDialog.entry.name}</span>
+                  {branchDialog.entry.worktreePath ? <GitFork className="h-3.5 w-3.5 text-[var(--text-muted)]" /> : null}
+                </div>
+              </div>
+            ) : null}
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
               <button
                 type="button"
-                disabled={busyAction !== null || worktreeChanges.loading}
-                onClick={() => createNewWorktree(false)}
-                className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => setBranchDialog(null)}
+                className="rounded-md px-3 py-1.5 text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
               >
-                Create clean worktree
+                Cancel
+              </button>
+              {branchDialog?.reason === 'running' ? (
+                <>
+                  {branchDialog.entry.worktreePath ? (
+                    <button
+                      type="button"
+                      disabled={busyAction !== null}
+                      onClick={() => {
+                        const entry = branchDialog.entry;
+                        setBranchDialog(null);
+                        openExistingWorktreeInNewThread(entry);
+                      }}
+                      className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Open in new thread
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busyAction !== null}
+                      onClick={() => {
+                        const entry = branchDialog.entry;
+                        setBranchDialog(null);
+                        void createWorktreeAndOpenThread(entry.name);
+                      }}
+                      className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Create worktree + new thread
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={busyAction !== null}
+                    onClick={() => setStopConfirmAction({ kind: 'branch', entry: branchDialog.entry })}
+                    className="rounded-md bg-[var(--error)] px-3 py-1.5 text-[12px] font-semibold text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Stop task and switch
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    disabled={busyAction !== null || !branchDialog}
+                    onClick={() => {
+                      const entry = branchDialog?.entry;
+                      setBranchDialog(null);
+                      if (entry) void runBranchCheckout(entry);
+                    }}
+                    className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Continue checkout
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyAction !== null || !branchDialog}
+                    onClick={() => {
+                      const entry = branchDialog?.entry;
+                      setBranchDialog(null);
+                      if (entry) void runHandoff('worktree', entry.name, null, false);
+                    }}
+                    className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-[12px] font-semibold text-[var(--accent-foreground)] transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Create worktree instead
+                  </button>
+                </>
+              )}
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root open={stopConfirmAction !== null} onOpenChange={(open) => { if (!open) setStopConfirmAction(null); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[110] bg-black/20 backdrop-blur-[1px]" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[120] w-[min(400px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
+            <div className="border-b border-[var(--border)] px-4 py-3">
+              <Dialog.Title className="text-[14px] font-semibold text-[var(--text-primary)]">
+                Stop current task?
+              </Dialog.Title>
+              <Dialog.Description className="mt-1 text-[12px] leading-5 text-[var(--text-muted)]">
+                This will stop the running task first. After it is idle, Aegis will continue with the workspace switch you selected.
+              </Dialog.Description>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setStopConfirmAction(null)}
+                className="rounded-md px-3 py-1.5 text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+              >
+                Cancel
               </button>
               <button
                 type="button"
-                disabled={busyAction !== null || worktreeChanges.loading || !worktreeChanges.totalChanges}
-                onClick={() => createNewWorktree(true)}
-                className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-[12px] font-semibold text-[var(--accent-foreground)] transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={busyAction !== null}
+                onClick={() => {
+                  const action = stopConfirmAction;
+                  setStopConfirmAction(null);
+                  if (action) requestStopThenSwitch(action);
+                }}
+                className="rounded-md bg-[var(--error)] px-3 py-1.5 text-[12px] font-semibold text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Bring current changes
+                Stop task
               </button>
             </div>
           </Dialog.Content>
@@ -428,6 +831,7 @@ export function ChatPane({
   onDropSession,
   onClose,
   headerActions,
+  onWorkspaceGitChanged,
 }: {
   paneId: 'primary' | 'secondary';
   sessionId: string | null;
@@ -438,6 +842,7 @@ export function ChatPane({
   onDropSession?: (sessionId: string) => void;
   onClose?: () => void;
   headerActions?: ReactNode;
+  onWorkspaceGitChanged?: () => Promise<void>;
 }) {
   const {
     sessions,
@@ -996,7 +1401,11 @@ export function ChatPane({
                   <span className="truncate font-medium text-[var(--text-primary)]">
                     {session.title || 'Chat'}
                   </span>
-                  <SessionWorkspaceControl session={session} sessionId={sessionId} />
+	                  <SessionWorkspaceControl
+	                    session={session}
+	                    sessionId={session.id}
+	                    onWorkspaceGitChanged={onWorkspaceGitChanged}
+	                  />
                 </>
               )}
             </div>

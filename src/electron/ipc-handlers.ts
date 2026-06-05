@@ -1,9 +1,8 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'http';
-import { chmodSync, createReadStream, existsSync, mkdirSync, readFileSync, statSync, watch, type FSWatcher, promises as fsPromises } from 'fs';
+import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, watch, type FSWatcher, promises as fsPromises } from 'fs';
 import { execFile } from 'child_process';
 import type { AddressInfo } from 'net';
-import { spawn as spawnPty, type IPty } from 'node-pty';
 import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 import { basename, dirname, extname, resolve, relative, isAbsolute, join } from 'path';
@@ -24,6 +23,11 @@ import {
   loadAegisBuiltInAgentConfig,
   saveAegisBuiltInAgentConfig,
 } from './libs/aegis-built-in-config';
+import { generateWechatMarkdownHtml } from './libs/wechat-html-generator';
+import {
+  loadWechatHtmlGeneratorConfig,
+  saveWechatHtmlGeneratorConfig,
+} from './libs/wechat-html-generator-config';
 import {
   deleteImportedFont,
   getFontSettings,
@@ -35,6 +39,9 @@ import { getCodexModelConfig, saveCodexModelVisibility } from './libs/codex-sett
 import { getCodexRuntimeStatus } from './libs/codex-runtime-status';
 import { getOpencodeModelConfig, saveOpencodeModelVisibility } from './libs/opencode-settings';
 import { getOpencodeRuntimeStatus } from './libs/opencode-runtime-status';
+import { getKimiModelConfig } from './libs/kimi-settings';
+import { formatKimiRuntimeBlockingMessage, getKimiRuntimeStatus } from './libs/kimi-runtime-status';
+import { AutomationScheduler } from './libs/automation-scheduler';
 import {
   deletePromptLibraryItem,
   exportPromptLibraryFile,
@@ -91,8 +98,17 @@ import type {
   ProviderListPluginsInput,
   ProviderListSkillsInput,
   ProviderReadPluginInput,
+  GitCheckoutBranchInput,
+  GitCreateWorktreeInput,
+  GitSessionHandoffInput,
+  UpsertAutomationInput,
+  WechatClipboardHtmlWriteInput,
+  WechatMarkdownHtmlGenerationInput,
+  WechatMarkdownHtmlGeneratorConfig,
 } from '../shared/types';
 import { getProviderService } from './libs/provider/service';
+import { disposeTerminalRuntime } from './libs/terminal-runtime';
+import { disposeTerminalTransportServer } from './libs/terminal-transport-server';
 
 // === IPC 模块导入（从 ipc-handlers.ts 拆分） ===
 import { register as registerTerminal } from './ipc/terminal'
@@ -105,6 +121,7 @@ import {
   applyStash,
   checkoutBranch,
   createWorktree,
+  dropStash,
   getCurrentBranch,
   getGitTopLevel,
   listBranches as listGitBranches,
@@ -299,192 +316,11 @@ function closeProjectTreeWatcher(cwd: string): void {
   projectTreeVersions.delete(getProjectTreeVersionKey(cwd));
 }
 
-const terminalSessions = new Map<string, {
-  process: IPty;
-  cwd: string;
-  history: string;
-}>();
 const localPreviewServers = new Map<string, {
   server: HttpServer;
   port: number;
   token: string;
 }>();
-const TERMINAL_HISTORY_MAX_CHARS = 200_000;
-const TERMINAL_STARTUP_BUFFER_MS = 180;
-
-type TerminalEventPayload = {
-  type: 'data' | 'exit';
-  sessionId: string;
-  data?: string;
-  exitCode?: number | null;
-};
-
-function emitTerminalEvent(mainWindow: BrowserWindow, payload: TerminalEventPayload): void {
-  if (mainWindow.isDestroyed()) {
-    return;
-  }
-
-  mainWindow.webContents.send('terminal-event', JSON.stringify(payload));
-}
-
-function appendTerminalHistory(session: { history: string }, data: string): void {
-  session.history = `${session.history}${data}`;
-  if (session.history.length > TERMINAL_HISTORY_MAX_CHARS) {
-    session.history = session.history.slice(session.history.length - TERMINAL_HISTORY_MAX_CHARS);
-  }
-}
-
-function sanitizeTerminalEnv(): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries({
-      ...process.env,
-      TERM: process.env.TERM || 'xterm-256color',
-      COLORTERM: process.env.COLORTERM || 'truecolor',
-    }).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-  );
-}
-
-let terminalHelperPrepared = false;
-
-function ensureNodePtyHelpersExecutable(): void {
-  if (terminalHelperPrepared) {
-    return;
-  }
-
-  try {
-    const baseDir = join(app.getAppPath(), 'node_modules', 'node-pty');
-    const archDir = `${process.platform}-${process.arch}`;
-    const candidatePaths = [
-      join(baseDir, 'prebuilds', archDir, 'spawn-helper'),
-      join(baseDir, 'build', 'Release', 'spawn-helper'),
-    ];
-
-    for (const helperPath of candidatePaths) {
-      if (!existsSync(helperPath)) {
-        continue;
-      }
-      chmodSync(helperPath, 0o755);
-    }
-  } catch (error) {
-    if (isDev()) {
-      console.warn('[Terminal] Failed to mark node-pty helper executable:', error);
-    }
-  } finally {
-    terminalHelperPrepared = true;
-  }
-}
-
-function getTerminalLaunchSpecs(): Array<{ command: string; args: string[] }> {
-  if (process.platform === 'win32') {
-    return [
-      {
-        command: process.env.COMSPEC || 'powershell.exe',
-        args: process.env.COMSPEC ? [] : ['-NoLogo'],
-      },
-    ];
-  }
-
-  const candidates = Array.from(new Set([
-    process.env.SHELL,
-    '/bin/zsh',
-    '/bin/bash',
-    '/bin/sh',
-    'zsh',
-    'bash',
-    'sh',
-  ].filter((value): value is string => {
-    if (!value) {
-      return false;
-    }
-
-    return value.includes('/') ? existsSync(value) : true;
-  })));
-
-  const specs: Array<{ command: string; args: string[] }> = [];
-  for (const command of candidates) {
-    const shellName = basename(command).toLowerCase();
-    if (shellName === 'zsh') {
-      specs.push({ command, args: ['-o', 'nopromptsp'] });
-      continue;
-    }
-
-    specs.push({ command, args: [] });
-  }
-
-  return specs;
-}
-
-function disposeTerminalSession(sessionId: string): void {
-  const existing = terminalSessions.get(sessionId);
-  if (!existing) {
-    return;
-  }
-
-  existing.process.kill();
-  terminalSessions.delete(sessionId);
-}
-
-function createTerminalSession(
-  mainWindow: BrowserWindow,
-  sessionId: string,
-  cwd: string
-): { ok: boolean; history?: string; message?: string } {
-  disposeTerminalSession(sessionId);
-  ensureNodePtyHelpersExecutable();
-
-  const env = sanitizeTerminalEnv();
-  const attempted: string[] = [];
-  let proc: IPty | null = null;
-
-  for (const launch of getTerminalLaunchSpecs()) {
-    attempted.push(`${launch.command} ${launch.args.join(' ')}`.trim());
-    try {
-      proc = spawnPty(launch.command, launch.args, {
-        name: env.TERM || 'xterm-256color',
-        cols: 120,
-        rows: 32,
-        cwd,
-        env,
-      });
-      break;
-    } catch (error) {
-      if (isDev()) {
-        console.warn('[Terminal] Failed to spawn shell', {
-          command: launch.command,
-          args: launch.args,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-  }
-
-  if (!proc) {
-    return {
-      ok: false,
-      message: `Unable to start a terminal shell. Tried: ${attempted.join(' | ')}`,
-    };
-  }
-
-  const session = {
-    process: proc,
-    cwd,
-    history: '',
-  };
-  terminalSessions.set(sessionId, session);
-
-  proc.onData((data: string) => {
-    appendTerminalHistory(session, data);
-    emitTerminalEvent(mainWindow, { type: 'data', sessionId, data });
-  });
-
-  proc.onExit(({ exitCode }: { exitCode: number; signal?: number }) => {
-    emitTerminalEvent(mainWindow, { type: 'exit', sessionId, exitCode });
-    terminalSessions.delete(sessionId);
-  });
-
-  return { ok: true, history: session.history };
-}
-
 function normalizeShellPath(filePath: string): string {
   const trimmed = filePath.trim();
   if (!trimmed) {
@@ -540,6 +376,12 @@ function normalizeOpenCodePermissionMode(
   return value === 'fullAccess' || value === 'fullAuto'
     ? 'fullAccess'
     : 'defaultPermissions';
+}
+
+function normalizeKimiPermissionMode(
+  value?: string | null
+): import('../shared/types').KimiPermissionMode {
+  return value === 'plan' || value === 'auto' || value === 'yolo' ? value : 'default';
 }
 
 function normalizeAegisPermissionMode(
@@ -1519,6 +1361,7 @@ function formatProviderLabel(provider: SessionInfo['provider']): string {
   if (provider === 'aegis') return 'Aegis Built-in';
   if (provider === 'codex') return 'Codex';
   if (provider === 'opencode') return 'OpenCode';
+  if (provider === 'kimi') return 'Kimi Code';
   return 'Claude Code';
 }
 
@@ -1766,6 +1609,23 @@ function extractAssistantText(message: StreamMessage): string {
     .filter(Boolean)
     .join('\n\n')
     .trim();
+}
+
+function detectLocalRunnerFailureMessage(text: string): string | null {
+  const normalized = text.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  if (/Failed to authenticate/i.test(normalized) && /Request not allowed/i.test(normalized)) {
+    return normalized;
+  }
+
+  if (/API Error:\s*403/i.test(normalized) && /Request not allowed/i.test(normalized)) {
+    return normalized;
+  }
+
+  return null;
 }
 
 function isLocalUtilityAssistantText(text: string): boolean {
@@ -3182,25 +3042,27 @@ const runnerHandles = new Map<
   string,
   {
     handle: RunnerHandle;
-    provider: 'aegis' | 'claude' | 'codex' | 'opencode';
+    provider: 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi';
     compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
     claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
     claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode;
     claudeReasoningEffort?: import('../shared/types').ClaudeReasoningEffort;
     codexExecutionMode?: import('../shared/types').CodexExecutionMode;
     codexPermissionMode?: import('../shared/types').CodexPermissionMode;
-    codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
-    codexFastMode?: boolean;
-    opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
+	    codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
+	    codexFastMode?: boolean;
+	    kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
+	    opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
     aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
     aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort;
     activeAgentId?: string | null;
     activeAgentRunId?: string | null;
-    onTurnDone?: (status: SessionStatus) => void;
+    onTurnDone?: (status: SessionStatus, message?: string) => void;
   }
 >();
 
 const activeRoutedAgentSequences = new Map<string, { cancelled: boolean }>();
+let automationScheduler: AutomationScheduler | null = null;
 
 // 会话状态映射（包含 pending permissions）
 const sessionStates = new Map<string, SessionState>();
@@ -3222,6 +3084,20 @@ function broadcast(mainWindow: BrowserWindow, event: ServerEvent): void {
     return;
   }
   mainWindow.webContents.send('server-event', JSON.stringify(event));
+}
+
+function getAutomationSnapshot() {
+  return {
+    automations: sessions.listAutomations(),
+    recentRuns: sessions.listAutomationRuns({ limit: 100 }),
+  };
+}
+
+function broadcastAutomationChanged(mainWindow: BrowserWindow): void {
+  broadcast(mainWindow, {
+    type: 'automation.changed',
+    payload: getAutomationSnapshot(),
+  });
 }
 
 async function emitProjectTree(mainWindow: BrowserWindow, cwd: string, scheduledVersion: number): Promise<void> {
@@ -3628,6 +3504,14 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
   void feishuBridge.maybeAutoStart();
 
+  automationScheduler?.stop();
+  automationScheduler = new AutomationScheduler(
+    mainWindow,
+    (payload) => handleSessionStart(mainWindow, payload),
+    () => broadcastAutomationChanged(mainWindow)
+  );
+  automationScheduler.start();
+
   // 处理客户端事件
   ipcMain.removeAllListeners('client-event');
   ipcMain.on('client-event', async (_, eventJson: string) => {
@@ -3653,65 +3537,35 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return sessions.listRecentCwds(limit);
   });
 
-  ipcMainHandle('start-terminal-session', async (_event, sessionId: string, cwd: string, cols?: number, rows?: number) => {
-    const normalizedSessionId = sessionId.trim();
-    const normalizedCwd = cwd.trim();
-    if (!normalizedSessionId || !normalizedCwd) {
-      return { ok: false, message: 'Missing terminal session id or cwd.' };
-    }
-
-    const existing = terminalSessions.get(normalizedSessionId);
-    if (existing && existing.cwd === normalizedCwd) {
-      if (typeof cols === 'number' && typeof rows === 'number') {
-        existing.process.resize(Math.max(40, Math.round(cols)), Math.max(12, Math.round(rows)));
-      }
-      await new Promise((resolve) => setTimeout(resolve, TERMINAL_STARTUP_BUFFER_MS));
-      return { ok: true, history: existing.history };
-    }
-
-    const created = createTerminalSession(mainWindow, normalizedSessionId, normalizedCwd);
-    if (created.ok && typeof cols === 'number' && typeof rows === 'number') {
-      terminalSessions.get(normalizedSessionId)?.process.resize(
-        Math.max(40, Math.round(cols)),
-        Math.max(12, Math.round(rows))
-      );
-    }
-    await new Promise((resolve) => setTimeout(resolve, TERMINAL_STARTUP_BUFFER_MS));
-    return {
-      ...created,
-      history: terminalSessions.get(normalizedSessionId)?.history || created.history,
-    };
+  ipcMainHandle('get-automations', async () => {
+    return getAutomationSnapshot();
   });
 
-  ipcMainHandle('write-terminal-session', async (_event, sessionId: string, data: string) => {
-    const existing = terminalSessions.get(sessionId);
-    if (!existing) {
-      return { ok: false, message: 'Terminal session is not running.' };
-    }
-
-    existing.process.write(data);
-    return { ok: true };
+  ipcMainHandle('save-automation', async (_event, input: UpsertAutomationInput) => {
+    const automation = sessions.saveAutomation(input);
+    broadcastAutomationChanged(mainWindow);
+    return automation;
   });
 
-  ipcMainHandle('resize-terminal-session', async (_event, sessionId: string, cols: number, rows: number) => {
-    const existing = terminalSessions.get(sessionId);
-    if (!existing) {
-      return { ok: false, message: 'Terminal session is not running.' };
-    }
-
-    existing.process.resize(Math.max(40, Math.round(cols)), Math.max(12, Math.round(rows)));
-    return { ok: true };
+  ipcMainHandle('delete-automation', async (_event, automationId: string) => {
+    const ok = sessions.deleteAutomation(automationId);
+    broadcastAutomationChanged(mainWindow);
+    return { ok };
   });
 
-  ipcMainHandle('stop-terminal-session', async (_event, sessionId: string) => {
-    const existing = terminalSessions.get(sessionId);
-    if (!existing) {
-      return { ok: true };
-    }
+  ipcMainHandle('set-automation-enabled', async (_event, automationId: string, enabled: boolean) => {
+    const automation = sessions.setAutomationEnabled(automationId, enabled);
+    broadcastAutomationChanged(mainWindow);
+    return automation;
+  });
 
-    existing.process.kill();
-    terminalSessions.delete(sessionId);
-    return { ok: true };
+  ipcMainHandle('run-automation-now', async (_event, automationId: string) => {
+    if (!automationScheduler) {
+      return { ok: false, message: 'Automation scheduler is not running.' };
+    }
+    const result = await automationScheduler.runNow(automationId);
+    broadcastAutomationChanged(mainWindow);
+    return result;
   });
 
   ipcMainHandle('set-window-min-size', async (_event, width: number, height: number) => {
@@ -3815,6 +3669,34 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return saveAegisBuiltInAgentConfig(config);
   });
 
+  ipcMainHandle('get-wechat-html-generator-config', async () => {
+    return loadWechatHtmlGeneratorConfig();
+  });
+
+  ipcMainHandle('save-wechat-html-generator-config', async (_, config: WechatMarkdownHtmlGeneratorConfig) => {
+    return saveWechatHtmlGeneratorConfig(config);
+  });
+
+  ipcMainHandle('generate-wechat-markdown-html', async (_, input: WechatMarkdownHtmlGenerationInput) => {
+    return generateWechatMarkdownHtml(input);
+  });
+
+  ipcMainHandle('write-wechat-clipboard-html', async (_, input: WechatClipboardHtmlWriteInput) => {
+    try {
+      const html = typeof input?.html === 'string' ? input.html : '';
+      if (!html.trim()) {
+        return { ok: false, error: 'HTML 内容为空' };
+      }
+      clipboard.writeHTML(html);
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
   // RPC: 获取 Claude usage 报表
   ipcMainHandle('get-claude-usage-report', async (_, days?: ClaudeUsageRangeDays) => {
     return sessions.getClaudeUsageReport(days);
@@ -3898,6 +3780,15 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return getCodexRuntimeStatus();
   });
 
+  ipcMainHandle('get-codex-rate-limits', async () => {
+    ensureProviderService();
+    const rateLimits = await getProviderService().getRateLimits('codex');
+    if (!rateLimits) {
+      throw new Error('Codex rate limits are not available from this runtime.');
+    }
+    return rateLimits;
+  });
+
   ipcMainHandle('codex-get-composer-capabilities', async () => {
     ensureProviderService();
     return getProviderService().getComposerCapabilities('codex');
@@ -3951,6 +3842,14 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('get-opencode-runtime-status', async () => {
     return getOpencodeRuntimeStatus();
+  });
+
+  ipcMainHandle('get-kimi-model-config', async () => {
+    return getKimiModelConfig();
+  });
+
+  ipcMainHandle('get-kimi-runtime-status', async () => {
+    return getKimiRuntimeStatus();
   });
 
   ipcMainHandle('get-claude-runtime-status', async (_event, model?: string | null) => {
@@ -4959,6 +4858,55 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
+  const normalizeGitCheckoutInput = (
+    input: GitCheckoutBranchInput | string,
+    branchArg?: string
+  ): GitCheckoutBranchInput => {
+    if (typeof input === 'string') {
+      return { cwd: input, branch: branchArg || '' };
+    }
+    return input;
+  };
+
+  const getRunningSessionRows = (): Array<NonNullable<ReturnType<typeof sessions.getSession>>> => {
+    const byId = new Map<string, NonNullable<ReturnType<typeof sessions.getSession>>>();
+    for (const row of sessions.listRunningSessions()) {
+      byId.set(row.id, row);
+    }
+    for (const sessionId of runnerHandles.keys()) {
+      const row = sessions.getSession(sessionId);
+      if (row) {
+        byId.set(row.id, row);
+      }
+    }
+    return Array.from(byId.values());
+  };
+
+  const findRunningSessionSharingGitRoot = async (
+    cwd: string,
+    excludedSessionId?: string | null
+  ): Promise<NonNullable<ReturnType<typeof sessions.getSession>> | null> => {
+    const targetRoot = resolve(await getGitTopLevel(cwd));
+    for (const row of getRunningSessionRows()) {
+      if (excludedSessionId && row.id === excludedSessionId) {
+        continue;
+      }
+      const rowCwd = row.cwd || row.project_cwd;
+      if (!rowCwd) {
+        continue;
+      }
+      try {
+        const rowRoot = resolve(await getGitTopLevel(rowCwd));
+        if (rowRoot === targetRoot) {
+          return row;
+        }
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  };
+
   ipcMainHandle('get-git-branches', async (_event, cwd: string) => {
     if (!cwd) return { ok: false, error: 'no-cwd', detachedHead: false, headShortHash: null, entries: [] };
 
@@ -4974,8 +4922,27 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
-  ipcMainHandle('git-checkout-branch', async (_event, cwd: string, branch: string) => {
+  ipcMainHandle('git-checkout-branch', async (_event, rawInput: GitCheckoutBranchInput | string, branchArg?: string) => {
+    const input = normalizeGitCheckoutInput(rawInput, branchArg);
+    const cwd = input.cwd?.trim();
+    const branch = input.branch?.trim();
+    if (!cwd || !branch) {
+      return { ok: false, message: 'Branch checkout requires a workspace and branch.' };
+    }
     try {
+      const session = input.sessionId ? sessions.getSession(input.sessionId) : null;
+      if (session && (runnerHandles.has(session.id) || session.status === 'running')) {
+        return { ok: false, message: 'Stop the current task before switching branches.' };
+      }
+
+      const blockingSession = await findRunningSessionSharingGitRoot(cwd, input.sessionId || null);
+      if (blockingSession) {
+        return {
+          ok: false,
+          message: `Another running session is using this workspace: ${blockingSession.title || blockingSession.id}. Open a worktree/new thread or wait for it to finish before switching branches.`,
+        };
+      }
+
       const output = await checkoutBranch({ cwd, branch });
       return { ok: true, output };
     } catch (error) {
@@ -4983,19 +4950,28 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
+  ipcMainHandle('git-create-worktree', async (_event, input: GitCreateWorktreeInput) => {
+    const cwd = input.cwd?.trim();
+    const branch = input.branch?.trim();
+    if (!cwd || !branch) {
+      return { ok: false, message: 'Creating a worktree requires a workspace and branch.', worktree: null };
+    }
+    try {
+      const worktree = await createWorktree({
+        cwd,
+        branch,
+        newBranch: input.newBranch ?? null,
+        path: input.path ?? null,
+      });
+      return { ok: true, worktree };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error), worktree: null };
+    }
+  });
+
   ipcMainHandle(
     'git-session-handoff',
-    async (
-      _event,
-      input: {
-        sessionId: string;
-        targetMode: 'local' | 'worktree';
-        branch?: string | null;
-        newBranch?: string | null;
-        worktreePath?: string | null;
-        includeChanges?: boolean;
-      }
-    ) => {
+    async (_event, input: GitSessionHandoffInput) => {
       const session = sessions.getSession(input.sessionId);
       if (!session) return { ok: false, message: 'Unknown session.' };
       const projectCwd = session.project_cwd || session.cwd;
@@ -5019,113 +4995,171 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       };
       try {
         if (runnerHandles.has(input.sessionId) || session.status === 'running') {
-          handleSessionStop(mainWindow, input.sessionId);
+          return { ok: false, message: 'Stop the current task before switching workspaces.' };
         }
 
         if (input.targetMode === 'local') {
           const sourceCwd = session.worktree_path || session.cwd || projectCwd;
           const sourceIsWorktree = resolve(sourceCwd) !== resolve(projectCwd);
-          const sourceStash = sourceIsWorktree
-            ? await stashWorkingTree({
-                cwd: sourceCwd,
-                message: `Aegis handoff to local ${new Date().toISOString()}`,
-              })
-            : { created: false, stashSha: null, output: '' };
-          const localStash = await stashWorkingTree({
-            cwd: projectCwd,
-            message: `Aegis preserve local workspace ${new Date().toISOString()}`,
-          });
+          const includeChanges = input.includeChanges === true;
+          const targetBranch = input.branch?.trim() || null;
+
+          if (!includeChanges && !targetBranch) {
+            sessions.updateSessionWorkspace(input.sessionId, {
+              projectCwd,
+              envMode: 'local',
+              worktreePath: null,
+            });
+            const updated = sessions.getSession(input.sessionId);
+            broadcastWorkspaceStatus(updated);
+            return { ok: true, session: updated, worktree: null };
+          }
+
+          let sourceStash: { created: boolean; stashSha: string | null; output: string } = {
+            created: false,
+            stashSha: null,
+            output: '',
+          };
+          let localStash: { created: boolean; stashSha: string | null; output: string } = {
+            created: false,
+            stashSha: null,
+            output: '',
+          };
           try {
-            if (input.branch?.trim()) {
-              const currentBranch = await getCurrentBranch(projectCwd).catch(() => null);
-              if (currentBranch !== input.branch.trim()) {
-                await checkoutBranch({ cwd: projectCwd, branch: input.branch.trim() });
+            const currentLocalBranch = targetBranch
+              ? await getCurrentBranch(projectCwd).catch(() => null)
+              : null;
+            const willCheckoutLocalBranch = Boolean(targetBranch && currentLocalBranch !== targetBranch);
+            if (includeChanges || willCheckoutLocalBranch) {
+              const blockingSession = await findRunningSessionSharingGitRoot(projectCwd, input.sessionId);
+              if (blockingSession) {
+                throw new Error(`Another running session is using the local workspace: ${blockingSession.title || blockingSession.id}.`);
+              }
+            }
+            sourceStash = includeChanges && sourceIsWorktree
+              ? await stashWorkingTree({
+                  cwd: sourceCwd,
+                  message: `Aegis handoff to local ${new Date().toISOString()}`,
+                })
+              : sourceStash;
+            localStash = includeChanges
+              ? await stashWorkingTree({
+                  cwd: projectCwd,
+                  message: `Aegis preserve local workspace ${new Date().toISOString()}`,
+                })
+              : localStash;
+            if (targetBranch) {
+              if (currentLocalBranch !== targetBranch) {
+                await checkoutBranch({ cwd: projectCwd, branch: targetBranch });
               }
             }
             if (sourceStash.created && sourceStash.stashSha) {
-              await applyStash({ cwd: projectCwd, stashSha: sourceStash.stashSha, drop: true });
+              await applyStash({ cwd: projectCwd, stashSha: sourceStash.stashSha });
             }
             if (localStash.created && localStash.stashSha) {
-              await applyStash({ cwd: projectCwd, stashSha: localStash.stashSha, drop: true });
+              await applyStash({ cwd: projectCwd, stashSha: localStash.stashSha });
             }
-          } catch (error) {
+            sessions.updateSessionWorkspace(input.sessionId, {
+              projectCwd,
+              envMode: 'local',
+              worktreePath: null,
+            });
+            const updated = sessions.getSession(input.sessionId);
+            broadcastWorkspaceStatus(updated);
             if (sourceStash.created && sourceStash.stashSha) {
-              await applyStash({ cwd: sourceCwd, stashSha: sourceStash.stashSha }).catch(() => undefined);
+              await dropStash({ cwd: sourceCwd, stashSha: sourceStash.stashSha }).catch(() => undefined);
             }
             if (localStash.created && localStash.stashSha) {
-              await applyStash({ cwd: projectCwd, stashSha: localStash.stashSha }).catch(() => undefined);
+              await dropStash({ cwd: projectCwd, stashSha: localStash.stashSha }).catch(() => undefined);
             }
-            throw error;
+            return { ok: true, session: updated, worktree: null };
+          } catch (error) {
+            const preserved = [
+              sourceStash.created && sourceStash.stashSha
+                ? `worktree changes: ${sourceStash.stashSha}`
+                : null,
+              localStash.created && localStash.stashSha
+                ? `local changes: ${localStash.stashSha}`
+                : null,
+            ].filter(Boolean);
+            const detail = error instanceof Error ? error.message : String(error);
+            throw new Error(
+              `Unable to bring changes to Local.${preserved.length > 0 ? ` Preserved stash refs: ${preserved.join(', ')}.` : ''}${detail ? `\n\n${detail}` : ''}`
+            );
           }
-          sessions.updateSessionWorkspace(input.sessionId, {
-            projectCwd,
-            envMode: 'local',
-            worktreePath: null,
-          });
-          const updated = sessions.getSession(input.sessionId);
-          broadcastWorkspaceStatus(updated);
-          return { ok: true, session: updated, worktree: null };
         }
         const sourceCwd = session.cwd || projectCwd;
         const includeChanges = input.includeChanges === true;
-        const sourceStash = includeChanges
-          ? await stashWorkingTree({
-              cwd: sourceCwd,
-              message: `Aegis handoff to worktree ${new Date().toISOString()}`,
-            })
-          : { created: false, stashSha: null, output: '' };
-        const branch = input.branch || (await getCurrentBranch(projectCwd)) || 'HEAD';
-        const defaultNewBranch =
-          branch === 'HEAD'
-            ? `aegis/worktree-${Date.now().toString(36)}`
-            : `aegis/${branch.replace(/[^a-zA-Z0-9._/-]+/g, '-').replace(/[\\/]+/g, '-')}-${Date.now().toString(36)}`;
-        const newBranch = input.newBranch?.trim() || defaultNewBranch;
+        let sourceStash: { created: boolean; stashSha: string | null; output: string } = {
+          created: false,
+          stashSha: null,
+          output: '',
+        };
         let createdWorktreePath: string | null = null;
-        const worktree = input.worktreePath
-          ? {
-              path: input.worktreePath,
-              branch: (await getCurrentBranch(input.worktreePath).catch(() => null)) || newBranch || branch,
-              head: null,
-              detached: false,
-              locked: false,
-              prunable: false,
-              current: false,
-            }
-          : await createWorktree({
-              cwd: projectCwd,
-              branch,
-              newBranch,
-            });
-        if (!input.worktreePath) {
-          createdWorktreePath = worktree.path;
-        }
+        let worktree: Awaited<ReturnType<typeof createWorktree>> | null = null;
         try {
-          if (sourceStash.created && sourceStash.stashSha) {
-            await applyStash({ cwd: worktree.path, stashSha: sourceStash.stashSha, drop: true });
+          sourceStash = includeChanges
+            ? await stashWorkingTree({
+                cwd: sourceCwd,
+                message: `Aegis handoff to worktree ${new Date().toISOString()}`,
+              })
+            : sourceStash;
+          const branch = input.branch || (await getCurrentBranch(projectCwd)) || 'HEAD';
+          const defaultNewBranch =
+            branch === 'HEAD'
+              ? `aegis/worktree-${Date.now().toString(36)}`
+              : `aegis/${branch.replace(/[^a-zA-Z0-9._/-]+/g, '-').replace(/[\\/]+/g, '-')}-${Date.now().toString(36)}`;
+          const newBranch = input.newBranch?.trim() || defaultNewBranch;
+          worktree = input.worktreePath
+            ? {
+                path: input.worktreePath,
+                branch: (await getCurrentBranch(input.worktreePath).catch(() => null)) || newBranch || branch,
+                head: null,
+                detached: false,
+                locked: false,
+                prunable: false,
+                current: false,
+              }
+            : await createWorktree({
+                cwd: projectCwd,
+                branch,
+                newBranch,
+              });
+          if (!input.worktreePath) {
+            createdWorktreePath = worktree.path;
           }
-        } catch (error) {
           if (sourceStash.created && sourceStash.stashSha) {
-            await applyStash({ cwd: sourceCwd, stashSha: sourceStash.stashSha }).catch(() => undefined);
+            await applyStash({ cwd: worktree.path, stashSha: sourceStash.stashSha });
+          }
+          sessions.updateSessionWorkspace(input.sessionId, {
+            projectCwd,
+            envMode: 'worktree',
+            worktreePath: worktree.path,
+            associatedWorktreePath: worktree.path,
+            associatedWorktreeBranch: worktree.branch || newBranch || branch,
+            associatedWorktreeRef: worktree.branch || newBranch || branch,
+          });
+          const updated = sessions.getSession(input.sessionId);
+          broadcastWorkspaceStatus(updated);
+          if (sourceStash.created && sourceStash.stashSha) {
+            await dropStash({ cwd: sourceCwd, stashSha: sourceStash.stashSha }).catch(() => undefined);
+          }
+          return { ok: true, session: updated, worktree };
+        } catch (error) {
+          const preserved = sourceStash.created && sourceStash.stashSha
+            ? `current changes: ${sourceStash.stashSha}`
+            : null;
+          if (preserved) {
+            await applyStash({ cwd: sourceCwd, stashSha: sourceStash.stashSha! }).catch(() => undefined);
           }
           if (createdWorktreePath) {
             await removeWorktree({ cwd: projectCwd, path: createdWorktreePath, force: true }).catch(() => undefined);
           }
           const detail = error instanceof Error ? error.message : String(error);
           throw new Error(
-            `Unable to bring current changes into the worktree. The original workspace was restored and the new worktree was cancelled.${detail ? `\n\n${detail}` : ''}`
+            `Unable to bring current changes into the worktree.${preserved ? ` Preserved stash refs: ${preserved}.` : ''} The new worktree was cancelled when possible.${detail ? `\n\n${detail}` : ''}`
           );
         }
-        sessions.updateSessionWorkspace(input.sessionId, {
-          projectCwd,
-          envMode: 'worktree',
-          worktreePath: worktree.path,
-          associatedWorktreePath: worktree.path,
-          associatedWorktreeBranch: worktree.branch || newBranch || branch,
-          associatedWorktreeRef: worktree.branch || newBranch || branch,
-        });
-        const updated = sessions.getSession(input.sessionId);
-        broadcastWorkspaceStatus(updated);
-        return { ok: true, session: updated, worktree };
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) };
       }
@@ -5365,7 +5399,6 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // === IPC 模块注册（从 ipc-handlers.ts 拆分） ===
   const ipcCtx: any = {
     mainWindow,
-    terminalSessions,
     localPreviewServers,
     runnerHandles,
     sessionStates,
@@ -5374,8 +5407,6 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     broadcastFolderChanged,
     ATTACHMENT_MIME_TYPES,
     LOCAL_PREVIEW_MIME_TYPES,
-    TERMINAL_HISTORY_MAX_CHARS,
-    TERMINAL_STARTUP_BUFFER_MS,
   }
   registerTerminal(ipcCtx)
   registerFeishu(ipcCtx)
@@ -5487,7 +5518,16 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     status: row.status as SessionInfo['status'],
     scope: normalizeSessionScope(row.conversation_scope),
     agentId: row.agent_id || null,
-    source: row.session_origin || 'aegis',
+    source:
+      row.session_origin === 'claude_remote'
+        ? 'claude_remote'
+        : row.provider === 'codex'
+          ? 'codex_local'
+          : row.provider === 'opencode'
+            ? 'opencode_local'
+            : row.provider === 'kimi'
+              ? 'kimi_local'
+              : 'aegis',
     readOnly: row.session_origin === 'claude_remote',
     cwd: row.cwd || undefined,
     projectCwd: row.project_cwd || row.cwd || null,
@@ -5579,6 +5619,7 @@ function normalizeRoutedAgentRuntimePayload(
     turn?.provider === 'aegis' ||
     turn?.provider === 'codex' ||
     turn?.provider === 'opencode' ||
+    turn?.provider === 'kimi' ||
     turn?.provider === 'claude'
       ? turn.provider
       : 'claude';
@@ -5638,7 +5679,8 @@ function buildAegisTeamRuntimeFromStore(
     const provider = profile.provider === 'aegis' ||
       profile.provider === 'claude' ||
       profile.provider === 'codex' ||
-      profile.provider === 'opencode'
+      profile.provider === 'opencode' ||
+      profile.provider === 'kimi'
       ? profile.provider
       : 'claude';
     agentsById.set(profile.id, {
@@ -5820,6 +5862,23 @@ async function ensureRoutedAgentTurnRuntimeReady(
         type: 'runner.error',
         payload: {
           message: 'OpenCode ACP is not ready. Check Settings > Providers.',
+          sessionId,
+        },
+      });
+      return false;
+    }
+  } else if (provider === 'kimi') {
+    const runtimeStatus = await getKimiRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(sessionId, 'error');
+      broadcast(mainWindow, {
+        type: 'session.status',
+        payload: { sessionId, status: 'error' },
+      });
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatKimiRuntimeBlockingMessage(runtimeStatus),
           sessionId,
         },
       });
@@ -6424,6 +6483,8 @@ async function runRoutedAgentTurn(
         ? sessions.getSession(sessionId)?.codex_session_id ?? undefined
         : runtime.provider === 'opencode'
           ? sessions.getSession(sessionId)?.opencode_session_id ?? undefined
+          : runtime.provider === 'kimi'
+            ? sessions.getSession(sessionId)?.kimi_session_id ?? undefined
           : undefined;
 
   if (runtime.provider === 'claude' && !resumeSessionId && historyBeforeTurn.length > 0) {
@@ -6484,6 +6545,7 @@ async function runRoutedAgentTurn(
       runtime.provider === 'opencode'
         ? (runtime.selectedOpenCodePermissionMode || 'defaultPermissions')
         : undefined,
+      runtime.provider === 'kimi' ? normalizeKimiPermissionMode(turn.kimiPermissionMode) : undefined,
       runtime.provider === 'aegis'
         ? (runtime.selectedAegisPermissionMode || 'defaultPermissions')
         : undefined,
@@ -6511,6 +6573,8 @@ async function handleSessionStart(
     title,
     prompt,
     effectivePrompt,
+    automationRunId,
+    skipTitleGeneration,
     cwd,
     projectCwd,
     envMode,
@@ -6537,6 +6601,7 @@ async function handleSessionStart(
     codexMentions,
     aegisSkills,
     aegisMentions,
+    kimiPermissionMode,
     opencodePermissionMode,
     aegisPermissionMode,
     aegisReasoningEffort,
@@ -6592,6 +6657,8 @@ async function handleSessionStart(
     chosenProvider === 'claude' ? normalizeClaudeReasoningEffort(claudeReasoningEffort) : undefined;
   const selectedAegisReasoningEffort =
     chosenProvider === 'aegis' ? normalizeAegisReasoningEffort(aegisReasoningEffort) : undefined;
+  const selectedKimiPermissionMode =
+    chosenProvider === 'kimi' ? normalizeKimiPermissionMode(kimiPermissionMode) : undefined;
   const normalizedTeamMode = normalizeSessionTeamMode(teamMode);
   const normalizedTeamId =
     normalizedTeamMode === 'team' || normalizedTeamMode === 'manual'
@@ -6649,6 +6716,10 @@ async function handleSessionStart(
 
   // 更新状态为 running
   sessions.updateSessionStatus(session.id, 'running');
+  if (automationRunId) {
+    sessions.setAutomationRunSession(automationRunId, session.id);
+    broadcastAutomationChanged(mainWindow);
+  }
 
   // 立即广播状态 -> 界面跳转
   broadcast(mainWindow, {
@@ -6680,6 +6751,7 @@ async function handleSessionStart(
       codexReasoningEffort:
         chosenProvider === 'codex' ? normalizeCodexReasoningEffort(codexReasoningEffort) : undefined,
       codexFastMode: chosenProvider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
+      kimiPermissionMode: selectedKimiPermissionMode,
       opencodePermissionMode:
         chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
       aegisPermissionMode:
@@ -6712,6 +6784,10 @@ async function handleSessionStart(
     const runtimeStatus = await getClaudeRuntimeStatusCached(selectedModel || null);
     if (!runtimeStatus.ready) {
       sessions.updateSessionStatus(session.id, 'error');
+      if (automationRunId) {
+        sessions.finishAutomationRun(automationRunId, 'failed', formatClaudeRuntimeBlockingMessage(runtimeStatus));
+        broadcastAutomationChanged(mainWindow);
+      }
       broadcast(mainWindow, {
         type: 'runner.error',
         payload: {
@@ -6724,6 +6800,10 @@ async function handleSessionStart(
     const runtimeStatus = await getOpencodeRuntimeStatus();
     if (!runtimeStatus.ready) {
       sessions.updateSessionStatus(session.id, 'error');
+      if (automationRunId) {
+        sessions.finishAutomationRun(automationRunId, 'failed', 'OpenCode ACP is not ready. Check Settings > Providers.');
+        broadcastAutomationChanged(mainWindow);
+      }
       broadcast(mainWindow, {
         type: 'runner.error',
         payload: {
@@ -6732,10 +6812,26 @@ async function handleSessionStart(
       });
       return null;
     }
+  } else if (chosenProvider === 'kimi') {
+    const runtimeStatus = await getKimiRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(session.id, 'error');
+      if (automationRunId) {
+        sessions.finishAutomationRun(automationRunId, 'failed', formatKimiRuntimeBlockingMessage(runtimeStatus));
+        broadcastAutomationChanged(mainWindow);
+      }
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatKimiRuntimeBlockingMessage(runtimeStatus),
+        },
+      });
+      return null;
+    }
   }
 
   // 异步生成更好的标题（不阻塞）
-  if (sessionScope !== 'dm') {
+  if (sessionScope !== 'dm' && !skipTitleGeneration) {
     generateSessionTitle(
       sourcePrompt,
       sessionCwd,
@@ -6804,6 +6900,7 @@ async function handleSessionStart(
     chosenProvider === 'codex' ? normalizeCodexReasoningEffort(codexReasoningEffort) : undefined,
     chosenProvider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
     chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
+    selectedKimiPermissionMode,
     chosenProvider === 'aegis' ? normalizeAegisPermissionMode(aegisPermissionMode) : undefined,
     chosenProvider === 'aegis' ? selectedAegisReasoningEffort : undefined,
     chosenProvider === 'codex' ? codexSkills : undefined,
@@ -6813,7 +6910,18 @@ async function handleSessionStart(
     chosenProvider === 'aegis' ? turnAgentProfile : undefined,
     chosenProvider === 'aegis' ? aegisTeamRuntime.team : undefined,
     chosenProvider === 'aegis' ? aegisTeamRuntime.agents : undefined,
-    turnAgentId
+    turnAgentId,
+    automationRunId
+      ? (status, failureMessage) => {
+          const runStatus = status === 'completed' ? 'completed' : 'failed';
+          const message =
+            status === 'completed' ? null : failureMessage || `Automation session ended with ${status}.`;
+          sessions.finishAutomationRun(automationRunId, runStatus, message);
+          broadcastAutomationChanged(mainWindow);
+        }
+      : undefined,
+    undefined,
+    Boolean(automationRunId)
   );
   return session.id;
 }
@@ -6843,6 +6951,7 @@ async function handleSessionContinue(
     codexMentions,
     aegisSkills,
     aegisMentions,
+    kimiPermissionMode,
     opencodePermissionMode,
     aegisPermissionMode,
     aegisReasoningEffort,
@@ -6988,6 +7097,9 @@ async function handleSessionContinue(
   const nextOpenCodePermissionMode = nextProvider === 'opencode'
     ? normalizeOpenCodePermissionMode(opencodePermissionMode || previousOpenCodePermissionMode)
     : undefined;
+  const nextKimiPermissionMode = nextProvider === 'kimi'
+    ? normalizeKimiPermissionMode(kimiPermissionMode)
+    : undefined;
   const nextAegisPermissionMode = nextProvider === 'aegis'
     ? normalizeAegisPermissionMode(aegisPermissionMode)
     : undefined;
@@ -7064,6 +7176,7 @@ async function handleSessionContinue(
       codexPermissionModeChanged,
       codexReasoningEffortChanged,
       codexFastModeChanged,
+      kimiPermissionMode: nextKimiPermissionMode,
       opencodePermissionModeChanged,
       aegisPermissionModeChanged,
       aegisReasoningEffortChanged,
@@ -7132,6 +7245,7 @@ async function handleSessionContinue(
       codexPermissionMode: nextProvider === 'codex' ? (nextCodexPermissionMode || 'defaultPermissions') : undefined,
       codexReasoningEffort: nextProvider === 'codex' ? nextCodexReasoningEffort : undefined,
       codexFastMode: nextProvider === 'codex' ? nextCodexFastMode : undefined,
+      kimiPermissionMode: nextKimiPermissionMode,
       opencodePermissionMode:
         nextProvider === 'opencode' ? (nextOpenCodePermissionMode || 'defaultPermissions') : undefined,
       aegisPermissionMode:
@@ -7185,11 +7299,24 @@ async function handleSessionContinue(
       });
       return false;
     }
+  } else if (nextProvider === 'kimi') {
+    const runtimeStatus = await getKimiRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(sessionId, 'error');
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatKimiRuntimeBlockingMessage(runtimeStatus),
+          sessionId,
+        },
+      });
+      return false;
+    }
   }
 
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
     if (
-      ((nextProvider === 'codex' || nextProvider === 'opencode') && modelChanged) ||
+      ((nextProvider === 'codex' || nextProvider === 'opencode' || nextProvider === 'kimi') && modelChanged) ||
       (nextProvider === 'codex' && codexPermissionModeChanged) ||
       (nextProvider === 'codex' && codexReasoningEffortChanged) ||
       (nextProvider === 'codex' && codexFastModeChanged) ||
@@ -7213,13 +7340,17 @@ async function handleSessionContinue(
       existingEntry.activeAgentRunId = createAgentRunId(turnAgentId, 'continue');
       const sendOptions =
         nextProvider === 'codex'
-          ? {
-              codexExecutionMode: nextCodexExecutionMode,
-              codexPermissionMode: nextCodexPermissionMode,
-              codexReasoningEffort: nextCodexReasoningEffort || undefined,
-              codexFastMode: nextCodexFastMode,
-            }
-          : nextProvider === 'aegis'
+	          ? {
+	              codexExecutionMode: nextCodexExecutionMode,
+	              codexPermissionMode: nextCodexPermissionMode,
+	              codexReasoningEffort: nextCodexReasoningEffort || undefined,
+	              codexFastMode: nextCodexFastMode,
+	            }
+	          : nextProvider === 'kimi'
+	          ? {
+	              kimiPermissionMode: nextKimiPermissionMode,
+	            }
+	          : nextProvider === 'aegis'
           ? {
               aegisPermissionMode: nextAegisPermissionMode || 'defaultPermissions',
               aegisReasoningEffort: nextAegisReasoningEffort,
@@ -7238,13 +7369,16 @@ async function handleSessionContinue(
         nextProvider === 'aegis' ? aegisMentions : undefined,
         sendOptions
       );
-      if (nextProvider === 'codex') {
-        existingEntry.codexExecutionMode = nextCodexExecutionMode;
-        existingEntry.codexPermissionMode = nextCodexPermissionMode;
-        existingEntry.codexReasoningEffort = nextCodexReasoningEffort || undefined;
-        existingEntry.codexFastMode = nextCodexFastMode;
-      }
-      if (nextProvider === 'aegis') {
+	      if (nextProvider === 'codex') {
+	        existingEntry.codexExecutionMode = nextCodexExecutionMode;
+	        existingEntry.codexPermissionMode = nextCodexPermissionMode;
+	        existingEntry.codexReasoningEffort = nextCodexReasoningEffort || undefined;
+	        existingEntry.codexFastMode = nextCodexFastMode;
+	      }
+	      if (nextProvider === 'kimi') {
+	        existingEntry.kimiPermissionMode = nextKimiPermissionMode;
+	      }
+	      if (nextProvider === 'aegis') {
         existingEntry.aegisPermissionMode = nextAegisPermissionMode || 'defaultPermissions';
         existingEntry.aegisReasoningEffort = nextAegisReasoningEffort;
       }
@@ -7269,6 +7403,8 @@ async function handleSessionContinue(
           ? session.codex_session_id ?? undefined
           : nextProvider === 'opencode'
             ? session.opencode_session_id ?? undefined
+            : nextProvider === 'kimi'
+              ? session.kimi_session_id ?? undefined
             : undefined;
   let nextResumeSessionId = resumeSessionId;
 
@@ -7330,6 +7466,7 @@ async function handleSessionContinue(
     nextProvider === 'codex' ? nextCodexReasoningEffort : undefined,
     nextProvider === 'codex' ? nextCodexFastMode : undefined,
     nextProvider === 'opencode' ? (nextOpenCodePermissionMode || 'defaultPermissions') : undefined,
+    nextProvider === 'kimi' ? nextKimiPermissionMode : undefined,
     nextProvider === 'aegis' ? (nextAegisPermissionMode || 'defaultPermissions') : undefined,
     nextProvider === 'aegis' ? nextAegisReasoningEffort : undefined,
     nextProvider === 'codex' ? codexSkills : undefined,
@@ -7351,7 +7488,7 @@ function startRunner(
   prompt: string,
   resumeSessionId?: string,
   attachments?: Attachment[],
-  providerOverride?: 'aegis' | 'claude' | 'codex' | 'opencode',
+  providerOverride?: 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi',
   modelOverride?: string,
   compatibleProviderOverride?: import('../shared/types').ClaudeCompatibleProviderId,
   betasOverride?: string[],
@@ -7363,6 +7500,7 @@ function startRunner(
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort,
   codexFastMode?: boolean,
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode,
+  kimiPermissionMode?: import('../shared/types').KimiPermissionMode,
   aegisPermissionMode?: import('../shared/types').AegisPermissionMode,
   aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort,
   codexSkills?: ProviderInputReference[],
@@ -7373,8 +7511,9 @@ function startRunner(
   aegisTeam?: TeamProfile | null,
   aegisTeamAgents?: RoutedAgentRuntimePayload[],
   activeAgentId?: string | null,
-  onTurnDone?: (status: SessionStatus) => void,
-  activeAgentRunId?: string | null
+  onTurnDone?: (status: SessionStatus, message?: string) => void,
+  activeAgentRunId?: string | null,
+  autoApprovePermissions = false
 ): void {
   if (!session) return;
 
@@ -7403,7 +7542,9 @@ function startRunner(
           ? 'claude-agent-sdk'
           : provider === 'codex'
           ? 'codex-app-server'
-          : 'opencode acp',
+          : provider === 'kimi'
+            ? 'kimi acp'
+            : 'opencode acp',
       model: modelOverride,
       compatibleProviderId,
       cwd: runnerSession.cwd || process.cwd(),
@@ -7414,6 +7555,7 @@ function startRunner(
 
   let initMessage: Extract<StreamMessage, { type: 'system'; subtype: 'init' }> | null = null;
   let sawTurnOutput = false;
+  let localFailureMessage: string | null = null;
 
   const handle = runAgentLoop({
     prompt,
@@ -7430,6 +7572,7 @@ function startRunner(
     codexPermissionMode,
     codexReasoningEffort,
     codexFastMode,
+    kimiPermissionMode,
     codexSkills: provider === 'codex' ? codexSkills : undefined,
     codexMentions: provider === 'codex' ? codexMentions : undefined,
     aegisSkills: provider === 'aegis' ? aegisSkills : undefined,
@@ -7451,6 +7594,11 @@ function startRunner(
           }
         } else if (provider === 'opencode') {
           sessions.updateOpencodeSessionId(session.id, message.session_id);
+          if (message.model) {
+            sessions.updateSessionModel(session.id, message.model);
+          }
+        } else if (provider === 'kimi') {
+          sessions.updateKimiSessionId(session.id, message.session_id);
           if (message.model) {
             sessions.updateSessionModel(session.id, message.model);
           }
@@ -7564,6 +7712,8 @@ function startRunner(
           turnAgentId,
           turnAgentRunId
         );
+        localFailureMessage =
+          localFailureMessage || detectLocalRunnerFailureMessage(extractAssistantText(attributedMessage));
         const shouldPersistMessage = shouldPersistProviderMessage(attributedMessage);
         if (shouldPersistMessage) {
           // 保存消息
@@ -7607,7 +7757,9 @@ function startRunner(
           });
         }
 
-        const status: SessionStatus = message.subtype === 'success' ? 'completed' : 'error';
+        const explicitFailureMessage = localFailureMessage || slashFailureMessage;
+        const status: SessionStatus =
+          explicitFailureMessage || message.subtype !== 'success' ? 'error' : 'completed';
         sessions.updateSessionStatus(session.id, status);
 
         broadcast(mainWindow, {
@@ -7678,7 +7830,7 @@ function startRunner(
         if (currentEntry?.handle === handle) {
           const turnDone = currentEntry.onTurnDone;
           currentEntry.onTurnDone = undefined;
-          turnDone?.(status);
+          turnDone?.(status, explicitFailureMessage || undefined);
           if (provider === 'claude') {
             runnerHandles.delete(session.id);
           }
@@ -7712,7 +7864,7 @@ function startRunner(
         if (currentEntry) {
           currentEntry.onTurnDone = undefined;
         }
-        turnDone?.('error');
+        turnDone?.('error', message);
         runnerHandles.delete(session.id);
       }
     },
@@ -7782,6 +7934,16 @@ function startRunner(
       });
     },
     onPermissionRequest: async (toolUseId, toolName, input) => {
+      if (autoApprovePermissions) {
+        return {
+          behavior: 'allow',
+          updatedInput:
+            input && typeof input === 'object' && !Array.isArray(input)
+              ? { ...(input as Record<string, unknown>) }
+              : undefined,
+          scope: 'session',
+        };
+      }
       // 广播权限请求
       broadcast(mainWindow, {
         type: 'permission.request',
@@ -7820,9 +7982,10 @@ function startRunner(
       provider === 'codex' ? normalizeCodexReasoningEffort(codexReasoningEffort) : undefined,
     codexFastMode:
       provider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
-    opencodePermissionMode:
-      provider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
-    aegisPermissionMode:
+	    opencodePermissionMode:
+	      provider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
+	    kimiPermissionMode: provider === 'kimi' ? normalizeKimiPermissionMode(kimiPermissionMode) : undefined,
+	    aegisPermissionMode:
       provider === 'aegis' ? normalizeAegisPermissionMode(aegisPermissionMode) : undefined,
     aegisReasoningEffort:
       provider === 'aegis' ? normalizeAegisReasoningEffort(aegisReasoningEffort) : undefined,
@@ -8237,15 +8400,16 @@ function broadcastFolderChanged(mainWindow: BrowserWindow): void {
 // 清理资源
 export function cleanup(): void {
   ipcMain.removeAllListeners('client-event');
+  automationScheduler?.stop();
+  automationScheduler = null;
+  disposeTerminalTransportServer();
+  disposeTerminalRuntime();
   // 停止所有运行中的 runner
   for (const [, entry] of runnerHandles) {
     entry.handle.abort();
   }
   runnerHandles.clear();
   sessionStates.clear();
-  for (const sessionId of terminalSessions.keys()) {
-    disposeTerminalSession(sessionId);
-  }
   for (const [, entry] of localPreviewServers) {
     entry.server.close();
   }
