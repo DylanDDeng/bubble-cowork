@@ -206,6 +206,7 @@ export function SkillsSettingsContentInner({ embedded = false }: { embedded?: bo
           rootPath={claudeSkillsUserRoot}
           skills={filteredUserSkills}
           emptyMessage={hasSearchQuery ? 'No user-level skills match this search.' : 'No user-level skills found.'}
+          showHeader={false}
           revealingPath={revealingPath}
           onSelect={openSkillDetail}
           onReveal={handleReveal}
@@ -271,6 +272,7 @@ function SkillsSection({
   rootPath,
   skills,
   emptyMessage,
+  showHeader = true,
   unavailable = false,
   revealingPath,
   onSelect,
@@ -281,6 +283,7 @@ function SkillsSection({
   rootPath?: string;
   skills: ClaudeSkillSummary[];
   emptyMessage: string;
+  showHeader?: boolean;
   unavailable?: boolean;
   revealingPath: string | null;
   onSelect: (filePath: string) => void;
@@ -288,17 +291,21 @@ function SkillsSection({
 }) {
   return (
     <section className="space-y-3">
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-4">
-          <h4 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h4>
-          <span className="text-xs text-[var(--text-muted)]">
-            {skills.length} {skills.length === 1 ? 'skill' : 'skills'}
-          </span>
-        </div>
-        <p className="text-sm text-[var(--text-secondary)]">{description}</p>
-      </div>
+      {showHeader && (
+        <>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-4">
+              <h4 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h4>
+              <span className="text-xs text-[var(--text-muted)]">
+                {skills.length} {skills.length === 1 ? 'skill' : 'skills'}
+              </span>
+            </div>
+            <p className="text-sm text-[var(--text-secondary)]">{description}</p>
+          </div>
 
-      <div className="h-px bg-[var(--border)]" />
+          <div className="h-px bg-[var(--border)]" />
+        </>
+      )}
 
       {skills.length === 0 ? (
         <div className="rounded-[var(--radius-2xl)] border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] p-4 text-sm text-[var(--text-muted)]">

@@ -3,6 +3,7 @@ import type { AgentProvider, ClaudeCompatibleProviderId, SettingsTab } from '../
 import { useClaudeModelConfig } from './useClaudeModelConfig';
 import { useCodexModelConfig } from './useCodexModelConfig';
 import { useOpencodeModelConfig } from './useOpencodeModelConfig';
+import { useKimiModelConfig } from './useKimiModelConfig';
 import { useCompatibleProviderConfig } from './useCompatibleProviderConfig';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import {
@@ -23,11 +24,30 @@ import {
   savePreferredCodexModel,
 } from '../utils/codex-model';
 import {
+  CodexReasoningEffort,
+  CodexPermissionMode,
+  KimiPermissionMode,
+} from '../../shared/types';
+import {
+  getDefaultCodexReasoningEffort,
+  loadPreferredCodexReasoningEffort,
+  savePreferredCodexReasoningEffort,
+} from '../utils/codex-reasoning';
+import {
+  loadPreferredCodexFastMode,
+  savePreferredCodexFastMode,
+  supportsCodexFastMode,
+} from '../utils/codex-fast';
+import {
   buildOpencodeModelOptions,
   formatOpencodeModelLabel,
   loadPreferredOpencodeModel,
   savePreferredOpencodeModel,
 } from '../utils/opencode-model';
+import {
+  loadPreferredKimiPermissionMode,
+  savePreferredKimiPermissionMode,
+} from '../utils/kimi-permission';
 import {
   AEGIS_BUILT_IN_MODELS,
   AEGIS_BUILT_IN_PROVIDERS,
@@ -38,6 +58,7 @@ import {
 import type { AegisBuiltInAgentConfig } from '../../shared/types';
 
 const AEGIS_MODEL_STORAGE_KEY = 'cowork.preferredAegisModel';
+const KIMI_MODEL_STORAGE_KEY = 'cowork.preferredKimiModel';
 
 export interface ComposerModelOption {
   key: string;
@@ -66,6 +87,21 @@ function savePreferredAegisModel(model: string | null): void {
     return;
   }
   window.localStorage.setItem(AEGIS_MODEL_STORAGE_KEY, model);
+}
+
+function loadPreferredKimiModel(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(KIMI_MODEL_STORAGE_KEY);
+  return raw?.trim() || null;
+}
+
+function savePreferredKimiModel(model: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (!model) {
+    window.localStorage.removeItem(KIMI_MODEL_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(KIMI_MODEL_STORAGE_KEY, model);
 }
 
 function resolveCompatibleProviderForModel(
@@ -214,6 +250,52 @@ function resolveConfiguredAegisModel(
   return options[0]?.value || null;
 }
 
+function buildKimiModelOptions(config: ReturnType<typeof useKimiModelConfig>): ComposerModelOption[] {
+  const defaultOption: ComposerModelOption = {
+    key: 'kimi:default',
+    value: '',
+    label: 'Default',
+    description: config.defaultModel ? `Use ${formatKimiModelLabel(config.defaultModel, config)}` : 'Use Kimi Code default model',
+  };
+  const models = config.availableModels.length > 0
+    ? config.availableModels
+    : config.options.map((name) => ({ name, label: name, provider: null, enabled: true, isDefault: config.defaultModel === name }));
+  const explicitOptions = models
+    .filter((model) => model.enabled !== false)
+    .map((model) => ({
+      key: `kimi:${model.name}`,
+      value: model.name,
+      label: model.label || model.name,
+      description: model.isDefault
+        ? 'Configured default'
+        : model.provider
+          ? model.provider
+          : undefined,
+    }));
+  return [defaultOption, ...explicitOptions];
+}
+
+function formatKimiModelLabel(value: string, config: ReturnType<typeof useKimiModelConfig>): string {
+  const match = config.availableModels.find((model) => model.name === value);
+  return match?.label || value;
+}
+
+function resolveConfiguredKimiModel(
+  requestedModel: string | null | undefined,
+  config: ReturnType<typeof useKimiModelConfig>
+): string | null {
+  const options = buildKimiModelOptions(config);
+  const optionValues = new Set(options.map((option) => option.value.trim()));
+  const candidates = [requestedModel, loadPreferredKimiModel()];
+  for (const candidate of candidates) {
+    const normalized = candidate?.trim() || null;
+    if (normalized && optionValues.has(normalized)) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
 export function useComposerAgentSelection(input?: {
   selectionKey?: string | null;
   provider?: AgentProvider | null;
@@ -223,6 +305,7 @@ export function useComposerAgentSelection(input?: {
   const claudeModelConfig = useClaudeModelConfig();
   const codexModelConfig = useCodexModelConfig();
   const opencodeModelConfig = useOpencodeModelConfig();
+  const kimiModelConfig = useKimiModelConfig();
   const { compatibleOptions } = useCompatibleProviderConfig();
   const [aegisConfig, setAegisConfig] = useState<AegisBuiltInAgentConfig | null>(null);
   const [provider, setProviderState] = useState<AgentProvider>(() => input?.provider || loadPreferredProvider());
@@ -255,6 +338,46 @@ export function useComposerAgentSelection(input?: {
       window.removeEventListener('aegis-built-in-agent-config-updated', refreshAegisConfig);
     };
   }, []);
+
+  const allAgentModelOptions = useMemo(() => {
+    return {
+      claude: (() => {
+        const defaultOption: ComposerModelOption = {
+          key: 'claude:official:default',
+          value: '',
+          label: 'Default',
+          description: 'Do not override the default model',
+          compatibleProviderId: null,
+        };
+        const officialOptions = buildConfiguredClaudeModelValues(claudeModelConfig, compatibleOptions).map((option) => ({
+          key: `claude:official:${option}`,
+          value: option,
+          label: formatClaudeModelLabel(option),
+          compatibleProviderId: null,
+        }));
+        const compatible = compatibleOptions.map((option) => ({
+          key: `claude:compatible:${option.id}:${option.model}`,
+          value: option.model,
+          label: option.model,
+          description: option.label,
+          compatibleProviderId: option.id,
+        }));
+        return [defaultOption, ...officialOptions, ...compatible];
+      })(),
+      codex: buildCodexModelOptions(codexModelConfig).map((option) => ({
+        key: `codex:${option}`,
+        value: option,
+        label: formatCodexModelLabel(option),
+      })),
+      opencode: buildOpencodeModelOptions(opencodeModelConfig).map((option) => ({
+        key: `opencode:${option}`,
+        value: option,
+        label: formatOpencodeModelLabel(option),
+      })),
+      kimi: buildKimiModelOptions(kimiModelConfig),
+      aegis: buildConfiguredAegisModelOptions(aegisConfig),
+    };
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, aegisConfig]);
 
   const modelOptions = useMemo<ComposerModelOption[]>(() => {
     if (provider === 'claude') {
@@ -297,8 +420,12 @@ export function useComposerAgentSelection(input?: {
       }));
     }
 
+    if (provider === 'kimi') {
+      return buildKimiModelOptions(kimiModelConfig);
+    }
+
     return buildConfiguredAegisModelOptions(aegisConfig);
-  }, [aegisConfig, claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, provider]);
+  }, [aegisConfig, claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, provider]);
 
   const resolveModelForProvider = useCallback(
     (
@@ -338,12 +465,19 @@ export function useComposerAgentSelection(input?: {
         };
       }
 
+      if (nextProvider === 'kimi') {
+        return {
+          model: resolveConfiguredKimiModel(normalizedRequestedModel, kimiModelConfig),
+          compatibleProviderId: null,
+        };
+      }
+
       return {
         model: resolveConfiguredAegisModel(normalizedRequestedModel, aegisConfig),
         compatibleProviderId: null,
       };
     },
-    [aegisConfig, claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig]
+    [aegisConfig, claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig]
   );
 
   useEffect(() => {
@@ -424,6 +558,8 @@ export function useComposerAgentSelection(input?: {
         savePreferredCodexModel(nextModel);
       } else if (provider === 'opencode') {
         savePreferredOpencodeModel(nextModel);
+      } else if (provider === 'kimi') {
+        savePreferredKimiModel(nextModel);
       } else {
         savePreferredAegisModel(nextModel);
       }
@@ -451,6 +587,14 @@ export function useComposerAgentSelection(input?: {
 
     if (provider === 'claude') {
       return null;
+    }
+
+    if (provider === 'kimi') {
+      return {
+        label: 'Setup Kimi',
+        title: 'Configure Kimi Code models',
+        settingsTab: 'providers',
+      };
     }
 
     if (provider === 'aegis') {
@@ -482,18 +626,109 @@ export function useComposerAgentSelection(input?: {
     (model
       ? provider === 'aegis'
         ? formatAegisModelLabel(model)
+        : provider === 'kimi'
+          ? formatKimiModelLabel(model, kimiModelConfig)
         : model
       : 'Default');
+
+  const [codexReasoningEffort, setCodexReasoningEffortState] = useState<CodexReasoningEffort | null>(() => {
+    if (provider !== 'codex' || !model) return null;
+    const preferred = loadPreferredCodexReasoningEffort(model);
+    if (preferred) return preferred;
+    return getDefaultCodexReasoningEffort(codexModelConfig, model) || null;
+  });
+
+  // Sync reasoning effort when model changes
+  useEffect(() => {
+    if (provider === 'codex' && model) {
+      const preferred = loadPreferredCodexReasoningEffort(model);
+      if (preferred) {
+        setCodexReasoningEffortState(preferred);
+      } else {
+        const defaultEffort = getDefaultCodexReasoningEffort(codexModelConfig, model);
+        setCodexReasoningEffortState(defaultEffort || null);
+      }
+    } else {
+      setCodexReasoningEffortState(null);
+    }
+  }, [provider, model, codexModelConfig]);
+
+  const setCodexReasoningEffort = useCallback(
+    (effort: CodexReasoningEffort) => {
+      setCodexReasoningEffortState(effort);
+      if (model) {
+        savePreferredCodexReasoningEffort(model, effort);
+      }
+    },
+    [model]
+  );
+
+  const codexModels = useMemo(() => {
+    if (provider !== 'codex' || !codexModelConfig) return [];
+    return codexModelConfig.availableModels;
+  }, [provider, codexModelConfig]);
+
+  // Fast mode state
+  const supportsCodexFastModeCheck = useMemo(
+    () => provider === 'codex' && supportsCodexFastMode(codexModelConfig, model ?? undefined),
+    [provider, codexModelConfig, model]
+  );
+
+  const [codexFastMode, setCodexFastModeState] = useState<boolean>(() => {
+    if (!supportsCodexFastModeCheck || !model) return false;
+    return loadPreferredCodexFastMode(codexModelConfig, model) === true;
+  });
+
+  // Sync fast mode when model changes
+  useEffect(() => {
+    if (supportsCodexFastModeCheck && model) {
+      const preferred = loadPreferredCodexFastMode(codexModelConfig, model);
+      setCodexFastModeState(preferred === true);
+    } else {
+      setCodexFastModeState(false);
+    }
+  }, [supportsCodexFastModeCheck, codexModelConfig, model]);
+
+  const setCodexFastMode = useCallback(
+    (enabled: boolean) => {
+      setCodexFastModeState(enabled);
+      if (model) {
+        savePreferredCodexFastMode(codexModelConfig, model, enabled);
+      }
+    },
+    [codexModelConfig, model]
+  );
+
+  const [codexPermissionMode, setCodexPermissionMode] = useState<CodexPermissionMode>('defaultPermissions');
+  const [kimiPermissionMode, setKimiPermissionModeState] = useState<KimiPermissionMode>(() =>
+    loadPreferredKimiPermissionMode()
+  );
+
+  const setKimiPermissionMode = useCallback((mode: KimiPermissionMode) => {
+    setKimiPermissionModeState(mode);
+    savePreferredKimiPermissionMode(mode);
+  }, []);
 
   return {
     provider,
     model,
     compatibleProviderId,
+    allAgentModelOptions,
     modelOptions,
     modelSetup,
     selectedModelOption,
     selectedModelLabel,
     selectAgent,
     selectModel,
+    codexModelConfig,
+    codexModels,
+    codexReasoningEffort,
+    setCodexReasoningEffort,
+    codexFastMode,
+    setCodexFastMode,
+    codexPermissionMode,
+    setCodexPermissionMode,
+    kimiPermissionMode,
+    setKimiPermissionMode,
   };
 }

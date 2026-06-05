@@ -12,6 +12,9 @@ import type {
   ClaudeUsageModelSummary,
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
+  CodexRateLimitReport,
+  CodexRateLimitSnapshot,
+  CodexRateLimitWindow,
 } from '../../types';
 import { SegmentedControl, SegmentedControlItem, SettingsGroup } from './SettingsPrimitives';
 
@@ -39,12 +42,15 @@ export function ClaudeUsageSettingsContent() {
   const [claudeReport, setClaudeReport] = useState<ClaudeUsageReport | null>(null);
   const [codexReport, setCodexReport] = useState<ClaudeUsageReport | null>(null);
   const [opencodeReport, setOpencodeReport] = useState<ClaudeUsageReport | null>(null);
+  const [codexRateLimits, setCodexRateLimits] = useState<CodexRateLimitReport | null>(null);
   const [claudeLoading, setClaudeLoading] = useState(true);
   const [codexLoading, setCodexLoading] = useState(true);
   const [opencodeLoading, setOpencodeLoading] = useState(true);
+  const [codexRateLimitsLoading, setCodexRateLimitsLoading] = useState(true);
   const [claudeError, setClaudeError] = useState<string | null>(null);
   const [codexError, setCodexError] = useState<string | null>(null);
   const [opencodeError, setOpencodeError] = useState<string | null>(null);
+  const [codexRateLimitsError, setCodexRateLimitsError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,6 +105,43 @@ export function ClaudeUsageSettingsContent() {
       cancelled = true;
     };
   }, [rangeDays]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadRateLimits = async () => {
+      setCodexRateLimitsLoading(true);
+      setCodexRateLimitsError(null);
+
+      try {
+        const report = await window.electron.getCodexRateLimits();
+        if (cancelled) {
+          return;
+        }
+        setCodexRateLimits(report);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setCodexRateLimits(null);
+        setCodexRateLimitsError(normalizeUsageLoadError(error, 'get-codex-rate-limits'));
+      } finally {
+        if (!cancelled) {
+          setCodexRateLimitsLoading(false);
+        }
+      }
+    };
+
+    void loadRateLimits();
+    const refreshTimer = window.setInterval(() => {
+      void loadRateLimits();
+    }, 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(refreshTimer);
+    };
+  }, []);
 
   const providers = useMemo<UsageProviderCard[]>(
     () => [
@@ -233,6 +276,14 @@ export function ClaudeUsageSettingsContent() {
           />
         </div>
       </SettingsGroup>
+
+      {activeProviderCard.id === 'codex' ? (
+        <CodexRateLimitsPanel
+          report={codexRateLimits}
+          loading={codexRateLimitsLoading}
+          error={codexRateLimitsError}
+        />
+      ) : null}
 
       <SettingsGroup title="Daily usage">
         {renderUsageState(activeProviderCard) || (
@@ -455,6 +506,281 @@ function MetricTile({
       ) : null}
     </div>
   );
+}
+
+function CodexRateLimitsPanel({
+  report,
+  loading,
+  error,
+}: {
+  report: CodexRateLimitReport | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  const entries = getCodexRateLimitEntries(report);
+  const mainEntry = entries.find((entry) => entry.id === 'codex') || entries[0] || null;
+  const mainLimit = mainEntry?.snapshot || null;
+  const extraEntries = entries.filter((entry) => entry.id !== mainEntry?.id);
+
+  return (
+    <SettingsGroup title="Codex limits">
+      {renderCodexRateLimitState(report, loading, error) || (
+        <div>
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <img src={openaiLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                <span className="truncate text-[13px] font-medium text-[var(--text-primary)]">
+                  {mainLimit ? getCodexRateLimitName(mainEntry!.id, mainLimit) : 'Codex'}
+                </span>
+              </div>
+              <div className="mt-0.5 text-[11.5px] text-[var(--text-muted)]">
+                Updated {formatLocalTime(report!.fetchedAt)}
+              </div>
+            </div>
+            {mainLimit?.planType ? (
+              <span className="rounded-[6px] border border-[var(--border)] px-2 py-1 text-[11.5px] font-medium text-[var(--text-secondary)]">
+                {formatPlanName(mainLimit.planType)}
+              </span>
+            ) : null}
+          </div>
+
+          <div className="grid grid-cols-1 gap-px border-t border-[var(--border)] bg-[var(--border)] sm:grid-cols-2 xl:grid-cols-4">
+            <CodexRateLimitWindowTile
+              title={`${formatRateLimitWindowName(mainLimit?.primary, 'Primary')} remaining`}
+              window={mainLimit?.primary || null}
+            />
+            <CodexRateLimitWindowTile
+              title={`${formatRateLimitWindowName(mainLimit?.secondary, 'Secondary')} remaining`}
+              window={mainLimit?.secondary || null}
+            />
+            <CodexCreditsTile snapshot={mainLimit} />
+            <CodexRateLimitStatusTile snapshot={mainLimit} />
+          </div>
+
+          {extraEntries.length > 0 ? (
+            <div className="border-t border-[var(--border)] px-4 py-3">
+              <div className="mb-2 text-[11.5px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                Additional buckets
+              </div>
+              <div className="divide-y divide-[var(--border)]">
+                {extraEntries.map((entry) => (
+                  <CodexRateLimitBucketRow key={entry.id} id={entry.id} snapshot={entry.snapshot} />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </SettingsGroup>
+  );
+}
+
+function renderCodexRateLimitState(
+  report: CodexRateLimitReport | null,
+  loading: boolean,
+  error: string | null
+) {
+  if (loading && !report) {
+    return <InlineEmpty label="Loading Codex limits…" />;
+  }
+
+  if (error && !loading) {
+    return (
+      <div className="px-4 py-4 text-[12px] text-[var(--error)]">
+        <span className="font-medium">Unable to load Codex limits.</span> {error}
+      </div>
+    );
+  }
+
+  if (!getCodexRateLimitEntries(report).length) {
+    return <InlineEmpty label="No Codex limit data available." />;
+  }
+
+  return null;
+}
+
+function CodexRateLimitWindowTile({
+  title,
+  window,
+}: {
+  title: string;
+  window: CodexRateLimitWindow | null;
+}) {
+  const remaining = window ? Math.round(window.remainingPercent) : null;
+  const used = window ? Math.round(window.usedPercent) : null;
+
+  return (
+    <div className="bg-[var(--bg-primary)] px-4 py-3">
+      <div className="text-[11.5px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">
+        {title}
+      </div>
+      <div className="mt-1 text-[20px] font-semibold text-[var(--text-primary)]">
+        {remaining === null ? '—' : `${remaining}%`}
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--bg-tertiary)]">
+        <div
+          className="h-full rounded-full bg-[#0F9D90]"
+          style={{ width: `${Math.max(0, Math.min(100, remaining || 0))}%` }}
+        />
+      </div>
+      <div className="mt-1.5 truncate text-[11.5px] text-[var(--text-muted)]">
+        {window ? `${used}% used · ${formatResetLabel(window.resetsAt)}` : 'Not reported'}
+      </div>
+    </div>
+  );
+}
+
+function CodexCreditsTile({ snapshot }: { snapshot: CodexRateLimitSnapshot | null }) {
+  const credits = snapshot?.credits || null;
+  const value = credits
+    ? credits.unlimited
+      ? 'Unlimited'
+      : credits.balance || '0'
+    : '—';
+  const subtitle = snapshot?.planType
+    ? `${formatPlanName(snapshot.planType)} plan`
+    : credits
+      ? credits.hasCredits
+        ? 'Credits available'
+        : 'No credits balance'
+      : 'Not reported';
+
+  return <MetricTile title="Credits" value={value} subtitle={subtitle} />;
+}
+
+function CodexRateLimitStatusTile({ snapshot }: { snapshot: CodexRateLimitSnapshot | null }) {
+  const limited = Boolean(snapshot?.rateLimitReachedType);
+  const value = limited ? 'Limited' : 'Available';
+  const subtitle = snapshot?.rateLimitReachedType
+    ? formatRateLimitReachedType(snapshot.rateLimitReachedType)
+    : 'No limit reached';
+
+  return <MetricTile title="Status" value={value} subtitle={subtitle} />;
+}
+
+function CodexRateLimitBucketRow({
+  id,
+  snapshot,
+}: {
+  id: string;
+  snapshot: CodexRateLimitSnapshot;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-x-3 gap-y-1 py-2 text-[12.5px] sm:grid-cols-[minmax(0,1.2fr)_90px_90px_130px]">
+      <div className="min-w-0">
+        <div className="truncate font-medium text-[var(--text-primary)]">
+          {getCodexRateLimitName(id, snapshot)}
+        </div>
+        <div className="mt-0.5 truncate text-[11.5px] text-[var(--text-muted)]">{id}</div>
+      </div>
+      <div className="text-[var(--text-primary)]">
+        <span className="text-[var(--text-muted)] sm:hidden">5h </span>
+        {formatRemaining(snapshot.primary)}
+      </div>
+      <div className="text-[var(--text-primary)]">
+        <span className="text-[var(--text-muted)] sm:hidden">Week </span>
+        {formatRemaining(snapshot.secondary)}
+      </div>
+      <div className="truncate text-[var(--text-muted)]">
+        {formatNearestReset(snapshot.primary, snapshot.secondary)}
+      </div>
+    </div>
+  );
+}
+
+function getCodexRateLimitEntries(report: CodexRateLimitReport | null): Array<{
+  id: string;
+  snapshot: CodexRateLimitSnapshot;
+}> {
+  if (!report) {
+    return [];
+  }
+
+  const entries = Object.entries(report.rateLimitsByLimitId).map(([id, snapshot]) => ({
+    id,
+    snapshot,
+  }));
+
+  if (report.rateLimits) {
+    const id = report.rateLimits.limitId || 'codex';
+    const existing = entries.some((entry) => entry.id === id);
+    if (!existing) {
+      entries.unshift({ id, snapshot: report.rateLimits });
+    }
+  }
+
+  return entries.sort((left, right) => {
+    if (left.id === 'codex') return -1;
+    if (right.id === 'codex') return 1;
+    return getCodexRateLimitName(left.id, left.snapshot).localeCompare(
+      getCodexRateLimitName(right.id, right.snapshot)
+    );
+  });
+}
+
+function getCodexRateLimitName(id: string, snapshot: CodexRateLimitSnapshot): string {
+  return snapshot.limitName || snapshot.limitId || id || 'Codex';
+}
+
+function formatRateLimitWindowName(window: CodexRateLimitWindow | null | undefined, fallback: string): string {
+  const minutes = window?.windowDurationMins;
+  if (!minutes) return fallback;
+  if (minutes === 300) return '5-hour';
+  if (minutes === 10_080) return 'Weekly';
+  if (minutes % 1440 === 0) return `${minutes / 1440}d`;
+  if (minutes % 60 === 0) return `${minutes / 60}h`;
+  return `${minutes}m`;
+}
+
+function formatRemaining(window: CodexRateLimitWindow | null): string {
+  return window ? `${Math.round(window.remainingPercent)}%` : '—';
+}
+
+function formatNearestReset(
+  primary: CodexRateLimitWindow | null,
+  secondary: CodexRateLimitWindow | null
+): string {
+  const resets = [primary?.resetsAt, secondary?.resetsAt].filter((value): value is number =>
+    typeof value === 'number' && Number.isFinite(value)
+  );
+  if (!resets.length) return 'No reset time';
+  return formatResetLabel(Math.min(...resets));
+}
+
+function formatResetLabel(value: number | null): string {
+  if (!value) return 'No reset time';
+  return `Resets ${formatLocalTime(normalizeTimestampMs(value))}`;
+}
+
+function formatLocalTime(value: number): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '—';
+  }
+
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function normalizeTimestampMs(value: number): number {
+  return value < 10_000_000_000 ? value * 1000 : value;
+}
+
+function formatPlanName(value: string): string {
+  return value
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function formatRateLimitReachedType(value: string): string {
+  return formatPlanName(value.replace(/_/g, ' '));
 }
 
 function ModelProviderLogo({

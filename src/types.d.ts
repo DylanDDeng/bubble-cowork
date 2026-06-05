@@ -3,6 +3,8 @@
 
 import type {
   AegisBuiltInAgentConfig,
+  AutomationDefinition,
+  AutomationSnapshot,
   ClientEvent,
   ClaudeCompatibleProvidersConfig,
   ServerEvent,
@@ -21,11 +23,15 @@ import type {
   ClaudeModelConfig,
   ClaudeUsageRangeDays,
   ClaudeUsageReport,
+  CodexRateLimitReport,
   UpsertPromptLibraryItemInput,
+  UpsertAutomationInput,
   CodexModelConfig,
   CodexRuntimeStatus,
+  KimiModelConfig,
   OpenCodeModelConfig,
   OpenCodeRuntimeStatus,
+  KimiRuntimeStatus,
   ClaudeRuntimeStatus,
   UiResumeState,
   SkillMarketItem,
@@ -41,6 +47,11 @@ import type {
   ProviderListSkillsResult,
   ProviderReadPluginInput,
   ProviderReadPluginResult,
+  WechatClipboardHtmlWriteInput,
+  WechatClipboardHtmlWriteResult,
+  WechatMarkdownHtmlGenerationInput,
+  WechatMarkdownHtmlGenerationResult,
+  WechatMarkdownHtmlGeneratorConfig,
 } from './shared/types';
 import type {
   BrowserCapturePageResult,
@@ -54,22 +65,51 @@ import type {
   BrowserTabInput,
   SessionBrowserState,
 } from './shared/browser-types';
+import type {
+  StartTerminalSessionResult,
+  TerminalAgentKind,
+  TerminalClearInput,
+  TerminalCloseInput,
+  TerminalEventPayload,
+  TerminalOpenInput,
+  TerminalOpenResult,
+  TerminalResizeInput,
+  TerminalRestartInput,
+  TerminalTransportInfo,
+  TerminalWriteInput,
+} from './shared/terminal';
 
 declare global {
   interface ElectronAPI {
     onServerEvent: (callback: (event: ServerEvent) => void) => () => void;
     sendClientEvent: (event: ClientEvent) => void;
-    onTerminalEvent: (callback: (event: { type: 'data' | 'exit'; sessionId: string; data?: string; exitCode?: number | null }) => void) => () => void;
+    onTerminalEvent: (callback: (event: TerminalEventPayload) => void) => () => void;
+    terminal: {
+      open: (input: TerminalOpenInput) => Promise<TerminalOpenResult>;
+      write: (input: TerminalWriteInput) => Promise<{ ok: boolean; message?: string }>;
+      resize: (input: TerminalResizeInput) => Promise<{ ok: boolean; message?: string }>;
+      clear: (input: TerminalClearInput) => Promise<{ ok: boolean; message?: string }>;
+      restart: (input: TerminalRestartInput) => Promise<TerminalOpenResult>;
+      close: (input: TerminalCloseInput) => Promise<{ ok: boolean; message?: string }>;
+      getTransportInfo: () => Promise<TerminalTransportInfo>;
+      onEvent: (callback: (event: TerminalEventPayload) => void) => () => void;
+    };
     onWindowShellState: (callback: (state: { rounded: boolean }) => void) => () => void;
     registerProjectEditorFlushHandler: (
       callback: () => { ok: boolean; message?: string } | Promise<{ ok: boolean; message?: string }>
     ) => () => void;
     generateSessionTitle: (prompt: string) => Promise<string>;
     getRecentCwds: (limit?: number) => Promise<string[]>;
-    startTerminalSession: (sessionId: string, cwd: string, cols?: number, rows?: number) => Promise<{ ok: boolean; history?: string; message?: string }>;
+    getAutomations: () => Promise<AutomationSnapshot>;
+    saveAutomation: (input: UpsertAutomationInput) => Promise<AutomationDefinition>;
+    deleteAutomation: (automationId: string) => Promise<{ ok: boolean }>;
+    setAutomationEnabled: (automationId: string, enabled: boolean) => Promise<AutomationDefinition | null>;
+    runAutomationNow: (automationId: string) => Promise<{ ok: boolean; sessionId?: string; message?: string }>;
+    startTerminalSession: (sessionId: string, cwd: string, cols?: number, rows?: number, agentKind?: TerminalAgentKind) => Promise<StartTerminalSessionResult>;
     writeTerminalSession: (sessionId: string, data: string) => Promise<{ ok: boolean; message?: string }>;
     resizeTerminalSession: (sessionId: string, cols: number, rows: number) => Promise<{ ok: boolean; message?: string }>;
     stopTerminalSession: (sessionId: string) => Promise<{ ok: boolean; message?: string }>;
+    getTerminalTransportInfo: () => Promise<TerminalTransportInfo>;
     setWindowMinSize: (width: number, height: number) => Promise<{ ok: boolean }>;
     getAppVersion: () => Promise<string>;
     getWindowShellState: () => Promise<{ rounded: boolean }>;
@@ -100,8 +140,13 @@ declare global {
     saveClaudeCompatibleProviderConfig: (config: ClaudeCompatibleProvidersConfig) => Promise<ClaudeCompatibleProvidersConfig>;
     getAegisBuiltInAgentConfig: () => Promise<AegisBuiltInAgentConfig>;
     saveAegisBuiltInAgentConfig: (config: AegisBuiltInAgentConfig) => Promise<AegisBuiltInAgentConfig>;
+    getWechatHtmlGeneratorConfig: () => Promise<WechatMarkdownHtmlGeneratorConfig>;
+    saveWechatHtmlGeneratorConfig: (config: WechatMarkdownHtmlGeneratorConfig) => Promise<WechatMarkdownHtmlGeneratorConfig>;
+    generateWechatMarkdownHtml: (input: WechatMarkdownHtmlGenerationInput) => Promise<WechatMarkdownHtmlGenerationResult>;
+    writeWechatClipboardHtml: (input: WechatClipboardHtmlWriteInput) => Promise<WechatClipboardHtmlWriteResult>;
     getClaudeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getCodexUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
+    getCodexRateLimits: () => Promise<CodexRateLimitReport>;
     getOpencodeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getPromptLibrary: () => Promise<PromptLibraryItem[]>;
     savePromptLibraryItem: (input: UpsertPromptLibraryItemInput) => Promise<PromptLibraryItem[]>;
@@ -120,6 +165,8 @@ declare global {
     getOpencodeModelConfig: () => Promise<OpenCodeModelConfig>;
     saveOpencodeModelVisibility: (enabledModels: string[]) => Promise<OpenCodeModelConfig>;
     getOpencodeRuntimeStatus: () => Promise<OpenCodeRuntimeStatus>; 
+    getKimiModelConfig: () => Promise<KimiModelConfig>;
+    getKimiRuntimeStatus: () => Promise<KimiRuntimeStatus>;
     getClaudeRuntimeStatus: (model?: string | null) => Promise<ClaudeRuntimeStatus>;
     getSkillMarketHot: (limit?: number) => Promise<SkillMarketItem[]>;
     searchSkillMarket: (query: string, limit?: number) => Promise<SkillMarketItem[]>;
@@ -196,15 +243,9 @@ declare global {
         worktreePath?: string | null;
       }>;
     }>;
-    gitCheckoutBranch: (cwd: string, branch: string) => Promise<{ ok: boolean; output?: string; message?: string }>;
-    gitSessionHandoff: (input: {
-      sessionId: string;
-      targetMode: import('./shared/types').ThreadEnvironmentMode;
-      branch?: string | null;
-      newBranch?: string | null;
-      worktreePath?: string | null;
-      includeChanges?: boolean;
-    }) => Promise<{ ok: boolean; message?: string; worktree?: import('./shared/types').GitWorktree | null; session?: unknown }>;
+    gitCheckoutBranch: (input: import('./shared/types').GitCheckoutBranchInput) => Promise<{ ok: boolean; output?: string; message?: string }>;
+    gitCreateWorktree: (input: import('./shared/types').GitCreateWorktreeInput) => Promise<{ ok: boolean; message?: string; worktree?: import('./shared/types').GitWorktree | null }>;
+    gitSessionHandoff: (input: import('./shared/types').GitSessionHandoffInput) => Promise<{ ok: boolean; message?: string; worktree?: import('./shared/types').GitWorktree | null; session?: unknown }>;
     getGitHistory: (cwd: string) => Promise<{
       ok: boolean;
       error: string | null;

@@ -109,6 +109,14 @@ function normalizeCapabilityName(value: string): string {
   return value.replace(/^[/$]/, '').trim().toLowerCase();
 }
 
+function formatCapabilityDisplayName(skill: ClaudeSkillSummary): string {
+  const preferred = skill.title?.trim() || skill.name;
+  return preferred
+    .replace(/^[/$]/, '')
+    .replace(/^plugin:/i, '')
+    .trim();
+}
+
 function mergeSlashCommands(
   commands: ClaudeSlashSuggestion['command'][]
 ): ClaudeSlashSuggestion['command'][] {
@@ -421,6 +429,18 @@ export function useComposerCapabilityMenu({
     [enableSkills, enabled, recognitionCommands, recognitionSkills]
   );
 
+  const slashDisplayLabels = useMemo(() => {
+    const labels: Record<string, string> = {};
+    for (const skill of recognitionSkills) {
+      const key = normalizeCapabilityName(skill.name);
+      const label = formatCapabilityDisplayName(skill);
+      if (key && label) {
+        labels[key] = label;
+      }
+    }
+    return labels;
+  }, [recognitionSkills]);
+
   return {
     hasSlashQuery,
     composerTrigger,
@@ -445,6 +465,7 @@ export function useComposerCapabilityMenu({
     availableSkills,
     availableCommands,
     slashContext,
+    slashDisplayLabels,
     selectedIndex,
     setSelectedIndex,
     selectedSkill: selectedSkillState?.skill || null,

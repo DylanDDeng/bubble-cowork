@@ -19,6 +19,10 @@ import type {
   ProviderPluginSource,
   ProviderInputReference,
   ProviderReadPluginResult,
+  CodexCreditsSnapshot,
+  CodexRateLimitReport,
+  CodexRateLimitSnapshot,
+  CodexRateLimitWindow,
   ProviderSkillDescriptor,
 } from '../../../shared/types';
 import { isDev } from '../../util';
@@ -95,7 +99,6 @@ function resolveSkillsDiscoveryCwd(cwd: string | undefined): string {
 // Codex app-server emits these as housekeeping signal — we don't act on them yet,
 // so swallow them silently instead of cluttering dev logs as "unhandled".
 const IGNORED_NOTIFICATIONS = new Set<string>([
-  'account/rateLimits/updated',
   'thread/status/changed',
   'fs/changed',
   'hook/started',
@@ -103,6 +106,7 @@ const IGNORED_NOTIFICATIONS = new Set<string>([
   'warning',
   'deprecationNotice',
   'configWarning',
+  'remoteControl/status/changed',
 ]);
 
 function isTransientConnectionMessage(message: string): boolean {
@@ -326,6 +330,17 @@ export class CodexAppServerManager extends EventEmitter {
     return result;
   }
 
+  async readAccountRateLimits(cwd = process.cwd()): Promise<CodexRateLimitReport> {
+    await this.ensureSpawned(cwd);
+    const response = await this.sendRequest<Record<string, unknown>>(
+      'account/rateLimits/read',
+      undefined,
+      REQUEST_TIMEOUT_MS
+    );
+
+    return this.parseRateLimitReport(response);
+  }
+
   private invalidateDiscoveryCaches(kind: 'skills' | 'plugins' | 'all'): void {
     if (kind === 'skills' || kind === 'all') {
       this.skillsCache.clear();
@@ -537,7 +552,9 @@ export class CodexAppServerManager extends EventEmitter {
   private normalizeCodexPermissionMode(
     mode: CodexPermissionMode | undefined
   ): CodexPermissionMode {
-    return mode === 'fullAccess' ? 'fullAccess' : 'defaultPermissions';
+    if (mode === 'fullAccess') return 'fullAccess';
+    if (mode === 'auto') return 'auto';
+    return 'defaultPermissions';
   }
 
   private normalizeCodexExecutionMode(
@@ -564,6 +581,15 @@ export class CodexAppServerManager extends EventEmitter {
         approvalPolicy: 'never',
         approvalsReviewer: 'user',
         sandbox: 'danger-full-access',
+      };
+    }
+
+    if (this.normalizeCodexPermissionMode(mode) === 'auto') {
+      return {
+        permissionMode: 'auto',
+        approvalPolicy: 'on-request',
+        approvalsReviewer: 'user',
+        sandbox: 'workspace-write',
       };
     }
 
@@ -596,6 +622,22 @@ export class CodexAppServerManager extends EventEmitter {
         approvalPolicy: 'never',
         approvalsReviewer: 'user',
         sandboxPolicy: { type: 'dangerFullAccess' },
+      };
+    }
+
+    if (this.normalizeCodexPermissionMode(mode) === 'auto') {
+      return {
+        permissionMode: 'auto',
+        approvalPolicy: 'on-request',
+        approvalsReviewer: 'user',
+        sandboxPolicy: {
+          type: 'workspaceWrite',
+          writableRoots: [cwd || process.cwd()],
+          readOnlyAccess: { type: 'fullAccess' },
+          networkAccess: false,
+          excludeTmpdirEnvVar: false,
+          excludeSlashTmp: false,
+        },
       };
     }
 
@@ -1119,6 +1161,11 @@ export class CodexAppServerManager extends EventEmitter {
         break;
       }
 
+      case 'account/rateLimits/updated': {
+        this.emit('rate_limits_updated', this.parseRateLimitReport(params));
+        break;
+      }
+
       case 'item/started': {
         const item = (params.item as Record<string, unknown>) || params;
         const itemType = this.normalizeItemType(item);
@@ -1309,6 +1356,81 @@ export class CodexAppServerManager extends EventEmitter {
 
   private optionalString(value: unknown): string | undefined {
     return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+  }
+
+  private parseRateLimitReport(response: unknown): CodexRateLimitReport {
+    const record = this.asObject(response);
+    const result = this.asObject(record?.result) ?? record;
+    const rateLimits = this.parseRateLimitSnapshot(this.asObject(result?.rateLimits));
+    const rateLimitsByLimitId: Record<string, CodexRateLimitSnapshot> = {};
+    const rawByLimitId = this.asObject(result?.rateLimitsByLimitId);
+
+    if (rawByLimitId) {
+      for (const [limitId, rawSnapshot] of Object.entries(rawByLimitId)) {
+        const snapshot = this.parseRateLimitSnapshot(this.asObject(rawSnapshot));
+        if (snapshot) {
+          rateLimitsByLimitId[limitId] = snapshot;
+        }
+      }
+    }
+
+    return {
+      source: 'codex-app-server',
+      fetchedAt: Date.now(),
+      rateLimits,
+      rateLimitsByLimitId,
+    };
+  }
+
+  private parseRateLimitSnapshot(
+    value: Record<string, unknown> | undefined
+  ): CodexRateLimitSnapshot | null {
+    if (!value) return null;
+
+    return {
+      limitId: this.readString(value, 'limitId'),
+      limitName: this.readString(value, 'limitName'),
+      primary: this.parseRateLimitWindow(this.asObject(value.primary)),
+      secondary: this.parseRateLimitWindow(this.asObject(value.secondary)),
+      credits: this.parseCreditsSnapshot(this.asObject(value.credits)),
+      planType: this.readString(value, 'planType'),
+      rateLimitReachedType: this.parseRateLimitReachedType(this.readString(value, 'rateLimitReachedType')),
+    };
+  }
+
+  private parseRateLimitWindow(value: Record<string, unknown> | undefined): CodexRateLimitWindow | null {
+    if (!value) return null;
+
+    const usedPercent = Math.min(100, Math.max(0, this.readNumber(value, 'usedPercent') || 0));
+    return {
+      usedPercent,
+      remainingPercent: Math.max(0, 100 - usedPercent),
+      windowDurationMins: this.readNumber(value, 'windowDurationMins'),
+      resetsAt: this.readNumber(value, 'resetsAt'),
+    };
+  }
+
+  private parseCreditsSnapshot(value: Record<string, unknown> | undefined): CodexCreditsSnapshot | null {
+    if (!value) return null;
+
+    return {
+      hasCredits: value.hasCredits === true,
+      unlimited: value.unlimited === true,
+      balance: this.readString(value, 'balance'),
+    };
+  }
+
+  private parseRateLimitReachedType(value: string | null): CodexRateLimitSnapshot['rateLimitReachedType'] {
+    switch (value) {
+      case 'rate_limit_reached':
+      case 'workspace_owner_credits_depleted':
+      case 'workspace_member_credits_depleted':
+      case 'workspace_owner_usage_limit_reached':
+      case 'workspace_member_usage_limit_reached':
+        return value;
+      default:
+        return null;
+    }
   }
 
   private parseSkillsListResponse(response: unknown, requestedCwd: string): ProviderSkillDescriptor[] {

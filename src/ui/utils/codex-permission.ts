@@ -8,6 +8,9 @@ function normalizeCodexPermissionMode(
   if (raw === 'fullAccess' || raw === 'fullAuto') {
     return 'fullAccess';
   }
+  if (raw === 'auto' || raw === 'autoReview') {
+    return 'auto';
+  }
 
   return 'defaultPermissions';
 }

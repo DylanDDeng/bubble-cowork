@@ -18,7 +18,7 @@ const sizeClasses = {
 };
 
 export const iconButtonClassName =
-  'no-drag pointer-events-auto inline-flex shrink-0 items-center justify-center border border-transparent text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] active:bg-[var(--bg-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/25 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[var(--text-secondary)]';
+  'no-drag pointer-events-auto inline-flex shrink-0 items-center justify-center border border-transparent text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] active:bg-[var(--bg-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[var(--text-secondary)]';
 
 export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
   (

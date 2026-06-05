@@ -5,7 +5,7 @@
  * Electron architecture without Effect-TS.
  *
  * Core concepts:
- * - ProviderKind: identifies agent type (claude | codex | opencode)
+ * - ProviderKind: identifies agent type (claude | codex | opencode | kimi)
  * - ProviderAdapter: encapsulates provider-specific process management and protocol
  * - ProviderSessionDirectory: maps threadId -> provider binding + resume cursor
  * - ProviderService: orchestrates multiple adapters, routes by threadId
@@ -19,11 +19,13 @@ import type {
   CodexPermissionMode,
   CodexExecutionMode,
   CodexReasoningEffort,
+  KimiPermissionMode,
   OpenCodePermissionMode,
   ClaudeAccessMode,
   ClaudeExecutionMode,
   ClaudeReasoningEffort,
   ClaudeCompatibleProviderId,
+  CodexRateLimitReport,
   ProviderComposerCapabilities,
   ProviderInputReference,
   ProviderListPluginsInput,
@@ -37,7 +39,7 @@ import type { SessionRow } from '../../types';
 
 // ── Provider Identity ──────────────────────────────────────────────────────
 
-export type ProviderKind = 'claude' | 'codex' | 'opencode';
+export type ProviderKind = 'claude' | 'codex' | 'opencode' | 'kimi';
 
 export interface ProviderAdapterCapabilities {
   /** Supports switching model mid-session */
@@ -61,6 +63,7 @@ export interface ProviderAdapterCapabilities {
 // ── Session Lifecycle Input ────────────────────────────────────────────────
 
 export interface ProviderSessionStartInput {
+  provider: ProviderKind;
   threadId: string;
   cwd: string;
   prompt: string;
@@ -73,6 +76,7 @@ export interface ProviderSessionStartInput {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: KimiPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
@@ -92,6 +96,7 @@ export interface ProviderSendTurnInput {
   codexPermissionMode?: CodexPermissionMode;
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: KimiPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
 }
@@ -135,6 +140,7 @@ export interface ProviderAdapter {
 
   // Optional provider discovery APIs
   getComposerCapabilities?(): ProviderComposerCapabilities;
+  getRateLimits?(): Promise<CodexRateLimitReport>;
   listSkills?(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult>;
   listPlugins?(input: ProviderListPluginsInput): Promise<ProviderListPluginsResult>;
   readPlugin?(input: ProviderReadPluginInput): Promise<ProviderReadPluginResult>;
@@ -183,6 +189,7 @@ export interface ProviderService {
 
   // Discovery
   getComposerCapabilities(provider: ProviderKind): ProviderComposerCapabilities;
+  getRateLimits(provider: ProviderKind): Promise<CodexRateLimitReport | null>;
   listSkills(input: ProviderListSkillsInput): Promise<ProviderListSkillsResult>;
   listPlugins(input: ProviderListPluginsInput): Promise<ProviderListPluginsResult>;
   readPlugin(input: ProviderReadPluginInput): Promise<ProviderReadPluginResult>;

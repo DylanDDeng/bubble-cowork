@@ -20,6 +20,9 @@ export function normalizeUnifiedSessionSource(row: Pick<SessionRow, 'provider' |
   if (row.provider === 'opencode') {
     return 'opencode_local';
   }
+  if (row.provider === 'kimi') {
+    return 'kimi_local';
+  }
   return 'aegis';
 }
 
@@ -46,6 +49,7 @@ export function getHistorySourceForSession(session: UnifiedSessionRecord): Sessi
       return remoteClaudeHistorySource;
     case 'codex_local':
     case 'opencode_local':
+    case 'kimi_local':
     case 'aegis':
     default:
       return aegisDbHistorySource;

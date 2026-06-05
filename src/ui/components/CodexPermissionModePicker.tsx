@@ -21,9 +21,11 @@ export function CodexPermissionModePicker({
         onClick={() => setOpen((currentOpen) => !currentOpen)}
         disabled={disabled}
         className={`inline-flex items-center gap-1 rounded-md py-1 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-          value === 'fullAccess'
-            ? 'text-[#b42318] hover:text-[#991b1b]'
-            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              value === 'fullAccess'
+                ? 'text-[#b42318] hover:text-[#991b1b]'
+                : value === 'auto'
+                  ? 'text-[#ca8a04] hover:text-[#a16207]'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
         }`}
       >
         <span>{current.label}</span>
@@ -34,7 +36,7 @@ export function CodexPermissionModePicker({
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="popover-surface absolute bottom-full left-0 z-20 mb-2 flex min-w-[152px] flex-col gap-0.5 p-1.5">
-            {(['defaultPermissions', 'fullAccess'] as const).map((mode) => (
+            {(['defaultPermissions', 'auto', 'fullAccess'] as const).map((mode) => (
               <CodexPermissionModeOption
                 key={mode}
                 mode={mode}
@@ -60,6 +62,9 @@ const MODE_META: Record<
 > = {
   defaultPermissions: {
     label: 'Default',
+  },
+  auto: {
+    label: 'Auto',
   },
   fullAccess: {
     label: 'Full Access',

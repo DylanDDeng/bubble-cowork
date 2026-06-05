@@ -8,7 +8,6 @@ import {
   LoaderCircle,
   Search,
   ShieldCheck,
-  Sparkles,
   X,
 } from '../icons';
 import { toast } from 'sonner';
@@ -175,57 +174,50 @@ export function SkillMarketSettingsContent() {
     setDetailOpen(true);
   };
 
+  const getTopTabClassName = (targetView: typeof view) =>
+    `border-b-2 px-0 pb-2 pt-1 text-[15px] transition-colors ${
+      view === targetView
+        ? 'border-[var(--text-primary)] font-medium text-[var(--text-primary)]'
+        : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+    }`;
+
   return (
     <div className="space-y-4 pb-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <div className="text-[28px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
-            Skills
-          </div>
-          <button
-            type="button"
-            onClick={() => setView('market')}
-            className={`rounded-lg border px-3 py-1.5 text-[15px] transition-colors ${
-              view === 'market'
-                ? 'border-[var(--border)] bg-[var(--bg-secondary)] font-medium text-[var(--text-primary)]'
-                : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            Marketplace
-          </button>
-          <button
-            type="button"
-            onClick={() => setView('skills')}
-            className={`rounded-lg border px-3 py-1.5 text-[15px] transition-colors ${
-              view === 'skills'
-                ? 'border-[var(--border)] bg-[var(--bg-secondary)] font-medium text-[var(--text-primary)]'
-                : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            Claude Skills
-          </button>
-          <button
-            type="button"
-            onClick={() => setView('codex')}
-            className={`rounded-lg border px-3 py-1.5 text-[15px] transition-colors ${
-              view === 'codex'
-                ? 'border-[var(--border)] bg-[var(--bg-secondary)] font-medium text-[var(--text-primary)]'
-                : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            Codex
-          </button>
+      <div className="space-y-3">
+        <div className="text-[28px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+          Skills
         </div>
 
-        <div className="flex items-center gap-2 text-[13px] text-[var(--text-muted)]">
-          <Sparkles className="h-3.5 w-3.5" />
-          <span>
-            {view === 'market'
-              ? 'Install skills from skills.sh without leaving the app.'
-              : view === 'codex'
-                ? 'Browse plugins and skills exposed by Codex app-server.'
-                : 'Browse installed user and project skills in one place.'}
-          </span>
+        <div className="border-b border-[var(--border)]">
+          <div className="-mb-px flex items-center gap-7" role="tablist" aria-label="Skill library views">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'market'}
+              onClick={() => setView('market')}
+              className={getTopTabClassName('market')}
+            >
+              Marketplace
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'skills'}
+              onClick={() => setView('skills')}
+              className={getTopTabClassName('skills')}
+            >
+              Claude Skills
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'codex'}
+              onClick={() => setView('codex')}
+              className={getTopTabClassName('codex')}
+            >
+              Codex
+            </button>
+          </div>
         </div>
       </div>
 
@@ -286,11 +278,8 @@ function MarketCardGrid({
   return (
     <section className="min-h-[calc(100vh-220px)] space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0 space-y-1">
+        <div className="min-w-0">
           <h4 className="text-lg font-semibold text-[var(--text-primary)]">Marketplace</h4>
-          <p className="text-sm text-[var(--text-secondary)]">
-            {items.length} {items.length === 1 ? 'skill' : 'skills'} from skills.sh
-          </p>
         </div>
         <div className="relative w-full max-w-[520px]">
           <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]" />

@@ -5,8 +5,10 @@ import { ChatPane } from './ChatPane';
 
 export function WorkspaceHost({
   codexModelConfig,
+  onWorkspaceGitChanged,
 }: {
   codexModelConfig: import('../types').CodexModelConfig;
+  onWorkspaceGitChanged?: () => Promise<void>;
 }) {
   const {
     chatLayoutMode,
@@ -112,6 +114,7 @@ export function WorkspaceHost({
         }}
         onClose={paneId === 'secondary' && chatLayoutMode === 'split' ? closeSplitChat : undefined}
         headerActions={paneId === 'secondary' ? secondaryControls : null}
+        onWorkspaceGitChanged={onWorkspaceGitChanged}
       />
     );
   };
@@ -143,6 +146,7 @@ export function WorkspaceHost({
           onActivate={() => setActivePane('primary')}
           codexModelConfig={codexModelConfig}
           dropHint={dragTarget === 'primary' ? 'Open on left' : null}
+          onWorkspaceGitChanged={onWorkspaceGitChanged}
         />
         {dragTarget === 'secondary' ? (
           <div className="pointer-events-none absolute inset-y-0 right-0 z-10 flex w-1/2 items-center justify-center rounded-l-[var(--radius-2xl)] border-2 border-dashed border-[color-mix(in_srgb,var(--accent)_30%,transparent)] bg-[color-mix(in_srgb,var(--accent-light)_75%,transparent)] text-sm font-medium text-[var(--text-primary)]">

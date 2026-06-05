@@ -241,7 +241,9 @@ function normalizeAgentPermissionPolicyForProfile(
 }
 
 function normalizeAgentProvider(value: unknown): AgentProvider {
-  return value === 'aegis' || value === 'codex' || value === 'opencode' ? value : 'claude';
+  return value === 'aegis' || value === 'codex' || value === 'opencode' || value === 'kimi'
+    ? value
+    : 'claude';
 }
 
 function normalizeClaudeCompatibleProviderId(value: unknown): ClaudeCompatibleProviderId | undefined {
@@ -732,11 +734,18 @@ function createDraftSessionView(
     | 'codexPermissionMode'
     | 'codexReasoningEffort'
     | 'codexFastMode'
+    | 'kimiPermissionMode'
     | 'opencodePermissionMode'
     | 'aegisPermissionMode'
     | 'aegisReasoningEffort'
     | 'teamMode'
     | 'teamId'
+    | 'projectCwd'
+    | 'envMode'
+    | 'worktreePath'
+    | 'associatedWorktreePath'
+    | 'associatedWorktreeBranch'
+    | 'associatedWorktreeRef'
   >>
 ): SessionView {
   const now = Date.now();
@@ -752,12 +761,12 @@ function createDraftSessionView(
     readOnly: false,
     isDraft: true,
     cwd: cwd || undefined,
-    projectCwd: cwd || null,
-    envMode: 'local',
-    worktreePath: null,
-    associatedWorktreePath: null,
-    associatedWorktreeBranch: null,
-    associatedWorktreeRef: null,
+    projectCwd: options?.projectCwd !== undefined ? options.projectCwd : cwd || null,
+    envMode: options?.envMode || 'local',
+    worktreePath: options?.worktreePath ?? null,
+    associatedWorktreePath: options?.associatedWorktreePath ?? null,
+    associatedWorktreeBranch: options?.associatedWorktreeBranch ?? null,
+    associatedWorktreeRef: options?.associatedWorktreeRef ?? null,
     channelId: normalizeWorkspaceChannelId(channelId),
     teamMode: options?.teamMode || 'channel_default',
     teamId: options?.teamId || null,
@@ -771,6 +780,7 @@ function createDraftSessionView(
     codexPermissionMode: options?.codexPermissionMode,
     codexReasoningEffort: options?.codexReasoningEffort,
     codexFastMode: options?.codexFastMode,
+    kimiPermissionMode: options?.kimiPermissionMode,
     opencodePermissionMode: options?.opencodePermissionMode,
     aegisPermissionMode: options?.aegisPermissionMode,
     aegisReasoningEffort: options?.aegisReasoningEffort,
@@ -2055,11 +2065,12 @@ export const useAppStore = create<Store>()(
 
   setPendingStart: (pending) => set({ pendingStart: pending }),
 
-  createDraftSession: (cwd, channelId) => {
+  createDraftSession: (cwd, channelId, workspace) => {
     const draftCwd = cwd ?? get().projectCwd;
+    const draftProjectCwd = workspace?.projectCwd ?? draftCwd;
     const draftChannelId =
-      channelId ?? resolveActiveChannelIdForProject(get().activeChannelByProject, draftCwd);
-    const draft = createDraftSessionView(draftCwd, draftChannelId);
+      channelId ?? resolveActiveChannelIdForProject(get().activeChannelByProject, draftProjectCwd);
+    const draft = createDraftSessionView(draftCwd, draftChannelId, workspace);
     set((state) => ({
       sessions: {
         ...state.sessions,
@@ -2067,7 +2078,7 @@ export const useAppStore = create<Store>()(
       },
       activeChannelByProject: {
         ...state.activeChannelByProject,
-        [getProjectChannelKey(draftCwd)]: normalizeWorkspaceChannelId(draftChannelId),
+        [getProjectChannelKey(draftProjectCwd)]: normalizeWorkspaceChannelId(draftChannelId),
       },
       activeSessionId: draft.id,
       chatPanes: {
@@ -2407,7 +2418,9 @@ export const useAppStore = create<Store>()(
           chatCodeFontFamily,
         });
         const activeWorkspace =
-          persisted?.activeWorkspace === 'prompts' || persisted?.activeWorkspace === 'skills'
+          persisted?.activeWorkspace === 'prompts' ||
+          persisted?.activeWorkspace === 'skills' ||
+          persisted?.activeWorkspace === 'automations'
             ? persisted.activeWorkspace
             : 'chat';
         const sidebarView = persisted?.chatSidebarView === 'skills' ? 'skills' : 'threads';
@@ -2539,6 +2552,7 @@ function handleSessionList(
       codexPermissionMode: session.codexPermissionMode,
       codexReasoningEffort: session.codexReasoningEffort,
       codexFastMode: session.codexFastMode,
+      kimiPermissionMode: session.kimiPermissionMode,
       opencodePermissionMode: session.opencodePermissionMode,
       aegisPermissionMode: session.aegisPermissionMode,
       aegisReasoningEffort: session.aegisReasoningEffort,
@@ -2655,6 +2669,7 @@ function handleSessionStatus(
     codexPermissionMode?: SessionInfo['codexPermissionMode'];
     codexReasoningEffort?: SessionInfo['codexReasoningEffort'];
     codexFastMode?: SessionInfo['codexFastMode'];
+    kimiPermissionMode?: SessionInfo['kimiPermissionMode'];
     opencodePermissionMode?: SessionInfo['opencodePermissionMode'];
     aegisPermissionMode?: SessionInfo['aegisPermissionMode'];
     aegisReasoningEffort?: SessionInfo['aegisReasoningEffort'];
@@ -2690,6 +2705,7 @@ function handleSessionStatus(
     codexPermissionMode,
     codexReasoningEffort,
     codexFastMode,
+    kimiPermissionMode,
     opencodePermissionMode,
     aegisPermissionMode,
     aegisReasoningEffort,
@@ -2772,6 +2788,8 @@ function handleSessionStatus(
               : session.codexReasoningEffort,
           codexFastMode:
             codexFastMode !== undefined ? codexFastMode : session.codexFastMode,
+          kimiPermissionMode:
+            kimiPermissionMode !== undefined ? kimiPermissionMode : session.kimiPermissionMode,
           opencodePermissionMode:
             opencodePermissionMode !== undefined
               ? opencodePermissionMode
@@ -2839,6 +2857,7 @@ function handleSessionStatus(
       codexPermissionMode,
       codexReasoningEffort,
       codexFastMode,
+      kimiPermissionMode,
       opencodePermissionMode,
       hiddenFromThreads: hiddenFromThreads === true,
       channelId: normalizeWorkspaceChannelId(channelId),

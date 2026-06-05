@@ -26,7 +26,8 @@ export interface SessionRow {
   claude_session_id: string | null;
   codex_session_id: string | null;
   opencode_session_id: string | null;
-  provider: 'aegis' | 'claude' | 'codex' | 'opencode';
+  kimi_session_id: string | null;
+  provider: 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi';
   model: string | null;
   conversation_scope: import('../shared/types').SessionScope | null;
   agent_id: string | null;
@@ -118,6 +119,7 @@ export interface RunnerOptions {
   codexPermissionMode?: import('../shared/types').CodexPermissionMode;
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
   codexFastMode?: boolean;
+  kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
   codexSkills?: import('../shared/types').ProviderInputReference[];
   codexMentions?: import('../shared/types').ProviderInputReference[];
   aegisSkills?: import('../shared/types').ProviderInputReference[];
@@ -156,6 +158,7 @@ export interface RunnerHandle {
       codexPermissionMode?: import('../shared/types').CodexPermissionMode;
       codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
       codexFastMode?: boolean;
+      kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
       aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
       aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort;
       aegisAgentProfile?: import('../shared/types').RoutedAgentRuntimePayload | null;

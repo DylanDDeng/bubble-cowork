@@ -1,4 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { EditorSelection, EditorState, StateEffect, StateField, Transaction, type Extension } from '@codemirror/state';
+import {
+  Decoration,
+  EditorView,
+  WidgetType,
+  drawSelection,
+  highlightActiveLine,
+  keymap,
+  lineNumbers,
+  type DecorationSet,
+} from '@codemirror/view';
+import {
+  bracketMatching,
+  defaultHighlightStyle,
+  indentOnInput,
+  syntaxHighlighting,
+} from '@codemirror/language';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { languages } from '@codemirror/language-data';
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  redo,
+  undo,
+} from '@codemirror/commands';
 import {
   Bold,
   CheckSquare,
@@ -21,45 +47,6 @@ import {
   Undo2,
   X,
 } from './icons';
-import {
-  Editor,
-  commandsCtx,
-  defaultValueCtx,
-  editorViewCtx,
-  rootCtx,
-} from '@milkdown/kit/core';
-import type { EditorView as ProseEditorView, NodeViewConstructor } from '@milkdown/kit/prose/view';
-import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
-import type { Node as ProseNode } from '@milkdown/kit/prose/model';
-import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
-import { commonmark } from '@milkdown/kit/preset/commonmark';
-import {
-  createCodeBlockCommand,
-  imageSchema,
-  insertImageCommand,
-  liftListItemCommand,
-  toggleEmphasisCommand,
-  toggleInlineCodeCommand,
-  toggleLinkCommand,
-  toggleStrongCommand,
-  wrapInBlockquoteCommand,
-  wrapInBulletListCommand,
-  wrapInHeadingCommand,
-  wrapInOrderedListCommand,
-} from '@milkdown/kit/preset/commonmark';
-import {
-  gfm,
-  insertTableCommand,
-  toggleStrikethroughCommand,
-} from '@milkdown/kit/preset/gfm';
-import { history } from '@milkdown/kit/plugin/history';
-import { clipboard } from '@milkdown/kit/plugin/clipboard';
-import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
-import { replaceAll } from '@milkdown/kit/utils';
-import { $prose, $view } from '@milkdown/utils';
-import { undo, redo } from '@milkdown/kit/prose/history';
-import { projectMarkdownCodeBlockView } from './ProjectMarkdownCodeBlockView';
-import '@milkdown/kit/prose/view/style/prosemirror.css';
 import { toast } from 'sonner';
 import {
   DropdownMenu,
@@ -68,7 +55,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { copyMarkdownAsWechatHtml, type WeChatThemeId } from '../lib/wechatMarkdown';
+import {
+  copyMarkdownAsWechatAiHtml,
+  copyMarkdownAsWechatHtml,
+  type WeChatAiThemeId,
+  type WeChatStaticThemeId,
+} from '../lib/wechatMarkdown';
 
 export type MarkdownOutlineItem = {
   id: string;
@@ -120,12 +112,63 @@ type PendingLocalMarkdownValue = {
   localValues: Set<string>;
 };
 
-const headingFlashKey = new PluginKey<DecorationSet>('aegisMarkdownHeadingFlash');
-const HEADING_FLASH_META = 'aegis-markdown-heading-flash';
+type MarkdownToolbarState = {
+  strong: boolean;
+  emphasis: boolean;
+  inlineCode: boolean;
+  strike: boolean;
+  h1: boolean;
+  h2: boolean;
+  h3: boolean;
+  bullet: boolean;
+  ordered: boolean;
+  task: boolean;
+  quote: boolean;
+  codeBlock: boolean;
+};
+
+type MarkdownCodeBlock = {
+  from: number;
+  to: number;
+  startLine: number;
+  endLine: number;
+  language: string;
+  code: string;
+  terminated: boolean;
+};
+
+type MarkdownTableBlock = {
+  from: number;
+  to: number;
+  startLine: number;
+  endLine: number;
+  rows: string[][];
+};
+
+type MarkdownImageMatch = {
+  from: number;
+  to: number;
+  alt: string;
+  src: string;
+};
+
+type MarkdownFrontmatterBlock = {
+  from: number;
+  to: number;
+  startLine: number;
+  endLine: number;
+  frontmatter: string;
+};
+
+const updateListenerFacet = EditorView.updateListener;
+const markdownHeadingFlashEffect = StateEffect.define<number | null>();
+const markdownPointerSelectingEffect = StateEffect.define<boolean>();
+const METADATA_VISIBLE_ROWS = 8;
 const OUTLINE_TARGET_MIN_TOP_OFFSET_PX = 72;
 const OUTLINE_TARGET_MAX_TOP_OFFSET_PX = 140;
 const OUTLINE_TARGET_VIEWPORT_RATIO = 0.16;
-const METADATA_VISIBLE_ROWS = 8;
+const URL_CANDIDATE_RE = /(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
+const TRAILING_URL_PUNCTUATION_RE = /[.,;:!?，。！？；：、)\]}）】》]+$/u;
 const MARKDOWN_IMAGE_MIME_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -134,6 +177,25 @@ const MARKDOWN_IMAGE_MIME_TYPES = new Set([
   'image/svg+xml',
 ]);
 const MARKDOWN_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg']);
+const EMPTY_TOOLBAR_STATE: MarkdownToolbarState = {
+  strong: false,
+  emphasis: false,
+  inlineCode: false,
+  strike: false,
+  h1: false,
+  h2: false,
+  h3: false,
+  bullet: false,
+  ordered: false,
+  task: false,
+  quote: false,
+  codeBlock: false,
+};
+
+type LivePreviewDecorationState = {
+  decorations: DecorationSet;
+  pointerSelecting: boolean;
+};
 
 function splitFrontmatter(markdown: string): FrontmatterParts {
   const text = String(markdown || '').replace(/\r\n/g, '\n');
@@ -483,241 +545,1265 @@ function getImageFilesFromTransfer(dataTransfer: DataTransfer | null): File[] {
     .filter((file): file is File => Boolean(file && isSupportedMarkdownImageFile(file)));
 }
 
-function collectOutlineItems(view: ProseEditorView): MarkdownOutlineItem[] {
+function trimMatchedUrl(rawUrl: string): string {
+  return rawUrl.replace(TRAILING_URL_PUNCTUATION_RE, '');
+}
+
+function normalizeExternalMarkdownUrl(rawUrl: string): string | null {
+  const trimmed = rawUrl.trim();
+  const candidate = /^www\./i.test(trimmed) ? `https://${trimmed}` : trimmed;
+  if (!/^https?:\/\//i.test(candidate)) return null;
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function findClosestElement(target: EventTarget | null): Element | null {
+  if (target instanceof Element) return target;
+  if (target instanceof Node) return target.parentElement;
+  return null;
+}
+
+function openMarkdownExternalUrl(rawUrl: string): boolean {
+  const url = normalizeExternalMarkdownUrl(rawUrl);
+  if (!url) return false;
+
+  const opener = window.electron?.openExternalUrl;
+  if (typeof opener === 'function') {
+    void opener(url)
+      .then((result) => {
+        if (!result?.ok) {
+          toast.error(`打开链接失败: ${result?.message || url}`);
+        }
+      })
+      .catch((error) => {
+        toast.error(`打开链接失败: ${error instanceof Error ? error.message : String(error)}`);
+      });
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+  return true;
+}
+
+function findFrontmatterBlock(state: EditorState): MarkdownFrontmatterBlock | null {
+  if (state.doc.lines < 2) return null;
+  const firstLine = state.doc.line(1);
+  if (firstLine.text.trim() !== '---') return null;
+
+  for (let lineNumber = 2; lineNumber <= state.doc.lines; lineNumber += 1) {
+    const line = state.doc.line(lineNumber);
+    if (line.text.trim() !== '---') continue;
+    return {
+      from: firstLine.from,
+      to: line.to,
+      startLine: 1,
+      endLine: lineNumber,
+      frontmatter: state.sliceDoc(firstLine.from, line.to),
+    };
+  }
+  return null;
+}
+
+function frontmatterBlockIsActive(state: EditorState, block: MarkdownFrontmatterBlock): boolean {
+  return state.selection.ranges.some((range) => (
+    (range.from > block.from && range.from < block.to)
+    || (range.to > block.from && range.to < block.to)
+    || (!range.empty && range.from <= block.from && range.to >= block.to)
+  ));
+}
+
+function collectOutlineItemsFromDoc(state: EditorState): MarkdownOutlineItem[] {
   const items: MarkdownOutlineItem[] = [];
-
-  view.state.doc.descendants((node, pos) => {
-    if (node.type.name !== 'heading') return;
+  let inFrontmatter = false;
+  for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
+    const line = state.doc.line(lineNumber);
+    const text = line.text;
+    if (lineNumber === 1 && text.trim() === '---') {
+      inFrontmatter = true;
+      continue;
+    }
+    if (inFrontmatter) {
+      if (text.trim() === '---') inFrontmatter = false;
+      continue;
+    }
+    const match = /^(#{1,6})\s+(.+?)\s*$/.exec(text);
+    if (!match) continue;
+    const rawText = match[2]
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/[`*_~]/g, '')
+      .trim();
     items.push({
-      id: `heading-${pos}`,
-      level: typeof node.attrs.level === 'number' ? node.attrs.level : 1,
-      text: node.textContent.trim() || 'Untitled',
-      pos,
+      id: `heading-${line.from}`,
+      level: match[1].length,
+      text: rawText || 'Untitled',
+      pos: line.from,
     });
-  });
-
+  }
   return items;
 }
 
-function scrollHeadingIntoOutlinePosition(
-  view: ProseEditorView,
-  host: HTMLElement | null,
-  headingPos: number
-) {
-  const scroller = host?.closest<HTMLElement>('.aegis-md-main');
-  const node = view.nodeDOM(headingPos);
-  const headingElement = node instanceof HTMLElement
-    ? node
-    : node instanceof Text
-      ? node.parentElement
-      : null;
+function scanCodeBlocks(state: EditorState): MarkdownCodeBlock[] {
+  const blocks: MarkdownCodeBlock[] = [];
+  let lineNumber = 1;
+  while (lineNumber <= state.doc.lines) {
+    const line = state.doc.line(lineNumber);
+    const open = /^ {0,3}```\s*([A-Za-z0-9_+.-]*)\s*$/.exec(line.text);
+    if (!open) {
+      lineNumber += 1;
+      continue;
+    }
 
-  if (!scroller || !headingElement) return;
+    const startLine = lineNumber;
+    const startFrom = line.from;
+    const language = open[1] || '';
+    const codeLines: string[] = [];
+    let endLine = -1;
+    let to = line.to;
+    let scanLine = lineNumber + 1;
 
-  const scrollerRect = scroller.getBoundingClientRect();
-  const headingRect = headingElement.getBoundingClientRect();
-  const topOffset = Math.min(
-    OUTLINE_TARGET_MAX_TOP_OFFSET_PX,
-    Math.max(OUTLINE_TARGET_MIN_TOP_OFFSET_PX, scroller.clientHeight * OUTLINE_TARGET_VIEWPORT_RATIO)
-  );
-  const nextScrollTop = scroller.scrollTop + headingRect.top - scrollerRect.top - topOffset;
-  const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-
-  scroller.scrollTo({
-    top: Math.min(maxScrollTop, Math.max(0, nextScrollTop)),
-    behavior: 'smooth',
-  });
-}
-
-const trailingParagraphPlugin = $prose(() => {
-  return new Plugin({
-    appendTransaction: (_transactions, _oldState, newState) => {
-      const lastNode = newState.doc.lastChild;
-      if (!lastNode || lastNode.type.name !== 'paragraph') {
-        return newState.tr.insert(newState.doc.content.size, newState.schema.nodes.paragraph.create());
+    while (scanLine <= state.doc.lines) {
+      const nextLine = state.doc.line(scanLine);
+      if (/^ {0,3}```\s*$/.test(nextLine.text)) {
+        endLine = scanLine;
+        to = nextLine.to;
+        break;
       }
-      return null;
-    },
-  });
-});
+      codeLines.push(nextLine.text);
+      scanLine += 1;
+    }
 
-const headingFlashPlugin = $prose(() => {
-  return new Plugin<DecorationSet>({
-    key: headingFlashKey,
-    state: {
-      init: () => DecorationSet.empty,
-      apply: (tr, value) => {
-        const meta = tr.getMeta(HEADING_FLASH_META) as
-          | { type: 'flash'; pos: number }
-          | { type: 'clear' }
-          | undefined;
+    if (endLine === -1) {
+      // Unterminated fence — the normal state while the user is still typing the
+      // block (before the closing ``` exists). Treat it as the opening line only
+      // so it never swallows / hides the rest of the document, and resume scanning
+      // from the next line instead of consuming everything to EOF.
+      blocks.push({
+        from: startFrom,
+        to: line.to,
+        startLine,
+        endLine: startLine,
+        language,
+        code: '',
+        terminated: false,
+      });
+      lineNumber = startLine + 1;
+      continue;
+    }
 
-        if (meta?.type === 'clear') return DecorationSet.empty;
-        if (meta?.type === 'flash') {
-          const node = tr.doc.nodeAt(meta.pos);
-          if (!node || node.type.name !== 'heading') return DecorationSet.empty;
-          return DecorationSet.create(tr.doc, [
-            Decoration.node(meta.pos, meta.pos + node.nodeSize, {
-              class: 'aegis-md-heading-flash',
-            }),
-          ]);
-        }
-
-        if (!tr.docChanged) return value;
-        return value.map(tr.mapping, tr.doc);
-      },
-    },
-    props: {
-      decorations: (state) => headingFlashKey.getState(state),
-    },
-  });
-});
-
-function createImageView(cwd: string, filePath: string) {
-  return $view(imageSchema.node, (): NodeViewConstructor => {
-    return (node) => {
-      const img = document.createElement('img');
-      let loadRequestId = 0;
-      let destroyed = false;
-
-      const loadImage = async (src: string) => {
-        const requestId = ++loadRequestId;
-        const trimmed = src.trim();
-        img.removeAttribute('data-error');
-        if (!trimmed) {
-          img.removeAttribute('src');
-          return;
-        }
-        if (isRemoteOrInlineAssetSrc(trimmed)) {
-          img.src = trimmed;
-          return;
-        }
-
-        const reader = window.electron.readMarkdownImageAsset;
-        if (typeof reader === 'function') {
-          const result = await reader(cwd, filePath, trimmed);
-          if (destroyed || requestId !== loadRequestId) return;
-          if (result?.ok && result.dataUrl) {
-            img.src = result.dataUrl;
-            return;
-          }
-          img.dataset.error = result?.message || 'Unable to load image.';
-          img.removeAttribute('src');
-          return;
-        }
-
-        img.src = normalizeAssetSrc(cwd, filePath, trimmed);
-      };
-
-      img.className = 'aegis-md-image';
-      img.alt = String(node.attrs.alt || '');
-      img.title = String(node.attrs.title || '');
-      void loadImage(String(node.attrs.src || ''));
-      return {
-        dom: img,
-        update: (nextNode: ProseNode) => {
-          if (nextNode.type !== node.type) return false;
-          img.alt = String(nextNode.attrs.alt || '');
-          img.title = String(nextNode.attrs.title || '');
-          void loadImage(String(nextNode.attrs.src || ''));
-          return true;
-        },
-        destroy: () => {
-          destroyed = true;
-          loadRequestId += 1;
-        },
-        ignoreMutation: () => true,
-      };
-    };
-  });
-}
-
-function insertImageIntoView(view: ProseEditorView, src: string, alt: string) {
-  const imageNode = view.state.schema.nodes.image;
-  if (!imageNode) return;
-  const tr = view.state.tr
-    .replaceSelectionWith(imageNode.create({ src, alt, title: '' }))
-    .scrollIntoView();
-  view.dispatch(tr);
-  view.focus();
-}
-
-function createImageInputPlugin(
-  insertFiles: (view: ProseEditorView, files: File[]) => Promise<void>
-) {
-  return $prose(() => {
-    return new Plugin({
-      props: {
-        handlePaste: (view, event) => {
-          const files = getImageFilesFromTransfer(event.clipboardData);
-          if (files.length === 0) return false;
-          event.preventDefault();
-          void insertFiles(view, files);
-          return true;
-        },
-        handleDrop: (view, event, _slice, moved) => {
-          if (moved) return false;
-          const files = getImageFilesFromTransfer(event.dataTransfer);
-          if (files.length === 0) return false;
-          event.preventDefault();
-          const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
-          if (coords) {
-            view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(coords.pos))));
-          }
-          void insertFiles(view, files);
-          return true;
-        },
-      },
+    blocks.push({
+      from: startFrom,
+      to,
+      startLine,
+      endLine,
+      language,
+      code: codeLines.join('\n'),
+      terminated: true,
     });
-  });
+    lineNumber = endLine + 1;
+  }
+  return blocks;
 }
 
-function createCompositionTrackingPlugin(
-  onCompositionStart: () => void,
-  onCompositionEnd: () => void
-) {
-  return $prose(() => {
-    return new Plugin({
-      props: {
-        handleDOMEvents: {
-          compositionstart: () => {
-            onCompositionStart();
-            return false;
-          },
-          compositionend: () => {
-            onCompositionEnd();
-            return false;
-          },
-        },
-      },
+function parseMarkdownTableRow(text: string): string[] {
+  const trimmed = text.trim().replace(/^\||\|$/g, '');
+  return trimmed.split('|').map((cell) => cell.trim());
+}
+
+function isMarkdownTableSeparator(text: string): boolean {
+  const cells = parseMarkdownTableRow(text);
+  return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function scanTableBlocks(state: EditorState): MarkdownTableBlock[] {
+  const blocks: MarkdownTableBlock[] = [];
+  let lineNumber = 1;
+  while (lineNumber < state.doc.lines) {
+    const headerLine = state.doc.line(lineNumber);
+    const separatorLine = state.doc.line(lineNumber + 1);
+    if (!headerLine.text.includes('|') || !isMarkdownTableSeparator(separatorLine.text)) {
+      lineNumber += 1;
+      continue;
+    }
+
+    const rows = [parseMarkdownTableRow(headerLine.text)];
+    const startLine = lineNumber;
+    let endLine = lineNumber + 1;
+    let to = separatorLine.to;
+    lineNumber += 2;
+
+    while (lineNumber <= state.doc.lines) {
+      const rowLine = state.doc.line(lineNumber);
+      if (!rowLine.text.includes('|') || !rowLine.text.trim()) break;
+      rows.push(parseMarkdownTableRow(rowLine.text));
+      endLine = lineNumber;
+      to = rowLine.to;
+      lineNumber += 1;
+    }
+
+    blocks.push({
+      from: headerLine.from,
+      to,
+      startLine,
+      endLine,
+      rows,
     });
+  }
+  return blocks;
+}
+
+function isRangeActive(state: EditorState, from: number, to: number): boolean {
+  return state.selection.ranges.some((range) => range.from <= to && range.to >= from);
+}
+
+function lineIsActive(state: EditorState, lineFrom: number, lineTo: number): boolean {
+  return state.selection.ranges.some((range) => range.from <= lineTo && range.to >= lineFrom);
+}
+
+function selectionTouchesSourceRange(state: EditorState, from: number, to: number): boolean {
+  return state.selection.ranges.some((range) => {
+    if (range.empty) {
+      // Edge-inclusive: a bare caret sitting exactly at `to` (the position right
+      // after a marker the user just typed, e.g. the closing backtick of `code`)
+      // counts as touching the construct, so its markers stay raw until the caret
+      // actually leaves — matching Obsidian's live preview and avoiding the reflow
+      // that previously jumped the caret away from the just-typed glyph.
+      return range.from >= from && range.from <= to;
+    }
+    return range.from <= to && range.to >= from;
   });
 }
 
-function nodeIsActive(view: ProseEditorView | null, nodeName: string, attrs?: Record<string, unknown>): boolean {
-  if (!view) return false;
-  const { $from } = view.state.selection;
-  for (let depth = $from.depth; depth > 0; depth -= 1) {
-    const node = $from.node(depth);
-    if (node.type.name !== nodeName) continue;
-    if (!attrs) return true;
-    return Object.entries(attrs).every(([key, value]) => node.attrs[key] === value);
+function findCodeBlockAt(state: EditorState, pos: number): MarkdownCodeBlock | null {
+  return scanCodeBlocks(state).find((block) => pos >= block.from && pos <= block.to) || null;
+}
+
+function hasClosingFenceBelow(state: EditorState, lineNumber: number): boolean {
+  for (let n = lineNumber + 1; n <= state.doc.lines; n += 1) {
+    if (/^ {0,3}```\s*$/.test(state.doc.line(n).text)) return true;
   }
   return false;
 }
 
-function markIsActive(view: ProseEditorView | null, markName: string): boolean {
-  if (!view) return false;
-  const { state } = view;
-  const mark = state.schema.marks[markName];
-  if (!mark) return false;
-  const { from, to, empty } = state.selection;
-  if (empty) return Boolean(mark.isInSet(state.storedMarks || state.selection.$from.marks()));
-  let active = false;
-  state.doc.nodesBetween(from, to, (node) => {
-    if (mark.isInSet(node.marks)) active = true;
+function findImageInLine(text: string, lineFrom: number): MarkdownImageMatch | null {
+  const imageMatch = /!\[([^\]\n]*)\]\(([^)\s]+)\)/.exec(text.trim());
+  if (!imageMatch) return null;
+  const leading = text.length - text.trimStart().length;
+  const matchStart = text.indexOf(imageMatch[0]);
+  return {
+    from: lineFrom + Math.max(matchStart, leading),
+    to: lineFrom + Math.max(matchStart, leading) + imageMatch[0].length,
+    alt: imageMatch[1] || '',
+    src: imageMatch[2] || '',
+  };
+}
+
+function replaceRange(view: EditorView, from: number, to: number, insert: string, selectionPos?: number) {
+  view.dispatch({
+    changes: { from, to, insert },
+    selection: EditorSelection.cursor(selectionPos ?? from + insert.length),
+    scrollIntoView: true,
   });
-  return active;
+  view.focus();
+}
+
+function scrollEditorPositionIntoMainView(view: EditorView, host: HTMLElement | null, pos: number) {
+  const scroller = host?.closest<HTMLElement>('.aegis-md-main');
+  if (!scroller) return;
+
+  window.requestAnimationFrame(() => {
+    const coords = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
+    const scrollerRect = scroller.getBoundingClientRect();
+    const contentRect = view.contentDOM.getBoundingClientRect();
+    const lineBlock = view.lineBlockAt(pos);
+    const targetTop = coords?.top ?? contentRect.top + lineBlock.top;
+    const topOffset = Math.min(
+      OUTLINE_TARGET_MAX_TOP_OFFSET_PX,
+      Math.max(OUTLINE_TARGET_MIN_TOP_OFFSET_PX, scroller.clientHeight * OUTLINE_TARGET_VIEWPORT_RATIO)
+    );
+    const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const nextScrollTop = scroller.scrollTop + targetTop - scrollerRect.top - topOffset;
+    scroller.scrollTo({
+      top: Math.min(maxScrollTop, Math.max(0, nextScrollTop)),
+      behavior: 'smooth',
+    });
+  });
+}
+
+function normalizeLineSelection(state: EditorState) {
+  const range = state.selection.main;
+  return {
+    fromLine: state.doc.lineAt(range.from),
+    toLine: state.doc.lineAt(range.to),
+  };
+}
+
+function formatSelectedLines(view: EditorView, formatter: (lineText: string, lineIndex: number) => string) {
+  const { state } = view;
+  const { fromLine, toLine } = normalizeLineSelection(state);
+  const changes: Array<{ from: number; to: number; insert: string }> = [];
+  for (let lineNumber = fromLine.number; lineNumber <= toLine.number; lineNumber += 1) {
+    const line = state.doc.line(lineNumber);
+    changes.push({ from: line.from, to: line.to, insert: formatter(line.text, lineNumber - fromLine.number) });
+  }
+  view.dispatch({ changes, scrollIntoView: true });
+  view.focus();
+}
+
+function toggleInlineWrap(view: EditorView, markerStart: string, markerEnd = markerStart, placeholder = '') {
+  view.dispatch(
+    view.state.changeByRange((range) => {
+      const selected = view.state.sliceDoc(range.from, range.to);
+      const insertText = selected
+        ? `${markerStart}${selected}${markerEnd}`
+        : `${markerStart}${placeholder}${markerEnd}`;
+      const cursor = selected
+        ? range.from + insertText.length
+        : range.from + markerStart.length + placeholder.length;
+      return {
+        changes: { from: range.from, to: range.to, insert: insertText },
+        range: EditorSelection.cursor(cursor),
+      };
+    })
+  );
+  view.focus();
+}
+
+function toggleHeading(view: EditorView, level: 1 | 2 | 3) {
+  formatSelectedLines(view, (lineText) => {
+    const stripped = lineText.replace(/^#{1,6}\s+/, '');
+    const current = /^(#{1,6})\s+/.exec(lineText);
+    if (current?.[1]?.length === level) return stripped;
+    return `${'#'.repeat(level)} ${stripped}`;
+  });
+}
+
+function toggleLinePrefix(view: EditorView, kind: 'bullet' | 'ordered' | 'task' | 'quote') {
+  formatSelectedLines(view, (lineText, index) => {
+    const indent = lineText.match(/^\s*/)?.[0] || '';
+    const body = lineText
+      .replace(/^\s*[-*+]\s+\[[ xX]\]\s+/, '')
+      .replace(/^\s*[-*+]\s+/, '')
+      .replace(/^\s*\d+\.\s+/, '')
+      .replace(/^\s*>\s+/, '');
+    if (kind === 'bullet') return `${indent}- ${body}`;
+    if (kind === 'ordered') return `${indent}${index + 1}. ${body}`;
+    if (kind === 'task') return `${indent}- [ ] ${body}`;
+    return `${indent}> ${body}`;
+  });
+}
+
+function insertCodeBlock(view: EditorView) {
+  const selection = view.state.selection.main;
+  const selected = view.state.sliceDoc(selection.from, selection.to);
+  const insert = selected ? `\`\`\`\n${selected}\n\`\`\`` : '```\n\n```';
+  const cursor = selected ? selection.from + insert.length : selection.from + 4;
+  replaceRange(view, selection.from, selection.to, insert, cursor);
+}
+
+function insertTable(view: EditorView) {
+  const table = '| Column 1 | Column 2 | Column 3 |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |';
+  const selection = view.state.selection.main;
+  replaceRange(view, selection.from, selection.to, table, selection.from + 2);
+}
+
+function insertLink(view: EditorView, href: string) {
+  view.dispatch(
+    view.state.changeByRange((range) => {
+      const selected = view.state.sliceDoc(range.from, range.to) || 'Link';
+      const insert = `[${selected}](${href})`;
+      return {
+        changes: { from: range.from, to: range.to, insert },
+        range: EditorSelection.cursor(range.from + insert.length),
+      };
+    })
+  );
+  view.focus();
+}
+
+function insertImageMarkdown(view: EditorView, src: string, alt: string) {
+  const selection = view.state.selection.main;
+  const insert = `![${alt || 'Image'}](${src})`;
+  replaceRange(view, selection.from, selection.to, insert);
+}
+
+function toggleTaskAt(view: EditorView, from: number, to: number, checked: boolean) {
+  view.dispatch({
+    changes: { from, to, insert: checked ? '[ ]' : '[x]' },
+    selection: EditorSelection.cursor(to),
+  });
+  view.focus();
+}
+
+class TaskCheckboxWidget extends WidgetType {
+  constructor(
+    private readonly checked: boolean,
+    private readonly from: number,
+    private readonly to: number
+  ) {
+    super();
+  }
+
+  eq(other: TaskCheckboxWidget) {
+    return other.checked === this.checked && other.from === this.from && other.to === this.to;
+  }
+
+  toDOM(view: EditorView) {
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.className = 'aegis-cm-task-checkbox';
+    input.checked = this.checked;
+    input.addEventListener('mousedown', (event) => event.preventDefault());
+    input.addEventListener('click', (event) => {
+      event.preventDefault();
+      toggleTaskAt(view, this.from, this.to, this.checked);
+    });
+    return input;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
+class ImagePreviewWidget extends WidgetType {
+  constructor(
+    private readonly cwd: string,
+    private readonly filePath: string,
+    private readonly src: string,
+    private readonly alt: string,
+    private readonly sourcePos: number
+  ) {
+    super();
+  }
+
+  eq(other: ImagePreviewWidget) {
+    return other.cwd === this.cwd
+      && other.filePath === this.filePath
+      && other.src === this.src
+      && other.alt === this.alt
+      && other.sourcePos === this.sourcePos;
+  }
+
+  toDOM(view: EditorView) {
+    const container = document.createElement('span');
+    container.className = 'aegis-cm-image-widget';
+    container.tabIndex = 0;
+
+    const status = document.createElement('span');
+    status.className = 'aegis-cm-image-status';
+    status.textContent = 'Loading image...';
+    container.appendChild(status);
+
+    const showError = (message: string) => {
+      container.dataset.error = 'true';
+      status.textContent = message;
+    };
+
+    const renderImage = (src: string) => {
+      container.innerHTML = '';
+      const img = document.createElement('img');
+      img.src = src;
+      img.alt = this.alt;
+      img.title = this.alt;
+      img.loading = 'lazy';
+      img.addEventListener('error', () => showError('Image failed to load.'));
+      container.appendChild(img);
+    };
+
+    const trimmed = this.src.trim();
+    if (!trimmed) {
+      showError('Missing image path.');
+    } else if (isRemoteOrInlineAssetSrc(trimmed)) {
+      renderImage(trimmed);
+    } else {
+      const reader = window.electron?.readMarkdownImageAsset;
+      if (typeof reader === 'function') {
+        void reader(this.cwd, this.filePath, trimmed)
+          .then((result) => {
+            if (result?.ok && result.dataUrl) {
+              renderImage(result.dataUrl);
+            } else {
+              showError(result?.message || 'Unable to load local image.');
+            }
+          })
+          .catch((error) => showError(error instanceof Error ? error.message : String(error)));
+      } else {
+        renderImage(normalizeAssetSrc(this.cwd, this.filePath, trimmed));
+      }
+    }
+
+    container.addEventListener('click', () => {
+      view.dispatch({
+        selection: EditorSelection.cursor(this.sourcePos),
+        effects: EditorView.scrollIntoView(this.sourcePos, { y: 'center' }),
+      });
+      view.focus();
+    });
+    return container;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
+class CodeBlockPreviewWidget extends WidgetType {
+  constructor(
+    private readonly language: string,
+    private readonly code: string,
+    private readonly sourcePos: number
+  ) {
+    super();
+  }
+
+  eq(other: CodeBlockPreviewWidget) {
+    return other.language === this.language && other.code === this.code && other.sourcePos === this.sourcePos;
+  }
+
+  toDOM(view: EditorView) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'aegis-cm-code-widget';
+    wrapper.dataset.sourcePos = String(this.sourcePos);
+
+    const header = document.createElement('div');
+    header.className = 'aegis-cm-code-header';
+
+    const label = document.createElement('span');
+    label.className = 'aegis-cm-code-language-label';
+    label.textContent = this.language || 'text';
+    header.appendChild(label);
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'aegis-cm-code-copy';
+    button.textContent = 'Copy';
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void navigator.clipboard.writeText(this.code).then(() => {
+        button.textContent = 'Copied';
+        window.setTimeout(() => {
+          button.textContent = 'Copy';
+        }, 1100);
+      });
+    });
+    header.appendChild(button);
+    wrapper.appendChild(header);
+
+    const body = document.createElement('pre');
+    body.className = 'aegis-cm-code-body';
+    const code = document.createElement('code');
+    code.textContent = this.code || '';
+    body.appendChild(code);
+    wrapper.appendChild(body);
+
+    wrapper.addEventListener('click', () => {
+      view.dispatch({
+        selection: EditorSelection.cursor(this.sourcePos),
+        effects: EditorView.scrollIntoView(this.sourcePos, { y: 'center' }),
+      });
+      view.focus();
+    });
+    return wrapper;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
+class TablePreviewWidget extends WidgetType {
+  constructor(
+    private readonly rows: string[][],
+    private readonly sourcePos: number
+  ) {
+    super();
+  }
+
+  eq(other: TablePreviewWidget) {
+    return JSON.stringify(other.rows) === JSON.stringify(this.rows) && other.sourcePos === this.sourcePos;
+  }
+
+  toDOM(view: EditorView) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'aegis-cm-table-widget';
+    const table = document.createElement('table');
+    this.rows.forEach((row, rowIndex) => {
+      const tr = document.createElement('tr');
+      row.forEach((cell) => {
+        const el = document.createElement(rowIndex === 0 ? 'th' : 'td');
+        el.textContent = cell;
+        tr.appendChild(el);
+      });
+      table.appendChild(tr);
+    });
+    wrapper.appendChild(table);
+    wrapper.addEventListener('click', () => {
+      view.dispatch({
+        selection: EditorSelection.cursor(this.sourcePos),
+        effects: EditorView.scrollIntoView(this.sourcePos, { y: 'center' }),
+      });
+      view.focus();
+    });
+    return wrapper;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
+class FrontmatterPreviewWidget extends WidgetType {
+  private readonly fields: MarkdownMetadataField[];
+
+  constructor(
+    private readonly frontmatter: string,
+    private readonly editPos: number
+  ) {
+    super();
+    this.fields = parseMarkdownMetadata(frontmatter);
+  }
+
+  eq(other: FrontmatterPreviewWidget) {
+    return other.frontmatter === this.frontmatter && other.editPos === this.editPos;
+  }
+
+  toDOM(view: EditorView) {
+    const section = document.createElement('section');
+    section.className = 'aegis-mdx-metadata-card aegis-md-editor-metadata aegis-cm-frontmatter-widget';
+    section.setAttribute('aria-label', 'Metadata');
+
+    const title = document.createElement('div');
+    title.className = 'aegis-mdx-metadata-title';
+    title.textContent = 'Metadata';
+    section.appendChild(title);
+
+    const grid = document.createElement('div');
+    grid.className = 'aegis-mdx-metadata-grid';
+    section.appendChild(grid);
+
+    this.fields.forEach((field) => {
+      const row = document.createElement('div');
+      row.className = 'aegis-mdx-metadata-row';
+
+      const key = document.createElement('span');
+      key.className = 'aegis-mdx-metadata-key';
+      key.title = field.key;
+      key.textContent = field.key;
+      row.appendChild(key);
+
+      if (field.kind === 'array') {
+        const chips = document.createElement('div');
+        chips.className = 'aegis-mdx-metadata-chips';
+        chips.setAttribute('aria-label', field.key);
+        field.items.forEach((item) => {
+          const chip = document.createElement('span');
+          chip.className = 'aegis-mdx-metadata-chip';
+          chip.textContent = item;
+          chips.appendChild(chip);
+        });
+        row.appendChild(chips);
+      } else {
+        const value = document.createElement('span');
+        value.className = `aegis-mdx-metadata-value kind-${field.kind}`;
+        value.textContent = field.value;
+        row.appendChild(value);
+      }
+
+      grid.appendChild(row);
+    });
+
+    if (this.fields.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'aegis-mdx-metadata-value';
+      empty.textContent = 'No metadata';
+      grid.appendChild(empty);
+    }
+
+    section.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const pos = Math.min(this.editPos, view.state.doc.length);
+      view.dispatch({
+        selection: EditorSelection.cursor(pos),
+        effects: EditorView.scrollIntoView(pos, { y: 'center' }),
+      });
+      view.focus();
+    });
+    return section;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
+function addHiddenRange(decorations: Array<Range<Decoration>>, from: number, to: number) {
+  if (to > from) {
+    decorations.push(Decoration.replace({ inclusive: false }).range(from, to));
+  }
+}
+
+type Range<T> = {
+  from: number;
+  to: number;
+  value: T;
+};
+
+function addInlineMarkdownDecorations(
+  state: EditorState,
+  lineFrom: number,
+  lineText: string,
+  decorations: Array<Range<Decoration>>,
+  activeLine = false
+) {
+  const markdownLinkRanges: Array<{ from: number; to: number }> = [];
+  const heading = /^(#{1,6})\s+/.exec(lineText);
+  if (heading && !activeLine) {
+    const level = heading[1].length;
+    decorations.push(Decoration.line({ class: `aegis-cm-heading-line level-${level}` }).range(lineFrom));
+    addHiddenRange(decorations, lineFrom, lineFrom + heading[0].length);
+  }
+
+  const task = /^(\s*[-*+]\s+)(\[[ xX]\])\s+/.exec(lineText);
+  if (task && !activeLine) {
+    const from = lineFrom + task[1].length;
+    decorations.push(
+      Decoration.replace({
+        widget: new TaskCheckboxWidget(/[xX]/.test(task[2]), from, from + task[2].length),
+        inclusive: false,
+      }).range(from, from + task[2].length)
+    );
+  }
+
+  const linkRe = /(?<!!)\[([^\]\n]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+  let linkMatch: RegExpExecArray | null;
+  while ((linkMatch = linkRe.exec(lineText)) !== null) {
+    const full = linkMatch[0];
+    const label = linkMatch[1];
+    const href = linkMatch[2];
+    const start = lineFrom + linkMatch.index;
+    const labelStart = start + 1;
+    const labelEnd = labelStart + label.length;
+    const urlStart = labelEnd + 2;
+    const end = start + full.length;
+    markdownLinkRanges.push({ from: start, to: end });
+    if (selectionTouchesSourceRange(state, start, end)) continue;
+    addHiddenRange(decorations, start, labelStart);
+    addHiddenRange(decorations, labelEnd, urlStart);
+    addHiddenRange(decorations, urlStart, end);
+    decorations.push(Decoration.mark({
+      class: 'aegis-cm-link',
+      attributes: { 'data-aegis-url': href },
+    }).range(labelStart, labelEnd));
+  }
+
+  const inlineCodeRe = /`([^`\n]*)`/g;
+  let codeMatch: RegExpExecArray | null;
+  while ((codeMatch = inlineCodeRe.exec(lineText)) !== null) {
+    const start = lineFrom + codeMatch.index;
+    const contentStart = start + 1;
+    const contentEnd = contentStart + codeMatch[1].length;
+    if (selectionTouchesSourceRange(state, start, contentEnd + 1)) {
+      decorations.push(
+        Decoration.mark({ class: 'aegis-cm-inline-code aegis-cm-inline-code-source' })
+          .range(start, contentEnd + 1)
+      );
+      continue;
+    }
+    addHiddenRange(decorations, start, contentStart);
+    addHiddenRange(decorations, contentEnd, contentEnd + 1);
+    if (contentEnd > contentStart) {
+      decorations.push(Decoration.mark({ class: 'aegis-cm-inline-code' }).range(contentStart, contentEnd));
+    }
+  }
+
+  const strongRe = /(\*\*|__)([^*\n_]+)\1/g;
+  let strongMatch: RegExpExecArray | null;
+  while ((strongMatch = strongRe.exec(lineText)) !== null) {
+    const marker = strongMatch[1];
+    const start = lineFrom + strongMatch.index;
+    const contentStart = start + marker.length;
+    const contentEnd = contentStart + strongMatch[2].length;
+    if (selectionTouchesSourceRange(state, start, contentEnd + marker.length)) continue;
+    addHiddenRange(decorations, start, contentStart);
+    addHiddenRange(decorations, contentEnd, contentEnd + marker.length);
+    decorations.push(Decoration.mark({ class: 'aegis-cm-strong' }).range(contentStart, contentEnd));
+  }
+
+  const emphasisRe = /(^|[^\*])\*([^*\n]+)\*/g;
+  let emphasisMatch: RegExpExecArray | null;
+  while ((emphasisMatch = emphasisRe.exec(lineText)) !== null) {
+    const offset = emphasisMatch[1] ? 1 : 0;
+    const start = lineFrom + emphasisMatch.index + offset;
+    const contentStart = start + 1;
+    const contentEnd = contentStart + emphasisMatch[2].length;
+    if (selectionTouchesSourceRange(state, start, contentEnd + 1)) continue;
+    addHiddenRange(decorations, start, contentStart);
+    addHiddenRange(decorations, contentEnd, contentEnd + 1);
+    decorations.push(Decoration.mark({ class: 'aegis-cm-emphasis' }).range(contentStart, contentEnd));
+  }
+
+  const strikeRe = /~~([^~\n]+)~~/g;
+  let strikeMatch: RegExpExecArray | null;
+  while ((strikeMatch = strikeRe.exec(lineText)) !== null) {
+    const start = lineFrom + strikeMatch.index;
+    const contentStart = start + 2;
+    const contentEnd = contentStart + strikeMatch[1].length;
+    if (selectionTouchesSourceRange(state, start, contentEnd + 2)) continue;
+    addHiddenRange(decorations, start, contentStart);
+    addHiddenRange(decorations, contentEnd, contentEnd + 2);
+    decorations.push(Decoration.mark({ class: 'aegis-cm-strike' }).range(contentStart, contentEnd));
+  }
+
+  URL_CANDIDATE_RE.lastIndex = 0;
+  let urlMatch: RegExpExecArray | null;
+  while ((urlMatch = URL_CANDIDATE_RE.exec(lineText)) !== null) {
+    const url = trimMatchedUrl(urlMatch[0]);
+    if (!normalizeExternalMarkdownUrl(url)) continue;
+    const from = lineFrom + urlMatch.index;
+    const to = from + url.length;
+    if (markdownLinkRanges.some((range) => from >= range.from && from < range.to)) {
+      continue;
+    }
+    decorations.push(Decoration.mark({
+      class: 'aegis-cm-link',
+      attributes: { 'data-aegis-url': url },
+    }).range(from, to));
+  }
+}
+
+function buildLivePreviewDecorations(state: EditorState, cwd: string, filePath: string): DecorationSet {
+  const decorations: Array<Range<Decoration>> = [];
+  const frontmatter = findFrontmatterBlock(state);
+  const codeBlocks = scanCodeBlocks(state);
+  const tableBlocks = scanTableBlocks(state);
+  const blockLines = new Set<number>();
+
+  if (frontmatter && !frontmatterBlockIsActive(state, frontmatter)) {
+    for (let line = frontmatter.startLine; line <= frontmatter.endLine; line += 1) blockLines.add(line);
+    decorations.push(Decoration.replace({
+      widget: new FrontmatterPreviewWidget(frontmatter.frontmatter, frontmatter.from + 4),
+      block: true,
+    }).range(frontmatter.from, frontmatter.to));
+  }
+
+  for (const block of codeBlocks) {
+    if (!block.terminated) {
+      // Keep the literal ``` visible as plain text while the fence is still open
+      // (Obsidian-style); a block only collapses once it has a closing ```. This
+      // prevents an in-progress fence from folding the rest of the document.
+      blockLines.add(block.startLine);
+      continue;
+    }
+    for (let line = block.startLine; line <= block.endLine; line += 1) blockLines.add(line);
+    if (isRangeActive(state, block.from, block.to)) {
+      for (let lineNumber = block.startLine; lineNumber <= block.endLine; lineNumber += 1) {
+        const line = state.doc.line(lineNumber);
+        const boundaryClass = lineNumber === block.startLine
+          ? ' is-first'
+          : lineNumber === block.endLine
+            ? ' is-last'
+            : '';
+        const markerClass = lineNumber === block.startLine || lineNumber === block.endLine ? ' is-marker' : '';
+        decorations.push(
+          Decoration.line({ class: `aegis-cm-code-source-line${boundaryClass}${markerClass}` }).range(line.from)
+        );
+      }
+      continue;
+    }
+    decorations.push(Decoration.replace({
+      widget: new CodeBlockPreviewWidget(block.language, block.code, block.from),
+      block: true,
+    }).range(block.from, block.to));
+  }
+
+  for (const table of tableBlocks) {
+    for (let line = table.startLine; line <= table.endLine; line += 1) blockLines.add(line);
+    if (isRangeActive(state, table.from, table.to)) continue;
+    decorations.push(Decoration.replace({
+      widget: new TablePreviewWidget(table.rows, table.from),
+      block: true,
+    }).range(table.from, table.to));
+  }
+
+  for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
+    if (blockLines.has(lineNumber)) continue;
+    const line = state.doc.line(lineNumber);
+    const activeLine = lineIsActive(state, line.from, line.to);
+
+    const image = findImageInLine(line.text, line.from);
+    if (image && line.text.trim() === `![${image.alt}](${image.src})`) {
+      if (!activeLine) {
+        decorations.push(Decoration.replace({
+          widget: new ImagePreviewWidget(cwd, filePath, image.src, image.alt, image.from),
+          block: true,
+        }).range(image.from, image.to));
+      }
+      continue;
+    }
+
+    addInlineMarkdownDecorations(state, line.from, line.text, decorations, activeLine);
+  }
+
+  const flashPos = state.field(headingFlashField, false);
+  if (typeof flashPos === 'number') {
+    const line = state.doc.lineAt(flashPos);
+    decorations.push(Decoration.line({ class: 'aegis-cm-heading-flash' }).range(line.from));
+  }
+
+  return Decoration.set(decorations, true);
+}
+
+const headingFlashField = StateField.define<number | null>({
+  create: () => null,
+  update(value, tr) {
+    for (const effect of tr.effects) {
+      if (effect.is(markdownHeadingFlashEffect)) return effect.value;
+    }
+    return value;
+  },
+});
+
+function createLivePreviewDecorationsField(cwd: string, filePath: string): StateField<LivePreviewDecorationState> {
+  return StateField.define<LivePreviewDecorationState>({
+    create(state) {
+      return {
+        decorations: buildLivePreviewDecorations(state, cwd, filePath),
+        pointerSelecting: false,
+      };
+    },
+    update(value, transaction) {
+      const pointerSelectingEffect = transaction.effects.find((effect) => effect.is(markdownPointerSelectingEffect));
+      const nextPointerSelecting = pointerSelectingEffect
+        ? pointerSelectingEffect.value
+        : value.pointerSelecting;
+
+      if (nextPointerSelecting) {
+        return {
+          decorations: transaction.docChanged
+            ? buildLivePreviewDecorations(transaction.state, cwd, filePath)
+            : value.decorations.map(transaction.changes),
+          pointerSelecting: true,
+        };
+      }
+
+      if (value.pointerSelecting !== nextPointerSelecting) {
+        return {
+          decorations: buildLivePreviewDecorations(transaction.state, cwd, filePath),
+          pointerSelecting: false,
+        };
+      }
+
+      const shouldRebuild = transaction.docChanged
+        || transaction.selection
+        || transaction.effects.some((effect) => effect.is(markdownHeadingFlashEffect));
+      if (shouldRebuild) {
+        return {
+          decorations: buildLivePreviewDecorations(transaction.state, cwd, filePath),
+          pointerSelecting: false,
+        };
+      }
+      return {
+        decorations: value.decorations.map(transaction.changes),
+        pointerSelecting: false,
+      };
+    },
+    provide: (field) => EditorView.decorations.from(field, (value) => value.decorations),
+  });
+}
+
+function createPointerStablePreviewExtension(): Extension {
+  const startPointerSelection = (event: MouseEvent, view: EditorView) => {
+    if (event.button !== 0) return false;
+    view.dispatch({ effects: markdownPointerSelectingEffect.of(true) });
+    return false;
+  };
+  const endPointerSelection = (_event: Event, view: EditorView) => {
+    view.dispatch({ effects: markdownPointerSelectingEffect.of(false) });
+    return false;
+  };
+
+  return EditorView.domEventHandlers({
+    mousedown: startPointerSelection,
+    mouseup: endPointerSelection,
+    mouseleave: endPointerSelection,
+    touchstart: (_event, view) => {
+      view.dispatch({ effects: markdownPointerSelectingEffect.of(true) });
+      return false;
+    },
+    touchend: endPointerSelection,
+    touchcancel: endPointerSelection,
+    blur: endPointerSelection,
+  });
+}
+
+function createLivePreviewExtension(cwd: string, filePath: string): Extension {
+  return [
+    headingFlashField,
+    createLivePreviewDecorationsField(cwd, filePath),
+    createPointerStablePreviewExtension(),
+    EditorView.domEventHandlers({
+      click: (event) => {
+        const element = findClosestElement(event.target);
+        const link = element?.closest<HTMLElement>('[data-aegis-url]');
+        if (!link?.dataset.aegisUrl) return false;
+        if (!openMarkdownExternalUrl(link.dataset.aegisUrl)) return false;
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
+      },
+    }),
+  ];
+}
+
+function createImageInputExtension(
+  insertFiles: (view: EditorView, files: File[]) => Promise<void>
+): Extension {
+  return EditorView.domEventHandlers({
+    paste: (event, view) => {
+      const files = getImageFilesFromTransfer(event.clipboardData);
+      if (files.length === 0) return false;
+      event.preventDefault();
+      void insertFiles(view, files);
+      return true;
+    },
+    drop: (event, view) => {
+      const files = getImageFilesFromTransfer(event.dataTransfer);
+      if (files.length === 0) return false;
+      event.preventDefault();
+      const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+      if (typeof pos === 'number') {
+        view.dispatch({ selection: EditorSelection.cursor(pos) });
+      }
+      void insertFiles(view, files);
+      return true;
+    },
+    compositionstart: () => false,
+    compositionend: () => false,
+  });
+}
+
+function createMarkdownInputPairsExtension(): Extension {
+  return EditorView.inputHandler.of((view, from, to, text) => {
+    if (text !== '`') return false;
+    const line = view.state.doc.lineAt(from);
+    const beforeCursor = view.state.sliceDoc(line.from, from);
+    const afterCursor = view.state.sliceDoc(to, line.to);
+
+    if (
+      from === to
+      && /^(\s*)``$/.test(beforeCursor)
+      && afterCursor.trim() === ''
+    ) {
+      const indent = /^(\s*)/.exec(beforeCursor)?.[1] || '';
+      const insert = `${indent}\`\`\`\n${indent}\n${indent}\`\`\``;
+      view.dispatch({
+        changes: { from: line.from, to: line.to, insert },
+        selection: EditorSelection.cursor(line.from + `${indent}\`\`\`\n${indent}`.length),
+        annotations: Transaction.userEvent.of('input.type'),
+      });
+      return true;
+    }
+
+    if (from === to && view.state.sliceDoc(to, to + 1) === '`') {
+      view.dispatch({
+        selection: EditorSelection.cursor(to + 1),
+        scrollIntoView: true,
+        annotations: Transaction.userEvent.of('select'),
+      });
+      return true;
+    }
+
+    const selected = view.state.sliceDoc(from, to);
+    if (!selected) {
+      view.dispatch({
+        changes: { from, to, insert: '``' },
+        selection: EditorSelection.cursor(from + 1),
+        annotations: Transaction.userEvent.of('input.type'),
+      });
+      return true;
+    }
+    if (selected.includes('\n')) return false;
+    const insert = `\`${selected}\``;
+    view.dispatch({
+      changes: { from, to, insert },
+      selection: EditorSelection.cursor(from + insert.length),
+      annotations: Transaction.userEvent.of('input.type'),
+    });
+    return true;
+  });
+}
+
+function createMarkdownShortcuts(onSave: () => void): Extension {
+  return keymap.of([
+    {
+      key: 'Mod-s',
+      run: () => {
+        onSave();
+        return true;
+      },
+      preventDefault: true,
+    },
+    {
+      key: 'Mod-b',
+      run: (view) => {
+        toggleInlineWrap(view, '**', '**', 'bold');
+        return true;
+      },
+      preventDefault: true,
+    },
+    {
+      key: 'Mod-i',
+      run: (view) => {
+        toggleInlineWrap(view, '*', '*', 'italic');
+        return true;
+      },
+      preventDefault: true,
+    },
+    {
+      key: 'Enter',
+      run: (view) => {
+        const { state } = view;
+        const selection = state.selection.main;
+        if (!selection.empty) return false;
+        const line = state.doc.lineAt(selection.from);
+        const beforeCursor = state.sliceDoc(line.from, selection.from);
+
+        const fence = /^(\s*)```([A-Za-z0-9_+.-]*)$/.exec(beforeCursor);
+        if (fence && selection.from === line.to && !hasClosingFenceBelow(state, line.number)) {
+          const indent = fence[1] || '';
+          const language = fence[2] || '';
+          const replacement = `${indent}\`\`\`${language}\n${indent}\n${indent}\`\`\``;
+          replaceRange(view, line.from, line.to, replacement, line.from + `${indent}\`\`\`${language}\n${indent}`.length);
+          return true;
+        }
+
+        const task = /^(\s*[-*+]\s+\[[ xX]\]\s*)(.*)$/.exec(line.text);
+        if (task) {
+          if (!task[2].trim()) {
+            replaceRange(view, line.from, line.to, '');
+            return true;
+          }
+          replaceRange(view, selection.from, selection.from, `\n${task[1].replace(/\[[xX]\]/, '[ ]')}`);
+          return true;
+        }
+
+        const bullet = /^(\s*[-*+]\s+)(.*)$/.exec(line.text);
+        if (bullet) {
+          if (!bullet[2].trim()) {
+            replaceRange(view, line.from, line.to, '');
+            return true;
+          }
+          replaceRange(view, selection.from, selection.from, `\n${bullet[1]}`);
+          return true;
+        }
+
+        const ordered = /^(\s*)(\d+)\.\s+(.*)$/.exec(line.text);
+        if (ordered) {
+          if (!ordered[3].trim()) {
+            replaceRange(view, line.from, line.to, '');
+            return true;
+          }
+          replaceRange(view, selection.from, selection.from, `\n${ordered[1]}${Number(ordered[2]) + 1}. `);
+          return true;
+        }
+
+        const quote = /^(\s*>\s+)(.*)$/.exec(line.text);
+        if (quote) {
+          if (!quote[2].trim()) {
+            replaceRange(view, line.from, line.to, '');
+            return true;
+          }
+          replaceRange(view, selection.from, selection.from, `\n${quote[1]}`);
+          return true;
+        }
+        return false;
+      },
+    },
+    {
+      key: 'Backspace',
+      run: (view) => {
+        const { state } = view;
+        const selection = state.selection.main;
+        if (!selection.empty) return false;
+        const line = state.doc.lineAt(selection.from);
+        if (selection.from !== line.to) return false;
+        if (/^\s*(#{1,6}\s+|[-*+]\s+|\d+\.\s+|>\s+|[-*+]\s+\[[ xX]\]\s+)$/.test(line.text)) {
+          replaceRange(view, line.from, line.to, '');
+          return true;
+        }
+        return false;
+      },
+    },
+    {
+      key: 'Tab',
+      run: (view) => {
+        const { state } = view;
+        view.dispatch(
+          state.changeByRange((range) => {
+            const fromLine = state.doc.lineAt(range.from);
+            const toLine = state.doc.lineAt(range.to);
+            const changes: Array<{ from: number; insert: string }> = [];
+            for (let lineNumber = fromLine.number; lineNumber <= toLine.number; lineNumber += 1) {
+              const line = state.doc.line(lineNumber);
+              changes.push({ from: line.from, insert: '  ' });
+            }
+            return { changes, range: EditorSelection.range(range.from + 2, range.to + (changes.length * 2)) };
+          })
+        );
+        return true;
+      },
+      preventDefault: true,
+    },
+    {
+      key: 'Shift-Tab',
+      run: (view) => {
+        const { state } = view;
+        const { fromLine, toLine } = normalizeLineSelection(state);
+        const changes: Array<{ from: number; to: number; insert: string }> = [];
+        for (let lineNumber = fromLine.number; lineNumber <= toLine.number; lineNumber += 1) {
+          const line = state.doc.line(lineNumber);
+          const leading = /^ {1,2}/.exec(line.text);
+          if (leading) {
+            changes.push({ from: line.from, to: line.from + leading[0].length, insert: '' });
+          }
+        }
+        if (changes.length === 0) return false;
+        view.dispatch({ changes });
+        return true;
+      },
+      preventDefault: true,
+    },
+    ...historyKeymap,
+    ...defaultKeymap,
+  ]);
+}
+
+function deriveToolbarState(view: EditorView | null): MarkdownToolbarState {
+  if (!view) return EMPTY_TOOLBAR_STATE;
+  const line = view.state.doc.lineAt(view.state.selection.main.from);
+  const text = line.text;
+  const codeBlock = Boolean(findCodeBlockAt(view.state, view.state.selection.main.from));
+  return {
+    strong: /\*\*[^*]+\*\*/.test(text) || /__[^_]+__/.test(text),
+    emphasis: /(^|[^\*])\*[^*\n]+\*/.test(text),
+    inlineCode: /`[^`\n]+`/.test(text),
+    strike: /~~[^~]+~~/.test(text),
+    h1: /^#\s+/.test(text),
+    h2: /^##\s+/.test(text),
+    h3: /^###\s+/.test(text),
+    bullet: /^\s*[-*+]\s+/.test(text) && !/^\s*[-*+]\s+\[[ xX]\]\s+/.test(text),
+    ordered: /^\s*\d+\.\s+/.test(text),
+    task: /^\s*[-*+]\s+\[[ xX]\]\s+/.test(text),
+    quote: /^\s*>\s+/.test(text),
+    codeBlock,
+  };
 }
 
 function ToolbarButton({
@@ -751,16 +1837,6 @@ function ToolbarButton({
   );
 }
 
-function normalizeCopiedMarkdownSource(markdown: string): string {
-  // Milkdown's serializer escapes HTML-like prompt tags and identifier
-  // underscores (for example `\<title\_rules>`). Keep those guards out of
-  // copy/export output without touching intentional escapes elsewhere.
-  return markdown.replace(
-    /\\(<\/?)([A-Za-z][A-Za-z0-9\\_-]*)(\\?>)/g,
-    (_match, open: string, name: string) => `${open}${name.replace(/\\_/g, '_')}>`
-  );
-}
-
 export function ProjectMarkdownEditor({
   value,
   cwd,
@@ -776,67 +1852,51 @@ export function ProjectMarkdownEditor({
   onRegisterBridge,
 }: ProjectMarkdownEditorProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const editorRef = useRef<Editor | null>(null);
-  const viewRef = useRef<ProseEditorView | null>(null);
+  const viewRef = useRef<EditorView | null>(null);
   const currentFullMarkdownRef = useRef(value);
-  const frontmatterRef = useRef(splitFrontmatter(value).frontmatter);
   const pendingLocalValueRef = useRef<PendingLocalMarkdownValue | null>(null);
   const onSaveRef = useRef(onSave);
   const applyingPropValueRef = useRef(false);
   const composingInputRef = useRef(false);
   const composingMarkdownRef = useRef<string | null>(null);
   const compositionFlushTimerRef = useRef<number | null>(null);
-  const outlineItemsRef = useRef<MarkdownOutlineItem[]>([]);
-  const headingFlashTimerRef = useRef<number | null>(null);
   const outlineCloseTimerRef = useRef<number | null>(null);
+  const headingFlashTimerRef = useRef<number | null>(null);
   const [outlineItems, setOutlineItems] = useState<MarkdownOutlineItem[]>([]);
   const [activeOutlineId, setActiveOutlineId] = useState<string | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [editorFocused, setEditorFocused] = useState(false);
-  const [, forceToolbarState] = useState(0);
-  const [metadataExpanded, setMetadataExpanded] = useState(false);
+  const [active, setActive] = useState<MarkdownToolbarState>(EMPTY_TOOLBAR_STATE);
+  const [wechatAiGeneratingTheme, setWechatAiGeneratingTheme] = useState<WeChatAiThemeId | null>(null);
   const breadcrumb = useMemo(() => formatBreadcrumb(cwd, filePath), [cwd, filePath]);
-  const metadataFields = useMemo(
-    () => parseMarkdownMetadata(splitFrontmatter(value).frontmatter),
-    [value]
-  );
 
   useEffect(() => {
     onSaveRef.current = onSave;
   }, [onSave]);
 
-  const runCommand = useCallback(<T,>(key: { id: string } | unknown, payload?: T) => {
-    const editor = editorRef.current;
-    if (!editor) return false;
-    return editor.action((ctx) => ctx.get(commandsCtx).call(key as never, payload as never));
-  }, []);
+  const emitLocalChange = useCallback((next: string) => {
+    const pending = pendingLocalValueRef.current;
+    if (pending) {
+      pending.latestValue = next;
+      pending.localValues.add(next);
+    } else {
+      pendingLocalValueRef.current = {
+        latestValue: next,
+        localValues: new Set([next]),
+      };
+    }
+    currentFullMarkdownRef.current = next;
+    onChange(next);
+  }, [onChange]);
 
-  const focusEditor = useCallback(() => {
-    const view = viewRef.current;
-    view?.focus();
-  }, []);
-
-  const replaceSelectionWithText = useCallback((text: string, from?: number, to?: number) => {
-    const view = viewRef.current;
-    if (!view) return;
-    const selection = view.state.selection;
-    const replaceFrom = typeof from === 'number' ? from : selection.from;
-    const replaceTo = typeof to === 'number' ? to : selection.to;
-    const tr = view.state.tr.insertText(text, replaceFrom, replaceTo);
-    const nextPos = Math.min(replaceFrom + text.length, tr.doc.content.size);
-    view.dispatch(tr.setSelection(TextSelection.near(tr.doc.resolve(nextPos))).scrollIntoView());
-    view.focus();
-  }, []);
-
-  const refreshDerivedUi = useCallback((view: ProseEditorView) => {
-    const nextOutline = collectOutlineItems(view);
-    outlineItemsRef.current = nextOutline;
+  const refreshDerivedUi = useCallback((view: EditorView) => {
+    const nextOutline = collectOutlineItemsFromDoc(view.state);
     setOutlineItems(nextOutline);
-
-    const activeCandidates = nextOutline.filter((item) => item.pos <= view.state.selection.from);
-    const active = activeCandidates[activeCandidates.length - 1] || nextOutline[0] || null;
-    setActiveOutlineId(active?.id || null);
-    forceToolbarState((count) => count + 1);
+    const cursor = view.state.selection.main.from;
+    const activeCandidates = nextOutline.filter((item) => item.pos <= cursor);
+    const activeHeading = activeCandidates[activeCandidates.length - 1] || nextOutline[0] || null;
+    setActiveOutlineId(activeHeading?.id || null);
+    setActive(deriveToolbarState(view));
   }, []);
 
   const refreshCurrentEditorUi = useCallback(() => {
@@ -844,6 +1904,49 @@ export function ProjectMarkdownEditor({
     if (!view) return;
     refreshDerivedUi(view);
   }, [refreshDerivedUi]);
+
+  const flushComposedMarkdown = useCallback(() => {
+    const next = composingMarkdownRef.current;
+    composingMarkdownRef.current = null;
+    if (next === null) return;
+    emitLocalChange(next);
+    const view = viewRef.current;
+    if (view) refreshDerivedUi(view);
+  }, [emitLocalChange, refreshDerivedUi]);
+
+  const flushPendingMarkdownToParent = useCallback(() => {
+    if (compositionFlushTimerRef.current) {
+      window.clearTimeout(compositionFlushTimerRef.current);
+      compositionFlushTimerRef.current = null;
+    }
+    composingInputRef.current = false;
+    const view = viewRef.current;
+    if (view) {
+      const markdown = view.state.doc.toString();
+      if (markdown !== currentFullMarkdownRef.current) {
+        emitLocalChange(markdown);
+      }
+    }
+    flushComposedMarkdown();
+  }, [emitLocalChange, flushComposedMarkdown]);
+
+  const scheduleCompositionFlush = useCallback(() => {
+    if (compositionFlushTimerRef.current) {
+      window.clearTimeout(compositionFlushTimerRef.current);
+    }
+    compositionFlushTimerRef.current = window.setTimeout(() => {
+      compositionFlushTimerRef.current = null;
+      composingInputRef.current = false;
+      flushComposedMarkdown();
+    }, 0);
+  }, [flushComposedMarkdown]);
+
+  const isComposing = useCallback(() => composingInputRef.current, []);
+
+  useEffect(() => {
+    onRegisterBridge?.({ flush: flushPendingMarkdownToParent, isComposing });
+    return () => onRegisterBridge?.(null);
+  }, [flushPendingMarkdownToParent, isComposing, onRegisterBridge]);
 
   const openOutline = useCallback(() => {
     if (outlineCloseTimerRef.current) {
@@ -863,42 +1966,37 @@ export function ProjectMarkdownEditor({
     }, 180);
   }, []);
 
-  const toggleBulletList = useCallback(() => {
-    const view = viewRef.current;
-    if (!view) return;
-    const command = nodeIsActive(view, 'bullet_list')
-      ? liftListItemCommand.key
-      : wrapInBulletListCommand.key;
-    runCommand(command);
-    window.setTimeout(refreshCurrentEditorUi, 0);
-  }, [refreshCurrentEditorUi, runCommand]);
+  const focusEditor = useCallback(() => {
+    viewRef.current?.focus();
+  }, []);
 
-  const toggleOrderedList = useCallback(() => {
+  const applyFullMarkdownChange = useCallback((next: string) => {
     const view = viewRef.current;
-    if (!view) return;
-    const command = nodeIsActive(view, 'ordered_list')
-      ? liftListItemCommand.key
-      : wrapInOrderedListCommand.key;
-    runCommand(command);
-    window.setTimeout(refreshCurrentEditorUi, 0);
-  }, [refreshCurrentEditorUi, runCommand]);
+    if (!view) {
+      emitLocalChange(next);
+      return;
+    }
+    const current = view.state.doc.toString();
+    if (current === next) return;
+    view.dispatch({
+      changes: { from: 0, to: current.length, insert: next },
+      scrollIntoView: true,
+    });
+  }, [emitLocalChange]);
 
   const jumpToOutlineItem = useCallback((item: MarkdownOutlineItem) => {
     const view = viewRef.current;
     if (!view) return;
-    const pos = Math.min(item.pos + 1, view.state.doc.content.size);
-    view.dispatch(
-      view.state.tr
-        .setSelection(TextSelection.near(view.state.doc.resolve(pos)))
-        .setMeta(HEADING_FLASH_META, { type: 'flash', pos: item.pos })
-    );
-    view.focus();
-    window.requestAnimationFrame(() => {
-      const currentView = viewRef.current;
-      if (currentView) {
-        scrollHeadingIntoOutlinePosition(currentView, hostRef.current, item.pos);
-      }
+    const pos = Math.min(item.pos, view.state.doc.length);
+    view.dispatch({
+      selection: EditorSelection.cursor(pos),
+      effects: [
+        EditorView.scrollIntoView(pos, { y: 'center' }),
+        markdownHeadingFlashEffect.of(pos),
+      ],
     });
+    scrollEditorPositionIntoMainView(view, hostRef.current, pos);
+    view.focus();
     setActiveOutlineId(item.id);
 
     if (headingFlashTimerRef.current) {
@@ -907,143 +2005,92 @@ export function ProjectMarkdownEditor({
     headingFlashTimerRef.current = window.setTimeout(() => {
       const currentView = viewRef.current;
       if (currentView) {
-        currentView.dispatch(currentView.state.tr.setMeta(HEADING_FLASH_META, { type: 'clear' }));
+        currentView.dispatch({ effects: markdownHeadingFlashEffect.of(null) });
       }
       headingFlashTimerRef.current = null;
     }, 1100);
   }, []);
 
   const insertImage = useCallback(async () => {
+    const view = viewRef.current;
+    if (!view) return;
     const result = await window.electron.selectMarkdownImageAsset?.(cwd, filePath);
     if (!result?.ok || !result.relativePath) return;
-    runCommand(insertImageCommand.key, {
-      src: result.relativePath,
-      alt: result.name || 'Image',
-      title: '',
-    });
-    focusEditor();
-  }, [cwd, filePath, focusEditor, runCommand]);
+    insertImageMarkdown(view, result.relativePath, result.name || 'Image');
+  }, [cwd, filePath]);
 
   const promptLink = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return;
     const href = window.prompt('Link URL');
     if (!href) return;
-    runCommand(toggleLinkCommand.key, { href });
-    focusEditor();
-  }, [focusEditor, runCommand]);
+    insertLink(view, href);
+  }, []);
 
-  const emitLocalChange = useCallback((next: string) => {
-    const pending = pendingLocalValueRef.current;
-    if (pending) {
-      pending.latestValue = next;
-      pending.localValues.add(next);
-    } else {
-      pendingLocalValueRef.current = {
-        latestValue: next,
-        localValues: new Set([next]),
-      };
-    }
-    currentFullMarkdownRef.current = next;
-    onChange(next);
-  }, [onChange]);
-
-  const flushComposedMarkdown = useCallback(() => {
-    const next = composingMarkdownRef.current;
-    composingMarkdownRef.current = null;
-    if (next === null) return;
-
-    emitLocalChange(next);
-    const view = viewRef.current;
-    if (view) refreshDerivedUi(view);
-  }, [emitLocalChange, refreshDerivedUi]);
-
-  const flushPendingMarkdownToParent = useCallback(() => {
-    if (compositionFlushTimerRef.current) {
-      window.clearTimeout(compositionFlushTimerRef.current);
-      compositionFlushTimerRef.current = null;
-    }
-    composingInputRef.current = false;
-    flushComposedMarkdown();
-  }, [flushComposedMarkdown]);
-
-  const scheduleCompositionFlush = useCallback(() => {
-    if (compositionFlushTimerRef.current) {
-      window.clearTimeout(compositionFlushTimerRef.current);
-    }
-    compositionFlushTimerRef.current = window.setTimeout(() => {
-      compositionFlushTimerRef.current = null;
-      flushComposedMarkdown();
-    }, 0);
-  }, [flushComposedMarkdown]);
-
-  const handleMarkdownChange = useCallback((view: ProseEditorView, markdown: string) => {
-    const next = combineFrontmatter(frontmatterRef.current, markdown);
-    if (applyingPropValueRef.current) {
-      composingMarkdownRef.current = null;
-      currentFullMarkdownRef.current = next;
-    } else if (composingInputRef.current || view.composing) {
-      composingMarkdownRef.current = next;
-      currentFullMarkdownRef.current = next;
-    } else {
-      composingMarkdownRef.current = null;
-      emitLocalChange(next);
-    }
-    if (!composingInputRef.current && !view.composing) {
-      refreshDerivedUi(view);
-    }
-  }, [emitLocalChange, refreshDerivedUi]);
-
-  const isComposing = useCallback(() => composingInputRef.current, []);
-
-  useEffect(() => {
-    onRegisterBridge?.({ flush: flushPendingMarkdownToParent, isComposing });
-    return () => onRegisterBridge?.(null);
-  }, [flushPendingMarkdownToParent, isComposing, onRegisterBridge]);
-
-  const applyFrontmatterChange = useCallback((nextFrontmatter: string) => {
-    const currentParts = splitFrontmatter(currentFullMarkdownRef.current);
-    const next = combineFrontmatter(nextFrontmatter, currentParts.body);
-    frontmatterRef.current = nextFrontmatter;
-    emitLocalChange(next);
-  }, [emitLocalChange]);
-
-  const updateMetadataValue = useCallback((field: MarkdownMetadataField, nextValue: string) => {
-    applyFrontmatterChange(updateMarkdownMetadataValue(frontmatterRef.current, field, nextValue));
-  }, [applyFrontmatterChange]);
-
-  const updateMetadataArray = useCallback((field: MarkdownMetadataField, nextItems: string[]) => {
-    applyFrontmatterChange(updateMarkdownMetadataArray(frontmatterRef.current, field, nextItems));
-  }, [applyFrontmatterChange]);
-
-  const handleCopyWechatHtml = useCallback(async (themeId: WeChatThemeId = 'bubblebrain') => {
-    const markdown = normalizeCopiedMarkdownSource(currentFullMarkdownRef.current ?? value);
-    const result = await copyMarkdownAsWechatHtml(markdown, themeId);
+  const showWechatCopyResult = useCallback((
+    result: Awaited<ReturnType<typeof copyMarkdownAsWechatHtml>>,
+    toastId?: string | number,
+  ) => {
+    const modelDescription = result.ok && result.model
+      ? `使用：${result.runtime || 'aegis'} · ${result.model}`
+      : undefined;
+    const resultToastOptions = {
+      closeButton: true,
+      dismissible: true,
+      ...(modelDescription ? { description: modelDescription } : {}),
+    };
+    const toastOptions = toastId === undefined
+      ? resultToastOptions
+      : { ...resultToastOptions, id: toastId };
     if (result.ok) {
-      toast.success(
-        result.format === 'html'
-          ? '已复制到公众号剪贴板'
-          : '富文本复制不可用，已复制原始 Markdown'
-      );
+      if (result.format === 'html') {
+        toast.success('已复制到公众号剪贴板', toastOptions);
+      } else if (result.format === 'source-html') {
+        toast.success('富文本复制不可用，已复制生成的 HTML 源码', toastOptions);
+      } else {
+        toast.success('富文本复制不可用，已复制原始 Markdown', toastOptions);
+      }
     } else {
-      toast.error(`复制失败: ${result.error}`);
+      toast.error(`复制失败: ${result.error}`, toastOptions);
     }
-  }, [value]);
+  }, []);
 
-  const handleCopyRawMarkdown = useCallback(async () => {
-    const markdown = normalizeCopiedMarkdownSource(currentFullMarkdownRef.current ?? value);
+  const handleCopyWechatHtml = useCallback(async (themeId: WeChatStaticThemeId = 'bubblebrain') => {
+    const markdown = viewRef.current?.state.doc.toString() ?? currentFullMarkdownRef.current ?? value;
+    const result = await copyMarkdownAsWechatHtml(markdown, themeId);
+    showWechatCopyResult(result);
+  }, [showWechatCopyResult, value]);
+
+  const handleCopyAiWechatHtml = useCallback(async (
+    themeId: WeChatAiThemeId,
+    themeLabel: string,
+  ) => {
+    if (wechatAiGeneratingTheme) return;
+    const markdown = viewRef.current?.state.doc.toString() ?? currentFullMarkdownRef.current ?? value;
+    setWechatAiGeneratingTheme(themeId);
+    const loadingToastId = toast.loading(`正在生成${themeLabel} HTML...`, {
+      description: '生成完成后会自动复制到公众号剪贴板',
+      duration: Infinity,
+      dismissible: false,
+    });
     try {
-      await navigator.clipboard.writeText(markdown);
-      toast.success('已复制原始 Markdown');
+      const result = await copyMarkdownAsWechatAiHtml(markdown, themeId, filePath);
+      showWechatCopyResult(result, loadingToastId);
     } catch (error) {
-      toast.error(`复制失败: ${error instanceof Error ? error.message : String(error)}`);
+      toast.error(`复制失败: ${error instanceof Error ? error.message : String(error)}`, {
+        id: loadingToastId,
+        closeButton: true,
+        dismissible: true,
+      });
+    } finally {
+      setWechatAiGeneratingTheme(null);
     }
-  }, [value]);
+  }, [filePath, showWechatCopyResult, value, wechatAiGeneratingTheme]);
 
   useEffect(() => {
     const root = hostRef.current;
     if (!root) return;
 
-    const parts = splitFrontmatter(value);
-    frontmatterRef.current = parts.frontmatter;
     currentFullMarkdownRef.current = value;
     pendingLocalValueRef.current = null;
     applyingPropValueRef.current = false;
@@ -1054,9 +2101,8 @@ export function ProjectMarkdownEditor({
       compositionFlushTimerRef.current = null;
     }
     setEditorFocused(false);
-    let disposed = false;
 
-    const insertImageFiles = async (view: ProseEditorView, files: File[]) => {
+    const insertImageFiles = async (view: EditorView, files: File[]) => {
       const createAsset = window.electron.createMarkdownImageAsset;
       if (typeof createAsset !== 'function') return;
 
@@ -1065,7 +2111,7 @@ export function ProjectMarkdownEditor({
           const data = new Uint8Array(await file.arrayBuffer());
           const result = await createAsset(cwd, filePath, file.name || 'image', file.type, data);
           if (!result?.ok || !result.relativePath) continue;
-          insertImageIntoView(view, result.relativePath, result.name || file.name || 'Image');
+          insertImageMarkdown(view, result.relativePath, result.name || file.name || 'Image');
         } catch (error) {
           console.warn('Failed to insert Markdown image asset:', error);
         }
@@ -1073,72 +2119,79 @@ export function ProjectMarkdownEditor({
       refreshDerivedUi(view);
     };
 
-    const setup = async () => {
-      const editor = await Editor.make()
-        .config((ctx) => {
-          ctx.set(rootCtx, root);
-          ctx.set(defaultValueCtx, parts.body);
-          const listeners = ctx.get(listenerCtx);
-          listeners.markdownUpdated((innerCtx, markdown) => {
-            handleMarkdownChange(innerCtx.get(editorViewCtx), markdown);
-          });
-          listeners.focus((innerCtx) => {
-            setEditorFocused(true);
-            refreshDerivedUi(innerCtx.get(editorViewCtx));
-          });
-          listeners.blur(() => {
-            setEditorFocused(false);
-            forceToolbarState((count) => count + 1);
-          });
-        })
-        .use(commonmark)
-        .use(gfm)
-        .use(history)
-        .use(listener)
-        .use(createCompositionTrackingPlugin(
-          () => {
-            composingInputRef.current = true;
-            if (compositionFlushTimerRef.current) {
-              window.clearTimeout(compositionFlushTimerRef.current);
-              compositionFlushTimerRef.current = null;
-            }
-          },
-          () => {
-            composingInputRef.current = false;
-            scheduleCompositionFlush();
-          }
-        ))
-        .use(createImageInputPlugin(insertImageFiles))
-        .use(clipboard)
-        .use(trailingParagraphPlugin)
-        .use(headingFlashPlugin)
-        .use(createImageView(cwd, filePath))
-        .use(projectMarkdownCodeBlockView)
-        .create();
-
-      if (disposed) {
-        await editor.destroy();
-        return;
+    const updateListener = updateListenerFacet.of((update) => {
+      const markdown = update.state.doc.toString();
+      if (update.focusChanged) {
+        setEditorFocused(update.view.hasFocus);
       }
+      if (update.docChanged) {
+        if (applyingPropValueRef.current) {
+          composingMarkdownRef.current = null;
+          currentFullMarkdownRef.current = markdown;
+        } else if (composingInputRef.current || update.view.composing) {
+          composingMarkdownRef.current = markdown;
+          currentFullMarkdownRef.current = markdown;
+        } else {
+          composingMarkdownRef.current = null;
+          emitLocalChange(markdown);
+        }
+      }
+      if (update.docChanged || update.selectionSet || update.focusChanged) {
+        refreshDerivedUi(update.view);
+      }
+    });
 
-      editorRef.current = editor;
-      editor.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        viewRef.current = view;
-        refreshDerivedUi(view);
-      });
-    };
+    const compositionHandlers = EditorView.domEventHandlers({
+      compositionstart: () => {
+        composingInputRef.current = true;
+        if (compositionFlushTimerRef.current) {
+          window.clearTimeout(compositionFlushTimerRef.current);
+          compositionFlushTimerRef.current = null;
+        }
+        return false;
+      },
+      compositionend: () => {
+        scheduleCompositionFlush();
+        return false;
+      },
+    });
 
-    void setup();
+    const extensions: Extension[] = [
+      lineNumbers(),
+      highlightActiveLine(),
+      drawSelection(),
+      bracketMatching(),
+      indentOnInput(),
+      history(),
+      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      markdown({ base: markdownLanguage, codeLanguages: languages }),
+      createMarkdownShortcuts(() => onSaveRef.current()),
+      createMarkdownInputPairsExtension(),
+      createImageInputExtension(insertImageFiles),
+      createLivePreviewExtension(cwd, filePath),
+      compositionHandlers,
+      updateListener,
+      EditorView.lineWrapping,
+      EditorState.tabSize.of(2),
+      EditorView.theme({
+        '&': { height: '100%' },
+        '.cm-scroller': { overflow: 'auto' },
+      }),
+    ];
+
+    const state = EditorState.create({
+      doc: value,
+      extensions,
+    });
+    const view = new EditorView({ state, parent: root });
+    viewRef.current = view;
+    refreshDerivedUi(view);
 
     return () => {
-      disposed = true;
       flushPendingMarkdownToParent();
-      const editor = editorRef.current;
-      editorRef.current = null;
+      view.destroy();
       viewRef.current = null;
       setEditorFocused(false);
-      if (editor) void editor.destroy();
       root.innerHTML = '';
       if (headingFlashTimerRef.current) {
         window.clearTimeout(headingFlashTimerRef.current);
@@ -1151,10 +2204,17 @@ export function ProjectMarkdownEditor({
       composingInputRef.current = false;
       composingMarkdownRef.current = null;
     };
-  }, [cwd, filePath, flushPendingMarkdownToParent, handleMarkdownChange, refreshDerivedUi, scheduleCompositionFlush]);
+  }, [
+    cwd,
+    emitLocalChange,
+    filePath,
+    flushPendingMarkdownToParent,
+    refreshDerivedUi,
+    scheduleCompositionFlush,
+  ]);
 
   useEffect(() => {
-    const editor = editorRef.current;
+    const view = viewRef.current;
     const pending = pendingLocalValueRef.current;
     if (pending) {
       if (value === pending.latestValue) {
@@ -1169,36 +2229,28 @@ export function ProjectMarkdownEditor({
       pendingLocalValueRef.current = null;
     }
 
-    if (!editor) {
-      const parts = splitFrontmatter(value);
-      frontmatterRef.current = parts.frontmatter;
+    if (!view) {
       currentFullMarkdownRef.current = value;
       return;
     }
-    if (value === currentFullMarkdownRef.current) return;
+    const current = view.state.doc.toString();
+    if (value === current) {
+      currentFullMarkdownRef.current = value;
+      return;
+    }
 
-    const parts = splitFrontmatter(value);
-    frontmatterRef.current = parts.frontmatter;
-    currentFullMarkdownRef.current = value;
     applyingPropValueRef.current = true;
     try {
-      editor.action(replaceAll(parts.body));
+      view.dispatch({
+        changes: { from: 0, to: current.length, insert: value },
+        annotations: Transaction.userEvent.of('external-reload'),
+      });
+      currentFullMarkdownRef.current = value;
+      refreshDerivedUi(view);
     } finally {
       applyingPropValueRef.current = false;
     }
-    editor.action((ctx) => refreshDerivedUi(ctx.get(editorViewCtx)));
   }, [refreshDerivedUi, value]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
-        event.preventDefault();
-        onSaveRef.current();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
 
   useEffect(() => {
     return () => {
@@ -1208,25 +2260,7 @@ export function ProjectMarkdownEditor({
     };
   }, []);
 
-  useEffect(() => {
-    setMetadataExpanded(false);
-  }, [filePath]);
-
-  const view = viewRef.current;
-  const showActiveFormatting = editorFocused;
-  const active = {
-    strong: showActiveFormatting && markIsActive(view, 'strong'),
-    emphasis: showActiveFormatting && markIsActive(view, 'emphasis'),
-    inlineCode: showActiveFormatting && markIsActive(view, 'inlineCode'),
-    strike: showActiveFormatting && markIsActive(view, 'strike_through'),
-    h1: showActiveFormatting && nodeIsActive(view, 'heading', { level: 1 }),
-    h2: showActiveFormatting && nodeIsActive(view, 'heading', { level: 2 }),
-    h3: showActiveFormatting && nodeIsActive(view, 'heading', { level: 3 }),
-    bullet: showActiveFormatting && nodeIsActive(view, 'bullet_list'),
-    ordered: showActiveFormatting && nodeIsActive(view, 'ordered_list'),
-    quote: showActiveFormatting && nodeIsActive(view, 'blockquote'),
-    codeBlock: showActiveFormatting && nodeIsActive(view, 'code_block'),
-  };
+  const toolbarActive = editorFocused ? active : EMPTY_TOOLBAR_STATE;
 
   return (
     <div
@@ -1250,61 +2284,61 @@ export function ProjectMarkdownEditor({
 
       <div className="aegis-md-toolbar drag-region" aria-label="Markdown formatting toolbar">
         <div className="aegis-md-toolbar-tools">
-        <ToolbarButton title="Undo" onClick={() => { viewRef.current && undo(viewRef.current.state, viewRef.current.dispatch); focusEditor(); }}>
-          <Undo2 className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton title="Redo" onClick={() => { viewRef.current && redo(viewRef.current.state, viewRef.current.dispatch); focusEditor(); }}>
-          <Redo2 className="h-4 w-4" />
-        </ToolbarButton>
-        <span className="aegis-md-toolbar-separator" />
-        <ToolbarButton title="Bold" active={active.strong} onClick={() => runCommand(toggleStrongCommand.key)}>
-          <Bold className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton title="Italic" active={active.emphasis} onClick={() => runCommand(toggleEmphasisCommand.key)}>
-          <Italic className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton title="Strikethrough" active={active.strike} onClick={() => runCommand(toggleStrikethroughCommand.key)}>
-          <Strikethrough className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton title="Inline code" active={active.inlineCode} onClick={() => runCommand(toggleInlineCodeCommand.key)}>
-          <Code className="h-4 w-4" />
-        </ToolbarButton>
-        <span className="aegis-md-toolbar-separator" />
-        <ToolbarButton title="Heading 1" active={active.h1} onClick={() => runCommand(wrapInHeadingCommand.key, 1)}>
-          <Heading1 className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton title="Heading 2" active={active.h2} onClick={() => runCommand(wrapInHeadingCommand.key, 2)}>
-          <Heading2 className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton title="Heading 3" active={active.h3} onClick={() => runCommand(wrapInHeadingCommand.key, 3)}>
-          <Heading3 className="h-4 w-4" />
-        </ToolbarButton>
-        <span className="aegis-md-toolbar-separator" />
-        <ToolbarButton title="Bullet list" active={active.bullet} onClick={toggleBulletList}>
-          <List className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton title="Numbered list" active={active.ordered} onClick={toggleOrderedList}>
-          <ListOrdered className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton title="Task list" onClick={() => replaceSelectionWithText('- [ ] ')}>
-          <CheckSquare className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton title="Quote" active={active.quote} onClick={() => runCommand(wrapInBlockquoteCommand.key)}>
-          <Quote className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton title="Code block" active={active.codeBlock} onClick={() => runCommand(createCodeBlockCommand.key)}>
-          <Code className="h-4 w-4" />
-        </ToolbarButton>
-        <span className="aegis-md-toolbar-separator" />
-        <ToolbarButton title="Table" onClick={() => runCommand(insertTableCommand.key, { row: 3, col: 3 })}>
-          <Table className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton title="Link" onClick={promptLink}>
-          <Link className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton title="Image" onClick={() => void insertImage()}>
-          <ImageIcon className="h-4 w-4" />
-        </ToolbarButton>
+          <ToolbarButton title="Undo" onClick={() => { const view = viewRef.current; if (view) undo(view); focusEditor(); }}>
+            <Undo2 className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton title="Redo" onClick={() => { const view = viewRef.current; if (view) redo(view); focusEditor(); }}>
+            <Redo2 className="h-4 w-4" />
+          </ToolbarButton>
+          <span className="aegis-md-toolbar-separator" />
+          <ToolbarButton title="Bold" active={toolbarActive.strong} onClick={() => { const view = viewRef.current; if (view) toggleInlineWrap(view, '**', '**', 'bold'); }}>
+            <Bold className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton title="Italic" active={toolbarActive.emphasis} onClick={() => { const view = viewRef.current; if (view) toggleInlineWrap(view, '*', '*', 'italic'); }}>
+            <Italic className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton title="Strikethrough" active={toolbarActive.strike} onClick={() => { const view = viewRef.current; if (view) toggleInlineWrap(view, '~~', '~~', 'text'); }}>
+            <Strikethrough className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton title="Inline code" active={toolbarActive.inlineCode} onClick={() => { const view = viewRef.current; if (view) toggleInlineWrap(view, '`', '`', 'code'); }}>
+            <Code className="h-4 w-4" />
+          </ToolbarButton>
+          <span className="aegis-md-toolbar-separator" />
+          <ToolbarButton title="Heading 1" active={toolbarActive.h1} onClick={() => { const view = viewRef.current; if (view) toggleHeading(view, 1); }}>
+            <Heading1 className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton title="Heading 2" active={toolbarActive.h2} onClick={() => { const view = viewRef.current; if (view) toggleHeading(view, 2); }}>
+            <Heading2 className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton title="Heading 3" active={toolbarActive.h3} onClick={() => { const view = viewRef.current; if (view) toggleHeading(view, 3); }}>
+            <Heading3 className="h-4 w-4" />
+          </ToolbarButton>
+          <span className="aegis-md-toolbar-separator" />
+          <ToolbarButton title="Bullet list" active={toolbarActive.bullet} onClick={() => { const view = viewRef.current; if (view) toggleLinePrefix(view, 'bullet'); }}>
+            <List className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton title="Numbered list" active={toolbarActive.ordered} onClick={() => { const view = viewRef.current; if (view) toggleLinePrefix(view, 'ordered'); }}>
+            <ListOrdered className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton title="Task list" active={toolbarActive.task} onClick={() => { const view = viewRef.current; if (view) toggleLinePrefix(view, 'task'); }}>
+            <CheckSquare className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton title="Quote" active={toolbarActive.quote} onClick={() => { const view = viewRef.current; if (view) toggleLinePrefix(view, 'quote'); }}>
+            <Quote className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton title="Code block" active={toolbarActive.codeBlock} onClick={() => { const view = viewRef.current; if (view) insertCodeBlock(view); }}>
+            <Code className="h-4 w-4" />
+          </ToolbarButton>
+          <span className="aegis-md-toolbar-separator" />
+          <ToolbarButton title="Table" onClick={() => { const view = viewRef.current; if (view) insertTable(view); }}>
+            <Table className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton title="Link" onClick={promptLink}>
+            <Link className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton title="Image" onClick={() => void insertImage()}>
+            <ImageIcon className="h-4 w-4" />
+          </ToolbarButton>
         </div>
         <div className="aegis-md-toolbar-actions no-drag">
           <DropdownMenu>
@@ -1328,8 +2362,25 @@ export function ProjectMarkdownEditor({
                 <span>Lapis</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => void handleCopyRawMarkdown()}>
-                <span>原始 Markdown</span>
+              <DropdownMenuItem
+                disabled={wechatAiGeneratingTheme !== null}
+                onSelect={() => void handleCopyAiWechatHtml('black-red-imprint', '黑红刊刻风')}
+              >
+                <span>
+                  {wechatAiGeneratingTheme === 'black-red-imprint'
+                    ? '黑红刊刻风生成中...'
+                    : '黑红刊刻风（AI）'}
+                </span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={wechatAiGeneratingTheme !== null}
+                onSelect={() => void handleCopyAiWechatHtml('black-orange-imprint', '黑橙刊刻风')}
+              >
+                <span>
+                  {wechatAiGeneratingTheme === 'black-orange-imprint'
+                    ? '黑橙刊刻风生成中...'
+                    : '黑橙刊刻风（AI）'}
+                </span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1343,16 +2394,9 @@ export function ProjectMarkdownEditor({
 
       <div className="aegis-md-main">
         <div className="aegis-md-canvas">
-          <MarkdownMetadataCard
-            fields={metadataFields}
-            expanded={metadataExpanded}
-            onToggleExpanded={() => setMetadataExpanded((current) => !current)}
-            onUpdateValue={updateMetadataValue}
-            onUpdateArray={updateMetadataArray}
-          />
           <div
             ref={hostRef}
-            className="aegis-md-milkdown-root"
+            className="aegis-md-codemirror-root"
             onMouseUp={refreshCurrentEditorUi}
             onKeyUp={refreshCurrentEditorUi}
           />
@@ -1373,11 +2417,14 @@ export function ProjectMarkdownEditor({
               onMouseLeave={queueCloseOutline}
               onFocus={openOutline}
               onBlur={queueCloseOutline}
+              onClick={() => setOutlineOpen((current) => !current)}
             >
-              {outlineItems.map((item) => (
+              {outlineItems.slice(0, 8).map((item) => (
                 <span
-                  key={`outline-trigger-${item.id}`}
-                  className={`level-${item.level}${activeOutlineId === item.id ? ' active' : ''}`}
+                  key={item.id}
+                  className={`${item.id === activeOutlineId ? 'active' : ''} level-${item.level}`}
+                  title={item.text}
+                  aria-hidden="true"
                 />
               ))}
             </button>
@@ -1389,11 +2436,10 @@ export function ProjectMarkdownEditor({
               <div className="aegis-md-outline-list">
                 {outlineItems.map((item) => (
                   <button
-                    key={item.id}
                     type="button"
-                    className={`level-${item.level}${activeOutlineId === item.id ? ' active' : ''}`}
+                    key={item.id}
+                    className={`level-${item.level}${item.id === activeOutlineId ? ' active' : ''}`}
                     onClick={() => jumpToOutlineItem(item)}
-                    title={item.text}
                   >
                     {item.text}
                   </button>
