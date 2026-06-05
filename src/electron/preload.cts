@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 import type {
   AegisBuiltInAgentConfig,
+  AutomationDefinition,
+  AutomationSnapshot,
   ClaudeCompatibleProvidersConfig,
   ClaudeUsageRangeDays,
   FeishuBridgeConfig,
@@ -16,6 +18,7 @@ import type {
   SystemFontOption,
   UiResumeState,
   UpsertPromptLibraryItemInput,
+  UpsertAutomationInput,
   ProviderComposerCapabilities,
   ProviderListPluginsInput,
   ProviderListPluginsResult,
@@ -200,6 +203,31 @@ contextBridge.exposeInMainWorld('electron', {
   // 获取最近工作目录
   getRecentCwds: (limit?: number) => {
     return ipcRenderer.invoke('get-recent-cwds', limit);
+  },
+
+  getAutomations: (): Promise<AutomationSnapshot> => {
+    return ipcRenderer.invoke('get-automations');
+  },
+
+  saveAutomation: (input: UpsertAutomationInput): Promise<AutomationDefinition> => {
+    return ipcRenderer.invoke('save-automation', input);
+  },
+
+  deleteAutomation: (automationId: string): Promise<{ ok: boolean }> => {
+    return ipcRenderer.invoke('delete-automation', automationId);
+  },
+
+  setAutomationEnabled: (
+    automationId: string,
+    enabled: boolean
+  ): Promise<AutomationDefinition | null> => {
+    return ipcRenderer.invoke('set-automation-enabled', automationId, enabled);
+  },
+
+  runAutomationNow: (
+    automationId: string
+  ): Promise<{ ok: boolean; sessionId?: string; message?: string }> => {
+    return ipcRenderer.invoke('run-automation-now', automationId);
   },
 
   startTerminalSession: (

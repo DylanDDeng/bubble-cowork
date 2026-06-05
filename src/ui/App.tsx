@@ -26,6 +26,7 @@ import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { Sidebar, SidebarHeaderTrigger } from './components/Sidebar';
 import { PromptLibraryView } from './components/prompts/PromptLibraryView';
+import { AutomationsView } from './components/AutomationsView';
 import { NewSessionView } from './components/NewSessionView';
 import { PromptInput } from './components/PromptInput';
 import { InSessionSearch } from './components/search/InSessionSearch';
@@ -678,6 +679,8 @@ export function App() {
         </div>
       ) : activeWorkspace === 'prompts' ? (
         <PromptLibraryView />
+      ) : activeWorkspace === 'automations' ? (
+        <AutomationsView />
       ) : chatLayoutMode === 'split' || (activeSession && !showNewSession) ? (
         <div
           className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden transition-[padding] duration-200"

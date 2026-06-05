@@ -15,6 +15,7 @@ import {
   SidebarCollapseIcon,
   SidebarExpandIcon,
   SquarePen,
+  Clock,
 } from './icons';
 import { useAppStore } from '../store/useAppStore';
 import { SidebarSearchPalette } from './search/SidebarSearchPalette';
@@ -221,6 +222,12 @@ export function Sidebar() {
         keywords: ['prompts', 'snippets'],
       },
       {
+        id: 'switch-automations',
+        label: 'Go to Automations',
+        description: 'Manage scheduled project workflows',
+        keywords: ['automation', 'schedule', 'cron', 'workflow'],
+      },
+      {
         id: 'switch-skills',
         label: 'Go to Skills',
         description: 'Browse skills',
@@ -331,6 +338,11 @@ export function Sidebar() {
         setChatSidebarView('threads');
         setShowSettings(false);
         break;
+      case 'switch-automations':
+        setActiveWorkspace('automations');
+        setChatSidebarView('threads');
+        setShowSettings(false);
+        break;
       case 'switch-skills':
         setActiveWorkspace('skills');
         setChatSidebarView('threads');
@@ -413,6 +425,16 @@ export function Sidebar() {
                     label="Search"
                     active={searchPaletteOpen}
                     onClick={() => setSearchPaletteOpen(true)}
+                  />
+                  <SidebarNavRow
+                    icon={<Clock className="h-[15px] w-[15px]" />}
+                    label="Automations"
+                    active={activeWorkspace === 'automations'}
+                    onClick={() => {
+                      setActiveWorkspace('automations');
+                      setChatSidebarView('threads');
+                      setShowSettings(false);
+                    }}
                   />
                   <SidebarNavRow
                     icon={<BookOpenText className="h-[15px] w-[15px]" />}

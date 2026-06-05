@@ -2418,7 +2418,9 @@ export const useAppStore = create<Store>()(
           chatCodeFontFamily,
         });
         const activeWorkspace =
-          persisted?.activeWorkspace === 'prompts' || persisted?.activeWorkspace === 'skills'
+          persisted?.activeWorkspace === 'prompts' ||
+          persisted?.activeWorkspace === 'skills' ||
+          persisted?.activeWorkspace === 'automations'
             ? persisted.activeWorkspace
             : 'chat';
         const sidebarView = persisted?.chatSidebarView === 'skills' ? 'skills' : 'threads';

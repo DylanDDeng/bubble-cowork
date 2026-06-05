@@ -16,6 +16,14 @@ const INHERITED_ENV_KEYS = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_BASE_URL',
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'ALL_PROXY',
+  'NO_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'all_proxy',
+  'no_proxy',
   'OPENAI_API_KEY',
   'OPENCODE_API_KEY',
   'NVM_DIR',
@@ -28,6 +36,29 @@ type ShellEnvResult = {
   env: Record<string, string>;
   source: 'interactive-login' | 'login' | 'none';
 };
+
+type MacSystemProxyConfig = {
+  httpProxy?: string;
+  httpsProxy?: string;
+  allProxy?: string;
+  noProxy?: string;
+};
+
+type ProxyEnvironmentResult = {
+  applied: boolean;
+  source: 'environment' | 'macos-system' | 'none';
+};
+
+const PROXY_ENV_KEYS = [
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'ALL_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'all_proxy',
+] as const;
+
+const DEFAULT_NO_PROXY = ['localhost', '127.0.0.1', '::1'];
 
 function runShellEnvDump(shell: string, flags: string): Record<string, string> | null {
   // Wrap the env dump with markers so noise from interactive shell startup
@@ -68,6 +99,134 @@ function runShellEnvDump(shell: string, flags: string): Record<string, string> |
     return null;
   }
   return env;
+}
+
+function hasProxyEnvironment(env: NodeJS.ProcessEnv): boolean {
+  return PROXY_ENV_KEYS.some((key) => Boolean(env[key]?.trim()));
+}
+
+function getDictionaryValue(output: string, key: string): string | null {
+  const pattern = new RegExp(`^\\s*${key}\\s*:\\s*(.+?)\\s*$`, 'm');
+  return output.match(pattern)?.[1]?.trim() || null;
+}
+
+function isEnabled(value: string | null): boolean {
+  return value === '1' || value?.toLowerCase() === 'yes' || value?.toLowerCase() === 'true';
+}
+
+function buildProxyUrl(host: string | null, port: string | null, scheme: 'http' | 'socks5'): string | undefined {
+  if (!host || !port) {
+    return undefined;
+  }
+
+  const portNumber = Number(port);
+  if (!Number.isInteger(portNumber) || portNumber <= 0) {
+    return undefined;
+  }
+
+  return `${scheme}://${host}:${portNumber}`;
+}
+
+function collectNoProxyEntries(output: string): string[] {
+  const entries = new Set(DEFAULT_NO_PROXY);
+  let inExceptionsList = false;
+
+  for (const line of output.split('\n')) {
+    if (line.includes('ExceptionsList') && line.includes('<array>')) {
+      inExceptionsList = true;
+      continue;
+    }
+
+    if (!inExceptionsList) {
+      continue;
+    }
+
+    if (/^\s*(?:FTPPassive|HTTPEnable|HTTPSEnable|SOCKSEnable)\s*:/.test(line)) {
+      break;
+    }
+
+    const item = line.match(/^\s*\d+\s*:\s*(.+?)\s*$/)?.[1]?.trim();
+    if (!item) {
+      continue;
+    }
+
+    if (item === '<local>') {
+      entries.add('localhost');
+      entries.add('127.0.0.1');
+      entries.add('::1');
+    } else if (item.startsWith('*.')) {
+      entries.add(item.slice(1));
+    } else {
+      entries.add(item);
+    }
+  }
+
+  return Array.from(entries);
+}
+
+function loadMacSystemProxyConfig(): MacSystemProxyConfig | null {
+  if (process.platform !== 'darwin') {
+    return null;
+  }
+
+  let stdout: string;
+  try {
+    stdout = execFileSync('/usr/sbin/scutil', ['--proxy'], {
+      encoding: 'utf-8',
+      timeout: 3000,
+      maxBuffer: 512 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return null;
+  }
+
+  const httpProxy = isEnabled(getDictionaryValue(stdout, 'HTTPEnable'))
+    ? buildProxyUrl(getDictionaryValue(stdout, 'HTTPProxy'), getDictionaryValue(stdout, 'HTTPPort'), 'http')
+    : undefined;
+  const httpsProxy = isEnabled(getDictionaryValue(stdout, 'HTTPSEnable'))
+    ? buildProxyUrl(getDictionaryValue(stdout, 'HTTPSProxy'), getDictionaryValue(stdout, 'HTTPSPort'), 'http')
+    : undefined;
+  const allProxy =
+    !httpProxy && !httpsProxy && isEnabled(getDictionaryValue(stdout, 'SOCKSEnable'))
+      ? buildProxyUrl(getDictionaryValue(stdout, 'SOCKSProxy'), getDictionaryValue(stdout, 'SOCKSPort'), 'socks5')
+      : undefined;
+
+  const noProxy = collectNoProxyEntries(stdout).join(',');
+  if (!httpProxy && !httpsProxy && !allProxy) {
+    return null;
+  }
+
+  return { httpProxy, httpsProxy, allProxy, noProxy };
+}
+
+function setEnvIfMissing(target: NodeJS.ProcessEnv, key: string, value?: string): void {
+  if (!value || target[key]?.trim()) {
+    return;
+  }
+  target[key] = value;
+}
+
+function applyProxyEnvironmentFromSystem(target: NodeJS.ProcessEnv): ProxyEnvironmentResult {
+  if (hasProxyEnvironment(target)) {
+    return { applied: false, source: 'environment' };
+  }
+
+  const systemProxy = loadMacSystemProxyConfig();
+  if (!systemProxy) {
+    return { applied: false, source: 'none' };
+  }
+
+  setEnvIfMissing(target, 'HTTP_PROXY', systemProxy.httpProxy);
+  setEnvIfMissing(target, 'http_proxy', systemProxy.httpProxy);
+  setEnvIfMissing(target, 'HTTPS_PROXY', systemProxy.httpsProxy || systemProxy.httpProxy);
+  setEnvIfMissing(target, 'https_proxy', systemProxy.httpsProxy || systemProxy.httpProxy);
+  setEnvIfMissing(target, 'ALL_PROXY', systemProxy.allProxy);
+  setEnvIfMissing(target, 'all_proxy', systemProxy.allProxy);
+  setEnvIfMissing(target, 'NO_PROXY', systemProxy.noProxy);
+  setEnvIfMissing(target, 'no_proxy', systemProxy.noProxy);
+
+  return { applied: hasProxyEnvironment(target), source: 'macos-system' };
 }
 
 function isExecutableDir(dir: string): boolean {
@@ -181,6 +340,8 @@ export function ensureShellEnvironment(): void {
     }
   }
 
+  const proxyEnvironment = applyProxyEnvironmentFromSystem(process.env);
+
   const home = process.env.HOME || env.HOME || '';
   const fallbackEntries = home ? collectFallbackPathEntries(home) : [];
   const currentPath = process.env.PATH || '';
@@ -194,6 +355,9 @@ export function ensureShellEnvironment(): void {
     shell: process.env.SHELL,
     hasPath: Boolean(process.env.PATH),
     hasAnthropicKey: Boolean(process.env.ANTHROPIC_API_KEY),
+    hasProxy: hasProxyEnvironment(process.env),
+    proxySource: proxyEnvironment.source,
+    hasNoProxy: Boolean(process.env.NO_PROXY || process.env.no_proxy),
     pathPreview,
     includesNvm: (process.env.PATH || '').includes('.nvm/versions/node'),
   });

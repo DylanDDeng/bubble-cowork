@@ -548,6 +548,73 @@ export interface ProviderReadPluginResult {
   cached?: boolean;
 }
 
+export type AutomationScheduleKind = 'once' | 'daily' | 'weekly' | 'interval';
+
+export interface AutomationSchedule {
+  kind: AutomationScheduleKind;
+  timeOfDay?: string | null;
+  dayOfWeek?: number | null;
+  intervalMinutes?: number | null;
+  runAt?: number | null;
+}
+
+export interface AutomationRuntimeConfig {
+  provider: AgentProvider;
+  model?: string | null;
+  compatibleProviderId?: ClaudeCompatibleProviderId | null;
+  codexReasoningEffort?: CodexReasoningEffort | null;
+  codexFastMode?: boolean;
+  aegisReasoningEffort?: AegisBuiltInReasoningEffort | null;
+  teamMode?: SessionTeamMode;
+  teamId?: string | null;
+}
+
+export type AutomationRunStatus = 'running' | 'completed' | 'failed';
+
+export interface AutomationDefinition {
+  id: string;
+  name: string;
+  projectCwd: string;
+  prompt: string;
+  schedule: AutomationSchedule;
+  runtime: AutomationRuntimeConfig;
+  enabled: boolean;
+  nextRunAt: number | null;
+  lastRunAt: number | null;
+  lastRunStatus: AutomationRunStatus | null;
+  lastRunSessionId: string | null;
+  runCount: number;
+  failureCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AutomationRunRecord {
+  id: string;
+  automationId: string;
+  sessionId: string | null;
+  status: AutomationRunStatus;
+  error: string | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  createdAt: number;
+}
+
+export interface UpsertAutomationInput {
+  id?: string;
+  name: string;
+  projectCwd: string;
+  prompt: string;
+  schedule: AutomationSchedule;
+  runtime: AutomationRuntimeConfig;
+  enabled?: boolean;
+}
+
+export interface AutomationSnapshot {
+  automations: AutomationDefinition[];
+  recentRuns: AutomationRunRecord[];
+}
+
 // 项目文件树节点
 export interface ProjectTreeNode {
   name: string;
@@ -642,6 +709,7 @@ export type ServerEvent =
   | { type: 'session.folderChanged'; payload: { sessionId: string; folderPath: string | null } }
   | { type: 'session.channelChanged'; payload: { sessionId: string; channelId: string } }
   | { type: 'session.teamChanged'; payload: { sessionId: string; teamMode: SessionTeamMode; teamId: string | null } }
+  | { type: 'automation.changed'; payload: AutomationSnapshot }
   | { type: 'profiles.list'; payload: ProfileSnapshotPayload };
 
 // Payload 类型
@@ -649,6 +717,8 @@ export interface SessionStartPayload {
   title: string;
   prompt: string;
   effectivePrompt?: string;
+  automationRunId?: string;
+  skipTitleGeneration?: boolean;
   cwd?: string;
   projectCwd?: string | null;
   envMode?: ThreadEnvironmentMode;

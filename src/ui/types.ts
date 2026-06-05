@@ -38,6 +38,10 @@ export type {
   ClientEvent,
   ServerEvent,
   AppUpdateStatus,
+  AutomationDefinition,
+  AutomationRunRecord,
+  AutomationSchedule,
+  AutomationSnapshot,
   UiResumeState,
   McpServerConfig,
   McpServerStatus,
@@ -90,6 +94,7 @@ export type {
   MemoryDocument,
   MemoryWorkspace,
   AgentProvider,
+  UpsertAutomationInput,
   AegisBuiltInAgentConfig,
   AegisBuiltInReasoningEffort,
   WechatMarkdownHtmlGeneratorConfig,
@@ -141,7 +146,7 @@ export interface SessionStreamingState {
   thinking: string;
 }
 
-export type ActiveWorkspace = 'chat' | 'skills' | 'prompts';
+export type ActiveWorkspace = 'chat' | 'skills' | 'prompts' | 'automations';
 export type ChatSidebarView = 'threads' | 'prompts' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
 export type AgentProfileColor = 'amber' | 'sky' | 'emerald' | 'violet' | 'rose' | 'slate';

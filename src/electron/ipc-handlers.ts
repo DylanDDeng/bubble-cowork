@@ -41,6 +41,7 @@ import { getOpencodeModelConfig, saveOpencodeModelVisibility } from './libs/open
 import { getOpencodeRuntimeStatus } from './libs/opencode-runtime-status';
 import { getKimiModelConfig } from './libs/kimi-settings';
 import { formatKimiRuntimeBlockingMessage, getKimiRuntimeStatus } from './libs/kimi-runtime-status';
+import { AutomationScheduler } from './libs/automation-scheduler';
 import {
   deletePromptLibraryItem,
   exportPromptLibraryFile,
@@ -100,6 +101,7 @@ import type {
   GitCheckoutBranchInput,
   GitCreateWorktreeInput,
   GitSessionHandoffInput,
+  UpsertAutomationInput,
   WechatClipboardHtmlWriteInput,
   WechatMarkdownHtmlGenerationInput,
   WechatMarkdownHtmlGeneratorConfig,
@@ -3043,6 +3045,7 @@ const runnerHandles = new Map<
 >();
 
 const activeRoutedAgentSequences = new Map<string, { cancelled: boolean }>();
+let automationScheduler: AutomationScheduler | null = null;
 
 // 会话状态映射（包含 pending permissions）
 const sessionStates = new Map<string, SessionState>();
@@ -3064,6 +3067,20 @@ function broadcast(mainWindow: BrowserWindow, event: ServerEvent): void {
     return;
   }
   mainWindow.webContents.send('server-event', JSON.stringify(event));
+}
+
+function getAutomationSnapshot() {
+  return {
+    automations: sessions.listAutomations(),
+    recentRuns: sessions.listAutomationRuns({ limit: 100 }),
+  };
+}
+
+function broadcastAutomationChanged(mainWindow: BrowserWindow): void {
+  broadcast(mainWindow, {
+    type: 'automation.changed',
+    payload: getAutomationSnapshot(),
+  });
 }
 
 async function emitProjectTree(mainWindow: BrowserWindow, cwd: string, scheduledVersion: number): Promise<void> {
@@ -3470,6 +3487,14 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
   void feishuBridge.maybeAutoStart();
 
+  automationScheduler?.stop();
+  automationScheduler = new AutomationScheduler(
+    mainWindow,
+    (payload) => handleSessionStart(mainWindow, payload),
+    () => broadcastAutomationChanged(mainWindow)
+  );
+  automationScheduler.start();
+
   // 处理客户端事件
   ipcMain.removeAllListeners('client-event');
   ipcMain.on('client-event', async (_, eventJson: string) => {
@@ -3493,6 +3518,37 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   // RPC: 获取最近工作目录
   ipcMainHandle('get-recent-cwds', async (_, limit?: number) => {
     return sessions.listRecentCwds(limit);
+  });
+
+  ipcMainHandle('get-automations', async () => {
+    return getAutomationSnapshot();
+  });
+
+  ipcMainHandle('save-automation', async (_event, input: UpsertAutomationInput) => {
+    const automation = sessions.saveAutomation(input);
+    broadcastAutomationChanged(mainWindow);
+    return automation;
+  });
+
+  ipcMainHandle('delete-automation', async (_event, automationId: string) => {
+    const ok = sessions.deleteAutomation(automationId);
+    broadcastAutomationChanged(mainWindow);
+    return { ok };
+  });
+
+  ipcMainHandle('set-automation-enabled', async (_event, automationId: string, enabled: boolean) => {
+    const automation = sessions.setAutomationEnabled(automationId, enabled);
+    broadcastAutomationChanged(mainWindow);
+    return automation;
+  });
+
+  ipcMainHandle('run-automation-now', async (_event, automationId: string) => {
+    if (!automationScheduler) {
+      return { ok: false, message: 'Automation scheduler is not running.' };
+    }
+    const result = await automationScheduler.runNow(automationId);
+    broadcastAutomationChanged(mainWindow);
+    return result;
   });
 
   ipcMainHandle('set-window-min-size', async (_event, width: number, height: number) => {
@@ -6500,6 +6556,8 @@ async function handleSessionStart(
     title,
     prompt,
     effectivePrompt,
+    automationRunId,
+    skipTitleGeneration,
     cwd,
     projectCwd,
     envMode,
@@ -6641,6 +6699,10 @@ async function handleSessionStart(
 
   // 更新状态为 running
   sessions.updateSessionStatus(session.id, 'running');
+  if (automationRunId) {
+    sessions.setAutomationRunSession(automationRunId, session.id);
+    broadcastAutomationChanged(mainWindow);
+  }
 
   // 立即广播状态 -> 界面跳转
   broadcast(mainWindow, {
@@ -6705,6 +6767,10 @@ async function handleSessionStart(
     const runtimeStatus = await getClaudeRuntimeStatusCached(selectedModel || null);
     if (!runtimeStatus.ready) {
       sessions.updateSessionStatus(session.id, 'error');
+      if (automationRunId) {
+        sessions.finishAutomationRun(automationRunId, 'failed', formatClaudeRuntimeBlockingMessage(runtimeStatus));
+        broadcastAutomationChanged(mainWindow);
+      }
       broadcast(mainWindow, {
         type: 'runner.error',
         payload: {
@@ -6717,6 +6783,10 @@ async function handleSessionStart(
     const runtimeStatus = await getOpencodeRuntimeStatus();
     if (!runtimeStatus.ready) {
       sessions.updateSessionStatus(session.id, 'error');
+      if (automationRunId) {
+        sessions.finishAutomationRun(automationRunId, 'failed', 'OpenCode ACP is not ready. Check Settings > Providers.');
+        broadcastAutomationChanged(mainWindow);
+      }
       broadcast(mainWindow, {
         type: 'runner.error',
         payload: {
@@ -6729,6 +6799,10 @@ async function handleSessionStart(
     const runtimeStatus = await getKimiRuntimeStatus();
     if (!runtimeStatus.ready) {
       sessions.updateSessionStatus(session.id, 'error');
+      if (automationRunId) {
+        sessions.finishAutomationRun(automationRunId, 'failed', formatKimiRuntimeBlockingMessage(runtimeStatus));
+        broadcastAutomationChanged(mainWindow);
+      }
       broadcast(mainWindow, {
         type: 'runner.error',
         payload: {
@@ -6740,7 +6814,7 @@ async function handleSessionStart(
   }
 
   // 异步生成更好的标题（不阻塞）
-  if (sessionScope !== 'dm') {
+  if (sessionScope !== 'dm' && !skipTitleGeneration) {
     generateSessionTitle(
       sourcePrompt,
       sessionCwd,
@@ -6819,7 +6893,17 @@ async function handleSessionStart(
     chosenProvider === 'aegis' ? turnAgentProfile : undefined,
     chosenProvider === 'aegis' ? aegisTeamRuntime.team : undefined,
     chosenProvider === 'aegis' ? aegisTeamRuntime.agents : undefined,
-    turnAgentId
+    turnAgentId,
+    automationRunId
+      ? (status) => {
+          const runStatus = status === 'completed' ? 'completed' : 'failed';
+          const message = status === 'completed' ? null : `Automation session ended with ${status}.`;
+          sessions.finishAutomationRun(automationRunId, runStatus, message);
+          broadcastAutomationChanged(mainWindow);
+        }
+      : undefined,
+    undefined,
+    Boolean(automationRunId)
   );
   return session.id;
 }
@@ -7410,7 +7494,8 @@ function startRunner(
   aegisTeamAgents?: RoutedAgentRuntimePayload[],
   activeAgentId?: string | null,
   onTurnDone?: (status: SessionStatus) => void,
-  activeAgentRunId?: string | null
+  activeAgentRunId?: string | null,
+  autoApprovePermissions = false
 ): void {
   if (!session) return;
 
@@ -7826,6 +7911,16 @@ function startRunner(
       });
     },
     onPermissionRequest: async (toolUseId, toolName, input) => {
+      if (autoApprovePermissions) {
+        return {
+          behavior: 'allow',
+          updatedInput:
+            input && typeof input === 'object' && !Array.isArray(input)
+              ? { ...(input as Record<string, unknown>) }
+              : undefined,
+          scope: 'session',
+        };
+      }
       // 广播权限请求
       broadcast(mainWindow, {
         type: 'permission.request',
@@ -8282,6 +8377,8 @@ function broadcastFolderChanged(mainWindow: BrowserWindow): void {
 // 清理资源
 export function cleanup(): void {
   ipcMain.removeAllListeners('client-event');
+  automationScheduler?.stop();
+  automationScheduler = null;
   disposeTerminalTransportServer();
   disposeTerminalRuntime();
   // 停止所有运行中的 runner

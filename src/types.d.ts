@@ -3,6 +3,8 @@
 
 import type {
   AegisBuiltInAgentConfig,
+  AutomationDefinition,
+  AutomationSnapshot,
   ClientEvent,
   ClaudeCompatibleProvidersConfig,
   ServerEvent,
@@ -23,6 +25,7 @@ import type {
   ClaudeUsageReport,
   CodexRateLimitReport,
   UpsertPromptLibraryItemInput,
+  UpsertAutomationInput,
   CodexModelConfig,
   CodexRuntimeStatus,
   KimiModelConfig,
@@ -97,6 +100,11 @@ declare global {
     ) => () => void;
     generateSessionTitle: (prompt: string) => Promise<string>;
     getRecentCwds: (limit?: number) => Promise<string[]>;
+    getAutomations: () => Promise<AutomationSnapshot>;
+    saveAutomation: (input: UpsertAutomationInput) => Promise<AutomationDefinition>;
+    deleteAutomation: (automationId: string) => Promise<{ ok: boolean }>;
+    setAutomationEnabled: (automationId: string, enabled: boolean) => Promise<AutomationDefinition | null>;
+    runAutomationNow: (automationId: string) => Promise<{ ok: boolean; sessionId?: string; message?: string }>;
     startTerminalSession: (sessionId: string, cwd: string, cols?: number, rows?: number, agentKind?: TerminalAgentKind) => Promise<StartTerminalSessionResult>;
     writeTerminalSession: (sessionId: string, data: string) => Promise<{ ok: boolean; message?: string }>;
     resizeTerminalSession: (sessionId: string, cols: number, rows: number) => Promise<{ ok: boolean; message?: string }>;
