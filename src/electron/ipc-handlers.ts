@@ -1611,6 +1611,23 @@ function extractAssistantText(message: StreamMessage): string {
     .trim();
 }
 
+function detectLocalRunnerFailureMessage(text: string): string | null {
+  const normalized = text.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  if (/Failed to authenticate/i.test(normalized) && /Request not allowed/i.test(normalized)) {
+    return normalized;
+  }
+
+  if (/API Error:\s*403/i.test(normalized) && /Request not allowed/i.test(normalized)) {
+    return normalized;
+  }
+
+  return null;
+}
+
 function isLocalUtilityAssistantText(text: string): boolean {
   return (
     text.startsWith('**Session usage**') ||
@@ -3040,7 +3057,7 @@ const runnerHandles = new Map<
     aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort;
     activeAgentId?: string | null;
     activeAgentRunId?: string | null;
-    onTurnDone?: (status: SessionStatus) => void;
+    onTurnDone?: (status: SessionStatus, message?: string) => void;
   }
 >();
 
@@ -6895,9 +6912,10 @@ async function handleSessionStart(
     chosenProvider === 'aegis' ? aegisTeamRuntime.agents : undefined,
     turnAgentId,
     automationRunId
-      ? (status) => {
+      ? (status, failureMessage) => {
           const runStatus = status === 'completed' ? 'completed' : 'failed';
-          const message = status === 'completed' ? null : `Automation session ended with ${status}.`;
+          const message =
+            status === 'completed' ? null : failureMessage || `Automation session ended with ${status}.`;
           sessions.finishAutomationRun(automationRunId, runStatus, message);
           broadcastAutomationChanged(mainWindow);
         }
@@ -7493,7 +7511,7 @@ function startRunner(
   aegisTeam?: TeamProfile | null,
   aegisTeamAgents?: RoutedAgentRuntimePayload[],
   activeAgentId?: string | null,
-  onTurnDone?: (status: SessionStatus) => void,
+  onTurnDone?: (status: SessionStatus, message?: string) => void,
   activeAgentRunId?: string | null,
   autoApprovePermissions = false
 ): void {
@@ -7537,6 +7555,7 @@ function startRunner(
 
   let initMessage: Extract<StreamMessage, { type: 'system'; subtype: 'init' }> | null = null;
   let sawTurnOutput = false;
+  let localFailureMessage: string | null = null;
 
   const handle = runAgentLoop({
     prompt,
@@ -7693,6 +7712,8 @@ function startRunner(
           turnAgentId,
           turnAgentRunId
         );
+        localFailureMessage =
+          localFailureMessage || detectLocalRunnerFailureMessage(extractAssistantText(attributedMessage));
         const shouldPersistMessage = shouldPersistProviderMessage(attributedMessage);
         if (shouldPersistMessage) {
           // 保存消息
@@ -7736,7 +7757,9 @@ function startRunner(
           });
         }
 
-        const status: SessionStatus = message.subtype === 'success' ? 'completed' : 'error';
+        const explicitFailureMessage = localFailureMessage || slashFailureMessage;
+        const status: SessionStatus =
+          explicitFailureMessage || message.subtype !== 'success' ? 'error' : 'completed';
         sessions.updateSessionStatus(session.id, status);
 
         broadcast(mainWindow, {
@@ -7807,7 +7830,7 @@ function startRunner(
         if (currentEntry?.handle === handle) {
           const turnDone = currentEntry.onTurnDone;
           currentEntry.onTurnDone = undefined;
-          turnDone?.(status);
+          turnDone?.(status, explicitFailureMessage || undefined);
           if (provider === 'claude') {
             runnerHandles.delete(session.id);
           }
@@ -7841,7 +7864,7 @@ function startRunner(
         if (currentEntry) {
           currentEntry.onTurnDone = undefined;
         }
-        turnDone?.('error');
+        turnDone?.('error', message);
         runnerHandles.delete(session.id);
       }
     },
