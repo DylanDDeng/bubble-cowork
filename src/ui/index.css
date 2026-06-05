@@ -2148,10 +2148,20 @@ button.aegis-mdx-metadata-key:hover {
   min-height: 62vh;
   padding: 0;
   caret-color: var(--text-primary);
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: plaintext;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
 }
 
 .aegis-md-codemirror-root .cm-line {
   padding: 0;
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: plaintext;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
 }
 
 .aegis-md-codemirror-root .cm-gutters {
@@ -2218,6 +2228,10 @@ button.aegis-mdx-metadata-key:hover {
   font-size: 0.88em;
 }
 
+.aegis-cm-inline-code-source {
+  padding-inline: 0.24rem;
+}
+
 .aegis-cm-strong {
   font-weight: 700;
 }
@@ -2240,19 +2254,23 @@ button.aegis-mdx-metadata-key:hover {
   cursor: pointer;
 }
 
+.aegis-cm-code-widget {
+  overflow: hidden;
+  margin: 0.95rem 0 0.72rem;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--preview-surface) 92%, var(--bg-tertiary));
+  cursor: text;
+}
+
 .aegis-cm-code-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   min-height: 38px;
-  margin-top: 0.9rem;
-  border: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
-  border-bottom: 0;
-  border-radius: 6px 6px 0 0;
   background: color-mix(in srgb, var(--preview-surface) 88%, var(--bg-tertiary));
   padding: 7px 13px 6px 16px;
-  cursor: text;
 }
 
 .aegis-cm-code-language-label {
@@ -2279,18 +2297,54 @@ button.aegis-mdx-metadata-key:hover {
   color: color-mix(in srgb, var(--text-primary) 86%, var(--accent));
 }
 
-.aegis-cm-code-line {
-  border-left: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
-  border-right: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
-  background: color-mix(in srgb, var(--preview-surface) 92%, var(--bg-tertiary));
+.aegis-cm-code-body {
+  margin: 0;
+  min-height: calc(var(--aegis-md-prose-font-size) * var(--aegis-md-prose-line-height));
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: color-mix(in srgb, var(--preview-surface) 94%, var(--bg-tertiary));
   color: var(--code-block-text);
+  padding: 0.78rem 1rem 0.86rem;
   font-family: var(--font-mono);
   font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
 }
 
-.aegis-cm-code-line:last-child {
+.aegis-cm-code-body code {
+  font: inherit;
+}
+
+.aegis-cm-code-source-line {
+  border-left: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
+  border-right: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
+  background: color-mix(in srgb, var(--preview-surface) 90%, var(--bg-tertiary));
+  color: var(--code-block-text);
+  padding: 0 1rem;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.65;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+
+.aegis-cm-code-source-line.is-first {
+  margin-top: 0.95rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
+  border-radius: 6px 6px 0 0;
+  padding-top: 0.54rem;
+}
+
+.aegis-cm-code-source-line.is-last {
   border-bottom: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
   border-radius: 0 0 6px 6px;
+  padding-bottom: 0.58rem;
+  margin-bottom: 0.72rem;
+}
+
+.aegis-cm-code-source-line.is-marker {
+  color: color-mix(in srgb, var(--code-block-text) 72%, var(--text-muted));
 }
 
 .aegis-cm-image-widget {

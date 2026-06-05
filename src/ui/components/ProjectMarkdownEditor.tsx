@@ -134,6 +134,7 @@ type MarkdownCodeBlock = {
   endLine: number;
   language: string;
   code: string;
+  terminated: boolean;
 };
 
 type MarkdownTableBlock = {
@@ -661,19 +662,37 @@ function scanCodeBlocks(state: EditorState): MarkdownCodeBlock[] {
     const startFrom = line.from;
     const language = open[1] || '';
     const codeLines: string[] = [];
-    lineNumber += 1;
-    let endLine = state.doc.lines;
-    let to = state.doc.length;
+    let endLine = -1;
+    let to = line.to;
+    let scanLine = lineNumber + 1;
 
-    while (lineNumber <= state.doc.lines) {
-      const nextLine = state.doc.line(lineNumber);
+    while (scanLine <= state.doc.lines) {
+      const nextLine = state.doc.line(scanLine);
       if (/^ {0,3}```\s*$/.test(nextLine.text)) {
-        endLine = lineNumber;
+        endLine = scanLine;
         to = nextLine.to;
         break;
       }
       codeLines.push(nextLine.text);
-      lineNumber += 1;
+      scanLine += 1;
+    }
+
+    if (endLine === -1) {
+      // Unterminated fence — the normal state while the user is still typing the
+      // block (before the closing ``` exists). Treat it as the opening line only
+      // so it never swallows / hides the rest of the document, and resume scanning
+      // from the next line instead of consuming everything to EOF.
+      blocks.push({
+        from: startFrom,
+        to: line.to,
+        startLine,
+        endLine: startLine,
+        language,
+        code: '',
+        terminated: false,
+      });
+      lineNumber = startLine + 1;
+      continue;
     }
 
     blocks.push({
@@ -683,6 +702,7 @@ function scanCodeBlocks(state: EditorState): MarkdownCodeBlock[] {
       endLine,
       language,
       code: codeLines.join('\n'),
+      terminated: true,
     });
     lineNumber = endLine + 1;
   }
@@ -741,11 +761,32 @@ function isRangeActive(state: EditorState, from: number, to: number): boolean {
 }
 
 function lineIsActive(state: EditorState, lineFrom: number, lineTo: number): boolean {
-  return state.selection.ranges.some((range) => range.from <= lineTo + 1 && range.to >= lineFrom);
+  return state.selection.ranges.some((range) => range.from <= lineTo && range.to >= lineFrom);
+}
+
+function selectionTouchesSourceRange(state: EditorState, from: number, to: number): boolean {
+  return state.selection.ranges.some((range) => {
+    if (range.empty) {
+      // Edge-inclusive: a bare caret sitting exactly at `to` (the position right
+      // after a marker the user just typed, e.g. the closing backtick of `code`)
+      // counts as touching the construct, so its markers stay raw until the caret
+      // actually leaves — matching Obsidian's live preview and avoiding the reflow
+      // that previously jumped the caret away from the just-typed glyph.
+      return range.from >= from && range.from <= to;
+    }
+    return range.from <= to && range.to >= from;
+  });
 }
 
 function findCodeBlockAt(state: EditorState, pos: number): MarkdownCodeBlock | null {
   return scanCodeBlocks(state).find((block) => pos >= block.from && pos <= block.to) || null;
+}
+
+function hasClosingFenceBelow(state: EditorState, lineNumber: number): boolean {
+  for (let n = lineNumber + 1; n <= state.doc.lines; n += 1) {
+    if (/^ {0,3}```\s*$/.test(state.doc.line(n).text)) return true;
+  }
+  return false;
 }
 
 function findImageInLine(text: string, lineFrom: number): MarkdownImageMatch | null {
@@ -1011,7 +1052,7 @@ class ImagePreviewWidget extends WidgetType {
   }
 }
 
-class CodeBlockHeaderWidget extends WidgetType {
+class CodeBlockPreviewWidget extends WidgetType {
   constructor(
     private readonly language: string,
     private readonly code: string,
@@ -1020,14 +1061,17 @@ class CodeBlockHeaderWidget extends WidgetType {
     super();
   }
 
-  eq(other: CodeBlockHeaderWidget) {
+  eq(other: CodeBlockPreviewWidget) {
     return other.language === this.language && other.code === this.code && other.sourcePos === this.sourcePos;
   }
 
   toDOM(view: EditorView) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'aegis-cm-code-widget';
+    wrapper.dataset.sourcePos = String(this.sourcePos);
+
     const header = document.createElement('div');
     header.className = 'aegis-cm-code-header';
-    header.dataset.sourcePos = String(this.sourcePos);
 
     const label = document.createElement('span');
     label.className = 'aegis-cm-code-language-label';
@@ -1049,15 +1093,23 @@ class CodeBlockHeaderWidget extends WidgetType {
       });
     });
     header.appendChild(button);
+    wrapper.appendChild(header);
 
-    header.addEventListener('click', () => {
+    const body = document.createElement('pre');
+    body.className = 'aegis-cm-code-body';
+    const code = document.createElement('code');
+    code.textContent = this.code || '';
+    body.appendChild(code);
+    wrapper.appendChild(body);
+
+    wrapper.addEventListener('click', () => {
       view.dispatch({
         selection: EditorSelection.cursor(this.sourcePos),
         effects: EditorView.scrollIntoView(this.sourcePos, { y: 'center' }),
       });
       view.focus();
     });
-    return header;
+    return wrapper;
   }
 
   ignoreEvent() {
@@ -1204,20 +1256,22 @@ type Range<T> = {
 };
 
 function addInlineMarkdownDecorations(
+  state: EditorState,
   lineFrom: number,
   lineText: string,
-  decorations: Array<Range<Decoration>>
+  decorations: Array<Range<Decoration>>,
+  activeLine = false
 ) {
   const markdownLinkRanges: Array<{ from: number; to: number }> = [];
   const heading = /^(#{1,6})\s+/.exec(lineText);
-  if (heading) {
+  if (heading && !activeLine) {
     const level = heading[1].length;
     decorations.push(Decoration.line({ class: `aegis-cm-heading-line level-${level}` }).range(lineFrom));
     addHiddenRange(decorations, lineFrom, lineFrom + heading[0].length);
   }
 
   const task = /^(\s*[-*+]\s+)(\[[ xX]\])\s+/.exec(lineText);
-  if (task) {
+  if (task && !activeLine) {
     const from = lineFrom + task[1].length;
     decorations.push(
       Decoration.replace({
@@ -1239,6 +1293,7 @@ function addInlineMarkdownDecorations(
     const urlStart = labelEnd + 2;
     const end = start + full.length;
     markdownLinkRanges.push({ from: start, to: end });
+    if (selectionTouchesSourceRange(state, start, end)) continue;
     addHiddenRange(decorations, start, labelStart);
     addHiddenRange(decorations, labelEnd, urlStart);
     addHiddenRange(decorations, urlStart, end);
@@ -1248,15 +1303,24 @@ function addInlineMarkdownDecorations(
     }).range(labelStart, labelEnd));
   }
 
-  const inlineCodeRe = /`([^`\n]+)`/g;
+  const inlineCodeRe = /`([^`\n]*)`/g;
   let codeMatch: RegExpExecArray | null;
   while ((codeMatch = inlineCodeRe.exec(lineText)) !== null) {
     const start = lineFrom + codeMatch.index;
     const contentStart = start + 1;
     const contentEnd = contentStart + codeMatch[1].length;
+    if (selectionTouchesSourceRange(state, start, contentEnd + 1)) {
+      decorations.push(
+        Decoration.mark({ class: 'aegis-cm-inline-code aegis-cm-inline-code-source' })
+          .range(start, contentEnd + 1)
+      );
+      continue;
+    }
     addHiddenRange(decorations, start, contentStart);
     addHiddenRange(decorations, contentEnd, contentEnd + 1);
-    decorations.push(Decoration.mark({ class: 'aegis-cm-inline-code' }).range(contentStart, contentEnd));
+    if (contentEnd > contentStart) {
+      decorations.push(Decoration.mark({ class: 'aegis-cm-inline-code' }).range(contentStart, contentEnd));
+    }
   }
 
   const strongRe = /(\*\*|__)([^*\n_]+)\1/g;
@@ -1266,6 +1330,7 @@ function addInlineMarkdownDecorations(
     const start = lineFrom + strongMatch.index;
     const contentStart = start + marker.length;
     const contentEnd = contentStart + strongMatch[2].length;
+    if (selectionTouchesSourceRange(state, start, contentEnd + marker.length)) continue;
     addHiddenRange(decorations, start, contentStart);
     addHiddenRange(decorations, contentEnd, contentEnd + marker.length);
     decorations.push(Decoration.mark({ class: 'aegis-cm-strong' }).range(contentStart, contentEnd));
@@ -1278,6 +1343,7 @@ function addInlineMarkdownDecorations(
     const start = lineFrom + emphasisMatch.index + offset;
     const contentStart = start + 1;
     const contentEnd = contentStart + emphasisMatch[2].length;
+    if (selectionTouchesSourceRange(state, start, contentEnd + 1)) continue;
     addHiddenRange(decorations, start, contentStart);
     addHiddenRange(decorations, contentEnd, contentEnd + 1);
     decorations.push(Decoration.mark({ class: 'aegis-cm-emphasis' }).range(contentStart, contentEnd));
@@ -1289,6 +1355,7 @@ function addInlineMarkdownDecorations(
     const start = lineFrom + strikeMatch.index;
     const contentStart = start + 2;
     const contentEnd = contentStart + strikeMatch[1].length;
+    if (selectionTouchesSourceRange(state, start, contentEnd + 2)) continue;
     addHiddenRange(decorations, start, contentStart);
     addHiddenRange(decorations, contentEnd, contentEnd + 2);
     decorations.push(Decoration.mark({ class: 'aegis-cm-strike' }).range(contentStart, contentEnd));
@@ -1327,21 +1394,33 @@ function buildLivePreviewDecorations(state: EditorState, cwd: string, filePath: 
   }
 
   for (const block of codeBlocks) {
+    if (!block.terminated) {
+      // Keep the literal ``` visible as plain text while the fence is still open
+      // (Obsidian-style); a block only collapses once it has a closing ```. This
+      // prevents an in-progress fence from folding the rest of the document.
+      blockLines.add(block.startLine);
+      continue;
+    }
     for (let line = block.startLine; line <= block.endLine; line += 1) blockLines.add(line);
-    if (isRangeActive(state, block.from, block.to)) continue;
-    const openLine = state.doc.line(block.startLine);
+    if (isRangeActive(state, block.from, block.to)) {
+      for (let lineNumber = block.startLine; lineNumber <= block.endLine; lineNumber += 1) {
+        const line = state.doc.line(lineNumber);
+        const boundaryClass = lineNumber === block.startLine
+          ? ' is-first'
+          : lineNumber === block.endLine
+            ? ' is-last'
+            : '';
+        const markerClass = lineNumber === block.startLine || lineNumber === block.endLine ? ' is-marker' : '';
+        decorations.push(
+          Decoration.line({ class: `aegis-cm-code-source-line${boundaryClass}${markerClass}` }).range(line.from)
+        );
+      }
+      continue;
+    }
     decorations.push(Decoration.replace({
-      widget: new CodeBlockHeaderWidget(block.language, block.code, openLine.from),
+      widget: new CodeBlockPreviewWidget(block.language, block.code, block.from),
       block: true,
-    }).range(openLine.from, openLine.to));
-    for (let lineNumber = block.startLine + 1; lineNumber < block.endLine; lineNumber += 1) {
-      const line = state.doc.line(lineNumber);
-      decorations.push(Decoration.line({ class: 'aegis-cm-code-line' }).range(line.from));
-    }
-    if (block.endLine <= state.doc.lines) {
-      const closeLine = state.doc.line(block.endLine);
-      decorations.push(Decoration.replace({ block: true }).range(closeLine.from, closeLine.to));
-    }
+    }).range(block.from, block.to));
   }
 
   for (const table of tableBlocks) {
@@ -1356,18 +1435,20 @@ function buildLivePreviewDecorations(state: EditorState, cwd: string, filePath: 
   for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber += 1) {
     if (blockLines.has(lineNumber)) continue;
     const line = state.doc.line(lineNumber);
-    if (lineIsActive(state, line.from, line.to)) continue;
+    const activeLine = lineIsActive(state, line.from, line.to);
 
     const image = findImageInLine(line.text, line.from);
     if (image && line.text.trim() === `![${image.alt}](${image.src})`) {
-      decorations.push(Decoration.replace({
-        widget: new ImagePreviewWidget(cwd, filePath, image.src, image.alt, image.from),
-        block: true,
-      }).range(image.from, image.to));
+      if (!activeLine) {
+        decorations.push(Decoration.replace({
+          widget: new ImagePreviewWidget(cwd, filePath, image.src, image.alt, image.from),
+          block: true,
+        }).range(image.from, image.to));
+      }
       continue;
     }
 
-    addInlineMarkdownDecorations(line.from, line.text, decorations);
+    addInlineMarkdownDecorations(state, line.from, line.text, decorations, activeLine);
   }
 
   const flashPos = state.field(headingFlashField, false);
@@ -1508,34 +1589,51 @@ function createImageInputExtension(
   });
 }
 
-function isCodeFenceTypingContext(beforeCursor: string, afterCursor: string) {
-  return /^\s*`{0,2}$/.test(beforeCursor) && afterCursor.trim() === '';
-}
-
 function createMarkdownInputPairsExtension(): Extension {
   return EditorView.inputHandler.of((view, from, to, text) => {
     if (text !== '`') return false;
-
     const line = view.state.doc.lineAt(from);
     const beforeCursor = view.state.sliceDoc(line.from, from);
     const afterCursor = view.state.sliceDoc(to, line.to);
-    if (isCodeFenceTypingContext(beforeCursor, afterCursor)) {
-      return false;
+
+    if (
+      from === to
+      && /^(\s*)``$/.test(beforeCursor)
+      && afterCursor.trim() === ''
+    ) {
+      const indent = /^(\s*)/.exec(beforeCursor)?.[1] || '';
+      const insert = `${indent}\`\`\`\n${indent}\n${indent}\`\`\``;
+      view.dispatch({
+        changes: { from: line.from, to: line.to, insert },
+        selection: EditorSelection.cursor(line.from + `${indent}\`\`\`\n${indent}`.length),
+        annotations: Transaction.userEvent.of('input.type'),
+      });
+      return true;
     }
 
     if (from === to && view.state.sliceDoc(to, to + 1) === '`') {
       view.dispatch({
         selection: EditorSelection.cursor(to + 1),
         scrollIntoView: true,
+        annotations: Transaction.userEvent.of('select'),
       });
       return true;
     }
 
     const selected = view.state.sliceDoc(from, to);
+    if (!selected) {
+      view.dispatch({
+        changes: { from, to, insert: '``' },
+        selection: EditorSelection.cursor(from + 1),
+        annotations: Transaction.userEvent.of('input.type'),
+      });
+      return true;
+    }
+    if (selected.includes('\n')) return false;
     const insert = `\`${selected}\``;
     view.dispatch({
       changes: { from, to, insert },
-      selection: EditorSelection.cursor(selected ? from + insert.length : from + 1),
+      selection: EditorSelection.cursor(from + insert.length),
       annotations: Transaction.userEvent.of('input.type'),
     });
     return true;
@@ -1578,7 +1676,7 @@ function createMarkdownShortcuts(onSave: () => void): Extension {
         const beforeCursor = state.sliceDoc(line.from, selection.from);
 
         const fence = /^(\s*)```([A-Za-z0-9_+.-]*)$/.exec(beforeCursor);
-        if (fence && selection.from === line.to) {
+        if (fence && selection.from === line.to && !hasClosingFenceBelow(state, line.number)) {
           const indent = fence[1] || '';
           const language = fence[2] || '';
           const replacement = `${indent}\`\`\`${language}\n${indent}\n${indent}\`\`\``;
