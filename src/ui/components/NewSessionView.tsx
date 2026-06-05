@@ -17,7 +17,6 @@ import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
 import { SidebarHeaderTrigger } from './Sidebar';
-import { SavePromptButton } from './prompts/SavePromptButton';
 import { ComposerAgentModelPicker } from './ComposerAgentControls';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { KimiPermissionModePicker } from './KimiPermissionModePicker';
@@ -81,11 +80,6 @@ export function NewSessionView() {
     setPrompt,
     setCursorIndex,
   });
-  const promptLibraryContent = useMemo(
-    () => capabilityMenu.displayPrompt.trim(),
-    [capabilityMenu.displayPrompt]
-  );
-
   const recentProjectOptions = useMemo(() => {
     if (!cwd) {
       return recentCwds.slice(0, 6);
@@ -654,7 +648,6 @@ export function NewSessionView() {
                   onChange={agentSelection.setKimiPermissionMode}
                 />
               )}
-              <SavePromptButton content={promptLibraryContent} disabled={pendingStart} />
 
               <button
                 type="button"

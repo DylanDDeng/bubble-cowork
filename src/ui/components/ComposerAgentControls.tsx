@@ -803,7 +803,7 @@ export function ComposerAgentModelPicker({
             if (provider === 'codex' && codexModels) {
               return (
                 <DropdownMenu.Sub key={provider}>
-                  <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[state=open]:bg-[var(--bg-tertiary)]">
+                  <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]">
                     <AgentIcon provider={provider} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[12px] font-medium text-[var(--text-primary)]">
@@ -856,7 +856,7 @@ export function ComposerAgentModelPicker({
             // Non-Codex agents: simple submenu with model list
             return (
               <DropdownMenu.Sub key={provider}>
-                <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[state=open]:bg-[var(--bg-tertiary)]">
+                <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]">
                   <AgentIcon provider={provider} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[12px] font-medium text-[var(--text-primary)]">
