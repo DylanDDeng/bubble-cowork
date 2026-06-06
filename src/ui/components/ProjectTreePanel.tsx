@@ -159,6 +159,8 @@ type OpenProjectFileTab = {
   name: string;
   ext: string;
   kind: 'markdown' | 'text';
+  preview: EditableProjectFilePreview;
+  draftText: string;
   viewMode: ViewMode;
   viewState: ProjectEditorViewState | null;
 };
@@ -605,6 +607,7 @@ export function ProjectTreePanel({
   const [selectedFileCwd, setSelectedFileCwd] = useState<string | null>(null);
   const [selectedPreview, setSelectedPreview] = useState<ProjectFilePreview | null>(null);
   const [openFileTabs, setOpenFileTabs] = useState<OpenProjectFileTab[]>([]);
+  const openFileTabsRef = useRef<OpenProjectFileTab[]>([]);
   const [pptxSlideIndex, setPptxSlideIndex] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>('view');
   const [mdxRevealTarget, setMdxRevealTarget] = useState<{ line: number; token: number } | null>(null);
@@ -647,6 +650,13 @@ export function ProjectTreePanel({
   const saveAgainAfterInFlightRef = useRef(false);
   const savePromiseRef = useRef<Promise<boolean> | null>(null);
   const projectEditorFlushRef = useRef<() => Promise<ProjectEditorFlushResult>>(async () => ({ ok: true }));
+  const updateOpenFileTabs = useCallback((updater: (current: OpenProjectFileTab[]) => OpenProjectFileTab[]) => {
+    setOpenFileTabs((current) => {
+      const next = updater(current);
+      openFileTabsRef.current = next;
+      return next;
+    });
+  }, []);
   const setDraftTextSynced = useCallback((next: string) => {
     draftTextRef.current = next;
     if (saveInFlightRef.current) {
@@ -680,8 +690,18 @@ export function ProjectTreePanel({
     (next: string) => {
       setDraftTextSynced(next);
       mirrorProjectEditorDraftSync(next);
+      if (selectedFileCwd && selectedFilePath) {
+        const tabId = getProjectFileTabId(selectedFileCwd, selectedFilePath);
+        updateOpenFileTabs((current) =>
+          current.map((tab) =>
+            tab.id === tabId
+              ? { ...tab, draftText: next }
+              : tab
+          )
+        );
+      }
     },
-    [mirrorProjectEditorDraftSync, setDraftTextSynced]
+    [mirrorProjectEditorDraftSync, selectedFileCwd, selectedFilePath, setDraftTextSynced, updateOpenFileTabs]
   );
   const setSaveStateSynced = useCallback((next: 'idle' | 'saving' | 'saved' | 'error') => {
     saveStateRef.current = next;
@@ -721,8 +741,19 @@ export function ProjectTreePanel({
   const activeFileTabId = selectedFileCwd && selectedFilePath
     ? getProjectFileTabId(selectedFileCwd, selectedFilePath)
     : null;
+  const activeFileTabIdRef = useRef<string | null>(null);
+  const tabRefreshSequenceRef = useRef(0);
+  const tabRefreshTokensRef = useRef<Map<string, number>>(new Map());
   const shouldWatchProjectTree = !collapsed && activeTab === 'files';
   const shouldRefreshChangeRecords = !collapsed && activeTab === 'changes';
+
+  useEffect(() => {
+    openFileTabsRef.current = openFileTabs;
+  }, [openFileTabs]);
+
+  useEffect(() => {
+    activeFileTabIdRef.current = activeFileTabId;
+  }, [activeFileTabId]);
 
   const captureActiveEditorViewState = useCallback(() => {
     if (!activeFileTabId) return;
@@ -730,14 +761,14 @@ export function ProjectTreePanel({
       activeMarkdownBridgeRef.current?.getViewState() ||
       activeTextEditorBridgeRef.current?.getViewState() ||
       null;
-    setOpenFileTabs((current) =>
+    updateOpenFileTabs((current) =>
       current.map((tab) =>
         tab.id === activeFileTabId
           ? { ...tab, viewMode, viewState }
           : tab
       )
     );
-  }, [activeFileTabId, viewMode]);
+  }, [activeFileTabId, updateOpenFileTabs, viewMode]);
 
   const prepareActiveFileForTransition = useCallback(async () => {
     captureActiveEditorViewState();
@@ -749,14 +780,38 @@ export function ProjectTreePanel({
     return true;
   }, [captureActiveEditorViewState]);
 
+  const expandParentsForPath = useCallback((path: string) => {
+    const parts = path.split('/').filter(Boolean);
+    if (parts.length <= 1) return;
+
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      let current = '';
+      for (const part of parts.slice(0, -1)) {
+        current = current ? `${current}/${part}` : part;
+        next.add(current);
+      }
+      return next;
+    });
+  }, []);
+
+  const expandPath = useCallback((path: string) => {
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      next.add(path);
+      return next;
+    });
+  }, []);
+
   const ensureOpenFileTab = useCallback((
     preview: EditableProjectFilePreview,
     fileCwd: string,
     filePath: string,
-    nextViewMode: ViewMode
+    nextViewMode: ViewMode,
+    nextDraftText = preview.text
   ) => {
     const id = getProjectFileTabId(fileCwd, filePath);
-    setOpenFileTabs((current) => {
+    updateOpenFileTabs((current) => {
       const existing = current.find((tab) => tab.id === id);
       if (existing) {
         return current.map((tab) =>
@@ -766,6 +821,8 @@ export function ProjectTreePanel({
                 name: preview.name,
                 ext: preview.ext,
                 kind: preview.kind,
+                preview,
+                draftText: nextDraftText,
                 viewMode: tab.viewMode || nextViewMode,
               }
             : tab
@@ -780,12 +837,102 @@ export function ProjectTreePanel({
           name: preview.name,
           ext: preview.ext,
           kind: preview.kind,
+          preview,
+          draftText: nextDraftText,
           viewMode: nextViewMode,
           viewState: null,
         },
       ];
     });
-  }, []);
+  }, [updateOpenFileTabs]);
+
+  const applyCachedFileTab = useCallback((tab: OpenProjectFileTab) => {
+    previewRequestIdRef.current += 1;
+    selectedEditableTextPreviewRef.current = tab.preview;
+    rememberDiskContent(tab.preview.text);
+    setSelectedFilePath(tab.filePath);
+    setSelectedFileCwd(tab.cwd);
+    expandParentsForPath(tab.filePath);
+    setViewMode(tab.viewMode);
+    setMdxRevealTarget(null);
+    setPreviewLoading(false);
+    setSelectedPreview(tab.preview);
+    setDraftTextSynced(tab.draftText);
+    setSaveStateSynced('idle');
+    setSaveErrorSynced(null);
+    setPptxSlideIndex(0);
+  }, [
+    expandParentsForPath,
+    rememberDiskContent,
+    setDraftTextSynced,
+    setSaveErrorSynced,
+    setSaveStateSynced,
+  ]);
+
+  const refreshFileTabFromDisk = useCallback(async (tabId: string) => {
+    const tab = openFileTabsRef.current.find((item) => item.id === tabId);
+    const reader = window.electron.readProjectFilePreview;
+    if (!tab || typeof reader !== 'function') return;
+
+    const refreshToken = (tabRefreshSequenceRef.current += 1);
+    tabRefreshTokensRef.current.set(tabId, refreshToken);
+
+    try {
+      const preview = (await reader(tab.cwd, tab.filePath)) as ProjectFilePreview;
+      if (tabRefreshTokensRef.current.get(tabId) !== refreshToken) return;
+      if (!isEditableProjectFilePreview(preview)) return;
+
+      const latestTab = openFileTabsRef.current.find((item) => item.id === tabId);
+      if (!latestTab) return;
+      if (latestTab.draftText !== latestTab.preview.text) return;
+
+      const changed =
+        preview.text !== latestTab.preview.text ||
+        preview.mtimeMs !== latestTab.preview.mtimeMs ||
+        preview.size !== latestTab.preview.size ||
+        preview.name !== latestTab.name ||
+        preview.ext !== latestTab.ext ||
+        preview.kind !== latestTab.kind;
+      if (!changed) return;
+
+      updateOpenFileTabs((current) =>
+        current.map((item) => {
+          if (item.id !== tabId || item.draftText !== item.preview.text) {
+            return item;
+          }
+          return {
+            ...item,
+            name: preview.name,
+            ext: preview.ext,
+            kind: preview.kind,
+            preview,
+            draftText: preview.text,
+          };
+        })
+      );
+
+      if (activeFileTabIdRef.current === tabId && draftTextRef.current === latestTab.preview.text) {
+        selectedEditableTextPreviewRef.current = preview;
+        rememberDiskContent(preview.text);
+        setSelectedPreview(preview);
+        setDraftTextSynced(preview.text);
+        setSaveStateSynced('idle');
+        setSaveErrorSynced(null);
+      }
+    } catch {
+      // Cached tabs stay usable if a background freshness check fails.
+    } finally {
+      if (tabRefreshTokensRef.current.get(tabId) === refreshToken) {
+        tabRefreshTokensRef.current.delete(tabId);
+      }
+    }
+  }, [
+    rememberDiskContent,
+    setDraftTextSynced,
+    setSaveErrorSynced,
+    setSaveStateSynced,
+    updateOpenFileTabs,
+  ]);
 
   const loadChangeRecords = async () => {
     if (!cwd) return;
@@ -1009,7 +1156,7 @@ export function ProjectTreePanel({
     setSelectedFilePath(null);
     setSelectedFileCwd(null);
     setSelectedPreview(null);
-    setOpenFileTabs([]);
+    updateOpenFileTabs(() => []);
     setViewMode('view');
     setMdxRevealTarget(null);
     setPreviewLoading(false);
@@ -1027,7 +1174,7 @@ export function ProjectTreePanel({
     setChangeRecords([]);
     setChangesError(null);
     setExpandedChangeId(null);
-  }, [cwd, setDraftTextSynced, setSaveStateSynced]);
+  }, [cwd, setDraftTextSynced, setSaveStateSynced, updateOpenFileTabs]);
 
   useEffect(() => {
     setPanelWidth((current) =>
@@ -1050,29 +1197,6 @@ export function ProjectTreePanel({
       } else {
         next.add(path);
       }
-      return next;
-    });
-  }, []);
-
-  const expandParentsForPath = useCallback((path: string) => {
-    const parts = path.split('/').filter(Boolean);
-    if (parts.length <= 1) return;
-
-    setExpandedPaths((prev) => {
-      const next = new Set(prev);
-      let current = '';
-      for (const part of parts.slice(0, -1)) {
-        current = current ? `${current}/${part}` : part;
-        next.add(current);
-      }
-      return next;
-    });
-  }, []);
-
-  const expandPath = useCallback((path: string) => {
-    setExpandedPaths((prev) => {
-      const next = new Set(prev);
-      next.add(path);
       return next;
     });
   }, []);
@@ -1159,6 +1283,15 @@ export function ProjectTreePanel({
       return;
     }
 
+    const cachedTab = openFileTabsRef.current.find((tab) =>
+      tab.id === getProjectFileTabId(cwd, filePath)
+    );
+    if (cachedTab) {
+      applyCachedFileTab(cachedTab);
+      void refreshFileTabFromDisk(cachedTab.id);
+      return;
+    }
+
     setSelectedFilePath(filePath);
     setSelectedFileCwd(cwd);
     expandParentsForPath(filePath);
@@ -1220,10 +1353,12 @@ export function ProjectTreePanel({
     }
   }, [
     activeSessionId,
+    applyCachedFileTab,
     cwd,
     expandParentsForPath,
     ensureOpenFileTab,
     prepareActiveFileForTransition,
+    refreshFileTabFromDisk,
     selectedFilePath,
     setBrowserPanelOpen,
     setProjectTreeCollapsed,
@@ -1240,9 +1375,15 @@ export function ProjectTreePanel({
     if (tab.id === activeFileTabId) return;
     const ready = await prepareActiveFileForTransition();
     if (!ready) return;
-    await selectFilePath(tab.filePath, tab.name, false, true);
-    setViewMode(tab.viewMode);
-  }, [activeFileTabId, prepareActiveFileForTransition, selectFilePath]);
+    const latestTab = openFileTabsRef.current.find((item) => item.id === tab.id) || tab;
+    applyCachedFileTab(latestTab);
+    void refreshFileTabFromDisk(latestTab.id);
+  }, [
+    activeFileTabId,
+    applyCachedFileTab,
+    prepareActiveFileForTransition,
+    refreshFileTabFromDisk,
+  ]);
 
   const canDropEntryOnParent = useCallback((entry: ProjectDraggedEntry, targetParentPath: string) => {
     if (!cwd || !entry.path || !targetParentPath) return false;
@@ -1289,24 +1430,36 @@ export function ProjectTreePanel({
 
       setProjectTree(cwd, result.tree);
       expandPath(targetParentPath);
-      setOpenFileTabs((current) =>
+      updateOpenFileTabs((current) =>
         current.map((tab) => {
           if (entry.kind === 'file' && isSameProjectPath(tab.filePath, entry.path)) {
+            const movedName = basenameOfPath(result.path!);
             return {
               ...tab,
               id: getProjectFileTabId(cwd, result.path!),
               filePath: result.path!,
-              name: basenameOfPath(result.path!),
+              name: movedName,
+              preview: {
+                ...tab.preview,
+                path: result.path!,
+                name: movedName,
+              },
             };
           }
           if (entry.kind === 'dir' && isPathInsideProjectPath(tab.filePath, entry.path)) {
             const relative = normalizeProjectPath(tab.filePath).slice(normalizeProjectPath(entry.path).length).replace(/^\/+/, '');
             const movedPath = relative ? `${result.path}/${relative}` : result.path!;
+            const movedName = basenameOfPath(movedPath);
             return {
               ...tab,
               id: getProjectFileTabId(cwd, movedPath),
               filePath: movedPath,
-              name: basenameOfPath(movedPath),
+              name: movedName,
+              preview: {
+                ...tab.preview,
+                path: movedPath,
+                name: movedName,
+              },
             };
           }
           return tab;
@@ -1315,9 +1468,10 @@ export function ProjectTreePanel({
 
       if (wasSelected) {
         const movedPath = result.path;
+        const movedName = basenameOfPath(movedPath);
         setSelectedFilePath(movedPath);
         setSelectedFileCwd(cwd);
-        setSelectedPreview((current) => current ? { ...current, path: movedPath } : current);
+        setSelectedPreview((current) => current ? { ...current, path: movedPath, name: movedName } : current);
       }
 
       toast.success(`${entry.kind === 'dir' ? 'Folder' : 'File'} moved.`);
@@ -1326,7 +1480,7 @@ export function ProjectTreePanel({
     } finally {
       setMovingProjectEntryPath(null);
     }
-  }, [canDropEntryOnParent, cwd, expandPath, selectedFilePath, setProjectTree]);
+  }, [canDropEntryOnParent, cwd, expandPath, selectedFilePath, setProjectTree, updateOpenFileTabs]);
 
   const handleProjectEntryDragStart = useCallback((event: DragEvent<HTMLDivElement>, node: ProjectTreeNode) => {
     if (node.kind !== 'file' && node.kind !== 'dir') return;
@@ -1667,7 +1821,7 @@ export function ProjectTreePanel({
     }
 
     const nextTabs = openFileTabs.filter((item) => item.id !== tabId);
-    setOpenFileTabs(nextTabs);
+    updateOpenFileTabs(() => nextTabs);
 
     if (!closingActiveTab) return;
     const closedIndex = openFileTabs.findIndex((item) => item.id === tabId);
@@ -1687,6 +1841,7 @@ export function ProjectTreePanel({
     openFileTabs,
     prepareActiveFileForTransition,
     selectFilePath,
+    updateOpenFileTabs,
   ]);
 
   const deleteEntry = useCallback(async (node: ProjectTreeNode) => {
@@ -1714,7 +1869,7 @@ export function ProjectTreePanel({
       // If the deleted file is currently being previewed, close it.
       const normalizedDeleted = normalizeProjectPath(node.path);
       const previewed = selectedFilePath ? normalizeProjectPath(selectedFilePath) : null;
-      setOpenFileTabs((current) =>
+      updateOpenFileTabs((current) =>
         current.filter((tab) => normalizeProjectPath(tab.filePath) !== normalizedDeleted)
       );
       if (previewed === normalizedDeleted) {
@@ -1724,7 +1879,7 @@ export function ProjectTreePanel({
     } catch (error) {
       toast.error(`Failed to delete: ${String(error)}`);
     }
-  }, [closePreview, cwd, selectedFilePath, setProjectTree]);
+  }, [closePreview, cwd, selectedFilePath, setProjectTree, updateOpenFileTabs]);
 
   useEffect(() => {
     const handleOpenProjectFile = (event: Event) => {
@@ -1933,14 +2088,14 @@ export function ProjectTreePanel({
 
   useEffect(() => {
     if (!activeFileTabId) return;
-    setOpenFileTabs((current) =>
+    updateOpenFileTabs((current) =>
       current.map((tab) =>
         tab.id === activeFileTabId
           ? { ...tab, viewMode }
           : tab
       )
     );
-  }, [activeFileTabId, viewMode]);
+  }, [activeFileTabId, updateOpenFileTabs, viewMode]);
 
   useEffect(() => {
     if (!activeFileTabId || previewLoading || !selectedEditableTextPreview) return;
@@ -2027,10 +2182,11 @@ export function ProjectTreePanel({
           text: textToSave,
           size: result.size ?? previewToSave.size,
           mtimeMs: result.mtimeMs ?? previewToSave.mtimeMs,
-        };
+        } as EditableProjectFilePreview;
         selectedEditableTextPreviewRef.current = savedPreview;
         rememberDiskContent(textToSave);
         setSelectedPreview(savedPreview);
+        ensureOpenFileTab(savedPreview, selectedFileCwd, selectedFilePath, viewMode, textToSave);
         void loadChangeRecords();
         savedOk = true;
         setSaveStateSynced('saved');
@@ -2068,7 +2224,7 @@ export function ProjectTreePanel({
       savePromiseRef.current = null;
     }
     return saveOk;
-  }, [selectedFileCwd, selectedFilePath, setSaveErrorSynced, setSaveStateSynced]);
+  }, [ensureOpenFileTab, selectedFileCwd, selectedFilePath, setSaveErrorSynced, setSaveStateSynced, viewMode]);
 
   useEffect(() => {
     if (
@@ -2189,15 +2345,27 @@ export function ProjectTreePanel({
         text: payload.text,
         mtimeMs: payload.mtimeMs,
         size: payload.size,
-      };
+      } as EditableProjectFilePreview;
       selectedEditableTextPreviewRef.current = latest;
       rememberDiskContent(payload.text);
       setSelectedPreview(latest);
       setDraftTextSynced(payload.text);
+      if (selectedFileCwd && selectedFilePath) {
+        ensureOpenFileTab(latest, selectedFileCwd, selectedFilePath, viewMode, payload.text);
+      }
       setSaveStateSynced('idle');
       setSaveErrorSynced(null);
     },
-    [rememberDiskContent, setDraftTextSynced, setSaveErrorSynced, setSaveStateSynced]
+    [
+      ensureOpenFileTab,
+      rememberDiskContent,
+      selectedFileCwd,
+      selectedFilePath,
+      setDraftTextSynced,
+      setSaveErrorSynced,
+      setSaveStateSynced,
+      viewMode,
+    ]
   );
 
   // Subscribe to disk changes for the open editable file. Event-driven via the
@@ -2267,9 +2435,12 @@ export function ProjectTreePanel({
             ...currentPreview,
             mtimeMs: detail.mtimeMs,
             size: detail.size,
-          };
+          } as EditableProjectFilePreview;
           selectedEditableTextPreviewRef.current = refreshed;
           setSelectedPreview(refreshed);
+          if (selectedFileCwd && selectedFilePath) {
+            ensureOpenFileTab(refreshed, selectedFileCwd, selectedFilePath, viewMode, draftTextRef.current);
+          }
         }
         return;
       }
@@ -2295,7 +2466,7 @@ export function ProjectTreePanel({
 
     window.addEventListener('aegis:project-file-changed', handleFileChanged);
     return () => window.removeEventListener('aegis:project-file-changed', handleFileChanged);
-  }, [applyExternalReload, rememberDiskContent, selectedFileCwd, selectedFilePath]);
+  }, [applyExternalReload, ensureOpenFileTab, rememberDiskContent, selectedFileCwd, selectedFilePath, viewMode]);
 
   // Apply a deferred external reload once IME composition settles.
   useEffect(() => {
