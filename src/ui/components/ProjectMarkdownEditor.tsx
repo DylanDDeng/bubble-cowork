@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EditorSelection, EditorState, StateEffect, StateField, Transaction, type Extension } from '@codemirror/state';
 import {
   Decoration,
@@ -22,45 +22,13 @@ import {
   defaultKeymap,
   history,
   historyKeymap,
-  redo,
-  undo,
 } from '@codemirror/commands';
 import {
-  Bold,
-  CheckSquare,
-  ChevronDown,
   ChevronUp,
-  Code,
-  Heading1,
-  Heading2,
-  Heading3,
-  Image as ImageIcon,
-  Italic,
-  Link,
-  List,
-  ListOrdered,
   Plus,
-  Quote,
-  Redo2,
-  Strikethrough,
-  Table,
-  Undo2,
   X,
 } from './icons';
 import { toast } from 'sonner';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu';
-import {
-  copyMarkdownAsWechatAiHtml,
-  copyMarkdownAsWechatHtml,
-  type WeChatAiThemeId,
-  type WeChatStaticThemeId,
-} from '../lib/wechatMarkdown';
 
 export type MarkdownOutlineItem = {
   id: string;
@@ -94,7 +62,6 @@ type ProjectMarkdownEditorProps = {
   fileName: string;
   hideTitleBar?: boolean;
   windowControlsInset?: boolean;
-  toolbarActions?: ReactNode;
   saveState: SaveState;
   saveError: string | null;
   onChange: (next: string) => void;
@@ -105,6 +72,14 @@ type ProjectMarkdownEditorProps = {
 export type ProjectMarkdownEditorBridge = {
   flush: () => void;
   isComposing: () => boolean;
+  getViewState: () => ProjectEditorViewState | null;
+  restoreViewState: (state: ProjectEditorViewState | null | undefined) => void;
+};
+
+export type ProjectEditorViewState = {
+  selectionFrom: number;
+  selectionTo: number;
+  scrollTop: number;
 };
 
 type PendingLocalMarkdownValue = {
@@ -1871,37 +1846,6 @@ function deriveToolbarState(view: EditorView | null): MarkdownToolbarState {
   };
 }
 
-function ToolbarButton({
-  title,
-  active = false,
-  disabled = false,
-  onClick,
-  children,
-}: {
-  title: string;
-  active?: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className={`aegis-md-toolbar-button no-drag${active ? ' active' : ''}`}
-      title={title}
-      aria-label={title}
-      aria-pressed={active}
-      disabled={disabled}
-      onMouseDown={(event) => {
-        event.preventDefault();
-        if (!disabled) onClick();
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
 export function ProjectMarkdownEditor({
   value,
   cwd,
@@ -1909,7 +1853,6 @@ export function ProjectMarkdownEditor({
   fileName,
   hideTitleBar = false,
   windowControlsInset = false,
-  toolbarActions,
   saveState,
   saveError,
   onChange,
@@ -1932,7 +1875,6 @@ export function ProjectMarkdownEditor({
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [editorFocused, setEditorFocused] = useState(false);
   const [active, setActive] = useState<MarkdownToolbarState>(EMPTY_TOOLBAR_STATE);
-  const [wechatAiGeneratingTheme, setWechatAiGeneratingTheme] = useState<WeChatAiThemeId | null>(null);
   const breadcrumb = useMemo(() => formatBreadcrumb(cwd, filePath), [cwd, filePath]);
 
   useEffect(() => {
@@ -2008,10 +1950,44 @@ export function ProjectMarkdownEditor({
 
   const isComposing = useCallback(() => composingInputRef.current, []);
 
+  const getViewState = useCallback((): ProjectEditorViewState | null => {
+    const view = viewRef.current;
+    if (!view) return null;
+    const selection = view.state.selection.main;
+    const scroller = hostRef.current?.closest<HTMLElement>('.aegis-md-main');
+    return {
+      selectionFrom: selection.from,
+      selectionTo: selection.to,
+      scrollTop: scroller?.scrollTop || 0,
+    };
+  }, []);
+
+  const restoreViewState = useCallback((state: ProjectEditorViewState | null | undefined) => {
+    const view = viewRef.current;
+    if (!view || !state) return;
+    const selectionFrom = Math.max(0, Math.min(state.selectionFrom, view.state.doc.length));
+    const selectionTo = Math.max(selectionFrom, Math.min(state.selectionTo, view.state.doc.length));
+    view.dispatch({
+      selection: EditorSelection.range(selectionFrom, selectionTo),
+    });
+    window.requestAnimationFrame(() => {
+      const scroller = hostRef.current?.closest<HTMLElement>('.aegis-md-main');
+      if (scroller) {
+        scroller.scrollTop = Math.max(0, state.scrollTop);
+      }
+      view.requestMeasure();
+    });
+  }, []);
+
   useEffect(() => {
-    onRegisterBridge?.({ flush: flushPendingMarkdownToParent, isComposing });
+    onRegisterBridge?.({
+      flush: flushPendingMarkdownToParent,
+      isComposing,
+      getViewState,
+      restoreViewState,
+    });
     return () => onRegisterBridge?.(null);
-  }, [flushPendingMarkdownToParent, isComposing, onRegisterBridge]);
+  }, [flushPendingMarkdownToParent, getViewState, isComposing, onRegisterBridge, restoreViewState]);
 
   const openOutline = useCallback(() => {
     if (outlineCloseTimerRef.current) {
@@ -2029,10 +2005,6 @@ export function ProjectMarkdownEditor({
       setOutlineOpen(false);
       outlineCloseTimerRef.current = null;
     }, 180);
-  }, []);
-
-  const focusEditor = useCallback(() => {
-    viewRef.current?.focus();
   }, []);
 
   const applyFullMarkdownChange = useCallback((next: string) => {
@@ -2075,82 +2047,6 @@ export function ProjectMarkdownEditor({
       headingFlashTimerRef.current = null;
     }, 1100);
   }, []);
-
-  const insertImage = useCallback(async () => {
-    const view = viewRef.current;
-    if (!view) return;
-    const result = await window.electron.selectMarkdownImageAsset?.(cwd, filePath);
-    if (!result?.ok || !result.relativePath) return;
-    insertImageMarkdown(view, result.relativePath, result.name || 'Image');
-  }, [cwd, filePath]);
-
-  const promptLink = useCallback(() => {
-    const view = viewRef.current;
-    if (!view) return;
-    const href = window.prompt('Link URL');
-    if (!href) return;
-    insertLink(view, href);
-  }, []);
-
-  const showWechatCopyResult = useCallback((
-    result: Awaited<ReturnType<typeof copyMarkdownAsWechatHtml>>,
-    toastId?: string | number,
-  ) => {
-    const modelDescription = result.ok && result.model
-      ? `使用：${result.runtime || 'aegis'} · ${result.model}`
-      : undefined;
-    const resultToastOptions = {
-      closeButton: true,
-      dismissible: true,
-      ...(modelDescription ? { description: modelDescription } : {}),
-    };
-    const toastOptions = toastId === undefined
-      ? resultToastOptions
-      : { ...resultToastOptions, id: toastId };
-    if (result.ok) {
-      if (result.format === 'html') {
-        toast.success('已复制到公众号剪贴板', toastOptions);
-      } else if (result.format === 'source-html') {
-        toast.success('富文本复制不可用，已复制生成的 HTML 源码', toastOptions);
-      } else {
-        toast.success('富文本复制不可用，已复制原始 Markdown', toastOptions);
-      }
-    } else {
-      toast.error(`复制失败: ${result.error}`, toastOptions);
-    }
-  }, []);
-
-  const handleCopyWechatHtml = useCallback(async (themeId: WeChatStaticThemeId = 'bubblebrain') => {
-    const markdown = viewRef.current?.state.doc.toString() ?? currentFullMarkdownRef.current ?? value;
-    const result = await copyMarkdownAsWechatHtml(markdown, themeId);
-    showWechatCopyResult(result);
-  }, [showWechatCopyResult, value]);
-
-  const handleCopyAiWechatHtml = useCallback(async (
-    themeId: WeChatAiThemeId,
-    themeLabel: string,
-  ) => {
-    if (wechatAiGeneratingTheme) return;
-    const markdown = viewRef.current?.state.doc.toString() ?? currentFullMarkdownRef.current ?? value;
-    setWechatAiGeneratingTheme(themeId);
-    const loadingToastId = toast.loading(`正在生成${themeLabel} HTML...`, {
-      description: '生成完成后会自动复制到公众号剪贴板',
-      duration: Infinity,
-      dismissible: false,
-    });
-    try {
-      const result = await copyMarkdownAsWechatAiHtml(markdown, themeId, filePath);
-      showWechatCopyResult(result, loadingToastId);
-    } catch (error) {
-      toast.error(`复制失败: ${error instanceof Error ? error.message : String(error)}`, {
-        id: loadingToastId,
-        closeButton: true,
-        dismissible: true,
-      });
-    } finally {
-      setWechatAiGeneratingTheme(null);
-    }
-  }, [filePath, showWechatCopyResult, value, wechatAiGeneratingTheme]);
 
   useEffect(() => {
     const root = hostRef.current;
@@ -2346,112 +2242,6 @@ export function ProjectMarkdownEditor({
           </div>
         </div>
       )}
-
-      <div className="aegis-md-toolbar drag-region" aria-label="Markdown formatting toolbar">
-        <div className="aegis-md-toolbar-tools">
-          <ToolbarButton title="Undo" onClick={() => { const view = viewRef.current; if (view) undo(view); focusEditor(); }}>
-            <Undo2 className="h-4 w-4" />
-          </ToolbarButton>
-          <ToolbarButton title="Redo" onClick={() => { const view = viewRef.current; if (view) redo(view); focusEditor(); }}>
-            <Redo2 className="h-4 w-4" />
-          </ToolbarButton>
-          <span className="aegis-md-toolbar-separator" />
-          <ToolbarButton title="Bold" active={toolbarActive.strong} onClick={() => { const view = viewRef.current; if (view) toggleInlineWrap(view, '**', '**', 'bold'); }}>
-            <Bold className="h-4 w-4" />
-          </ToolbarButton>
-          <ToolbarButton title="Italic" active={toolbarActive.emphasis} onClick={() => { const view = viewRef.current; if (view) toggleInlineWrap(view, '*', '*', 'italic'); }}>
-            <Italic className="h-4 w-4" />
-          </ToolbarButton>
-          <ToolbarButton title="Strikethrough" active={toolbarActive.strike} onClick={() => { const view = viewRef.current; if (view) toggleInlineWrap(view, '~~', '~~', 'text'); }}>
-            <Strikethrough className="h-4 w-4" />
-          </ToolbarButton>
-          <ToolbarButton title="Inline code" active={toolbarActive.inlineCode} onClick={() => { const view = viewRef.current; if (view) toggleInlineWrap(view, '`', '`', 'code'); }}>
-            <Code className="h-4 w-4" />
-          </ToolbarButton>
-          <span className="aegis-md-toolbar-separator" />
-          <ToolbarButton title="Heading 1" active={toolbarActive.h1} onClick={() => { const view = viewRef.current; if (view) toggleHeading(view, 1); }}>
-            <Heading1 className="h-4 w-4" />
-          </ToolbarButton>
-          <ToolbarButton title="Heading 2" active={toolbarActive.h2} onClick={() => { const view = viewRef.current; if (view) toggleHeading(view, 2); }}>
-            <Heading2 className="h-4 w-4" />
-          </ToolbarButton>
-          <ToolbarButton title="Heading 3" active={toolbarActive.h3} onClick={() => { const view = viewRef.current; if (view) toggleHeading(view, 3); }}>
-            <Heading3 className="h-4 w-4" />
-          </ToolbarButton>
-          <span className="aegis-md-toolbar-separator" />
-          <ToolbarButton title="Bullet list" active={toolbarActive.bullet} onClick={() => { const view = viewRef.current; if (view) toggleLinePrefix(view, 'bullet'); }}>
-            <List className="h-4 w-4" />
-          </ToolbarButton>
-          <ToolbarButton title="Numbered list" active={toolbarActive.ordered} onClick={() => { const view = viewRef.current; if (view) toggleLinePrefix(view, 'ordered'); }}>
-            <ListOrdered className="h-4 w-4" />
-          </ToolbarButton>
-          <ToolbarButton title="Task list" active={toolbarActive.task} onClick={() => { const view = viewRef.current; if (view) toggleLinePrefix(view, 'task'); }}>
-            <CheckSquare className="h-4 w-4" />
-          </ToolbarButton>
-          <ToolbarButton title="Quote" active={toolbarActive.quote} onClick={() => { const view = viewRef.current; if (view) toggleLinePrefix(view, 'quote'); }}>
-            <Quote className="h-4 w-4" />
-          </ToolbarButton>
-          <ToolbarButton title="Code block" active={toolbarActive.codeBlock} onClick={() => { const view = viewRef.current; if (view) insertCodeBlock(view); }}>
-            <Code className="h-4 w-4" />
-          </ToolbarButton>
-          <span className="aegis-md-toolbar-separator" />
-          <ToolbarButton title="Table" onClick={() => { const view = viewRef.current; if (view) insertTable(view); }}>
-            <Table className="h-4 w-4" />
-          </ToolbarButton>
-          <ToolbarButton title="Link" onClick={promptLink}>
-            <Link className="h-4 w-4" />
-          </ToolbarButton>
-          <ToolbarButton title="Image" onClick={() => void insertImage()}>
-            <ImageIcon className="h-4 w-4" />
-          </ToolbarButton>
-        </div>
-        <div className="aegis-md-toolbar-actions no-drag">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="aegis-md-toolbar-button aegis-md-toolbar-button--text"
-                title="公众号主题"
-                aria-label="公众号主题"
-                data-testid="aegis-md-toolbar-more"
-              >
-                <span className="aegis-md-toolbar-button-text-label">公众号主题</span>
-                <ChevronDown size={14} aria-hidden="true" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={6}>
-              <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('bubblebrain')}>
-                <span>BubbleBrain</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('lapis')}>
-                <span>Lapis</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                disabled={wechatAiGeneratingTheme !== null}
-                onSelect={() => void handleCopyAiWechatHtml('black-red-imprint', '黑红刊刻风')}
-              >
-                <span>
-                  {wechatAiGeneratingTheme === 'black-red-imprint'
-                    ? '黑红刊刻风生成中...'
-                    : '黑红刊刻风（AI）'}
-                </span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={wechatAiGeneratingTheme !== null}
-                onSelect={() => void handleCopyAiWechatHtml('black-orange-imprint', '黑橙刊刻风')}
-              >
-                <span>
-                  {wechatAiGeneratingTheme === 'black-orange-imprint'
-                    ? '黑橙刊刻风生成中...'
-                    : '黑橙刊刻风（AI）'}
-                </span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {toolbarActions}
-        </div>
-      </div>
 
       {saveState === 'error' && saveError && (
         <div className="aegis-md-error">{saveError}</div>
