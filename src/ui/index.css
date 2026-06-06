@@ -110,6 +110,7 @@
   --radius-xl: 12px;
   --radius-2xl: 16px;
   --app-window-corner-radius: 16px;
+  --app-window-controls-inset-left: 104px;
 
   /* Popover / dropdown surface (unified) */
   --popover-bg: #FFFFFF;
@@ -2005,8 +2006,9 @@ button.aegis-mdx-metadata-key:hover {
   overflow: hidden;
 }
 
-.aegis-md-editor.window-controls-inset .aegis-md-toolbar {
-  padding-left: 104px;
+.aegis-md-editor.window-controls-inset .aegis-md-toolbar,
+.aegis-project-file-tabs.window-controls-inset {
+  padding-left: var(--app-window-controls-inset-left);
 }
 
 .aegis-md-toolbar-tools {

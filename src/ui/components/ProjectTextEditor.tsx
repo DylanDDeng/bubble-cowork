@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { EditorState, EditorSelection, Transaction } from '@codemirror/state';
 import {
   EditorView,
@@ -23,6 +23,23 @@ interface ProjectTextEditorProps {
   onSave?: () => void;
   className?: string;
   revealTarget?: { line: number; token: number } | null;
+}
+
+export interface ProjectTextEditorHandle {
+  /** Force a content flush; in plain-text source mode the doc is the source, so this is a no-op kept for API parity. */
+  flush: () => void;
+  /** Whether an IME composition is currently active in the editor. */
+  isComposing: () => boolean;
+  /** Capture enough view state to restore source editing after a file tab switch. */
+  getViewState: () => ProjectTextEditorViewState | null;
+  /** Restore source selection and scroll position after remounting the editor. */
+  restoreViewState: (state: ProjectTextEditorViewState | null | undefined) => void;
+}
+
+export interface ProjectTextEditorViewState {
+  selectionFrom: number;
+  selectionTo: number;
+  scrollTop: number;
 }
 
 // Minimal undo/redo stack since @codemirror/commands is not a dependency
@@ -66,18 +83,49 @@ class UndoManager {
   }
 }
 
-export const ProjectTextEditor: React.FC<ProjectTextEditorProps> = ({
+export const ProjectTextEditor = forwardRef<ProjectTextEditorHandle, ProjectTextEditorProps>(function ProjectTextEditor({
   value,
   onChange,
   onSave,
   className,
   revealTarget,
-}) => {
+}, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
   const isInternalChangeRef = useRef(false);
+  const composingRef = useRef(false);
+
+  useImperativeHandle(ref, () => ({
+    flush: () => {
+      // Source mode: the CodeMirror doc is the source string. No serialization,
+      // so flush is a no-op kept for API parity with markdown editors.
+    },
+    isComposing: () => composingRef.current,
+    getViewState: () => {
+      const view = viewRef.current;
+      if (!view) return null;
+      const selection = view.state.selection.main;
+      return {
+        selectionFrom: selection.from,
+        selectionTo: selection.to,
+        scrollTop: view.scrollDOM.scrollTop,
+      };
+    },
+    restoreViewState: (state) => {
+      const view = viewRef.current;
+      if (!view || !state) return;
+      const selectionFrom = Math.max(0, Math.min(state.selectionFrom, view.state.doc.length));
+      const selectionTo = Math.max(selectionFrom, Math.min(state.selectionTo, view.state.doc.length));
+      view.dispatch({
+        selection: EditorSelection.range(selectionFrom, selectionTo),
+      });
+      window.requestAnimationFrame(() => {
+        view.scrollDOM.scrollTop = Math.max(0, state.scrollTop);
+      });
+    },
+  }), []);
   const undoManagerRef = useRef(new UndoManager());
 
   useEffect(() => {
@@ -308,6 +356,8 @@ export const ProjectTextEditor: React.FC<ProjectTextEditorProps> = ({
     <div
       ref={containerRef}
       className={`aegis-text-codemirror-host h-full ${className ?? ''}`}
+      onCompositionStart={() => { composingRef.current = true; }}
+      onCompositionEnd={() => { composingRef.current = false; }}
     />
   );
-};
+});
