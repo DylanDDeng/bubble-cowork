@@ -110,6 +110,7 @@
   --radius-xl: 12px;
   --radius-2xl: 16px;
   --app-window-corner-radius: 16px;
+  --app-window-controls-inset-left: 104px;
 
   /* Popover / dropdown surface (unified) */
   --popover-bg: #FFFFFF;
@@ -1680,7 +1681,8 @@ button.aegis-mdx-metadata-key:hover {
 
 .aegis-cm-frontmatter-widget {
   cursor: text;
-  margin: 0 auto;
+  margin-block: 0;
+  margin-inline: auto;
   user-select: none;
 }
 
@@ -2004,8 +2006,9 @@ button.aegis-mdx-metadata-key:hover {
   overflow: hidden;
 }
 
-.aegis-md-editor.window-controls-inset .aegis-md-toolbar {
-  padding-left: 104px;
+.aegis-md-editor.window-controls-inset .aegis-md-toolbar,
+.aegis-project-file-tabs.window-controls-inset {
+  padding-left: var(--app-window-controls-inset-left);
 }
 
 .aegis-md-toolbar-tools {
@@ -2254,13 +2257,23 @@ button.aegis-mdx-metadata-key:hover {
   cursor: pointer;
 }
 
+.aegis-cm-block-widget {
+  box-sizing: border-box;
+  margin-block: 0;
+}
+
 .aegis-cm-code-widget {
+  display: block;
+  max-width: 100%;
+  padding: 0.95rem 0 0.72rem;
+  cursor: text;
+}
+
+.aegis-cm-code-frame {
   overflow: hidden;
-  margin: 0.95rem 0 0.72rem;
   border: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
   border-radius: 6px;
   background: color-mix(in srgb, var(--preview-surface) 92%, var(--bg-tertiary));
-  cursor: text;
 }
 
 .aegis-cm-code-header {
@@ -2330,17 +2343,15 @@ button.aegis-mdx-metadata-key:hover {
 }
 
 .aegis-cm-code-source-line.is-first {
-  margin-top: 0.95rem;
   border-top: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
   border-radius: 6px 6px 0 0;
-  padding-top: 0.54rem;
+  padding-top: 1.49rem;
 }
 
 .aegis-cm-code-source-line.is-last {
   border-bottom: 1px solid color-mix(in srgb, var(--border) 76%, var(--text-muted) 12%);
   border-radius: 0 0 6px 6px;
-  padding-bottom: 0.58rem;
-  margin-bottom: 0.72rem;
+  padding-bottom: 1.3rem;
 }
 
 .aegis-cm-code-source-line.is-marker {
@@ -2349,8 +2360,9 @@ button.aegis-mdx-metadata-key:hover {
 
 .aegis-cm-image-widget {
   display: block;
+  box-sizing: border-box;
   max-width: 100%;
-  margin: 1rem 0 0.45rem;
+  padding: 1rem 0 0.45rem;
   cursor: text;
 }
 
@@ -2377,7 +2389,9 @@ button.aegis-mdx-metadata-key:hover {
 }
 
 .aegis-cm-table-widget {
-  margin: 1rem 0;
+  display: block;
+  max-width: 100%;
+  padding: 1rem 0;
   cursor: text;
 }
 

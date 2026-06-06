@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { FolderClosed, FolderOpen, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Maximize2, Minimize2, File, FileDiff, Files, FileAddIcon, FolderAddIcon, Trash2 } from './icons';
+import { FolderClosed, FolderOpen, ChevronDown, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Maximize2, Minimize2, File, FileDiff, Files, FileAddIcon, FolderAddIcon, Trash2 } from './icons';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
@@ -10,9 +10,22 @@ import TextFileReader from './TextFileReader';
 import { FileTypeIcon } from './FileTypeIcon';
 import { ProjectMarkdownEditor, type ProjectMarkdownEditorBridge } from './ProjectMarkdownEditor';
 import { ProjectMdxPreview, ProjectMdxProperties, parseMdxDocument } from './ProjectMdxPreview';
-import { ProjectTextEditor } from './ProjectTextEditor';
+import { ProjectTextEditor, type ProjectTextEditorHandle } from './ProjectTextEditor';
 import { IconButton } from './ui/icon-button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { isHtmlFilePath, openHtmlFileInBrowserTab } from '../utils/html-preview';
+import {
+  copyMarkdownAsWechatAiHtml,
+  copyMarkdownAsWechatHtml,
+  type WeChatAiThemeId,
+  type WeChatStaticThemeId,
+} from '../lib/wechatMarkdown';
 import {
   applyDiffToChangeRecord,
   applyTextMetaToChangeRecord,
@@ -124,6 +137,34 @@ type ProjectFilePreview =
       message: string;
     };
 
+type EditableProjectFilePreview = {
+  kind: 'markdown' | 'text';
+  path: string;
+  name: string;
+  ext: string;
+  size: number;
+  mtimeMs: number;
+  text: string;
+  editable: true;
+};
+type ProjectEditorViewState = {
+  selectionFrom: number;
+  selectionTo: number;
+  scrollTop: number;
+};
+type OpenProjectFileTab = {
+  id: string;
+  cwd: string;
+  filePath: string;
+  name: string;
+  ext: string;
+  kind: 'markdown' | 'text';
+  preview: EditableProjectFilePreview;
+  draftText: string;
+  viewMode: ViewMode;
+  viewState: ProjectEditorViewState | null;
+};
+
 type CreateEntryKind = 'file' | 'folder';
 type CreateDraftState = {
   id: number;
@@ -178,6 +219,18 @@ function basenameOfPath(filePath: string): string {
   const normalized = normalizeProjectPath(filePath);
   const parts = normalized.split('/').filter(Boolean);
   return parts[parts.length - 1] || normalized || 'Project';
+}
+
+function getProjectFileTabId(cwd: string, filePath: string): string {
+  return `${normalizeProjectPath(cwd)}::${normalizeProjectPath(filePath)}`;
+}
+
+function isEditableProjectFilePreview(preview: ProjectFilePreview | null): preview is EditableProjectFilePreview {
+  return (
+    !!preview &&
+    (preview.kind === 'markdown' || preview.kind === 'text') &&
+    preview.editable
+  );
 }
 
 function isSameProjectPath(left: string, right: string): boolean {
@@ -553,6 +606,8 @@ export function ProjectTreePanel({
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [selectedFileCwd, setSelectedFileCwd] = useState<string | null>(null);
   const [selectedPreview, setSelectedPreview] = useState<ProjectFilePreview | null>(null);
+  const [openFileTabs, setOpenFileTabs] = useState<OpenProjectFileTab[]>([]);
+  const openFileTabsRef = useRef<OpenProjectFileTab[]>([]);
   const [pptxSlideIndex, setPptxSlideIndex] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>('view');
   const [mdxRevealTarget, setMdxRevealTarget] = useState<{ line: number; token: number } | null>(null);
@@ -567,6 +622,8 @@ export function ProjectTreePanel({
   const saveStateRef = useRef<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const selectedEditableTextPreviewRef = useRef<ProjectFilePreview | null>(null);
   const activeMarkdownBridgeRef = useRef<ProjectMarkdownEditorBridge | null>(null);
+  const activeTextEditorBridgeRef = useRef<ProjectTextEditorHandle | null>(null);
+  const [wechatAiGeneratingTheme, setWechatAiGeneratingTheme] = useState<WeChatAiThemeId | null>(null);
   // Every disk content we have loaded, saved, or applied for the open file.
   // The watcher only treats an event as a genuine external change when its
   // content is NOT in this set. A set (not a single value) is required because
@@ -593,6 +650,13 @@ export function ProjectTreePanel({
   const saveAgainAfterInFlightRef = useRef(false);
   const savePromiseRef = useRef<Promise<boolean> | null>(null);
   const projectEditorFlushRef = useRef<() => Promise<ProjectEditorFlushResult>>(async () => ({ ok: true }));
+  const updateOpenFileTabs = useCallback((updater: (current: OpenProjectFileTab[]) => OpenProjectFileTab[]) => {
+    setOpenFileTabs((current) => {
+      const next = updater(current);
+      openFileTabsRef.current = next;
+      return next;
+    });
+  }, []);
   const setDraftTextSynced = useCallback((next: string) => {
     draftTextRef.current = next;
     if (saveInFlightRef.current) {
@@ -626,8 +690,18 @@ export function ProjectTreePanel({
     (next: string) => {
       setDraftTextSynced(next);
       mirrorProjectEditorDraftSync(next);
+      if (selectedFileCwd && selectedFilePath) {
+        const tabId = getProjectFileTabId(selectedFileCwd, selectedFilePath);
+        updateOpenFileTabs((current) =>
+          current.map((tab) =>
+            tab.id === tabId
+              ? { ...tab, draftText: next }
+              : tab
+          )
+        );
+      }
     },
-    [mirrorProjectEditorDraftSync, setDraftTextSynced]
+    [mirrorProjectEditorDraftSync, selectedFileCwd, selectedFilePath, setDraftTextSynced, updateOpenFileTabs]
   );
   const setSaveStateSynced = useCallback((next: 'idle' | 'saving' | 'saved' | 'error') => {
     saveStateRef.current = next;
@@ -639,6 +713,9 @@ export function ProjectTreePanel({
   }, []);
   const registerMarkdownBridge = useCallback((bridge: ProjectMarkdownEditorBridge | null) => {
     activeMarkdownBridgeRef.current = bridge;
+  }, []);
+  const registerTextEditorBridge = useCallback((bridge: ProjectTextEditorHandle | null) => {
+    activeTextEditorBridgeRef.current = bridge;
   }, []);
   const copiedTimerRef = useRef<number | null>(null);
   const [copiedPath, setCopiedPath] = useState(false);
@@ -661,8 +738,201 @@ export function ProjectTreePanel({
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const activeCwd = activeSession?.cwd || null;
   const cwd = activeCwd || projectCwd || null;
+  const activeFileTabId = selectedFileCwd && selectedFilePath
+    ? getProjectFileTabId(selectedFileCwd, selectedFilePath)
+    : null;
+  const activeFileTabIdRef = useRef<string | null>(null);
+  const tabRefreshSequenceRef = useRef(0);
+  const tabRefreshTokensRef = useRef<Map<string, number>>(new Map());
   const shouldWatchProjectTree = !collapsed && activeTab === 'files';
   const shouldRefreshChangeRecords = !collapsed && activeTab === 'changes';
+
+  useEffect(() => {
+    openFileTabsRef.current = openFileTabs;
+  }, [openFileTabs]);
+
+  useEffect(() => {
+    activeFileTabIdRef.current = activeFileTabId;
+  }, [activeFileTabId]);
+
+  const captureActiveEditorViewState = useCallback(() => {
+    if (!activeFileTabId) return;
+    const viewState =
+      activeMarkdownBridgeRef.current?.getViewState() ||
+      activeTextEditorBridgeRef.current?.getViewState() ||
+      null;
+    updateOpenFileTabs((current) =>
+      current.map((tab) =>
+        tab.id === activeFileTabId
+          ? { ...tab, viewMode, viewState }
+          : tab
+      )
+    );
+  }, [activeFileTabId, updateOpenFileTabs, viewMode]);
+
+  const prepareActiveFileForTransition = useCallback(async () => {
+    captureActiveEditorViewState();
+    const result = await projectEditorFlushRef.current();
+    if (!result.ok) {
+      toast.error(result.message || 'Failed to save pending editor changes.');
+      return false;
+    }
+    return true;
+  }, [captureActiveEditorViewState]);
+
+  const expandParentsForPath = useCallback((path: string) => {
+    const parts = path.split('/').filter(Boolean);
+    if (parts.length <= 1) return;
+
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      let current = '';
+      for (const part of parts.slice(0, -1)) {
+        current = current ? `${current}/${part}` : part;
+        next.add(current);
+      }
+      return next;
+    });
+  }, []);
+
+  const expandPath = useCallback((path: string) => {
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      next.add(path);
+      return next;
+    });
+  }, []);
+
+  const ensureOpenFileTab = useCallback((
+    preview: EditableProjectFilePreview,
+    fileCwd: string,
+    filePath: string,
+    nextViewMode: ViewMode,
+    nextDraftText = preview.text
+  ) => {
+    const id = getProjectFileTabId(fileCwd, filePath);
+    updateOpenFileTabs((current) => {
+      const existing = current.find((tab) => tab.id === id);
+      if (existing) {
+        return current.map((tab) =>
+          tab.id === id
+            ? {
+                ...tab,
+                name: preview.name,
+                ext: preview.ext,
+                kind: preview.kind,
+                preview,
+                draftText: nextDraftText,
+                viewMode: tab.viewMode || nextViewMode,
+              }
+            : tab
+        );
+      }
+      return [
+        ...current,
+        {
+          id,
+          cwd: fileCwd,
+          filePath,
+          name: preview.name,
+          ext: preview.ext,
+          kind: preview.kind,
+          preview,
+          draftText: nextDraftText,
+          viewMode: nextViewMode,
+          viewState: null,
+        },
+      ];
+    });
+  }, [updateOpenFileTabs]);
+
+  const applyCachedFileTab = useCallback((tab: OpenProjectFileTab) => {
+    previewRequestIdRef.current += 1;
+    selectedEditableTextPreviewRef.current = tab.preview;
+    rememberDiskContent(tab.preview.text);
+    setSelectedFilePath(tab.filePath);
+    setSelectedFileCwd(tab.cwd);
+    expandParentsForPath(tab.filePath);
+    setViewMode(tab.viewMode);
+    setMdxRevealTarget(null);
+    setPreviewLoading(false);
+    setSelectedPreview(tab.preview);
+    setDraftTextSynced(tab.draftText);
+    setSaveStateSynced('idle');
+    setSaveErrorSynced(null);
+    setPptxSlideIndex(0);
+  }, [
+    expandParentsForPath,
+    rememberDiskContent,
+    setDraftTextSynced,
+    setSaveErrorSynced,
+    setSaveStateSynced,
+  ]);
+
+  const refreshFileTabFromDisk = useCallback(async (tabId: string) => {
+    const tab = openFileTabsRef.current.find((item) => item.id === tabId);
+    const reader = window.electron.readProjectFilePreview;
+    if (!tab || typeof reader !== 'function') return;
+
+    const refreshToken = (tabRefreshSequenceRef.current += 1);
+    tabRefreshTokensRef.current.set(tabId, refreshToken);
+
+    try {
+      const preview = (await reader(tab.cwd, tab.filePath)) as ProjectFilePreview;
+      if (tabRefreshTokensRef.current.get(tabId) !== refreshToken) return;
+      if (!isEditableProjectFilePreview(preview)) return;
+
+      const latestTab = openFileTabsRef.current.find((item) => item.id === tabId);
+      if (!latestTab) return;
+      if (latestTab.draftText !== latestTab.preview.text) return;
+
+      const changed =
+        preview.text !== latestTab.preview.text ||
+        preview.mtimeMs !== latestTab.preview.mtimeMs ||
+        preview.size !== latestTab.preview.size ||
+        preview.name !== latestTab.name ||
+        preview.ext !== latestTab.ext ||
+        preview.kind !== latestTab.kind;
+      if (!changed) return;
+
+      updateOpenFileTabs((current) =>
+        current.map((item) => {
+          if (item.id !== tabId || item.draftText !== item.preview.text) {
+            return item;
+          }
+          return {
+            ...item,
+            name: preview.name,
+            ext: preview.ext,
+            kind: preview.kind,
+            preview,
+            draftText: preview.text,
+          };
+        })
+      );
+
+      if (activeFileTabIdRef.current === tabId && draftTextRef.current === latestTab.preview.text) {
+        selectedEditableTextPreviewRef.current = preview;
+        rememberDiskContent(preview.text);
+        setSelectedPreview(preview);
+        setDraftTextSynced(preview.text);
+        setSaveStateSynced('idle');
+        setSaveErrorSynced(null);
+      }
+    } catch {
+      // Cached tabs stay usable if a background freshness check fails.
+    } finally {
+      if (tabRefreshTokensRef.current.get(tabId) === refreshToken) {
+        tabRefreshTokensRef.current.delete(tabId);
+      }
+    }
+  }, [
+    rememberDiskContent,
+    setDraftTextSynced,
+    setSaveErrorSynced,
+    setSaveStateSynced,
+    updateOpenFileTabs,
+  ]);
 
   const loadChangeRecords = async () => {
     if (!cwd) return;
@@ -886,6 +1156,7 @@ export function ProjectTreePanel({
     setSelectedFilePath(null);
     setSelectedFileCwd(null);
     setSelectedPreview(null);
+    updateOpenFileTabs(() => []);
     setViewMode('view');
     setMdxRevealTarget(null);
     setPreviewLoading(false);
@@ -903,7 +1174,7 @@ export function ProjectTreePanel({
     setChangeRecords([]);
     setChangesError(null);
     setExpandedChangeId(null);
-  }, [cwd, setDraftTextSynced, setSaveStateSynced]);
+  }, [cwd, setDraftTextSynced, setSaveStateSynced, updateOpenFileTabs]);
 
   useEffect(() => {
     setPanelWidth((current) =>
@@ -926,29 +1197,6 @@ export function ProjectTreePanel({
       } else {
         next.add(path);
       }
-      return next;
-    });
-  }, []);
-
-  const expandParentsForPath = useCallback((path: string) => {
-    const parts = path.split('/').filter(Boolean);
-    if (parts.length <= 1) return;
-
-    setExpandedPaths((prev) => {
-      const next = new Set(prev);
-      let current = '';
-      for (const part of parts.slice(0, -1)) {
-        current = current ? `${current}/${part}` : part;
-        next.add(current);
-      }
-      return next;
-    });
-  }, []);
-
-  const expandPath = useCallback((path: string) => {
-    setExpandedPaths((prev) => {
-      const next = new Set(prev);
-      next.add(path);
       return next;
     });
   }, []);
@@ -982,16 +1230,21 @@ export function ProjectTreePanel({
     setCreateDraft((current) => current ? { ...current, name, error: null } : current);
   }, []);
 
-  const selectFilePath = useCallback(async (filePath: string, fileName?: string, toggleSame = false) => {
+  const selectFilePath = useCallback(async (
+    filePath: string,
+    fileName?: string,
+    toggleSame = false,
+    skipTransition = false
+  ) => {
     if (!cwd) return;
 
-    // Toggle: 如果点击的是已选中的文件，取消选中
+    // Tabs own closing now; clicking the active file in the tree should keep it active.
     if (toggleSame && selectedFilePath === filePath) {
-      setSelectedFilePath(null);
-      setSelectedFileCwd(null);
-      setSelectedPreview(null);
-      setMdxRevealTarget(null);
       return;
+    }
+    if (!skipTransition && selectedFilePath && selectedFilePath !== filePath) {
+      const ready = await prepareActiveFileForTransition();
+      if (!ready) return;
     }
 
     const name = fileName || filePath.split('/').filter(Boolean).pop() || filePath;
@@ -1030,6 +1283,15 @@ export function ProjectTreePanel({
       return;
     }
 
+    const cachedTab = openFileTabsRef.current.find((tab) =>
+      tab.id === getProjectFileTabId(cwd, filePath)
+    );
+    if (cachedTab) {
+      applyCachedFileTab(cachedTab);
+      void refreshFileTabFromDisk(cachedTab.id);
+      return;
+    }
+
     setSelectedFilePath(filePath);
     setSelectedFileCwd(cwd);
     expandParentsForPath(filePath);
@@ -1064,10 +1326,16 @@ export function ProjectTreePanel({
       if (preview.kind === 'text' && preview.ext === '.mdx') {
         setDraftTextSynced(preview.text);
         setViewMode('code');
+        if (preview.editable) {
+          ensureOpenFileTab(preview as EditableProjectFilePreview, cwd, filePath, 'code');
+        }
         return;
       }
       if ((preview.kind === 'text' || preview.kind === 'markdown') && preview.editable) {
+        const nextViewMode = preview.kind === 'text' ? 'code' : 'view';
+        setViewMode(nextViewMode);
         setDraftTextSynced(preview.text);
+        ensureOpenFileTab(preview as EditableProjectFilePreview, cwd, filePath, nextViewMode);
       }
     } catch (error) {
       if (previewRequestIdRef.current !== requestId) return;
@@ -1085,8 +1353,12 @@ export function ProjectTreePanel({
     }
   }, [
     activeSessionId,
+    applyCachedFileTab,
     cwd,
     expandParentsForPath,
+    ensureOpenFileTab,
+    prepareActiveFileForTransition,
+    refreshFileTabFromDisk,
     selectedFilePath,
     setBrowserPanelOpen,
     setProjectTreeCollapsed,
@@ -1098,6 +1370,20 @@ export function ProjectTreePanel({
     if (node.kind !== 'file') return;
     await selectFilePath(node.path, node.name, true);
   };
+
+  const activateProjectFileTab = useCallback(async (tab: OpenProjectFileTab) => {
+    if (tab.id === activeFileTabId) return;
+    const ready = await prepareActiveFileForTransition();
+    if (!ready) return;
+    const latestTab = openFileTabsRef.current.find((item) => item.id === tab.id) || tab;
+    applyCachedFileTab(latestTab);
+    void refreshFileTabFromDisk(latestTab.id);
+  }, [
+    activeFileTabId,
+    applyCachedFileTab,
+    prepareActiveFileForTransition,
+    refreshFileTabFromDisk,
+  ]);
 
   const canDropEntryOnParent = useCallback((entry: ProjectDraggedEntry, targetParentPath: string) => {
     if (!cwd || !entry.path || !targetParentPath) return false;
@@ -1144,12 +1430,48 @@ export function ProjectTreePanel({
 
       setProjectTree(cwd, result.tree);
       expandPath(targetParentPath);
+      updateOpenFileTabs((current) =>
+        current.map((tab) => {
+          if (entry.kind === 'file' && isSameProjectPath(tab.filePath, entry.path)) {
+            const movedName = basenameOfPath(result.path!);
+            return {
+              ...tab,
+              id: getProjectFileTabId(cwd, result.path!),
+              filePath: result.path!,
+              name: movedName,
+              preview: {
+                ...tab.preview,
+                path: result.path!,
+                name: movedName,
+              },
+            };
+          }
+          if (entry.kind === 'dir' && isPathInsideProjectPath(tab.filePath, entry.path)) {
+            const relative = normalizeProjectPath(tab.filePath).slice(normalizeProjectPath(entry.path).length).replace(/^\/+/, '');
+            const movedPath = relative ? `${result.path}/${relative}` : result.path!;
+            const movedName = basenameOfPath(movedPath);
+            return {
+              ...tab,
+              id: getProjectFileTabId(cwd, movedPath),
+              filePath: movedPath,
+              name: movedName,
+              preview: {
+                ...tab.preview,
+                path: movedPath,
+                name: movedName,
+              },
+            };
+          }
+          return tab;
+        })
+      );
 
       if (wasSelected) {
         const movedPath = result.path;
+        const movedName = basenameOfPath(movedPath);
         setSelectedFilePath(movedPath);
         setSelectedFileCwd(cwd);
-        setSelectedPreview((current) => current ? { ...current, path: movedPath } : current);
+        setSelectedPreview((current) => current ? { ...current, path: movedPath, name: movedName } : current);
       }
 
       toast.success(`${entry.kind === 'dir' ? 'Folder' : 'File'} moved.`);
@@ -1158,7 +1480,7 @@ export function ProjectTreePanel({
     } finally {
       setMovingProjectEntryPath(null);
     }
-  }, [canDropEntryOnParent, cwd, expandPath, selectedFilePath, setProjectTree]);
+  }, [canDropEntryOnParent, cwd, expandPath, selectedFilePath, setProjectTree, updateOpenFileTabs]);
 
   const handleProjectEntryDragStart = useCallback((event: DragEvent<HTMLDivElement>, node: ProjectTreeNode) => {
     if (node.kind !== 'file' && node.kind !== 'dir') return;
@@ -1377,6 +1699,10 @@ export function ProjectTreePanel({
   ) => {
     const reader = window.electron.readProjectFilePreview;
     if (typeof reader !== 'function') return;
+    if (selectedFilePath && selectedFilePath !== filePath) {
+      const ready = await prepareActiveFileForTransition();
+      if (!ready) return;
+    }
 
     const name = filePath.split('/').filter(Boolean).pop() || filePath;
     const fileCwd = dirnameOfPath(filePath);
@@ -1400,6 +1726,9 @@ export function ProjectTreePanel({
         setSelectedPreview(preview);
         setDraftTextSynced(preview.text);
         setViewMode('code'); // default to source editing like Cursor
+        if (preview.editable) {
+          ensureOpenFileTab(preview as EditableProjectFilePreview, fileCwd, filePath, 'code');
+        }
         if (typeof options.lineStart === 'number') {
           mdxRevealTokenRef.current += 1;
           setMdxRevealTarget({
@@ -1413,6 +1742,7 @@ export function ProjectTreePanel({
         setSelectedPreview(preview);
         if (preview.editable) {
           setDraftTextSynced(preview.text);
+          ensureOpenFileTab(preview as EditableProjectFilePreview, fileCwd, filePath, 'view');
         }
         return;
       }
@@ -1435,6 +1765,13 @@ export function ProjectTreePanel({
         return;
       }
       if (preview.kind === 'text' || preview.kind === 'html') {
+        if (preview.kind === 'text' && preview.editable) {
+          setSelectedPreview(preview);
+          setDraftTextSynced(preview.text);
+          setViewMode('code');
+          ensureOpenFileTab(preview as EditableProjectFilePreview, fileCwd, filePath, 'code');
+          return;
+        }
         setSelectedPreview({ ...preview, editable: false });
         return;
       }
@@ -1453,7 +1790,13 @@ export function ProjectTreePanel({
         setPreviewLoading(false);
       }
     }
-  }, [setDraftTextSynced, setSaveStateSynced]);
+  }, [
+    ensureOpenFileTab,
+    prepareActiveFileForTransition,
+    selectedFilePath,
+    setDraftTextSynced,
+    setSaveStateSynced,
+  ]);
 
   const closePreview = useCallback(() => {
     setSelectedFilePath(null);
@@ -1467,6 +1810,39 @@ export function ProjectTreePanel({
     setPptxSlideIndex(0);
     if (isFullscreen && onToggleFullscreen) onToggleFullscreen();
   }, [isFullscreen, onToggleFullscreen, setDraftTextSynced, setSaveStateSynced]);
+
+  const closeProjectFileTab = useCallback(async (tabId: string) => {
+    const tab = openFileTabs.find((item) => item.id === tabId);
+    if (!tab) return;
+    const closingActiveTab = tabId === activeFileTabId;
+    if (closingActiveTab) {
+      const ready = await prepareActiveFileForTransition();
+      if (!ready) return;
+    }
+
+    const nextTabs = openFileTabs.filter((item) => item.id !== tabId);
+    updateOpenFileTabs(() => nextTabs);
+
+    if (!closingActiveTab) return;
+    const closedIndex = openFileTabs.findIndex((item) => item.id === tabId);
+    const nextTab =
+      nextTabs[Math.max(0, closedIndex - 1)] ||
+      nextTabs[closedIndex] ||
+      null;
+    if (nextTab) {
+      await selectFilePath(nextTab.filePath, nextTab.name, false, true);
+      setViewMode(nextTab.viewMode);
+      return;
+    }
+    closePreview();
+  }, [
+    activeFileTabId,
+    closePreview,
+    openFileTabs,
+    prepareActiveFileForTransition,
+    selectFilePath,
+    updateOpenFileTabs,
+  ]);
 
   const deleteEntry = useCallback(async (node: ProjectTreeNode) => {
     if (!cwd) return;
@@ -1493,6 +1869,9 @@ export function ProjectTreePanel({
       // If the deleted file is currently being previewed, close it.
       const normalizedDeleted = normalizeProjectPath(node.path);
       const previewed = selectedFilePath ? normalizeProjectPath(selectedFilePath) : null;
+      updateOpenFileTabs((current) =>
+        current.filter((tab) => normalizeProjectPath(tab.filePath) !== normalizedDeleted)
+      );
       if (previewed === normalizedDeleted) {
         closePreview();
       }
@@ -1500,7 +1879,7 @@ export function ProjectTreePanel({
     } catch (error) {
       toast.error(`Failed to delete: ${String(error)}`);
     }
-  }, [closePreview, cwd, selectedFilePath, setProjectTree]);
+  }, [closePreview, cwd, selectedFilePath, setProjectTree, updateOpenFileTabs]);
 
   useEffect(() => {
     const handleOpenProjectFile = (event: Event) => {
@@ -1597,6 +1976,70 @@ export function ProjectTreePanel({
     }
   };
 
+  const showWechatCopyResult = useCallback((
+    result: Awaited<ReturnType<typeof copyMarkdownAsWechatHtml>>,
+    toastId?: string | number,
+  ) => {
+    const modelDescription = result.ok && result.model
+      ? `使用：${result.runtime || 'aegis'} · ${result.model}`
+      : undefined;
+    const resultToastOptions = {
+      closeButton: true,
+      dismissible: true,
+      ...(modelDescription ? { description: modelDescription } : {}),
+    };
+    const toastOptions = toastId === undefined
+      ? resultToastOptions
+      : { ...resultToastOptions, id: toastId };
+    if (result.ok) {
+      if (result.format === 'html') {
+        toast.success('已复制到公众号剪贴板', toastOptions);
+      } else if (result.format === 'source-html') {
+        toast.success('富文本复制不可用，已复制生成的 HTML 源码', toastOptions);
+      } else {
+        toast.success('富文本复制不可用，已复制原始 Markdown', toastOptions);
+      }
+    } else {
+      toast.error(`复制失败: ${result.error}`, toastOptions);
+    }
+  }, []);
+
+  const handleCopyWechatHtml = useCallback(async (themeId: WeChatStaticThemeId = 'bubblebrain') => {
+    activeMarkdownBridgeRef.current?.flush();
+    const result = await copyMarkdownAsWechatHtml(draftTextRef.current, themeId);
+    showWechatCopyResult(result);
+  }, [showWechatCopyResult]);
+
+  const handleCopyAiWechatHtml = useCallback(async (
+    themeId: WeChatAiThemeId,
+    themeLabel: string,
+  ) => {
+    if (wechatAiGeneratingTheme) return;
+    activeMarkdownBridgeRef.current?.flush();
+    setWechatAiGeneratingTheme(themeId);
+    const loadingToastId = toast.loading(`正在生成${themeLabel} HTML...`, {
+      description: '生成完成后会自动复制到公众号剪贴板',
+      duration: Infinity,
+      dismissible: false,
+    });
+    try {
+      const result = await copyMarkdownAsWechatAiHtml(
+        draftTextRef.current,
+        themeId,
+        selectedFilePath || undefined,
+      );
+      showWechatCopyResult(result, loadingToastId);
+    } catch (error) {
+      toast.error(`复制失败: ${error instanceof Error ? error.message : String(error)}`, {
+        id: loadingToastId,
+        closeButton: true,
+        dismissible: true,
+      });
+    } finally {
+      setWechatAiGeneratingTheme(null);
+    }
+  }, [selectedFilePath, showWechatCopyResult, wechatAiGeneratingTheme]);
+
   useEffect(() => {
     return () => {
       if (copiedTimerRef.current) {
@@ -1626,10 +2069,7 @@ export function ProjectTreePanel({
   }, [collapsed, selectedFilePath, previewPanelWidth]);
 
   const selectedEditableTextPreview =
-    selectedPreview &&
-    (selectedPreview.kind === 'markdown' ||
-      (selectedPreview.kind === 'text' && selectedPreview.ext === '.mdx')) &&
-    selectedPreview.editable
+    isEditableProjectFilePreview(selectedPreview)
       ? selectedPreview
       : null;
   const hasEditableTextOpen = Boolean(selectedEditableTextPreview);
@@ -1645,6 +2085,28 @@ export function ProjectTreePanel({
   useEffect(() => {
     selectedEditableTextPreviewRef.current = selectedEditableTextPreview;
   }, [selectedEditableTextPreview]);
+
+  useEffect(() => {
+    if (!activeFileTabId) return;
+    updateOpenFileTabs((current) =>
+      current.map((tab) =>
+        tab.id === activeFileTabId
+          ? { ...tab, viewMode }
+          : tab
+      )
+    );
+  }, [activeFileTabId, updateOpenFileTabs, viewMode]);
+
+  useEffect(() => {
+    if (!activeFileTabId || previewLoading || !selectedEditableTextPreview) return;
+    const tab = openFileTabs.find((item) => item.id === activeFileTabId);
+    if (!tab?.viewState) return;
+    const viewState = tab.viewState;
+    window.requestAnimationFrame(() => {
+      activeMarkdownBridgeRef.current?.restoreViewState(viewState);
+      activeTextEditorBridgeRef.current?.restoreViewState(viewState);
+    });
+  }, [activeFileTabId, openFileTabs, previewLoading, selectedEditableTextPreview]);
 
   // Mirror unsaved text to the main process for the synchronous quit fallback.
   useEffect(() => {
@@ -1673,7 +2135,6 @@ export function ProjectTreePanel({
     if (
       !previewToSave ||
       (previewToSave.kind !== 'markdown' && previewToSave.kind !== 'text') ||
-      (previewToSave.kind === 'text' && previewToSave.ext !== '.mdx') ||
       !previewToSave.editable
     ) {
       return true;
@@ -1721,10 +2182,11 @@ export function ProjectTreePanel({
           text: textToSave,
           size: result.size ?? previewToSave.size,
           mtimeMs: result.mtimeMs ?? previewToSave.mtimeMs,
-        };
+        } as EditableProjectFilePreview;
         selectedEditableTextPreviewRef.current = savedPreview;
         rememberDiskContent(textToSave);
         setSelectedPreview(savedPreview);
+        ensureOpenFileTab(savedPreview, selectedFileCwd, selectedFilePath, viewMode, textToSave);
         void loadChangeRecords();
         savedOk = true;
         setSaveStateSynced('saved');
@@ -1762,7 +2224,7 @@ export function ProjectTreePanel({
       savePromiseRef.current = null;
     }
     return saveOk;
-  }, [selectedFileCwd, selectedFilePath, setSaveErrorSynced, setSaveStateSynced]);
+  }, [ensureOpenFileTab, selectedFileCwd, selectedFilePath, setSaveErrorSynced, setSaveStateSynced, viewMode]);
 
   useEffect(() => {
     if (
@@ -1781,6 +2243,7 @@ export function ProjectTreePanel({
 
   const flushProjectEditorBeforeClose = useCallback(async (): Promise<ProjectEditorFlushResult> => {
     activeMarkdownBridgeRef.current?.flush();
+    activeTextEditorBridgeRef.current?.flush();
     const saveOk = await handleSaveText();
     const currentPreview = selectedEditableTextPreviewRef.current;
     const stillDirty =
@@ -1819,6 +2282,7 @@ export function ProjectTreePanel({
     const getDirtyContent = (flushEditor: boolean): string | null => {
       if (flushEditor) {
         activeMarkdownBridgeRef.current?.flush();
+        activeTextEditorBridgeRef.current?.flush();
       }
       const currentPreview = selectedEditableTextPreviewRef.current;
       if (
@@ -1881,15 +2345,27 @@ export function ProjectTreePanel({
         text: payload.text,
         mtimeMs: payload.mtimeMs,
         size: payload.size,
-      };
+      } as EditableProjectFilePreview;
       selectedEditableTextPreviewRef.current = latest;
       rememberDiskContent(payload.text);
       setSelectedPreview(latest);
       setDraftTextSynced(payload.text);
+      if (selectedFileCwd && selectedFilePath) {
+        ensureOpenFileTab(latest, selectedFileCwd, selectedFilePath, viewMode, payload.text);
+      }
       setSaveStateSynced('idle');
       setSaveErrorSynced(null);
     },
-    [rememberDiskContent, setDraftTextSynced, setSaveErrorSynced, setSaveStateSynced]
+    [
+      ensureOpenFileTab,
+      rememberDiskContent,
+      selectedFileCwd,
+      selectedFilePath,
+      setDraftTextSynced,
+      setSaveErrorSynced,
+      setSaveStateSynced,
+      viewMode,
+    ]
   );
 
   // Subscribe to disk changes for the open editable file. Event-driven via the
@@ -1940,7 +2416,9 @@ export function ProjectTreePanel({
       // File removed/renamed away: keep the in-editor buffer rather than wiping it.
       if (!detail.exists) return;
 
-      const composing = activeMarkdownBridgeRef.current?.isComposing() ?? false;
+      const composing =
+        (activeMarkdownBridgeRef.current?.isComposing() ?? false) ||
+        (activeTextEditorBridgeRef.current?.isComposing() ?? false);
 
       // Seed the known-contents set on the very first event so the originally
       // loaded preview text is recognised as "ours".
@@ -1957,9 +2435,12 @@ export function ProjectTreePanel({
             ...currentPreview,
             mtimeMs: detail.mtimeMs,
             size: detail.size,
-          };
+          } as EditableProjectFilePreview;
           selectedEditableTextPreviewRef.current = refreshed;
           setSelectedPreview(refreshed);
+          if (selectedFileCwd && selectedFilePath) {
+            ensureOpenFileTab(refreshed, selectedFileCwd, selectedFilePath, viewMode, draftTextRef.current);
+          }
         }
         return;
       }
@@ -1985,13 +2466,18 @@ export function ProjectTreePanel({
 
     window.addEventListener('aegis:project-file-changed', handleFileChanged);
     return () => window.removeEventListener('aegis:project-file-changed', handleFileChanged);
-  }, [applyExternalReload, rememberDiskContent, selectedFileCwd, selectedFilePath]);
+  }, [applyExternalReload, ensureOpenFileTab, rememberDiskContent, selectedFileCwd, selectedFilePath, viewMode]);
 
   // Apply a deferred external reload once IME composition settles.
   useEffect(() => {
     const pending = pendingExternalReloadRef.current;
     if (!pending) return;
-    if (activeMarkdownBridgeRef.current?.isComposing()) return;
+    if (
+      activeMarkdownBridgeRef.current?.isComposing() ||
+      activeTextEditorBridgeRef.current?.isComposing()
+    ) {
+      return;
+    }
     pendingExternalReloadRef.current = null;
     if (pending.text !== draftTextRef.current) {
       applyExternalReload(pending);
@@ -2157,6 +2643,14 @@ export function ProjectTreePanel({
     isMarkdownPreviewSurface &&
     selectedPreview?.editable &&
     !!selectedFileCwd &&
+    !!selectedFilePath;
+  const activeOpenFileTab = activeFileTabId
+    ? openFileTabs.find((tab) => tab.id === activeFileTabId) || null
+    : null;
+  const showProjectFileTabs = openFileTabs.length > 0;
+  const canCopyWechat =
+    selectedPreview?.kind === 'markdown' &&
+    selectedPreview.editable &&
     !!selectedFilePath;
   const projectRootDropHoverId = visibleTree ? getNodeDropHoverId(visibleTree.path) : null;
   const isProjectRootDropTarget =
@@ -2529,8 +3023,164 @@ export function ProjectTreePanel({
               </div>
             )}
 
-            <div className={`h-full min-w-0 flex flex-col ${isEditableMarkdownPreview ? '' : 'px-3 py-3'}`}>
-              {!isEditableMarkdownPreview ? (
+            <div className={`h-full min-w-0 flex flex-col ${showProjectFileTabs || isEditableMarkdownPreview ? '' : 'px-3 py-3'}`}>
+              {showProjectFileTabs && (
+                <div
+                  className={`aegis-project-file-tabs${isFullscreen ? ' window-controls-inset' : ''} drag-region flex h-11 flex-shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-primary)] pl-2 pr-2`}
+                >
+                  <div className="no-drag flex min-w-0 flex-1 items-end overflow-x-auto">
+                    {openFileTabs.map((tab) => {
+                      const activeTab = tab.id === activeFileTabId;
+                      const dirty = activeTab && canSaveText;
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => void activateProjectFileTab(tab)}
+                          className={`group flex h-9 max-w-[190px] min-w-[112px] items-center gap-1.5 rounded-t-[7px] border border-b-0 px-2.5 text-left text-xs transition-colors ${
+                            activeTab
+                              ? 'border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-[0_-1px_0_var(--bg-primary),0_1px_0_var(--bg-primary)]'
+                              : 'border-transparent bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
+                          }`}
+                          title={tab.filePath}
+                        >
+                          <FileTypeIcon name={tab.name} className="h-3.5 w-3.5 flex-shrink-0" fallbackClassName="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-secondary)]" />
+                          <span className="min-w-0 flex-1 truncate">{tab.name}</span>
+                          {dirty && <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[var(--accent)]" aria-label="Unsaved changes" />}
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Close ${tab.name}`}
+                            className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-[4px] text-[var(--text-muted)] opacity-70 transition-opacity hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] group-hover:opacity-100"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              void closeProjectFileTab(tab.id);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                void closeProjectFileTab(tab.id);
+                              }
+                            }}
+                          >
+                            <X className="h-3 w-3" aria-hidden="true" />
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="no-drag flex flex-shrink-0 items-center gap-1">
+                    {(selectedPreview?.kind === 'html' || isMdxFilePreview) && (
+                      <ViewModeToggle
+                        value={viewMode}
+                        onChange={setViewMode}
+                        options={
+                          isMdxFilePreview
+                            ? [
+                                { value: 'code', label: 'Source', title: 'Edit source' },
+                                { value: 'view', label: 'Preview', title: 'Preview MDX' },
+                                { value: 'split', label: 'Split', title: 'Source and preview' },
+                              ]
+                            : undefined
+                        }
+                      />
+                    )}
+
+                    {canSaveText && (
+                      <button
+                        onClick={() => {
+                          void handleSaveText();
+                        }}
+                        disabled={saveState === 'saving'}
+                        className="px-2 py-1 text-xs rounded-md bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Save"
+                      >
+                        {saveState === 'saving'
+                          ? 'Saving...'
+                          : saveState === 'saved'
+                            ? 'Saved'
+                            : 'Save'}
+                      </button>
+                    )}
+
+                    {canCopyWechat && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-2 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                            title="公众号主题"
+                            aria-label="公众号主题"
+                          >
+                            <span>公众号主题</span>
+                            <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" sideOffset={6}>
+                          <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('bubblebrain')}>
+                            <span>BubbleBrain</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('lapis')}>
+                            <span>Lapis</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            disabled={wechatAiGeneratingTheme !== null}
+                            onSelect={() => void handleCopyAiWechatHtml('black-red-imprint', '黑红刊刻风')}
+                          >
+                            <span>
+                              {wechatAiGeneratingTheme === 'black-red-imprint'
+                                ? '黑红刊刻风生成中...'
+                                : '黑红刊刻风（AI）'}
+                            </span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={wechatAiGeneratingTheme !== null}
+                            onSelect={() => void handleCopyAiWechatHtml('black-orange-imprint', '黑橙刊刻风')}
+                          >
+                            <span>
+                              {wechatAiGeneratingTheme === 'black-orange-imprint'
+                                ? '黑橙刊刻风生成中...'
+                                : '黑橙刊刻风（AI）'}
+                            </span>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+
+                    {onToggleFullscreen && (
+                      <IconButton
+                        onClick={onToggleFullscreen}
+                        tooltip={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+                        label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                      >
+                        {isFullscreen ? (
+                          <Minimize2 className="w-4 h-4" />
+                        ) : (
+                          <Maximize2 className="w-4 h-4" />
+                        )}
+                      </IconButton>
+                    )}
+                    <IconButton
+                      onClick={() => {
+                        if (activeFileTabId) {
+                          void closeProjectFileTab(activeFileTabId);
+                        } else {
+                          closePreview();
+                        }
+                      }}
+                      label="Close preview"
+                    >
+                      <X className="w-4 h-4" />
+                    </IconButton>
+                  </div>
+                </div>
+              )}
+
+              {!showProjectFileTabs && !isEditableMarkdownPreview ? (
                 <div className="drag-region flex items-center justify-between gap-2 pb-2">
                   <div className="min-w-0">
                     <div className="text-xs text-[var(--text-muted)]">Preview</div>
@@ -2684,29 +3334,6 @@ export function ProjectTreePanel({
                       windowControlsInset={isFullscreen}
                       saveState={saveState}
                       saveError={saveError}
-                      toolbarActions={
-                        <>
-                          {onToggleFullscreen && (
-                            <IconButton
-                              onClick={onToggleFullscreen}
-                              tooltip={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
-                              label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-                            >
-                              {isFullscreen ? (
-                                <Minimize2 className="w-4 h-4" />
-                              ) : (
-                                <Maximize2 className="w-4 h-4" />
-                              )}
-                            </IconButton>
-                          )}
-                          <IconButton
-                            onClick={closePreview}
-                            label="Close preview"
-                          >
-                            <X className="w-4 h-4" />
-                          </IconButton>
-                        </>
-                      }
                       onChange={handleDraftTextChange}
                       onSave={handleSaveText}
                       onRegisterBridge={registerMarkdownBridge}
@@ -2749,6 +3376,7 @@ export function ProjectTreePanel({
                         />
                         <div className="aegis-mdx-source-fill">
                           <ProjectTextEditor
+                            ref={registerTextEditorBridge}
                             value={draftText}
                             onChange={handleDraftTextChange}
                             onSave={() => handleSaveText()}
@@ -2779,6 +3407,7 @@ export function ProjectTreePanel({
                           />
                           <div className="aegis-mdx-source-fill">
                             <ProjectTextEditor
+                              ref={registerTextEditorBridge}
                               value={draftText}
                               onChange={handleDraftTextChange}
                               onSave={() => handleSaveText()}
@@ -2802,11 +3431,11 @@ export function ProjectTreePanel({
                         </div>
                       </div>
                     ) : selectedPreview.editable ? (
-                      <textarea
+                      <ProjectTextEditor
+                        ref={registerTextEditorBridge}
                         value={draftText}
-                        onChange={(e) => handleDraftTextChange(e.target.value)}
-                        className="w-full h-full min-h-[220px] resize-none bg-transparent outline-none font-mono text-sm whitespace-pre-wrap"
-                        spellCheck={false}
+                        onChange={handleDraftTextChange}
+                        onSave={() => handleSaveText()}
                       />
                     ) : selectedPreview.name?.toLowerCase().endsWith('.txt') ? (
                       <TextFileReader

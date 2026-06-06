@@ -89,6 +89,8 @@ Inline \\\`code\\\`, **bold**, *italic*, and ~~strike~~.
 const value = 1;
 \\\`\\\`\\\`
 
+Paragraph immediately after code preview.
+
 ![Remote](\${remoteImage})
 
 ![Local](./local-image.svg)
@@ -96,6 +98,8 @@ const value = 1;
 | Name | Value |
 | --- | --- |
 | A | 1 |
+
+Paragraph immediately after table preview.
 
 \${filler}
 
@@ -173,6 +177,25 @@ function Harness() {
       flush: () => bridgeRef.current?.flush(),
       getSaveCount: () => saveCountRef.current,
       getMainScrollTop: () => document.querySelector('.aegis-md-main')?.scrollTop || 0,
+      scrollLineIntoView: (needle) => {
+        const view = findView();
+        const main = document.querySelector('.aegis-md-main');
+        if (!view || !main) return null;
+        const text = view.state.doc.toString();
+        const pos = text.indexOf(needle);
+        if (pos < 0) return null;
+        const coords = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
+        const lineBlock = view.lineBlockAt(pos);
+        const mainRect = main.getBoundingClientRect();
+        const contentRect = view.contentDOM.getBoundingClientRect();
+        const targetTop = coords?.top ?? contentRect.top + lineBlock.top;
+        const maxScrollTop = Math.max(0, main.scrollHeight - main.clientHeight);
+        main.scrollTop = Math.min(
+          maxScrollTop,
+          Math.max(0, main.scrollTop + targetTop - mainRect.top - (main.clientHeight * 0.45))
+        );
+        return { pos, line: view.state.doc.lineAt(pos).text };
+      },
       clickFrontmatterWidget: () => {
         const widget = document.querySelector('.aegis-cm-frontmatter-widget');
         if (!widget) return null;
@@ -274,6 +297,36 @@ function Harness() {
           complete: node.complete,
           naturalWidth: node.naturalWidth,
         }));
+        const blockWidgetMetrics = Array.from(document.querySelectorAll('.aegis-cm-block-widget')).map((node) => {
+          const style = window.getComputedStyle(node);
+          const rect = node.getBoundingClientRect();
+          const sourcePos = Number(node.getAttribute('data-source-pos'));
+          let lineBlockHeight = null;
+          if (view && Number.isFinite(sourcePos)) {
+            try {
+              lineBlockHeight = view.lineBlockAt(sourcePos).height;
+            } catch {
+              lineBlockHeight = null;
+            }
+          }
+          return {
+            className: node.className,
+            marginTop: style.marginTop,
+            marginBottom: style.marginBottom,
+            height: rect.height,
+            sourcePos: Number.isFinite(sourcePos) ? sourcePos : null,
+            lineBlockHeight,
+            heightDelta: lineBlockHeight === null ? null : Math.abs(lineBlockHeight - rect.height),
+          };
+        });
+        const main = document.querySelector('.aegis-md-main');
+        const cmScroller = document.querySelector('.aegis-md-codemirror-root .cm-scroller');
+        const scrollState = {
+          mainOverflowY: main ? window.getComputedStyle(main).overflowY : '',
+          mainScrollTop: main?.scrollTop || 0,
+          cmScrollerOverflowY: cmScroller ? window.getComputedStyle(cmScroller).overflowY : '',
+          cmScrollerScrollTop: cmScroller?.scrollTop || 0,
+        };
         return {
           hasEditor: Boolean(document.querySelector('.aegis-md-codemirror-root .cm-editor')),
           oldRoots: document.querySelectorAll('.aegis-md-milkdown-root, .ProseMirror').length,
@@ -291,6 +344,8 @@ function Harness() {
           taskCount: document.querySelectorAll('.aegis-cm-task-checkbox').length,
           outlineTriggerTexts: Array.from(document.querySelectorAll('.aegis-md-outline-trigger span')).map((node) => node.textContent || ''),
           images,
+          blockWidgetMetrics,
+          scrollState,
         };
       },
     };
@@ -393,6 +448,19 @@ async function clickPoint(win, point) {
   await delay(160);
 }
 
+async function findVisibleLineClickPoint(win, needle) {
+  const scrollResult = await win.webContents.executeJavaScript(
+    \`window.__AegisMarkdownVerify.scrollLineIntoView(\${JSON.stringify(needle)})\`,
+    true
+  );
+  if (!scrollResult) return null;
+  await delay(350);
+  return win.webContents.executeJavaScript(
+    \`window.__AegisMarkdownVerify.findLineClickPoint(\${JSON.stringify(needle)})\`,
+    true
+  );
+}
+
 function withTimeout(promise, ms, message) {
   return Promise.race([
     promise,
@@ -454,6 +522,16 @@ app.whenReady().then(async () => {
     if (!paragraphClickPoint) throw new Error('Unable to find paragraph line click point.');
     await clickPoint(win, paragraphClickPoint);
     const paragraphSelectionLine = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getSelectionLineText()', true);
+
+    const afterCodeClickPoint = await findVisibleLineClickPoint(win, 'Paragraph immediately after code preview.');
+    if (!afterCodeClickPoint) throw new Error('Unable to find after-code paragraph line click point.');
+    await clickPoint(win, afterCodeClickPoint);
+    const afterCodeSelectionLine = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getSelectionLineText()', true);
+
+    const afterTableClickPoint = await findVisibleLineClickPoint(win, 'Paragraph immediately after table preview.');
+    if (!afterTableClickPoint) throw new Error('Unable to find after-table paragraph line click point.');
+    await clickPoint(win, afterTableClickPoint);
+    const afterTableSelectionLine = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getSelectionLineText()', true);
 
     await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.focusAfterInlineProbe()', true);
     await pressBackquote(win);
@@ -527,6 +605,10 @@ app.whenReady().then(async () => {
       headingSelectionLine,
       paragraphClickPoint,
       paragraphSelectionLine,
+      afterCodeClickPoint,
+      afterCodeSelectionLine,
+      afterTableClickPoint,
+      afterTableSelectionLine,
       outlineJumpStart,
       outlineScrollTop,
       outlineTargetPosition,
@@ -600,6 +682,10 @@ async function main() {
       headingSelectionLine,
       paragraphClickPoint,
       paragraphSelectionLine,
+      afterCodeClickPoint,
+      afterCodeSelectionLine,
+      afterTableClickPoint,
+      afterTableSelectionLine,
       outlineJumpStart,
       outlineScrollTop,
       outlineTargetPosition,
@@ -612,6 +698,35 @@ async function main() {
     } = result;
     assert(initialSnapshot.hasEditor, 'CodeMirror editor did not mount.');
     assert(initialSnapshot.oldRoots === 0, 'Old Milkdown/ProseMirror roots are still present.');
+    assert(
+      initialSnapshot.scrollState?.mainOverflowY === 'auto' || initialSnapshot.scrollState?.mainOverflowY === 'scroll',
+      `Markdown editor should use the outer main viewport as the scroll container: ${JSON.stringify(initialSnapshot.scrollState)}`
+    );
+    assert(
+      initialSnapshot.scrollState?.cmScrollerOverflowY === 'visible',
+      `CodeMirror inner scroller should not be a competing scroll container: ${JSON.stringify(initialSnapshot.scrollState)}`
+    );
+    assert(
+      (initialSnapshot.blockWidgetMetrics || []).length >= 4,
+      `Expected measured block widgets for front matter, code, images, and table: ${JSON.stringify(initialSnapshot.blockWidgetMetrics)}`
+    );
+    const blockWidgetMarginViolations = initialSnapshot.blockWidgetMetrics.filter((metric) => (
+      Number.parseFloat(metric.marginTop) !== 0 || Number.parseFloat(metric.marginBottom) !== 0
+    ));
+    assert(
+      blockWidgetMarginViolations.length === 0,
+      `Block widget roots must not use vertical margins because CodeMirror does not include them in block height maps: ${JSON.stringify(blockWidgetMarginViolations)}`
+    );
+    const blockWidgetHeightViolations = initialSnapshot.blockWidgetMetrics.filter((metric) => (
+      metric.lineBlockHeight !== null
+        && Number.isFinite(metric.heightDelta)
+        && metric.height > 0
+        && metric.heightDelta > 4
+    ));
+    assert(
+      blockWidgetHeightViolations.length === 0,
+      `CodeMirror block height map drifted from measured widget heights: ${JSON.stringify(blockWidgetHeightViolations)}`
+    );
     assert(
       initialSnapshot.frontmatterWidgetCount === 1
         && initialSnapshot.frontmatterWidgetText.includes('tags')
@@ -644,6 +759,14 @@ async function main() {
     assert(
       paragraphSelectionLine.includes('This line has'),
       `Clicking the rendered paragraph selected the wrong source line: ${JSON.stringify({ paragraphClickPoint, paragraphSelectionLine })}`
+    );
+    assert(
+      afterCodeSelectionLine.includes('Paragraph immediately after code preview.'),
+      `Clicking a line after a rendered code widget selected the wrong source line: ${JSON.stringify({ afterCodeClickPoint, afterCodeSelectionLine })}`
+    );
+    assert(
+      afterTableSelectionLine.includes('Paragraph immediately after table preview.'),
+      `Clicking a line after a rendered table widget selected the wrong source line: ${JSON.stringify({ afterTableClickPoint, afterTableSelectionLine })}`
     );
     assert(
       outlineScrollTop > outlineJumpStart.before + 100,
