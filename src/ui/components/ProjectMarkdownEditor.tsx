@@ -160,6 +160,11 @@ type MarkdownFrontmatterBlock = {
   frontmatter: string;
 };
 
+type MeasuredMarkdownWidgetElement = HTMLElement & {
+  __aegisMarkdownResizeObserver?: ResizeObserver;
+  __aegisMarkdownWidgetDisposed?: boolean;
+};
+
 const updateListenerFacet = EditorView.updateListener;
 const markdownHeadingFlashEffect = StateEffect.define<number | null>();
 const markdownPointerSelectingEffect = StateEffect.define<boolean>();
@@ -970,7 +975,48 @@ class TaskCheckboxWidget extends WidgetType {
   }
 }
 
-class ImagePreviewWidget extends WidgetType {
+abstract class MeasuredBlockWidget extends WidgetType {
+  destroy(dom: HTMLElement) {
+    destroyMeasuredMarkdownBlock(dom);
+  }
+}
+
+function requestMarkdownWidgetMeasure(view: EditorView, element?: MeasuredMarkdownWidgetElement) {
+  if (!view.dom.isConnected || element?.__aegisMarkdownWidgetDisposed) return;
+  view.requestMeasure();
+  window.requestAnimationFrame(() => {
+    if (view.dom.isConnected && !element?.__aegisMarkdownWidgetDisposed) {
+      view.requestMeasure();
+    }
+  });
+}
+
+function createMeasuredMarkdownBlock<K extends keyof HTMLElementTagNameMap>(
+  view: EditorView,
+  tagName: K,
+  className: string,
+  sourcePos: number
+): HTMLElementTagNameMap[K] & MeasuredMarkdownWidgetElement {
+  const element = document.createElement(tagName) as HTMLElementTagNameMap[K] & MeasuredMarkdownWidgetElement;
+  element.className = `aegis-cm-block-widget ${className}`;
+  element.dataset.sourcePos = String(sourcePos);
+
+  if (typeof ResizeObserver !== 'undefined') {
+    const observer = new ResizeObserver(() => requestMarkdownWidgetMeasure(view, element));
+    observer.observe(element);
+    element.__aegisMarkdownResizeObserver = observer;
+  }
+
+  return element;
+}
+
+function destroyMeasuredMarkdownBlock(dom: HTMLElement) {
+  const element = dom as MeasuredMarkdownWidgetElement;
+  element.__aegisMarkdownWidgetDisposed = true;
+  element.__aegisMarkdownResizeObserver?.disconnect();
+}
+
+class ImagePreviewWidget extends MeasuredBlockWidget {
   constructor(
     private readonly cwd: string,
     private readonly filePath: string,
@@ -990,9 +1036,10 @@ class ImagePreviewWidget extends WidgetType {
   }
 
   toDOM(view: EditorView) {
-    const container = document.createElement('span');
-    container.className = 'aegis-cm-image-widget';
+    const container = createMeasuredMarkdownBlock(view, 'span', 'aegis-cm-image-widget', this.sourcePos);
     container.tabIndex = 0;
+
+    const requestMeasure = () => requestMarkdownWidgetMeasure(view, container);
 
     const status = document.createElement('span');
     status.className = 'aegis-cm-image-status';
@@ -1000,19 +1047,29 @@ class ImagePreviewWidget extends WidgetType {
     container.appendChild(status);
 
     const showError = (message: string) => {
+      if (container.__aegisMarkdownWidgetDisposed) return;
       container.dataset.error = 'true';
       status.textContent = message;
+      container.replaceChildren(status);
+      requestMeasure();
     };
 
     const renderImage = (src: string) => {
+      if (container.__aegisMarkdownWidgetDisposed) return;
       container.innerHTML = '';
+      delete container.dataset.error;
       const img = document.createElement('img');
       img.src = src;
       img.alt = this.alt;
       img.title = this.alt;
       img.loading = 'lazy';
+      img.addEventListener('load', requestMeasure, { once: true });
       img.addEventListener('error', () => showError('Image failed to load.'));
       container.appendChild(img);
+      requestMeasure();
+      if (img.complete) {
+        requestMeasure();
+      }
     };
 
     const trimmed = this.src.trim();
@@ -1037,7 +1094,11 @@ class ImagePreviewWidget extends WidgetType {
       }
     }
 
-    container.addEventListener('click', () => {
+    container.addEventListener('click', (event) => {
+      const target = findClosestElement(event.target);
+      if (!target?.closest('img, .aegis-cm-image-status')) return;
+      event.preventDefault();
+      event.stopPropagation();
       view.dispatch({
         selection: EditorSelection.cursor(this.sourcePos),
         effects: EditorView.scrollIntoView(this.sourcePos, { y: 'center' }),
@@ -1052,7 +1113,7 @@ class ImagePreviewWidget extends WidgetType {
   }
 }
 
-class CodeBlockPreviewWidget extends WidgetType {
+class CodeBlockPreviewWidget extends MeasuredBlockWidget {
   constructor(
     private readonly language: string,
     private readonly code: string,
@@ -1066,9 +1127,9 @@ class CodeBlockPreviewWidget extends WidgetType {
   }
 
   toDOM(view: EditorView) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'aegis-cm-code-widget';
-    wrapper.dataset.sourcePos = String(this.sourcePos);
+    const wrapper = createMeasuredMarkdownBlock(view, 'div', 'aegis-cm-code-widget', this.sourcePos);
+    const frame = document.createElement('div');
+    frame.className = 'aegis-cm-code-frame';
 
     const header = document.createElement('div');
     header.className = 'aegis-cm-code-header';
@@ -1093,16 +1154,17 @@ class CodeBlockPreviewWidget extends WidgetType {
       });
     });
     header.appendChild(button);
-    wrapper.appendChild(header);
+    frame.appendChild(header);
 
     const body = document.createElement('pre');
     body.className = 'aegis-cm-code-body';
     const code = document.createElement('code');
     code.textContent = this.code || '';
     body.appendChild(code);
-    wrapper.appendChild(body);
+    frame.appendChild(body);
+    wrapper.appendChild(frame);
 
-    wrapper.addEventListener('click', () => {
+    frame.addEventListener('click', () => {
       view.dispatch({
         selection: EditorSelection.cursor(this.sourcePos),
         effects: EditorView.scrollIntoView(this.sourcePos, { y: 'center' }),
@@ -1117,7 +1179,7 @@ class CodeBlockPreviewWidget extends WidgetType {
   }
 }
 
-class TablePreviewWidget extends WidgetType {
+class TablePreviewWidget extends MeasuredBlockWidget {
   constructor(
     private readonly rows: string[][],
     private readonly sourcePos: number
@@ -1130,8 +1192,7 @@ class TablePreviewWidget extends WidgetType {
   }
 
   toDOM(view: EditorView) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'aegis-cm-table-widget';
+    const wrapper = createMeasuredMarkdownBlock(view, 'div', 'aegis-cm-table-widget', this.sourcePos);
     const table = document.createElement('table');
     this.rows.forEach((row, rowIndex) => {
       const tr = document.createElement('tr');
@@ -1143,7 +1204,7 @@ class TablePreviewWidget extends WidgetType {
       table.appendChild(tr);
     });
     wrapper.appendChild(table);
-    wrapper.addEventListener('click', () => {
+    table.addEventListener('click', () => {
       view.dispatch({
         selection: EditorSelection.cursor(this.sourcePos),
         effects: EditorView.scrollIntoView(this.sourcePos, { y: 'center' }),
@@ -1158,7 +1219,7 @@ class TablePreviewWidget extends WidgetType {
   }
 }
 
-class FrontmatterPreviewWidget extends WidgetType {
+class FrontmatterPreviewWidget extends MeasuredBlockWidget {
   private readonly fields: MarkdownMetadataField[];
 
   constructor(
@@ -1174,8 +1235,12 @@ class FrontmatterPreviewWidget extends WidgetType {
   }
 
   toDOM(view: EditorView) {
-    const section = document.createElement('section');
-    section.className = 'aegis-mdx-metadata-card aegis-md-editor-metadata aegis-cm-frontmatter-widget';
+    const section = createMeasuredMarkdownBlock(
+      view,
+      'section',
+      'aegis-mdx-metadata-card aegis-md-editor-metadata aegis-cm-frontmatter-widget',
+      this.editPos
+    );
     section.setAttribute('aria-label', 'Metadata');
 
     const title = document.createElement('div');
@@ -2175,7 +2240,7 @@ export function ProjectMarkdownEditor({
       EditorState.tabSize.of(2),
       EditorView.theme({
         '&': { height: '100%' },
-        '.cm-scroller': { overflow: 'auto' },
+        '.cm-scroller': { overflow: 'visible' },
       }),
     ];
 
