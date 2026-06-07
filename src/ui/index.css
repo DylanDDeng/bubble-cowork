@@ -2187,6 +2187,10 @@ button.aegis-mdx-metadata-key:hover {
   font-weight: 720;
 }
 
+.aegis-cm-heading-line.is-source {
+  color: color-mix(in srgb, var(--text-primary) 88%, var(--text-secondary));
+}
+
 .aegis-cm-heading-line.level-1 {
   padding: 0 0 0.85rem;
   font-size: 34px;

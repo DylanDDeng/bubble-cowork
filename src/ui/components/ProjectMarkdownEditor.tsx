@@ -3,6 +3,7 @@ import { EditorSelection, EditorState, StateEffect, StateField, Transaction, typ
 import {
   Decoration,
   EditorView,
+  ViewPlugin,
   WidgetType,
   drawSelection,
   highlightActiveLine,
@@ -147,6 +148,9 @@ const METADATA_VISIBLE_ROWS = 8;
 const OUTLINE_TARGET_MIN_TOP_OFFSET_PX = 72;
 const OUTLINE_TARGET_MAX_TOP_OFFSET_PX = 140;
 const OUTLINE_TARGET_VIEWPORT_RATIO = 0.16;
+const MARKDOWN_SELECTION_AUTOSCROLL_MARGIN_PX = 56;
+const MARKDOWN_SELECTION_AUTOSCROLL_MAX_STEP_PX = 42;
+const MARKDOWN_SELECTION_AUTOSCROLL_MIN_STEP_PX = 8;
 const URL_CANDIDATE_RE = /(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
 const TRAILING_URL_PUNCTUATION_RE = /[.,;:!?，。！？；：、)\]}）】》]+$/u;
 const MARKDOWN_IMAGE_MIME_TYPES = new Set([
@@ -1304,10 +1308,16 @@ function addInlineMarkdownDecorations(
 ) {
   const markdownLinkRanges: Array<{ from: number; to: number }> = [];
   const heading = /^(#{1,6})\s+/.exec(lineText);
-  if (heading && !activeLine) {
+  if (heading) {
     const level = heading[1].length;
-    decorations.push(Decoration.line({ class: `aegis-cm-heading-line level-${level}` }).range(lineFrom));
-    addHiddenRange(decorations, lineFrom, lineFrom + heading[0].length);
+    decorations.push(
+      Decoration.line({
+        class: `aegis-cm-heading-line level-${level} ${activeLine ? 'is-source' : 'is-preview'}`,
+      }).range(lineFrom)
+    );
+    if (!activeLine) {
+      addHiddenRange(decorations, lineFrom, lineFrom + heading[0].length);
+    }
   }
 
   const task = /^(\s*[-*+]\s+)(\[[ xX]\])\s+/.exec(lineText);
@@ -1558,28 +1568,181 @@ function createLivePreviewDecorationsField(cwd: string, filePath: string): State
   });
 }
 
-function createPointerStablePreviewExtension(): Extension {
-  const startPointerSelection = (event: MouseEvent, view: EditorView) => {
+class PointerStablePreviewPlugin {
+  private selecting = false;
+  private selectionAnchor: number | null = null;
+  private pointerClientX = 0;
+  private pointerClientY = 0;
+  private autoscrollFrame: number | null = null;
+  private readonly abortController = new AbortController();
+
+  constructor(private readonly view: EditorView) {
+    const doc = view.dom.ownerDocument;
+    const win = doc.defaultView;
+    const listenerOptions = { signal: this.abortController.signal };
+    doc.addEventListener('mousemove', this.handleDocumentMouseMove, listenerOptions);
+    doc.addEventListener('mouseup', this.endPointerSelection, listenerOptions);
+    doc.addEventListener('pointerup', this.endPointerSelection, listenerOptions);
+    doc.addEventListener('pointercancel', this.endPointerSelection, listenerOptions);
+    doc.addEventListener('touchmove', this.handleDocumentTouchMove, listenerOptions);
+    doc.addEventListener('touchend', this.endPointerSelection, listenerOptions);
+    doc.addEventListener('touchcancel', this.endPointerSelection, listenerOptions);
+    win?.addEventListener('blur', this.endPointerSelection, listenerOptions);
+  }
+
+  startMouseSelection(event: MouseEvent) {
     if (event.button !== 0) return false;
-    view.dispatch({ effects: markdownPointerSelectingEffect.of(true) });
+    this.startPointerSelection(event.clientX, event.clientY);
     return false;
-  };
-  const endPointerSelection = (_event: Event, view: EditorView) => {
-    view.dispatch({ effects: markdownPointerSelectingEffect.of(false) });
+  }
+
+  startTouchSelection(event: TouchEvent) {
+    const touch = event.touches[0] || event.changedTouches[0];
+    if (touch) {
+      this.startPointerSelection(touch.clientX, touch.clientY);
+    }
     return false;
+  }
+
+  endLocalPointerSelection() {
+    this.endPointerSelection();
+    return false;
+  }
+
+  destroy() {
+    this.selecting = false;
+    this.selectionAnchor = null;
+    this.cancelAutoscroll();
+    this.abortController.abort();
+  }
+
+  private startPointerSelection(clientX: number, clientY: number) {
+    this.pointerClientX = clientX;
+    this.pointerClientY = clientY;
+    this.selectionAnchor = this.view.posAtCoords({ x: clientX, y: clientY }, false);
+    if (this.selecting) return;
+    this.selecting = true;
+    this.view.dispatch({ effects: markdownPointerSelectingEffect.of(true) });
+    this.requestAutoscrollFrame();
+  }
+
+  private endPointerSelection = () => {
+    if (!this.selecting) return;
+    this.selecting = false;
+    this.selectionAnchor = null;
+    this.cancelAutoscroll();
+    this.view.dispatch({ effects: markdownPointerSelectingEffect.of(false) });
   };
 
-  return EditorView.domEventHandlers({
-    mousedown: startPointerSelection,
-    mouseup: endPointerSelection,
-    mouseleave: endPointerSelection,
-    touchstart: (_event, view) => {
-      view.dispatch({ effects: markdownPointerSelectingEffect.of(true) });
-      return false;
+  private handleDocumentMouseMove = (event: MouseEvent) => {
+    if (!this.selecting) return;
+    if (event.buttons === 0) {
+      this.endPointerSelection();
+      return;
+    }
+    this.pointerClientX = event.clientX;
+    this.pointerClientY = event.clientY;
+    this.requestAutoscrollFrame();
+  };
+
+  private handleDocumentTouchMove = (event: TouchEvent) => {
+    if (!this.selecting) return;
+    const touch = event.touches[0] || event.changedTouches[0];
+    if (!touch) return;
+    this.pointerClientX = touch.clientX;
+    this.pointerClientY = touch.clientY;
+    this.requestAutoscrollFrame();
+  };
+
+  private requestAutoscrollFrame() {
+    if (this.autoscrollFrame !== null) return;
+    const win = this.view.dom.ownerDocument.defaultView;
+    if (!win) return;
+    this.autoscrollFrame = win.requestAnimationFrame(this.runAutoscroll);
+  }
+
+  private cancelAutoscroll() {
+    if (this.autoscrollFrame === null) return;
+    const win = this.view.dom.ownerDocument.defaultView;
+    if (win) {
+      win.cancelAnimationFrame(this.autoscrollFrame);
+    }
+    this.autoscrollFrame = null;
+  }
+
+  private runAutoscroll = () => {
+    this.autoscrollFrame = null;
+    if (!this.selecting) return;
+
+    const scroller = this.view.dom.closest<HTMLElement>('.aegis-md-main');
+    if (!scroller) return;
+
+    const rect = scroller.getBoundingClientRect();
+    const delta = this.getVerticalAutoscrollDelta(rect);
+    if (delta === 0) return;
+
+    const previousScrollTop = scroller.scrollTop;
+    const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    scroller.scrollTop = Math.min(maxScrollTop, Math.max(0, previousScrollTop + delta));
+
+    if (scroller.scrollTop !== previousScrollTop) {
+      this.extendSelectionToPointer();
+      this.requestAutoscrollFrame();
+    }
+  };
+
+  private getVerticalAutoscrollDelta(rect: DOMRect) {
+    const { pointerClientY } = this;
+    if (pointerClientY < rect.top + MARKDOWN_SELECTION_AUTOSCROLL_MARGIN_PX) {
+      const distance = rect.top + MARKDOWN_SELECTION_AUTOSCROLL_MARGIN_PX - pointerClientY;
+      return -this.getAutoscrollStep(distance);
+    }
+    if (pointerClientY > rect.bottom - MARKDOWN_SELECTION_AUTOSCROLL_MARGIN_PX) {
+      const distance = pointerClientY - (rect.bottom - MARKDOWN_SELECTION_AUTOSCROLL_MARGIN_PX);
+      return this.getAutoscrollStep(distance);
+    }
+    return 0;
+  }
+
+  private getAutoscrollStep(distance: number) {
+    return Math.min(
+      MARKDOWN_SELECTION_AUTOSCROLL_MAX_STEP_PX,
+      Math.max(MARKDOWN_SELECTION_AUTOSCROLL_MIN_STEP_PX, Math.ceil(distance * 0.62))
+    );
+  }
+
+  private extendSelectionToPointer() {
+    if (this.selectionAnchor === null) return;
+    const head = this.view.posAtCoords(
+      { x: this.pointerClientX, y: this.pointerClientY },
+      false
+    );
+    this.view.dispatch({
+      selection: EditorSelection.range(this.selectionAnchor, head),
+      annotations: Transaction.userEvent.of('select.pointer'),
+    });
+  }
+}
+
+function createPointerStablePreviewExtension(): Extension {
+  return ViewPlugin.fromClass(PointerStablePreviewPlugin, {
+    eventHandlers: {
+      mousedown(event) {
+        return this.startMouseSelection(event);
+      },
+      mouseup() {
+        return this.endLocalPointerSelection();
+      },
+      touchstart(event) {
+        return this.startTouchSelection(event);
+      },
+      touchend() {
+        return this.endLocalPointerSelection();
+      },
+      touchcancel() {
+        return this.endLocalPointerSelection();
+      },
     },
-    touchend: endPointerSelection,
-    touchcancel: endPointerSelection,
-    blur: endPointerSelection,
   });
 }
 
