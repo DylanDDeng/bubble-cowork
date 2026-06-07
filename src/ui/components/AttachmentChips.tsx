@@ -16,8 +16,15 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(precision)} ${units[unitIndex]}`;
 }
 
+const PASTED_TEXT_PREVIEW_MAX_CHARS = 900;
+
 function normalizePreviewText(text: string): string {
-  return text
+  const sample =
+    text.length > PASTED_TEXT_PREVIEW_MAX_CHARS
+      ? `${text.slice(0, PASTED_TEXT_PREVIEW_MAX_CHARS)}...`
+      : text;
+
+  return sample
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .split('\n')
