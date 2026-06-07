@@ -4,17 +4,38 @@ import { hasProjectFileMentions } from './project-file-mentions';
 export const LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD = 500;
 const LONG_PROMPT_ATTACHMENT_INSTRUCTION =
   'The main request is attached as a text file. Read the attachment first, then respond normally.';
+export type LongPromptAttachmentReason =
+  | 'too_short'
+  | 'missing_cwd'
+  | 'attachment_create_failed'
+  | 'has_project_mentions';
+
+export function getLongPromptAttachmentFallbackMessage(
+  reason?: LongPromptAttachmentReason
+): string {
+  switch (reason) {
+    case 'missing_cwd':
+      return 'Could not create a text attachment because no project folder is selected. Pasted inline instead.';
+    case 'has_project_mentions':
+      return 'Could not create a text attachment because the pasted text contains project file mentions. Pasted inline instead.';
+    case 'attachment_create_failed':
+      return 'Could not create a text attachment. Pasted inline instead.';
+    default:
+      return 'Could not create a text attachment. Pasted inline instead.';
+  }
+}
 
 export async function maybeConvertLongPromptToAttachment(params: {
   cwd?: string | null;
   prompt: string;
   attachments: Attachment[];
+  allowProjectMentions?: boolean;
 }): Promise<{
   prompt: string;
   attachments: Attachment[];
   converted: boolean;
   attachmentName?: string;
-  reason?: 'too_short' | 'missing_cwd' | 'attachment_create_failed' | 'has_project_mentions';
+  reason?: LongPromptAttachmentReason;
 }> {
   const prompt = params.prompt.trim();
   if (!prompt || prompt.length <= LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD) {
@@ -26,7 +47,7 @@ export async function maybeConvertLongPromptToAttachment(params: {
     };
   }
 
-  if (hasProjectFileMentions(prompt)) {
+  if (!params.allowProjectMentions && hasProjectFileMentions(prompt)) {
     return {
       prompt,
       attachments: params.attachments,

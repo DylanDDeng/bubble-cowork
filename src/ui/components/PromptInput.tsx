@@ -30,6 +30,7 @@ import { buildCodexReferencePayload } from '../utils/codex-composer';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
 import {
+  getLongPromptAttachmentFallbackMessage,
   LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD,
   maybeConvertLongPromptToAttachment,
 } from '../utils/long-prompt-attachment';
@@ -450,28 +451,51 @@ export function PromptInput({
       return false;
     }
 
-    void (async () => {
-      const promptWithAttachment = await maybeConvertLongPromptToAttachment({
-        cwd: activeSession?.cwd || null,
-        prompt: pastedText,
-        attachments,
-      });
-
-      if (!promptWithAttachment.converted) {
-        if (promptWithAttachment.reason === 'attachment_create_failed') {
-          toast.error('Failed to convert the long message into an attachment.');
-        }
-        return;
-      }
-
-      const nextPrompt = `${prompt.slice(0, context.start)}${prompt.slice(context.end)}`;
-      setAttachments(promptWithAttachment.attachments);
+    const pasteInline = () => {
+      const nextPrompt = `${prompt.slice(0, context.start)}${context.text}${prompt.slice(context.end)}`;
+      const nextCursorIndex = context.start + context.text.length;
       setPrompt(nextPrompt);
-      setCursorIndex(context.start);
+      setCursorIndex(nextCursorIndex);
       window.requestAnimationFrame(() => {
         editorRef.current?.focus();
-        editorRef.current?.setCursorIndex(context.start);
+        editorRef.current?.setCursorIndex(nextCursorIndex);
       });
+    };
+
+    const toastId = toast.loading('Creating text attachment...');
+    void (async () => {
+      try {
+        const promptWithAttachment = await maybeConvertLongPromptToAttachment({
+          cwd: activeSession?.cwd || null,
+          prompt: pastedText,
+          attachments,
+          allowProjectMentions: true,
+        });
+
+        if (!promptWithAttachment.converted) {
+          pasteInline();
+          toast.error(getLongPromptAttachmentFallbackMessage(promptWithAttachment.reason), {
+            id: toastId,
+          });
+          return;
+        }
+
+        const nextPrompt = `${prompt.slice(0, context.start)}${prompt.slice(context.end)}`;
+        setAttachments(promptWithAttachment.attachments);
+        setPrompt(nextPrompt);
+        setCursorIndex(context.start);
+        toast.dismiss(toastId);
+        window.requestAnimationFrame(() => {
+          editorRef.current?.focus();
+          editorRef.current?.setCursorIndex(context.start);
+        });
+      } catch {
+        pasteInline();
+        toast.error('Could not create a text attachment. Pasted inline instead.', {
+          id: toastId,
+        });
+        return;
+      }
     })();
 
     return true;
