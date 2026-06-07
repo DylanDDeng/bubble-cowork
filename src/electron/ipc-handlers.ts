@@ -2978,21 +2978,14 @@ async function createInlineTextAttachment(cwd: string, text: string): Promise<At
     return null;
   }
 
-  const attachmentsDir = resolve(normalizedCwd, '.aegis', 'attachments');
-  if (!isPathWithinRoot(normalizedCwd, attachmentsDir)) {
-    return null;
-  }
-
+  const attachmentsDir = resolve(app.getPath('temp'), 'aegis-pasted-text');
   const fileName = `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`;
   const targetPath = resolve(attachmentsDir, fileName);
-  if (!isPathWithinRoot(normalizedCwd, targetPath)) {
-    return null;
-  }
 
   try {
     await fsPromises.mkdir(attachmentsDir, { recursive: true });
     await fsPromises.writeFile(targetPath, normalizedText, 'utf8');
-    const attachment = await toProjectAttachment(normalizedCwd, targetPath);
+    const attachment = toAttachment(targetPath);
     if (!attachment) {
       return null;
     }
