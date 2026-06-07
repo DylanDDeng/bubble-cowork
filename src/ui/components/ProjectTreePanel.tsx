@@ -1844,6 +1844,21 @@ export function ProjectTreePanel({
     updateOpenFileTabs,
   ]);
 
+  const closeAllProjectFileTabs = useCallback(async () => {
+    if (activeFileTabId) {
+      const ready = await prepareActiveFileForTransition();
+      if (!ready) return;
+    }
+    tabRefreshTokensRef.current.clear();
+    updateOpenFileTabs(() => []);
+    closePreview();
+  }, [
+    activeFileTabId,
+    closePreview,
+    prepareActiveFileForTransition,
+    updateOpenFileTabs,
+  ]);
+
   const deleteEntry = useCallback(async (node: ProjectTreeNode) => {
     if (!cwd) return;
     if (node.kind !== 'file') return;
@@ -3165,14 +3180,9 @@ export function ProjectTreePanel({
                       </IconButton>
                     )}
                     <IconButton
-                      onClick={() => {
-                        if (activeFileTabId) {
-                          void closeProjectFileTab(activeFileTabId);
-                        } else {
-                          closePreview();
-                        }
-                      }}
-                      label="Close preview"
+                      onClick={() => void closeAllProjectFileTabs()}
+                      tooltip="Close all tabs"
+                      label="Close all tabs"
                     >
                       <X className="w-4 h-4" />
                     </IconButton>
