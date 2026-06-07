@@ -17,6 +17,7 @@ import { AttachmentChips } from './AttachmentChips';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
+import { ClaudeContextIndicator } from './ClaudeContextIndicator';
 import { CodexContextIndicator } from './CodexContextIndicator';
 import { ComposerAgentModelPicker } from './ComposerAgentControls';
 import { ClaudePermissionModePicker } from './ClaudePermissionModePicker';
@@ -34,7 +35,11 @@ import {
   LONG_PROMPT_AUTO_ATTACHMENT_THRESHOLD,
   maybeConvertLongPromptToAttachment,
 } from '../utils/long-prompt-attachment';
-import { getLatestCodexContextSnapshot } from '../utils/context-usage';
+import {
+  buildClaudeContextSnapshot,
+  getLatestClaudeContextSnapshot,
+  getLatestCodexContextSnapshot,
+} from '../utils/context-usage';
 
 function isImeComposingEvent(
   event: ReactKeyboardEvent,
@@ -89,14 +94,34 @@ export function PromptInput({
   const runtimeProvider = agentSelection.provider;
   const selectedModel = agentSelection.model;
   const modelSetupRequired = Boolean(agentSelection.modelSetup);
+  const isClaudeContextVisible = runtimeProvider === 'claude' && activeSession?.provider === 'claude';
+  const isCodexContextVisible = runtimeProvider === 'codex' && activeSession?.provider === 'codex';
 
   const codexContextSnapshot = useMemo(
     () =>
-      activeSession?.provider === 'codex'
+      isCodexContextVisible
         ? getLatestCodexContextSnapshot(activeSession.messages)
         : null,
-    [activeSession?.messages, activeSession?.provider]
+    [activeSession?.messages, isCodexContextVisible]
   );
+  const claudeContextSnapshot = useMemo(() => {
+    if (!isClaudeContextVisible) {
+      return null;
+    }
+    const latestFromMessages = getLatestClaudeContextSnapshot(activeSession.messages, activeSession.model);
+    if (latestFromMessages) {
+      return latestFromMessages;
+    }
+    const latestUsage = activeSession.latestClaudeModelUsage;
+    return latestUsage
+      ? buildClaudeContextSnapshot(latestUsage.model, latestUsage.usage)
+      : null;
+  }, [
+    activeSession?.latestClaudeModelUsage,
+    activeSession?.messages,
+    activeSession?.model,
+    isClaudeContextVisible,
+  ]);
   const isRunning = activeSession?.status === 'running';
   const isBusy = isRunning || pendingStart || approvalPending;
 
@@ -698,6 +723,12 @@ export function PromptInput({
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
+              {isClaudeContextVisible ? (
+                <ClaudeContextIndicator
+                  snapshot={claudeContextSnapshot}
+                  modelLabel={activeSession.model || selectedModel}
+                />
+              ) : null}
               {codexContextSnapshot ? (
                 <CodexContextIndicator snapshot={codexContextSnapshot} />
               ) : null}

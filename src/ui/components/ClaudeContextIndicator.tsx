@@ -1,25 +1,64 @@
 import { useState } from 'react';
 import type { ClaudeContextSnapshot } from '../utils/context-usage';
 
+const RING_CIRCUMFERENCE = 37.7;
+
 function formatCompact(value: number): string {
   if (!Number.isFinite(value)) return '0';
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}m`;
+  if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
   return `${Math.round(value)}`;
+}
+
+function formatCurrency(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '$0.0000';
+  return `$${value.toFixed(value >= 0.01 ? 4 : 6)}`;
+}
+
+function UsageRing({ percent, size = 'h-4 w-4' }: { percent: number; size?: string }) {
+  const progress = Math.min(100, Math.max(0, percent));
+  const strokeDashoffset = RING_CIRCUMFERENCE * (1 - progress / 100);
+
+  return (
+    <svg
+      className={`${size} -rotate-90`}
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle
+        cx="8"
+        cy="8"
+        r="6"
+        fill="none"
+        stroke="var(--border)"
+        strokeWidth="2"
+      />
+      <circle
+        cx="8"
+        cy="8"
+        r="6"
+        fill="none"
+        stroke="var(--text-secondary)"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeDasharray={RING_CIRCUMFERENCE}
+        strokeDashoffset={strokeDashoffset}
+      />
+    </svg>
+  );
 }
 
 export function ClaudeContextIndicator({
   snapshot,
   modelLabel,
-  emptyMessage = 'Waiting for the first Claude response',
 }: {
   snapshot: ClaudeContextSnapshot | null;
   modelLabel?: string | null;
-  emptyMessage?: string;
 }) {
   const [open, setOpen] = useState(false);
   const resolvedModelLabel = snapshot?.model || modelLabel || 'Claude';
-  const hasSnapshot = !!snapshot;
+  const percent = snapshot?.percent || 0;
 
   return (
     <div
@@ -31,50 +70,42 @@ export function ClaudeContextIndicator({
     >
       <button
         type="button"
-        className="flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-[var(--bg-tertiary)]"
-        title="Claude token details"
-        aria-label="Claude token details"
+        className="flex h-8 w-8 items-center justify-center rounded-[6px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+        aria-label="Claude context and cost"
       >
-        <span
-          className="relative block h-3.5 w-3.5 rounded-full border"
-          style={{
-            borderColor: hasSnapshot ? 'var(--text-secondary)' : 'var(--border)',
-            backgroundColor: 'transparent',
-          }}
-        >
-          <span
-            className="absolute inset-[3px] rounded-full"
-            style={{
-              backgroundColor: hasSnapshot ? 'var(--text-secondary)' : 'var(--text-muted)',
-              opacity: hasSnapshot ? 0.95 : 0.6,
-            }}
-          />
-        </span>
+        <UsageRing percent={percent} />
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-1/2 z-40 mb-2 w-[248px] -translate-x-1/2 rounded-[var(--radius-2xl)] border border-[var(--border)] bg-[var(--bg-secondary)] p-4 text-[var(--text-primary)] shadow-[0_18px_48px_rgba(0,0,0,0.12)]">
-          <MetricRow label="Model" value={resolvedModelLabel} mono />
+        <div className="absolute bottom-full left-1/2 z-40 mb-1.5 w-[220px] -translate-x-1/2 rounded-[8px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] px-2.5 py-2 text-[13px] font-normal leading-5 text-[var(--text-primary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)]">
+          <div className="flex items-center justify-between gap-2">
+            <div className="truncate text-[var(--text-secondary)]">{resolvedModelLabel}</div>
+            <UsageRing percent={percent} size="h-[18px] w-[18px]" />
+          </div>
+
           {snapshot ? (
             <>
-              {snapshot.total > 0 && (
-                <MetricRow label="Context Window" value={formatCompact(snapshot.total)} />
-              )}
-              <MetricRow label="Input Tokens" value={formatCompact(snapshot.inputTokens)} />
-              <MetricRow label="Output Tokens" value={formatCompact(snapshot.outputTokens)} />
-
+              <MetricRow label="Cost" value={formatCurrency(snapshot.costUSD)} />
+              <MetricRow label="Used" value={formatCompact(snapshot.used)} />
+              {snapshot.total > 0 ? <MetricRow label="Limit" value={formatCompact(snapshot.total)} /> : null}
               <Divider />
-
-              <MetricRow label="Cache Read" value={formatCompact(snapshot.cacheReadTokens)} />
-              <MetricRow label="Cache Creation" value={formatCompact(snapshot.cacheCreationTokens)} />
-
-              <div className="mt-4 border-t border-[var(--border)] pt-3 text-[12px] leading-5 text-[var(--text-secondary)]">
-                Reported by the most recent Claude response
+              <MetricRow label="Input" value={formatCompact(snapshot.inputTokens)} />
+              <MetricRow label="Output" value={formatCompact(snapshot.outputTokens)} />
+              <MetricRow label="Cache read" value={formatCompact(snapshot.cacheReadTokens)} />
+              <MetricRow label="Cache write" value={formatCompact(snapshot.cacheCreationTokens)} />
+              {snapshot.maxOutputTokens > 0 ? (
+                <MetricRow label="Max output" value={formatCompact(snapshot.maxOutputTokens)} />
+              ) : null}
+              {snapshot.webSearchRequests > 0 ? (
+                <MetricRow label="Web searches" value={formatCompact(snapshot.webSearchRequests)} />
+              ) : null}
+              <div className="mt-1.5 border-t border-[var(--border)] pt-1.5 text-[11px] leading-4 text-[var(--text-muted)]">
+                Latest reported by Claude
               </div>
             </>
           ) : (
-            <div className="mt-3 border-t border-[var(--border)] pt-3 text-[12px] leading-5 text-[var(--text-secondary)]">
-              {emptyMessage}
+            <div className="mt-1.5 border-t border-[var(--border)] pt-1.5 text-[12px] leading-5 text-[var(--text-secondary)]">
+              Waiting for Claude usage data.
             </div>
           )}
         </div>
@@ -83,23 +114,15 @@ export function ClaudeContextIndicator({
   );
 }
 
-function MetricRow({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
+function MetricRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-1.5">
-      <div className="text-[13px] text-[var(--text-secondary)]">{label}</div>
-      <div className={`text-right text-[13px] font-medium ${mono ? 'font-mono text-[12px]' : ''}`}>{value}</div>
+    <div className="mt-0.5 flex items-center justify-between gap-2">
+      <span className="text-[var(--text-secondary)]">{label}</span>
+      <span>{value}</span>
     </div>
   );
 }
 
 function Divider() {
-  return <div className="my-2 border-t border-[var(--border)]" />;
+  return <div className="my-1.5 border-t border-[var(--border)]" />;
 }

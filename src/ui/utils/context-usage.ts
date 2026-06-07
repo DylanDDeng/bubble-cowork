@@ -2,7 +2,10 @@ import type { ClaudeModelUsage, StreamMessage } from '../types';
 
 export type ClaudeContextSnapshot = {
   model: string;
+  used: number;
   total: number;
+  percent: number;
+  costUSD: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
@@ -55,6 +58,32 @@ function selectModelUsageEntry(
   })[0] || null;
 }
 
+export function buildClaudeContextSnapshot(
+  model: string,
+  usage: ClaudeModelUsage
+): ClaudeContextSnapshot {
+  const cacheReadTokens = usage.cacheReadInputTokens || 0;
+  const cacheCreationTokens = usage.cacheCreationInputTokens || 0;
+  const outputTokens = usage.outputTokens || 0;
+  const inputTokens = usage.inputTokens || 0;
+  const total = usage.contextWindow || 0;
+  const used = inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens;
+
+  return {
+    model,
+    used,
+    total,
+    percent: total > 0 ? Math.min(100, Math.max(0, Math.round((used / total) * 100))) : 0,
+    costUSD: usage.costUSD || 0,
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheCreationTokens,
+    maxOutputTokens: usage.maxOutputTokens || 0,
+    webSearchRequests: usage.webSearchRequests || 0,
+  };
+}
+
 export function getLatestClaudeContextSnapshot(
   messages: StreamMessage[],
   preferredModel?: string | null
@@ -71,21 +100,7 @@ export function getLatestClaudeContextSnapshot(
     }
 
     const [model, usage] = selected;
-    const cacheReadTokens = usage.cacheReadInputTokens || 0;
-    const cacheCreationTokens = usage.cacheCreationInputTokens || 0;
-    const outputTokens = usage.outputTokens || 0;
-    const inputTokens = usage.inputTokens || 0;
-
-    return {
-      model,
-      total: usage.contextWindow || 0,
-      inputTokens,
-      outputTokens,
-      cacheReadTokens,
-      cacheCreationTokens,
-      maxOutputTokens: usage.maxOutputTokens || 0,
-      webSearchRequests: usage.webSearchRequests || 0,
-    };
+    return buildClaudeContextSnapshot(model, usage);
   }
 
   return null;
