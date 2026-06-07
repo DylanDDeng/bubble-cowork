@@ -79,6 +79,12 @@ draft: false
 
 This line has [Baidu](www.baidu.com), [GitHub](https://github.com/DylanDDeng), and https://example.com/plain.
 
+## Reverse Selection Heading
+
+### Reverse Selection Subheading
+
+Reverse selection paragraph below heading.
+
 Inline probe: anchor
 
 Inline \\\`code\\\`, **bold**, *italic*, and ~~strike~~.
@@ -134,6 +140,24 @@ function Harness() {
   valueRef.current = value;
 
   useEffect(() => {
+    const measureLineViewportPosition = (needle) => {
+      const line = Array.from(document.querySelectorAll('.cm-line'))
+        .find((node) => (node.textContent || '').includes(needle));
+      const main = document.querySelector('.aegis-md-main');
+      if (!line || !main) return null;
+      const lineRect = line.getBoundingClientRect();
+      const mainRect = main.getBoundingClientRect();
+      return {
+        lineTop: lineRect.top,
+        mainTop: mainRect.top,
+        offset: lineRect.top - mainRect.top,
+        height: lineRect.height,
+        scrollTop: main.scrollTop,
+        className: line.className,
+        text: line.textContent || '',
+      };
+    };
+
     window.__AegisMarkdownVerify = {
       ready: true,
       getValue: () => valueRef.current,
@@ -218,24 +242,116 @@ function Harness() {
         button.click();
         return { before, text: button.textContent || '' };
       },
-      getLineViewportPosition: (needle) => {
-        const line = Array.from(document.querySelectorAll('.cm-line'))
-          .find((node) => (node.textContent || '').includes(needle));
-        const main = document.querySelector('.aegis-md-main');
-        if (!line || !main) return null;
-        const lineRect = line.getBoundingClientRect();
-        const mainRect = main.getBoundingClientRect();
-        return {
-          lineTop: lineRect.top,
-          mainTop: mainRect.top,
-          offset: lineRect.top - mainRect.top,
-          text: line.textContent || '',
-        };
-      },
+      getLineViewportPosition: measureLineViewportPosition,
       getSelectionLineText: () => {
         const view = findView();
         if (!view) return '';
         return view.state.doc.lineAt(view.state.selection.main.from).text;
+      },
+      getSelectionText: () => {
+        const view = findView();
+        if (!view) return '';
+        const selection = view.state.selection.main;
+        return view.state.sliceDoc(selection.from, selection.to);
+      },
+      simulateReverseSelection: (startNeedle, endNeedle, sampleNeedle) => {
+        const view = findView();
+        if (!view) return null;
+        const text = view.state.doc.toString();
+        const startIndex = text.indexOf(startNeedle);
+        const endIndex = text.indexOf(endNeedle);
+        if (startIndex < 0 || endIndex < 0) return null;
+
+        const start = startIndex + startNeedle.length;
+        const end = endIndex;
+        const steps = 8;
+        const samples = [measureLineViewportPosition(sampleNeedle)];
+        view.focus();
+        for (let index = 1; index <= steps; index += 1) {
+          const ratio = index / steps;
+          const pos = Math.round(start + ((end - start) * ratio));
+          view.dispatch({ selection: EditorSelection.range(start, pos) });
+          samples.push(measureLineViewportPosition(sampleNeedle));
+        }
+        const selection = view.state.selection.main;
+        return {
+          start,
+          end,
+          sampleNeedle,
+          samples,
+          selectionFrom: selection.from,
+          selectionTo: selection.to,
+          selectionText: view.state.sliceDoc(selection.from, selection.to),
+        };
+      },
+      simulateUpwardAutoscrollSelection: async (startNeedle) => {
+        const view = findView();
+        const main = document.querySelector('.aegis-md-main');
+        if (!view || !main) return null;
+        const startLine = Array.from(document.querySelectorAll('.cm-line'))
+          .find((node) => (node.textContent || '').includes(startNeedle));
+        if (!startLine) return null;
+
+        const lineRect = startLine.getBoundingClientRect();
+        const mainRect = main.getBoundingClientRect();
+        const startX = lineRect.left + Math.min(Math.max(lineRect.width * 0.45, 12), Math.max(12, lineRect.width - 12));
+        const startY = lineRect.top + (lineRect.height / 2);
+        const dragY = mainRect.top - 32;
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const moveEvent = () => new MouseEvent('mousemove', {
+          bubbles: true,
+          cancelable: true,
+          clientX: startX,
+          clientY: dragY,
+          button: 0,
+          buttons: 1,
+        });
+
+        const beforeScrollTop = main.scrollTop;
+        startLine.dispatchEvent(new MouseEvent('mousedown', {
+          bubbles: true,
+          cancelable: true,
+          clientX: startX,
+          clientY: startY,
+          button: 0,
+          buttons: 1,
+        }));
+        document.dispatchEvent(moveEvent());
+
+        const samples = [];
+        for (let index = 0; index < 18; index += 1) {
+          await wait(60);
+          document.dispatchEvent(moveEvent());
+          samples.push({
+            index,
+            scrollTop: main.scrollTop,
+            selectionText: view.state.sliceDoc(
+              view.state.selection.main.from,
+              view.state.selection.main.to
+            ),
+          });
+        }
+
+        document.dispatchEvent(new MouseEvent('mouseup', {
+          bubbles: true,
+          cancelable: true,
+          clientX: startX,
+          clientY: dragY,
+          button: 0,
+          buttons: 0,
+        }));
+        await wait(120);
+
+        const selection = view.state.selection.main;
+        return {
+          beforeScrollTop,
+          afterScrollTop: main.scrollTop,
+          startNeedle,
+          selectionFrom: selection.from,
+          selectionTo: selection.to,
+          selectionText: view.state.sliceDoc(selection.from, selection.to),
+          samples,
+        };
       },
       measureBacktickPairCaret: () => {
         const view = findView();
@@ -523,6 +639,16 @@ app.whenReady().then(async () => {
     await clickPoint(win, paragraphClickPoint);
     const paragraphSelectionLine = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getSelectionLineText()', true);
 
+    await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.scrollLineIntoView("Reverse Selection Heading")', true);
+    await delay(180);
+    const reverseHeadingSelection = await win.webContents.executeJavaScript(
+      'window.__AegisMarkdownVerify.simulateReverseSelection("Reverse selection paragraph below heading.", "Reverse Selection Heading", "Reverse Selection Subheading")',
+      true
+    );
+    if (!reverseHeadingSelection) throw new Error('Unable to simulate reverse heading selection.');
+    const reverseHeadingBefore = reverseHeadingSelection.samples?.[0] || null;
+    const reverseSelectionText = reverseHeadingSelection.selectionText || '';
+
     const afterCodeClickPoint = await findVisibleLineClickPoint(win, 'Paragraph immediately after code preview.');
     if (!afterCodeClickPoint) throw new Error('Unable to find after-code paragraph line click point.');
     await clickPoint(win, afterCodeClickPoint);
@@ -572,6 +698,14 @@ app.whenReady().then(async () => {
     await clickPoint(win, deepParagraphClickPoint);
     const deepParagraphSelectionLine = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getSelectionLineText()', true);
 
+    await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.scrollLineIntoView("Tail paragraph 10")', true);
+    await delay(180);
+    const upwardAutoscrollSelection = await win.webContents.executeJavaScript(
+      'window.__AegisMarkdownVerify.simulateUpwardAutoscrollSelection("Tail paragraph 10")',
+      true
+    );
+    if (!upwardAutoscrollSelection) throw new Error('Unable to simulate upward autoscroll selection.');
+
     // Regression: an unterminated triple-backtick fence already present in a
     // document must NOT swallow the content below it into a code block.
     await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.focusEnd()', true);
@@ -605,6 +739,9 @@ app.whenReady().then(async () => {
       headingSelectionLine,
       paragraphClickPoint,
       paragraphSelectionLine,
+      reverseHeadingBefore,
+      reverseHeadingSelection,
+      reverseSelectionText,
       afterCodeClickPoint,
       afterCodeSelectionLine,
       afterTableClickPoint,
@@ -614,6 +751,7 @@ app.whenReady().then(async () => {
       outlineTargetPosition,
       deepParagraphClickPoint,
       deepParagraphSelectionLine,
+      upwardAutoscrollSelection,
       midFenceSnapshot,
       finalFullValue,
       imageReads,
@@ -682,6 +820,9 @@ async function main() {
       headingSelectionLine,
       paragraphClickPoint,
       paragraphSelectionLine,
+      reverseHeadingBefore,
+      reverseHeadingSelection,
+      reverseSelectionText,
       afterCodeClickPoint,
       afterCodeSelectionLine,
       afterTableClickPoint,
@@ -691,6 +832,7 @@ async function main() {
       outlineTargetPosition,
       deepParagraphClickPoint,
       deepParagraphSelectionLine,
+      upwardAutoscrollSelection,
       midFenceSnapshot,
       finalFullValue,
       imageReads,
@@ -760,6 +902,37 @@ async function main() {
       paragraphSelectionLine.includes('This line has'),
       `Clicking the rendered paragraph selected the wrong source line: ${JSON.stringify({ paragraphClickPoint, paragraphSelectionLine })}`
     );
+    assert(reverseHeadingBefore, 'Unable to measure reverse selection heading before selection.');
+    assert(
+      reverseHeadingSelection?.samples?.filter(Boolean).length >= 4,
+      `Reverse heading selection did not collect enough geometry samples: ${JSON.stringify(reverseHeadingSelection)}`
+    );
+    {
+      const samples = reverseHeadingSelection.samples.filter(Boolean);
+      const heights = samples.map((sample) => sample.height).filter((value) => Number.isFinite(value));
+      const offsets = samples.map((sample) => sample.offset).filter((value) => Number.isFinite(value));
+      const scrollTops = samples.map((sample) => sample.scrollTop).filter((value) => Number.isFinite(value));
+      const heightDelta = Math.max(...heights) - Math.min(...heights);
+      const offsetDelta = Math.max(...offsets) - Math.min(...offsets);
+      const scrollDelta = Math.max(...scrollTops) - Math.min(...scrollTops);
+      assert(
+        heightDelta <= 2,
+        `Reverse selection through headings changed heading line height: ${JSON.stringify({ heightDelta, reverseHeadingBefore, reverseHeadingSelection })}`
+      );
+      assert(
+        offsetDelta <= 2,
+        `Reverse selection through headings moved the heading line: ${JSON.stringify({ offsetDelta, reverseHeadingBefore, reverseHeadingSelection })}`
+      );
+      assert(
+        scrollDelta <= 2,
+        `Reverse selection through headings changed the main scroll position: ${JSON.stringify({ scrollDelta, reverseHeadingBefore, reverseHeadingSelection })}`
+      );
+    }
+    assert(
+      reverseSelectionText.includes('Reverse Selection Subheading')
+        && reverseSelectionText.includes('Reverse selection paragraph below heading.'),
+      `Reverse selection did not cover the expected heading section: ${JSON.stringify({ reverseSelectionText, reverseHeadingSelection })}`
+    );
     assert(
       afterCodeSelectionLine.includes('Paragraph immediately after code preview.'),
       `Clicking a line after a rendered code widget selected the wrong source line: ${JSON.stringify({ afterCodeClickPoint, afterCodeSelectionLine })}`
@@ -779,6 +952,15 @@ async function main() {
     assert(
       deepParagraphSelectionLine.includes('Target paragraph after the outline jump.'),
       `Clicking a line after rendered image widgets selected the wrong source line: ${JSON.stringify({ deepParagraphClickPoint, deepParagraphSelectionLine })}`
+    );
+    assert(
+      upwardAutoscrollSelection.afterScrollTop < upwardAutoscrollSelection.beforeScrollTop - 120,
+      `Dragging selection above the editor did not autoscroll upward: ${JSON.stringify(upwardAutoscrollSelection)}`
+    );
+    assert(
+      upwardAutoscrollSelection.selectionText.includes('Tail paragraph 10')
+        && upwardAutoscrollSelection.selectionText.length > 80,
+      `Upward autoscroll selection did not keep extending the selected text: ${JSON.stringify(upwardAutoscrollSelection)}`
     );
     assert(
       initialSnapshot.outlineTriggerTexts.length > 0
