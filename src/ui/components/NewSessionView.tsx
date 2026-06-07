@@ -18,6 +18,7 @@ import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
 import { SidebarHeaderTrigger } from './Sidebar';
 import { ComposerAgentModelPicker } from './ComposerAgentControls';
+import { ClaudePermissionModePicker } from './ClaudePermissionModePicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { KimiPermissionModePicker } from './KimiPermissionModePicker';
 import { FolderOpen } from './icons';
@@ -265,6 +266,16 @@ export function NewSessionView() {
             agentSelection.provider === 'claude'
                 ? agentSelection.compatibleProviderId || undefined
                 : undefined,
+            claudeAccessMode:
+              agentSelection.provider === 'claude'
+                ? agentSelection.claudePermissionMode
+                : undefined,
+            claudeExecutionMode:
+              agentSelection.provider === 'claude' && agentSelection.claudePermissionMode === 'plan'
+                ? 'plan'
+                : agentSelection.provider === 'claude'
+                  ? 'execute'
+                  : undefined,
             ...codexReferences,
             codexPermissionMode:
             agentSelection.provider === 'codex'
@@ -640,6 +651,13 @@ export function NewSessionView() {
                 <CodexPermissionModePicker
                   value={agentSelection.codexPermissionMode}
                   onChange={agentSelection.setCodexPermissionMode}
+                />
+              )}
+              {agentSelection.provider === 'claude' && (
+                <ClaudePermissionModePicker
+                  value={agentSelection.claudePermissionMode}
+                  onChange={agentSelection.setClaudePermissionMode}
+                  disabled={pendingStart}
                 />
               )}
               {agentSelection.provider === 'kimi' && (

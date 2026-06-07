@@ -176,12 +176,27 @@ interface AutomationRunRow {
 function normalizeClaudeAccessMode(
   value?: string | null
 ): ClaudeAccessMode {
-  return value === 'fullAccess' ? 'fullAccess' : 'default';
+  switch ((value || '').trim()) {
+    case 'fullAccess':
+    case 'bypassPermissions':
+      return 'bypassPermissions';
+    case 'acceptEdits':
+    case 'plan':
+    case 'dontAsk':
+    case 'auto':
+      return value as ClaudeAccessMode;
+    default:
+      return 'default';
+  }
 }
 
 function normalizeClaudeExecutionMode(
-  value?: string | null
+  value?: string | null,
+  accessMode?: string | null
 ): ClaudeExecutionMode {
+  if (normalizeClaudeAccessMode(accessMode) === 'plan') {
+    return 'plan';
+  }
   return value === 'plan' ? 'plan' : 'execute';
 }
 
@@ -1339,7 +1354,9 @@ export function createSession(params: {
     params.provider === 'claude' ? params.compatibleProviderId || null : null,
     params.betas && params.betas.length > 0 ? JSON.stringify(params.betas) : null,
     params.provider === 'claude' ? normalizeClaudeAccessMode(params.claudeAccessMode) : null,
-    params.provider === 'claude' ? normalizeClaudeExecutionMode(params.claudeExecutionMode) : null,
+    params.provider === 'claude'
+      ? normalizeClaudeExecutionMode(params.claudeExecutionMode, params.claudeAccessMode)
+      : null,
     params.provider === 'claude' ? normalizeClaudeReasoningEffort(params.claudeReasoningEffort) : null,
     params.provider === 'codex' ? normalizeCodexExecutionMode(params.codexExecutionMode) : null,
     params.provider === 'codex' ? normalizeCodexPermissionMode(params.codexPermissionMode) : null,

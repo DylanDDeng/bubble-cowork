@@ -402,12 +402,27 @@ function normalizeAegisReasoningEffort(
 function normalizeClaudeAccessMode(
   value?: string | null
 ): import('../shared/types').ClaudeAccessMode {
-  return value === 'fullAccess' ? 'fullAccess' : 'default';
+  switch ((value || '').trim()) {
+    case 'fullAccess':
+    case 'bypassPermissions':
+      return 'bypassPermissions';
+    case 'acceptEdits':
+    case 'plan':
+    case 'dontAsk':
+    case 'auto':
+      return value as import('../shared/types').ClaudeAccessMode;
+    default:
+      return 'default';
+  }
 }
 
 function normalizeClaudeExecutionMode(
-  value?: string | null
+  value?: string | null,
+  accessMode?: string | null
 ): import('../shared/types').ClaudeExecutionMode {
+  if (normalizeClaudeAccessMode(accessMode) === 'plan') {
+    return 'plan';
+  }
   return value === 'plan' ? 'plan' : 'execute';
 }
 
@@ -2189,6 +2204,10 @@ async function handleEditLatestPrompt(
   const previousCompatibleProviderId = session.compatible_provider_id || null;
   const previousBetas = parseStoredBetas(session.betas);
   const previousClaudeAccessMode = normalizeClaudeAccessMode(session.claude_access_mode);
+  const previousClaudeExecutionMode = normalizeClaudeExecutionMode(
+    session.claude_execution_mode,
+    previousClaudeAccessMode
+  );
   const previousClaudeReasoningEffort = normalizeClaudeReasoningEffort(session.claude_reasoning_effort);
   let latestUserPromptIndex = -1;
   for (let index = history.length - 1; index >= 0; index -= 1) {
@@ -2220,8 +2239,11 @@ async function handleEditLatestPrompt(
     compatibleProviderId ?? session.compatible_provider_id ?? undefined;
   const requestedBetas = normalizeBetas(betas ?? parseStoredBetas(session.betas));
   const nextPrompt = nextPromptText.trim();
-  const nextClaudeAccessMode = normalizeClaudeAccessMode(claudeAccessMode);
-  const nextClaudeExecutionMode = normalizeClaudeExecutionMode(claudeExecutionMode);
+  const nextClaudeAccessMode = normalizeClaudeAccessMode(claudeAccessMode || previousClaudeAccessMode);
+  const nextClaudeExecutionMode = normalizeClaudeExecutionMode(
+    claudeExecutionMode || previousClaudeExecutionMode,
+    nextClaudeAccessMode
+  );
   const nextClaudeReasoningEffort = normalizeClaudeReasoningEffort(
     claudeReasoningEffort || previousClaudeReasoningEffort
   );
@@ -2297,10 +2319,7 @@ async function handleEditLatestPrompt(
     sessions.updateSessionBetas(sessionId, previousBetas || null);
     sessions.updateSessionClaudeAccessMode(sessionId, previousClaudeAccessMode);
     sessions.updateSessionClaudeReasoningEffort(sessionId, previousClaudeReasoningEffort);
-    sessions.updateSessionClaudeExecutionMode(
-      sessionId,
-      normalizeClaudeExecutionMode(session.claude_execution_mode)
-    );
+    sessions.updateSessionClaudeExecutionMode(sessionId, previousClaudeExecutionMode);
 
     broadcast(mainWindow, {
       type: 'session.history',
@@ -2321,7 +2340,7 @@ async function handleEditLatestPrompt(
         compatibleProviderId: previousCompatibleProviderId || undefined,
         betas: previousBetas,
         claudeAccessMode: previousClaudeAccessMode,
-        claudeExecutionMode: normalizeClaudeExecutionMode(session.claude_execution_mode),
+        claudeExecutionMode: previousClaudeExecutionMode,
         claudeReasoningEffort: previousClaudeReasoningEffort,
         hiddenFromThreads: session.hidden_from_threads === 1,
       },
@@ -5542,7 +5561,7 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     compatibleProviderId: row.compatible_provider_id || undefined,
     betas: parseStoredBetas(row.betas),
     claudeAccessMode: normalizeClaudeAccessMode(row.claude_access_mode),
-    claudeExecutionMode: normalizeClaudeExecutionMode(row.claude_execution_mode),
+    claudeExecutionMode: normalizeClaudeExecutionMode(row.claude_execution_mode, row.claude_access_mode),
     claudeReasoningEffort: normalizeClaudeReasoningEffort(row.claude_reasoning_effort),
     codexExecutionMode: normalizeCodexExecutionMode(row.codex_execution_mode),
     codexPermissionMode: normalizeCodexPermissionMode(row.codex_permission_mode),
@@ -5767,7 +5786,9 @@ function applyRoutedAgentTurnRuntime(sessionId: string, turn: RoutedAgentTurnPay
   const selectedClaudeAccessMode =
     provider === 'claude' ? normalizeClaudeAccessMode(turn.claudeAccessMode) : undefined;
   const selectedClaudeExecutionMode =
-    provider === 'claude' ? normalizeClaudeExecutionMode(turn.claudeExecutionMode) : undefined;
+    provider === 'claude'
+      ? normalizeClaudeExecutionMode(turn.claudeExecutionMode, selectedClaudeAccessMode)
+      : undefined;
   const selectedClaudeReasoningEffort =
     provider === 'claude' ? normalizeClaudeReasoningEffort(turn.claudeReasoningEffort) : undefined;
   const selectedCodexExecutionMode =
@@ -6653,6 +6674,12 @@ async function handleSessionStart(
   );
   const selectedModel = normalizeModel(model);
   const selectedBetas = chosenProvider === 'claude' ? normalizeBetas(betas) : undefined;
+  const selectedClaudeAccessMode =
+    chosenProvider === 'claude' ? normalizeClaudeAccessMode(claudeAccessMode) : undefined;
+  const selectedClaudeExecutionMode =
+    chosenProvider === 'claude'
+      ? normalizeClaudeExecutionMode(claudeExecutionMode, selectedClaudeAccessMode)
+      : undefined;
   const selectedClaudeReasoningEffort =
     chosenProvider === 'claude' ? normalizeClaudeReasoningEffort(claudeReasoningEffort) : undefined;
   const selectedAegisReasoningEffort =
@@ -6696,9 +6723,8 @@ async function handleSessionStart(
     model: selectedModel,
     compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
     betas: selectedBetas,
-    claudeAccessMode: chosenProvider === 'claude' ? normalizeClaudeAccessMode(claudeAccessMode) : undefined,
-    claudeExecutionMode:
-      chosenProvider === 'claude' ? normalizeClaudeExecutionMode(claudeExecutionMode) : undefined,
+    claudeAccessMode: selectedClaudeAccessMode,
+    claudeExecutionMode: selectedClaudeExecutionMode,
     claudeReasoningEffort: selectedClaudeReasoningEffort,
     codexExecutionMode:
       chosenProvider === 'codex' ? normalizeCodexExecutionMode(codexExecutionMode) : undefined,
@@ -6741,9 +6767,8 @@ async function handleSessionStart(
       model: selectedModel,
       compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
       betas: selectedBetas,
-      claudeAccessMode: chosenProvider === 'claude' ? normalizeClaudeAccessMode(claudeAccessMode) : undefined,
-      claudeExecutionMode:
-        chosenProvider === 'claude' ? normalizeClaudeExecutionMode(claudeExecutionMode) : undefined,
+      claudeAccessMode: selectedClaudeAccessMode,
+      claudeExecutionMode: selectedClaudeExecutionMode,
       claudeReasoningEffort: selectedClaudeReasoningEffort,
       codexExecutionMode:
         chosenProvider === 'codex' ? normalizeCodexExecutionMode(codexExecutionMode) : undefined,
@@ -6892,8 +6917,8 @@ async function handleSessionStart(
     selectedModel,
     chosenProvider === 'claude' ? compatibleProviderId : undefined,
     selectedBetas,
-    claudeAccessMode,
-    chosenProvider === 'claude' ? normalizeClaudeExecutionMode(claudeExecutionMode) : undefined,
+    selectedClaudeAccessMode,
+    selectedClaudeExecutionMode,
     selectedClaudeReasoningEffort,
     chosenProvider === 'codex' ? normalizeCodexExecutionMode(codexExecutionMode) : undefined,
     chosenProvider === 'codex' ? normalizeCodexPermissionMode(codexPermissionMode) : undefined,
@@ -7056,11 +7081,19 @@ async function handleSessionContinue(
   const compatibleProviderChanged = nextCompatibleProviderId !== previousCompatibleProviderId;
   const modelChanged = nextModel !== previousModel;
   const betasChanged = JSON.stringify(nextBetas || []) !== JSON.stringify(previousBetas || []);
+  const previousClaudeAccessMode = normalizeClaudeAccessMode(session.claude_access_mode);
   const nextClaudeAccessMode =
-    nextProvider === 'claude' ? normalizeClaudeAccessMode(claudeAccessMode) : undefined;
-  const previousClaudeExecutionMode = normalizeClaudeExecutionMode(session.claude_execution_mode);
+    nextProvider === 'claude'
+      ? normalizeClaudeAccessMode(claudeAccessMode || previousClaudeAccessMode)
+      : undefined;
+  const previousClaudeExecutionMode = normalizeClaudeExecutionMode(
+    session.claude_execution_mode,
+    previousClaudeAccessMode
+  );
   const nextClaudeExecutionMode =
-    nextProvider === 'claude' ? normalizeClaudeExecutionMode(claudeExecutionMode) : undefined;
+    nextProvider === 'claude'
+      ? normalizeClaudeExecutionMode(claudeExecutionMode || previousClaudeExecutionMode, nextClaudeAccessMode)
+      : undefined;
   const previousClaudeReasoningEffort = normalizeClaudeReasoningEffort(session.claude_reasoning_effort);
   const nextClaudeReasoningEffort =
     nextProvider === 'claude'
@@ -7118,11 +7151,13 @@ async function handleSessionContinue(
     : { team: null, agents: [] };
   const accessModeChanged =
     nextProvider === 'claude' &&
-    (runnerHandles.get(sessionId)?.claudeAccessMode || 'default') !== nextClaudeAccessMode;
+    normalizeClaudeAccessMode(runnerHandles.get(sessionId)?.claudeAccessMode || previousClaudeAccessMode) !==
+      nextClaudeAccessMode;
   const executionModeChanged =
     nextProvider === 'claude' &&
     normalizeClaudeExecutionMode(
-      runnerHandles.get(sessionId)?.claudeExecutionMode || previousClaudeExecutionMode
+      runnerHandles.get(sessionId)?.claudeExecutionMode || previousClaudeExecutionMode,
+      runnerHandles.get(sessionId)?.claudeAccessMode || previousClaudeAccessMode
     ) !== nextClaudeExecutionMode;
   const claudeReasoningEffortChanged =
     nextProvider === 'claude' &&
@@ -7194,7 +7229,7 @@ async function handleSessionContinue(
   );
   sessions.updateSessionBetas(sessionId, nextBetas || null);
   if (nextProvider === 'claude') {
-    sessions.updateSessionClaudeAccessMode(sessionId, claudeAccessMode || 'default');
+    sessions.updateSessionClaudeAccessMode(sessionId, nextClaudeAccessMode || 'default');
     sessions.updateSessionClaudeExecutionMode(sessionId, nextClaudeExecutionMode || 'execute');
     sessions.updateSessionClaudeReasoningEffort(sessionId, nextClaudeReasoningEffort || 'high');
   }
@@ -7237,9 +7272,8 @@ async function handleSessionContinue(
       model: nextModel ?? '',
       compatibleProviderId: nextProvider === 'claude' ? nextCompatibleProviderId : undefined,
       betas: nextBetas,
-      claudeAccessMode: nextProvider === 'claude' ? normalizeClaudeAccessMode(claudeAccessMode) : undefined,
-      claudeExecutionMode:
-        nextProvider === 'claude' ? normalizeClaudeExecutionMode(claudeExecutionMode) : undefined,
+      claudeAccessMode: nextProvider === 'claude' ? nextClaudeAccessMode : undefined,
+      claudeExecutionMode: nextProvider === 'claude' ? nextClaudeExecutionMode : undefined,
       claudeReasoningEffort: nextProvider === 'claude' ? nextClaudeReasoningEffort : undefined,
       codexExecutionMode: nextProvider === 'codex' ? (nextCodexExecutionMode || 'execute') : undefined,
       codexPermissionMode: nextProvider === 'codex' ? (nextCodexPermissionMode || 'defaultPermissions') : undefined,
@@ -7458,7 +7492,7 @@ async function handleSessionContinue(
     startModel,
     nextProvider === 'claude' ? nextCompatibleProviderId : undefined,
     nextBetas,
-    claudeAccessMode,
+    nextClaudeAccessMode,
     nextClaudeExecutionMode,
     nextProvider === 'claude' ? nextClaudeReasoningEffort : undefined,
     nextProvider === 'codex' ? (nextCodexExecutionMode || 'execute') : undefined,
@@ -7530,6 +7564,17 @@ function startRunner(
     provider === 'claude'
       ? compatibleProviderOverride || session.compatible_provider_id || undefined
       : undefined;
+  const normalizedClaudeAccessMode =
+    provider === 'claude'
+      ? normalizeClaudeAccessMode(claudeAccessMode || session.claude_access_mode)
+      : undefined;
+  const normalizedClaudeExecutionMode =
+    provider === 'claude'
+      ? normalizeClaudeExecutionMode(
+          claudeExecutionMode || session.claude_execution_mode,
+          normalizedClaudeAccessMode
+        )
+      : undefined;
 
   if (isDev()) {
     console.log('[Runner Select]', {
@@ -7565,8 +7610,8 @@ function startRunner(
     model: modelOverride,
     compatibleProviderId,
     betas: provider === 'claude' ? betasOverride || parseStoredBetas(session.betas) : undefined,
-    claudeAccessMode,
-    claudeExecutionMode,
+    claudeAccessMode: normalizedClaudeAccessMode,
+    claudeExecutionMode: normalizedClaudeExecutionMode,
     claudeReasoningEffort,
     codexExecutionMode,
     codexPermissionMode,
@@ -7639,12 +7684,15 @@ function startRunner(
                 : undefined,
             claudeAccessMode:
               provider === 'claude'
-                ? normalizeClaudeAccessMode(sessions.getSession(session.id)?.claude_access_mode || claudeAccessMode)
+                ? normalizeClaudeAccessMode(
+                    sessions.getSession(session.id)?.claude_access_mode || normalizedClaudeAccessMode
+                  )
                 : undefined,
             claudeExecutionMode:
               provider === 'claude'
                 ? normalizeClaudeExecutionMode(
-                    sessions.getSession(session.id)?.claude_execution_mode || claudeExecutionMode
+                    sessions.getSession(session.id)?.claude_execution_mode || normalizedClaudeExecutionMode,
+                    sessions.getSession(session.id)?.claude_access_mode || normalizedClaudeAccessMode
                   )
                 : undefined,
             claudeReasoningEffort:
@@ -7781,12 +7829,15 @@ function startRunner(
                 : undefined,
             claudeAccessMode:
               provider === 'claude'
-                ? normalizeClaudeAccessMode(sessions.getSession(session.id)?.claude_access_mode || claudeAccessMode)
+                ? normalizeClaudeAccessMode(
+                    sessions.getSession(session.id)?.claude_access_mode || normalizedClaudeAccessMode
+                  )
                 : undefined,
             claudeExecutionMode:
               provider === 'claude'
                 ? normalizeClaudeExecutionMode(
-                    sessions.getSession(session.id)?.claude_execution_mode || claudeExecutionMode
+                    sessions.getSession(session.id)?.claude_execution_mode || normalizedClaudeExecutionMode,
+                    sessions.getSession(session.id)?.claude_access_mode || normalizedClaudeAccessMode
                   )
                 : undefined,
             claudeReasoningEffort:
@@ -7868,12 +7919,14 @@ function startRunner(
         runnerHandles.delete(session.id);
       }
     },
-    onClaudeExecutionModeChange: (mode) => {
+    onClaudeExecutionModeChange: (mode, permissionMode) => {
+      sessions.updateSessionClaudeAccessMode(session.id, permissionMode);
       sessions.updateSessionClaudeExecutionMode(session.id, mode);
 
       const current = sessions.getSession(session.id);
       const entry = runnerHandles.get(session.id);
       if (entry) {
+        entry.claudeAccessMode = permissionMode;
         entry.claudeExecutionMode = mode;
       }
 
@@ -7894,7 +7947,7 @@ function startRunner(
               : undefined,
           claudeAccessMode:
             provider === 'claude'
-              ? normalizeClaudeAccessMode(current?.claude_access_mode || claudeAccessMode)
+              ? normalizeClaudeAccessMode(permissionMode || current?.claude_access_mode || normalizedClaudeAccessMode)
               : undefined,
           claudeExecutionMode: provider === 'claude' ? mode : undefined,
           claudeReasoningEffort:
@@ -7972,8 +8025,8 @@ function startRunner(
     handle,
     provider,
     compatibleProviderId,
-    claudeAccessMode: provider === 'claude' ? (claudeAccessMode || 'default') : undefined,
-    claudeExecutionMode: provider === 'claude' ? (claudeExecutionMode || 'execute') : undefined,
+    claudeAccessMode: provider === 'claude' ? normalizedClaudeAccessMode : undefined,
+    claudeExecutionMode: provider === 'claude' ? normalizedClaudeExecutionMode : undefined,
     claudeReasoningEffort:
       provider === 'claude' ? normalizeClaudeReasoningEffort(claudeReasoningEffort) : undefined,
     codexExecutionMode: provider === 'codex' ? normalizeCodexExecutionMode(codexExecutionMode) : undefined,

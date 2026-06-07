@@ -49,6 +49,7 @@ export type {
   ClaudeSkillSummary,
   ClaudeModelConfig,
   ClaudeCompatibleProviderId,
+  ClaudePermissionMode,
   ClaudeAccessMode,
   ClaudeExecutionMode,
   ClaudeReasoningEffort,

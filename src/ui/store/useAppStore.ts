@@ -194,7 +194,7 @@ function createDirectMessageDraftOptions(profile: AgentProfile): Parameters<type
       profile.provider === 'aegis' && (profile.reasoningEffort === 'high' || profile.reasoningEffort === 'max')
         ? profile.reasoningEffort
         : undefined,
-    claudeAccessMode: isFullAccess ? 'fullAccess' : 'default',
+    claudeAccessMode: isFullAccess ? 'bypassPermissions' : isReadOnly ? 'plan' : 'default',
     claudeExecutionMode: isReadOnly ? 'plan' : 'execute',
     codexExecutionMode: isReadOnly ? 'plan' : 'execute',
     codexPermissionMode: isFullAccess ? 'fullAccess' : 'defaultPermissions',
@@ -821,10 +821,27 @@ function resolveInitialTerminalDrawerOpen(
 }
 
 function normalizeClaudeAccessMode(value: unknown): import('../types').ClaudeAccessMode {
-  return value === 'fullAccess' ? 'fullAccess' : 'default';
+  switch (typeof value === 'string' ? value.trim() : '') {
+    case 'fullAccess':
+    case 'bypassPermissions':
+      return 'bypassPermissions';
+    case 'acceptEdits':
+    case 'plan':
+    case 'dontAsk':
+    case 'auto':
+      return value as import('../types').ClaudeAccessMode;
+    default:
+      return 'default';
+  }
 }
 
-function normalizeClaudeExecutionMode(value: unknown): import('../types').ClaudeExecutionMode {
+function normalizeClaudeExecutionMode(
+  value: unknown,
+  accessMode?: unknown
+): import('../types').ClaudeExecutionMode {
+  if (normalizeClaudeAccessMode(accessMode) === 'plan') {
+    return 'plan';
+  }
   return value === 'plan' ? 'plan' : 'execute';
 }
 
@@ -2546,7 +2563,7 @@ function handleSessionList(
       compatibleProviderId: session.compatibleProviderId,
       betas: session.betas,
       claudeAccessMode: normalizeClaudeAccessMode(session.claudeAccessMode),
-      claudeExecutionMode: normalizeClaudeExecutionMode(session.claudeExecutionMode),
+      claudeExecutionMode: normalizeClaudeExecutionMode(session.claudeExecutionMode, session.claudeAccessMode),
       claudeReasoningEffort: normalizeClaudeReasoningEffort(session.claudeReasoningEffort),
       codexExecutionMode: normalizeCodexExecutionMode(session.codexExecutionMode),
       codexPermissionMode: session.codexPermissionMode,
@@ -2770,8 +2787,8 @@ function handleSessionStatus(
               : normalizeClaudeAccessMode(session.claudeAccessMode),
           claudeExecutionMode:
             claudeExecutionMode !== undefined
-              ? normalizeClaudeExecutionMode(claudeExecutionMode)
-              : normalizeClaudeExecutionMode(session.claudeExecutionMode),
+              ? normalizeClaudeExecutionMode(claudeExecutionMode, claudeAccessMode)
+              : normalizeClaudeExecutionMode(session.claudeExecutionMode, session.claudeAccessMode),
           claudeReasoningEffort:
             claudeReasoningEffort !== undefined
               ? normalizeClaudeReasoningEffort(claudeReasoningEffort)
@@ -2851,7 +2868,7 @@ function handleSessionStatus(
       compatibleProviderId,
       betas,
       claudeAccessMode: normalizeClaudeAccessMode(claudeAccessMode),
-      claudeExecutionMode: normalizeClaudeExecutionMode(claudeExecutionMode),
+      claudeExecutionMode: normalizeClaudeExecutionMode(claudeExecutionMode, claudeAccessMode),
       claudeReasoningEffort: normalizeClaudeReasoningEffort(claudeReasoningEffort),
       codexExecutionMode: normalizeCodexExecutionMode(codexExecutionMode),
       codexPermissionMode,

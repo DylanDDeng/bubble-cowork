@@ -1,5 +1,6 @@
 import type {
   McpServerConfig as SDKMcpServerConfig,
+  PermissionMode as ClaudeSdkPermissionMode,
   Query as ClaudeQuery,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
@@ -8,7 +9,12 @@ import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { Base64ImageSource, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages';
 import type { RunnerOptions, RunnerHandle, StreamMessage, PermissionResult, Attachment } from '../types';
-import type { ClaudeModelUsage, ClaudeReasoningEffort } from '../../shared/types';
+import type {
+  ClaudeAccessMode,
+  ClaudeExecutionMode,
+  ClaudeModelUsage,
+  ClaudeReasoningEffort,
+} from '../../shared/types';
 import { getClaudeEnv, getMcpServers, sanitizeOfficialClaudeEnv } from './claude-settings';
 import { applyCompatibleProviderEnv } from './compatible-provider-config';
 import {
@@ -108,6 +114,114 @@ type StreamEventType =
 const DEFAULT_MAX_THINKING_TOKENS = 64000;
 const DEFAULT_CLAUDE_REASONING_EFFORT: ClaudeReasoningEffort = 'high';
 type ClaudeAgentSdkModule = typeof import('@anthropic-ai/claude-agent-sdk');
+
+const CLAUDE_PERMISSIONED_TOOLS = new Set([
+  'Bash',
+  'Write',
+  'Edit',
+  'MultiEdit',
+  'NotebookEdit',
+  'Delete',
+]);
+const CLAUDE_EDIT_TOOLS = new Set([
+  'Write',
+  'Edit',
+  'MultiEdit',
+  'NotebookEdit',
+]);
+const CLAUDE_FILE_TOOLS = new Set([
+  'Write',
+  'Edit',
+  'MultiEdit',
+  'NotebookEdit',
+  'Read',
+]);
+
+function normalizeClaudeSdkPermissionMode(
+  accessMode?: ClaudeAccessMode,
+  executionMode?: ClaudeExecutionMode
+): ClaudeSdkPermissionMode {
+  if (executionMode === 'plan') {
+    return 'plan';
+  }
+  switch (accessMode) {
+    case 'fullAccess':
+    case 'bypassPermissions':
+      return 'bypassPermissions';
+    case 'acceptEdits':
+    case 'plan':
+    case 'dontAsk':
+    case 'auto':
+      return accessMode;
+    default:
+      return 'default';
+  }
+}
+
+function executionModeForClaudePermissionMode(
+  permissionMode: ClaudeSdkPermissionMode
+): ClaudeExecutionMode {
+  return permissionMode === 'plan' ? 'plan' : 'execute';
+}
+
+function shouldPromptForClaudeTool(
+  toolName: string,
+  permissionMode: ClaudeSdkPermissionMode
+): boolean {
+  if (!CLAUDE_PERMISSIONED_TOOLS.has(toolName)) {
+    return false;
+  }
+  if (permissionMode === 'default') {
+    return true;
+  }
+  if (permissionMode === 'acceptEdits') {
+    return !CLAUDE_EDIT_TOOLS.has(toolName);
+  }
+  return false;
+}
+
+function shouldDenyClaudeToolWithoutPrompt(
+  toolName: string,
+  permissionMode: ClaudeSdkPermissionMode
+): boolean {
+  return permissionMode === 'dontAsk' && CLAUDE_PERMISSIONED_TOOLS.has(toolName);
+}
+
+function buildClaudeToolApprovalKey(toolName: string, input: Record<string, unknown>): string {
+  const command = typeof input.command === 'string' ? input.command : '';
+  const filePath = typeof input.file_path === 'string' ? input.file_path : '';
+  return `${toolName}:${command || filePath || '*'}`;
+}
+
+function buildClaudeToolApprovalInput(
+  toolName: string,
+  input: Record<string, unknown>,
+  cwd?: string | null
+): Record<string, unknown> {
+  const command = typeof input.command === 'string' ? input.command : null;
+  const filePath = typeof input.file_path === 'string' ? input.file_path : null;
+  const approvalKind = toolName === 'Bash'
+    ? 'command'
+    : filePath
+      ? 'file-change'
+      : 'tool';
+  return {
+    kind: 'codex-approval',
+    approvalKind,
+    method: 'claude.canUseTool',
+    question: command
+      ? `Allow Claude to run this command?`
+      : filePath
+        ? `Allow Claude to use ${toolName} on this file?`
+        : `Allow Claude to use ${toolName}?`,
+    title: `Claude ${toolName} approval`,
+    toolName,
+    command,
+    cwd: cwd || null,
+    filePath,
+    canAllowForSession: true,
+  };
+}
 
 async function loadClaudeAgentSdk(): Promise<ClaudeAgentSdkModule> {
   const dynamicImport = new Function(
@@ -386,15 +500,14 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
   let compatibleProviderMatched = false;
   let activeQuery: ClaudeQuery | null = null;
   const sessionApprovedExternalAccess = new Set<string>();
-  let currentPermissionMode: 'default' | 'bypassPermissions' | 'plan' =
-    claudeExecutionMode === 'plan'
-      ? 'plan'
-      : claudeAccessMode === 'fullAccess'
-        ? 'bypassPermissions'
-        : 'default';
+  const sessionApprovedToolAccess = new Set<string>();
+  let currentPermissionMode: ClaudeSdkPermissionMode = normalizeClaudeSdkPermissionMode(
+    claudeAccessMode,
+    claudeExecutionMode
+  );
 
   const updatePermissionMode = async (
-    nextMode: 'default' | 'bypassPermissions' | 'plan'
+    nextMode: ClaudeSdkPermissionMode
   ): Promise<void> => {
     if (currentPermissionMode === nextMode) {
       return;
@@ -403,7 +516,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       await activeQuery.setPermissionMode(nextMode);
     }
     currentPermissionMode = nextMode;
-    onClaudeExecutionModeChange?.(nextMode === 'plan' ? 'plan' : 'execute', nextMode);
+    onClaudeExecutionModeChange?.(executionModeForClaudePermissionMode(nextMode), nextMode);
   };
 
   const enqueuePrompt = (text: string, promptAttachments?: Attachment[], requestedModel?: string) => {
@@ -547,14 +660,6 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           canUseTool: async (toolName: string, input: Record<string, unknown>) => {
             const memoryTools = ['remember_search', 'remember_get', 'remember_write', 'remember_recent'];
             const isMemoryTool = memoryTools.some(t => toolName === t || toolName.endsWith(`__${t}`));
-            const planBlockedTools = new Set([
-              'Bash',
-              'Write',
-              'Edit',
-              'MultiEdit',
-              'NotebookEdit',
-              'Delete',
-            ]);
 
             if (toolName === 'ExitPlanMode') {
               const approvalToolUseId = uuidv4();
@@ -598,8 +703,8 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
                 };
               }
 
-              const nextMode =
-                claudeAccessMode === 'fullAccess' ? 'bypassPermissions' : 'default';
+              const nextAccessMode = claudeAccessMode === 'plan' ? 'default' : claudeAccessMode;
+              const nextMode = normalizeClaudeSdkPermissionMode(nextAccessMode, 'execute');
               await updatePermissionMode(nextMode);
               return {
                 behavior: 'allow' as const,
@@ -610,7 +715,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
             if (
               currentPermissionMode === 'plan' &&
               (
-                planBlockedTools.has(toolName) ||
+                CLAUDE_PERMISSIONED_TOOLS.has(toolName) ||
                 (
                   ENABLE_AEGIS_MEMORY_FOR_NATIVE_PROVIDERS &&
                   (toolName === 'remember_write' || toolName.endsWith('__remember_write'))
@@ -638,18 +743,18 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
             }
 
             const isFullAccess = currentPermissionMode === 'bypassPermissions';
+            let updatedInput = input;
             if (session.cwd) {
               // 文件操作工具的路径修正
-              const fileTools = ['Write', 'Edit', 'Read'];
-              if (fileTools.includes(toolName)) {
-                const filePath = input.file_path as string | undefined;
+              if (CLAUDE_FILE_TOOLS.has(toolName)) {
+                const filePath = updatedInput.file_path as string | undefined;
                 if (filePath) {
                   const normalized = normalizeToolFilePath(session.cwd, filePath);
                   if (normalized && !normalized.isWithin) {
                     if (isFullAccess) {
                       return {
                         behavior: 'allow' as const,
-                        updatedInput: { ...input, file_path: normalized.resolved },
+                        updatedInput: { ...updatedInput, file_path: normalized.resolved },
                       };
                     }
 
@@ -657,7 +762,14 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
                     if (sessionApprovedExternalAccess.has(accessKey)) {
                       return {
                         behavior: 'allow' as const,
-                        updatedInput: { ...input, file_path: normalized.resolved },
+                        updatedInput: { ...updatedInput, file_path: normalized.resolved },
+                      };
+                    }
+
+                    if (currentPermissionMode === 'dontAsk') {
+                      return {
+                        behavior: 'deny' as const,
+                        message: `${toolName} requested an external file, and this session is in Don't Ask mode.`,
                       };
                     }
 
@@ -676,7 +788,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
                       }
                       return {
                         behavior: 'allow' as const,
-                        updatedInput: { ...input, file_path: normalized.resolved },
+                        updatedInput: { ...updatedInput, file_path: normalized.resolved },
                       };
                     }
 
@@ -687,25 +799,19 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
                   }
                   if (normalized && normalized.resolved !== filePath) {
                     console.log(`[CWD Fix] ${toolName}: ${filePath} -> ${normalized.resolved}`);
-                    return {
-                      behavior: 'allow' as const,
-                      updatedInput: { ...input, file_path: normalized.resolved },
-                    };
+                    updatedInput = { ...updatedInput, file_path: normalized.resolved };
                   }
                 }
               }
 
               // Bash 命令前置 cd
               if (toolName === 'Bash') {
-                const command = input.command as string | undefined;
+                const command = updatedInput.command as string | undefined;
                 if (command) {
                   const cdPrefix = `cd "${session.cwd}" && `;
                   if (!command.startsWith(cdPrefix) && !command.startsWith('cd ')) {
                     console.log(`[CWD Fix] Bash: prepending cd to command`);
-                    return {
-                      behavior: 'allow' as const,
-                      updatedInput: { ...input, command: cdPrefix + command },
-                    };
+                    updatedInput = { ...updatedInput, command: cdPrefix + command };
                   }
                 }
               }
@@ -714,12 +820,12 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
             // AskUserQuestion 用户交互处理
             if (toolName === 'AskUserQuestion') {
               const toolUseId = uuidv4();
-              const permResult = await onPermissionRequest(toolUseId, toolName, input);
+              const permResult = await onPermissionRequest(toolUseId, toolName, updatedInput);
 
               if (permResult.behavior === 'allow') {
                 return {
                   behavior: 'allow' as const,
-                  updatedInput: (permResult.updatedInput || input) as Record<string, unknown>,
+                  updatedInput: (permResult.updatedInput || updatedInput) as Record<string, unknown>,
                 };
               } else {
                 return {
@@ -729,10 +835,49 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
               }
             }
 
+            if (shouldDenyClaudeToolWithoutPrompt(toolName, currentPermissionMode)) {
+              return {
+                behavior: 'deny' as const,
+                message: `${toolName} requires permission, and this session is in Don't Ask mode.`,
+              };
+            }
+
+            const approvalKey = buildClaudeToolApprovalKey(toolName, updatedInput);
+            if (sessionApprovedToolAccess.has(approvalKey)) {
+              return {
+                behavior: 'allow' as const,
+                updatedInput,
+              };
+            }
+
+            if (shouldPromptForClaudeTool(toolName, currentPermissionMode)) {
+              const toolUseId = uuidv4();
+              const permResult = await onPermissionRequest(
+                toolUseId,
+                toolName,
+                buildClaudeToolApprovalInput(toolName, updatedInput, session.cwd)
+              );
+
+              if (permResult.behavior === 'allow') {
+                if (permResult.scope === 'session') {
+                  sessionApprovedToolAccess.add(approvalKey);
+                }
+                return {
+                  behavior: 'allow' as const,
+                  updatedInput: (permResult.updatedInput || updatedInput) as Record<string, unknown>,
+                };
+              }
+
+              return {
+                behavior: 'deny' as const,
+                message: permResult.message || 'User declined tool execution.',
+              };
+            }
+
             // 其他工具默认允许
             return {
               behavior: 'allow' as const,
-              updatedInput: input,
+              updatedInput,
             };
           },
         },
