@@ -99,7 +99,14 @@ export interface ClaudeModelConfig {
   options: string[];
 }
 
-export type ClaudeAccessMode = 'default' | 'fullAccess';
+export type ClaudePermissionMode =
+  | 'default'
+  | 'acceptEdits'
+  | 'bypassPermissions'
+  | 'plan'
+  | 'dontAsk'
+  | 'auto';
+export type ClaudeAccessMode = ClaudePermissionMode | 'fullAccess';
 export type ClaudeExecutionMode = 'execute' | 'plan';
 export type ClaudeReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type CodexExecutionMode = 'execute' | 'plan';

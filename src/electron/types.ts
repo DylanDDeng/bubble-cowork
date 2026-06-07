@@ -139,7 +139,7 @@ export interface RunnerOptions {
   ) => Promise<import('../shared/types').PermissionResult>;
   onClaudeExecutionModeChange?: (
     mode: import('../shared/types').ClaudeExecutionMode,
-    permissionMode: 'default' | 'bypassPermissions' | 'plan'
+    permissionMode: import('../shared/types').ClaudePermissionMode
   ) => void;
 }
 

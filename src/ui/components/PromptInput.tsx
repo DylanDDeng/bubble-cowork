@@ -19,6 +19,7 @@ import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
 import { CodexContextIndicator } from './CodexContextIndicator';
 import { ComposerAgentModelPicker } from './ComposerAgentControls';
+import { ClaudePermissionModePicker } from './ClaudePermissionModePicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { KimiPermissionModePicker } from './KimiPermissionModePicker';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
@@ -83,6 +84,8 @@ export function PromptInput({
     provider: activeSession?.provider || null,
     model: activeSession?.model || null,
     compatibleProviderId: activeSession?.compatibleProviderId || null,
+    claudePermissionMode:
+      activeSession?.provider === 'claude' ? activeSession.claudeAccessMode || null : null,
   });
   const runtimeProvider = agentSelection.provider;
   const selectedModel = agentSelection.model;
@@ -301,6 +304,16 @@ export function PromptInput({
           model: selectedModel || undefined,
           compatibleProviderId:
             runtimeProvider === 'claude' ? agentSelection.compatibleProviderId || undefined : undefined,
+          claudeAccessMode:
+            runtimeProvider === 'claude'
+              ? agentSelection.claudePermissionMode
+              : undefined,
+          claudeExecutionMode:
+            runtimeProvider === 'claude' && agentSelection.claudePermissionMode === 'plan'
+              ? 'plan'
+              : runtimeProvider === 'claude'
+                ? 'execute'
+                : undefined,
           ...codexReferences,
           codexPermissionMode:
             runtimeProvider === 'codex'
@@ -330,6 +343,16 @@ export function PromptInput({
         model: selectedModel || undefined,
         compatibleProviderId:
           runtimeProvider === 'claude' ? agentSelection.compatibleProviderId || undefined : undefined,
+        claudeAccessMode:
+          runtimeProvider === 'claude'
+            ? agentSelection.claudePermissionMode
+            : undefined,
+        claudeExecutionMode:
+          runtimeProvider === 'claude' && agentSelection.claudePermissionMode === 'plan'
+            ? 'plan'
+            : runtimeProvider === 'claude'
+              ? 'execute'
+              : undefined,
         ...codexReferences,
         codexPermissionMode:
           runtimeProvider === 'codex'
@@ -669,6 +692,13 @@ export function PromptInput({
                 <CodexPermissionModePicker
                   value={agentSelection.codexPermissionMode}
                   onChange={agentSelection.setCodexPermissionMode}
+                />
+              )}
+              {agentSelection.provider === 'claude' && (
+                <ClaudePermissionModePicker
+                  value={agentSelection.claudePermissionMode}
+                  onChange={agentSelection.setClaudePermissionMode}
+                  disabled={isBusy}
                 />
               )}
               {agentSelection.provider === 'kimi' && (

@@ -24,6 +24,7 @@ import {
   savePreferredCodexModel,
 } from '../utils/codex-model';
 import {
+  ClaudePermissionMode,
   CodexReasoningEffort,
   CodexPermissionMode,
   KimiPermissionMode,
@@ -44,6 +45,11 @@ import {
   loadPreferredOpencodeModel,
   savePreferredOpencodeModel,
 } from '../utils/opencode-model';
+import {
+  loadPreferredClaudePermissionMode,
+  normalizeClaudePermissionMode,
+  savePreferredClaudePermissionMode,
+} from '../utils/claude-permission';
 import {
   loadPreferredKimiPermissionMode,
   savePreferredKimiPermissionMode,
@@ -301,6 +307,7 @@ export function useComposerAgentSelection(input?: {
   provider?: AgentProvider | null;
   model?: string | null;
   compatibleProviderId?: ClaudeCompatibleProviderId | null;
+  claudePermissionMode?: ClaudePermissionMode | null;
 }) {
   const claudeModelConfig = useClaudeModelConfig();
   const codexModelConfig = useCodexModelConfig();
@@ -497,6 +504,7 @@ export function useComposerAgentSelection(input?: {
     setCompatibleProviderId(nextSelection.compatibleProviderId);
   }, [
     input?.compatibleProviderId,
+    input?.claudePermissionMode,
     input?.model,
     input?.provider,
     input?.selectionKey,
@@ -699,10 +707,25 @@ export function useComposerAgentSelection(input?: {
     [codexModelConfig, model]
   );
 
+  const [claudePermissionMode, setClaudePermissionModeState] = useState<ClaudePermissionMode>(() =>
+    normalizeClaudePermissionMode(input?.claudePermissionMode || loadPreferredClaudePermissionMode())
+  );
   const [codexPermissionMode, setCodexPermissionMode] = useState<CodexPermissionMode>('defaultPermissions');
   const [kimiPermissionMode, setKimiPermissionModeState] = useState<KimiPermissionMode>(() =>
     loadPreferredKimiPermissionMode()
   );
+
+  useEffect(() => {
+    setClaudePermissionModeState(
+      normalizeClaudePermissionMode(input?.claudePermissionMode || loadPreferredClaudePermissionMode())
+    );
+  }, [input?.claudePermissionMode, input?.selectionKey]);
+
+  const setClaudePermissionMode = useCallback((mode: ClaudePermissionMode) => {
+    const normalized = normalizeClaudePermissionMode(mode);
+    setClaudePermissionModeState(normalized);
+    savePreferredClaudePermissionMode(normalized);
+  }, []);
 
   const setKimiPermissionMode = useCallback((mode: KimiPermissionMode) => {
     setKimiPermissionModeState(mode);
@@ -726,6 +749,8 @@ export function useComposerAgentSelection(input?: {
     setCodexReasoningEffort,
     codexFastMode,
     setCodexFastMode,
+    claudePermissionMode,
+    setClaudePermissionMode,
     codexPermissionMode,
     setCodexPermissionMode,
     kimiPermissionMode,
