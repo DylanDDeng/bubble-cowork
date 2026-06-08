@@ -27,8 +27,7 @@ export function ArtifactsPanel({
   const artifacts = useMemo(() => extractArtifactsFromMessages(messages), [messages]);
   const {
     activeSessionId,
-    setBrowserPanelOpen,
-    setProjectTreeCollapsed,
+    openRightUtilityTab,
   } = useAppStore();
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -199,8 +198,7 @@ export function ArtifactsPanel({
         sessionId: activeSessionId,
       });
       setSelectedPath(null);
-      setBrowserPanelOpen(true);
-      setProjectTreeCollapsed(true);
+      openRightUtilityTab('browser');
     } catch (error) {
       toast.error(`Failed to open in browser panel: ${error}`);
     }

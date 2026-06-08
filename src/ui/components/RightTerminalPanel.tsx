@@ -3,7 +3,7 @@ import { SquareTerminal, X } from './icons';
 import { SessionTerminal } from './SessionTerminal';
 
 const MIN_PANEL_WIDTH = 360;
-const MAX_PANEL_WIDTH = 960;
+const MAX_PANEL_WIDTH = 1200;
 
 export function RightTerminalPanel({
   collapsed,
@@ -13,6 +13,7 @@ export function RightTerminalPanel({
   sessionId,
   cwd,
   header,
+  embedded = false,
 }: {
   collapsed: boolean;
   width: number;
@@ -21,6 +22,7 @@ export function RightTerminalPanel({
   sessionId: string | null;
   cwd: string | null;
   header?: ReactNode;
+  embedded?: boolean;
 }) {
   const [isResizing, setIsResizing] = useState(false);
   const [terminalMounted, setTerminalMounted] = useState(!collapsed);
@@ -71,18 +73,28 @@ export function RightTerminalPanel({
 
   return (
     <div
-      className={`relative flex h-full flex-col border-l border-[var(--border)] bg-[var(--bg-primary)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-        collapsed ? 'pointer-events-none' : ''
-      }`}
-      style={{
-        width: collapsed ? 0 : width,
-        opacity: collapsed ? 0 : 1,
-        transform: collapsed ? 'translateX(18px)' : 'translateX(0)',
-        borderLeftWidth: collapsed ? 0 : 1,
-      }}
+      className={
+        embedded
+          ? `absolute inset-0 min-h-0 min-w-0 bg-[var(--bg-primary)] ${
+              collapsed ? 'hidden' : 'flex flex-col'
+            }`
+          : `relative flex h-full flex-col border-l border-[var(--border)] bg-[var(--bg-primary)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              collapsed ? 'pointer-events-none' : ''
+            }`
+      }
+      style={
+        embedded
+          ? undefined
+          : {
+              width: collapsed ? 0 : width,
+              opacity: collapsed ? 0 : 1,
+              transform: collapsed ? 'translateX(18px)' : 'translateX(0)',
+              borderLeftWidth: collapsed ? 0 : 1,
+            }
+      }
       aria-hidden={collapsed}
     >
-      {!collapsed ? (
+      {!embedded && !collapsed ? (
         <div
           className="group absolute bottom-0 left-0 top-0 z-10 w-3 -translate-x-1/2 cursor-col-resize no-drag"
           onMouseDown={handleResizeStart}
@@ -91,7 +103,7 @@ export function RightTerminalPanel({
         </div>
       ) : null}
 
-      {header ? (
+      {embedded ? null : header ? (
         header
       ) : (
         <>
@@ -122,7 +134,7 @@ export function RightTerminalPanel({
             terminalScopeId={terminalScopeId}
             visible={!collapsed}
             onRequestClose={onClose}
-            hideChromeTabs={Boolean(header)}
+            hideChromeTabs={embedded || Boolean(header)}
           />
         ) : null}
       </div>

@@ -6,9 +6,11 @@ import { ChatPane } from './ChatPane';
 export function WorkspaceHost({
   codexModelConfig,
   onWorkspaceGitChanged,
+  dockSecondaryPane = false,
 }: {
   codexModelConfig: import('../types').CodexModelConfig;
   onWorkspaceGitChanged?: () => Promise<void>;
+  dockSecondaryPane?: boolean;
 }) {
   const {
     chatLayoutMode,
@@ -119,7 +121,7 @@ export function WorkspaceHost({
     );
   };
 
-  if (chatLayoutMode === 'single') {
+  if (chatLayoutMode === 'single' || dockSecondaryPane) {
     return (
       <div
         className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
@@ -127,14 +129,14 @@ export function WorkspaceHost({
         onDragOver={(event) => {
           event.preventDefault();
           const bounds = event.currentTarget.getBoundingClientRect();
-          setDragTarget(event.clientX - bounds.left < bounds.width / 2 ? 'primary' : 'secondary');
+          setDragTarget(event.clientX - bounds.left < bounds.width / 2 || dockSecondaryPane ? 'primary' : 'secondary');
         }}
         onDrop={(event) => {
           const sessionId = event.dataTransfer.getData('application/x-aegis-session-id');
           if (!sessionId) return;
           event.preventDefault();
           const bounds = event.currentTarget.getBoundingClientRect();
-          const targetPane = event.clientX - bounds.left < bounds.width / 2 ? 'primary' : 'secondary';
+          const targetPane = event.clientX - bounds.left < bounds.width / 2 || dockSecondaryPane ? 'primary' : 'secondary';
           setDragTarget(null);
           applyDroppedSession(targetPane, sessionId);
         }}
@@ -148,7 +150,7 @@ export function WorkspaceHost({
           dropHint={dragTarget === 'primary' ? 'Open on left' : null}
           onWorkspaceGitChanged={onWorkspaceGitChanged}
         />
-        {dragTarget === 'secondary' ? (
+        {dragTarget === 'secondary' && !dockSecondaryPane ? (
           <div className="pointer-events-none absolute inset-y-0 right-0 z-10 flex w-1/2 items-center justify-center rounded-l-[var(--radius-2xl)] border-2 border-dashed border-[color-mix(in_srgb,var(--accent)_30%,transparent)] bg-[color-mix(in_srgb,var(--accent-light)_75%,transparent)] text-sm font-medium text-[var(--text-primary)]">
             Open on right
           </div>

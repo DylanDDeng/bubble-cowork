@@ -97,14 +97,16 @@ function buildAegisWorktreeBranch(baseBranch: string): string {
   return `aegis/${sanitized || 'worktree'}-${suffix}`;
 }
 
-function SessionWorkspaceControl({
+export function SessionWorkspaceControl({
   session,
   sessionId,
   onWorkspaceGitChanged,
+  variant = 'header',
 }: {
   session: SessionView;
   sessionId: string;
   onWorkspaceGitChanged?: () => Promise<void>;
+  variant?: 'header' | 'panel';
 }) {
   const createDraftSession = useAppStore((state) => state.createDraftSession);
   const projectCwd = session.projectCwd || session.cwd || null;
@@ -410,19 +412,28 @@ function SessionWorkspaceControl({
   }
 
   const BusyIcon = busyAction || branchesLoading ? Loader2 : null;
+  const panelVariant = variant === 'panel';
+  const wrapperClass = panelVariant ? 'flex flex-col gap-1.5' : 'flex min-w-0 items-center gap-1';
+  const rowButtonClass = panelVariant
+    ? 'flex h-8 w-full items-center gap-2 rounded-md px-2 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-not-allowed disabled:opacity-50'
+    : 'inline-flex h-6 max-w-[112px] items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]';
+  const branchButtonClass = panelVariant
+    ? 'flex h-8 w-full items-center gap-2 rounded-md px-2 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-not-allowed disabled:opacity-50'
+    : 'inline-flex h-6 max-w-[150px] items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]';
 
   return (
-    <div className="flex min-w-0 items-center gap-1">
+    <div className={wrapperClass}>
       <DropdownMenu.Root onOpenChange={(open) => { if (open) void refreshBranches(); }}>
         <DropdownMenu.Trigger asChild>
           <button
             type="button"
-            className="inline-flex h-6 max-w-[112px] items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+            className={rowButtonClass}
             disabled={busyAction !== null}
             title={isWorktree ? session.worktreePath || 'Worktree' : projectCwd}
           >
             {BusyIcon ? <BusyIcon className="h-3.5 w-3.5 animate-spin" /> : isWorktree ? <GitFork className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
-            <span className="truncate">{isWorktree ? 'Worktree' : 'Local'}</span>
+            {panelVariant ? <span className="text-[var(--text-muted)]">Workspace</span> : null}
+            <span className="min-w-0 flex-1 truncate text-left">{isWorktree ? 'Worktree' : 'Local'}</span>
             <ChevronDown className="h-3 w-3 shrink-0" />
           </button>
         </DropdownMenu.Trigger>
@@ -777,12 +788,13 @@ function SessionWorkspaceControl({
         <DropdownMenu.Trigger asChild>
           <button
             type="button"
-            className="inline-flex h-6 max-w-[150px] items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+            className={branchButtonClass}
             disabled={busyAction !== null}
             title={currentBranch}
           >
             <GitBranch className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{currentBranch}</span>
+            {panelVariant ? <span className="text-[var(--text-muted)]">Branch</span> : null}
+            <span className="min-w-0 flex-1 truncate text-left">{currentBranch}</span>
             <ChevronDown className="h-3 w-3 shrink-0" />
           </button>
         </DropdownMenu.Trigger>
@@ -1401,11 +1413,6 @@ export function ChatPane({
                   <span className="truncate font-medium text-[var(--text-primary)]">
                     {session.title || 'Chat'}
                   </span>
-	                  <SessionWorkspaceControl
-	                    session={session}
-	                    sessionId={session.id}
-	                    onWorkspaceGitChanged={onWorkspaceGitChanged}
-	                  />
                 </>
               )}
             </div>

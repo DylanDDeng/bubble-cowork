@@ -10,6 +10,8 @@ import type {
   ChatPaneState,
   ChatSidebarView,
   WorkspaceSurface,
+  ProjectUtilityPanelKind,
+  ProjectUtilityPanelTarget,
   AgentProvider,
   AgentProfile,
   ClaudeCompatibleProviderId,
@@ -655,6 +657,86 @@ function normalizeChatPanes(
   };
 }
 
+let rightUtilityFileTabCounter = 0;
+
+function isRightUtilityFileTab(target: ProjectUtilityPanelTarget | null | undefined): boolean {
+  return target === 'files' || Boolean(target?.startsWith('files:'));
+}
+
+function getRightUtilityTabKind(
+  target: ProjectUtilityPanelTarget
+): ProjectUtilityPanelKind {
+  return isRightUtilityFileTab(target) ? 'files' : target;
+}
+
+function createRightUtilityFileTabId(): ProjectUtilityPanelTarget {
+  rightUtilityFileTabCounter += 1;
+  return `files:${Date.now().toString(36)}-${rightUtilityFileTabCounter}`;
+}
+
+function resolveRightUtilityTabOpen(
+  tabs: ProjectUtilityPanelTarget[],
+  target: ProjectUtilityPanelKind,
+  options?: { newTab?: boolean }
+): { tabs: ProjectUtilityPanelTarget[]; activeTab: ProjectUtilityPanelTarget } {
+  if (target === 'files') {
+    const existing = tabs.find(isRightUtilityFileTab);
+    const activeTab = options?.newTab || !existing
+      ? createRightUtilityFileTabId()
+      : existing;
+    return {
+      tabs: tabs.includes(activeTab) ? tabs : [...tabs, activeTab],
+      activeTab,
+    };
+  }
+
+  return {
+    tabs: tabs.includes(target) ? tabs : [...tabs, target],
+    activeTab: target,
+  };
+}
+
+function resolveRightUtilityTabOpenPreservingActive(
+  tabs: ProjectUtilityPanelTarget[],
+  target: ProjectUtilityPanelKind,
+  activeTab: ProjectUtilityPanelTarget | null
+): { tabs: ProjectUtilityPanelTarget[]; activeTab: ProjectUtilityPanelTarget } {
+  if (target === 'files' && isRightUtilityFileTab(activeTab)) {
+    return {
+      tabs: addRightUtilityTab(tabs, activeTab),
+      activeTab,
+    };
+  }
+  if (target !== 'files' && activeTab === target) {
+    return {
+      tabs: addRightUtilityTab(tabs, activeTab),
+      activeTab,
+    };
+  }
+  return resolveRightUtilityTabOpen(tabs, target);
+}
+
+function addRightUtilityTab(
+  tabs: ProjectUtilityPanelTarget[],
+  target: ProjectUtilityPanelTarget
+): ProjectUtilityPanelTarget[] {
+  return tabs.includes(target) ? tabs : [...tabs, target];
+}
+
+function getInitialRightUtilityTab(
+  resumeState: import('../shared/types').UiResumeState | null
+): ProjectUtilityPanelTarget | null {
+  if (resumeState?.projectTreeCollapsed === false) {
+    return normalizeProjectPanelView(resumeState.projectPanelView) === 'changes'
+      ? 'review'
+      : 'files';
+  }
+  if (normalizeChatLayoutMode(resumeState?.chatLayoutMode) === 'split') {
+    return 'side-chat';
+  }
+  return null;
+}
+
 function persistUiResumeStateSnapshot(state: Pick<
   AppState,
   | 'activeSessionId'
@@ -703,6 +785,7 @@ function getInitialUiResumeState(): import('../shared/types').UiResumeState | nu
 }
 
 const initialUiResumeState = getInitialUiResumeState();
+const initialRightUtilityTab = getInitialRightUtilityTab(initialUiResumeState);
 const initialChatPanes = normalizeChatPanes(
   initialUiResumeState?.chatPanes,
   initialUiResumeState?.activeSessionId ?? null
@@ -1000,10 +1083,11 @@ export const useAppStore = create<Store>()(
       projectTree: null,
       projectTreeCollapsed: initialUiResumeState?.projectTreeCollapsed ?? false,
       projectPanelView: normalizeProjectPanelView(initialUiResumeState?.projectPanelView),
+      rightUtilityTabs: initialRightUtilityTab ? [initialRightUtilityTab] : [],
+      activeRightUtilityTab: initialRightUtilityTab,
       terminalDrawerOpen: resolveInitialTerminalDrawerOpen(initialUiResumeState),
       terminalDrawerHeight: sanitizeTerminalDrawerHeight(initialUiResumeState?.terminalDrawerHeight),
       browserPanelOpen: false,
-      browserPanelWidth: 480,
       rightPanelFullscreen: null,
       sessionsLoaded: false,
       // 搜索状态
@@ -1989,16 +2073,123 @@ export const useAppStore = create<Store>()(
   setProjectTree: (cwd, tree) => set({ projectTreeCwd: cwd, projectTree: tree }),
 
   setProjectTreeCollapsed: (collapsed) => {
-    set((state) => ({
-      projectTreeCollapsed: collapsed,
-      rightPanelFullscreen:
-        collapsed && state.rightPanelFullscreen === 'files' ? null : state.rightPanelFullscreen,
-    }));
+    set((state) => {
+      if (collapsed) {
+        return {
+          projectTreeCollapsed: true,
+          rightPanelFullscreen:
+            state.rightPanelFullscreen === 'files' ? null : state.rightPanelFullscreen,
+        };
+      }
+
+      const target = state.projectPanelView === 'changes' ? 'review' : 'files';
+      const opened = resolveRightUtilityTabOpenPreservingActive(
+        state.rightUtilityTabs,
+        target,
+        state.activeRightUtilityTab
+      );
+      return {
+        projectTreeCollapsed: false,
+        rightUtilityTabs: opened.tabs,
+        activeRightUtilityTab: opened.activeTab,
+        rightPanelFullscreen: state.rightPanelFullscreen,
+      };
+    });
     persistUiResumeStateSnapshot(get());
   },
 
   setProjectPanelView: (projectPanelView) => {
-    set({ projectPanelView });
+    set((state) => {
+      const target = projectPanelView === 'changes' ? 'review' : 'files';
+      const opened = state.projectTreeCollapsed
+        ? null
+        : resolveRightUtilityTabOpenPreservingActive(
+            state.rightUtilityTabs,
+            target,
+            state.activeRightUtilityTab
+          );
+      return {
+        projectPanelView,
+        rightUtilityTabs: opened ? opened.tabs : state.rightUtilityTabs,
+        activeRightUtilityTab: opened ? opened.activeTab : state.activeRightUtilityTab,
+      };
+    });
+    persistUiResumeStateSnapshot(get());
+  },
+
+  setActiveRightUtilityTab: (target) => {
+    set((state) => ({
+      activeRightUtilityTab: target,
+      rightUtilityTabs: target ? addRightUtilityTab(state.rightUtilityTabs, target) : state.rightUtilityTabs,
+    }));
+  },
+
+  openRightUtilityTab: (target, options) => {
+    set((state) => {
+      const opened = resolveRightUtilityTabOpen(state.rightUtilityTabs, target, options);
+      const activeKind = getRightUtilityTabKind(opened.activeTab);
+      const patch: Partial<Store> = {
+        rightUtilityTabs: opened.tabs,
+        activeRightUtilityTab: opened.activeTab,
+      };
+
+      if (activeKind === 'files' || activeKind === 'review') {
+        patch.projectPanelView = activeKind === 'review' ? 'changes' : 'files';
+        patch.projectTreeCollapsed = false;
+        patch.browserPanelOpen = false;
+        patch.rightPanelFullscreen =
+          state.rightPanelFullscreen === 'browser' ? null : state.rightPanelFullscreen;
+      } else if (activeKind === 'browser') {
+        patch.browserPanelOpen = true;
+        patch.projectTreeCollapsed = true;
+      } else {
+        patch.browserPanelOpen = false;
+        patch.projectTreeCollapsed = true;
+        patch.rightPanelFullscreen = null;
+      }
+
+      return patch;
+    });
+  },
+
+  closeRightUtilityTab: (target) => {
+    set((state) => {
+      const targetIndex = state.rightUtilityTabs.indexOf(target);
+      const nextTabs = state.rightUtilityTabs.filter((tab) => tab !== target);
+      const nextActiveTab =
+        state.activeRightUtilityTab === target
+          ? nextTabs[Math.max(0, targetIndex - 1)] ?? nextTabs[0] ?? null
+          : state.activeRightUtilityTab;
+      const patch: Partial<Store> = {
+        rightUtilityTabs: nextTabs,
+        activeRightUtilityTab: nextActiveTab,
+      };
+
+      if (!nextActiveTab) {
+        patch.projectTreeCollapsed = true;
+        patch.browserPanelOpen = false;
+        patch.rightPanelFullscreen = null;
+      }
+      const targetKind = getRightUtilityTabKind(target);
+      if (targetKind === 'browser' && state.rightPanelFullscreen === 'browser') {
+        patch.rightPanelFullscreen = null;
+      }
+      if ((targetKind === 'files' || targetKind === 'review') && state.rightPanelFullscreen === 'files') {
+        patch.rightPanelFullscreen = null;
+      }
+
+      return patch;
+    });
+  },
+
+  closeRightUtilityPanels: () => {
+    set({
+      rightUtilityTabs: [],
+      activeRightUtilityTab: null,
+      projectTreeCollapsed: true,
+      browserPanelOpen: false,
+      rightPanelFullscreen: null,
+    });
     persistUiResumeStateSnapshot(get());
   },
 
@@ -2015,6 +2206,10 @@ export const useAppStore = create<Store>()(
   setBrowserPanelOpen: (browserPanelOpen) => {
     set((state) => ({
       browserPanelOpen,
+      rightUtilityTabs: browserPanelOpen
+        ? addRightUtilityTab(state.rightUtilityTabs, 'browser')
+        : state.rightUtilityTabs,
+      activeRightUtilityTab: browserPanelOpen ? 'browser' : state.activeRightUtilityTab,
       rightPanelFullscreen:
         !browserPanelOpen && state.rightPanelFullscreen === 'browser'
           ? null
@@ -2022,25 +2217,27 @@ export const useAppStore = create<Store>()(
     }));
   },
 
-  setBrowserPanelWidth: (width) => {
-    const clamped = Math.min(960, Math.max(360, Math.round(width)));
-    set({ browserPanelWidth: clamped });
-  },
-
   setRightPanelFullscreen: (target) => {
     if (target === 'browser') {
-      set({
+      set((state) => ({
         rightPanelFullscreen: 'browser',
         browserPanelOpen: true,
         projectTreeCollapsed: true,
-      });
+        rightUtilityTabs: addRightUtilityTab(state.rightUtilityTabs, 'browser'),
+        activeRightUtilityTab: 'browser',
+      }));
       return;
     }
     if (target === 'files') {
-      set({
-        rightPanelFullscreen: 'files',
-        projectTreeCollapsed: false,
-        browserPanelOpen: false,
+      set((state) => {
+        const opened = resolveRightUtilityTabOpen(state.rightUtilityTabs, 'files');
+        return {
+          rightPanelFullscreen: 'files',
+          projectTreeCollapsed: false,
+          browserPanelOpen: false,
+          rightUtilityTabs: opened.tabs,
+          activeRightUtilityTab: opened.activeTab,
+        };
       });
       return;
     }

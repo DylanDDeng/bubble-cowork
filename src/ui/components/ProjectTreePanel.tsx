@@ -36,14 +36,9 @@ import {
   type ChangeOperation,
   type ChangeRecord,
 } from '../utils/change-records';
-import type { ProjectTreeNode } from '../types';
+import type { ProjectTreeNode, ProjectUtilityPanelKind } from '../types';
 
 type ProjectPanelTab = 'files' | 'changes';
-export type ProjectUtilityPanelTarget = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal';
-export type ProjectUtilityTabDescriptor = {
-  id: ProjectUtilityPanelTarget;
-  label: string;
-};
 type ViewMode = 'view' | 'code' | 'split';
 type ProjectEditorFlushResult = { ok: boolean; message?: string };
 type ProjectPanelDimensions = {
@@ -565,17 +560,25 @@ export function ProjectTreePanel({
   activeTab,
   onClose,
   onActiveFileTabChange,
+  sharedPanelWidth,
+  onSharedPanelWidthChange,
+  onOpenUtilityTab,
   isFullscreen = false,
   onToggleFullscreen,
   topInset = 0,
+  embedded = false,
 }: {
   collapsed?: boolean;
   activeTab: ProjectPanelTab;
   onClose: () => void;
   onActiveFileTabChange?: (file: { filePath: string; name: string } | null) => void;
+  sharedPanelWidth?: number;
+  onSharedPanelWidthChange?: (width: number) => void;
+  onOpenUtilityTab?: (target: ProjectUtilityPanelKind) => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   topInset?: number;
+  embedded?: boolean;
 }) {
   const MIN_CHANGES_SPINNER_MS = 450;
   const panelMeta = PANEL_DIMENSIONS[activeTab];
@@ -607,6 +610,7 @@ export function ProjectTreePanel({
   const panelStartXRef = useRef(0);
   const panelStartWidthRef = useRef(defaultRailWidth);
   const latestPanelWidthRef = useRef(defaultRailWidth);
+  const panelResizingSharedWidthRef = useRef(false);
   const [previewPanelWidth, setPreviewPanelWidth] = useState(defaultPreviewWidth);
   const previewResizingRef = useRef(false);
   const [isPreviewResizing, setIsPreviewResizing] = useState(false);
@@ -634,6 +638,23 @@ export function ProjectTreePanel({
   const activeMarkdownBridgeRef = useRef<ProjectMarkdownEditorBridge | null>(null);
   const activeTextEditorBridgeRef = useRef<ProjectTextEditorHandle | null>(null);
   const [wechatAiGeneratingTheme, setWechatAiGeneratingTheme] = useState<WeChatAiThemeId | null>(null);
+  const normalizedSharedPanelWidth =
+    typeof sharedPanelWidth === 'number' && Number.isFinite(sharedPanelWidth)
+      ? sharedPanelWidth
+      : null;
+  const usesSharedPanelWidth =
+    normalizedSharedPanelWidth !== null &&
+    !isFullscreen;
+  const visiblePanelWidth =
+    normalizedSharedPanelWidth !== null && !isFullscreen && !selectedFilePath
+      ? normalizedSharedPanelWidth
+      : panelWidth;
+  const useEmbeddedFilesGrid = embedded && activeTab === 'files';
+  const projectRailWidth = Math.min(maxRailWidth, Math.max(minRailWidth, panelWidth));
+  const projectPreviewViewportWidth = Math.max(
+    minPreviewWidth,
+    (normalizedSharedPanelWidth ?? projectRailWidth + previewPanelWidth) - projectRailWidth
+  );
   // Every disk content we have loaded, saved, or applied for the open file.
   // The watcher only treats an event as a genuine external change when its
   // content is NOT in this set. A set (not a single value) is required because
@@ -1202,6 +1223,37 @@ export function ProjectTreePanel({
   }, [defaultRailWidth, minRailWidth, maxRailWidth]);
 
   useEffect(() => {
+    if (!usesSharedPanelWidth || !selectedFilePath || normalizedSharedPanelWidth === null) return;
+
+    const maxRailForSharedWidth = Math.min(
+      maxRailWidth,
+      Math.max(minRailWidth, normalizedSharedPanelWidth - minPreviewWidth)
+    );
+
+    if (panelWidth > maxRailForSharedWidth) {
+      setPanelWidth(maxRailForSharedWidth);
+      return;
+    }
+
+    const nextPreviewWidth = Math.min(
+      maxPreviewWidth,
+      Math.max(minPreviewWidth, normalizedSharedPanelWidth - panelWidth)
+    );
+    setPreviewPanelWidth((current) =>
+      current === nextPreviewWidth ? current : nextPreviewWidth
+    );
+  }, [
+    maxPreviewWidth,
+    maxRailWidth,
+    minPreviewWidth,
+    minRailWidth,
+    normalizedSharedPanelWidth,
+    panelWidth,
+    selectedFilePath,
+    usesSharedPanelWidth,
+  ]);
+
+  useEffect(() => {
     if (!visibleTree?.path) return;
     if (initRootRef.current === visibleTree.path) return;
     initRootRef.current = visibleTree.path;
@@ -1293,8 +1345,12 @@ export function ProjectTreePanel({
           sessionId: activeSessionId,
         });
         if (previewRequestIdRef.current !== requestId) return;
-        setBrowserPanelOpen(true);
-        setProjectTreeCollapsed(true);
+        if (onOpenUtilityTab) {
+          onOpenUtilityTab('browser');
+        } else {
+          setBrowserPanelOpen(true);
+          setProjectTreeCollapsed(true);
+        }
       } catch (error) {
         if (previewRequestIdRef.current !== requestId) return;
         toast.error(`Failed to open in browser panel: ${error}`);
@@ -1379,6 +1435,7 @@ export function ProjectTreePanel({
     prepareActiveFileForTransition,
     refreshFileTabFromDisk,
     selectedFilePath,
+    onOpenUtilityTab,
     setBrowserPanelOpen,
     setProjectTreeCollapsed,
     setDraftTextSynced,
@@ -2051,8 +2108,8 @@ export function ProjectTreePanel({
     if (wechatAiGeneratingTheme) return;
     activeMarkdownBridgeRef.current?.flush();
     setWechatAiGeneratingTheme(themeId);
-    const loadingToastId = toast.loading(`正在生成${themeLabel} HTML...`, {
-      description: '生成完成后会自动复制到公众号剪贴板',
+    const loadingToastId = toast.loading(`Generating ${themeLabel} HTML...`, {
+      description: 'It will be copied to the WeChat clipboard when ready',
       duration: Infinity,
       dismissible: false,
     });
@@ -2088,24 +2145,6 @@ export function ProjectTreePanel({
       document.body.style.userSelect = '';
     };
   }, []);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    const showPreview = !collapsed && selectedFilePath;
-    root.style.setProperty(
-      '--project-rail-space',
-      !collapsed ? `${panelWidth}px` : '0px'
-    );
-    root.style.setProperty(
-      '--project-preview-space',
-      showPreview ? `${previewPanelWidth}px` : '0px'
-    );
-
-    return () => {
-      root.style.setProperty('--project-rail-space', '0px');
-      root.style.setProperty('--project-preview-space', '0px');
-    };
-  }, [collapsed, panelWidth, selectedFilePath, previewPanelWidth]);
 
   const selectedEditableTextPreview =
     isEditableProjectFilePreview(selectedPreview)
@@ -2530,7 +2569,9 @@ export function ProjectTreePanel({
       maxPreviewWidth,
       Math.max(minPreviewWidth, startWidthRef.current + delta)
     );
+    latestPreviewWidthRef.current = nextPreviewWidth;
     setPreviewPanelWidth(nextPreviewWidth);
+    onSharedPanelWidthChange?.(latestPanelWidthRef.current + nextPreviewWidth);
   };
 
   const finishPreviewResize = () => {
@@ -2568,10 +2609,15 @@ export function ProjectTreePanel({
   const handlePanelResizeMove = (clientX: number) => {
     if (!panelResizingRef.current) return;
     const delta = panelStartXRef.current - clientX;
+    if (panelResizingSharedWidthRef.current && onSharedPanelWidthChange) {
+      onSharedPanelWidthChange(panelStartWidthRef.current + delta);
+      return;
+    }
     const nextPanelWidth = Math.min(
       maxRailWidth,
       Math.max(minRailWidth, panelStartWidthRef.current + delta)
     );
+    latestPanelWidthRef.current = nextPanelWidth;
     setPanelWidth(nextPanelWidth);
   };
 
@@ -2581,6 +2627,10 @@ export function ProjectTreePanel({
     setIsPanelResizing(false);
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
+    if (panelResizingSharedWidthRef.current) {
+      panelResizingSharedWidthRef.current = false;
+      return;
+    }
     window.localStorage.setItem(
       getProjectPanelWidthStorageKey(activeTab),
       String(latestPanelWidthRef.current)
@@ -2625,9 +2675,13 @@ export function ProjectTreePanel({
     event.preventDefault();
     event.stopPropagation();
     panelResizingRef.current = true;
+    panelResizingSharedWidthRef.current =
+      !embedded && usesSharedPanelWidth && !selectedFilePath && Boolean(onSharedPanelWidthChange);
     setIsPanelResizing(true);
     panelStartXRef.current = event.clientX;
-    panelStartWidthRef.current = panelWidth;
+    panelStartWidthRef.current = panelResizingSharedWidthRef.current
+      ? visiblePanelWidth
+      : panelWidth;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   };
@@ -2687,6 +2741,7 @@ export function ProjectTreePanel({
     ? openFileTabs.find((tab) => tab.id === activeFileTabId) || null
     : null;
   const showProjectFileTabs = openFileTabs.length > 0;
+  const showFilePreviewSurface = activeTab === 'files' && !!selectedFilePath;
   const canCopyWechat =
     selectedPreview?.kind === 'markdown' &&
     selectedPreview.editable &&
@@ -2719,11 +2774,25 @@ export function ProjectTreePanel({
       )}
 
       <div
-        className={`aegis-project-panel relative flex h-full flex-col border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] font-sans transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-          isFullscreen ? 'flex-1 min-w-0' : 'flex-shrink-0'
-        } ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`}
+        className={
+          embedded
+            ? `aegis-project-panel absolute inset-0 h-full min-h-0 min-w-0 bg-[var(--bg-primary)] font-sans ${
+                collapsed ? 'hidden' : 'flex flex-col'
+              }`
+            : `aegis-project-panel relative flex h-full flex-col border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] font-sans transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                isFullscreen ? 'flex-1 min-w-0' : 'flex-shrink-0'
+              } ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`
+        }
         style={
-          isFullscreen
+          embedded
+            ? useEmbeddedFilesGrid
+              ? {
+                  display: collapsed ? 'none' : 'grid',
+                  gridTemplateColumns: `minmax(0, 1fr) ${projectRailWidth}px`,
+                  gridTemplateRows: 'auto minmax(0, 1fr)',
+                }
+              : undefined
+            : isFullscreen
             ? {
                 width: 'auto',
                 opacity: 1,
@@ -2731,7 +2800,7 @@ export function ProjectTreePanel({
                 borderLeftWidth: 1,
               }
             : {
-                width: collapsed ? 0 : panelWidth,
+                width: collapsed ? 0 : visiblePanelWidth,
                 opacity: collapsed ? 0 : 1,
                 transform: collapsed ? 'translateX(18px)' : 'translateX(0)',
                 borderLeftWidth: collapsed ? 0 : 1,
@@ -2739,7 +2808,7 @@ export function ProjectTreePanel({
         }
         aria-hidden={collapsed && !isFullscreen}
       >
-        {!selectedFilePath && !isFullscreen && (
+        {!embedded && !selectedFilePath && !isFullscreen && (
           <div
             className="group absolute left-0 top-0 bottom-0 z-10 w-3 -translate-x-1/2 cursor-col-resize no-drag"
             onMouseDown={handlePanelResizeStart}
@@ -2747,15 +2816,37 @@ export function ProjectTreePanel({
             <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
           </div>
         )}
-        {topInset > 0 ? (
+        {!embedded && topInset > 0 ? (
           <div
             className="drag-region flex-shrink-0 bg-[var(--bg-primary)]"
             style={{ height: topInset }}
           />
-        ) : !selectedFilePath ? (
+        ) : !embedded && !selectedFilePath ? (
           <div className="h-8 drag-region flex-shrink-0 bg-[var(--bg-primary)]" />
         ) : null}
-        <div className="pl-4 pr-2 pt-2 pb-2">
+        {useEmbeddedFilesGrid && !selectedFilePath ? (
+          <div
+            className="flex min-h-0 min-w-0 flex-col items-center justify-center border-r border-[var(--tree-item-border)] bg-[var(--bg-primary)] px-8 text-center"
+            style={{ gridColumn: 1, gridRow: '1 / span 2' }}
+          >
+            <FolderOpen className="mb-3 h-8 w-8 text-[var(--text-muted)]" aria-hidden="true" />
+            <div className="text-sm font-medium text-[var(--text-primary)]">打开文件</div>
+            <div className="mt-1 text-xs text-[var(--text-muted)]">从工作区目录树中选择文件</div>
+          </div>
+        ) : null}
+        {useEmbeddedFilesGrid ? (
+          <div
+            className="group absolute bottom-0 top-0 z-10 w-3 -translate-x-1/2 cursor-col-resize no-drag"
+            style={{ left: `calc(100% - ${projectRailWidth}px)` }}
+            onMouseDown={handlePanelResizeStart}
+          >
+            <div className="absolute bottom-0 left-1/2 top-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
+          </div>
+        ) : null}
+        <div
+          className="pl-4 pr-2 pt-2 pb-2"
+          style={useEmbeddedFilesGrid ? { gridColumn: 2, gridRow: 1 } : undefined}
+        >
           <div className="flex items-center justify-between gap-2">
             <div
               className="flex h-7 w-7 shrink-0 items-center justify-center text-[var(--text-muted)]"
@@ -2804,7 +2895,10 @@ export function ProjectTreePanel({
           )}
         </div>
 
-        <div className="flex-1 min-h-0 flex">
+        <div
+          className="flex-1 min-h-0 flex"
+          style={useEmbeddedFilesGrid ? { gridColumn: 2, gridRow: 2, minHeight: 0 } : undefined}
+        >
           <div
             className={`flex-1 overflow-auto px-2.5 pb-3 transition-colors duration-150 ${
               isProjectRootDropTarget ? 'bg-[var(--tree-item-hover)]' : ''
@@ -3053,16 +3147,22 @@ export function ProjectTreePanel({
           document.body
         ) : null}
 
-        {selectedFilePath && (
+        {showFilePreviewSurface && (
           <div
-            className="absolute inset-y-0 z-20 border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]"
+            className={
+              useEmbeddedFilesGrid
+                ? 'relative z-0 min-h-0 min-w-0 border-r border-[var(--tree-item-border)] bg-[var(--bg-primary)]'
+                : 'absolute inset-y-0 z-20 border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]'
+            }
             style={
-              isFullscreen
+              useEmbeddedFilesGrid
+                ? { gridColumn: 1, gridRow: '1 / span 2' }
+                : isFullscreen
                 ? { left: 0, right: 0, top: topInset, bottom: 0, width: 'auto' }
                 : { right: 'calc(100% - 1px)', top: topInset, bottom: 0, width: previewPanelWidth }
             }
           >
-            {!isFullscreen && (
+            {!isFullscreen && !useEmbeddedFilesGrid && (
               <div
                 className="group absolute left-0 top-0 bottom-0 w-3 -translate-x-1/2 cursor-col-resize no-drag"
                 onMouseDown={handlePreviewResizeStart}
@@ -3160,10 +3260,10 @@ export function ProjectTreePanel({
                           <button
                             type="button"
                             className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-2 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                            title="公众号主题"
-                            aria-label="公众号主题"
+                            title="WeChat Theme"
+                            aria-label="WeChat Theme"
                           >
-                            <span>公众号主题</span>
+                            <span>WeChat Theme</span>
                             <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
                           </button>
                         </DropdownMenuTrigger>
@@ -3177,22 +3277,22 @@ export function ProjectTreePanel({
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             disabled={wechatAiGeneratingTheme !== null}
-                            onSelect={() => void handleCopyAiWechatHtml('black-red-imprint', '黑红刊刻风')}
+                            onSelect={() => void handleCopyAiWechatHtml('black-red-imprint', 'Black Red Imprint')}
                           >
                             <span>
                               {wechatAiGeneratingTheme === 'black-red-imprint'
-                                ? '黑红刊刻风生成中...'
-                                : '黑红刊刻风（AI）'}
+                                ? 'Black Red Imprint generating...'
+                                : 'Black Red Imprint (AI)'}
                             </span>
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             disabled={wechatAiGeneratingTheme !== null}
-                            onSelect={() => void handleCopyAiWechatHtml('black-orange-imprint', '黑橙刊刻风')}
+                            onSelect={() => void handleCopyAiWechatHtml('black-orange-imprint', 'Black Orange Imprint')}
                           >
                             <span>
                               {wechatAiGeneratingTheme === 'black-orange-imprint'
-                                ? '黑橙刊刻风生成中...'
-                                : '黑橙刊刻风（AI）'}
+                                ? 'Black Orange Imprint generating...'
+                                : 'Black Orange Imprint (AI)'}
                             </span>
                           </DropdownMenuItem>
                         </DropdownMenuContent>
@@ -3357,14 +3457,14 @@ export function ProjectTreePanel({
                   <PdfPreview preview={selectedPreview} />
                 )}
 
-                {!previewLoading && selectedPreview?.kind === 'pptx' && (
-                  <PptxPreview
-                    preview={selectedPreview}
-                    slideIndex={pptxSlideIndex}
-                    onSlideIndexChange={setPptxSlideIndex}
-                    viewportWidth={previewPanelWidth}
-                  />
-                )}
+	                {!previewLoading && selectedPreview?.kind === 'pptx' && (
+	                  <PptxPreview
+	                    preview={selectedPreview}
+	                    slideIndex={pptxSlideIndex}
+	                    onSlideIndexChange={setPptxSlideIndex}
+	                    viewportWidth={useEmbeddedFilesGrid ? projectPreviewViewportWidth : previewPanelWidth}
+	                  />
+	                )}
 
                 {!previewLoading && selectedPreview?.kind === 'markdown' && (
                   selectedPreview.editable && selectedFileCwd && selectedFilePath ? (

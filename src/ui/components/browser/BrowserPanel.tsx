@@ -83,6 +83,7 @@ interface BrowserPanelProps {
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   topInset?: number;
+  embedded?: boolean;
 }
 
 function persistedToState(state: PersistedSessionBrowserState): SessionBrowserState {
@@ -131,6 +132,7 @@ export function BrowserPanel({
   isFullscreen,
   onToggleFullscreen,
   topInset = 0,
+  embedded = false,
 }: BrowserPanelProps) {
   const requestChatInjection = useAppStore((s) => s.requestChatInjection);
 
@@ -564,11 +566,19 @@ export function BrowserPanel({
   // ===== Render =====
   return (
     <div
-      className={`relative flex h-full flex-col border-l border-[var(--border)] bg-[var(--bg-primary)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-        isFullscreen ? 'flex-1 min-w-0' : 'flex-shrink-0'
-      } ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`}
+      className={
+        embedded
+          ? `absolute inset-0 min-h-0 min-w-0 bg-[var(--bg-primary)] ${
+              collapsed ? 'hidden' : 'flex flex-col'
+            }`
+          : `relative flex h-full flex-col border-l border-[var(--border)] bg-[var(--bg-primary)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+              isFullscreen ? 'flex-1 min-w-0' : 'flex-shrink-0'
+            } ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`
+      }
       style={
-        isFullscreen
+        embedded
+          ? undefined
+          : isFullscreen
           ? {
               width: 'auto',
               opacity: 1,
@@ -584,7 +594,7 @@ export function BrowserPanel({
       }
       aria-hidden={collapsed && !isFullscreen}
     >
-      {!collapsed && !isFullscreen && (
+      {!embedded && !collapsed && !isFullscreen && (
         <div
           className="group absolute left-0 top-0 bottom-0 z-10 w-3 -translate-x-1/2 cursor-col-resize no-drag"
           onMouseDown={handleResizeStart}
@@ -594,10 +604,12 @@ export function BrowserPanel({
       )}
 
       {/* Top drag strip */}
-      <div
-        className="drag-region flex-shrink-0"
-        style={{ height: topInset > 0 ? topInset : 32 }}
-      />
+      {!embedded ? (
+        <div
+          className="drag-region flex-shrink-0"
+          style={{ height: topInset > 0 ? topInset : 32 }}
+        />
+      ) : null}
 
       {/* Chrome */}
       <div className="no-drag flex-shrink-0 bg-[var(--bg-secondary)]/45">

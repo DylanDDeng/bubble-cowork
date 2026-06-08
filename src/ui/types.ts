@@ -150,6 +150,13 @@ export interface SessionStreamingState {
 export type ActiveWorkspace = 'chat' | 'skills' | 'prompts' | 'automations';
 export type ChatSidebarView = 'threads' | 'prompts' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
+export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal';
+export type ProjectUtilityPanelTarget = ProjectUtilityPanelKind | `files:${string}`;
+export type ProjectUtilityTabDescriptor = {
+  id: ProjectUtilityPanelTarget;
+  kind: ProjectUtilityPanelKind;
+  label: string;
+};
 export type AgentProfileColor = 'amber' | 'sky' | 'emerald' | 'violet' | 'rose' | 'slate';
 export type AgentPermissionPolicy = 'ask' | 'readOnly' | 'fullAccess';
 export type AgentReasoningEffort = ClaudeReasoningEffort | CodexReasoningEffort | AegisBuiltInReasoningEffort;
@@ -270,10 +277,11 @@ export interface AppState {
   projectTree: ProjectTreeNode | null;
   projectTreeCollapsed: boolean;
   projectPanelView: ProjectPanelView;
+  rightUtilityTabs: ProjectUtilityPanelTarget[];
+  activeRightUtilityTab: ProjectUtilityPanelTarget | null;
   terminalDrawerOpen: boolean;
   terminalDrawerHeight: number;
   browserPanelOpen: boolean;
-  browserPanelWidth: number;
   rightPanelFullscreen: 'browser' | 'files' | null;
   sessionsLoaded: boolean;
   // 搜索状态
@@ -362,10 +370,16 @@ export interface AppActions {
   setProjectTree: (cwd: string | null, tree: ProjectTreeNode | null) => void;
   setProjectTreeCollapsed: (collapsed: boolean) => void;
   setProjectPanelView: (view: ProjectPanelView) => void;
+  setActiveRightUtilityTab: (target: ProjectUtilityPanelTarget | null) => void;
+  openRightUtilityTab: (
+    target: ProjectUtilityPanelKind,
+    options?: { newTab?: boolean }
+  ) => void;
+  closeRightUtilityTab: (target: ProjectUtilityPanelTarget) => void;
+  closeRightUtilityPanels: () => void;
   setTerminalDrawerOpen: (open: boolean) => void;
   setTerminalDrawerHeight: (height: number) => void;
   setBrowserPanelOpen: (open: boolean) => void;
-  setBrowserPanelWidth: (width: number) => void;
   setRightPanelFullscreen: (target: 'browser' | 'files' | null) => void;
   applyUiResumeState: (state: import('../shared/types').UiResumeState | null) => void;
   clearGlobalError: () => void;

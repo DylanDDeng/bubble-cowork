@@ -764,14 +764,12 @@ function MemoryCitationsBlock({
   block: ContentBlock & { type: 'memory_citations' };
 }) {
   const [expanded, setExpanded] = useState(false);
-  const { setBrowserPanelOpen, setProjectPanelView, setProjectTreeCollapsed } = useAppStore();
+  const { openRightUtilityTab } = useAppStore();
   const count = block.citations.length;
 
   const openCitation = (citation: (ContentBlock & { type: 'memory_citations' })['citations'][number]) => {
     if (!citation.source.trim()) return;
-    setBrowserPanelOpen(false);
-    setProjectPanelView('files');
-    setProjectTreeCollapsed(false);
+    openRightUtilityTab('files');
     window.setTimeout(() => {
       window.dispatchEvent(
         new CustomEvent('aegis:open-project-file', {
