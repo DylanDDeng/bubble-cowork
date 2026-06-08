@@ -27,6 +27,7 @@ export function TerminalChrome({
   onAddTab,
   picker,
   callbacksForTab,
+  hideTabBar = false,
 }: {
   threadId: string;
   cwd: string;
@@ -38,6 +39,7 @@ export function TerminalChrome({
   onAddTab: () => void;
   picker?: React.ReactNode;
   callbacksForTab: (tab: TerminalChromeTab) => TerminalRuntimeCallbacks;
+  hideTabBar?: boolean;
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -83,6 +85,7 @@ export function TerminalChrome({
 
   return (
     <section className="flex h-full min-h-0 flex-col">
+      {!hideTabBar ? (
       <div className="relative flex min-w-0 items-stretch border-b border-[var(--border)]/70 bg-[var(--bg-primary)]">
         <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {tabs.map((tab) => {
@@ -176,6 +179,7 @@ export function TerminalChrome({
           </button>
         </div>
       </div>
+      ) : null}
 
       <div className="relative min-h-0 flex-1 overflow-hidden bg-[var(--bg-primary)]">
         {tabs.map((tab) => {

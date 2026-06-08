@@ -65,12 +65,14 @@ export function SessionTerminal({
   terminalScopeId,
   visible = true,
   onRequestClose,
+  hideChromeTabs = false,
 }: {
   sessionId: string | null;
   cwd: string | null;
   terminalScopeId?: string | null;
   visible?: boolean;
   onRequestClose?: () => void;
+  hideChromeTabs?: boolean;
 }) {
   const tabsRef = useRef<TerminalTab[]>([]);
   const activeTabIdRef = useRef<string | null>(null);
@@ -333,6 +335,7 @@ export function SessionTerminal({
             onAddTab={handleAddTab}
             picker={picker}
             callbacksForTab={callbacksForTab}
+            hideTabBar={hideChromeTabs}
           />
           {status ? (
             <div className="absolute bottom-2 right-2 z-10 rounded bg-[var(--bg-secondary)] px-2 py-1 text-[11px] text-[var(--error)]">

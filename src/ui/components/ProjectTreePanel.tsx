@@ -39,6 +39,11 @@ import {
 import type { ProjectTreeNode } from '../types';
 
 type ProjectPanelTab = 'files' | 'changes';
+export type ProjectUtilityPanelTarget = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal';
+export type ProjectUtilityTabDescriptor = {
+  id: ProjectUtilityPanelTarget;
+  label: string;
+};
 type ViewMode = 'view' | 'code' | 'split';
 type ProjectEditorFlushResult = { ok: boolean; message?: string };
 type ProjectPanelDimensions = {
@@ -554,18 +559,23 @@ function ProjectTreeNodeIcon({
     </span>
   );
 }
+
 export function ProjectTreePanel({
   collapsed = false,
   activeTab,
   onClose,
+  onActiveFileTabChange,
   isFullscreen = false,
   onToggleFullscreen,
+  topInset = 0,
 }: {
   collapsed?: boolean;
   activeTab: ProjectPanelTab;
   onClose: () => void;
+  onActiveFileTabChange?: (file: { filePath: string; name: string } | null) => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  topInset?: number;
 }) {
   const MIN_CHANGES_SPINNER_MS = 450;
   const panelMeta = PANEL_DIMENSIONS[activeTab];
@@ -754,6 +764,15 @@ export function ProjectTreePanel({
   useEffect(() => {
     activeFileTabIdRef.current = activeFileTabId;
   }, [activeFileTabId]);
+
+  useEffect(() => {
+    if (!onActiveFileTabChange) return;
+    onActiveFileTabChange(
+      selectedFilePath
+        ? { filePath: selectedFilePath, name: basenameOfPath(selectedFilePath) }
+        : null
+    );
+  }, [onActiveFileTabChange, selectedFilePath]);
 
   const captureActiveEditorViewState = useCallback(() => {
     if (!activeFileTabId) return;
@@ -2074,14 +2093,19 @@ export function ProjectTreePanel({
     const root = document.documentElement;
     const showPreview = !collapsed && selectedFilePath;
     root.style.setProperty(
+      '--project-rail-space',
+      !collapsed ? `${panelWidth}px` : '0px'
+    );
+    root.style.setProperty(
       '--project-preview-space',
       showPreview ? `${previewPanelWidth}px` : '0px'
     );
 
     return () => {
+      root.style.setProperty('--project-rail-space', '0px');
       root.style.setProperty('--project-preview-space', '0px');
     };
-  }, [collapsed, selectedFilePath, previewPanelWidth]);
+  }, [collapsed, panelWidth, selectedFilePath, previewPanelWidth]);
 
   const selectedEditableTextPreview =
     isEditableProjectFilePreview(selectedPreview)
@@ -2723,7 +2747,14 @@ export function ProjectTreePanel({
             <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
           </div>
         )}
-        {!selectedFilePath && <div className="h-8 drag-region flex-shrink-0 bg-[var(--bg-primary)]" />}
+        {topInset > 0 ? (
+          <div
+            className="drag-region flex-shrink-0 bg-[var(--bg-primary)]"
+            style={{ height: topInset }}
+          />
+        ) : !selectedFilePath ? (
+          <div className="h-8 drag-region flex-shrink-0 bg-[var(--bg-primary)]" />
+        ) : null}
         <div className="pl-4 pr-2 pt-2 pb-2">
           <div className="flex items-center justify-between gap-2">
             <div
@@ -2734,8 +2765,9 @@ export function ProjectTreePanel({
             >
               <PanelTitleIcon className="h-3.5 w-3.5" aria-hidden="true" />
             </div>
-            {activeTab === 'files' && (
-              <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-0.5">
+              {activeTab === 'files' && (
+                <>
                 <IconButton
                   label="New file"
                   size="sm"
@@ -2752,19 +2784,20 @@ export function ProjectTreePanel({
                 >
                   <CreateEntryIcon kind="folder" />
                 </IconButton>
-              </div>
-            )}
-            {activeTab === 'changes' && (
-              <IconButton
-                label="Refresh changes"
-                size="sm"
-                onClick={() => void loadChangeRecords()}
-                disabled={changesLoading}
-                className={changesLoading ? 'cursor-wait bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : undefined}
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${changesLoading ? 'animate-spin' : ''}`} />
-              </IconButton>
-            )}
+                </>
+              )}
+              {activeTab === 'changes' && (
+                <IconButton
+                  label="Refresh changes"
+                  size="sm"
+                  onClick={() => void loadChangeRecords()}
+                  disabled={changesLoading}
+                  className={changesLoading ? 'cursor-wait bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : undefined}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${changesLoading ? 'animate-spin' : ''}`} />
+                </IconButton>
+              )}
+            </div>
           </div>
           {!cwd && (
             <div className="text-xs text-[var(--text-muted)] mt-1">No folder selected</div>
@@ -3025,8 +3058,8 @@ export function ProjectTreePanel({
             className="absolute inset-y-0 z-20 border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]"
             style={
               isFullscreen
-                ? { left: 0, right: 0, width: 'auto' }
-                : { right: 'calc(100% - 1px)', width: previewPanelWidth }
+                ? { left: 0, right: 0, top: topInset, bottom: 0, width: 'auto' }
+                : { right: 'calc(100% - 1px)', top: topInset, bottom: 0, width: previewPanelWidth }
             }
           >
             {!isFullscreen && (

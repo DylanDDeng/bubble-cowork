@@ -16,6 +16,7 @@ import {
   Globe,
   MessageCircle,
   PanelRight,
+  Plus,
   Sparkles,
   SquareTerminal,
   ChevronDown,
@@ -34,7 +35,11 @@ import { PromptInput } from './components/PromptInput';
 import { InSessionSearch } from './components/search/InSessionSearch';
 import { Settings } from './components/settings/Settings';
 import { SkillMarketSettingsContent } from './components/settings/SkillMarketSettings';
-import { ProjectTreePanel } from './components/ProjectTreePanel';
+import {
+  ProjectTreePanel,
+  type ProjectUtilityPanelTarget,
+  type ProjectUtilityTabDescriptor,
+} from './components/ProjectTreePanel';
 import { BrowserPanel } from './components/browser/BrowserPanel';
 import { TerminalDrawer } from './components/TerminalDrawer';
 import { RightTerminalPanel } from './components/RightTerminalPanel';
@@ -100,6 +105,9 @@ export function App() {
   const [rightPanelLauncherOpen, setRightPanelLauncherOpen] = useState(false);
   const [rightTerminalOpen, setRightTerminalOpen] = useState(false);
   const [rightTerminalWidth, setRightTerminalWidth] = useState(480);
+  const [rightUtilityTabs, setRightUtilityTabs] = useState<ProjectUtilityPanelTarget[]>([]);
+  const [activeRightUtilityTab, setActiveRightUtilityTab] = useState<ProjectUtilityPanelTarget | null>(null);
+  const [activeProjectFileTab, setActiveProjectFileTab] = useState<{ filePath: string; name: string } | null>(null);
 
   const {
     connected,
@@ -346,55 +354,153 @@ export function App() {
     showNewSession,
   ]);
 
-  const openEnvironmentProjectPanel = useCallback((view: 'files' | 'changes') => {
+  const activateRightUtilityContent = useCallback((target: ProjectUtilityPanelTarget) => {
     setRightPanelLauncherOpen(false);
-    setRightTerminalOpen(false);
-    setProjectPanelView(view);
-    setProjectTreeCollapsed(false);
-    if (browserPanelOpen) setBrowserPanelOpen(false);
-    if (chatLayoutMode === 'split') closeSplitChat();
-  }, [browserPanelOpen, chatLayoutMode, closeSplitChat, setBrowserPanelOpen, setProjectPanelView, setProjectTreeCollapsed]);
 
-  const openLauncherBrowserPanel = useCallback(() => {
-    setRightPanelLauncherOpen(false);
-    setRightTerminalOpen(false);
-    setBrowserPanelOpen(true);
-    setProjectTreeCollapsed(true);
-    if (chatLayoutMode === 'split') closeSplitChat();
-  }, [chatLayoutMode, closeSplitChat, setBrowserPanelOpen, setProjectTreeCollapsed]);
+    if (target === 'files' || target === 'review') {
+      setRightTerminalOpen(false);
+      setBrowserPanelOpen(false);
+      setProjectPanelView(target === 'review' ? 'changes' : 'files');
+      setProjectTreeCollapsed(false);
+      if (chatLayoutMode === 'split') closeSplitChat();
+      return;
+    }
 
-  const openLauncherSideChat = useCallback(() => {
-    setRightPanelLauncherOpen(false);
-    setRightTerminalOpen(false);
-    setBrowserPanelOpen(false);
-    setProjectTreeCollapsed(true);
-    openSplitChat('secondary', null);
-  }, [openSplitChat, setBrowserPanelOpen, setProjectTreeCollapsed]);
+    if (target === 'browser') {
+      setRightTerminalOpen(false);
+      setBrowserPanelOpen(true);
+      setProjectTreeCollapsed(true);
+      if (chatLayoutMode === 'split') closeSplitChat();
+      return;
+    }
 
-  const openLauncherTerminalPanel = useCallback(() => {
-    setRightPanelLauncherOpen(false);
+    if (target === 'side-chat') {
+      setRightTerminalOpen(false);
+      setBrowserPanelOpen(false);
+      setProjectTreeCollapsed(true);
+      openSplitChat('secondary', null);
+      return;
+    }
+
     setRightTerminalOpen(true);
     setBrowserPanelOpen(false);
     setProjectTreeCollapsed(true);
     if (chatLayoutMode === 'split') closeSplitChat();
-  }, [chatLayoutMode, closeSplitChat, setBrowserPanelOpen, setProjectTreeCollapsed]);
+  }, [
+    chatLayoutMode,
+    closeSplitChat,
+    openSplitChat,
+    setBrowserPanelOpen,
+    setProjectPanelView,
+    setProjectTreeCollapsed,
+  ]);
+
+  const openRightUtilityTab = useCallback((target: ProjectUtilityPanelTarget) => {
+    setRightUtilityTabs((current) => (
+      current.includes(target) ? current : [...current, target]
+    ));
+    setActiveRightUtilityTab(target);
+    activateRightUtilityContent(target);
+  }, [activateRightUtilityContent]);
+
+  const openEnvironmentProjectPanel = useCallback((view: 'files' | 'changes') => {
+    openRightUtilityTab(view === 'changes' ? 'review' : 'files');
+  }, [openRightUtilityTab]);
 
   const activeUtilityPanel = useMemo(() => {
     if (rightPanelLauncherOpen) return 'launcher' as const;
+    if (activeRightUtilityTab) return activeRightUtilityTab;
     if (rightTerminalOpen) return 'terminal' as const;
     if (browserPanelOpen) return 'browser' as const;
     if (!projectTreeCollapsed) return projectPanelView === 'changes' ? 'review' as const : 'files' as const;
     if (chatLayoutMode === 'split') return 'side-chat' as const;
     return null;
-  }, [browserPanelOpen, chatLayoutMode, projectPanelView, projectTreeCollapsed, rightPanelLauncherOpen, rightTerminalOpen]);
+  }, [activeRightUtilityTab, browserPanelOpen, chatLayoutMode, projectPanelView, projectTreeCollapsed, rightPanelLauncherOpen, rightTerminalOpen]);
 
   const closeRightUtilityPanels = useCallback(() => {
+    setRightUtilityTabs([]);
+    setActiveRightUtilityTab(null);
     setRightPanelLauncherOpen(false);
     setRightTerminalOpen(false);
     setBrowserPanelOpen(false);
     setProjectTreeCollapsed(true);
     if (chatLayoutMode === 'split') closeSplitChat();
   }, [chatLayoutMode, closeSplitChat, setBrowserPanelOpen, setProjectTreeCollapsed]);
+
+  const selectRightUtilityTab = useCallback((target: ProjectUtilityPanelTarget) => {
+    setActiveRightUtilityTab(target);
+    activateRightUtilityContent(target);
+  }, [activateRightUtilityContent]);
+
+  const closeRightUtilityTab = useCallback((target: ProjectUtilityPanelTarget) => {
+    const currentTabs = rightUtilityTabs;
+    const targetIndex = currentTabs.indexOf(target);
+    const nextTabs = currentTabs.filter((tab) => tab !== target);
+    setRightUtilityTabs(nextTabs);
+
+    if (activeRightUtilityTab !== target) return;
+
+    const nextActive = nextTabs[Math.max(0, targetIndex - 1)] ?? nextTabs[0] ?? null;
+    setActiveRightUtilityTab(nextActive);
+    if (nextActive) {
+      activateRightUtilityContent(nextActive);
+      return;
+    }
+    closeRightUtilityPanels();
+  }, [activeRightUtilityTab, activateRightUtilityContent, closeRightUtilityPanels, rightUtilityTabs]);
+
+  const rightUtilityTabDescriptors = useMemo<ProjectUtilityTabDescriptor[]>(() => {
+    const workspaceLeaf = getPathLeaf(activeSession?.cwd || projectCwd || '');
+    return rightUtilityTabs.map((tab) => {
+      if (tab === 'files') {
+        return { id: tab, label: activeProjectFileTab?.name || 'Files' };
+      }
+      if (tab === 'review') {
+        return { id: tab, label: 'Changes' };
+      }
+      if (tab === 'browser') {
+        return { id: tab, label: 'Browser' };
+      }
+      if (tab === 'side-chat') {
+        return { id: tab, label: 'Side Chat' };
+      }
+      return { id: tab, label: workspaceLeaf || 'Terminal' };
+    });
+  }, [activeProjectFileTab?.name, activeSession?.cwd, projectCwd, rightUtilityTabs]);
+
+  const showRightUtilityTopBar =
+    !showSettings &&
+    activeWorkspace === 'chat' &&
+    activeUtilityPanel !== null &&
+    activeUtilityPanel !== 'launcher' &&
+    rightUtilityTabDescriptors.length > 0;
+
+  const rightUtilityTopBarWidth = useMemo(() => {
+    if (rightPanelFullscreen) {
+      return 'calc(100vw - 72px)';
+    }
+    if (rightTerminalOpen) {
+      return `${rightTerminalWidth}px`;
+    }
+    if (browserPanelOpen) {
+      return `${browserPanelWidth}px`;
+    }
+    if (!projectTreeCollapsed) {
+      if (projectPanelView === 'changes') {
+        return 'var(--project-rail-space, 360px)';
+      }
+      return 'calc(var(--project-rail-space, 300px) + var(--project-preview-space, 0px))';
+    }
+    return `${rightTerminalWidth}px`;
+  }, [
+    browserPanelOpen,
+    browserPanelWidth,
+    projectPanelView,
+    projectTreeCollapsed,
+    rightPanelFullscreen,
+    rightTerminalOpen,
+    rightTerminalWidth,
+  ]);
 
   const openRightUtilityLauncher = useCallback(() => {
     setRightPanelLauncherOpen(true);
@@ -453,6 +559,10 @@ export function App() {
         .then(() => {
           if (sessionId === activeSessionId) {
             setRightPanelLauncherOpen(false);
+            setRightUtilityTabs((current) => (
+              current.includes('browser') ? current : [...current, 'browser']
+            ));
+            setActiveRightUtilityTab('browser');
             setRightTerminalOpen(false);
             setBrowserPanelOpen(true);
             setProjectTreeCollapsed(true);
@@ -734,11 +844,13 @@ export function App() {
         <ProjectTreePanel
           collapsed={projectTreeCollapsed || browserPanelOpen || rightTerminalOpen || rightPanelLauncherOpen}
           activeTab={projectPanelView}
-          onClose={() => setProjectTreeCollapsed(true)}
+          onClose={() => closeRightUtilityTab(projectPanelView === 'changes' ? 'review' : 'files')}
+          onActiveFileTabChange={setActiveProjectFileTab}
           isFullscreen={rightPanelFullscreen === 'files'}
           onToggleFullscreen={() =>
             setRightPanelFullscreen(rightPanelFullscreen === 'files' ? null : 'files')
           }
+          topInset={showRightUtilityTopBar ? 40 : 0}
         />
       )}
 
@@ -748,12 +860,13 @@ export function App() {
           sessionId={activeSessionId}
           collapsed={!browserPanelOpen || rightTerminalOpen || rightPanelLauncherOpen}
           width={browserPanelWidth}
-          onClose={() => setBrowserPanelOpen(false)}
+          onClose={() => closeRightUtilityTab('browser')}
           onWidthChange={setBrowserPanelWidth}
           isFullscreen={rightPanelFullscreen === 'browser'}
           onToggleFullscreen={() =>
             setRightPanelFullscreen(rightPanelFullscreen === 'browser' ? null : 'browser')
           }
+          topInset={showRightUtilityTopBar ? 40 : 0}
         />
       )}
 
@@ -765,11 +878,11 @@ export function App() {
             insertions: gitEnvironment.overview.insertions,
             deletions: gitEnvironment.overview.deletions,
           }}
-          onOpenFiles={() => openEnvironmentProjectPanel('files')}
-          onOpenSideChat={openLauncherSideChat}
-          onOpenBrowser={openLauncherBrowserPanel}
-          onOpenReview={() => openEnvironmentProjectPanel('changes')}
-          onOpenTerminal={openLauncherTerminalPanel}
+          onOpenFiles={() => openRightUtilityTab('files')}
+          onOpenSideChat={() => openRightUtilityTab('side-chat')}
+          onOpenBrowser={() => openRightUtilityTab('browser')}
+          onOpenReview={() => openRightUtilityTab('review')}
+          onOpenTerminal={() => openRightUtilityTab('terminal')}
         />
       )}
 
@@ -778,13 +891,32 @@ export function App() {
           collapsed={!rightTerminalOpen || rightPanelLauncherOpen}
           width={rightTerminalWidth}
           onWidthChange={setRightTerminalWidth}
-          onClose={() => setRightTerminalOpen(false)}
+          onClose={() => closeRightUtilityTab('terminal')}
           sessionId={activeSessionId}
           cwd={activeSession?.cwd || projectCwd || null}
+          header={showRightUtilityTopBar ? <div className="h-10 shrink-0" /> : undefined}
         />
       )}
 
-      {!showSettings && activeWorkspace === 'chat' ? (
+      {showRightUtilityTopBar ? (
+        <div
+          className="aegis-right-utility-topbar fixed right-0 top-0 z-[95] no-drag"
+          style={{ width: rightUtilityTopBarWidth }}
+        >
+          <RightUtilityTabStrip
+            tabs={rightUtilityTabDescriptors}
+            activeTab={activeRightUtilityTab}
+            activePanel={activeUtilityPanel}
+            browserAvailable={Boolean(activeSessionId)}
+            onSelectTab={selectRightUtilityTab}
+            onCloseTab={closeRightUtilityTab}
+            onOpenTab={openRightUtilityTab}
+            onTogglePanel={toggleRightUtilityPanel}
+          />
+        </div>
+      ) : null}
+
+      {!showSettings && activeWorkspace === 'chat' && !showRightUtilityTopBar ? (
         <div className="fixed right-3 top-2 z-[90] no-drag">
           <PanelLauncher
             activePanel={activeUtilityPanel}
@@ -805,6 +937,132 @@ export function App() {
         }}
       />
 
+    </div>
+  );
+}
+
+function getUtilityTabIcon(target: ProjectUtilityPanelTarget) {
+  if (target === 'terminal') return SquareTerminal;
+  if (target === 'browser') return Globe;
+  if (target === 'side-chat') return MessageCircle;
+  if (target === 'review') return FileDiff;
+  return FolderClosed;
+}
+
+function RightUtilityTabStrip({
+  tabs,
+  activeTab,
+  activePanel,
+  browserAvailable,
+  onSelectTab,
+  onCloseTab,
+  onOpenTab,
+  onTogglePanel,
+}: {
+  tabs: ProjectUtilityTabDescriptor[];
+  activeTab: ProjectUtilityPanelTarget | null;
+  activePanel: PanelLauncherKind | null;
+  browserAvailable: boolean;
+  onSelectTab: (target: ProjectUtilityPanelTarget) => void;
+  onCloseTab: (target: ProjectUtilityPanelTarget) => void;
+  onOpenTab: (target: ProjectUtilityPanelTarget) => void;
+  onTogglePanel: () => void;
+}) {
+  const items = [
+    { id: 'files' as const, label: '文件', shortcut: '⌘P', disabled: false },
+    { id: 'side-chat' as const, label: '侧边聊天', shortcut: null, disabled: false },
+    { id: 'browser' as const, label: '浏览器', shortcut: '⌘T', disabled: !browserAvailable },
+    { id: 'review' as const, label: '审查', shortcut: '⌃⌘G', disabled: false },
+    { id: 'terminal' as const, label: '终端', shortcut: '⌃`', disabled: false },
+  ];
+
+  return (
+    <div className="drag-region flex h-10 shrink-0 items-center gap-1 border-b border-[var(--border)] bg-[var(--bg-primary)] px-2">
+      <div className="no-drag flex min-w-0 flex-1 items-end gap-1 overflow-x-auto">
+        {tabs.map((tab) => {
+          const Icon = getUtilityTabIcon(tab.id);
+          const active = activeTab === tab.id;
+          return (
+            <div
+              key={tab.id}
+              className={`group flex h-8 max-w-[190px] min-w-[116px] items-center rounded-t-[7px] border border-b-0 text-xs transition-colors ${
+                active
+                  ? 'border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-[0_-1px_0_var(--bg-primary),0_1px_0_var(--bg-primary)]'
+                  : 'border-transparent bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => onSelectTab(tab.id)}
+                className="flex min-w-0 flex-1 items-center gap-1.5 px-2 text-left"
+                title={tab.label}
+              >
+                <Icon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate">{tab.label}</span>
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onCloseTab(tab.id);
+                }}
+                className="mr-1 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-[4px] text-[var(--text-muted)] opacity-70 transition-opacity hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] group-hover:opacity-100"
+                aria-label={`Close ${tab.label}`}
+                title={`Close ${tab.label}`}
+              >
+                <X className="h-3 w-3" aria-hidden="true" />
+              </button>
+            </div>
+          );
+        })}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-t-[7px] border border-b-0 border-transparent text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+              title="Open another panel"
+              aria-label="Open another panel"
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              align="start"
+              sideOffset={6}
+              className="z-[1000] w-[292px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_18px_42px_rgba(15,23,42,0.18)]"
+            >
+              {items.map((item) => {
+                const Icon = getUtilityTabIcon(item.id);
+                const active = activeTab === item.id;
+                return (
+                  <DropdownMenu.Item
+                    key={item.id}
+                    disabled={item.disabled}
+                    onSelect={() => onOpenTab(item.id)}
+                    className={`flex h-9 cursor-pointer select-none items-center gap-2 rounded-lg px-2.5 text-[12px] outline-none transition-colors focus:bg-[var(--bg-tertiary)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50 ${
+                      active ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    {item.shortcut ? (
+                      <span className="ml-auto font-mono text-[10px] text-[var(--text-muted)]">
+                        {item.shortcut}
+                      </span>
+                    ) : null}
+                  </DropdownMenu.Item>
+                );
+              })}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      </div>
+
+      <div className="no-drag ml-1 flex h-full shrink-0 items-center">
+        <PanelLauncher activePanel={activePanel} onToggle={onTogglePanel} />
+      </div>
     </div>
   );
 }
@@ -893,7 +1151,7 @@ function getPanelLauncherItems({
       id: 'browser' as const,
       label: '浏览器',
       detail: '打开网站',
-      shortcut: '⌘B',
+      shortcut: '⌘T',
       icon: Globe,
       onSelect: onOpenBrowser,
       disabled: !browserAvailable,

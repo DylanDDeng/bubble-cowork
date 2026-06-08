@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { SquareTerminal, X } from './icons';
 import { SessionTerminal } from './SessionTerminal';
 
@@ -12,6 +12,7 @@ export function RightTerminalPanel({
   onClose,
   sessionId,
   cwd,
+  header,
 }: {
   collapsed: boolean;
   width: number;
@@ -19,6 +20,7 @@ export function RightTerminalPanel({
   onClose: () => void;
   sessionId: string | null;
   cwd: string | null;
+  header?: ReactNode;
 }) {
   const [isResizing, setIsResizing] = useState(false);
   const [terminalMounted, setTerminalMounted] = useState(!collapsed);
@@ -89,22 +91,28 @@ export function RightTerminalPanel({
         </div>
       ) : null}
 
-      <div className="h-8 drag-region flex-shrink-0" />
-      <div className="drag-region flex h-9 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--bg-primary)] px-3">
-        <div className="flex min-w-0 items-center gap-2 text-[12px] font-medium text-[var(--text-secondary)]">
-          <SquareTerminal className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">Terminal</span>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="no-drag inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-          aria-label="Hide right terminal"
-          title="Hide terminal"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
+      {header ? (
+        header
+      ) : (
+        <>
+          <div className="h-8 drag-region flex-shrink-0" />
+          <div className="drag-region flex h-9 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--bg-primary)] px-3">
+            <div className="flex min-w-0 items-center gap-2 text-[12px] font-medium text-[var(--text-secondary)]">
+              <SquareTerminal className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">Terminal</span>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="no-drag inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+              aria-label="Hide right terminal"
+              title="Hide terminal"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </>
+      )}
 
       <div className="min-h-0 flex-1">
         {terminalMounted ? (
@@ -114,6 +122,7 @@ export function RightTerminalPanel({
             terminalScopeId={terminalScopeId}
             visible={!collapsed}
             onRequestClose={onClose}
+            hideChromeTabs={Boolean(header)}
           />
         ) : null}
       </div>

@@ -82,6 +82,7 @@ interface BrowserPanelProps {
   onWidthChange: (width: number) => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
+  topInset?: number;
 }
 
 function persistedToState(state: PersistedSessionBrowserState): SessionBrowserState {
@@ -129,6 +130,7 @@ export function BrowserPanel({
   onWidthChange,
   isFullscreen,
   onToggleFullscreen,
+  topInset = 0,
 }: BrowserPanelProps) {
   const requestChatInjection = useAppStore((s) => s.requestChatInjection);
 
@@ -136,6 +138,7 @@ export function BrowserPanel({
     (s) => s.sessionStatesBySessionId[sessionId] ?? null
   );
   const upsertSessionState = useBrowserStateStore((s) => s.upsertSessionState);
+  const removeSessionState = useBrowserStateStore((s) => s.removeSessionState);
   const recentHistory = useBrowserStateStore(
     (s) => s.recentHistoryBySessionId[sessionId] ?? EMPTY_HISTORY
   ) as BrowserHistoryEntry[];
@@ -392,6 +395,23 @@ export function BrowserPanel({
     });
   };
 
+  const handleCloseBrowser = useCallback(() => {
+    window.electron.browser
+      .close({ sessionId })
+      .then((nextState) => {
+        setSessionState(nextState);
+        removeSessionState(sessionId);
+        setAddressDrafts({});
+        setLocalError(null);
+        onClose();
+      })
+      .catch((error) => {
+        const message = String(error);
+        setLocalError(message);
+        toast.error(`Failed to close browser: ${message}`);
+      });
+  }, [onClose, removeSessionState, sessionId]);
+
   const handleCloseTab = (tabId: string) => {
     window.electron.browser.closeTab({ sessionId, tabId }).catch((error) => {
       setLocalError(String(error));
@@ -574,7 +594,10 @@ export function BrowserPanel({
       )}
 
       {/* Top drag strip */}
-      <div className="h-8 drag-region flex-shrink-0" />
+      <div
+        className="drag-region flex-shrink-0"
+        style={{ height: topInset > 0 ? topInset : 32 }}
+      />
 
       {/* Chrome */}
       <div className="no-drag flex-shrink-0 bg-[var(--bg-secondary)]/45">
@@ -729,10 +752,10 @@ export function BrowserPanel({
           </button>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleCloseBrowser}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-            title="Hide browser"
-            aria-label="Hide browser"
+            title="Close browser"
+            aria-label="Close browser"
           >
             <X className="h-[13px] w-[13px]" />
           </button>
