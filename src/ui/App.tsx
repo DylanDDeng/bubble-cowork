@@ -14,6 +14,8 @@ import {
   GitCommit,
   GitPullRequest,
   Globe,
+  MessageCircle,
+  PanelRight,
   Sparkles,
   SquareTerminal,
   ChevronDown,
@@ -35,7 +37,11 @@ import { SkillMarketSettingsContent } from './components/settings/SkillMarketSet
 import { ProjectTreePanel } from './components/ProjectTreePanel';
 import { BrowserPanel } from './components/browser/BrowserPanel';
 import { TerminalDrawer } from './components/TerminalDrawer';
+import { RightTerminalPanel } from './components/RightTerminalPanel';
 import { WorkspaceHost } from './components/WorkspaceHost';
+import { EnvironmentHub } from './components/environment/EnvironmentHub';
+import { useActiveEnvironmentContext } from './components/environment/useActiveEnvironmentContext';
+import { useGitEnvironment } from './components/environment/useGitEnvironment';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useCodexModelConfig } from './hooks/useCodexModelConfig';
 import { applyThemePreferences } from './theme/themes';
@@ -91,6 +97,9 @@ export function App() {
   const codexModelConfig = useCodexModelConfig();
   const [windowShellRounded, setWindowShellRounded] = useState(getDefaultWindowShellRounded);
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
+  const [rightPanelLauncherOpen, setRightPanelLauncherOpen] = useState(false);
+  const [rightTerminalOpen, setRightTerminalOpen] = useState(false);
+  const [rightTerminalWidth, setRightTerminalWidth] = useState(480);
 
   const {
     connected,
@@ -125,6 +134,7 @@ export function App() {
     setBrowserPanelWidth,
     setRightPanelFullscreen,
     closeSplitChat,
+    openSplitChat,
     globalError,
     clearGlobalError,
     theme,
@@ -140,7 +150,6 @@ export function App() {
   const pendingAutoPreviewSessionsRef = useRef(new Set<string>());
   const autoPreviewedArtifactsRef = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
-  const effectiveGitCwd = activeSession?.cwd || projectCwd || null;
 
   useEffect(() => {
     if (!electronAvailable) {
@@ -170,23 +179,11 @@ export function App() {
       </div>
     );
   }
-  const [gitHeaderState, setGitHeaderState] = useState({
-    hasRepo: false,
-    branch: null as string | null,
-    upstream: null as string | null,
-    hasUpstream: false,
-    aheadCount: 0,
-    behindCount: 0,
-    hasOriginRemote: false,
-    isGitHubRemote: false,
-    isDefaultBranch: false,
-    totalChanges: 0,
-    insertions: 0,
-    deletions: 0,
-    pr: null as
-      | { number: number; title: string; state: 'open' | 'closed' | 'merged'; url: string }
-      | null,
-  });
+  const environmentContext = useActiveEnvironmentContext();
+  const gitEnvironment = useGitEnvironment(environmentContext.effectiveCwd, environmentContext.contextKey);
+  const refreshEnvironmentGit = useCallback(async () => {
+    await gitEnvironment.refresh();
+  }, [gitEnvironment.refresh]);
   const [highlightedHistoryAnchor, setHighlightedHistoryAnchor] = useState<string | null>(null);
   const historyHighlightTimerRef = useRef<number | null>(null);
 
@@ -303,105 +300,14 @@ export function App() {
     }
   }, [connected]);
 
-  const loadGitOverview = useCallback(async () => {
-    const cwd = (effectiveGitCwd || '').trim();
-    if (!cwd) {
-      setGitHeaderState({
-        hasRepo: false,
-        branch: null,
-        upstream: null,
-        hasUpstream: false,
-        aheadCount: 0,
-        behindCount: 0,
-        hasOriginRemote: false,
-        isGitHubRemote: false,
-        isDefaultBranch: false,
-        totalChanges: 0,
-        insertions: 0,
-        deletions: 0,
-        pr: null,
-      });
-      return;
-    }
-
-    try {
-      const overview = await window.electron.getGitOverview(cwd);
-      if (!overview.ok) {
-        setGitHeaderState({
-          hasRepo: false,
-          branch: null,
-          upstream: null,
-          hasUpstream: false,
-          aheadCount: 0,
-          behindCount: 0,
-          hasOriginRemote: false,
-          isGitHubRemote: false,
-          isDefaultBranch: false,
-          totalChanges: 0,
-          insertions: 0,
-          deletions: 0,
-          pr: null,
-        });
-        return;
-      }
-
-      setGitHeaderState({
-        hasRepo: overview.hasRepo,
-        branch: overview.branch,
-        upstream: overview.upstream,
-        hasUpstream: overview.hasUpstream,
-        aheadCount: overview.aheadCount,
-        behindCount: overview.behindCount,
-        hasOriginRemote: overview.hasOriginRemote,
-        isGitHubRemote: overview.isGitHubRemote,
-        isDefaultBranch: overview.isDefaultBranch,
-        totalChanges: overview.totalChanges,
-        insertions: overview.insertions,
-        deletions: overview.deletions,
-        pr: overview.pr,
-      });
-    } catch {
-      setGitHeaderState({
-        hasRepo: false,
-        branch: null,
-        upstream: null,
-        hasUpstream: false,
-        aheadCount: 0,
-        behindCount: 0,
-        hasOriginRemote: false,
-        isGitHubRemote: false,
-        isDefaultBranch: false,
-        totalChanges: 0,
-        insertions: 0,
-        deletions: 0,
-        pr: null,
-      });
-    }
-  }, [effectiveGitCwd]);
-
   useEffect(() => {
-    let cancelled = false;
-    const run = async () => {
-      if (cancelled) return;
-      await loadGitOverview();
-    };
-
-    void run();
-    const interval = window.setInterval(() => {
-      void run();
-    }, 60_000);
-
-    const handleFocus = () => {
-      void run();
-    };
-    window.addEventListener('focus', handleFocus);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, [loadGitOverview, activeSession?.messages.length, activeSession?.status]);
+    void gitEnvironment.refresh();
+  }, [
+    environmentContext.contextKey,
+    environmentContext.session?.messages.length,
+    environmentContext.session?.status,
+    gitEnvironment.refresh,
+  ]);
 
   useEffect(() => {
     void window.electron.saveUiResumeState({
@@ -413,7 +319,18 @@ export function App() {
       chatLayoutMode,
       savedSplitVisible,
       activePaneId,
-      chatPanes,
+      chatPanes: {
+        primary: {
+          id: 'primary',
+          sessionId: chatPanes.primary.sessionId,
+          surface: chatPanes.primary.surface,
+        },
+        secondary: {
+          id: 'secondary',
+          sessionId: chatPanes.secondary.sessionId,
+          surface: chatPanes.secondary.surface,
+        },
+      },
       chatSplitRatio,
     });
   }, [
@@ -428,6 +345,72 @@ export function App() {
     projectTreeCollapsed,
     showNewSession,
   ]);
+
+  const openEnvironmentProjectPanel = useCallback((view: 'files' | 'changes') => {
+    setRightPanelLauncherOpen(false);
+    setRightTerminalOpen(false);
+    setProjectPanelView(view);
+    setProjectTreeCollapsed(false);
+    if (browserPanelOpen) setBrowserPanelOpen(false);
+    if (chatLayoutMode === 'split') closeSplitChat();
+  }, [browserPanelOpen, chatLayoutMode, closeSplitChat, setBrowserPanelOpen, setProjectPanelView, setProjectTreeCollapsed]);
+
+  const openLauncherBrowserPanel = useCallback(() => {
+    setRightPanelLauncherOpen(false);
+    setRightTerminalOpen(false);
+    setBrowserPanelOpen(true);
+    setProjectTreeCollapsed(true);
+    if (chatLayoutMode === 'split') closeSplitChat();
+  }, [chatLayoutMode, closeSplitChat, setBrowserPanelOpen, setProjectTreeCollapsed]);
+
+  const openLauncherSideChat = useCallback(() => {
+    setRightPanelLauncherOpen(false);
+    setRightTerminalOpen(false);
+    setBrowserPanelOpen(false);
+    setProjectTreeCollapsed(true);
+    openSplitChat('secondary', null);
+  }, [openSplitChat, setBrowserPanelOpen, setProjectTreeCollapsed]);
+
+  const openLauncherTerminalPanel = useCallback(() => {
+    setRightPanelLauncherOpen(false);
+    setRightTerminalOpen(true);
+    setBrowserPanelOpen(false);
+    setProjectTreeCollapsed(true);
+    if (chatLayoutMode === 'split') closeSplitChat();
+  }, [chatLayoutMode, closeSplitChat, setBrowserPanelOpen, setProjectTreeCollapsed]);
+
+  const activeUtilityPanel = useMemo(() => {
+    if (rightPanelLauncherOpen) return 'launcher' as const;
+    if (rightTerminalOpen) return 'terminal' as const;
+    if (browserPanelOpen) return 'browser' as const;
+    if (!projectTreeCollapsed) return projectPanelView === 'changes' ? 'review' as const : 'files' as const;
+    if (chatLayoutMode === 'split') return 'side-chat' as const;
+    return null;
+  }, [browserPanelOpen, chatLayoutMode, projectPanelView, projectTreeCollapsed, rightPanelLauncherOpen, rightTerminalOpen]);
+
+  const closeRightUtilityPanels = useCallback(() => {
+    setRightPanelLauncherOpen(false);
+    setRightTerminalOpen(false);
+    setBrowserPanelOpen(false);
+    setProjectTreeCollapsed(true);
+    if (chatLayoutMode === 'split') closeSplitChat();
+  }, [chatLayoutMode, closeSplitChat, setBrowserPanelOpen, setProjectTreeCollapsed]);
+
+  const openRightUtilityLauncher = useCallback(() => {
+    setRightPanelLauncherOpen(true);
+    setRightTerminalOpen(false);
+    setBrowserPanelOpen(false);
+    setProjectTreeCollapsed(true);
+    if (chatLayoutMode === 'split') closeSplitChat();
+  }, [chatLayoutMode, closeSplitChat, setBrowserPanelOpen, setProjectTreeCollapsed]);
+
+  const toggleRightUtilityPanel = useCallback(() => {
+    if (activeUtilityPanel) {
+      closeRightUtilityPanels();
+      return;
+    }
+    openRightUtilityLauncher();
+  }, [activeUtilityPanel, closeRightUtilityPanels, openRightUtilityLauncher]);
 
   useEffect(() => {
     const nextStatuses = new Map<string, SessionStatus>();
@@ -469,6 +452,8 @@ export function App() {
       })
         .then(() => {
           if (sessionId === activeSessionId) {
+            setRightPanelLauncherOpen(false);
+            setRightTerminalOpen(false);
             setBrowserPanelOpen(true);
             setProjectTreeCollapsed(true);
           }
@@ -692,24 +677,7 @@ export function App() {
               <div className="flex items-center gap-0.5">
                 {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
               </div>
-              <div className="flex items-center justify-end">
-                <InlineProjectPanelHeaderActions
-                  collapsed={projectTreeCollapsed}
-                  activeTab={projectPanelView}
-                  changeStats={{
-                    insertions: gitHeaderState.insertions,
-                    deletions: gitHeaderState.deletions,
-                  }}
-                  onToggle={(view) => {
-                    if (!projectTreeCollapsed && !browserPanelOpen && projectPanelView === view) {
-                      setProjectTreeCollapsed(true);
-                      return;
-                    }
-                    setProjectPanelView(view);
-                    setProjectTreeCollapsed(false);
-                    if (browserPanelOpen) setBrowserPanelOpen(false);
-                  }}
-                />
+              <div className="flex items-center justify-end gap-1 pr-10">
                 <button
                   type="button"
                   onClick={() => {
@@ -721,32 +689,15 @@ export function App() {
                       ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
                       : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
                   }`}
-                  title="Terminal"
-                  aria-label="Toggle terminal drawer"
+                  title="Bottom terminal"
+                  aria-label="Toggle bottom terminal drawer"
                 >
                   <SquareTerminal className="h-[13px] w-[13px] shrink-0" />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = !browserPanelOpen;
-                    setBrowserPanelOpen(next);
-                    if (next) setProjectTreeCollapsed(true);
-                  }}
-                  className={`no-drag inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] font-medium transition-colors ${
-                    browserPanelOpen
-                      ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
-                      : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-                  }`}
-                  title="Browser"
-                  aria-label="Toggle browser panel"
-                >
-                  <Globe className="h-[13px] w-[13px] shrink-0" />
-                </button>
-                <GitHeaderActions
-                  cwd={effectiveGitCwd}
-                  state={gitHeaderState}
-                  onRefreshGitState={loadGitOverview}
+                <EnvironmentHub
+                  context={environmentContext}
+                  git={gitEnvironment}
+                  onOpenProjectPanel={openEnvironmentProjectPanel}
                 />
               </div>
             </div>
@@ -755,7 +706,7 @@ export function App() {
           <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
             <WorkspaceHost
               codexModelConfig={codexModelConfig}
-              onWorkspaceGitChanged={loadGitOverview}
+              onWorkspaceGitChanged={refreshEnvironmentGit}
             />
 
             <TerminalDrawer
@@ -781,7 +732,7 @@ export function App() {
       {/* Right project tree panel */}
       {!showSettings && activeWorkspace === 'chat' && (
         <ProjectTreePanel
-          collapsed={projectTreeCollapsed || browserPanelOpen}
+          collapsed={projectTreeCollapsed || browserPanelOpen || rightTerminalOpen || rightPanelLauncherOpen}
           activeTab={projectPanelView}
           onClose={() => setProjectTreeCollapsed(true)}
           isFullscreen={rightPanelFullscreen === 'files'}
@@ -795,7 +746,7 @@ export function App() {
       {!showSettings && activeWorkspace === 'chat' && activeSessionId && (
         <BrowserPanel
           sessionId={activeSessionId}
-          collapsed={!browserPanelOpen}
+          collapsed={!browserPanelOpen || rightTerminalOpen || rightPanelLauncherOpen}
           width={browserPanelWidth}
           onClose={() => setBrowserPanelOpen(false)}
           onWidthChange={setBrowserPanelWidth}
@@ -805,6 +756,42 @@ export function App() {
           }
         />
       )}
+
+      {!showSettings && activeWorkspace === 'chat' && (
+        <RightPanelLauncherPanel
+          collapsed={!rightPanelLauncherOpen}
+          browserAvailable={Boolean(activeSessionId)}
+          changeStats={{
+            insertions: gitEnvironment.overview.insertions,
+            deletions: gitEnvironment.overview.deletions,
+          }}
+          onOpenFiles={() => openEnvironmentProjectPanel('files')}
+          onOpenSideChat={openLauncherSideChat}
+          onOpenBrowser={openLauncherBrowserPanel}
+          onOpenReview={() => openEnvironmentProjectPanel('changes')}
+          onOpenTerminal={openLauncherTerminalPanel}
+        />
+      )}
+
+      {!showSettings && activeWorkspace === 'chat' && (
+        <RightTerminalPanel
+          collapsed={!rightTerminalOpen || rightPanelLauncherOpen}
+          width={rightTerminalWidth}
+          onWidthChange={setRightTerminalWidth}
+          onClose={() => setRightTerminalOpen(false)}
+          sessionId={activeSessionId}
+          cwd={activeSession?.cwd || projectCwd || null}
+        />
+      )}
+
+      {!showSettings && activeWorkspace === 'chat' ? (
+        <div className="fixed right-3 top-2 z-[90] no-drag">
+          <PanelLauncher
+            activePanel={activeUtilityPanel}
+            onToggle={toggleRightUtilityPanel}
+          />
+        </div>
+      ) : null}
 
       {/* Toast notifications */}
       <Toaster
@@ -818,6 +805,202 @@ export function App() {
         }}
       />
 
+    </div>
+  );
+}
+
+type PanelLauncherKind = 'launcher' | 'files' | 'side-chat' | 'browser' | 'review' | 'terminal';
+
+function PanelLauncher({
+  activePanel,
+  onToggle,
+}: {
+  activePanel: PanelLauncherKind | null;
+  onToggle: () => void;
+}) {
+  const active = Boolean(activePanel);
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`no-drag inline-flex h-7 min-w-7 items-center justify-center rounded-lg px-1.5 text-[11px] font-medium transition-colors ${
+        active
+          ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+          : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+      }`}
+      title={active ? 'Close right panel' : 'Open right panel'}
+      aria-label={active ? 'Close right panel' : 'Open right panel launcher'}
+      aria-expanded={active}
+      aria-pressed={active}
+    >
+      <PanelRight className="h-[14px] w-[14px] shrink-0" />
+    </button>
+  );
+}
+
+type PanelLauncherItem = {
+  id: Exclude<PanelLauncherKind, 'launcher'>;
+  label: string;
+  detail: string;
+  shortcut: string | null;
+  icon: typeof FolderClosed;
+  onSelect: () => void;
+  disabled?: boolean;
+  disabledReason?: string;
+};
+
+function getPanelLauncherItems({
+  browserAvailable,
+  changeStats,
+  onOpenFiles,
+  onOpenSideChat,
+  onOpenBrowser,
+  onOpenReview,
+  onOpenTerminal,
+}: {
+  browserAvailable: boolean;
+  changeStats: { insertions: number; deletions: number };
+  onOpenFiles: () => void;
+  onOpenSideChat: () => void;
+  onOpenBrowser: () => void;
+  onOpenReview: () => void;
+  onOpenTerminal: () => void;
+}): PanelLauncherItem[] {
+  const hasChanges = changeStats.insertions > 0 || changeStats.deletions > 0;
+  const reviewDetail = hasChanges
+    ? `+${changeStats.insertions.toLocaleString()} -${changeStats.deletions.toLocaleString()}`
+    : '查看代码更改';
+
+  return [
+    {
+      id: 'files' as const,
+      label: '文件',
+      detail: '浏览项目文件',
+      shortcut: '⌘P',
+      icon: FolderClosed,
+      onSelect: onOpenFiles,
+    },
+    {
+      id: 'side-chat' as const,
+      label: '侧边聊天',
+      detail: '发起侧边对话',
+      shortcut: null,
+      icon: MessageCircle,
+      onSelect: onOpenSideChat,
+    },
+    {
+      id: 'browser' as const,
+      label: '浏览器',
+      detail: '打开网站',
+      shortcut: '⌘B',
+      icon: Globe,
+      onSelect: onOpenBrowser,
+      disabled: !browserAvailable,
+      disabledReason: '需要先选中一个会话',
+    },
+    {
+      id: 'review' as const,
+      label: '审查',
+      detail: reviewDetail,
+      shortcut: '⌃⌘G',
+      icon: FileDiff,
+      onSelect: onOpenReview,
+    },
+    {
+      id: 'terminal' as const,
+      label: '终端',
+      detail: '打开右侧 shell',
+      shortcut: '⌃`',
+      icon: SquareTerminal,
+      onSelect: onOpenTerminal,
+    },
+  ];
+}
+
+function RightPanelLauncherPanel({
+  collapsed,
+  browserAvailable,
+  changeStats,
+  onOpenFiles,
+  onOpenSideChat,
+  onOpenBrowser,
+  onOpenReview,
+  onOpenTerminal,
+}: {
+  collapsed: boolean;
+  browserAvailable: boolean;
+  changeStats: { insertions: number; deletions: number };
+  onOpenFiles: () => void;
+  onOpenSideChat: () => void;
+  onOpenBrowser: () => void;
+  onOpenReview: () => void;
+  onOpenTerminal: () => void;
+}) {
+  const items = getPanelLauncherItems({
+    browserAvailable,
+    changeStats,
+    onOpenFiles,
+    onOpenSideChat,
+    onOpenBrowser,
+    onOpenReview,
+    onOpenTerminal,
+  });
+
+  return (
+    <div
+      className={`relative flex h-full flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--bg-primary)] transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        collapsed ? 'pointer-events-none' : ''
+      }`}
+      style={{
+        width: collapsed ? 0 : 'clamp(560px, 46vw, 820px)',
+        opacity: collapsed ? 0 : 1,
+        transform: collapsed ? 'translateX(18px)' : 'translateX(0)',
+        borderLeftWidth: collapsed ? 0 : 1,
+      }}
+      aria-hidden={collapsed}
+    >
+      <div className="h-12 shrink-0 drag-region" />
+      <div className="flex min-h-0 flex-1 items-center justify-center px-10 pb-16">
+        <div className="grid w-full max-w-[690px] grid-cols-5 gap-3">
+          {items.map((item) => {
+            const Icon = item.icon;
+            const disabled = item.disabled === true;
+            const hasChanges = item.id === 'review' && (changeStats.insertions > 0 || changeStats.deletions > 0);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                disabled={disabled}
+                onClick={item.onSelect}
+                title={disabled ? item.disabledReason : item.label}
+                className={`group flex h-[128px] min-w-0 flex-col items-center justify-center rounded-lg border px-3 text-center transition-colors ${
+                  'border-transparent bg-[var(--bg-secondary)]/70 text-[var(--text-secondary)] hover:border-[var(--border)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+                } ${disabled ? 'cursor-not-allowed opacity-45 hover:border-transparent hover:bg-[var(--bg-secondary)]/70 hover:text-[var(--text-secondary)]' : ''}`}
+              >
+                <Icon className="mb-4 h-5 w-5 shrink-0 text-[var(--text-muted)] transition-colors group-hover:text-[var(--text-primary)]" />
+                <span className="w-full truncate text-[13px] font-semibold text-[var(--text-primary)]">
+                  {item.label}
+                </span>
+                <span
+                  className={`mt-2 w-full truncate text-[11px] ${
+                    hasChanges ? 'font-mono tabular-nums text-[var(--text-secondary)]' : 'text-[var(--text-muted)]'
+                  }`}
+                >
+                  {item.detail}
+                </span>
+                {item.shortcut ? (
+                  <span className="mt-3 rounded-md bg-[var(--bg-tertiary)] px-1.5 py-0.5 font-mono text-[10px] leading-4 text-[var(--text-muted)]">
+                    {item.shortcut}
+                  </span>
+                ) : (
+                  <span className="mt-3 h-5" aria-hidden="true" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
