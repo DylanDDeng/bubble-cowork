@@ -1,6 +1,6 @@
 {
   "name": "aegis",
-  "version": "0.0.33",
+  "version": "0.0.34",
   "description": "Aegis Desktop Application",
   "author": "Your Name",
   "repository": {
@@ -16,7 +16,7 @@
     "build": "npm run transpile:electron && vite build",
     "test": "npm run validate:terminal && npm run check:builtin-agent && npm run check:icons",
     "verify:markdown-editor": "node scripts/verify-markdown-editor.mjs",
-    "validate:terminal": "npm run transpile:electron && node scripts/validate-terminal-runtime.cjs",
+    "validate:terminal": "npm run transpile:electron && node scripts/prepare-electron-native-deps.mjs && node scripts/validate-terminal-runtime.cjs",
     "check:builtin-agent": "npm run transpile:electron && node scripts/check-builtin-agent.mjs",
     "check:icons": "node scripts/check-ui-icon-imports.mjs",
     "build:electron": "electron-builder",

@@ -997,7 +997,7 @@ function runAcp(options: RunnerOptions, adapter: AcpAdapter): RunnerHandle {
 
     const cwd = session.cwd || process.cwd();
     // OpenCode owns its own MCP config — don't forward Aegis's Claude MCP map.
-    const mcpServers: Record<string, unknown> = {};
+    const mcpServers: unknown[] = [];
     let sessionResult: Record<string, unknown> | undefined;
 
     if (resumeSessionId) {
