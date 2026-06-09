@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { FolderClosed, FolderOpen, ChevronDown, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Maximize2, Minimize2, File, FileDiff, Files, FileAddIcon, FolderAddIcon, Trash2 } from './icons';
+import { FolderClosed, FolderOpen, ChevronDown, ChevronLeft, ChevronRight, Copy, Check, X, Maximize2, Minimize2, File, Files, FileAddIcon, FolderAddIcon, Trash2 } from './icons';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
@@ -26,19 +26,9 @@ import {
   type WeChatAiThemeId,
   type WeChatStaticThemeId,
 } from '../lib/wechatMarkdown';
-import {
-  applyDiffToChangeRecord,
-  applyTextMetaToChangeRecord,
-  extractToolChangeRecords,
-  getOperationLabel,
-  mergeChangeRecords,
-  summarizeChangeRecords,
-  type ChangeOperation,
-  type ChangeRecord,
-} from '../utils/change-records';
 import type { ProjectTreeNode, ProjectUtilityPanelKind } from '../types';
 
-type ProjectPanelTab = 'files' | 'changes';
+type ProjectPanelTab = 'files';
 type ViewMode = 'view' | 'code' | 'split';
 type ProjectEditorFlushResult = { ok: boolean; message?: string };
 type ProjectPanelDimensions = {
@@ -50,7 +40,6 @@ type ProjectPanelDimensions = {
 
 const PANEL_DIMENSIONS: Record<ProjectPanelTab, ProjectPanelDimensions> = {
   files: { defaultWidth: 300, minWidth: 240, maxWidth: 520, title: 'Files' },
-  changes: { defaultWidth: 360, minWidth: 320, maxWidth: 560, title: 'Changes' },
 };
 
 const LEGACY_PROJECT_PANEL_WIDTH_STORAGE_KEY = 'cowork.projectPanelWidth';
@@ -580,9 +569,8 @@ export function ProjectTreePanel({
   topInset?: number;
   embedded?: boolean;
 }) {
-  const MIN_CHANGES_SPINNER_MS = 450;
   const panelMeta = PANEL_DIMENSIONS[activeTab];
-  const PanelTitleIcon = activeTab === 'files' ? Files : FileDiff;
+  const PanelTitleIcon = Files;
   const defaultRailWidth = panelMeta.defaultWidth;
   const minRailWidth = panelMeta.minWidth;
   const maxRailWidth = panelMeta.maxWidth;
@@ -761,11 +749,6 @@ export function ProjectTreePanel({
   const [projectDropHoverId, setProjectDropHoverId] = useState<string | null>(null);
   const [movingProjectEntryPath, setMovingProjectEntryPath] = useState<string | null>(null);
 
-  const [changeRecords, setChangeRecords] = useState<ChangeRecord[]>([]);
-  const [changesError, setChangesError] = useState<string | null>(null);
-  const [changesLoading, setChangesLoading] = useState(false);
-  const [expandedChangeId, setExpandedChangeId] = useState<string | null>(null);
-
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const activeCwd = activeSession?.cwd || null;
   const cwd = activeCwd || projectCwd || null;
@@ -776,7 +759,6 @@ export function ProjectTreePanel({
   const tabRefreshSequenceRef = useRef(0);
   const tabRefreshTokensRef = useRef<Map<string, number>>(new Map());
   const shouldWatchProjectTree = !collapsed && activeTab === 'files';
-  const shouldRefreshChangeRecords = !collapsed && activeTab === 'changes';
 
   useEffect(() => {
     openFileTabsRef.current = openFileTabs;
@@ -974,111 +956,6 @@ export function ProjectTreePanel({
     updateOpenFileTabs,
   ]);
 
-  const loadChangeRecords = async () => {
-    if (!cwd) return;
-    const startedAt = Date.now();
-    setChangesLoading(true);
-    setChangesError(null);
-    try {
-      const toolRecords = extractToolChangeRecords(activeSession?.messages || []);
-      const result = await window.electron.getGitChanges(cwd);
-      if (result.ok) {
-        const merged = mergeChangeRecords(toolRecords, result.entries);
-        const enriched = await enrichChangeRecords(cwd, merged);
-        setChangeRecords(enriched);
-        setChangesError(null);
-      } else if (result.error === 'not-a-repo') {
-        setChangeRecords(toolRecords);
-        setChangesError(toolRecords.length > 0 ? null : 'not-a-repo');
-      } else {
-        setChangesError(result.error);
-        setChangeRecords(toolRecords);
-      }
-    } catch {
-      setChangesError('git-error');
-      setChangeRecords([]);
-    } finally {
-      const elapsed = Date.now() - startedAt;
-      const remaining = Math.max(MIN_CHANGES_SPINNER_MS - elapsed, 0);
-      window.setTimeout(() => {
-        setChangesLoading(false);
-      }, remaining);
-    }
-  };
-
-  // Reload changes when tab activates, cwd changes, or session messages update
-  const messageCount = activeSession?.messages.length ?? 0;
-  const sessionStatus = activeSession?.status;
-  const changeSummary = useMemo(
-    () => summarizeChangeRecords(changeRecords),
-    [changeRecords]
-  );
-
-  const enrichChangeRecords = async (
-    currentCwd: string,
-    records: ChangeRecord[]
-  ): Promise<ChangeRecord[]> => {
-    const enriched = await Promise.all(
-      records.map(async (record) => {
-        let next = record;
-
-        if (
-          record.source === 'git' ||
-          (record.operation === 'edit' && !record.diffContent) ||
-          (record.operation === 'delete' && !record.diffContent)
-        ) {
-          try {
-            const diff = await window.electron.getGitDiff(currentCwd, record.filePath);
-            if (diff.trim()) {
-              next = applyDiffToChangeRecord(next, diff);
-            }
-          } catch {
-            // Ignore per-file diff failures and keep the record visible.
-          }
-        }
-
-        if (next.sizeBytes === null || next.lineCount === null) {
-          try {
-            const preview = (await window.electron.readProjectFilePreview(
-              currentCwd,
-              next.filePath
-            )) as ProjectFilePreview | null;
-
-            if (
-              preview &&
-              (preview.kind === 'text' || preview.kind === 'markdown' || preview.kind === 'html')
-            ) {
-              next = applyTextMetaToChangeRecord(next, preview.text, preview.size);
-            } else if (preview && 'size' in preview && typeof preview.size === 'number') {
-              next = {
-                ...next,
-                sizeBytes: next.sizeBytes ?? preview.size,
-              };
-            }
-          } catch {
-            // Deleted or unreadable files simply stay without size metadata.
-          }
-        }
-
-        return next;
-      })
-    );
-
-    return enriched;
-  };
-
-  useEffect(() => {
-    if (cwd && shouldRefreshChangeRecords) {
-      void loadChangeRecords();
-      return;
-    }
-
-    if (!cwd) {
-      setChangeRecords([]);
-      setChangesError(null);
-    }
-  }, [cwd, messageCount, sessionStatus, shouldRefreshChangeRecords]);
-
   useEffect(() => {
     latestPanelWidthRef.current = panelWidth;
   }, [panelWidth]);
@@ -1098,21 +975,6 @@ export function ProjectTreePanel({
     if (storedPanelWidth !== null) {
       setPanelWidth(storedPanelWidth);
       return;
-    }
-
-    if (activeTab === 'changes') {
-      const legacyPanelWidth = parseStoredPanelWidth(
-        window.localStorage.getItem(LEGACY_PROJECT_PANEL_WIDTH_STORAGE_KEY),
-        minRailWidth,
-        maxRailWidth,
-        defaultRailWidth
-      );
-      if (legacyPanelWidth !== null) {
-        window.localStorage.setItem(storageKey, String(legacyPanelWidth));
-        window.localStorage.removeItem(LEGACY_PROJECT_PANEL_WIDTH_STORAGE_KEY);
-        setPanelWidth(legacyPanelWidth);
-        return;
-      }
     }
 
     setPanelWidth(defaultRailWidth);
@@ -1211,9 +1073,6 @@ export function ProjectTreePanel({
     draggedProjectEntryRef.current = null;
     setProjectDropHoverId(null);
     setMovingProjectEntryPath(null);
-    setChangeRecords([]);
-    setChangesError(null);
-    setExpandedChangeId(null);
   }, [cwd, setDraftTextSynced, setSaveStateSynced, updateOpenFileTabs]);
 
   useEffect(() => {
@@ -2265,7 +2124,6 @@ export function ProjectTreePanel({
         rememberDiskContent(textToSave);
         setSelectedPreview(savedPreview);
         ensureOpenFileTab(savedPreview, selectedFileCwd, selectedFilePath, viewMode, textToSave);
-        void loadChangeRecords();
         savedOk = true;
         setSaveStateSynced('saved');
         window.setTimeout(() => {
@@ -2877,17 +2735,6 @@ export function ProjectTreePanel({
                 </IconButton>
                 </>
               )}
-              {activeTab === 'changes' && (
-                <IconButton
-                  label="Refresh changes"
-                  size="sm"
-                  onClick={() => void loadChangeRecords()}
-                  disabled={changesLoading}
-                  className={changesLoading ? 'cursor-wait bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : undefined}
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${changesLoading ? 'animate-spin' : ''}`} />
-                </IconButton>
-              )}
             </div>
           </div>
           {!cwd && (
@@ -3044,42 +2891,6 @@ export function ProjectTreePanel({
                     No files found.
                   </div>
                 )}
-              </>
-            )}
-            {activeTab === 'changes' && (
-              <>
-                {!cwd && (
-                  <div className="text-sm text-[var(--text-muted)] px-1 py-2">
-                    Select a folder to view changes.
-                  </div>
-                )}
-                {cwd && changesLoading && changeRecords.length === 0 && (
-                  <div className="text-sm text-[var(--text-muted)] px-1 py-2">
-                    Loading changes...
-                  </div>
-                )}
-                {cwd && !changesLoading && changeRecords.length === 0 && (
-                  <div className="text-sm text-[var(--text-muted)] px-1 py-2">
-                    {changesError === 'not-a-repo'
-                      ? 'Not a git repository. Changes from this session will appear here.'
-                      : changesError === 'git-error'
-                        ? 'Failed to read git status.'
-                        : 'No changes detected.'}
-                  </div>
-                )}
-                {changeRecords.length > 0 && (
-                  <ChangeSummaryHeader summary={changeSummary} />
-                )}
-                {changeRecords.map((entry) => (
-                  <ChangeRecordItem
-                    key={entry.id}
-                    entry={entry}
-                    isExpanded={expandedChangeId === entry.id}
-                    onToggle={() => {
-                      setExpandedChangeId((current) => current === entry.id ? null : entry.id);
-                    }}
-                  />
-                ))}
               </>
             )}
           </div>
@@ -3981,260 +3792,6 @@ function ViewModeToggle({
       ))}
     </div>
   );
-}
-
-function ChangeSummaryHeader({
-  summary,
-}: {
-  summary: ReturnType<typeof summarizeChangeRecords>;
-}) {
-  return (
-    <div className="mb-1 border-b border-[var(--border)]/25 px-1 py-2">
-      <div className="flex flex-wrap items-center gap-2 text-[11px]">
-        <span className="font-medium text-[var(--text-primary)]">
-          {summary.total} change{summary.total === 1 ? '' : 's'}
-        </span>
-        {summary.operationCounts.map((entry) => (
-          <span key={entry.operation} className="text-[var(--text-muted)]">
-            {entry.count} {getOperationLabel(entry.operation, entry.count)}
-          </span>
-        ))}
-        {summary.totalSizeBytes > 0 && (
-          <span className="text-[var(--text-muted)]">{formatBytes(summary.totalSizeBytes)}</span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ChangeRecordItem({
-  entry,
-  isExpanded,
-  onToggle,
-}: {
-  entry: ChangeRecord;
-  isExpanded: boolean;
-  onToggle: () => void;
-}) {
-  const canExpand = !!entry.diffContent;
-
-  return (
-    <div className="border-b border-[var(--border)]/25 last:border-b-0">
-      <button
-        onClick={() => {
-          if (canExpand) onToggle();
-        }}
-        className="flex w-full items-start gap-2 px-1 py-2.5 text-left transition-colors hover:bg-[var(--tree-item-hover)]/35"
-      >
-        <ChevronRight
-          className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] transition-transform ${
-            isExpanded ? 'rotate-90' : ''
-          } ${canExpand ? 'opacity-100' : 'opacity-30'}`}
-        />
-        <span className="mt-0.5 flex h-4.5 w-4.5 flex-shrink-0 items-center justify-center" aria-hidden="true">
-          <FileTypeIcon
-            name={entry.fileName}
-            className="h-4 w-4"
-            fallbackClassName="h-3.5 w-3.5 text-[var(--text-secondary)]"
-          />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div
-            className="truncate text-sm font-medium text-[var(--text-primary)]"
-            title={entry.filePath}
-          >
-            {entry.fileName}
-          </div>
-        </div>
-        <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5 pt-0.5 text-[10px]">
-          <ChangeOperationPill operation={entry.operation} state={entry.state} />
-          {entry.sizeBytes !== null &&
-            (entry.operation === 'write' ||
-              entry.operation === 'added' ||
-              entry.operation === 'untracked') && (
-              <span className="text-[var(--text-muted)]">{formatBytes(entry.sizeBytes)}</span>
-            )}
-          {entry.lineCount !== null &&
-            (entry.operation === 'write' ||
-              entry.operation === 'added' ||
-              entry.operation === 'untracked') && (
-              <span className="whitespace-nowrap text-[var(--text-muted)]">
-                {entry.lineCount} line{entry.lineCount === 1 ? '' : 's'}
-              </span>
-            )}
-          {(entry.addedLines > 0 || entry.removedLines > 0) && (
-            <ChangeDiffStat addedLines={entry.addedLines} removedLines={entry.removedLines} />
-          )}
-        </div>
-      </button>
-
-      {isExpanded && (
-        <div className="border-t border-[var(--border)]/25 bg-[var(--bg-secondary)]/12 px-1 pb-2 pt-2">
-          {entry.diffContent ? (
-            <div className="overflow-auto border border-[var(--border)]/50 bg-[var(--preview-surface)]">
-              <ChangeDiffView diffContent={entry.diffContent} />
-            </div>
-          ) : (
-            <div className="text-xs text-[var(--text-muted)]">No diff available for this change.</div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ChangeOperationPill({
-  operation,
-  state,
-}: {
-  operation: ChangeOperation;
-  state: ChangeRecord['state'];
-}) {
-  const tone =
-    operation === 'write' || operation === 'added' || operation === 'untracked'
-      ? 'border-green-500/15 bg-green-500/6 text-green-600'
-      : operation === 'edit' || operation === 'modified'
-        ? 'border-sky-500/15 bg-sky-500/6 text-sky-600'
-        : operation === 'delete' || operation === 'deleted'
-          ? 'border-red-500/15 bg-red-500/6 text-red-600'
-          : 'border-purple-500/15 bg-purple-500/6 text-purple-600';
-
-  return (
-    <span className={`rounded-md border px-1.5 py-0.5 font-medium ${tone}`}>
-      {state === 'pending' ? `${getOperationLabel(operation)}…` : getOperationLabel(operation)}
-    </span>
-  );
-}
-
-function ChangeDiffStat({
-  addedLines,
-  removedLines,
-}: {
-  addedLines: number;
-  removedLines: number;
-}) {
-  return (
-    <span className="flex items-center gap-1 font-medium">
-      {removedLines > 0 && <span className="text-red-500">-{removedLines}</span>}
-      {addedLines > 0 && <span className="text-green-500">+{addedLines}</span>}
-    </span>
-  );
-}
-
-type ParsedDiffRow =
-  | { type: 'hunk'; text: string }
-  | { type: 'context'; text: string; oldLine: number | null; newLine: number | null }
-  | { type: 'addition'; text: string; oldLine: number | null; newLine: number | null }
-  | { type: 'deletion'; text: string; oldLine: number | null; newLine: number | null }
-  | { type: 'note'; text: string };
-
-function ChangeDiffView({ diffContent }: { diffContent: string }) {
-  const rows = useMemo(() => parseDiffRows(diffContent), [diffContent]);
-
-  return (
-    <table className="w-full border-collapse text-[12px] leading-6 font-mono">
-      <tbody>
-        {rows.map((row, index) => {
-          if (row.type === 'hunk') {
-            return (
-              <tr key={`hunk-${index}`} className="bg-[var(--bg-secondary)]/45">
-                <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60" />
-                <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60 border-r border-[var(--border)]/50" />
-                <td className="px-3 py-0.5 text-[11px] text-[var(--text-muted)]">{row.text}</td>
-              </tr>
-            );
-          }
-
-          if (row.type === 'note') {
-            return (
-              <tr key={`note-${index}`}>
-                <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60" />
-                <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60 border-r border-[var(--border)]/50" />
-                <td className="px-3 py-0.5 text-[var(--text-muted)]">{row.text}</td>
-              </tr>
-            );
-          }
-
-          const rowTone =
-            row.type === 'addition'
-              ? 'bg-green-500/10'
-              : row.type === 'deletion'
-                ? 'bg-red-500/10'
-                : '';
-          const prefixTone =
-            row.type === 'addition'
-              ? 'text-green-600'
-              : row.type === 'deletion'
-                ? 'text-red-500'
-                : 'text-[var(--text-primary)]';
-
-          return (
-            <tr key={`row-${index}`} className={rowTone}>
-              <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60 select-none">
-                {row.oldLine ?? ''}
-              </td>
-              <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60 border-r border-[var(--border)]/50 select-none">
-                {row.newLine ?? ''}
-              </td>
-              <td className="px-3 py-0.5">
-                <span className={`mr-2 select-none ${prefixTone}`}>
-                  {row.type === 'addition' ? '+' : row.type === 'deletion' ? '-' : ' '}
-                </span>
-                <span className={prefixTone}>{row.text || ' '}</span>
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  );
-}
-
-function parseDiffRows(diffContent: string): ParsedDiffRow[] {
-  const rows: ParsedDiffRow[] = [];
-  let oldLine = 0;
-  let newLine = 0;
-
-  for (const line of diffContent.split('\n')) {
-    if (!line) continue;
-    if (line.startsWith('diff --git') || line.startsWith('index ') || line.startsWith('--- ') || line.startsWith('+++ ')) {
-      continue;
-    }
-
-    if (line.startsWith('@@')) {
-      const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-      if (match) {
-        oldLine = Number(match[1]);
-        newLine = Number(match[2]);
-      }
-      rows.push({ type: 'hunk', text: line });
-      continue;
-    }
-
-    if (line.startsWith('\\')) {
-      rows.push({ type: 'note', text: line });
-      continue;
-    }
-
-    if (line.startsWith('+')) {
-      rows.push({ type: 'addition', text: line.slice(1), oldLine: null, newLine });
-      newLine += 1;
-      continue;
-    }
-
-    if (line.startsWith('-')) {
-      rows.push({ type: 'deletion', text: line.slice(1), oldLine, newLine: null });
-      oldLine += 1;
-      continue;
-    }
-
-    const text = line.startsWith(' ') ? line.slice(1) : line;
-    rows.push({ type: 'context', text, oldLine, newLine });
-    oldLine += 1;
-    newLine += 1;
-  }
-
-  return rows;
 }
 
 function GitStatusBadge({ status }: { status: string }) {

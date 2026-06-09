@@ -7,6 +7,7 @@ import type {
   ClaudeUsageRangeDays,
   FeishuBridgeConfig,
   FontSettingsPayload,
+  GitPatchScope,
   MemoryDocument,
   MemoryWorkspace,
   PromptLibraryExportResult,
@@ -583,6 +584,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('read-markdown-image-asset', cwd, markdownFilePath, imageSrc);
   },
 
+  resolveMarkdownImageAssetUrl: (cwd: string, markdownFilePath: string, imageSrc: string) => {
+    return ipcRenderer.invoke('resolve-markdown-image-asset-url', cwd, markdownFilePath, imageSrc);
+  },
+
   createMarkdownImageAsset: (
     cwd: string,
     markdownFilePath: string,
@@ -659,6 +664,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-git-overview', cwd);
   },
 
+  getGitPatch: (cwd: string, scope?: GitPatchScope) => {
+    return ipcRenderer.invoke('get-git-patch', cwd, scope);
+  },
+
   getGitBranch: (cwd: string) => {
     return ipcRenderer.invoke('get-git-branch', cwd);
   },
@@ -717,6 +726,26 @@ contextBridge.exposeInMainWorld('electron', {
 
   gitCreatePr: (cwd: string) => {
     return ipcRenderer.invoke('git-create-pr', cwd);
+  },
+
+  getEnvironmentEditorLaunchers: () => {
+    return ipcRenderer.invoke('get-environment-editor-launchers');
+  },
+
+  openInEditor: (input: unknown) => {
+    return ipcRenderer.invoke('open-in-editor', input);
+  },
+
+  getSessionEnvironmentContext: (sessionId: string) => {
+    return ipcRenderer.invoke('get-session-environment-context', sessionId);
+  },
+
+  saveSessionEnvironmentNote: (sessionId: string, note: string) => {
+    return ipcRenderer.invoke('save-session-environment-note', sessionId, note);
+  },
+
+  refreshSessionEnvironmentRecap: (sessionId: string) => {
+    return ipcRenderer.invoke('refresh-session-environment-recap', sessionId);
   },
 
   openExternalUrl: (url: string) => {

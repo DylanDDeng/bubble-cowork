@@ -12,6 +12,8 @@ import type {
   WorkspaceSurface,
   ProjectUtilityPanelKind,
   ProjectUtilityPanelTarget,
+  ReviewDiffSelection,
+  ReviewDiffSelectionInput,
   AgentProvider,
   AgentProfile,
   ClaudeCompatibleProviderId,
@@ -73,6 +75,14 @@ type SetState = (
   partial: Store | Partial<Store> | ((state: Store) => Store | Partial<Store>)
 ) => void;
 const runtimeNoticeClearTimers = new Map<string, number>();
+
+function normalizeReviewDiffSelection(selection: ReviewDiffSelectionInput): ReviewDiffSelection {
+  return {
+    ...selection,
+    records: selection.records ? selection.records.map((record) => ({ ...record })) : undefined,
+    requestedAt: selection.requestedAt ?? Date.now(),
+  };
+}
 
 function getProjectChannelKey(cwd?: string | null): string {
   return cwd?.trim() || '__no_project__';
@@ -1085,6 +1095,7 @@ export const useAppStore = create<Store>()(
       projectPanelView: normalizeProjectPanelView(initialUiResumeState?.projectPanelView),
       rightUtilityTabs: initialRightUtilityTab ? [initialRightUtilityTab] : [],
       activeRightUtilityTab: initialRightUtilityTab,
+      reviewDiffSelection: null,
       terminalDrawerOpen: resolveInitialTerminalDrawerOpen(initialUiResumeState),
       terminalDrawerHeight: sanitizeTerminalDrawerHeight(initialUiResumeState?.terminalDrawerHeight),
       browserPanelOpen: false,
@@ -2078,7 +2089,9 @@ export const useAppStore = create<Store>()(
         return {
           projectTreeCollapsed: true,
           rightPanelFullscreen:
-            state.rightPanelFullscreen === 'files' ? null : state.rightPanelFullscreen,
+            state.rightPanelFullscreen === 'files' || state.rightPanelFullscreen === 'review'
+              ? null
+              : state.rightPanelFullscreen,
         };
       }
 
@@ -2138,7 +2151,13 @@ export const useAppStore = create<Store>()(
         patch.projectTreeCollapsed = false;
         patch.browserPanelOpen = false;
         patch.rightPanelFullscreen =
-          state.rightPanelFullscreen === 'browser' ? null : state.rightPanelFullscreen;
+          state.rightPanelFullscreen === 'browser'
+            ? null
+            : state.rightPanelFullscreen === 'files' && activeKind === 'review'
+              ? 'review'
+              : state.rightPanelFullscreen === 'review' && activeKind === 'files'
+                ? 'files'
+                : state.rightPanelFullscreen;
       } else if (activeKind === 'browser') {
         patch.browserPanelOpen = true;
         patch.projectTreeCollapsed = true;
@@ -2149,6 +2168,32 @@ export const useAppStore = create<Store>()(
       }
 
       return patch;
+    });
+  },
+
+  setReviewDiffSelection: (selection) => {
+    set({
+      reviewDiffSelection: selection ? normalizeReviewDiffSelection(selection) : null,
+    });
+  },
+
+  openReviewDiff: (selection) => {
+    set((state) => {
+      const opened = resolveRightUtilityTabOpen(state.rightUtilityTabs, 'review');
+      return {
+        reviewDiffSelection: normalizeReviewDiffSelection(selection),
+        rightUtilityTabs: opened.tabs,
+        activeRightUtilityTab: opened.activeTab,
+        projectPanelView: 'changes',
+        projectTreeCollapsed: false,
+        browserPanelOpen: false,
+        rightPanelFullscreen:
+          state.rightPanelFullscreen === 'browser'
+            ? null
+            : state.rightPanelFullscreen === 'files'
+              ? 'review'
+              : state.rightPanelFullscreen,
+      };
     });
   },
 
@@ -2174,7 +2219,10 @@ export const useAppStore = create<Store>()(
       if (targetKind === 'browser' && state.rightPanelFullscreen === 'browser') {
         patch.rightPanelFullscreen = null;
       }
-      if ((targetKind === 'files' || targetKind === 'review') && state.rightPanelFullscreen === 'files') {
+      if (targetKind === 'files' && state.rightPanelFullscreen === 'files') {
+        patch.rightPanelFullscreen = null;
+      }
+      if (targetKind === 'review' && state.rightPanelFullscreen === 'review') {
         patch.rightPanelFullscreen = null;
       }
 

@@ -5,7 +5,10 @@ export interface TurnDiffContextValue {
   /** Lookup: tool_use id -> ChangeRecord produced by that tool call. */
   changeRecordByToolUseId: Map<string, ChangeRecord>;
   /** Invoked when the user clicks a file row or inline hint to view its diff. */
-  onOpenDiff?: (record: ChangeRecord) => void;
+  onOpenDiff?: (
+    record: ChangeRecord,
+    scope?: { records: ChangeRecord[]; label?: string; turnKey?: string }
+  ) => void;
 }
 
 const DEFAULT_VALUE: TurnDiffContextValue = {

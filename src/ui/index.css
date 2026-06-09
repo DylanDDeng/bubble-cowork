@@ -97,7 +97,7 @@
   --sidebar-segment-bg: #E0E2E5;
   --sidebar-segment-active: #F3F4F6;
   --sidebar-segment-shadow-active: 0 1px 3px rgba(20, 20, 20, 0.08);
-  --app-sidebar-surface: #dcdcddff;
+  --app-sidebar-surface: #FCFCFC;
   --panel-soft-divider: rgba(17, 24, 39, 0.075);
   --border-focus: rgba(79, 70, 229, 0.45);
   --focus-ring: rgba(98, 100, 106, 0.34);
@@ -2224,6 +2224,10 @@ button.aegis-mdx-metadata-key:hover {
   font-weight: 720;
 }
 
+.aegis-cm-heading-line.is-source {
+  color: color-mix(in srgb, var(--text-primary) 88%, var(--text-secondary));
+}
+
 .aegis-cm-heading-line.level-1 {
   padding: 0 0 0.85rem;
   font-size: 34px;
@@ -3016,6 +3020,50 @@ button.aegis-mdx-metadata-key:hover {
   background:
     radial-gradient(circle at top, color-mix(in srgb, var(--accent-light) 40%, transparent), transparent 55%),
     var(--preview-surface);
+}
+
+.aegis-diff-toolbar {
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 65%, transparent);
+}
+
+.aegis-diff-card {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.aegis-diff-body {
+  overflow: auto;
+}
+
+.aegis-file-diff {
+  --diffs-font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace);
+  --diffs-font-size: 12px;
+  --diffs-line-height: 22px;
+  background: var(--bg-primary);
+}
+
+.aegis-file-diff pre,
+.aegis-file-diff code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.aegis-file-diff pre {
+  margin: 0;
+  min-width: max-content;
+  background: var(--bg-primary);
+}
+
+.aegis-file-diff [data-line-type="addition"],
+.aegis-file-diff [data-change-type="addition"],
+.aegis-file-diff .diff-line-addition {
+  background: color-mix(in srgb, #22c55e 14%, transparent);
+}
+
+.aegis-file-diff [data-line-type="deletion"],
+.aegis-file-diff [data-change-type="deletion"],
+.aegis-file-diff .diff-line-deletion {
+  background: color-mix(in srgb, #ef4444 12%, transparent);
 }
 
 /* Enhanced status dot pulse animation */

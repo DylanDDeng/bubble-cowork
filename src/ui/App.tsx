@@ -40,6 +40,7 @@ import { SkillMarketSettingsContent } from './components/settings/SkillMarketSet
 import {
   ProjectTreePanel,
 } from './components/ProjectTreePanel';
+import { AegisDiffPanel } from './components/AegisDiffPanel';
 import { BrowserPanel } from './components/browser/BrowserPanel';
 import { TerminalDrawer } from './components/TerminalDrawer';
 import { RightTerminalPanel } from './components/RightTerminalPanel';
@@ -887,17 +888,14 @@ export function App() {
             />
           ))}
           {rightUtilityTabs.includes('review') ? (
-            <ProjectTreePanel
-              embedded
+            <AegisDiffPanel
               collapsed={activeRightUtilityTab !== 'review'}
-              activeTab="changes"
+              cwd={activeSession?.cwd || projectCwd || null}
+              session={activeSession}
               onClose={() => closeRightUtilityTab('review')}
-              onOpenUtilityTab={openRightUtilityTab}
-              sharedPanelWidth={rightUtilityPanelWidth}
-              onSharedPanelWidthChange={setRightUtilityPanelWidth}
-              isFullscreen={rightPanelFullscreen === 'files' && activeRightUtilityTab === 'review'}
+              isFullscreen={rightPanelFullscreen === 'review' && activeRightUtilityTab === 'review'}
               onToggleFullscreen={() =>
-                setRightPanelFullscreen(rightPanelFullscreen === 'files' ? null : 'files')
+                setRightPanelFullscreen(rightPanelFullscreen === 'review' ? null : 'review')
               }
             />
           ) : null}

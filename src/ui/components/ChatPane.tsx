@@ -25,7 +25,6 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { AgentAvatar } from './AgentAvatar';
 import { TurnChangesCard } from './TurnChangesCard';
 import { TurnDiffContext, type TurnDiffContextValue } from './TurnDiffContext';
-import { TurnDiffDrawer } from './TurnDiffDrawer';
 import { CodexActivePlanCard } from './CodexActivePlanCard';
 import {
   buildTurnChangeContext,
@@ -863,6 +862,7 @@ export function ChatPane({
     loadOlderSessionHistory,
     setHistoryNavigationTarget,
     removePermissionRequest,
+    openReviewDiff,
   } = useAppStore();
   const session = sessionId ? sessions[sessionId] : null;
   const scrollPositionKey = sessionId ? getChatScrollPositionKey(paneId, sessionId) : null;
@@ -877,7 +877,6 @@ export function ChatPane({
   const scrollHeightBeforeLoadRef = useRef<number>(0);
   const historyHighlightTimerRef = useRef<number | null>(null);
   const [highlightedHistoryAnchor, setHighlightedHistoryAnchor] = useState<string | null>(null);
-  const [selectedDiffRecord, setSelectedDiffRecord] = useState<ChangeRecord | null>(null);
   const activePlanMessage = useMemo(() => {
     if (!session || session.provider !== 'codex' || session.status !== 'running') {
       return null;
@@ -1102,13 +1101,22 @@ export function ChatPane({
     return { actionTextByCardIndex, hiddenMessageIndices };
   }, [timelineItems, turnCardByTimelineIndex]);
 
-  const handleOpenDiff = useCallback((record: ChangeRecord) => {
-    setSelectedDiffRecord(record);
-  }, []);
-
-  const handleCloseDiff = useCallback(() => {
-    setSelectedDiffRecord(null);
-  }, []);
+  const handleOpenDiff = useCallback((
+    record: ChangeRecord,
+    scope?: { records: ChangeRecord[]; label?: string; turnKey?: string }
+  ) => {
+    openReviewDiff({
+      source: {
+        kind: 'turn',
+        turnKey: scope?.turnKey || `record:${record.id}`,
+        label: scope?.label || 'Selected turn',
+        sessionId,
+      },
+      records: scope?.records || [record],
+      selectedRecordId: record.id,
+      selectedFilePath: record.filePath,
+    });
+  }, [openReviewDiff, sessionId]);
 
   const turnDiffContextValue = useMemo<TurnDiffContextValue>(
     () => ({
@@ -1232,7 +1240,6 @@ export function ChatPane({
   useEffect(() => {
     scrollHeightBeforeLoadRef.current = 0;
     setHighlightedHistoryAnchor(null);
-    setSelectedDiffRecord(null);
   }, [sessionId]);
 
   const handleScroll = useCallback(() => {
@@ -1674,7 +1681,6 @@ export function ChatPane({
             </div>
           )}
 
-          <TurnDiffDrawer record={selectedDiffRecord} onClose={handleCloseDiff} />
         </>
       )}
     </div>

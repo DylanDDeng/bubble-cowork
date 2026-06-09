@@ -100,7 +100,12 @@ import type {
   ProviderReadPluginInput,
   GitCheckoutBranchInput,
   GitCreateWorktreeInput,
+  GitPatchResult,
+  GitPatchScope,
   GitSessionHandoffInput,
+  GitPullRequestLookupStatus,
+  OpenInEditorInput,
+  EnvironmentEditorLauncher,
   UpsertAutomationInput,
   WechatClipboardHtmlWriteInput,
   WechatMarkdownHtmlGenerationInput,
@@ -893,6 +898,32 @@ async function readMarkdownImageAsset(
   markdownFilePath: string,
   imageSrc: string
 ): Promise<{ ok: true; dataUrl: string } | { ok: false; message: string }> {
+  const resolved = await resolveMarkdownImageAssetFile(cwd, markdownFilePath, imageSrc);
+  if (!resolved.ok) return resolved;
+
+  try {
+    const buffer = await fsPromises.readFile(resolved.targetReal);
+    return {
+      ok: true,
+      dataUrl: `data:${resolved.mimeType};base64,${buffer.toString('base64')}`,
+    };
+  } catch (error) {
+    return { ok: false, message: `Failed to read image: ${String(error)}` };
+  }
+}
+
+async function resolveMarkdownImageAssetFile(
+  cwd: string,
+  markdownFilePath: string,
+  imageSrc: string
+): Promise<{
+  ok: true;
+  rootReal: string;
+  targetReal: string;
+  mimeType: string;
+  size: number;
+  mtimeMs: number;
+} | { ok: false; message: string }> {
   const trimmedSrc = imageSrc.trim();
   if (!cwd || !markdownFilePath || !trimmedSrc) {
     return { ok: false, message: 'Missing project, Markdown file, or image path.' };
@@ -946,14 +977,39 @@ async function readMarkdownImageAsset(
     return { ok: false, message: 'Image is too large to preview inline.' };
   }
 
+  return {
+    ok: true,
+    rootReal: imageValidation.rootReal,
+    targetReal: imageValidation.targetReal,
+    mimeType,
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+  };
+}
+
+async function resolveMarkdownImageAssetUrl(
+  cwd: string,
+  markdownFilePath: string,
+  imageSrc: string
+): Promise<{ ok: true; url: string; size: number; mtimeMs: number } | { ok: false; message: string }> {
+  const resolved = await resolveMarkdownImageAssetFile(cwd, markdownFilePath, imageSrc);
+  if (!resolved.ok) return resolved;
+
   try {
-    const buffer = await fsPromises.readFile(imageValidation.targetReal);
+    const preview = await getLocalPreviewUrl(resolved.rootReal, resolved.targetReal);
+    if (!preview.ok) return preview;
+    const version = `${Math.round(resolved.mtimeMs)}-${resolved.size}`;
+    const url = new URL(preview.url);
+    url.searchParams.set('aegis-cache', 'markdown-image');
+    url.searchParams.set('v', version);
     return {
       ok: true,
-      dataUrl: `data:${mimeType};base64,${buffer.toString('base64')}`,
+      url: url.toString(),
+      size: resolved.size,
+      mtimeMs: resolved.mtimeMs,
     };
   } catch (error) {
-    return { ok: false, message: `Failed to read image: ${String(error)}` };
+    return { ok: false, message: `Failed to create image preview URL: ${String(error)}` };
   }
 }
 
@@ -979,6 +1035,8 @@ function sendPreviewResponse(
   });
   res.end(body);
 }
+
+type LocalPreviewCacheMode = 'default' | 'markdown-image';
 
 function parsePreviewByteRange(
   rangeHeader: string | string[] | undefined,
@@ -1027,15 +1085,19 @@ function streamPreviewFile(
   req: IncomingMessage,
   res: ServerResponse,
   filePath: string,
-  size: number
+  size: number,
+  cacheMode: LocalPreviewCacheMode = 'default'
 ): void {
   const mimeType = getLocalPreviewMimeType(filePath);
   const range = parsePreviewByteRange(req.headers.range, size);
+  const cacheControl = cacheMode === 'markdown-image' && mimeType.startsWith('image/')
+    ? 'private, max-age=300'
+    : 'no-store';
 
   if (range === 'invalid') {
     res.writeHead(416, {
       'Content-Range': `bytes */${size}`,
-      'Cache-Control': 'no-store',
+      'Cache-Control': cacheControl,
       'Accept-Ranges': 'bytes',
     });
     res.end();
@@ -1048,7 +1110,7 @@ function streamPreviewFile(
   const headers: Record<string, string> = {
     'Content-Type': mimeType,
     'Content-Length': String(contentLength),
-    'Cache-Control': 'no-store',
+    'Cache-Control': cacheControl,
     'Accept-Ranges': 'bytes',
     'X-Content-Type-Options': 'nosniff',
   };
@@ -1135,8 +1197,13 @@ async function handleLocalPreviewRequest(
   }
 
   let pathname = '/';
+  let cacheMode: LocalPreviewCacheMode = 'default';
   try {
-    pathname = decodeURIComponent(new URL(req.url || '/', 'http://127.0.0.1').pathname);
+    const url = new URL(req.url || '/', 'http://127.0.0.1');
+    pathname = decodeURIComponent(url.pathname);
+    cacheMode = url.searchParams.get('aegis-cache') === 'markdown-image'
+      ? 'markdown-image'
+      : 'default';
   } catch {
     sendPreviewResponse(res, 400, 'Invalid request path');
     return;
@@ -1160,7 +1227,7 @@ async function handleLocalPreviewRequest(
       sendPreviewResponse(res, 404, 'Not found');
       return;
     }
-    streamPreviewFile(req, res, filePath, stat.size);
+    streamPreviewFile(req, res, filePath, stat.size, cacheMode);
   } catch (error) {
     sendPreviewResponse(res, 500, `Failed to read preview file: ${String(error)}`);
   }
@@ -3240,6 +3307,8 @@ function parseGitStatusEntries(stdout: string): Array<{ filePath: string; status
 }
 
 const execFileAsync = promisify(execFile);
+const GIT_PATCH_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
+const GIT_PATCH_MAX_CHARS = 8 * 1024 * 1024;
 
 function parseGitNumstat(stdout: string): { insertions: number; deletions: number } {
   let insertions = 0;
@@ -3262,6 +3331,102 @@ function parseGitNumstat(stdout: string): { insertions: number; deletions: numbe
   }
 
   return { insertions, deletions };
+}
+
+function normalizeGitPatchScope(value: unknown): GitPatchScope {
+  if (
+    value === 'working-tree' ||
+    value === 'unstaged' ||
+    value === 'staged' ||
+    value === 'branch'
+  ) {
+    return value;
+  }
+  return 'working-tree';
+}
+
+function getExecStdout(error: unknown): string {
+  if (error && typeof error === 'object' && 'stdout' in error) {
+    return String((error as { stdout?: unknown }).stdout ?? '');
+  }
+  return '';
+}
+
+function normalizePatchResult(
+  scope: GitPatchScope,
+  patch: string,
+  repoRoot: string | null,
+  baseRef?: string | null
+): GitPatchResult {
+  const truncated = patch.length > GIT_PATCH_MAX_CHARS;
+  return {
+    ok: true,
+    error: null,
+    scope,
+    patch: truncated
+      ? `${patch.slice(0, GIT_PATCH_MAX_CHARS)}\n\ndiff --git a/.aegis-truncated b/.aegis-truncated\n--- a/.aegis-truncated\n+++ b/.aegis-truncated\n@@ -1 +1 @@\n-Patch truncated.\n+Patch truncated. Narrow the review scope to inspect the remaining changes.\n`
+      : patch,
+    repoRoot,
+    baseRef,
+    truncated,
+  };
+}
+
+async function runGitDiff(cwd: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync(
+    'git',
+    ['-c', 'core.quotepath=false', 'diff', '--no-color', '--no-ext-diff', '--unified=3', ...args],
+    {
+      cwd,
+      timeout: 15000,
+      maxBuffer: GIT_PATCH_MAX_BUFFER_BYTES,
+    }
+  );
+  return stdout;
+}
+
+async function getUntrackedPatch(cwd: string): Promise<string> {
+  const { stdout } = await execFileAsync(
+    'git',
+    ['-c', 'core.quotepath=false', 'ls-files', '--others', '--exclude-standard', '-z'],
+    {
+      cwd,
+      timeout: 10000,
+      maxBuffer: GIT_PATCH_MAX_BUFFER_BYTES,
+    }
+  );
+  const untrackedPaths = stdout.split('\0').map((item) => item.trim()).filter(Boolean);
+  const patches: string[] = [];
+
+  for (const filePath of untrackedPaths) {
+    try {
+      const { stdout: patch } = await execFileAsync(
+        'git',
+        [
+          '-c',
+          'core.quotepath=false',
+          'diff',
+          '--no-index',
+          '--no-color',
+          '--unified=3',
+          '--',
+          '/dev/null',
+          filePath,
+        ],
+        {
+          cwd,
+          timeout: 10000,
+          maxBuffer: GIT_PATCH_MAX_BUFFER_BYTES,
+        }
+      );
+      if (patch.trim()) patches.push(patch);
+    } catch (error) {
+      const patch = getExecStdout(error);
+      if (patch.trim()) patches.push(patch);
+    }
+  }
+
+  return patches.join('\n');
 }
 
 function humanizeCommitTarget(value: string): string {
@@ -3442,9 +3607,12 @@ async function getGitPullRequestInfo(input: {
   cwd: string;
   branch: string | null;
   originRepo: { owner: string; repo: string } | null;
-}): Promise<{ number: number; title: string; state: 'open' | 'closed' | 'merged'; url: string } | null> {
+}): Promise<{
+  status: GitPullRequestLookupStatus;
+  pr: { number: number; title: string; state: 'open' | 'closed' | 'merged'; url: string } | null;
+}> {
   if (!input.branch || !input.originRepo) {
-    return null;
+    return { status: 'not_found', pr: null };
   }
 
   try {
@@ -3481,18 +3649,131 @@ async function getGitPullRequestInfo(input: {
       (parsed.state === 'OPEN' || parsed.state === 'CLOSED' || parsed.state === 'MERGED')
     ) {
       return {
-        number: parsed.number,
-        title: parsed.title,
-        state:
-          parsed.state === 'OPEN' ? 'open' : parsed.state === 'MERGED' ? 'merged' : 'closed',
-        url: parsed.url,
+        status: 'found',
+        pr: {
+          number: parsed.number,
+          title: parsed.title,
+          state:
+            parsed.state === 'OPEN' ? 'open' : parsed.state === 'MERGED' ? 'merged' : 'closed',
+          url: parsed.url,
+        },
       };
     }
-  } catch {
-    // Ignore missing auth / missing PR / missing gh and treat as no PR.
+  } catch (error) {
+    const err = error as { stdout?: string; stderr?: string; message?: string };
+    const combined = [err.stderr, err.stdout, err.message].filter(Boolean).join('\n').trim();
+    if (/no pull requests? found/i.test(combined) || /could not resolve to a pullrequest/i.test(combined)) {
+      return { status: 'not_found', pr: null };
+    }
+    return { status: 'unknown', pr: null };
   }
 
-  return null;
+  return { status: 'unknown', pr: null };
+}
+
+async function commandExists(command: string): Promise<boolean> {
+  try {
+    await execFileAsync(process.platform === 'win32' ? 'where' : 'which', [command], {
+      timeout: 5000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function getEnvironmentEditorLaunchers(): Promise<EnvironmentEditorLauncher[]> {
+  const cursorApp = process.platform === 'darwin' && existsSync('/Applications/Cursor.app');
+  const vscodeApp = process.platform === 'darwin' && existsSync('/Applications/Visual Studio Code.app');
+  const [cursorCli, vscodeCli] = await Promise.all([
+    commandExists('cursor'),
+    commandExists('code'),
+  ]);
+
+  return [
+    { id: 'finder', label: process.platform === 'darwin' ? 'Finder' : 'Files', available: true },
+    { id: 'system', label: 'Default app', available: true },
+    { id: 'cursor', label: 'Cursor', available: cursorApp || cursorCli },
+    { id: 'vscode', label: 'VS Code', available: vscodeApp || vscodeCli },
+  ];
+}
+
+async function openInEnvironmentEditor(input: OpenInEditorInput): Promise<{ ok: boolean; message?: string }> {
+  const cwd = typeof input?.cwd === 'string' ? normalizeShellPath(input.cwd) : '';
+  const editorId = input?.editorId;
+  if (!cwd || !(await isReadableDirectory(cwd))) {
+    return { ok: false, message: 'Workspace path is not readable.' };
+  }
+
+  try {
+    if (editorId === 'finder') {
+      shell.showItemInFolder(cwd);
+      return { ok: true };
+    }
+
+    if (editorId === 'system') {
+      const errMsg = await shell.openPath(cwd);
+      return errMsg ? { ok: false, message: errMsg } : { ok: true };
+    }
+
+    if (editorId === 'cursor') {
+      if (process.platform === 'darwin' && existsSync('/Applications/Cursor.app')) {
+        await execFileAsync('open', ['-a', 'Cursor', cwd], { timeout: 10000 });
+        return { ok: true };
+      }
+      if (await commandExists('cursor')) {
+        await execFileAsync('cursor', [cwd], { timeout: 10000 });
+        return { ok: true };
+      }
+      return { ok: false, message: 'Cursor is not available.' };
+    }
+
+    if (editorId === 'vscode') {
+      if (process.platform === 'darwin' && existsSync('/Applications/Visual Studio Code.app')) {
+        await execFileAsync('open', ['-a', 'Visual Studio Code', cwd], { timeout: 10000 });
+        return { ok: true };
+      }
+      if (await commandExists('code')) {
+        await execFileAsync('code', [cwd], { timeout: 10000 });
+        return { ok: true };
+      }
+      return { ok: false, message: 'VS Code is not available.' };
+    }
+
+    return { ok: false, message: 'Unsupported editor.' };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function extractEnvironmentRecapText(message: StreamMessage): string {
+  if (message.type === 'user_prompt') {
+    return message.prompt.trim();
+  }
+  if (message.type === 'assistant' || message.type === 'proposed_plan') {
+    return extractAssistantText(message).trim();
+  }
+  if (message.type === 'result') {
+    return message.subtype === 'success' ? 'Task completed.' : 'Task ended with an error.';
+  }
+  return '';
+}
+
+function buildEnvironmentRecap(sessionId: string): string {
+  const history = sessions.getSessionHistory(sessionId);
+  const snippets = history
+    .map(extractEnvironmentRecapText)
+    .map((text) => text.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(-6);
+
+  if (snippets.length === 0) {
+    return 'No recap is available for this thread yet.';
+  }
+
+  return snippets
+    .map((snippet, index) => `${index + 1}. ${snippet.length > 180 ? `${snippet.slice(0, 177)}...` : snippet}`)
+    .join('\n');
 }
 
 // 初始化 IPC 处理器
@@ -4168,6 +4449,18 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   );
 
   ipcMainHandle(
+    'resolve-markdown-image-asset-url',
+    async (
+      _event,
+      cwd: string,
+      markdownFilePath: string,
+      imageSrc: string
+    ): Promise<{ ok: true; url: string; size: number; mtimeMs: number } | { ok: false; message: string }> => {
+      return resolveMarkdownImageAssetUrl(cwd, markdownFilePath, imageSrc);
+    }
+  );
+
+  ipcMainHandle(
     'create-markdown-image-asset',
     async (
       _event,
@@ -4687,6 +4980,8 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         ok: false,
         error: 'no-cwd',
         hasRepo: false,
+        repoRoot: null,
+        repository: null,
         branch: null,
         upstream: null,
         hasUpstream: false,
@@ -4698,6 +4993,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         totalChanges: 0,
         insertions: 0,
         deletions: 0,
+        prStatus: 'not_found',
         pr: null,
       };
     }
@@ -4709,6 +5005,8 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         ok: false,
         error: 'not-a-repo',
         hasRepo: false,
+        repoRoot: null,
+        repository: null,
         branch: null,
         upstream: null,
         hasUpstream: false,
@@ -4720,12 +5018,13 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         totalChanges: 0,
         insertions: 0,
         deletions: 0,
+        prStatus: 'not_found',
         pr: null,
       };
     }
 
     try {
-      const [summary, branchResult, changesResult, originRemote, upstreamRef, defaultBranch] =
+      const [summary, branchResult, changesResult, originRemote, upstreamRef, defaultBranch, repoRoot] =
         await Promise.all([
           (async () => {
             const [trackedDiff, untrackedFiles] = await Promise.all([
@@ -4774,6 +5073,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
           getGitOriginRemote(cwd),
           getGitUpstreamRef(cwd),
           getGitDefaultBranch(cwd),
+          getGitTopLevel(cwd).catch(() => null),
         ]);
 
       const branch = branchResult.stdout.trim() || 'HEAD';
@@ -4782,12 +5082,23 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       const isGitHubRemote = !!originRepo;
       const hasUpstream = !!upstreamRef;
       const { aheadCount, behindCount } = await getGitAheadBehindCounts(cwd, upstreamRef);
-      const pr = await getGitPullRequestInfo({ cwd, branch, originRepo });
+      const prLookup = await getGitPullRequestInfo({ cwd, branch, originRepo });
+      const repository = {
+        root: repoRoot || null,
+        originUrl: originRemote,
+        owner: originRepo?.owner || null,
+        name: originRepo?.repo || null,
+        fullName: originRepo ? `${originRepo.owner}/${originRepo.repo}` : null,
+        webUrl: originRepo ? `https://github.com/${originRepo.owner}/${originRepo.repo}` : null,
+        defaultBranch: defaultBranch || null,
+      };
 
       return {
         ok: true,
         error: null,
         hasRepo: true,
+        repoRoot: repoRoot || null,
+        repository,
         branch,
         upstream: upstreamRef,
         hasUpstream,
@@ -4799,13 +5110,16 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         totalChanges: parseGitStatusEntries(changesResult.stdout).length,
         insertions: summary.insertions,
         deletions: summary.deletions,
-        pr,
+        prStatus: prLookup.status,
+        pr: prLookup.pr,
       };
     } catch {
       return {
         ok: false,
         error: 'git-error',
         hasRepo: false,
+        repoRoot: null,
+        repository: null,
         branch: null,
         upstream: null,
         hasUpstream: false,
@@ -4817,7 +5131,87 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         totalChanges: 0,
         insertions: 0,
         deletions: 0,
+        prStatus: 'unknown',
         pr: null,
+      };
+    }
+  });
+
+  ipcMainHandle('get-git-patch', async (_event, cwd: string, scopeInput?: unknown): Promise<GitPatchResult> => {
+    const scope = normalizeGitPatchScope(scopeInput);
+    if (!cwd) {
+      return {
+        ok: false,
+        error: 'no-cwd',
+        scope,
+        patch: '',
+        repoRoot: null,
+        truncated: false,
+      };
+    }
+
+    let repoRoot: string | null = null;
+    try {
+      await execFileAsync('git', ['rev-parse', '--git-dir'], { cwd, timeout: 5000 });
+      repoRoot = await getGitTopLevel(cwd).catch(() => null);
+    } catch {
+      return {
+        ok: false,
+        error: 'not-a-repo',
+        scope,
+        patch: '',
+        repoRoot: null,
+        truncated: false,
+      };
+    }
+
+    try {
+      if (scope === 'staged') {
+        const patch = await runGitDiff(cwd, ['--cached', '--']);
+        return normalizePatchResult(scope, patch, repoRoot);
+      }
+
+      if (scope === 'branch') {
+        const baseRef = (await getGitUpstreamRef(cwd)) || (await getGitDefaultBranch(cwd));
+        if (!baseRef) {
+          return {
+            ok: false,
+            error: 'branch-base-unavailable',
+            scope,
+            patch: '',
+            repoRoot,
+            baseRef: null,
+            truncated: false,
+          };
+        }
+        const patch = await runGitDiff(cwd, [`${baseRef}...HEAD`, '--']);
+        return normalizePatchResult(scope, patch, repoRoot, baseRef);
+      }
+
+      const unstagedPatch = await runGitDiff(cwd, ['--']);
+      const untrackedPatch = await getUntrackedPatch(cwd);
+      if (scope === 'unstaged') {
+        return normalizePatchResult(
+          scope,
+          [unstagedPatch, untrackedPatch].filter((patch) => patch.trim()).join('\n'),
+          repoRoot
+        );
+      }
+
+      const stagedPatch = await runGitDiff(cwd, ['--cached', '--']);
+      return normalizePatchResult(
+        scope,
+        [stagedPatch, unstagedPatch, untrackedPatch].filter((patch) => patch.trim()).join('\n'),
+        repoRoot
+      );
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : 'git-error',
+        scope,
+        patch: '',
+        repoRoot,
+        truncated: false,
       };
     }
   });
@@ -5326,6 +5720,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     if (!cwd) return { ok: false, message: 'Missing cwd.' };
     try {
       let pushArgs = ['push'];
+      let hasUpstream = false;
 
       try {
         const { stdout: upstreamStdout } = await execFileAsync(
@@ -5339,11 +5734,27 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         const upstreamRef = upstreamStdout.trim();
         const upstreamMatch = upstreamRef.match(/^([^/]+)\/(.+)$/);
         if (upstreamMatch) {
+          hasUpstream = true;
           const [, remoteName, remoteBranchName] = upstreamMatch;
           pushArgs = ['push', remoteName, `HEAD:${remoteBranchName}`];
         }
       } catch {
-        // Fall back to the repository's default push behavior when no upstream exists.
+        hasUpstream = false;
+      }
+
+      if (!hasUpstream) {
+        const [{ stdout: branchStdout }, originRemote] = await Promise.all([
+          execFileAsync('git', ['branch', '--show-current'], { cwd, timeout: 5000 }),
+          getGitOriginRemote(cwd),
+        ]);
+        const branch = branchStdout.trim();
+        if (!originRemote) {
+          return { ok: false, message: 'No origin remote is configured for this repository.' };
+        }
+        if (!branch || branch === 'HEAD') {
+          return { ok: false, message: 'Cannot publish a detached HEAD. Create or checkout a branch first.' };
+        }
+        pushArgs = ['push', '-u', 'origin', `HEAD:${branch}`];
       }
 
       const { stdout, stderr } = await execFileAsync('git', pushArgs, {
@@ -5397,6 +5808,53 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       const combined = [err.stderr, err.stdout, err.message].filter(Boolean).join('\n').trim();
       return { ok: false, message: combined || 'gh pr create failed.' };
     }
+  });
+
+  ipcMainHandle('get-environment-editor-launchers', async () => {
+    return getEnvironmentEditorLaunchers();
+  });
+
+  ipcMainHandle('open-in-editor', async (_event, input: OpenInEditorInput) => {
+    return openInEnvironmentEditor(input);
+  });
+
+  ipcMainHandle('get-session-environment-context', async (_event, sessionId: string) => {
+    const session = sessionId ? sessions.getSession(sessionId) : null;
+    if (!session) {
+      return { ok: false, message: 'Session not found.' };
+    }
+    return {
+      ok: true,
+      context: {
+        sessionId,
+        note: sessions.getSessionEnvironmentNote(sessionId),
+        recap: sessions.getSessionEnvironmentRecap(sessionId),
+      },
+    };
+  });
+
+  ipcMainHandle('save-session-environment-note', async (_event, sessionId: string, note: string) => {
+    const session = sessionId ? sessions.getSession(sessionId) : null;
+    if (!session) {
+      return { ok: false, message: 'Session not found.' };
+    }
+    const safeNote = String(note ?? '').slice(0, 8000);
+    return {
+      ok: true,
+      note: sessions.saveSessionEnvironmentNote(sessionId, safeNote),
+    };
+  });
+
+  ipcMainHandle('refresh-session-environment-recap', async (_event, sessionId: string) => {
+    const session = sessionId ? sessions.getSession(sessionId) : null;
+    if (!session) {
+      return { ok: false, message: 'Session not found.' };
+    }
+    const summary = buildEnvironmentRecap(sessionId);
+    return {
+      ok: true,
+      recap: sessions.saveSessionEnvironmentRecap(sessionId, summary),
+    };
   });
 
   ipcMainHandle('open-external-url', async (_event, url: string) => {

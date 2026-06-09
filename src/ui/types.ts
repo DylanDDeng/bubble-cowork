@@ -16,6 +16,7 @@ import type {
   CodexReasoningEffort,
   ProjectTreeNode,
   FolderConfig,
+  GitPatchScope,
   SessionScope,
 } from '../shared/types';
 
@@ -118,6 +119,8 @@ export type {
   PromptLibraryImportResult,
   PromptLibraryExportResult,
   FolderConfig,
+  GitPatchScope,
+  GitPatchResult,
   CanonicalToolKind,
   WorkspaceChannel,
   TeamProfile,
@@ -157,6 +160,32 @@ export type ProjectUtilityTabDescriptor = {
   kind: ProjectUtilityPanelKind;
   label: string;
 };
+
+export type ReviewDiffSource =
+  | {
+      kind: 'turn';
+      turnKey: string;
+      label: string;
+      sessionId?: string | null;
+    }
+  | {
+      kind: 'workspace';
+      scope: GitPatchScope;
+      label?: string | null;
+    };
+
+export interface ReviewDiffSelection {
+  source: ReviewDiffSource;
+  records?: import('./utils/change-records').ChangeRecord[];
+  selectedRecordId?: string | null;
+  selectedFilePath?: string | null;
+  requestedAt: number;
+}
+
+export type ReviewDiffSelectionInput = Omit<ReviewDiffSelection, 'requestedAt'> & {
+  requestedAt?: number;
+};
+
 export type AgentProfileColor = 'amber' | 'sky' | 'emerald' | 'violet' | 'rose' | 'slate';
 export type AgentPermissionPolicy = 'ask' | 'readOnly' | 'fullAccess';
 export type AgentReasoningEffort = ClaudeReasoningEffort | CodexReasoningEffort | AegisBuiltInReasoningEffort;
@@ -279,10 +308,11 @@ export interface AppState {
   projectPanelView: ProjectPanelView;
   rightUtilityTabs: ProjectUtilityPanelTarget[];
   activeRightUtilityTab: ProjectUtilityPanelTarget | null;
+  reviewDiffSelection: ReviewDiffSelection | null;
   terminalDrawerOpen: boolean;
   terminalDrawerHeight: number;
   browserPanelOpen: boolean;
-  rightPanelFullscreen: 'browser' | 'files' | null;
+  rightPanelFullscreen: 'browser' | 'files' | 'review' | null;
   sessionsLoaded: boolean;
   // 搜索状态
   sidebarSearchQuery: string;
@@ -375,12 +405,14 @@ export interface AppActions {
     target: ProjectUtilityPanelKind,
     options?: { newTab?: boolean }
   ) => void;
+  setReviewDiffSelection: (selection: ReviewDiffSelectionInput | null) => void;
+  openReviewDiff: (selection: ReviewDiffSelectionInput) => void;
   closeRightUtilityTab: (target: ProjectUtilityPanelTarget) => void;
   closeRightUtilityPanels: () => void;
   setTerminalDrawerOpen: (open: boolean) => void;
   setTerminalDrawerHeight: (height: number) => void;
   setBrowserPanelOpen: (open: boolean) => void;
-  setRightPanelFullscreen: (target: 'browser' | 'files' | null) => void;
+  setRightPanelFullscreen: (target: 'browser' | 'files' | 'review' | null) => void;
   applyUiResumeState: (state: import('../shared/types').UiResumeState | null) => void;
   clearGlobalError: () => void;
   setPendingStart: (pending: boolean) => void;

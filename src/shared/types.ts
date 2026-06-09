@@ -834,6 +834,96 @@ export interface GitBranchInfo {
   worktreePath?: string | null;
 }
 
+export type GitPullRequestLookupStatus = 'found' | 'not_found' | 'unknown';
+
+export interface GitPullRequestSummary {
+  number: number;
+  title: string;
+  state: 'open' | 'closed' | 'merged';
+  url: string;
+}
+
+export interface GitRepositoryInfo {
+  root: string | null;
+  originUrl: string | null;
+  owner: string | null;
+  name: string | null;
+  fullName: string | null;
+  webUrl: string | null;
+  defaultBranch: string | null;
+}
+
+export interface GitOverviewResult {
+  ok: boolean;
+  error: string | null;
+  hasRepo: boolean;
+  repoRoot: string | null;
+  repository: GitRepositoryInfo | null;
+  branch: string | null;
+  upstream: string | null;
+  hasUpstream: boolean;
+  aheadCount: number;
+  behindCount: number;
+  hasOriginRemote: boolean;
+  isGitHubRemote: boolean;
+  isDefaultBranch: boolean;
+  totalChanges: number;
+  insertions: number;
+  deletions: number;
+  prStatus: GitPullRequestLookupStatus;
+  pr: GitPullRequestSummary | null;
+}
+
+export interface GitChangeEntry {
+  filePath: string;
+  status: string;
+  staged: boolean;
+}
+
+export type GitPatchScope = 'working-tree' | 'unstaged' | 'staged' | 'branch';
+
+export interface GitPatchResult {
+  ok: boolean;
+  error: string | null;
+  scope: GitPatchScope;
+  patch: string;
+  repoRoot: string | null;
+  baseRef?: string | null;
+  truncated: boolean;
+}
+
+export type EnvironmentEditorId = 'finder' | 'system' | 'cursor' | 'vscode';
+
+export interface EnvironmentEditorLauncher {
+  id: EnvironmentEditorId;
+  label: string;
+  available: boolean;
+}
+
+export interface OpenInEditorInput {
+  cwd: string;
+  editorId: EnvironmentEditorId;
+}
+
+export interface SessionEnvironmentNote {
+  sessionId: string;
+  note: string;
+  updatedAt: number | null;
+}
+
+export interface SessionEnvironmentRecap {
+  sessionId: string;
+  summary: string;
+  updatedAt: number | null;
+  source: 'derived' | 'generated' | 'empty';
+}
+
+export interface SessionEnvironmentContext {
+  sessionId: string;
+  note: SessionEnvironmentNote;
+  recap: SessionEnvironmentRecap;
+}
+
 export interface GitCheckoutBranchInput {
   cwd: string;
   branch: string;
