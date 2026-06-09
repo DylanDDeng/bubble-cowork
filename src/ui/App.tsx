@@ -2,6 +2,7 @@ import { useEffect, useRef, useMemo, useState, useCallback, type ReactNode } fro
 import * as Dialog from '@radix-ui/react-dialog';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Toaster, toast } from 'sonner';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Check,
   CloudUpload,
@@ -840,8 +841,10 @@ export function App() {
       )}
       </div>
 
+      <AnimatePresence initial={false}>
       {!showSettings && activeWorkspace === 'chat' && activeUtilityPanel !== null ? (
         <RightUtilityWorkspace
+          key="right-utility-workspace"
           activePanel={activeUtilityPanel}
           tabs={rightUtilityTabDescriptors}
           activeTab={
@@ -930,6 +933,7 @@ export function App() {
           />
         </RightUtilityWorkspace>
       ) : null}
+      </AnimatePresence>
 
       {!showSettings && activeWorkspace === 'chat' && activeUtilityPanel === null ? (
         <div className="fixed right-3 top-2.5 z-[90] no-drag">
@@ -995,6 +999,13 @@ function RightUtilityWorkspace({
   const resizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(width);
+  // Fullscreen swaps to flex-1/auto sizing while the chat pane hides instantly,
+  // so animating width across that toggle would lag behind the layout change.
+  const wasFullscreenRef = useRef(fullscreen);
+  const skipWidthAnimation = isResizing || fullscreen || wasFullscreenRef.current;
+  useEffect(() => {
+    wasFullscreenRef.current = fullscreen;
+  }, [fullscreen]);
 
   const handleResizeStart = (event: React.MouseEvent<HTMLDivElement>) => {
     if (fullscreen) return;
@@ -1031,16 +1042,19 @@ function RightUtilityWorkspace({
   }, [isResizing, onWidthChange]);
 
   return (
-    <div
+    <motion.div
       data-right-utility-workspace
       data-active-panel={activePanel ?? 'none'}
       className={`relative flex h-full min-w-0 flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--bg-primary)] ${
         fullscreen ? 'flex-1' : 'flex-shrink-0'
       }`}
-      style={
-        fullscreen
-          ? { width: 'auto' }
-          : { width }
+      initial={{ width: 0 }}
+      animate={{ width: fullscreen ? 'auto' : width }}
+      exit={{ width: 0, transition: { type: 'tween', duration: 0.2, ease: [0.32, 0.72, 0, 1] } }}
+      transition={
+        skipWidthAnimation
+          ? { duration: 0 }
+          : { type: 'tween', duration: 0.24, ease: [0.32, 0.72, 0, 1] }
       }
     >
       {!fullscreen ? (
@@ -1052,21 +1066,26 @@ function RightUtilityWorkspace({
         </div>
       ) : null}
 
-      <RightUtilityTabStrip
-        tabs={tabs}
-        activeTab={activeTab}
-        activePanel={activePanel}
-        browserAvailable={browserAvailable}
-        onSelectTab={onSelectTab}
-        onCloseTab={onCloseTab}
-        onOpenTab={onOpenTab}
-        onTogglePanel={onTogglePanel}
-      />
+      <div
+        className="flex h-full min-h-0 flex-col"
+        style={fullscreen ? { width: '100%' } : { width }}
+      >
+        <RightUtilityTabStrip
+          tabs={tabs}
+          activeTab={activeTab}
+          activePanel={activePanel}
+          browserAvailable={browserAvailable}
+          onSelectTab={onSelectTab}
+          onCloseTab={onCloseTab}
+          onOpenTab={onOpenTab}
+          onTogglePanel={onTogglePanel}
+        />
 
-      <div className="relative min-h-0 flex-1 overflow-hidden">
-        {children}
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          {children}
+        </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
