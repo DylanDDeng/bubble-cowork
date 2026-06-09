@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { FolderClosed, FolderOpen, ChevronDown, ChevronLeft, ChevronRight, Copy, Check, X, RefreshCw, Maximize2, Minimize2, File, FileDiff, Files, FileAddIcon, FolderAddIcon, Trash2 } from './icons';
+import { FolderClosed, FolderOpen, ChevronDown, ChevronLeft, ChevronRight, Copy, Check, X, Maximize2, Minimize2, File, Files, FileAddIcon, FolderAddIcon, Trash2 } from './icons';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
@@ -26,19 +26,9 @@ import {
   type WeChatAiThemeId,
   type WeChatStaticThemeId,
 } from '../lib/wechatMarkdown';
-import {
-  applyDiffToChangeRecord,
-  applyTextMetaToChangeRecord,
-  extractToolChangeRecords,
-  getOperationLabel,
-  mergeChangeRecords,
-  summarizeChangeRecords,
-  type ChangeOperation,
-  type ChangeRecord,
-} from '../utils/change-records';
-import type { ProjectTreeNode } from '../types';
+import type { ProjectTreeNode, ProjectUtilityPanelKind } from '../types';
 
-type ProjectPanelTab = 'files' | 'changes';
+type ProjectPanelTab = 'files';
 type ViewMode = 'view' | 'code' | 'split';
 type ProjectEditorFlushResult = { ok: boolean; message?: string };
 type ProjectPanelDimensions = {
@@ -50,7 +40,6 @@ type ProjectPanelDimensions = {
 
 const PANEL_DIMENSIONS: Record<ProjectPanelTab, ProjectPanelDimensions> = {
   files: { defaultWidth: 300, minWidth: 240, maxWidth: 520, title: 'Files' },
-  changes: { defaultWidth: 360, minWidth: 320, maxWidth: 560, title: 'Changes' },
 };
 
 const LEGACY_PROJECT_PANEL_WIDTH_STORAGE_KEY = 'cowork.projectPanelWidth';
@@ -554,22 +543,34 @@ function ProjectTreeNodeIcon({
     </span>
   );
 }
+
 export function ProjectTreePanel({
   collapsed = false,
   activeTab,
   onClose,
+  onActiveFileTabChange,
+  sharedPanelWidth,
+  onSharedPanelWidthChange,
+  onOpenUtilityTab,
   isFullscreen = false,
   onToggleFullscreen,
+  topInset = 0,
+  embedded = false,
 }: {
   collapsed?: boolean;
   activeTab: ProjectPanelTab;
   onClose: () => void;
+  onActiveFileTabChange?: (file: { filePath: string; name: string } | null) => void;
+  sharedPanelWidth?: number;
+  onSharedPanelWidthChange?: (width: number) => void;
+  onOpenUtilityTab?: (target: ProjectUtilityPanelKind) => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  topInset?: number;
+  embedded?: boolean;
 }) {
-  const MIN_CHANGES_SPINNER_MS = 450;
   const panelMeta = PANEL_DIMENSIONS[activeTab];
-  const PanelTitleIcon = activeTab === 'files' ? Files : FileDiff;
+  const PanelTitleIcon = Files;
   const defaultRailWidth = panelMeta.defaultWidth;
   const minRailWidth = panelMeta.minWidth;
   const maxRailWidth = panelMeta.maxWidth;
@@ -597,6 +598,7 @@ export function ProjectTreePanel({
   const panelStartXRef = useRef(0);
   const panelStartWidthRef = useRef(defaultRailWidth);
   const latestPanelWidthRef = useRef(defaultRailWidth);
+  const panelResizingSharedWidthRef = useRef(false);
   const [previewPanelWidth, setPreviewPanelWidth] = useState(defaultPreviewWidth);
   const previewResizingRef = useRef(false);
   const [isPreviewResizing, setIsPreviewResizing] = useState(false);
@@ -624,6 +626,23 @@ export function ProjectTreePanel({
   const activeMarkdownBridgeRef = useRef<ProjectMarkdownEditorBridge | null>(null);
   const activeTextEditorBridgeRef = useRef<ProjectTextEditorHandle | null>(null);
   const [wechatAiGeneratingTheme, setWechatAiGeneratingTheme] = useState<WeChatAiThemeId | null>(null);
+  const normalizedSharedPanelWidth =
+    typeof sharedPanelWidth === 'number' && Number.isFinite(sharedPanelWidth)
+      ? sharedPanelWidth
+      : null;
+  const usesSharedPanelWidth =
+    normalizedSharedPanelWidth !== null &&
+    !isFullscreen;
+  const visiblePanelWidth =
+    normalizedSharedPanelWidth !== null && !isFullscreen && !selectedFilePath
+      ? normalizedSharedPanelWidth
+      : panelWidth;
+  const useEmbeddedFilesGrid = embedded && activeTab === 'files';
+  const projectRailWidth = Math.min(maxRailWidth, Math.max(minRailWidth, panelWidth));
+  const projectPreviewViewportWidth = Math.max(
+    minPreviewWidth,
+    (normalizedSharedPanelWidth ?? projectRailWidth + previewPanelWidth) - projectRailWidth
+  );
   // Every disk content we have loaded, saved, or applied for the open file.
   // The watcher only treats an event as a genuine external change when its
   // content is NOT in this set. A set (not a single value) is required because
@@ -730,11 +749,6 @@ export function ProjectTreePanel({
   const [projectDropHoverId, setProjectDropHoverId] = useState<string | null>(null);
   const [movingProjectEntryPath, setMovingProjectEntryPath] = useState<string | null>(null);
 
-  const [changeRecords, setChangeRecords] = useState<ChangeRecord[]>([]);
-  const [changesError, setChangesError] = useState<string | null>(null);
-  const [changesLoading, setChangesLoading] = useState(false);
-  const [expandedChangeId, setExpandedChangeId] = useState<string | null>(null);
-
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
   const activeCwd = activeSession?.cwd || null;
   const cwd = activeCwd || projectCwd || null;
@@ -745,7 +759,6 @@ export function ProjectTreePanel({
   const tabRefreshSequenceRef = useRef(0);
   const tabRefreshTokensRef = useRef<Map<string, number>>(new Map());
   const shouldWatchProjectTree = !collapsed && activeTab === 'files';
-  const shouldRefreshChangeRecords = !collapsed && activeTab === 'changes';
 
   useEffect(() => {
     openFileTabsRef.current = openFileTabs;
@@ -754,6 +767,15 @@ export function ProjectTreePanel({
   useEffect(() => {
     activeFileTabIdRef.current = activeFileTabId;
   }, [activeFileTabId]);
+
+  useEffect(() => {
+    if (!onActiveFileTabChange) return;
+    onActiveFileTabChange(
+      selectedFilePath
+        ? { filePath: selectedFilePath, name: basenameOfPath(selectedFilePath) }
+        : null
+    );
+  }, [onActiveFileTabChange, selectedFilePath]);
 
   const captureActiveEditorViewState = useCallback(() => {
     if (!activeFileTabId) return;
@@ -934,111 +956,6 @@ export function ProjectTreePanel({
     updateOpenFileTabs,
   ]);
 
-  const loadChangeRecords = async () => {
-    if (!cwd) return;
-    const startedAt = Date.now();
-    setChangesLoading(true);
-    setChangesError(null);
-    try {
-      const toolRecords = extractToolChangeRecords(activeSession?.messages || []);
-      const result = await window.electron.getGitChanges(cwd);
-      if (result.ok) {
-        const merged = mergeChangeRecords(toolRecords, result.entries);
-        const enriched = await enrichChangeRecords(cwd, merged);
-        setChangeRecords(enriched);
-        setChangesError(null);
-      } else if (result.error === 'not-a-repo') {
-        setChangeRecords(toolRecords);
-        setChangesError(toolRecords.length > 0 ? null : 'not-a-repo');
-      } else {
-        setChangesError(result.error);
-        setChangeRecords(toolRecords);
-      }
-    } catch {
-      setChangesError('git-error');
-      setChangeRecords([]);
-    } finally {
-      const elapsed = Date.now() - startedAt;
-      const remaining = Math.max(MIN_CHANGES_SPINNER_MS - elapsed, 0);
-      window.setTimeout(() => {
-        setChangesLoading(false);
-      }, remaining);
-    }
-  };
-
-  // Reload changes when tab activates, cwd changes, or session messages update
-  const messageCount = activeSession?.messages.length ?? 0;
-  const sessionStatus = activeSession?.status;
-  const changeSummary = useMemo(
-    () => summarizeChangeRecords(changeRecords),
-    [changeRecords]
-  );
-
-  const enrichChangeRecords = async (
-    currentCwd: string,
-    records: ChangeRecord[]
-  ): Promise<ChangeRecord[]> => {
-    const enriched = await Promise.all(
-      records.map(async (record) => {
-        let next = record;
-
-        if (
-          record.source === 'git' ||
-          (record.operation === 'edit' && !record.diffContent) ||
-          (record.operation === 'delete' && !record.diffContent)
-        ) {
-          try {
-            const diff = await window.electron.getGitDiff(currentCwd, record.filePath);
-            if (diff.trim()) {
-              next = applyDiffToChangeRecord(next, diff);
-            }
-          } catch {
-            // Ignore per-file diff failures and keep the record visible.
-          }
-        }
-
-        if (next.sizeBytes === null || next.lineCount === null) {
-          try {
-            const preview = (await window.electron.readProjectFilePreview(
-              currentCwd,
-              next.filePath
-            )) as ProjectFilePreview | null;
-
-            if (
-              preview &&
-              (preview.kind === 'text' || preview.kind === 'markdown' || preview.kind === 'html')
-            ) {
-              next = applyTextMetaToChangeRecord(next, preview.text, preview.size);
-            } else if (preview && 'size' in preview && typeof preview.size === 'number') {
-              next = {
-                ...next,
-                sizeBytes: next.sizeBytes ?? preview.size,
-              };
-            }
-          } catch {
-            // Deleted or unreadable files simply stay without size metadata.
-          }
-        }
-
-        return next;
-      })
-    );
-
-    return enriched;
-  };
-
-  useEffect(() => {
-    if (cwd && shouldRefreshChangeRecords) {
-      void loadChangeRecords();
-      return;
-    }
-
-    if (!cwd) {
-      setChangeRecords([]);
-      setChangesError(null);
-    }
-  }, [cwd, messageCount, sessionStatus, shouldRefreshChangeRecords]);
-
   useEffect(() => {
     latestPanelWidthRef.current = panelWidth;
   }, [panelWidth]);
@@ -1060,21 +977,6 @@ export function ProjectTreePanel({
       return;
     }
 
-    if (activeTab === 'changes') {
-      const legacyPanelWidth = parseStoredPanelWidth(
-        window.localStorage.getItem(LEGACY_PROJECT_PANEL_WIDTH_STORAGE_KEY),
-        minRailWidth,
-        maxRailWidth,
-        defaultRailWidth
-      );
-      if (legacyPanelWidth !== null) {
-        window.localStorage.setItem(storageKey, String(legacyPanelWidth));
-        window.localStorage.removeItem(LEGACY_PROJECT_PANEL_WIDTH_STORAGE_KEY);
-        setPanelWidth(legacyPanelWidth);
-        return;
-      }
-    }
-
     setPanelWidth(defaultRailWidth);
   }, [activeTab, defaultRailWidth, minRailWidth, maxRailWidth]);
 
@@ -1091,8 +993,17 @@ export function ProjectTreePanel({
     let cancelled = false;
     const current = cwd?.trim() || '';
 
-    if (!current || !shouldWatchProjectTree) {
+    if (!current) {
       setProjectTree(null, null);
+      setProjectTreeError(null);
+      if (prevCwdRef.current) {
+        window.electron.unwatchProjectTree(prevCwdRef.current);
+        prevCwdRef.current = null;
+      }
+      return;
+    }
+
+    if (!shouldWatchProjectTree) {
       setProjectTreeError(null);
       if (prevCwdRef.current) {
         window.electron.unwatchProjectTree(prevCwdRef.current);
@@ -1171,9 +1082,6 @@ export function ProjectTreePanel({
     draggedProjectEntryRef.current = null;
     setProjectDropHoverId(null);
     setMovingProjectEntryPath(null);
-    setChangeRecords([]);
-    setChangesError(null);
-    setExpandedChangeId(null);
   }, [cwd, setDraftTextSynced, setSaveStateSynced, updateOpenFileTabs]);
 
   useEffect(() => {
@@ -1181,6 +1089,37 @@ export function ProjectTreePanel({
       Math.min(maxRailWidth, Math.max(minRailWidth, current || defaultRailWidth))
     );
   }, [defaultRailWidth, minRailWidth, maxRailWidth]);
+
+  useEffect(() => {
+    if (!usesSharedPanelWidth || !selectedFilePath || normalizedSharedPanelWidth === null) return;
+
+    const maxRailForSharedWidth = Math.min(
+      maxRailWidth,
+      Math.max(minRailWidth, normalizedSharedPanelWidth - minPreviewWidth)
+    );
+
+    if (panelWidth > maxRailForSharedWidth) {
+      setPanelWidth(maxRailForSharedWidth);
+      return;
+    }
+
+    const nextPreviewWidth = Math.min(
+      maxPreviewWidth,
+      Math.max(minPreviewWidth, normalizedSharedPanelWidth - panelWidth)
+    );
+    setPreviewPanelWidth((current) =>
+      current === nextPreviewWidth ? current : nextPreviewWidth
+    );
+  }, [
+    maxPreviewWidth,
+    maxRailWidth,
+    minPreviewWidth,
+    minRailWidth,
+    normalizedSharedPanelWidth,
+    panelWidth,
+    selectedFilePath,
+    usesSharedPanelWidth,
+  ]);
 
   useEffect(() => {
     if (!visibleTree?.path) return;
@@ -1274,8 +1213,12 @@ export function ProjectTreePanel({
           sessionId: activeSessionId,
         });
         if (previewRequestIdRef.current !== requestId) return;
-        setBrowserPanelOpen(true);
-        setProjectTreeCollapsed(true);
+        if (onOpenUtilityTab) {
+          onOpenUtilityTab('browser');
+        } else {
+          setBrowserPanelOpen(true);
+          setProjectTreeCollapsed(true);
+        }
       } catch (error) {
         if (previewRequestIdRef.current !== requestId) return;
         toast.error(`Failed to open in browser panel: ${error}`);
@@ -1360,6 +1303,7 @@ export function ProjectTreePanel({
     prepareActiveFileForTransition,
     refreshFileTabFromDisk,
     selectedFilePath,
+    onOpenUtilityTab,
     setBrowserPanelOpen,
     setProjectTreeCollapsed,
     setDraftTextSynced,
@@ -2032,8 +1976,8 @@ export function ProjectTreePanel({
     if (wechatAiGeneratingTheme) return;
     activeMarkdownBridgeRef.current?.flush();
     setWechatAiGeneratingTheme(themeId);
-    const loadingToastId = toast.loading(`正在生成${themeLabel} HTML...`, {
-      description: '生成完成后会自动复制到公众号剪贴板',
+    const loadingToastId = toast.loading(`Generating ${themeLabel} HTML...`, {
+      description: 'It will be copied to the WeChat clipboard when ready',
       duration: Infinity,
       dismissible: false,
     });
@@ -2069,19 +2013,6 @@ export function ProjectTreePanel({
       document.body.style.userSelect = '';
     };
   }, []);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    const showPreview = !collapsed && selectedFilePath;
-    root.style.setProperty(
-      '--project-preview-space',
-      showPreview ? `${previewPanelWidth}px` : '0px'
-    );
-
-    return () => {
-      root.style.setProperty('--project-preview-space', '0px');
-    };
-  }, [collapsed, selectedFilePath, previewPanelWidth]);
 
   const selectedEditableTextPreview =
     isEditableProjectFilePreview(selectedPreview)
@@ -2202,7 +2133,6 @@ export function ProjectTreePanel({
         rememberDiskContent(textToSave);
         setSelectedPreview(savedPreview);
         ensureOpenFileTab(savedPreview, selectedFileCwd, selectedFilePath, viewMode, textToSave);
-        void loadChangeRecords();
         savedOk = true;
         setSaveStateSynced('saved');
         window.setTimeout(() => {
@@ -2506,7 +2436,9 @@ export function ProjectTreePanel({
       maxPreviewWidth,
       Math.max(minPreviewWidth, startWidthRef.current + delta)
     );
+    latestPreviewWidthRef.current = nextPreviewWidth;
     setPreviewPanelWidth(nextPreviewWidth);
+    onSharedPanelWidthChange?.(latestPanelWidthRef.current + nextPreviewWidth);
   };
 
   const finishPreviewResize = () => {
@@ -2544,10 +2476,15 @@ export function ProjectTreePanel({
   const handlePanelResizeMove = (clientX: number) => {
     if (!panelResizingRef.current) return;
     const delta = panelStartXRef.current - clientX;
+    if (panelResizingSharedWidthRef.current && onSharedPanelWidthChange) {
+      onSharedPanelWidthChange(panelStartWidthRef.current + delta);
+      return;
+    }
     const nextPanelWidth = Math.min(
       maxRailWidth,
       Math.max(minRailWidth, panelStartWidthRef.current + delta)
     );
+    latestPanelWidthRef.current = nextPanelWidth;
     setPanelWidth(nextPanelWidth);
   };
 
@@ -2557,6 +2494,10 @@ export function ProjectTreePanel({
     setIsPanelResizing(false);
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
+    if (panelResizingSharedWidthRef.current) {
+      panelResizingSharedWidthRef.current = false;
+      return;
+    }
     window.localStorage.setItem(
       getProjectPanelWidthStorageKey(activeTab),
       String(latestPanelWidthRef.current)
@@ -2601,9 +2542,13 @@ export function ProjectTreePanel({
     event.preventDefault();
     event.stopPropagation();
     panelResizingRef.current = true;
+    panelResizingSharedWidthRef.current =
+      !embedded && usesSharedPanelWidth && !selectedFilePath && Boolean(onSharedPanelWidthChange);
     setIsPanelResizing(true);
     panelStartXRef.current = event.clientX;
-    panelStartWidthRef.current = panelWidth;
+    panelStartWidthRef.current = panelResizingSharedWidthRef.current
+      ? visiblePanelWidth
+      : panelWidth;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   };
@@ -2663,6 +2608,7 @@ export function ProjectTreePanel({
     ? openFileTabs.find((tab) => tab.id === activeFileTabId) || null
     : null;
   const showProjectFileTabs = openFileTabs.length > 0;
+  const showFilePreviewSurface = activeTab === 'files' && !!selectedFilePath;
   const canCopyWechat =
     selectedPreview?.kind === 'markdown' &&
     selectedPreview.editable &&
@@ -2695,11 +2641,25 @@ export function ProjectTreePanel({
       )}
 
       <div
-        className={`aegis-project-panel relative flex h-full flex-col border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] font-sans transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-          isFullscreen ? 'flex-1 min-w-0' : 'flex-shrink-0'
-        } ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`}
+        className={
+          embedded
+            ? `aegis-project-panel absolute inset-0 h-full min-h-0 min-w-0 bg-[var(--bg-primary)] font-sans ${
+                collapsed ? 'hidden' : 'flex flex-col'
+              }`
+            : `aegis-project-panel relative flex h-full flex-col border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] font-sans transition-[width,opacity,transform,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                isFullscreen ? 'flex-1 min-w-0' : 'flex-shrink-0'
+              } ${collapsed && !isFullscreen ? 'pointer-events-none' : ''}`
+        }
         style={
-          isFullscreen
+          embedded
+            ? useEmbeddedFilesGrid
+              ? {
+                  display: collapsed ? 'none' : 'grid',
+                  gridTemplateColumns: `minmax(0, 1fr) ${projectRailWidth}px`,
+                  gridTemplateRows: 'auto minmax(0, 1fr)',
+                }
+              : undefined
+            : isFullscreen
             ? {
                 width: 'auto',
                 opacity: 1,
@@ -2707,7 +2667,7 @@ export function ProjectTreePanel({
                 borderLeftWidth: 1,
               }
             : {
-                width: collapsed ? 0 : panelWidth,
+                width: collapsed ? 0 : visiblePanelWidth,
                 opacity: collapsed ? 0 : 1,
                 transform: collapsed ? 'translateX(18px)' : 'translateX(0)',
                 borderLeftWidth: collapsed ? 0 : 1,
@@ -2715,7 +2675,7 @@ export function ProjectTreePanel({
         }
         aria-hidden={collapsed && !isFullscreen}
       >
-        {!selectedFilePath && !isFullscreen && (
+        {!embedded && !selectedFilePath && !isFullscreen && (
           <div
             className="group absolute left-0 top-0 bottom-0 z-10 w-3 -translate-x-1/2 cursor-col-resize no-drag"
             onMouseDown={handlePanelResizeStart}
@@ -2723,8 +2683,37 @@ export function ProjectTreePanel({
             <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
           </div>
         )}
-        {!selectedFilePath && <div className="h-8 drag-region flex-shrink-0 bg-[var(--bg-primary)]" />}
-        <div className="pl-4 pr-2 pt-2 pb-2">
+        {!embedded && topInset > 0 ? (
+          <div
+            className="drag-region flex-shrink-0 bg-[var(--bg-primary)]"
+            style={{ height: topInset }}
+          />
+        ) : !embedded && !selectedFilePath ? (
+          <div className="h-8 drag-region flex-shrink-0 bg-[var(--bg-primary)]" />
+        ) : null}
+        {useEmbeddedFilesGrid && !selectedFilePath ? (
+          <div
+            className="flex min-h-0 min-w-0 flex-col items-center justify-center border-r border-[var(--tree-item-border)] bg-[var(--bg-primary)] px-8 text-center"
+            style={{ gridColumn: 1, gridRow: '1 / span 2' }}
+          >
+            <FolderOpen className="mb-3 h-8 w-8 text-[var(--text-muted)]" aria-hidden="true" />
+            <div className="text-sm font-medium text-[var(--text-primary)]">Open file</div>
+            <div className="mt-1 text-xs text-[var(--text-muted)]">Select a file from the workspace tree</div>
+          </div>
+        ) : null}
+        {useEmbeddedFilesGrid ? (
+          <div
+            className="group absolute bottom-0 top-0 z-10 w-3 -translate-x-1/2 cursor-col-resize no-drag"
+            style={{ left: `calc(100% - ${projectRailWidth}px)` }}
+            onMouseDown={handlePanelResizeStart}
+          >
+            <div className="absolute bottom-0 left-1/2 top-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
+          </div>
+        ) : null}
+        <div
+          className="pl-4 pr-2 pt-2 pb-2"
+          style={useEmbeddedFilesGrid ? { gridColumn: 2, gridRow: 1 } : undefined}
+        >
           <div className="flex items-center justify-between gap-2">
             <div
               className="flex h-7 w-7 shrink-0 items-center justify-center text-[var(--text-muted)]"
@@ -2734,8 +2723,9 @@ export function ProjectTreePanel({
             >
               <PanelTitleIcon className="h-3.5 w-3.5" aria-hidden="true" />
             </div>
-            {activeTab === 'files' && (
-              <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-0.5">
+              {activeTab === 'files' && (
+                <>
                 <IconButton
                   label="New file"
                   size="sm"
@@ -2752,26 +2742,19 @@ export function ProjectTreePanel({
                 >
                   <CreateEntryIcon kind="folder" />
                 </IconButton>
-              </div>
-            )}
-            {activeTab === 'changes' && (
-              <IconButton
-                label="Refresh changes"
-                size="sm"
-                onClick={() => void loadChangeRecords()}
-                disabled={changesLoading}
-                className={changesLoading ? 'cursor-wait bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : undefined}
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${changesLoading ? 'animate-spin' : ''}`} />
-              </IconButton>
-            )}
+                </>
+              )}
+            </div>
           </div>
           {!cwd && (
             <div className="text-xs text-[var(--text-muted)] mt-1">No folder selected</div>
           )}
         </div>
 
-        <div className="flex-1 min-h-0 flex">
+        <div
+          className="flex-1 min-h-0 flex"
+          style={useEmbeddedFilesGrid ? { gridColumn: 2, gridRow: 2, minHeight: 0 } : undefined}
+        >
           <div
             className={`flex-1 overflow-auto px-2.5 pb-3 transition-colors duration-150 ${
               isProjectRootDropTarget ? 'bg-[var(--tree-item-hover)]' : ''
@@ -2919,42 +2902,6 @@ export function ProjectTreePanel({
                 )}
               </>
             )}
-            {activeTab === 'changes' && (
-              <>
-                {!cwd && (
-                  <div className="text-sm text-[var(--text-muted)] px-1 py-2">
-                    Select a folder to view changes.
-                  </div>
-                )}
-                {cwd && changesLoading && changeRecords.length === 0 && (
-                  <div className="text-sm text-[var(--text-muted)] px-1 py-2">
-                    Loading changes...
-                  </div>
-                )}
-                {cwd && !changesLoading && changeRecords.length === 0 && (
-                  <div className="text-sm text-[var(--text-muted)] px-1 py-2">
-                    {changesError === 'not-a-repo'
-                      ? 'Not a git repository. Changes from this session will appear here.'
-                      : changesError === 'git-error'
-                        ? 'Failed to read git status.'
-                        : 'No changes detected.'}
-                  </div>
-                )}
-                {changeRecords.length > 0 && (
-                  <ChangeSummaryHeader summary={changeSummary} />
-                )}
-                {changeRecords.map((entry) => (
-                  <ChangeRecordItem
-                    key={entry.id}
-                    entry={entry}
-                    isExpanded={expandedChangeId === entry.id}
-                    onToggle={() => {
-                      setExpandedChangeId((current) => current === entry.id ? null : entry.id);
-                    }}
-                  />
-                ))}
-              </>
-            )}
           </div>
         </div>
 
@@ -3020,16 +2967,22 @@ export function ProjectTreePanel({
           document.body
         ) : null}
 
-        {selectedFilePath && (
+        {showFilePreviewSurface && (
           <div
-            className="absolute inset-y-0 z-20 border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]"
+            className={
+              useEmbeddedFilesGrid
+                ? 'relative z-0 min-h-0 min-w-0 border-r border-[var(--tree-item-border)] bg-[var(--bg-primary)]'
+                : 'absolute inset-y-0 z-20 border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]'
+            }
             style={
-              isFullscreen
-                ? { left: 0, right: 0, width: 'auto' }
-                : { right: 'calc(100% - 1px)', width: previewPanelWidth }
+              useEmbeddedFilesGrid
+                ? { gridColumn: 1, gridRow: '1 / span 2' }
+                : isFullscreen
+                ? { left: 0, right: 0, top: topInset, bottom: 0, width: 'auto' }
+                : { right: 'calc(100% - 1px)', top: topInset, bottom: 0, width: previewPanelWidth }
             }
           >
-            {!isFullscreen && (
+            {!isFullscreen && !useEmbeddedFilesGrid && (
               <div
                 className="group absolute left-0 top-0 bottom-0 w-3 -translate-x-1/2 cursor-col-resize no-drag"
                 onMouseDown={handlePreviewResizeStart}
@@ -3043,13 +2996,12 @@ export function ProjectTreePanel({
                 <div
                   className={`aegis-project-file-tabs${isFullscreen ? ' window-controls-inset' : ''} drag-region flex h-11 flex-shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-primary)] pl-2 pr-2`}
                 >
-                  <div className="no-drag flex min-w-0 flex-1 items-end overflow-x-auto">
-                    {openFileTabs.map((tab) => {
-                      const activeTab = tab.id === activeFileTabId;
-                      const dirty = activeTab && canSaveText;
-                      return (
-                        <button
-                          key={tab.id}
+	                  <div className="no-drag flex min-w-0 flex-1 items-end overflow-x-auto">
+	                    {openFileTabs.map((tab) => {
+	                      const activeTab = tab.id === activeFileTabId;
+	                      return (
+	                        <button
+	                          key={tab.id}
                           type="button"
                           onClick={() => void activateProjectFileTab(tab)}
                           className={`group flex h-9 max-w-[190px] min-w-[112px] items-center gap-1.5 rounded-t-[7px] border border-b-0 px-2.5 text-left text-xs transition-colors ${
@@ -3058,11 +3010,10 @@ export function ProjectTreePanel({
                               : 'border-transparent bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
                           }`}
                           title={tab.filePath}
-                        >
-                          <FileTypeIcon name={tab.name} className="h-3.5 w-3.5 flex-shrink-0" fallbackClassName="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-secondary)]" />
-                          <span className="min-w-0 flex-1 truncate">{tab.name}</span>
-                          {dirty && <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[var(--accent)]" aria-label="Unsaved changes" />}
-                          <span
+	                        >
+	                          <FileTypeIcon name={tab.name} className="h-3.5 w-3.5 flex-shrink-0" fallbackClassName="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-secondary)]" />
+	                          <span className="min-w-0 flex-1 truncate">{tab.name}</span>
+	                          <span
                             role="button"
                             tabIndex={0}
                             aria-label={`Close ${tab.name}`}
@@ -3102,35 +3053,18 @@ export function ProjectTreePanel({
                             : undefined
                         }
                       />
-                    )}
+	                    )}
 
-                    {canSaveText && (
-                      <button
-                        onClick={() => {
-                          void handleSaveText();
-                        }}
-                        disabled={saveState === 'saving'}
-                        className="px-2 py-1 text-xs rounded-md bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Save"
-                      >
-                        {saveState === 'saving'
-                          ? 'Saving...'
-                          : saveState === 'saved'
-                            ? 'Saved'
-                            : 'Save'}
-                      </button>
-                    )}
-
-                    {canCopyWechat && (
+	                    {canCopyWechat && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <button
                             type="button"
                             className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-2 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                            title="公众号主题"
-                            aria-label="公众号主题"
+                            title="WeChat Theme"
+                            aria-label="WeChat Theme"
                           >
-                            <span>公众号主题</span>
+                            <span>WeChat Theme</span>
                             <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
                           </button>
                         </DropdownMenuTrigger>
@@ -3144,22 +3078,22 @@ export function ProjectTreePanel({
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             disabled={wechatAiGeneratingTheme !== null}
-                            onSelect={() => void handleCopyAiWechatHtml('black-red-imprint', '黑红刊刻风')}
+                            onSelect={() => void handleCopyAiWechatHtml('black-red-imprint', 'Black Red Imprint')}
                           >
                             <span>
                               {wechatAiGeneratingTheme === 'black-red-imprint'
-                                ? '黑红刊刻风生成中...'
-                                : '黑红刊刻风（AI）'}
+                                ? 'Black Red Imprint generating...'
+                                : 'Black Red Imprint (AI)'}
                             </span>
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             disabled={wechatAiGeneratingTheme !== null}
-                            onSelect={() => void handleCopyAiWechatHtml('black-orange-imprint', '黑橙刊刻风')}
+                            onSelect={() => void handleCopyAiWechatHtml('black-orange-imprint', 'Black Orange Imprint')}
                           >
                             <span>
                               {wechatAiGeneratingTheme === 'black-orange-imprint'
-                                ? '黑橙刊刻风生成中...'
-                                : '黑橙刊刻风（AI）'}
+                                ? 'Black Orange Imprint generating...'
+                                : 'Black Orange Imprint (AI)'}
                             </span>
                           </DropdownMenuItem>
                         </DropdownMenuContent>
@@ -3219,26 +3153,9 @@ export function ProjectTreePanel({
                             : undefined
                         }
                       />
-                    )}
+	                    )}
 
-                    {canSaveText && (
-                      <button
-                        onClick={() => {
-                          void handleSaveText();
-                        }}
-                        disabled={saveState === 'saving'}
-                        className="px-2 py-1 text-xs rounded-md bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Save"
-                      >
-                        {saveState === 'saving'
-                          ? 'Saving...'
-                          : saveState === 'saved'
-                            ? 'Saved'
-                            : 'Save'}
-                      </button>
-                    )}
-
-                    {onToggleFullscreen && (
+	                    {onToggleFullscreen && (
                       <IconButton
                         onClick={onToggleFullscreen}
                         tooltip={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
@@ -3324,14 +3241,14 @@ export function ProjectTreePanel({
                   <PdfPreview preview={selectedPreview} />
                 )}
 
-                {!previewLoading && selectedPreview?.kind === 'pptx' && (
-                  <PptxPreview
-                    preview={selectedPreview}
-                    slideIndex={pptxSlideIndex}
-                    onSlideIndexChange={setPptxSlideIndex}
-                    viewportWidth={previewPanelWidth}
-                  />
-                )}
+	                {!previewLoading && selectedPreview?.kind === 'pptx' && (
+	                  <PptxPreview
+	                    preview={selectedPreview}
+	                    slideIndex={pptxSlideIndex}
+	                    onSlideIndexChange={setPptxSlideIndex}
+	                    viewportWidth={useEmbeddedFilesGrid ? projectPreviewViewportWidth : previewPanelWidth}
+	                  />
+	                )}
 
                 {!previewLoading && selectedPreview?.kind === 'markdown' && (
                   selectedPreview.editable && selectedFileCwd && selectedFilePath ? (
@@ -3393,11 +3310,10 @@ export function ProjectTreePanel({
                             revealTarget={mdxRevealTarget}
                           />
                         </div>
-                        <MdxStatusBar
-                          dirty={canSaveText}
-                          saveState={saveState}
-                          saveError={saveError}
-                          issueCount={mdxIssueCount}
+	                        <MdxStatusBar
+	                          saveState={saveState}
+	                          saveError={saveError}
+	                          issueCount={mdxIssueCount}
                         />
                       </div>
                     ) : isMdxPreviewSurface ? (
@@ -3424,11 +3340,10 @@ export function ProjectTreePanel({
                               revealTarget={mdxRevealTarget}
                             />
                           </div>
-                          <MdxStatusBar
-                            dirty={canSaveText}
-                            saveState={saveState}
-                            saveError={saveError}
-                            issueCount={mdxIssueCount}
+	                          <MdxStatusBar
+	                            saveState={saveState}
+	                            saveError={saveError}
+	                            issueCount={mdxIssueCount}
                           />
                         </div>
                         <div className="aegis-mdx-split-pane aegis-mdx-split-preview">
@@ -3786,32 +3701,20 @@ function formatBytes(bytes: number): string {
 }
 
 function MdxStatusBar({
-  dirty,
   saveState,
   saveError,
   issueCount,
 }: {
-  dirty: boolean;
   saveState: 'idle' | 'saving' | 'saved' | 'error';
   saveError: string | null;
   issueCount: number;
 }) {
-  const saveLabel =
-    saveState === 'saving'
-      ? 'Saving'
-      : saveState === 'saved'
-        ? 'Saved'
-        : saveState === 'error'
-          ? 'Save failed'
-          : dirty
-            ? 'Unsaved'
-            : 'Saved';
   const previewLabel = issueCount > 0 ? `${issueCount} degraded` : 'Preview ready';
 
   return (
     <div className="aegis-mdx-statusbar">
       <span>MDX</span>
-      <span className={dirty || saveState === 'error' ? 'is-attention' : ''}>{saveLabel}</span>
+      {saveState === 'error' ? <span className="is-attention">Save failed</span> : null}
       <span className={issueCount > 0 ? 'is-attention' : ''}>{previewLabel}</span>
       {saveError ? <span className="is-error">{saveError}</span> : null}
     </div>
@@ -3848,260 +3751,6 @@ function ViewModeToggle({
       ))}
     </div>
   );
-}
-
-function ChangeSummaryHeader({
-  summary,
-}: {
-  summary: ReturnType<typeof summarizeChangeRecords>;
-}) {
-  return (
-    <div className="mb-1 border-b border-[var(--border)]/25 px-1 py-2">
-      <div className="flex flex-wrap items-center gap-2 text-[11px]">
-        <span className="font-medium text-[var(--text-primary)]">
-          {summary.total} change{summary.total === 1 ? '' : 's'}
-        </span>
-        {summary.operationCounts.map((entry) => (
-          <span key={entry.operation} className="text-[var(--text-muted)]">
-            {entry.count} {getOperationLabel(entry.operation, entry.count)}
-          </span>
-        ))}
-        {summary.totalSizeBytes > 0 && (
-          <span className="text-[var(--text-muted)]">{formatBytes(summary.totalSizeBytes)}</span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ChangeRecordItem({
-  entry,
-  isExpanded,
-  onToggle,
-}: {
-  entry: ChangeRecord;
-  isExpanded: boolean;
-  onToggle: () => void;
-}) {
-  const canExpand = !!entry.diffContent;
-
-  return (
-    <div className="border-b border-[var(--border)]/25 last:border-b-0">
-      <button
-        onClick={() => {
-          if (canExpand) onToggle();
-        }}
-        className="flex w-full items-start gap-2 px-1 py-2.5 text-left transition-colors hover:bg-[var(--tree-item-hover)]/35"
-      >
-        <ChevronRight
-          className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] transition-transform ${
-            isExpanded ? 'rotate-90' : ''
-          } ${canExpand ? 'opacity-100' : 'opacity-30'}`}
-        />
-        <span className="mt-0.5 flex h-4.5 w-4.5 flex-shrink-0 items-center justify-center" aria-hidden="true">
-          <FileTypeIcon
-            name={entry.fileName}
-            className="h-4 w-4"
-            fallbackClassName="h-3.5 w-3.5 text-[var(--text-secondary)]"
-          />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div
-            className="truncate text-sm font-medium text-[var(--text-primary)]"
-            title={entry.filePath}
-          >
-            {entry.fileName}
-          </div>
-        </div>
-        <div className="ml-auto flex shrink-0 items-center justify-end gap-1.5 pt-0.5 text-[10px]">
-          <ChangeOperationPill operation={entry.operation} state={entry.state} />
-          {entry.sizeBytes !== null &&
-            (entry.operation === 'write' ||
-              entry.operation === 'added' ||
-              entry.operation === 'untracked') && (
-              <span className="text-[var(--text-muted)]">{formatBytes(entry.sizeBytes)}</span>
-            )}
-          {entry.lineCount !== null &&
-            (entry.operation === 'write' ||
-              entry.operation === 'added' ||
-              entry.operation === 'untracked') && (
-              <span className="whitespace-nowrap text-[var(--text-muted)]">
-                {entry.lineCount} line{entry.lineCount === 1 ? '' : 's'}
-              </span>
-            )}
-          {(entry.addedLines > 0 || entry.removedLines > 0) && (
-            <ChangeDiffStat addedLines={entry.addedLines} removedLines={entry.removedLines} />
-          )}
-        </div>
-      </button>
-
-      {isExpanded && (
-        <div className="border-t border-[var(--border)]/25 bg-[var(--bg-secondary)]/12 px-1 pb-2 pt-2">
-          {entry.diffContent ? (
-            <div className="overflow-auto border border-[var(--border)]/50 bg-[var(--preview-surface)]">
-              <ChangeDiffView diffContent={entry.diffContent} />
-            </div>
-          ) : (
-            <div className="text-xs text-[var(--text-muted)]">No diff available for this change.</div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ChangeOperationPill({
-  operation,
-  state,
-}: {
-  operation: ChangeOperation;
-  state: ChangeRecord['state'];
-}) {
-  const tone =
-    operation === 'write' || operation === 'added' || operation === 'untracked'
-      ? 'border-green-500/15 bg-green-500/6 text-green-600'
-      : operation === 'edit' || operation === 'modified'
-        ? 'border-sky-500/15 bg-sky-500/6 text-sky-600'
-        : operation === 'delete' || operation === 'deleted'
-          ? 'border-red-500/15 bg-red-500/6 text-red-600'
-          : 'border-purple-500/15 bg-purple-500/6 text-purple-600';
-
-  return (
-    <span className={`rounded-md border px-1.5 py-0.5 font-medium ${tone}`}>
-      {state === 'pending' ? `${getOperationLabel(operation)}…` : getOperationLabel(operation)}
-    </span>
-  );
-}
-
-function ChangeDiffStat({
-  addedLines,
-  removedLines,
-}: {
-  addedLines: number;
-  removedLines: number;
-}) {
-  return (
-    <span className="flex items-center gap-1 font-medium">
-      {removedLines > 0 && <span className="text-red-500">-{removedLines}</span>}
-      {addedLines > 0 && <span className="text-green-500">+{addedLines}</span>}
-    </span>
-  );
-}
-
-type ParsedDiffRow =
-  | { type: 'hunk'; text: string }
-  | { type: 'context'; text: string; oldLine: number | null; newLine: number | null }
-  | { type: 'addition'; text: string; oldLine: number | null; newLine: number | null }
-  | { type: 'deletion'; text: string; oldLine: number | null; newLine: number | null }
-  | { type: 'note'; text: string };
-
-function ChangeDiffView({ diffContent }: { diffContent: string }) {
-  const rows = useMemo(() => parseDiffRows(diffContent), [diffContent]);
-
-  return (
-    <table className="w-full border-collapse text-[12px] leading-6 font-mono">
-      <tbody>
-        {rows.map((row, index) => {
-          if (row.type === 'hunk') {
-            return (
-              <tr key={`hunk-${index}`} className="bg-[var(--bg-secondary)]/45">
-                <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60" />
-                <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60 border-r border-[var(--border)]/50" />
-                <td className="px-3 py-0.5 text-[11px] text-[var(--text-muted)]">{row.text}</td>
-              </tr>
-            );
-          }
-
-          if (row.type === 'note') {
-            return (
-              <tr key={`note-${index}`}>
-                <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60" />
-                <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60 border-r border-[var(--border)]/50" />
-                <td className="px-3 py-0.5 text-[var(--text-muted)]">{row.text}</td>
-              </tr>
-            );
-          }
-
-          const rowTone =
-            row.type === 'addition'
-              ? 'bg-green-500/10'
-              : row.type === 'deletion'
-                ? 'bg-red-500/10'
-                : '';
-          const prefixTone =
-            row.type === 'addition'
-              ? 'text-green-600'
-              : row.type === 'deletion'
-                ? 'text-red-500'
-                : 'text-[var(--text-primary)]';
-
-          return (
-            <tr key={`row-${index}`} className={rowTone}>
-              <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60 select-none">
-                {row.oldLine ?? ''}
-              </td>
-              <td className="w-[3.5ch] px-2 py-0.5 text-right text-[var(--text-muted)]/60 border-r border-[var(--border)]/50 select-none">
-                {row.newLine ?? ''}
-              </td>
-              <td className="px-3 py-0.5">
-                <span className={`mr-2 select-none ${prefixTone}`}>
-                  {row.type === 'addition' ? '+' : row.type === 'deletion' ? '-' : ' '}
-                </span>
-                <span className={prefixTone}>{row.text || ' '}</span>
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  );
-}
-
-function parseDiffRows(diffContent: string): ParsedDiffRow[] {
-  const rows: ParsedDiffRow[] = [];
-  let oldLine = 0;
-  let newLine = 0;
-
-  for (const line of diffContent.split('\n')) {
-    if (!line) continue;
-    if (line.startsWith('diff --git') || line.startsWith('index ') || line.startsWith('--- ') || line.startsWith('+++ ')) {
-      continue;
-    }
-
-    if (line.startsWith('@@')) {
-      const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-      if (match) {
-        oldLine = Number(match[1]);
-        newLine = Number(match[2]);
-      }
-      rows.push({ type: 'hunk', text: line });
-      continue;
-    }
-
-    if (line.startsWith('\\')) {
-      rows.push({ type: 'note', text: line });
-      continue;
-    }
-
-    if (line.startsWith('+')) {
-      rows.push({ type: 'addition', text: line.slice(1), oldLine: null, newLine });
-      newLine += 1;
-      continue;
-    }
-
-    if (line.startsWith('-')) {
-      rows.push({ type: 'deletion', text: line.slice(1), oldLine, newLine: null });
-      oldLine += 1;
-      continue;
-    }
-
-    const text = line.startsWith(' ') ? line.slice(1) : line;
-    rows.push({ type: 'context', text, oldLine, newLine });
-    oldLine += 1;
-    newLine += 1;
-  }
-
-  return rows;
 }
 
 function GitStatusBadge({ status }: { status: string }) {

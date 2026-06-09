@@ -20,6 +20,7 @@ export function TurnChangesCard({ summary }: { summary: TurnChangeSummary }) {
   }
 
   const fileWord = summary.totalFiles === 1 ? 'file' : 'files';
+  const turnKey = `turn:${summary.turnIndex}:${summary.firstMessageIndex}:${summary.lastMessageIndex}`;
 
   return (
     <div className="my-3 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)]/70">
@@ -48,13 +49,21 @@ export function TurnChangesCard({ summary }: { summary: TurnChangeSummary }) {
 
       {expanded ? (
         <ul className="border-t border-[var(--border)]/50 bg-[var(--bg-primary)]/40">
-              {summary.records.map((record) => {
-                const clickable = Boolean(onOpenDiff);
-                return (
+          {summary.records.map((record) => {
+            const clickable = Boolean(onOpenDiff);
+            return (
               <li key={`${record.filePath}:${record.id}`}>
                 <button
                   type="button"
-                  onClick={clickable ? () => onOpenDiff?.(record) : undefined}
+                  onClick={
+                    clickable
+                      ? () => onOpenDiff?.(record, {
+                          records: summary.records,
+                          label: 'Selected turn',
+                          turnKey,
+                        })
+                      : undefined
+                  }
                   disabled={!clickable}
                   className={`group flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors ${
                     clickable

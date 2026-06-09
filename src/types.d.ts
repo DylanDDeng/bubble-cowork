@@ -196,6 +196,7 @@ declare global {
     deleteProjectEntry: (cwd: string, targetPath: string) => Promise<{ ok: boolean; tree?: ProjectTreeNode; message?: string }>;
     selectMarkdownImageAsset: (cwd: string, markdownFilePath: string) => Promise<{ ok: boolean; relativePath?: string; name?: string; message?: string } | null>;
     readMarkdownImageAsset: (cwd: string, markdownFilePath: string, imageSrc: string) => Promise<{ ok: boolean; dataUrl?: string; message?: string }>;
+    resolveMarkdownImageAssetUrl: (cwd: string, markdownFilePath: string, imageSrc: string) => Promise<{ ok: boolean; url?: string; size?: number; mtimeMs?: number; message?: string }>;
     createMarkdownImageAsset: (cwd: string, markdownFilePath: string, fileName: string, mimeType: string | undefined, data: Uint8Array) => Promise<{ ok: boolean; relativePath?: string; name?: string; message?: string }>;
     createInlineTextAttachment: (cwd: string, text: string) => Promise<Attachment | null>;
     createInlineImageAttachment: (mimeType: string, data: Uint8Array) => Promise<Attachment | null>;
@@ -208,25 +209,13 @@ declare global {
     unwatchProjectTree: (cwd: string) => Promise<boolean>;
     watchProjectFile: (cwd: string, filePath: string) => Promise<boolean>;
     unwatchProjectFile: (cwd: string, filePath: string) => Promise<boolean>;
-    getGitChanges: (cwd: string) => Promise<{ ok: boolean; error: string | null; entries: Array<{ filePath: string; status: string; staged: boolean }> }>;
+    getGitChanges: (cwd: string) => Promise<{ ok: boolean; error: string | null; entries: import('./shared/types').GitChangeEntry[] }>;
     getGitWorkingTreeSummary: (cwd: string) => Promise<{ ok: boolean; error: string | null; insertions: number; deletions: number }>;
-    getGitOverview: (cwd: string) => Promise<{
-      ok: boolean;
-      error: string | null;
-      hasRepo: boolean;
-      branch: string | null;
-      upstream: string | null;
-      hasUpstream: boolean;
-      aheadCount: number;
-      behindCount: number;
-      hasOriginRemote: boolean;
-      isGitHubRemote: boolean;
-      isDefaultBranch: boolean;
-      totalChanges: number;
-      insertions: number;
-      deletions: number;
-      pr: { number: number; title: string; state: 'open' | 'closed' | 'merged'; url: string } | null;
-    }>;
+    getGitOverview: (cwd: string) => Promise<import('./shared/types').GitOverviewResult>;
+    getGitPatch: (
+      cwd: string,
+      scope?: import('./shared/types').GitPatchScope
+    ) => Promise<import('./shared/types').GitPatchResult>;
     getGitBranch: (cwd: string) => Promise<{ ok: boolean; branch: string | null; message?: string }>;
     getGitBranches: (cwd: string) => Promise<{
       ok: boolean;
@@ -267,6 +256,11 @@ declare global {
     gitPush: (cwd: string) => Promise<{ ok: boolean; message?: string; output?: string }>;
     gitSync: (cwd: string) => Promise<{ ok: boolean; message?: string; output?: string }>;
     gitCreatePr: (cwd: string) => Promise<{ ok: boolean; message?: string; url?: string }>;
+    getEnvironmentEditorLaunchers: () => Promise<import('./shared/types').EnvironmentEditorLauncher[]>;
+    openInEditor: (input: import('./shared/types').OpenInEditorInput) => Promise<{ ok: boolean; message?: string }>;
+    getSessionEnvironmentContext: (sessionId: string) => Promise<{ ok: boolean; context?: import('./shared/types').SessionEnvironmentContext; message?: string }>;
+    saveSessionEnvironmentNote: (sessionId: string, note: string) => Promise<{ ok: boolean; note?: import('./shared/types').SessionEnvironmentNote; message?: string }>;
+    refreshSessionEnvironmentRecap: (sessionId: string) => Promise<{ ok: boolean; recap?: import('./shared/types').SessionEnvironmentRecap; message?: string }>;
     openExternalUrl: (url: string) => Promise<{ ok: boolean; message?: string }>;
     subscribeStatistics: (callback: (data: StatisticsData) => void) => () => void;
     getStaticData: () => Promise<StaticData>;

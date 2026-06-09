@@ -291,9 +291,7 @@ function useProjectFileNavigation() {
     activeSessionId,
     sessions,
     projectCwd,
-    setBrowserPanelOpen,
-    setProjectPanelView,
-    setProjectTreeCollapsed,
+    openRightUtilityTab,
   } = useAppStore();
   const cwd = (activeSessionId ? sessions[activeSessionId]?.cwd : null) || projectCwd || null;
 
@@ -312,8 +310,7 @@ function useProjectFileNavigation() {
         sessionId: activeSessionId,
       })
         .then(() => {
-          setBrowserPanelOpen(true);
-          setProjectTreeCollapsed(true);
+          openRightUtilityTab('browser');
         })
         .catch((error) => {
           toast.error(`Failed to open in browser panel: ${error}`);
@@ -321,9 +318,7 @@ function useProjectFileNavigation() {
       return;
     }
 
-    setBrowserPanelOpen(false);
-    setProjectPanelView('files');
-    setProjectTreeCollapsed(false);
+    openRightUtilityTab('files');
 
     window.setTimeout(() => {
       window.dispatchEvent(

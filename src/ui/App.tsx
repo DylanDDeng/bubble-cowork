@@ -1,10 +1,13 @@
-import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
+import { useEffect, useRef, useMemo, useState, useCallback, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Toaster, toast } from 'sonner';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Check,
   CloudUpload,
+  ArrowLeftRight,
+  Columns2,
   Copy,
   FileDiff,
   FolderClosed,
@@ -14,6 +17,9 @@ import {
   GitCommit,
   GitPullRequest,
   Globe,
+  MessageCircle,
+  PanelRight,
+  Plus,
   Sparkles,
   SquareTerminal,
   ChevronDown,
@@ -32,10 +38,18 @@ import { PromptInput } from './components/PromptInput';
 import { InSessionSearch } from './components/search/InSessionSearch';
 import { Settings } from './components/settings/Settings';
 import { SkillMarketSettingsContent } from './components/settings/SkillMarketSettings';
-import { ProjectTreePanel } from './components/ProjectTreePanel';
+import {
+  ProjectTreePanel,
+} from './components/ProjectTreePanel';
+import { AegisDiffPanel } from './components/AegisDiffPanel';
 import { BrowserPanel } from './components/browser/BrowserPanel';
 import { TerminalDrawer } from './components/TerminalDrawer';
+import { RightTerminalPanel } from './components/RightTerminalPanel';
 import { WorkspaceHost } from './components/WorkspaceHost';
+import { ChatPane } from './components/ChatPane';
+import { EnvironmentHub } from './components/environment/EnvironmentHub';
+import { useActiveEnvironmentContext } from './components/environment/useActiveEnvironmentContext';
+import { useGitEnvironment } from './components/environment/useGitEnvironment';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useCodexModelConfig } from './hooks/useCodexModelConfig';
 import { applyThemePreferences } from './theme/themes';
@@ -60,9 +74,43 @@ import type {
   SessionStatus,
   StreamMessage,
   ContentBlock,
+  ProjectUtilityPanelKind,
+  ProjectUtilityPanelTarget,
+  ProjectUtilityTabDescriptor,
 } from './types';
 
 const COMMIT_GENERATION_MIN_VISIBLE_MS = 450;
+const RIGHT_UTILITY_PANEL_WIDTH_STORAGE_KEY = 'cowork.rightUtilityPanelWidth';
+const RIGHT_UTILITY_PANEL_DEFAULT_WIDTH = 820;
+const RIGHT_UTILITY_PANEL_MIN_WIDTH = 580;
+const RIGHT_UTILITY_PANEL_MAX_WIDTH = 1200;
+
+function clampRightUtilityPanelWidth(width: number): number {
+  return Math.min(
+    RIGHT_UTILITY_PANEL_MAX_WIDTH,
+    Math.max(RIGHT_UTILITY_PANEL_MIN_WIDTH, Math.round(width))
+  );
+}
+
+function isProjectUtilityFileTab(target: ProjectUtilityPanelTarget | null | undefined): boolean {
+  return target === 'files' || Boolean(target?.startsWith('files:'));
+}
+
+function getProjectUtilityTabKind(target: ProjectUtilityPanelTarget): ProjectUtilityPanelKind {
+  return isProjectUtilityFileTab(target) ? 'files' : target;
+}
+
+function getDefaultRightUtilityPanelWidth(): number {
+  if (typeof window === 'undefined') {
+    return RIGHT_UTILITY_PANEL_DEFAULT_WIDTH;
+  }
+  const stored = window.localStorage.getItem(RIGHT_UTILITY_PANEL_WIDTH_STORAGE_KEY);
+  const parsed = stored ? Number(stored) : Number.NaN;
+  if (!Number.isFinite(parsed)) {
+    return RIGHT_UTILITY_PANEL_DEFAULT_WIDTH;
+  }
+  return clampRightUtilityPanelWidth(parsed);
+}
 
 function wait(ms: number) {
   return new Promise((resolve) => {
@@ -91,6 +139,11 @@ export function App() {
   const codexModelConfig = useCodexModelConfig();
   const [windowShellRounded, setWindowShellRounded] = useState(getDefaultWindowShellRounded);
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
+  const [rightPanelLauncherOpen, setRightPanelLauncherOpen] = useState(false);
+  const [rightUtilityPanelWidth, setRightUtilityPanelWidthState] = useState(getDefaultRightUtilityPanelWidth);
+  const [activeProjectFileTabs, setActiveProjectFileTabs] = useState<
+    Record<string, { filePath: string; name: string } | null>
+  >({});
 
   const {
     connected,
@@ -113,8 +166,8 @@ export function App() {
     projectPanelView,
     terminalDrawerOpen,
     terminalDrawerHeight,
-    browserPanelOpen,
-    browserPanelWidth,
+    rightUtilityTabs,
+    activeRightUtilityTab,
     rightPanelFullscreen,
     sessionsLoaded,
     setProjectTreeCollapsed,
@@ -122,9 +175,13 @@ export function App() {
     setTerminalDrawerOpen,
     setTerminalDrawerHeight,
     setBrowserPanelOpen,
-    setBrowserPanelWidth,
+    setActiveRightUtilityTab,
+    openRightUtilityTab,
+    closeRightUtilityTab: closeRightUtilityTabInStore,
+    closeRightUtilityPanels: closeRightUtilityPanelsInStore,
     setRightPanelFullscreen,
     closeSplitChat,
+    openSplitChat,
     globalError,
     clearGlobalError,
     theme,
@@ -140,7 +197,6 @@ export function App() {
   const pendingAutoPreviewSessionsRef = useRef(new Set<string>());
   const autoPreviewedArtifactsRef = useRef(new Set<string>());
   const activeSession = activeSessionId ? sessions[activeSessionId] : null;
-  const effectiveGitCwd = activeSession?.cwd || projectCwd || null;
 
   useEffect(() => {
     if (!electronAvailable) {
@@ -170,23 +226,11 @@ export function App() {
       </div>
     );
   }
-  const [gitHeaderState, setGitHeaderState] = useState({
-    hasRepo: false,
-    branch: null as string | null,
-    upstream: null as string | null,
-    hasUpstream: false,
-    aheadCount: 0,
-    behindCount: 0,
-    hasOriginRemote: false,
-    isGitHubRemote: false,
-    isDefaultBranch: false,
-    totalChanges: 0,
-    insertions: 0,
-    deletions: 0,
-    pr: null as
-      | { number: number; title: string; state: 'open' | 'closed' | 'merged'; url: string }
-      | null,
-  });
+  const environmentContext = useActiveEnvironmentContext();
+  const gitEnvironment = useGitEnvironment(environmentContext.effectiveCwd, environmentContext.contextKey);
+  const refreshEnvironmentGit = useCallback(async () => {
+    await gitEnvironment.refresh();
+  }, [gitEnvironment.refresh]);
   const [highlightedHistoryAnchor, setHighlightedHistoryAnchor] = useState<string | null>(null);
   const historyHighlightTimerRef = useRef<number | null>(null);
 
@@ -303,105 +347,14 @@ export function App() {
     }
   }, [connected]);
 
-  const loadGitOverview = useCallback(async () => {
-    const cwd = (effectiveGitCwd || '').trim();
-    if (!cwd) {
-      setGitHeaderState({
-        hasRepo: false,
-        branch: null,
-        upstream: null,
-        hasUpstream: false,
-        aheadCount: 0,
-        behindCount: 0,
-        hasOriginRemote: false,
-        isGitHubRemote: false,
-        isDefaultBranch: false,
-        totalChanges: 0,
-        insertions: 0,
-        deletions: 0,
-        pr: null,
-      });
-      return;
-    }
-
-    try {
-      const overview = await window.electron.getGitOverview(cwd);
-      if (!overview.ok) {
-        setGitHeaderState({
-          hasRepo: false,
-          branch: null,
-          upstream: null,
-          hasUpstream: false,
-          aheadCount: 0,
-          behindCount: 0,
-          hasOriginRemote: false,
-          isGitHubRemote: false,
-          isDefaultBranch: false,
-          totalChanges: 0,
-          insertions: 0,
-          deletions: 0,
-          pr: null,
-        });
-        return;
-      }
-
-      setGitHeaderState({
-        hasRepo: overview.hasRepo,
-        branch: overview.branch,
-        upstream: overview.upstream,
-        hasUpstream: overview.hasUpstream,
-        aheadCount: overview.aheadCount,
-        behindCount: overview.behindCount,
-        hasOriginRemote: overview.hasOriginRemote,
-        isGitHubRemote: overview.isGitHubRemote,
-        isDefaultBranch: overview.isDefaultBranch,
-        totalChanges: overview.totalChanges,
-        insertions: overview.insertions,
-        deletions: overview.deletions,
-        pr: overview.pr,
-      });
-    } catch {
-      setGitHeaderState({
-        hasRepo: false,
-        branch: null,
-        upstream: null,
-        hasUpstream: false,
-        aheadCount: 0,
-        behindCount: 0,
-        hasOriginRemote: false,
-        isGitHubRemote: false,
-        isDefaultBranch: false,
-        totalChanges: 0,
-        insertions: 0,
-        deletions: 0,
-        pr: null,
-      });
-    }
-  }, [effectiveGitCwd]);
-
   useEffect(() => {
-    let cancelled = false;
-    const run = async () => {
-      if (cancelled) return;
-      await loadGitOverview();
-    };
-
-    void run();
-    const interval = window.setInterval(() => {
-      void run();
-    }, 60_000);
-
-    const handleFocus = () => {
-      void run();
-    };
-    window.addEventListener('focus', handleFocus);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, [loadGitOverview, activeSession?.messages.length, activeSession?.status]);
+    void gitEnvironment.refresh();
+  }, [
+    environmentContext.contextKey,
+    environmentContext.session?.messages.length,
+    environmentContext.session?.status,
+    gitEnvironment.refresh,
+  ]);
 
   useEffect(() => {
     void window.electron.saveUiResumeState({
@@ -413,7 +366,18 @@ export function App() {
       chatLayoutMode,
       savedSplitVisible,
       activePaneId,
-      chatPanes,
+      chatPanes: {
+        primary: {
+          id: 'primary',
+          sessionId: chatPanes.primary.sessionId,
+          surface: chatPanes.primary.surface,
+        },
+        secondary: {
+          id: 'secondary',
+          sessionId: chatPanes.secondary.sessionId,
+          surface: chatPanes.secondary.surface,
+        },
+      },
       chatSplitRatio,
     });
   }, [
@@ -428,6 +392,141 @@ export function App() {
     projectTreeCollapsed,
     showNewSession,
   ]);
+
+  const activateRightUtilityContent = useCallback((target: ProjectUtilityPanelTarget) => {
+    const targetKind = getProjectUtilityTabKind(target);
+    setRightPanelLauncherOpen(false);
+    const keepSideChatDocked = targetKind === 'side-chat' || rightUtilityTabs.includes('side-chat');
+    const closeUndockedSideChat = () => {
+      if (chatLayoutMode === 'split' && !keepSideChatDocked) {
+        closeSplitChat();
+      }
+    };
+
+    if (targetKind === 'files' || targetKind === 'review') {
+      setBrowserPanelOpen(false);
+      setProjectPanelView(targetKind === 'review' ? 'changes' : 'files');
+      setProjectTreeCollapsed(false);
+      closeUndockedSideChat();
+      return;
+    }
+
+    if (targetKind === 'browser') {
+      setBrowserPanelOpen(true);
+      setProjectTreeCollapsed(true);
+      closeUndockedSideChat();
+      return;
+    }
+
+    if (targetKind === 'side-chat') {
+      setBrowserPanelOpen(false);
+      setProjectTreeCollapsed(true);
+      openSplitChat('secondary', null);
+      return;
+    }
+
+    setBrowserPanelOpen(false);
+    setProjectTreeCollapsed(true);
+    closeUndockedSideChat();
+  }, [
+    chatLayoutMode,
+    closeSplitChat,
+    openSplitChat,
+    rightUtilityTabs,
+    setBrowserPanelOpen,
+    setProjectPanelView,
+    setProjectTreeCollapsed,
+  ]);
+
+  const openEnvironmentProjectPanel = useCallback((view: 'files' | 'changes') => {
+    openRightUtilityTab(view === 'changes' ? 'review' : 'files');
+  }, [openRightUtilityTab]);
+
+  const setRightUtilityPanelWidth = useCallback((width: number) => {
+    const nextWidth = clampRightUtilityPanelWidth(width);
+    setRightUtilityPanelWidthState(nextWidth);
+    window.localStorage.setItem(RIGHT_UTILITY_PANEL_WIDTH_STORAGE_KEY, String(nextWidth));
+  }, []);
+
+  const activeUtilityPanel = useMemo(() => {
+    if (rightPanelLauncherOpen) return 'launcher' as const;
+    if (activeRightUtilityTab) return getProjectUtilityTabKind(activeRightUtilityTab);
+    return null;
+  }, [activeRightUtilityTab, rightPanelLauncherOpen]);
+
+  const closeRightUtilityPanels = useCallback(() => {
+    setRightPanelLauncherOpen(false);
+    closeRightUtilityPanelsInStore();
+    if (chatLayoutMode === 'split') closeSplitChat();
+  }, [chatLayoutMode, closeRightUtilityPanelsInStore, closeSplitChat]);
+
+  const selectRightUtilityTab = useCallback((target: ProjectUtilityPanelTarget) => {
+    setActiveRightUtilityTab(target);
+    activateRightUtilityContent(target);
+  }, [activateRightUtilityContent, setActiveRightUtilityTab]);
+
+  const closeRightUtilityTab = useCallback((target: ProjectUtilityPanelTarget) => {
+    if (getProjectUtilityTabKind(target) === 'side-chat') {
+      closeSplitChat();
+    }
+    closeRightUtilityTabInStore(target);
+  }, [closeRightUtilityTabInStore, closeSplitChat]);
+
+  const rightUtilityTabDescriptors = useMemo<ProjectUtilityTabDescriptor[]>(() => {
+    const workspaceLeaf = getPathLeaf(activeSession?.cwd || projectCwd || '');
+    return rightUtilityTabs.map((tab) => {
+      const kind = getProjectUtilityTabKind(tab);
+      if (kind === 'files') {
+        return { id: tab, kind, label: activeProjectFileTabs[tab]?.name || 'Files' };
+      }
+      if (kind === 'review') {
+        return { id: tab, kind, label: 'Changes' };
+      }
+      if (kind === 'browser') {
+        return { id: tab, kind, label: 'Browser' };
+      }
+      if (kind === 'side-chat') {
+        return { id: tab, kind, label: 'Side Chat' };
+      }
+      return { id: tab, kind, label: workspaceLeaf || 'Terminal' };
+    });
+  }, [activeProjectFileTabs, activeSession?.cwd, projectCwd, rightUtilityTabs]);
+
+  const updateProjectFileTabLabel = useCallback((
+    tabId: ProjectUtilityPanelTarget,
+    file: { filePath: string; name: string } | null
+  ) => {
+    setActiveProjectFileTabs((current) => {
+      if (current[tabId]?.filePath === file?.filePath && current[tabId]?.name === file?.name) {
+        return current;
+      }
+      return { ...current, [tabId]: file };
+    });
+  }, []);
+
+  const fileUtilityTabs = useMemo(
+    () => rightUtilityTabs.filter(isProjectUtilityFileTab),
+    [rightUtilityTabs]
+  );
+
+  const openRightUtilityLauncher = useCallback(() => {
+    setRightPanelLauncherOpen(true);
+    closeRightUtilityPanelsInStore();
+    if (chatLayoutMode === 'split') closeSplitChat();
+  }, [chatLayoutMode, closeRightUtilityPanelsInStore, closeSplitChat]);
+
+  const toggleRightUtilityPanel = useCallback(() => {
+    if (activeUtilityPanel) {
+      closeRightUtilityPanels();
+      return;
+    }
+    openRightUtilityLauncher();
+  }, [activeUtilityPanel, closeRightUtilityPanels, openRightUtilityLauncher]);
+
+  useEffect(() => {
+    if (!activeRightUtilityTab) return;
+    activateRightUtilityContent(activeRightUtilityTab);
+  }, [activeRightUtilityTab, activateRightUtilityContent]);
 
   useEffect(() => {
     const nextStatuses = new Map<string, SessionStatus>();
@@ -469,8 +568,8 @@ export function App() {
       })
         .then(() => {
           if (sessionId === activeSessionId) {
-            setBrowserPanelOpen(true);
-            setProjectTreeCollapsed(true);
+            setRightPanelLauncherOpen(false);
+            openRightUtilityTab('browser');
           }
           pendingAutoPreviewSessionsRef.current.delete(sessionId);
         })
@@ -481,7 +580,7 @@ export function App() {
     }
 
     sessionStatusSnapshotRef.current = nextStatuses;
-  }, [sessions, activeSessionId, setBrowserPanelOpen, setProjectTreeCollapsed]);
+  }, [sessions, activeSessionId, openRightUtilityTab]);
 
   useEffect(() => {
     applyThemePreferences({
@@ -682,34 +781,14 @@ export function App() {
       ) : activeWorkspace === 'automations' ? (
         <AutomationsView />
       ) : chatLayoutMode === 'split' || (activeSession && !showNewSession) ? (
-        <div
-          className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden transition-[padding] duration-200"
-          style={{ paddingRight: 'var(--project-preview-space, 0px)' }}
-        >
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
           {/* Top drag region */}
           <div className="h-12 drag-region flex-shrink-0 bg-[var(--bg-primary)]">
             <div className="flex h-full items-center justify-between px-3">
               <div className="flex items-center gap-0.5">
                 {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
               </div>
-              <div className="flex items-center justify-end">
-                <InlineProjectPanelHeaderActions
-                  collapsed={projectTreeCollapsed}
-                  activeTab={projectPanelView}
-                  changeStats={{
-                    insertions: gitHeaderState.insertions,
-                    deletions: gitHeaderState.deletions,
-                  }}
-                  onToggle={(view) => {
-                    if (!projectTreeCollapsed && !browserPanelOpen && projectPanelView === view) {
-                      setProjectTreeCollapsed(true);
-                      return;
-                    }
-                    setProjectPanelView(view);
-                    setProjectTreeCollapsed(false);
-                    if (browserPanelOpen) setBrowserPanelOpen(false);
-                  }}
-                />
+              <div className="flex items-center justify-end gap-1 pr-10">
                 <button
                   type="button"
                   onClick={() => {
@@ -721,32 +800,15 @@ export function App() {
                       ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
                       : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
                   }`}
-                  title="Terminal"
-                  aria-label="Toggle terminal drawer"
+                  title="Bottom terminal"
+                  aria-label="Toggle bottom terminal drawer"
                 >
                   <SquareTerminal className="h-[13px] w-[13px] shrink-0" />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = !browserPanelOpen;
-                    setBrowserPanelOpen(next);
-                    if (next) setProjectTreeCollapsed(true);
-                  }}
-                  className={`no-drag inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] font-medium transition-colors ${
-                    browserPanelOpen
-                      ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
-                      : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-                  }`}
-                  title="Browser"
-                  aria-label="Toggle browser panel"
-                >
-                  <Globe className="h-[13px] w-[13px] shrink-0" />
-                </button>
-                <GitHeaderActions
-                  cwd={effectiveGitCwd}
-                  state={gitHeaderState}
-                  onRefreshGitState={loadGitOverview}
+                <EnvironmentHub
+                  context={environmentContext}
+                  git={gitEnvironment}
+                  onOpenProjectPanel={openEnvironmentProjectPanel}
                 />
               </div>
             </div>
@@ -755,7 +817,8 @@ export function App() {
           <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
             <WorkspaceHost
               codexModelConfig={codexModelConfig}
-              onWorkspaceGitChanged={loadGitOverview}
+              onWorkspaceGitChanged={refreshEnvironmentGit}
+              dockSecondaryPane={rightUtilityTabs.includes('side-chat') || activeUtilityPanel === 'side-chat'}
             />
 
             <TerminalDrawer
@@ -778,33 +841,108 @@ export function App() {
       )}
       </div>
 
-      {/* Right project tree panel */}
-      {!showSettings && activeWorkspace === 'chat' && (
-        <ProjectTreePanel
-          collapsed={projectTreeCollapsed || browserPanelOpen}
-          activeTab={projectPanelView}
-          onClose={() => setProjectTreeCollapsed(true)}
-          isFullscreen={rightPanelFullscreen === 'files'}
-          onToggleFullscreen={() =>
-            setRightPanelFullscreen(rightPanelFullscreen === 'files' ? null : 'files')
+      <AnimatePresence initial={false}>
+      {!showSettings && activeWorkspace === 'chat' && activeUtilityPanel !== null ? (
+        <RightUtilityWorkspace
+          key="right-utility-workspace"
+          activePanel={activeUtilityPanel}
+          tabs={rightUtilityTabDescriptors}
+          activeTab={
+            activeRightUtilityTab ??
+            (activeUtilityPanel !== 'launcher' ? activeUtilityPanel : null)
           }
-        />
-      )}
+          browserAvailable={Boolean(activeSessionId)}
+          width={rightUtilityPanelWidth}
+          onWidthChange={setRightUtilityPanelWidth}
+          fullscreen={rightPanelFullscreen !== null}
+          onSelectTab={selectRightUtilityTab}
+          onCloseTab={closeRightUtilityTab}
+          onOpenTab={openRightUtilityTab}
+          onTogglePanel={toggleRightUtilityPanel}
+        >
+          <RightPanelLauncherContent
+            hidden={activeUtilityPanel !== 'launcher'}
+            browserAvailable={Boolean(activeSessionId)}
+            changeStats={{
+              insertions: gitEnvironment.overview.insertions,
+              deletions: gitEnvironment.overview.deletions,
+            }}
+            onOpenFiles={() => openRightUtilityTab('files')}
+            onOpenSideChat={() => openRightUtilityTab('side-chat')}
+            onOpenBrowser={() => openRightUtilityTab('browser')}
+            onOpenReview={() => openRightUtilityTab('review')}
+            onOpenTerminal={() => openRightUtilityTab('terminal')}
+          />
+          {fileUtilityTabs.map((tabId) => (
+            <ProjectTreePanel
+              key={tabId}
+              embedded
+              collapsed={activeRightUtilityTab !== tabId}
+              activeTab="files"
+              onClose={() => closeRightUtilityTab(tabId)}
+              onActiveFileTabChange={(file) => updateProjectFileTabLabel(tabId, file)}
+              onOpenUtilityTab={openRightUtilityTab}
+              sharedPanelWidth={rightUtilityPanelWidth}
+              onSharedPanelWidthChange={setRightUtilityPanelWidth}
+              isFullscreen={rightPanelFullscreen === 'files' && activeRightUtilityTab === tabId}
+              onToggleFullscreen={() =>
+                setRightPanelFullscreen(rightPanelFullscreen === 'files' ? null : 'files')
+              }
+            />
+          ))}
+          {rightUtilityTabs.includes('review') ? (
+            <AegisDiffPanel
+              collapsed={activeRightUtilityTab !== 'review'}
+              cwd={activeSession?.cwd || projectCwd || null}
+              session={activeSession}
+              onClose={() => closeRightUtilityTab('review')}
+              isFullscreen={rightPanelFullscreen === 'review' && activeRightUtilityTab === 'review'}
+              onToggleFullscreen={() =>
+                setRightPanelFullscreen(rightPanelFullscreen === 'review' ? null : 'review')
+              }
+            />
+          ) : null}
+          {activeSessionId ? (
+            <BrowserPanel
+              embedded
+              sessionId={activeSessionId}
+              collapsed={activeUtilityPanel !== 'browser'}
+              width={rightUtilityPanelWidth}
+              onClose={() => closeRightUtilityTab('browser')}
+              onWidthChange={setRightUtilityPanelWidth}
+              isFullscreen={rightPanelFullscreen === 'browser'}
+              onToggleFullscreen={() =>
+                setRightPanelFullscreen(rightPanelFullscreen === 'browser' ? null : 'browser')
+              }
+            />
+          ) : null}
+          <RightTerminalPanel
+            embedded
+            collapsed={activeUtilityPanel !== 'terminal'}
+            width={rightUtilityPanelWidth}
+            onWidthChange={setRightUtilityPanelWidth}
+            onClose={() => closeRightUtilityTab('terminal')}
+            sessionId={activeSessionId}
+            cwd={activeSession?.cwd || projectCwd || null}
+          />
+          <RightSideChatPanel
+            collapsed={activeUtilityPanel !== 'side-chat'}
+            codexModelConfig={codexModelConfig}
+            onClose={() => closeRightUtilityTab('side-chat')}
+            onWorkspaceGitChanged={refreshEnvironmentGit}
+          />
+        </RightUtilityWorkspace>
+      ) : null}
+      </AnimatePresence>
 
-      {/* Right browser panel (per-session) */}
-      {!showSettings && activeWorkspace === 'chat' && activeSessionId && (
-        <BrowserPanel
-          sessionId={activeSessionId}
-          collapsed={!browserPanelOpen}
-          width={browserPanelWidth}
-          onClose={() => setBrowserPanelOpen(false)}
-          onWidthChange={setBrowserPanelWidth}
-          isFullscreen={rightPanelFullscreen === 'browser'}
-          onToggleFullscreen={() =>
-            setRightPanelFullscreen(rightPanelFullscreen === 'browser' ? null : 'browser')
-          }
-        />
-      )}
+      {!showSettings && activeWorkspace === 'chat' && activeUtilityPanel === null ? (
+        <div className="fixed right-3 top-2.5 z-[90] no-drag">
+          <PanelLauncher
+            activePanel={activeUtilityPanel}
+            onToggle={toggleRightUtilityPanel}
+          />
+        </div>
+      ) : null}
 
       {/* Toast notifications */}
       <Toaster
@@ -818,6 +956,514 @@ export function App() {
         }}
       />
 
+    </div>
+  );
+}
+
+function getUtilityTabIcon(target: ProjectUtilityPanelKind) {
+  if (target === 'terminal') return SquareTerminal;
+  if (target === 'browser') return Globe;
+  if (target === 'side-chat') return MessageCircle;
+  if (target === 'review') return FileDiff;
+  return FolderClosed;
+}
+
+function RightUtilityWorkspace({
+  activePanel,
+  tabs,
+  activeTab,
+  browserAvailable,
+  width,
+  fullscreen,
+  onWidthChange,
+  onSelectTab,
+  onCloseTab,
+  onOpenTab,
+  onTogglePanel,
+  children,
+}: {
+  activePanel: PanelLauncherKind | null;
+  tabs: ProjectUtilityTabDescriptor[];
+  activeTab: ProjectUtilityPanelTarget | null;
+  browserAvailable: boolean;
+  width: number;
+  fullscreen: boolean;
+  onWidthChange: (width: number) => void;
+  onSelectTab: (target: ProjectUtilityPanelTarget) => void;
+  onCloseTab: (target: ProjectUtilityPanelTarget) => void;
+  onOpenTab: (target: ProjectUtilityPanelKind, options?: { newTab?: boolean }) => void;
+  onTogglePanel: () => void;
+  children: ReactNode;
+}) {
+  const [isResizing, setIsResizing] = useState(false);
+  const resizingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(width);
+  // Fullscreen swaps to flex-1/auto sizing while the chat pane hides instantly,
+  // so animating width across that toggle would lag behind the layout change.
+  const wasFullscreenRef = useRef(fullscreen);
+  const skipWidthAnimation = isResizing || fullscreen || wasFullscreenRef.current;
+  useEffect(() => {
+    wasFullscreenRef.current = fullscreen;
+  }, [fullscreen]);
+
+  const handleResizeStart = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (fullscreen) return;
+    event.preventDefault();
+    resizingRef.current = true;
+    startXRef.current = event.clientX;
+    startWidthRef.current = width;
+    setIsResizing(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  useEffect(() => {
+    if (!isResizing) return;
+    const onMove = (event: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const delta = startXRef.current - event.clientX;
+      onWidthChange(startWidthRef.current + delta);
+    };
+    const onUp = () => {
+      resizingRef.current = false;
+      setIsResizing(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('blur', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('blur', onUp);
+    };
+  }, [isResizing, onWidthChange]);
+
+  return (
+    <motion.div
+      data-right-utility-workspace
+      data-active-panel={activePanel ?? 'none'}
+      className={`relative flex h-full min-w-0 flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--bg-primary)] ${
+        fullscreen ? 'flex-1' : 'flex-shrink-0'
+      }`}
+      initial={{ width: 0 }}
+      animate={{ width: fullscreen ? 'auto' : width }}
+      exit={{ width: 0, transition: { type: 'tween', duration: 0.2, ease: [0.32, 0.72, 0, 1] } }}
+      transition={
+        skipWidthAnimation
+          ? { duration: 0 }
+          : { type: 'tween', duration: 0.24, ease: [0.32, 0.72, 0, 1] }
+      }
+    >
+      {!fullscreen ? (
+        <div
+          className="group absolute bottom-0 left-0 top-0 z-20 w-3 -translate-x-1/2 cursor-col-resize no-drag"
+          onMouseDown={handleResizeStart}
+        >
+          <div className="absolute bottom-0 left-1/2 top-0 w-px -translate-x-1/2 bg-transparent group-hover:bg-[var(--border)]" />
+        </div>
+      ) : null}
+
+      <div
+        className="flex h-full min-h-0 flex-col"
+        style={fullscreen ? { width: '100%' } : { width }}
+      >
+        <RightUtilityTabStrip
+          tabs={tabs}
+          activeTab={activeTab}
+          activePanel={activePanel}
+          browserAvailable={browserAvailable}
+          onSelectTab={onSelectTab}
+          onCloseTab={onCloseTab}
+          onOpenTab={onOpenTab}
+          onTogglePanel={onTogglePanel}
+        />
+
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          {children}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function RightSideChatPanel({
+  collapsed,
+  codexModelConfig,
+  onClose,
+  onWorkspaceGitChanged,
+}: {
+  collapsed: boolean;
+  codexModelConfig: import('./types').CodexModelConfig;
+  onClose: () => void;
+  onWorkspaceGitChanged?: () => Promise<void>;
+}) {
+  const {
+    activePaneId,
+    chatPanes,
+    setActivePane,
+    swapChatPanes,
+  } = useAppStore();
+
+  const secondaryControls = (
+    <>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          swapChatPanes();
+        }}
+        className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+        aria-label="Swap panes"
+        title="Swap panes"
+      >
+        <ArrowLeftRight className="h-3.5 w-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onClose();
+        }}
+        className="inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+        aria-label="Close split view"
+        title="Close split view"
+      >
+        <Columns2 className="h-3.5 w-3.5" />
+        <span>Single</span>
+      </button>
+    </>
+  );
+
+  if (collapsed) {
+    return <div className="absolute inset-0 hidden" aria-hidden="true" />;
+  }
+
+  return (
+    <div
+      className="absolute inset-0 flex min-h-0 min-w-0 flex-col bg-[var(--bg-primary)]"
+    >
+      <ChatPane
+        paneId="secondary"
+        sessionId={chatPanes.secondary.sessionId}
+        isActive={activePaneId === 'secondary'}
+        onActivate={() => setActivePane('secondary')}
+        codexModelConfig={codexModelConfig}
+        onClose={onClose}
+        headerActions={secondaryControls}
+        onWorkspaceGitChanged={onWorkspaceGitChanged}
+      />
+    </div>
+  );
+}
+
+function RightUtilityTabStrip({
+  tabs,
+  activeTab,
+  activePanel,
+  browserAvailable,
+  onSelectTab,
+  onCloseTab,
+  onOpenTab,
+  onTogglePanel,
+}: {
+  tabs: ProjectUtilityTabDescriptor[];
+  activeTab: ProjectUtilityPanelTarget | null;
+  activePanel: PanelLauncherKind | null;
+  browserAvailable: boolean;
+  onSelectTab: (target: ProjectUtilityPanelTarget) => void;
+  onCloseTab: (target: ProjectUtilityPanelTarget) => void;
+  onOpenTab: (target: ProjectUtilityPanelKind, options?: { newTab?: boolean }) => void;
+  onTogglePanel: () => void;
+}) {
+  const items = [
+    { id: 'files' as const, label: 'Files', shortcut: '⌘P', disabled: false },
+    { id: 'side-chat' as const, label: 'Side Chat', shortcut: null, disabled: false },
+    { id: 'browser' as const, label: 'Browser', shortcut: '⌘T', disabled: !browserAvailable },
+    { id: 'review' as const, label: 'Review', shortcut: '⌃⌘G', disabled: false },
+    { id: 'terminal' as const, label: 'Terminal', shortcut: '⌃`', disabled: false },
+  ];
+
+  return (
+    <div className="drag-region flex h-10 shrink-0 items-center gap-1 border-b border-[var(--border)] bg-[var(--bg-primary)] px-2">
+      <div className="no-drag flex min-w-0 flex-1 translate-y-1 items-end gap-1 overflow-x-auto">
+	        {tabs.map((tab) => {
+	          const Icon = getUtilityTabIcon(tab.kind);
+          const active = activeTab === tab.id;
+          return (
+            <div
+              key={tab.id}
+              className={`group flex h-8 max-w-[190px] min-w-[116px] items-center rounded-t-[7px] border border-b-0 text-xs transition-colors ${
+                active
+                  ? 'border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-[0_-1px_0_var(--bg-primary),0_1px_0_var(--bg-primary)]'
+                  : 'border-transparent bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <button
+                type="button"
+                data-utility-tab={tab.id}
+                data-utility-tab-kind={tab.kind}
+                onClick={() => onSelectTab(tab.id)}
+                className="flex min-w-0 flex-1 items-center gap-1.5 px-2 text-left"
+                title={tab.label}
+              >
+                <Icon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate">{tab.label}</span>
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onCloseTab(tab.id);
+                }}
+                className="mr-1 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-[4px] text-[var(--text-muted)] opacity-70 transition-opacity hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] group-hover:opacity-100"
+                aria-label={`Close ${tab.label}`}
+                title={`Close ${tab.label}`}
+              >
+                <X className="h-3 w-3" aria-hidden="true" />
+              </button>
+            </div>
+          );
+        })}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-t-[7px] border border-b-0 border-transparent text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+              title="Open another panel"
+              aria-label="Open another panel"
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              align="start"
+              sideOffset={6}
+              className="z-[1000] w-[292px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_18px_42px_rgba(15,23,42,0.18)]"
+            >
+              {items.map((item) => {
+                const Icon = getUtilityTabIcon(item.id);
+                const active = activeTab ? getProjectUtilityTabKind(activeTab) === item.id : false;
+                return (
+                  <DropdownMenu.Item
+                    key={item.id}
+                    disabled={item.disabled}
+                    onSelect={() => onOpenTab(item.id, item.id === 'files' ? { newTab: true } : undefined)}
+                    className={`flex h-9 cursor-pointer select-none items-center gap-2 rounded-lg px-2.5 text-[12px] outline-none transition-colors focus:bg-[var(--bg-tertiary)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50 ${
+                      active ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    {item.shortcut ? (
+                      <span className="ml-auto font-mono text-[10px] text-[var(--text-muted)]">
+                        {item.shortcut}
+                      </span>
+                    ) : null}
+                  </DropdownMenu.Item>
+                );
+              })}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      </div>
+
+      <div className="no-drag ml-1 flex h-full shrink-0 translate-y-1 items-center">
+        <PanelLauncher activePanel={activePanel} onToggle={onTogglePanel} />
+      </div>
+    </div>
+  );
+}
+
+type PanelLauncherKind = 'launcher' | 'files' | 'side-chat' | 'browser' | 'review' | 'terminal';
+
+function PanelLauncher({
+  activePanel,
+  onToggle,
+}: {
+  activePanel: PanelLauncherKind | null;
+  onToggle: () => void;
+}) {
+  const active = Boolean(activePanel);
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`no-drag inline-flex h-7 min-w-7 items-center justify-center rounded-lg px-1.5 text-[11px] font-medium transition-colors ${
+        active
+          ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+          : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+      }`}
+      title={active ? 'Close right panel' : 'Open right panel'}
+      aria-label={active ? 'Close right panel' : 'Open right panel launcher'}
+      aria-expanded={active}
+      aria-pressed={active}
+    >
+      <PanelRight className="h-[14px] w-[14px] shrink-0" />
+    </button>
+  );
+}
+
+type PanelLauncherItem = {
+  id: Exclude<PanelLauncherKind, 'launcher'>;
+  label: string;
+  detail: string;
+  shortcut: string | null;
+  icon: typeof FolderClosed;
+  onSelect: () => void;
+  disabled?: boolean;
+  disabledReason?: string;
+};
+
+function getPanelLauncherItems({
+  browserAvailable,
+  changeStats,
+  onOpenFiles,
+  onOpenSideChat,
+  onOpenBrowser,
+  onOpenReview,
+  onOpenTerminal,
+}: {
+  browserAvailable: boolean;
+  changeStats: { insertions: number; deletions: number };
+  onOpenFiles: () => void;
+  onOpenSideChat: () => void;
+  onOpenBrowser: () => void;
+  onOpenReview: () => void;
+  onOpenTerminal: () => void;
+}): PanelLauncherItem[] {
+	  const hasChanges = changeStats.insertions > 0 || changeStats.deletions > 0;
+	  const reviewDetail = hasChanges
+	    ? `+${changeStats.insertions.toLocaleString()} -${changeStats.deletions.toLocaleString()}`
+	    : 'View code changes';
+
+  return [
+	    {
+	      id: 'files' as const,
+	      label: 'Files',
+	      detail: 'Browse project files',
+	      shortcut: '⌘P',
+	      icon: FolderClosed,
+	      onSelect: onOpenFiles,
+	    },
+	    {
+	      id: 'side-chat' as const,
+	      label: 'Side Chat',
+	      detail: 'Start a side conversation',
+	      shortcut: null,
+	      icon: MessageCircle,
+	      onSelect: onOpenSideChat,
+	    },
+	    {
+	      id: 'browser' as const,
+	      label: 'Browser',
+	      detail: 'Open websites',
+	      shortcut: '⌘T',
+	      icon: Globe,
+	      onSelect: onOpenBrowser,
+	      disabled: !browserAvailable,
+	      disabledReason: 'Select a session first',
+	    },
+	    {
+	      id: 'review' as const,
+	      label: 'Review',
+	      detail: reviewDetail,
+	      shortcut: '⌃⌘G',
+	      icon: FileDiff,
+      onSelect: onOpenReview,
+    },
+	    {
+	      id: 'terminal' as const,
+	      label: 'Terminal',
+	      detail: 'Open a right-side shell',
+	      shortcut: '⌃`',
+	      icon: SquareTerminal,
+      onSelect: onOpenTerminal,
+    },
+  ];
+}
+
+function RightPanelLauncherContent({
+  hidden,
+  browserAvailable,
+  changeStats,
+  onOpenFiles,
+  onOpenSideChat,
+  onOpenBrowser,
+  onOpenReview,
+  onOpenTerminal,
+}: {
+  hidden: boolean;
+  browserAvailable: boolean;
+  changeStats: { insertions: number; deletions: number };
+  onOpenFiles: () => void;
+  onOpenSideChat: () => void;
+  onOpenBrowser: () => void;
+  onOpenReview: () => void;
+  onOpenTerminal: () => void;
+}) {
+  const items = getPanelLauncherItems({
+    browserAvailable,
+    changeStats,
+    onOpenFiles,
+    onOpenSideChat,
+    onOpenBrowser,
+    onOpenReview,
+    onOpenTerminal,
+  });
+
+  return (
+    <div
+      className={`absolute inset-0 min-h-0 min-w-0 bg-[var(--bg-primary)] ${
+        hidden ? 'hidden' : 'flex flex-col'
+      }`}
+      aria-hidden={hidden}
+    >
+      <div className="flex min-h-0 flex-1 items-center justify-center px-10 pb-16">
+        <div className="grid w-full max-w-[690px] grid-cols-5 gap-3">
+          {items.map((item) => {
+            const Icon = item.icon;
+            const disabled = item.disabled === true;
+            const hasChanges = item.id === 'review' && (changeStats.insertions > 0 || changeStats.deletions > 0);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                disabled={disabled}
+                onClick={item.onSelect}
+                title={disabled ? item.disabledReason : item.label}
+                className={`group flex h-[128px] min-w-0 flex-col items-center justify-center rounded-lg border px-3 text-center transition-colors ${
+                  'border-transparent bg-[var(--bg-secondary)]/70 text-[var(--text-secondary)] hover:border-[var(--border)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+                } ${disabled ? 'cursor-not-allowed opacity-45 hover:border-transparent hover:bg-[var(--bg-secondary)]/70 hover:text-[var(--text-secondary)]' : ''}`}
+              >
+                <Icon className="mb-4 h-5 w-5 shrink-0 text-[var(--text-muted)] transition-colors group-hover:text-[var(--text-primary)]" />
+                <span className="w-full truncate text-[13px] font-semibold text-[var(--text-primary)]">
+                  {item.label}
+                </span>
+                <span
+                  className={`mt-2 w-full truncate text-[11px] ${
+                    hasChanges ? 'font-mono tabular-nums text-[var(--text-secondary)]' : 'text-[var(--text-muted)]'
+                  }`}
+                >
+                  {item.detail}
+                </span>
+                {item.shortcut ? (
+                  <span className="mt-3 rounded-md bg-[var(--bg-tertiary)] px-1.5 py-0.5 font-mono text-[10px] leading-4 text-[var(--text-muted)]">
+                    {item.shortcut}
+                  </span>
+                ) : (
+                  <span className="mt-3 h-5" aria-hidden="true" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

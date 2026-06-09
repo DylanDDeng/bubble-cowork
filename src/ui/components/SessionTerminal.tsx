@@ -62,13 +62,17 @@ type TerminalTab = TerminalChromeTab;
 export function SessionTerminal({
   sessionId,
   cwd,
+  terminalScopeId,
   visible = true,
   onRequestClose,
+  hideChromeTabs = false,
 }: {
   sessionId: string | null;
   cwd: string | null;
+  terminalScopeId?: string | null;
   visible?: boolean;
   onRequestClose?: () => void;
+  hideChromeTabs?: boolean;
 }) {
   const tabsRef = useRef<TerminalTab[]>([]);
   const activeTabIdRef = useRef<string | null>(null);
@@ -86,7 +90,8 @@ export function SessionTerminal({
 
   const normalizedCwd = cwd?.trim() || null;
   const normalizedSessionId = sessionId?.trim() || null;
-  const canStart = Boolean(normalizedSessionId && normalizedCwd);
+  const runtimeThreadId = terminalScopeId?.trim() || normalizedSessionId;
+  const canStart = Boolean(runtimeThreadId && normalizedCwd);
 
   const agentReadiness = useAgentReadiness(null, visible);
   const readinessByProvider = useMemo(() => {
@@ -151,14 +156,14 @@ export function SessionTerminal({
 
   useEffect(() => {
     const previousThreadId = previousThreadIdRef.current;
-    if (previousThreadId && previousThreadId !== normalizedSessionId) {
+    if (previousThreadId && previousThreadId !== runtimeThreadId) {
       terminalRuntimeRegistry.disposeThread(previousThreadId);
     }
-    previousThreadIdRef.current = normalizedSessionId;
+    previousThreadIdRef.current = runtimeThreadId;
 
     if (!canStart) {
-      if (normalizedSessionId) {
-        terminalRuntimeRegistry.disposeThread(normalizedSessionId);
+      if (runtimeThreadId) {
+        terminalRuntimeRegistry.disposeThread(runtimeThreadId);
       }
       tabsRef.current = [];
       nextTabNumberRef.current = 1;
@@ -168,7 +173,7 @@ export function SessionTerminal({
       return;
     }
 
-    terminalRuntimeRegistry.disposeThread(normalizedSessionId!);
+    terminalRuntimeRegistry.disposeThread(runtimeThreadId!);
     tabsRef.current = [];
     nextTabNumberRef.current = 1;
     setTabs([]);
@@ -177,11 +182,11 @@ export function SessionTerminal({
     createInitialTab();
 
     return () => {
-      if (normalizedSessionId) {
-        terminalRuntimeRegistry.disposeThread(normalizedSessionId);
+      if (runtimeThreadId) {
+        terminalRuntimeRegistry.disposeThread(runtimeThreadId);
       }
     };
-  }, [canStart, createInitialTab, normalizedCwd, normalizedSessionId]);
+  }, [canStart, createInitialTab, normalizedCwd, runtimeThreadId]);
 
   useEffect(() => {
     if (!visible || !canStart || tabsRef.current.length > 0) return;
@@ -239,8 +244,8 @@ export function SessionTerminal({
 
   const handleCloseTab = useCallback(
     (tabId: string) => {
-      if (!normalizedSessionId) return;
-      terminalRuntimeRegistry.disposeTerminal(normalizedSessionId, tabId);
+      if (!runtimeThreadId) return;
+      terminalRuntimeRegistry.disposeTerminal(runtimeThreadId, tabId);
       if (tabsRef.current.length <= 1) {
         tabsRef.current = [];
         setTabs([]);
@@ -257,7 +262,7 @@ export function SessionTerminal({
         return filtered;
       });
     },
-    [normalizedSessionId, onRequestClose]
+    [runtimeThreadId, onRequestClose]
   );
 
   const updateTabActivity = useCallback((tabId: string, activity: TerminalActivityState | null) => {
@@ -311,7 +316,7 @@ export function SessionTerminal({
 
   return (
     <>
-      {!canStart || !normalizedSessionId || !normalizedCwd ? (
+      {!canStart || !runtimeThreadId || !normalizedCwd ? (
         <section className="flex h-full min-h-0 flex-col">
           <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-[var(--text-muted)]">
             Select a project folder in the current session to use the terminal.
@@ -320,7 +325,7 @@ export function SessionTerminal({
       ) : (
         <div className="relative h-full min-h-0">
           <TerminalChrome
-            threadId={normalizedSessionId}
+            threadId={runtimeThreadId}
             cwd={normalizedCwd}
             visible={visible}
             tabs={tabs}
@@ -330,6 +335,7 @@ export function SessionTerminal({
             onAddTab={handleAddTab}
             picker={picker}
             callbacksForTab={callbacksForTab}
+            hideTabBar={hideChromeTabs}
           />
           {status ? (
             <div className="absolute bottom-2 right-2 z-10 rounded bg-[var(--bg-secondary)] px-2 py-1 text-[11px] text-[var(--error)]">
