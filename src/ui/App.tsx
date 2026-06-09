@@ -1160,18 +1160,18 @@ function RightUtilityTabStrip({
   onTogglePanel: () => void;
 }) {
   const items = [
-    { id: 'files' as const, label: '文件', shortcut: '⌘P', disabled: false },
-    { id: 'side-chat' as const, label: '侧边聊天', shortcut: null, disabled: false },
-    { id: 'browser' as const, label: '浏览器', shortcut: '⌘T', disabled: !browserAvailable },
-    { id: 'review' as const, label: '审查', shortcut: '⌃⌘G', disabled: false },
-    { id: 'terminal' as const, label: '终端', shortcut: '⌃`', disabled: false },
+    { id: 'files' as const, label: 'Files', shortcut: '⌘P', disabled: false },
+    { id: 'side-chat' as const, label: 'Side Chat', shortcut: null, disabled: false },
+    { id: 'browser' as const, label: 'Browser', shortcut: '⌘T', disabled: !browserAvailable },
+    { id: 'review' as const, label: 'Review', shortcut: '⌃⌘G', disabled: false },
+    { id: 'terminal' as const, label: 'Terminal', shortcut: '⌃`', disabled: false },
   ];
 
   return (
     <div className="drag-region flex h-10 shrink-0 items-center gap-1 border-b border-[var(--border)] bg-[var(--bg-primary)] px-2">
       <div className="no-drag flex min-w-0 flex-1 translate-y-1 items-end gap-1 overflow-x-auto">
-        {tabs.map((tab) => {
-                const Icon = getUtilityTabIcon(tab.kind);
+	        {tabs.map((tab) => {
+	          const Icon = getUtilityTabIcon(tab.kind);
           const active = activeTab === tab.id;
           return (
             <div
@@ -1318,52 +1318,52 @@ function getPanelLauncherItems({
   onOpenReview: () => void;
   onOpenTerminal: () => void;
 }): PanelLauncherItem[] {
-  const hasChanges = changeStats.insertions > 0 || changeStats.deletions > 0;
-  const reviewDetail = hasChanges
-    ? `+${changeStats.insertions.toLocaleString()} -${changeStats.deletions.toLocaleString()}`
-    : '查看代码更改';
+	  const hasChanges = changeStats.insertions > 0 || changeStats.deletions > 0;
+	  const reviewDetail = hasChanges
+	    ? `+${changeStats.insertions.toLocaleString()} -${changeStats.deletions.toLocaleString()}`
+	    : 'View code changes';
 
   return [
-    {
-      id: 'files' as const,
-      label: '文件',
-      detail: '浏览项目文件',
-      shortcut: '⌘P',
-      icon: FolderClosed,
-      onSelect: onOpenFiles,
-    },
-    {
-      id: 'side-chat' as const,
-      label: '侧边聊天',
-      detail: '发起侧边对话',
-      shortcut: null,
-      icon: MessageCircle,
-      onSelect: onOpenSideChat,
-    },
-    {
-      id: 'browser' as const,
-      label: '浏览器',
-      detail: '打开网站',
-      shortcut: '⌘T',
-      icon: Globe,
-      onSelect: onOpenBrowser,
-      disabled: !browserAvailable,
-      disabledReason: '需要先选中一个会话',
-    },
-    {
-      id: 'review' as const,
-      label: '审查',
-      detail: reviewDetail,
-      shortcut: '⌃⌘G',
-      icon: FileDiff,
+	    {
+	      id: 'files' as const,
+	      label: 'Files',
+	      detail: 'Browse project files',
+	      shortcut: '⌘P',
+	      icon: FolderClosed,
+	      onSelect: onOpenFiles,
+	    },
+	    {
+	      id: 'side-chat' as const,
+	      label: 'Side Chat',
+	      detail: 'Start a side conversation',
+	      shortcut: null,
+	      icon: MessageCircle,
+	      onSelect: onOpenSideChat,
+	    },
+	    {
+	      id: 'browser' as const,
+	      label: 'Browser',
+	      detail: 'Open websites',
+	      shortcut: '⌘T',
+	      icon: Globe,
+	      onSelect: onOpenBrowser,
+	      disabled: !browserAvailable,
+	      disabledReason: 'Select a session first',
+	    },
+	    {
+	      id: 'review' as const,
+	      label: 'Review',
+	      detail: reviewDetail,
+	      shortcut: '⌃⌘G',
+	      icon: FileDiff,
       onSelect: onOpenReview,
     },
-    {
-      id: 'terminal' as const,
-      label: '终端',
-      detail: '打开右侧 shell',
-      shortcut: '⌃`',
-      icon: SquareTerminal,
+	    {
+	      id: 'terminal' as const,
+	      label: 'Terminal',
+	      detail: 'Open a right-side shell',
+	      shortcut: '⌃`',
+	      icon: SquareTerminal,
       onSelect: onOpenTerminal,
     },
   ];

@@ -993,8 +993,17 @@ export function ProjectTreePanel({
     let cancelled = false;
     const current = cwd?.trim() || '';
 
-    if (!current || !shouldWatchProjectTree) {
+    if (!current) {
       setProjectTree(null, null);
+      setProjectTreeError(null);
+      if (prevCwdRef.current) {
+        window.electron.unwatchProjectTree(prevCwdRef.current);
+        prevCwdRef.current = null;
+      }
+      return;
+    }
+
+    if (!shouldWatchProjectTree) {
       setProjectTreeError(null);
       if (prevCwdRef.current) {
         window.electron.unwatchProjectTree(prevCwdRef.current);
@@ -2688,8 +2697,8 @@ export function ProjectTreePanel({
             style={{ gridColumn: 1, gridRow: '1 / span 2' }}
           >
             <FolderOpen className="mb-3 h-8 w-8 text-[var(--text-muted)]" aria-hidden="true" />
-            <div className="text-sm font-medium text-[var(--text-primary)]">打开文件</div>
-            <div className="mt-1 text-xs text-[var(--text-muted)]">从工作区目录树中选择文件</div>
+            <div className="text-sm font-medium text-[var(--text-primary)]">Open file</div>
+            <div className="mt-1 text-xs text-[var(--text-muted)]">Select a file from the workspace tree</div>
           </div>
         ) : null}
         {useEmbeddedFilesGrid ? (
