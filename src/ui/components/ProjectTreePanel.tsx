@@ -2987,13 +2987,12 @@ export function ProjectTreePanel({
                 <div
                   className={`aegis-project-file-tabs${isFullscreen ? ' window-controls-inset' : ''} drag-region flex h-11 flex-shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-primary)] pl-2 pr-2`}
                 >
-                  <div className="no-drag flex min-w-0 flex-1 items-end overflow-x-auto">
-                    {openFileTabs.map((tab) => {
-                      const activeTab = tab.id === activeFileTabId;
-                      const dirty = activeTab && canSaveText;
-                      return (
-                        <button
-                          key={tab.id}
+	                  <div className="no-drag flex min-w-0 flex-1 items-end overflow-x-auto">
+	                    {openFileTabs.map((tab) => {
+	                      const activeTab = tab.id === activeFileTabId;
+	                      return (
+	                        <button
+	                          key={tab.id}
                           type="button"
                           onClick={() => void activateProjectFileTab(tab)}
                           className={`group flex h-9 max-w-[190px] min-w-[112px] items-center gap-1.5 rounded-t-[7px] border border-b-0 px-2.5 text-left text-xs transition-colors ${
@@ -3002,11 +3001,10 @@ export function ProjectTreePanel({
                               : 'border-transparent bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
                           }`}
                           title={tab.filePath}
-                        >
-                          <FileTypeIcon name={tab.name} className="h-3.5 w-3.5 flex-shrink-0" fallbackClassName="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-secondary)]" />
-                          <span className="min-w-0 flex-1 truncate">{tab.name}</span>
-                          {dirty && <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[var(--accent)]" aria-label="Unsaved changes" />}
-                          <span
+	                        >
+	                          <FileTypeIcon name={tab.name} className="h-3.5 w-3.5 flex-shrink-0" fallbackClassName="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-secondary)]" />
+	                          <span className="min-w-0 flex-1 truncate">{tab.name}</span>
+	                          <span
                             role="button"
                             tabIndex={0}
                             aria-label={`Close ${tab.name}`}
@@ -3046,26 +3044,9 @@ export function ProjectTreePanel({
                             : undefined
                         }
                       />
-                    )}
+	                    )}
 
-                    {canSaveText && (
-                      <button
-                        onClick={() => {
-                          void handleSaveText();
-                        }}
-                        disabled={saveState === 'saving'}
-                        className="px-2 py-1 text-xs rounded-md bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Save"
-                      >
-                        {saveState === 'saving'
-                          ? 'Saving...'
-                          : saveState === 'saved'
-                            ? 'Saved'
-                            : 'Save'}
-                      </button>
-                    )}
-
-                    {canCopyWechat && (
+	                    {canCopyWechat && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <button
@@ -3163,26 +3144,9 @@ export function ProjectTreePanel({
                             : undefined
                         }
                       />
-                    )}
+	                    )}
 
-                    {canSaveText && (
-                      <button
-                        onClick={() => {
-                          void handleSaveText();
-                        }}
-                        disabled={saveState === 'saving'}
-                        className="px-2 py-1 text-xs rounded-md bg-[var(--accent)] text-[var(--accent-foreground)] hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Save"
-                      >
-                        {saveState === 'saving'
-                          ? 'Saving...'
-                          : saveState === 'saved'
-                            ? 'Saved'
-                            : 'Save'}
-                      </button>
-                    )}
-
-                    {onToggleFullscreen && (
+	                    {onToggleFullscreen && (
                       <IconButton
                         onClick={onToggleFullscreen}
                         tooltip={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
@@ -3337,11 +3301,10 @@ export function ProjectTreePanel({
                             revealTarget={mdxRevealTarget}
                           />
                         </div>
-                        <MdxStatusBar
-                          dirty={canSaveText}
-                          saveState={saveState}
-                          saveError={saveError}
-                          issueCount={mdxIssueCount}
+	                        <MdxStatusBar
+	                          saveState={saveState}
+	                          saveError={saveError}
+	                          issueCount={mdxIssueCount}
                         />
                       </div>
                     ) : isMdxPreviewSurface ? (
@@ -3368,11 +3331,10 @@ export function ProjectTreePanel({
                               revealTarget={mdxRevealTarget}
                             />
                           </div>
-                          <MdxStatusBar
-                            dirty={canSaveText}
-                            saveState={saveState}
-                            saveError={saveError}
-                            issueCount={mdxIssueCount}
+	                          <MdxStatusBar
+	                            saveState={saveState}
+	                            saveError={saveError}
+	                            issueCount={mdxIssueCount}
                           />
                         </div>
                         <div className="aegis-mdx-split-pane aegis-mdx-split-preview">
@@ -3730,32 +3692,20 @@ function formatBytes(bytes: number): string {
 }
 
 function MdxStatusBar({
-  dirty,
   saveState,
   saveError,
   issueCount,
 }: {
-  dirty: boolean;
   saveState: 'idle' | 'saving' | 'saved' | 'error';
   saveError: string | null;
   issueCount: number;
 }) {
-  const saveLabel =
-    saveState === 'saving'
-      ? 'Saving'
-      : saveState === 'saved'
-        ? 'Saved'
-        : saveState === 'error'
-          ? 'Save failed'
-          : dirty
-            ? 'Unsaved'
-            : 'Saved';
   const previewLabel = issueCount > 0 ? `${issueCount} degraded` : 'Preview ready';
 
   return (
     <div className="aegis-mdx-statusbar">
       <span>MDX</span>
-      <span className={dirty || saveState === 'error' ? 'is-attention' : ''}>{saveLabel}</span>
+      {saveState === 'error' ? <span className="is-attention">Save failed</span> : null}
       <span className={issueCount > 0 ? 'is-attention' : ''}>{previewLabel}</span>
       {saveError ? <span className="is-error">{saveError}</span> : null}
     </div>
