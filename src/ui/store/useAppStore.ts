@@ -1095,6 +1095,7 @@ export const useAppStore = create<Store>()(
       projectPanelView: normalizeProjectPanelView(initialUiResumeState?.projectPanelView),
       rightUtilityTabs: initialRightUtilityTab ? [initialRightUtilityTab] : [],
       activeRightUtilityTab: initialRightUtilityTab,
+      rightUtilityPanelHidden: false,
       reviewDiffSelection: null,
       terminalDrawerOpen: resolveInitialTerminalDrawerOpen(initialUiResumeState),
       terminalDrawerHeight: sanitizeTerminalDrawerHeight(initialUiResumeState?.terminalDrawerHeight),
@@ -2105,6 +2106,7 @@ export const useAppStore = create<Store>()(
         projectTreeCollapsed: false,
         rightUtilityTabs: opened.tabs,
         activeRightUtilityTab: opened.activeTab,
+        rightUtilityPanelHidden: false,
         rightPanelFullscreen: state.rightPanelFullscreen,
       };
     });
@@ -2125,6 +2127,7 @@ export const useAppStore = create<Store>()(
         projectPanelView,
         rightUtilityTabs: opened ? opened.tabs : state.rightUtilityTabs,
         activeRightUtilityTab: opened ? opened.activeTab : state.activeRightUtilityTab,
+        rightUtilityPanelHidden: opened ? false : state.rightUtilityPanelHidden,
       };
     });
     persistUiResumeStateSnapshot(get());
@@ -2134,6 +2137,7 @@ export const useAppStore = create<Store>()(
     set((state) => ({
       activeRightUtilityTab: target,
       rightUtilityTabs: target ? addRightUtilityTab(state.rightUtilityTabs, target) : state.rightUtilityTabs,
+      rightUtilityPanelHidden: target ? false : state.rightUtilityPanelHidden,
     }));
   },
 
@@ -2144,6 +2148,7 @@ export const useAppStore = create<Store>()(
       const patch: Partial<Store> = {
         rightUtilityTabs: opened.tabs,
         activeRightUtilityTab: opened.activeTab,
+        rightUtilityPanelHidden: false,
       };
 
       if (activeKind === 'files' || activeKind === 'review') {
@@ -2184,6 +2189,7 @@ export const useAppStore = create<Store>()(
         reviewDiffSelection: normalizeReviewDiffSelection(selection),
         rightUtilityTabs: opened.tabs,
         activeRightUtilityTab: opened.activeTab,
+        rightUtilityPanelHidden: false,
         projectPanelView: 'changes',
         projectTreeCollapsed: false,
         browserPanelOpen: false,
@@ -2214,6 +2220,7 @@ export const useAppStore = create<Store>()(
         patch.projectTreeCollapsed = true;
         patch.browserPanelOpen = false;
         patch.rightPanelFullscreen = null;
+        patch.rightUtilityPanelHidden = false;
       }
       const targetKind = getRightUtilityTabKind(target);
       if (targetKind === 'browser' && state.rightPanelFullscreen === 'browser') {
@@ -2231,12 +2238,32 @@ export const useAppStore = create<Store>()(
   },
 
   closeRightUtilityPanels: () => {
+    // Keep the tab list and active tab so re-opening the panel restores the
+    // previous layout; only the visibility flag flips.
     set({
-      rightUtilityTabs: [],
-      activeRightUtilityTab: null,
+      rightUtilityPanelHidden: true,
       projectTreeCollapsed: true,
       browserPanelOpen: false,
       rightPanelFullscreen: null,
+    });
+    persistUiResumeStateSnapshot(get());
+  },
+
+  showRightUtilityPanels: () => {
+    set((state) => {
+      if (state.rightUtilityTabs.length === 0) {
+        return { rightUtilityPanelHidden: false };
+      }
+      const activeTab = state.activeRightUtilityTab ?? state.rightUtilityTabs[0];
+      const activeKind = getRightUtilityTabKind(activeTab);
+      return {
+        rightUtilityPanelHidden: false,
+        activeRightUtilityTab: activeTab,
+        projectTreeCollapsed: !(activeKind === 'files' || activeKind === 'review'),
+        projectPanelView:
+          activeKind === 'review' ? 'changes' : activeKind === 'files' ? 'files' : state.projectPanelView,
+        browserPanelOpen: activeKind === 'browser',
+      };
     });
     persistUiResumeStateSnapshot(get());
   },
@@ -2258,6 +2285,7 @@ export const useAppStore = create<Store>()(
         ? addRightUtilityTab(state.rightUtilityTabs, 'browser')
         : state.rightUtilityTabs,
       activeRightUtilityTab: browserPanelOpen ? 'browser' : state.activeRightUtilityTab,
+      rightUtilityPanelHidden: browserPanelOpen ? false : state.rightUtilityPanelHidden,
       rightPanelFullscreen:
         !browserPanelOpen && state.rightPanelFullscreen === 'browser'
           ? null
@@ -2273,6 +2301,7 @@ export const useAppStore = create<Store>()(
         projectTreeCollapsed: true,
         rightUtilityTabs: addRightUtilityTab(state.rightUtilityTabs, 'browser'),
         activeRightUtilityTab: 'browser',
+        rightUtilityPanelHidden: false,
       }));
       return;
     }
@@ -2285,6 +2314,7 @@ export const useAppStore = create<Store>()(
           browserPanelOpen: false,
           rightUtilityTabs: opened.tabs,
           activeRightUtilityTab: opened.activeTab,
+          rightUtilityPanelHidden: false,
         };
       });
       return;
