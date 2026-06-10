@@ -402,7 +402,6 @@ export function AutomationsView() {
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-[13px] font-semibold text-[var(--text-primary)]">Start from a template</h2>
-              <span className="text-[12px] text-[var(--text-muted)]">Templates only prefill the prompt and schedule.</span>
             </div>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               {TEMPLATES.map((template) => (

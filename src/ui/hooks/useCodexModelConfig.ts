@@ -55,6 +55,10 @@ export function useCodexModelConfig() {
   const [config, setConfig] = useState<CodexModelConfig>(FALLBACK_CONFIG);
 
   useEffect(() => {
+    if (typeof window === 'undefined' || !window.electron?.getCodexModelConfig) {
+      return;
+    }
+
     let cancelled = false;
     const loadConfig = () =>
       window.electron

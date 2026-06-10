@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Brain, CheckCircle2, LoaderCircle, Plug, RefreshCw, Search, X } from '../icons';
+import { CheckCircle2, LoaderCircle, Plug, RefreshCw, Search, X } from '../icons';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import type {
@@ -671,9 +671,6 @@ function SkillMiniCard({
       aria-label={onSelect ? `Open ${title} skill detail` : undefined}
     >
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-          <Brain className="h-4 w-4" />
-        </div>
         <div className="min-w-0 flex-1 space-y-2">
           <h5 className="truncate text-[15px] font-medium tracking-[-0.01em] text-[var(--text-primary)]">
             {title}
@@ -716,7 +713,6 @@ function CodexSkillDetailDialog({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 space-y-2">
                     <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
-                      <Brain className="h-3.5 w-3.5" />
                       <span>Codex skill</span>
                     </div>
                     <h4 className="break-words text-[24px] font-semibold tracking-[-0.025em] text-[var(--text-primary)]">

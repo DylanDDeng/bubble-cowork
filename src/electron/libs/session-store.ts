@@ -37,6 +37,8 @@ import type {
   ProfileSnapshotPayload,
   StoredAgentProfile,
   TeamProfile,
+  SessionEnvironmentNote,
+  SessionEnvironmentRecap,
   ThreadEnvironmentMode,
 } from '../../shared/types';
 
@@ -513,6 +515,13 @@ export function initialize(): void {
       FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS session_environment_notes (
+      session_id TEXT PRIMARY KEY,
+      note TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS search_index (
       message_id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
@@ -658,6 +667,7 @@ export function initialize(): void {
     CREATE INDEX IF NOT EXISTS idx_team_profiles_updated_at ON team_profiles(updated_at);
     CREATE INDEX IF NOT EXISTS idx_artifacts_session_id ON artifacts(session_id);
     CREATE INDEX IF NOT EXISTS idx_derived_summaries_session_id ON derived_summaries(session_id);
+    CREATE INDEX IF NOT EXISTS idx_session_environment_notes_updated ON session_environment_notes(updated_at);
     CREATE INDEX IF NOT EXISTS idx_search_index_session_id ON search_index(session_id);
     CREATE INDEX IF NOT EXISTS idx_builtin_memory_rollouts_agent_status ON builtin_memory_rollouts(agent_id, status, updated_at);
     CREATE INDEX IF NOT EXISTS idx_builtin_memory_candidates_agent_pending ON builtin_memory_candidates(agent_id, consolidated_at, created_at);
@@ -2647,6 +2657,72 @@ export function listDerivedSummariesForSession(sessionId: string): DerivedSummar
     WHERE session_id = ?
     ORDER BY updated_at DESC
   `).all(sessionId) as DerivedSummaryRow[];
+}
+
+export function getSessionEnvironmentNote(sessionId: string): SessionEnvironmentNote {
+  const row = getDb().prepare(`
+    SELECT session_id, note, updated_at
+    FROM session_environment_notes
+    WHERE session_id = ?
+    LIMIT 1
+  `).get(sessionId) as { session_id: string; note: string; updated_at: number } | undefined;
+
+  return {
+    sessionId,
+    note: row?.note || '',
+    updatedAt: row?.updated_at ?? null,
+  };
+}
+
+export function saveSessionEnvironmentNote(sessionId: string, note: string): SessionEnvironmentNote {
+  const now = Date.now();
+  getDb().prepare(`
+    INSERT INTO session_environment_notes (session_id, note, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(session_id) DO UPDATE SET
+      note = excluded.note,
+      updated_at = excluded.updated_at
+  `).run(sessionId, note, now);
+
+  return {
+    sessionId,
+    note,
+    updatedAt: now,
+  };
+}
+
+export function getSessionEnvironmentRecap(sessionId: string): SessionEnvironmentRecap {
+  const row = getDb().prepare(`
+    SELECT session_id, summary, updated_at
+    FROM derived_summaries
+    WHERE session_id = ? AND scope = 'environment-recap'
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `).get(sessionId) as { session_id: string; summary: string; updated_at: number } | undefined;
+
+  return {
+    sessionId,
+    summary: row?.summary || '',
+    updatedAt: row?.updated_at ?? null,
+    source: row ? 'derived' : 'empty',
+  };
+}
+
+export function saveSessionEnvironmentRecap(sessionId: string, summary: string): SessionEnvironmentRecap {
+  const row = upsertDerivedSummary({
+    sessionId,
+    scope: 'environment-recap',
+    summary,
+    sourceIds: ['environment-hub'],
+    model: 'local',
+  });
+
+  return {
+    sessionId,
+    summary: row.summary,
+    updatedAt: row.updated_at,
+    source: 'generated',
+  };
 }
 
 type JoinedClaudeMessageRow = {

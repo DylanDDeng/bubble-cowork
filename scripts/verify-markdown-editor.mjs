@@ -220,6 +220,34 @@ function Harness() {
         );
         return { pos, line: view.state.doc.lineAt(pos).text };
       },
+      rebuildLocalImageWidget: async () => {
+        const view = findView();
+        if (!view) return null;
+        const text = view.state.doc.toString();
+        const pos = text.indexOf('![Local](./local-image.svg)');
+        if (pos < 0) return null;
+        const beforeUrlResolveCount = window.electron.__getMarkdownImageUrlResolves().length;
+        const beforeReadCount = window.electron.__getMarkdownImageReads().length;
+        view.dispatch({ selection: EditorSelection.cursor(pos + 2) });
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        view.dispatch({ selection: EditorSelection.cursor(0) });
+        await Promise.race([
+          Promise.all(Array.from(document.images).map((img) => img.complete
+            ? true
+            : new Promise((resolve) => {
+              img.addEventListener('load', resolve, { once: true });
+              img.addEventListener('error', resolve, { once: true });
+            }))),
+          new Promise((resolve) => setTimeout(resolve, 1500)),
+        ]);
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        return {
+          beforeUrlResolveCount,
+          afterUrlResolveCount: window.electron.__getMarkdownImageUrlResolves().length,
+          beforeReadCount,
+          afterReadCount: window.electron.__getMarkdownImageReads().length,
+        };
+      },
       clickFrontmatterWidget: () => {
         const widget = document.querySelector('.aegis-cm-frontmatter-widget');
         if (!widget) return null;
@@ -493,8 +521,13 @@ createRoot(document.getElementById('root')).render(<Harness />);
 const { contextBridge } = require('electron');
 const localSvgDataUrl = ${JSON.stringify(localSvgDataUrl)};
 const imageReads = [];
+const imageUrlResolves = [];
 
 contextBridge.exposeInMainWorld('electron', {
+  resolveMarkdownImageAssetUrl: async (cwd, markdownFilePath, imageSrc) => {
+    imageUrlResolves.push({ cwd, markdownFilePath, imageSrc });
+    return { ok: true, url: localSvgDataUrl, size: 128, mtimeMs: 1234 };
+  },
   readMarkdownImageAsset: async (cwd, markdownFilePath, imageSrc) => {
     imageReads.push({ cwd, markdownFilePath, imageSrc });
     return { ok: true, dataUrl: localSvgDataUrl };
@@ -510,6 +543,7 @@ contextBridge.exposeInMainWorld('electron', {
     name: 'selected-image.svg',
   }),
   __getMarkdownImageReads: () => imageReads.slice(),
+  __getMarkdownImageUrlResolves: () => imageUrlResolves.slice(),
 });
 `;
 
@@ -623,6 +657,9 @@ app.whenReady().then(async () => {
     await delay(100);
 
     const initialSnapshot = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.snapshot()', true);
+    const imageCacheRebuild = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.rebuildLocalImageWidget()', true);
+    if (!imageCacheRebuild) throw new Error('Unable to rebuild local image widget.');
+    await delay(100);
     const frontmatterClickResult = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.clickFrontmatterWidget()', true);
     if (!frontmatterClickResult) throw new Error('Unable to click front matter widget.');
     await delay(120);
@@ -717,12 +754,14 @@ app.whenReady().then(async () => {
     const midFenceSnapshot = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.snapshot()', true);
 
     const imageReads = await win.webContents.executeJavaScript('window.electron.__getMarkdownImageReads()', true);
+    const imageUrlResolves = await win.webContents.executeJavaScript('window.electron.__getMarkdownImageUrlResolves()', true);
     const finalFullValue = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.getValue()', true);
     const finalSnapshot = await win.webContents.executeJavaScript('window.__AegisMarkdownVerify.snapshot()', true);
 
     console.log(JSON.stringify({
       ok: true,
       initialSnapshot,
+      imageCacheRebuild,
       frontmatterClickResult,
       frontmatterSelectionLine,
       frontmatterEditSnapshot,
@@ -755,6 +794,7 @@ app.whenReady().then(async () => {
       midFenceSnapshot,
       finalFullValue,
       imageReads,
+      imageUrlResolves,
       logs,
     }));
     clearTimeout(hardTimeout);
@@ -804,6 +844,7 @@ async function main() {
 
     const {
       initialSnapshot,
+      imageCacheRebuild,
       frontmatterClickResult,
       frontmatterSelectionLine,
       frontmatterEditSnapshot,
@@ -836,6 +877,7 @@ async function main() {
       midFenceSnapshot,
       finalFullValue,
       imageReads,
+      imageUrlResolves,
       logs,
     } = result;
     assert(initialSnapshot.hasEditor, 'CodeMirror editor did not mount.');
@@ -973,11 +1015,20 @@ async function main() {
     );
     assert(
       initialSnapshot.images.some((image) => image.alt === 'Local' && image.src.startsWith('data:image/svg+xml')),
-      `Local image did not render from Electron asset reader: ${JSON.stringify(initialSnapshot.images)}`
+      `Local image did not render from Electron asset resolver: ${JSON.stringify(initialSnapshot.images)}`
     );
     assert(
-      imageReads.some((read) => read.imageSrc === './local-image.svg'),
-      `Local image reader was not called: ${JSON.stringify(imageReads)}`
+      imageUrlResolves.some((read) => read.imageSrc === './local-image.svg'),
+      `Local image URL resolver was not called: ${JSON.stringify(imageUrlResolves)}`
+    );
+    assert(
+      imageReads.length === 0,
+      `Local image data reader should not be called when URL resolver is available: ${JSON.stringify(imageReads)}`
+    );
+    assert(
+      imageCacheRebuild.afterUrlResolveCount === imageCacheRebuild.beforeUrlResolveCount
+        && imageCacheRebuild.afterReadCount === imageCacheRebuild.beforeReadCount,
+      `Rebuilding the local image widget bypassed the image source cache: ${JSON.stringify(imageCacheRebuild)}`
     );
     assert(afterInline.includes('Inline probe: `hello` anchor'), 'Backquote key input did not preserve inline code source markers.');
     const inlineMarkersRawWhileAdjacent =

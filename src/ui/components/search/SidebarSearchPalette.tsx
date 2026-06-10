@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ComponentType } from 'react';
 import {
-  Bookmark,
+  BookOpenText,
   Boxes,
   FolderOpen,
   Search,
@@ -35,7 +35,7 @@ const ACTION_ICONS: Record<string, IconComponent> = {
   'new-thread': SquarePen,
   'open-project': FolderOpen,
   'switch-chat': MessageSquare,
-  'switch-prompts': Bookmark,
+  'switch-prompts': BookOpenText,
   'switch-skills': Boxes,
   settings: Settings,
 };

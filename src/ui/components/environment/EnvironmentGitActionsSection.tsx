@@ -373,8 +373,8 @@ export function useEnvironmentGitActions({
     dialog: (
       <Dialog.Root open={commitDialogOpen} onOpenChange={setCommitDialogOpen}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-[90] bg-black/18 backdrop-blur-[1px]" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-[100] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
+          <Dialog.Overlay data-environment-hub-layer className="fixed inset-0 z-[90] bg-black/18 backdrop-blur-[1px]" />
+          <Dialog.Content data-environment-hub-layer className="fixed left-1/2 top-1/2 z-[100] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
             <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2.5">
               <Dialog.Title className="text-[14px] font-semibold text-[var(--text-primary)]">
                 Commit all changes

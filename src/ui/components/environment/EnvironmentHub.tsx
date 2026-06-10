@@ -84,10 +84,15 @@ export function EnvironmentHub({
       const target = event.target as Node | null;
       if (!target) return;
       if (triggerRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+      // Dialogs opened from panel sections (e.g. the commit dialog) render in a
+      // portal outside panelRef; clicking them must not dismiss the panel.
+      if (target instanceof Element && target.closest('[data-environment-hub-layer]')) return;
       setOpen(false);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
+      if (event.key !== 'Escape') return;
+      if (document.querySelector('[data-environment-hub-layer]')) return;
+      setOpen(false);
     };
     document.addEventListener('mousedown', handlePointerDown);
     document.addEventListener('keydown', handleKeyDown);

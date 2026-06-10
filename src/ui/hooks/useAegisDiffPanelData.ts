@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { GitPatchResult, GitPatchScope, ReviewDiffSelection, SessionView } from '../types';
+import type { GitPatchResult, ReviewDiffSelection, SessionView } from '../types';
 import type { ChangeRecord } from '../utils/change-records';
 import {
   parseRecordPatch,
@@ -8,11 +8,17 @@ import {
   type AegisDiffFile,
 } from '../utils/aegis-diff-rendering';
 import { buildTurnChangeContext, type TurnChangeSummary } from '../utils/turn-change-records';
+import {
+  DEFAULT_REVIEW_DIFF_SELECTION,
+  getTurnDiffKey,
+  getTurnMenuLabel,
+} from '../utils/review-diff-selection';
 
 export interface AegisDiffTurnOption {
   key: string;
   label: string;
   summary: TurnChangeSummary;
+  current: boolean;
 }
 
 export interface AegisDiffPanelData {
@@ -32,62 +38,8 @@ export interface AegisDiffPanelData {
   refresh: () => void;
 }
 
-const DEFAULT_SELECTION: ReviewDiffSelection = {
-  source: { kind: 'workspace', scope: 'working-tree', label: 'Working tree' },
-  selectedRecordId: null,
-  selectedFilePath: null,
-  requestedAt: 0,
-};
-
-function turnKey(summary: TurnChangeSummary): string {
-  return `turn:${summary.turnIndex}:${summary.firstMessageIndex}:${summary.lastMessageIndex}`;
-}
-
-function getTurnLabel(summary: TurnChangeSummary): string {
-  return `Turn ${summary.turnIndex + 1}`;
-}
-
-function getWorkspaceLabel(scope: GitPatchScope): string {
-  if (scope === 'working-tree') return 'Working tree';
-  if (scope === 'unstaged') return 'Unstaged';
-  if (scope === 'staged') return 'Staged';
-  return 'Branch';
-}
-
 function getTurnRecords(selection: ReviewDiffSelection): ChangeRecord[] {
   return selection.source.kind === 'turn' ? selection.records || [] : [];
-}
-
-export function buildReviewTurnSelection(
-  summary: TurnChangeSummary,
-  sessionId: string | null,
-  selectedRecord?: ChangeRecord | null
-): ReviewDiffSelection {
-  return {
-    source: {
-      kind: 'turn',
-      turnKey: turnKey(summary),
-      label: getTurnLabel(summary),
-      sessionId,
-    },
-    records: summary.records,
-    selectedRecordId: selectedRecord?.id ?? summary.records[0]?.id ?? null,
-    selectedFilePath: selectedRecord?.filePath ?? summary.records[0]?.filePath ?? null,
-    requestedAt: Date.now(),
-  };
-}
-
-export function buildWorkspaceReviewSelection(scope: GitPatchScope): ReviewDiffSelection {
-  return {
-    source: {
-      kind: 'workspace',
-      scope,
-      label: getWorkspaceLabel(scope),
-    },
-    selectedRecordId: null,
-    selectedFilePath: null,
-    requestedAt: Date.now(),
-  };
 }
 
 export function useAegisDiffPanelData({
@@ -101,10 +53,12 @@ export function useAegisDiffPanelData({
   selection: ReviewDiffSelection | null;
   active: boolean;
 }): AegisDiffPanelData {
-  const effectiveSelection = selection || DEFAULT_SELECTION;
+  const effectiveSelection = selection || DEFAULT_REVIEW_DIFF_SELECTION;
   const [reloadToken, setReloadToken] = useState(0);
   const requestIdRef = useRef(0);
+  const inFlightWorkspaceKeyRef = useRef<string | null>(null);
   const [workspaceState, setWorkspaceState] = useState<{
+    cacheKey: string | null;
     files: AegisDiffFile[];
     patch: string;
     loading: boolean;
@@ -112,6 +66,7 @@ export function useAegisDiffPanelData({
     parseError: string | null;
     gitResult: GitPatchResult | null;
   }>({
+    cacheKey: null,
     files: [],
     patch: '',
     loading: false,
@@ -122,10 +77,14 @@ export function useAegisDiffPanelData({
 
   const turnOptions = useMemo<AegisDiffTurnOption[]>(() => {
     const context = buildTurnChangeContext(session?.messages || []);
+    const currentKey = context.turns.length > 0
+      ? getTurnDiffKey(context.turns[context.turns.length - 1])
+      : null;
     return context.turns.map((summary) => ({
-      key: turnKey(summary),
-      label: getTurnLabel(summary),
+      key: getTurnDiffKey(summary),
+      label: getTurnMenuLabel(summary),
       summary,
+      current: getTurnDiffKey(summary) === currentKey,
     }));
   }, [session?.messages]);
 
@@ -133,17 +92,27 @@ export function useAegisDiffPanelData({
     if (effectiveSelection.source.kind !== 'turn') {
       return null;
     }
-    return parseRecordPatch(getTurnRecords(effectiveSelection));
-  }, [effectiveSelection]);
+    const liveTurn = turnOptions.find((entry) => entry.key === effectiveSelection.source.turnKey);
+    return parseRecordPatch(liveTurn?.summary.records || getTurnRecords(effectiveSelection));
+  }, [effectiveSelection, turnOptions]);
+
+  const workspaceScope = effectiveSelection.source.kind === 'workspace'
+    ? effectiveSelection.source.scope
+    : null;
 
   useEffect(() => {
-    if (!active || effectiveSelection.source.kind !== 'workspace') {
+    if (!active || !workspaceScope) {
       return;
     }
 
     if (!cwd) {
+      const noCwdKey = `no-cwd\0${workspaceScope}\0${reloadToken}`;
+      if (workspaceState.cacheKey === noCwdKey && !workspaceState.loading) {
+        return;
+      }
       setWorkspaceState((current) => ({
         ...current,
+        cacheKey: noCwdKey,
         files: [],
         patch: '',
         loading: false,
@@ -154,16 +123,27 @@ export function useAegisDiffPanelData({
       return;
     }
 
+    const requestKey = `${cwd}\0${workspaceScope}\0${reloadToken}`;
+    if (workspaceState.cacheKey === requestKey && !workspaceState.loading) {
+      return;
+    }
+    if (inFlightWorkspaceKeyRef.current === requestKey) {
+      return;
+    }
+
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
+    inFlightWorkspaceKeyRef.current = requestKey;
     setWorkspaceState((current) => ({ ...current, loading: true, error: null }));
 
-    void window.electron.getGitPatch(cwd, effectiveSelection.source.scope)
+    void window.electron.getGitPatch(cwd, workspaceScope)
       .then((result) => {
         if (requestIdRef.current !== requestId) return;
+        inFlightWorkspaceKeyRef.current = null;
         if (!result.ok) {
           setWorkspaceState((current) => ({
             ...current,
+            cacheKey: requestKey,
             files: [],
             patch: '',
             loading: false,
@@ -176,6 +156,7 @@ export function useAegisDiffPanelData({
 
         const parsed = parseWorkspacePatch(result.patch);
         setWorkspaceState({
+          cacheKey: requestKey,
           files: parsed.files,
           patch: parsed.patch,
           loading: false,
@@ -186,14 +167,16 @@ export function useAegisDiffPanelData({
       })
       .catch((error) => {
         if (requestIdRef.current !== requestId) return;
+        inFlightWorkspaceKeyRef.current = null;
         setWorkspaceState((current) => ({
           ...current,
+          cacheKey: requestKey,
           loading: false,
           error: error instanceof Error ? error.message : 'git-error',
           gitResult: null,
         }));
       });
-  }, [active, cwd, effectiveSelection, reloadToken]);
+  }, [active, cwd, reloadToken, workspaceScope, workspaceState.cacheKey, workspaceState.loading]);
 
   const refresh = useCallback(() => {
     setReloadToken((current) => current + 1);

@@ -30,6 +30,7 @@ import {
   buildTurnChangeContext,
   type TurnChangeSummary,
 } from '../utils/turn-change-records';
+import { buildReviewTurnSelection } from '../utils/review-diff-selection';
 import type { ChangeRecord } from '../utils/change-records';
 import type {
   ContentBlock,
@@ -1105,18 +1106,24 @@ export function ChatPane({
     record: ChangeRecord,
     scope?: { records: ChangeRecord[]; label?: string; turnKey?: string }
   ) => {
+    const turn = turns.find((entry) => entry.records.some((candidate) => candidate.id === record.id));
+    if (turn) {
+      openReviewDiff(buildReviewTurnSelection(turn, sessionId, record));
+      return;
+    }
+
     openReviewDiff({
       source: {
         kind: 'turn',
         turnKey: scope?.turnKey || `record:${record.id}`,
-        label: scope?.label || 'Selected turn',
+        label: scope?.label || 'Selected file changes',
         sessionId,
       },
       records: scope?.records || [record],
       selectedRecordId: record.id,
       selectedFilePath: record.filePath,
     });
-  }, [openReviewDiff, sessionId]);
+  }, [openReviewDiff, sessionId, turns]);
 
   const turnDiffContextValue = useMemo<TurnDiffContextValue>(
     () => ({

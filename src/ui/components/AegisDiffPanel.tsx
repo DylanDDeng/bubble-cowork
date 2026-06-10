@@ -3,11 +3,14 @@ import { FileDiff, Virtualizer } from '@pierre/diffs/react';
 import { toast } from 'sonner';
 import type { GitPatchScope, ReviewDiffSelection, SessionView } from '../types';
 import { useAppStore } from '../store/useAppStore';
+import { useAegisDiffPanelData, type AegisDiffTurnOption } from '../hooks/useAegisDiffPanelData';
 import {
+  WORKSPACE_DIFF_SCOPES,
   buildReviewTurnSelection,
   buildWorkspaceReviewSelection,
-  useAegisDiffPanelData,
-} from '../hooks/useAegisDiffPanelData';
+  getTurnDiffLabel,
+  getWorkspaceDiffLabel,
+} from '../utils/review-diff-selection';
 import type { AegisDiffFile, AegisDiffRenderMode } from '../utils/aegis-diff-rendering';
 import { basenameOfDiffPath } from '../utils/aegis-diff-rendering';
 import { DiffStatLabel } from './DiffStatLabel';
@@ -31,25 +34,30 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 
-const WORKSPACE_SCOPES: Array<{ scope: GitPatchScope; label: string }> = [
-  { scope: 'working-tree', label: 'Working tree' },
-  { scope: 'unstaged', label: 'Unstaged' },
-  { scope: 'staged', label: 'Staged' },
-  { scope: 'branch', label: 'Branch' },
-];
-
-function sourceLabel(selection: ReviewDiffSelection): string {
-  if (selection.source.kind === 'turn') return selection.source.label;
-  return selection.source.label || WORKSPACE_SCOPES.find((entry) => entry.scope === selection.source.scope)?.label || 'Working tree';
+function sourceLabel(selection: ReviewDiffSelection, turn?: AegisDiffTurnOption | null): string {
+  if (selection.source.kind === 'turn') {
+    if (turn?.current) return 'Current turn changes';
+    if (turn) return getTurnDiffLabel(turn.summary);
+    return selection.source.label;
+  }
+  return selection.source.label || getWorkspaceDiffLabel(selection.source.scope);
 }
 
-function sourceSubtitle(selection: ReviewDiffSelection): string {
-  if (selection.source.kind === 'turn') return 'current turn';
-  return selection.source.scope;
+function fileCountLabel(count: number): string {
+  return `${count} ${count === 1 ? 'file' : 'files'}`;
+}
+
+function isWorkspaceSelection(selection: ReviewDiffSelection, scope: GitPatchScope): boolean {
+  return selection.source.kind === 'workspace' && selection.source.scope === scope;
+}
+
+function isTurnSelection(selection: ReviewDiffSelection, turnKey: string): boolean {
+  return selection.source.kind === 'turn' && selection.source.turnKey === turnKey;
 }
 
 function statusLabel(file: AegisDiffFile): string {
@@ -59,7 +67,14 @@ function statusLabel(file: AegisDiffFile): string {
   return 'modified';
 }
 
-function emptyMessage(selection: ReviewDiffSelection, error: string | null): { title: string; detail: string } {
+function emptyMessage(
+  selection: ReviewDiffSelection,
+  error: string | null,
+  hasQuery: boolean
+): { title: string; detail: string } {
+  if (hasQuery) {
+    return { title: 'No files match filter', detail: 'Clear the filter to show this diff source again.' };
+  }
   if (error === 'no-cwd') {
     return { title: 'Select a folder', detail: 'Choose a workspace folder to inspect changes.' };
   }
@@ -131,6 +146,12 @@ export function AegisDiffPanel({
   const [renderMode, setRenderMode] = useState<AegisDiffRenderMode>('unified');
   const [copied, setCopied] = useState(false);
   const { expandedKeys, toggleFile, collapseAll, expandAll } = useExpandedFiles(data.files, data.selection);
+  const activeTurn = useMemo(
+    () => data.selection.source.kind === 'turn'
+      ? data.turns.find((entry) => entry.key === data.selection.source.turnKey) || null
+      : null,
+    [data.selection, data.turns]
+  );
 
   const filteredFiles = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -174,8 +195,9 @@ export function AegisDiffPanel({
     }
   }, [data.patch]);
 
+  const hasQuery = query.trim().length > 0;
   const showEmpty = !data.loading && filteredFiles.length === 0;
-  const empty = emptyMessage(data.selection, data.error);
+  const empty = emptyMessage(data.selection, data.error, hasQuery);
 
   if (collapsed) {
     return <div className="absolute inset-0 hidden" aria-hidden="true" />;
@@ -192,33 +214,62 @@ export function AegisDiffPanel({
                 className="inline-flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
               >
                 <FileDiffIcon className="h-4 w-4 shrink-0 text-[var(--text-secondary)]" />
-                <span className="min-w-0 truncate font-medium">{sourceLabel(data.selection)}</span>
+                <span className="min-w-0 truncate font-medium">{sourceLabel(data.selection, activeTurn)}</span>
                 <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-[220px]">
-              {WORKSPACE_SCOPES.map((entry) => (
-                <DropdownMenuItem key={entry.scope} onSelect={() => openWorkspaceScope(entry.scope)}>
-                  <GitBranch className="mr-2 h-4 w-4 text-[var(--text-muted)]" />
-                  <span>{entry.label}</span>
-                </DropdownMenuItem>
-              ))}
-              {data.turns.length > 0 ? <DropdownMenuSeparator /> : null}
-              {data.turns.map((entry) => (
-                <DropdownMenuItem key={entry.key} onSelect={() => openTurn(entry.key)}>
+            <DropdownMenuContent align="start" className="min-w-[300px]">
+              <DropdownMenuLabel>Workspace</DropdownMenuLabel>
+              {WORKSPACE_DIFF_SCOPES.map((entry) => {
+                const active = isWorkspaceSelection(data.selection, entry.scope);
+                return (
+                  <DropdownMenuItem key={entry.scope} onSelect={() => openWorkspaceScope(entry.scope)}>
+                    <span className="mr-2 flex h-4 w-4 items-center justify-center text-[var(--accent)]">
+                      {active ? <Check className="h-3.5 w-3.5" /> : null}
+                    </span>
+                    <GitBranch className="mr-2 h-4 w-4 text-[var(--text-muted)]" />
+                    <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+                    {active ? (
+                      <span className="ml-3 inline-flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                        <span>{fileCountLabel(data.summary.totalFiles)}</span>
+                        <DiffStatLabel additions={data.summary.addedLines} deletions={data.summary.removedLines} />
+                      </span>
+                    ) : null}
+                  </DropdownMenuItem>
+                );
+              })}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Turns</DropdownMenuLabel>
+              {data.turns.length === 0 ? (
+                <DropdownMenuItem disabled>
+                  <span className="mr-2 h-4 w-4" />
                   <FileDiffIcon className="mr-2 h-4 w-4 text-[var(--text-muted)]" />
-                  <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-                  <DiffStatLabel additions={entry.summary.totalAdded} deletions={entry.summary.totalRemoved} />
+                  <span className="text-[var(--text-muted)]">No captured turns</span>
                 </DropdownMenuItem>
-              ))}
+              ) : null}
+              {data.turns.map((entry) => {
+                const active = isTurnSelection(data.selection, entry.key);
+                return (
+                  <DropdownMenuItem key={entry.key} onSelect={() => openTurn(entry.key)}>
+                    <span className="mr-2 flex h-4 w-4 items-center justify-center text-[var(--accent)]">
+                      {active ? <Check className="h-3.5 w-3.5" /> : null}
+                    </span>
+                    <FileDiffIcon className="mr-2 h-4 w-4 text-[var(--text-muted)]" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {entry.current ? `Current turn (${entry.label})` : entry.label}
+                    </span>
+                    <span className="ml-3 inline-flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                      <span>{fileCountLabel(entry.summary.totalFiles)}</span>
+                      <DiffStatLabel additions={entry.summary.totalAdded} deletions={entry.summary.totalRemoved} />
+                    </span>
+                  </DropdownMenuItem>
+                );
+              })}
             </DropdownMenuContent>
           </DropdownMenu>
 
           <div className="hidden min-w-0 items-center gap-2 text-xs text-[var(--text-muted)] sm:flex">
-            <span className="rounded-md bg-[var(--bg-secondary)] px-1.5 py-0.5 font-mono">
-              {sourceSubtitle(data.selection)}
-            </span>
-            <span>{data.summary.totalFiles} files</span>
+            <span>{fileCountLabel(data.summary.totalFiles)}</span>
             <DiffStatLabel additions={data.summary.addedLines} deletions={data.summary.removedLines} />
             {data.gitResult?.truncated ? (
               <span className="text-amber-600">truncated</span>

@@ -17,7 +17,17 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(sed:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(mkdir:*)",
+      "Bash(node:*)",
+      "Bash(cp:*)",
+      "Bash(npm run:*)",
+      "Bash(git:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(npx tsc:*)",
+      "Bash(rm:*)"
     ]
   }
 }

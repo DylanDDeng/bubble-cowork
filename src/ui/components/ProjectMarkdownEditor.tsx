@@ -141,6 +141,14 @@ type MeasuredMarkdownWidgetElement = HTMLElement & {
   __aegisMarkdownWidgetDisposed?: boolean;
 };
 
+type MarkdownImageSourceResult = { ok: true; src: string } | { ok: false; message: string };
+
+type MarkdownImageSourceCacheEntry = {
+  expiresAt: number;
+  promise: Promise<MarkdownImageSourceResult>;
+  result?: MarkdownImageSourceResult;
+};
+
 const updateListenerFacet = EditorView.updateListener;
 const markdownHeadingFlashEffect = StateEffect.define<number | null>();
 const markdownPointerSelectingEffect = StateEffect.define<boolean>();
@@ -151,6 +159,8 @@ const OUTLINE_TARGET_VIEWPORT_RATIO = 0.16;
 const MARKDOWN_SELECTION_AUTOSCROLL_MARGIN_PX = 56;
 const MARKDOWN_SELECTION_AUTOSCROLL_MAX_STEP_PX = 42;
 const MARKDOWN_SELECTION_AUTOSCROLL_MIN_STEP_PX = 8;
+const MARKDOWN_IMAGE_SOURCE_CACHE_TTL_MS = 5 * 60 * 1000;
+const MARKDOWN_IMAGE_SOURCE_CACHE_MAX_ENTRIES = 192;
 const URL_CANDIDATE_RE = /(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
 const TRAILING_URL_PUNCTUATION_RE = /[.,;:!?，。！？；：、)\]}）】》]+$/u;
 const MARKDOWN_IMAGE_MIME_TYPES = new Set([
@@ -175,6 +185,7 @@ const EMPTY_TOOLBAR_STATE: MarkdownToolbarState = {
   quote: false,
   codeBlock: false,
 };
+const markdownImageSourceCache = new Map<string, MarkdownImageSourceCacheEntry>();
 
 type LivePreviewDecorationState = {
   decorations: DecorationSet;
@@ -520,6 +531,103 @@ function normalizeAssetSrc(cwd: string, filePath: string, src: string): string {
 
 function isRemoteOrInlineAssetSrc(src: string): boolean {
   return /^(https?:|data:|blob:|mailto:)/i.test(src.trim());
+}
+
+function getMarkdownImageSourceCacheKey(cwd: string, filePath: string, src: string): string {
+  return [
+    cwd.replace(/\\/g, '/').replace(/\/+$/, ''),
+    filePath.replace(/\\/g, '/'),
+    src.trim(),
+  ].join('\0');
+}
+
+function getMarkdownImageSourceCacheEntry(key: string): MarkdownImageSourceCacheEntry | null {
+  const entry = markdownImageSourceCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    markdownImageSourceCache.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+function rememberMarkdownImageSourceCacheEntry(
+  key: string,
+  entry: MarkdownImageSourceCacheEntry
+): MarkdownImageSourceCacheEntry {
+  markdownImageSourceCache.set(key, entry);
+  while (markdownImageSourceCache.size > MARKDOWN_IMAGE_SOURCE_CACHE_MAX_ENTRIES) {
+    const oldestKey = markdownImageSourceCache.keys().next().value;
+    if (!oldestKey) break;
+    markdownImageSourceCache.delete(oldestKey);
+  }
+  return entry;
+}
+
+function getCachedMarkdownImageSource(cwd: string, filePath: string, src: string): MarkdownImageSourceResult | null {
+  const key = getMarkdownImageSourceCacheKey(cwd, filePath, src);
+  return getMarkdownImageSourceCacheEntry(key)?.result ?? null;
+}
+
+async function fetchLocalMarkdownImageSource(
+  cwd: string,
+  filePath: string,
+  src: string
+): Promise<MarkdownImageSourceResult> {
+  const resolver = window.electron?.resolveMarkdownImageAssetUrl;
+  if (typeof resolver === 'function') {
+    const result = await resolver(cwd, filePath, src);
+    if (result?.ok && result.url) {
+      return { ok: true, src: result.url };
+    }
+    if (!window.electron?.readMarkdownImageAsset) {
+      return { ok: false, message: result?.message || 'Unable to load local image.' };
+    }
+  }
+
+  const reader = window.electron?.readMarkdownImageAsset;
+  if (typeof reader === 'function') {
+    const result = await reader(cwd, filePath, src);
+    if (result?.ok && result.dataUrl) {
+      return { ok: true, src: result.dataUrl };
+    }
+    return { ok: false, message: result?.message || 'Unable to load local image.' };
+  }
+
+  return { ok: true, src: normalizeAssetSrc(cwd, filePath, src) };
+}
+
+function loadLocalMarkdownImageSource(
+  cwd: string,
+  filePath: string,
+  src: string
+): Promise<MarkdownImageSourceResult> {
+  const key = getMarkdownImageSourceCacheKey(cwd, filePath, src);
+  const cached = getMarkdownImageSourceCacheEntry(key);
+  if (cached) return cached.promise;
+
+  const entry: MarkdownImageSourceCacheEntry = {
+    expiresAt: Date.now() + MARKDOWN_IMAGE_SOURCE_CACHE_TTL_MS,
+    promise: Promise.resolve({ ok: false, message: 'Image load has not started.' }),
+  };
+  entry.promise = fetchLocalMarkdownImageSource(cwd, filePath, src)
+    .then((result) => {
+      if (!result.ok) {
+        entry.expiresAt = Date.now() + 15_000;
+      }
+      entry.result = result;
+      return result;
+    })
+    .catch((error) => {
+      const result = {
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      } satisfies MarkdownImageSourceResult;
+      entry.expiresAt = Date.now() + 15_000;
+      entry.result = result;
+      return result;
+    });
+  return rememberMarkdownImageSourceCacheEntry(key, entry).promise;
 }
 
 function getFileExtension(fileName: string): string {
@@ -1058,6 +1166,7 @@ class ImagePreviewWidget extends MeasuredBlockWidget {
       img.alt = this.alt;
       img.title = this.alt;
       img.loading = 'lazy';
+      img.decoding = 'async';
       img.addEventListener('load', requestMeasure, { once: true });
       img.addEventListener('error', () => showError('Image failed to load.'));
       container.appendChild(img);
@@ -1073,19 +1182,20 @@ class ImagePreviewWidget extends MeasuredBlockWidget {
     } else if (isRemoteOrInlineAssetSrc(trimmed)) {
       renderImage(trimmed);
     } else {
-      const reader = window.electron?.readMarkdownImageAsset;
-      if (typeof reader === 'function') {
-        void reader(this.cwd, this.filePath, trimmed)
-          .then((result) => {
-            if (result?.ok && result.dataUrl) {
-              renderImage(result.dataUrl);
-            } else {
-              showError(result?.message || 'Unable to load local image.');
-            }
-          })
-          .catch((error) => showError(error instanceof Error ? error.message : String(error)));
+      const cached = getCachedMarkdownImageSource(this.cwd, this.filePath, trimmed);
+      if (cached?.ok) {
+        renderImage(cached.src);
+      } else if (cached) {
+        showError(cached.message);
       } else {
-        renderImage(normalizeAssetSrc(this.cwd, this.filePath, trimmed));
+        void loadLocalMarkdownImageSource(this.cwd, this.filePath, trimmed)
+          .then((result) => {
+            if (result.ok) {
+              renderImage(result.src);
+            } else {
+              showError(result.message);
+            }
+          });
       }
     }
 
