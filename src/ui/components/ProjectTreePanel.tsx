@@ -2994,7 +2994,7 @@ export function ProjectTreePanel({
             <div className={`h-full min-w-0 flex flex-col ${showProjectFileTabs || isEditableMarkdownPreview ? '' : 'px-3 py-3'}`}>
               {showProjectFileTabs && (
                 <div
-                  className={`aegis-project-file-tabs${isFullscreen ? ' window-controls-inset' : ''} drag-region flex h-11 flex-shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-primary)] pl-2 pr-2`}
+                  className={`aegis-project-file-tabs${isFullscreen && !embedded ? ' window-controls-inset' : ''} drag-region flex h-11 flex-shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-primary)] pl-2 pr-2`}
                 >
 	                  <div className="no-drag flex min-w-0 flex-1 items-end overflow-x-auto">
 	                    {openFileTabs.map((tab) => {
@@ -3258,7 +3258,7 @@ export function ProjectTreePanel({
                       filePath={selectedFilePath}
                       fileName={selectedPreview.name}
                       hideTitleBar
-                      windowControlsInset={isFullscreen}
+                      windowControlsInset={isFullscreen && !embedded}
                       saveState={saveState}
                       saveError={saveError}
                       onChange={handleDraftTextChange}
