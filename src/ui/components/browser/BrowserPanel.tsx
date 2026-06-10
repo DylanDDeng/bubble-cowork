@@ -274,6 +274,14 @@ export function BrowserPanel({
     });
   }, [addressEditing, addressValue, sessionState.tabs, sessionState.activeTabId, recentHistory]);
 
+  // The address suggestions dropdown is a DOM overlay; the native WebContentsView
+  // is always composited on top of the DOM, so the dropdown can only render over
+  // the chrome strip — where it would otherwise cover the tab bar and the "+"
+  // button, swallowing real clicks. While the dropdown is open we detach the
+  // native view (browser.hide) so the dropdown can render over the now-empty
+  // content area, and reattach it when the dropdown closes.
+  const overlayActive = addressEditing && addressSuggestions.length > 0;
+
   const chromeStatus = useMemo(
     () =>
       resolveBrowserChromeStatus({
@@ -291,7 +299,9 @@ export function BrowserPanel({
   const rafRef = useRef<number | null>(null);
 
   const pushBounds = useCallback(() => {
-    if (collapsed) return;
+    // Skip while the suggestions overlay is open — reattaching the native view
+    // here would re-cover the dropdown.
+    if (collapsed || overlayActive) return;
     const el = viewportRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -306,7 +316,7 @@ export function BrowserPanel({
         },
       })
       .catch(() => {});
-  }, [collapsed, sessionId]);
+  }, [collapsed, overlayActive, sessionId]);
 
   useLayoutEffect(() => {
     pushBounds();
@@ -351,6 +361,19 @@ export function BrowserPanel({
       stopped = true;
     };
   }, [collapsed, width, pushBounds]);
+
+  // Detach the native view while the suggestions overlay is open so the dropdown
+  // renders over the content area instead of being hidden behind the web page;
+  // reattach (via pushBounds) once it closes. Reattaching an already-live tab
+  // does not reload it.
+  useEffect(() => {
+    if (collapsed) return;
+    if (overlayActive) {
+      window.electron.browser.hide({ sessionId }).catch(() => {});
+    } else {
+      pushBounds();
+    }
+  }, [overlayActive, collapsed, sessionId, pushBounds]);
 
   // ===== 操作封装 =====
   const handleNavigate = useCallback(
@@ -664,30 +687,6 @@ export function BrowserPanel({
               placeholder="Search Google or enter a URL"
               className="h-7 w-full rounded-md border border-transparent bg-[var(--bg-tertiary)] px-2 text-[12px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-1 focus:ring-[var(--border-focus)]"
             />
-            {addressEditing && addressSuggestions.length > 0 && (
-              <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-md border border-[var(--border)] bg-[var(--bg-primary)] shadow-lg">
-                {addressSuggestions.map((suggestion) => (
-                  <button
-                    key={suggestion.id}
-                    type="button"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      if (suggestion.kind === 'tab' && suggestion.tabId) {
-                        handleSelectTab(suggestion.tabId);
-                      } else {
-                        void handleNavigate(suggestion.url);
-                      }
-                    }}
-                    className="block w-full px-2 py-1.5 text-left text-[12px] text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]"
-                  >
-                    <div className="truncate text-[12px] font-medium">{suggestion.title}</div>
-                    <div className="truncate text-[11px] text-[var(--text-muted)]">
-                      {suggestion.detail}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
 
           <button
@@ -831,6 +830,35 @@ export function BrowserPanel({
       {/* Viewport placeholder: main process mirrors the native WebContentsView here */}
       <div className="relative flex-1 min-h-0 bg-[var(--bg-primary)]">
         <div ref={viewportRef} className="absolute inset-0" />
+        {/* Address suggestions render here (over the content area, not the tab
+            bar) so they never cover the "+" button. The native view is detached
+            while this is shown (see overlayActive effect), so the dropdown is
+            visible instead of hidden behind the web page. */}
+        {overlayActive && (
+          <div className="absolute left-2 right-2 top-2 z-30 overflow-hidden rounded-md border border-[var(--border)] bg-[var(--bg-primary)] shadow-lg">
+            {addressSuggestions.map((suggestion) => (
+              <button
+                key={suggestion.id}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setAddressEditing(false);
+                  if (suggestion.kind === 'tab' && suggestion.tabId) {
+                    handleSelectTab(suggestion.tabId);
+                  } else {
+                    void handleNavigate(suggestion.url);
+                  }
+                }}
+                className="block w-full px-2 py-1.5 text-left text-[12px] text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]"
+              >
+                <div className="truncate text-[12px] font-medium">{suggestion.title}</div>
+                <div className="truncate text-[11px] text-[var(--text-muted)]">
+                  {suggestion.detail}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
         {chromeStatus && (
           <div
             className={`pointer-events-none absolute bottom-2 left-2 right-2 rounded-md border px-2 py-1 text-[11px] ${
