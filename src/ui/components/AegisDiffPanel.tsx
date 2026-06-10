@@ -48,11 +48,6 @@ function sourceLabel(selection: ReviewDiffSelection, turn?: AegisDiffTurnOption 
   return selection.source.label || getWorkspaceDiffLabel(selection.source.scope);
 }
 
-function sourceSubtitle(selection: ReviewDiffSelection, turn?: AegisDiffTurnOption | null): string {
-  if (selection.source.kind === 'turn') return turn?.current ? 'current turn' : 'selected turn';
-  return selection.source.scope;
-}
-
 function fileCountLabel(count: number): string {
   return `${count} ${count === 1 ? 'file' : 'files'}`;
 }
@@ -274,9 +269,6 @@ export function AegisDiffPanel({
           </DropdownMenu>
 
           <div className="hidden min-w-0 items-center gap-2 text-xs text-[var(--text-muted)] sm:flex">
-            <span className="rounded-md bg-[var(--bg-secondary)] px-1.5 py-0.5 font-mono">
-              {sourceSubtitle(data.selection, activeTurn)}
-            </span>
             <span>{fileCountLabel(data.summary.totalFiles)}</span>
             <DiffStatLabel additions={data.summary.addedLines} deletions={data.summary.removedLines} />
             {data.gitResult?.truncated ? (
