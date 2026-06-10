@@ -697,7 +697,7 @@ function buildThemeVariables(
     ? mixHex(panel, '#ffffff', 0.2)
     : mixHex(panel, '#ffffff', 0.02 + theme.contrast * 0.02);
   const sidebarSurface = variant === 'light'
-    ? mixHex(appCanvas, pack.theme.ink, 0.035)
+    ? '#FCFCFC'
     : pack.theme.opaqueWindows
       ? mixHex(surfaceUnder, '#000000', 0.08)
       : `color-mix(in srgb, ${surfaceUnder} 72%, transparent)`;

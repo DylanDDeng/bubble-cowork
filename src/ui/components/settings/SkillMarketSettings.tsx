@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
-  Brain,
   CheckCircle2,
   Download,
   ExternalLink,
@@ -277,18 +276,15 @@ function MarketCardGrid({
 }) {
   return (
     <section className="min-h-[calc(100vh-220px)] space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h4 className="text-lg font-semibold text-[var(--text-primary)]">Marketplace</h4>
-        </div>
-        <div className="relative w-full max-w-[520px]">
+      <div className="flex w-full max-w-[520px] items-center gap-2">
+        <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
           <input
             type="text"
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Search Skills.sh..."
-            className="h-10 w-full rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] pl-9 pr-9 text-[14px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--border)]"
+            className="h-10 w-full rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] pl-9 pr-9 text-sm text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--border)]"
           />
           {trimmedQuery && (
             <button
@@ -303,8 +299,6 @@ function MarketCardGrid({
           )}
         </div>
       </div>
-
-      <div className="h-px bg-[var(--border)]" />
 
       {error ? (
         <div className="rounded-[var(--radius-xl)] border border-dashed border-[var(--border)] bg-[var(--bg-secondary)] p-4 text-[14px] text-[var(--error)]">
@@ -414,7 +408,6 @@ function MarketDetailContent({
         <div className="min-w-0 flex-1 space-y-3">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <Brain className="h-4 w-4 text-[var(--text-secondary)]" />
               <div className="truncate text-[30px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
                 {detail.name}
               </div>
@@ -567,9 +560,6 @@ function MarketSkillCard({
       aria-label={`Open ${item.name} skill detail`}
     >
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-          <Brain className="h-4.5 w-4.5" />
-        </div>
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-center gap-2">
             <h5 className="truncate text-[15px] font-medium tracking-[-0.01em] text-[var(--text-primary)]">

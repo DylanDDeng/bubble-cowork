@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Brain, ExternalLink, FileText, LoaderCircle, Search, X } from '../icons';
+import { ExternalLink, FileText, LoaderCircle, Search, X } from '../icons';
 import { sendEvent } from '../../hooks/useIPC';
 import { useAppStore } from '../../store/useAppStore';
 import type { ClaudeSkillSummary } from '../../types';
@@ -360,10 +360,6 @@ function SkillCard({
       aria-label={`Open ${skill.title || skill.name} skill detail`}
     >
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[var(--radius-2xl)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-          <Brain className="w-4.5 h-4.5" />
-        </div>
-
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-center gap-2 min-w-0">
             <h5 className="truncate text-[15px] font-medium tracking-[-0.01em] text-[var(--text-primary)]">
