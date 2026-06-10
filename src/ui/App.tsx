@@ -879,6 +879,7 @@ export function App() {
           width={rightUtilityPanelWidth}
           onWidthChange={setRightUtilityPanelWidth}
           fullscreen={rightPanelFullscreen !== null}
+          windowControlsInset={rightPanelFullscreen !== null && sidebarCollapsed}
           onSelectTab={selectRightUtilityTab}
           onCloseTab={closeRightUtilityTab}
           onOpenTab={openRightUtilityTab}
@@ -1000,6 +1001,7 @@ function RightUtilityWorkspace({
   browserAvailable,
   width,
   fullscreen,
+  windowControlsInset,
   onWidthChange,
   onSelectTab,
   onCloseTab,
@@ -1014,6 +1016,7 @@ function RightUtilityWorkspace({
   browserAvailable: boolean;
   width: number;
   fullscreen: boolean;
+  windowControlsInset: boolean;
   onWidthChange: (width: number) => void;
   onSelectTab: (target: ProjectUtilityPanelTarget) => void;
   onCloseTab: (target: ProjectUtilityPanelTarget) => void;
@@ -1106,6 +1109,7 @@ function RightUtilityWorkspace({
           activeTab={activeTab}
           activePanel={activePanel}
           browserAvailable={browserAvailable}
+          windowControlsInset={windowControlsInset}
           onSelectTab={onSelectTab}
           onCloseTab={onCloseTab}
           onOpenTab={onOpenTab}
@@ -1195,6 +1199,7 @@ function RightUtilityTabStrip({
   activeTab,
   activePanel,
   browserAvailable,
+  windowControlsInset,
   onSelectTab,
   onCloseTab,
   onOpenTab,
@@ -1204,6 +1209,7 @@ function RightUtilityTabStrip({
   activeTab: ProjectUtilityPanelTarget | null;
   activePanel: PanelLauncherKind | null;
   browserAvailable: boolean;
+  windowControlsInset: boolean;
   onSelectTab: (target: ProjectUtilityPanelTarget) => void;
   onCloseTab: (target: ProjectUtilityPanelTarget) => void;
   onOpenTab: (target: ProjectUtilityPanelKind, options?: { newTab?: boolean }) => void;
@@ -1218,7 +1224,12 @@ function RightUtilityTabStrip({
   ];
 
   return (
-    <div className="drag-region flex h-10 shrink-0 items-center gap-1 border-b border-[var(--border)] bg-[var(--bg-primary)] px-2">
+    <div
+      className="drag-region flex h-10 shrink-0 items-center gap-1 border-b border-[var(--border)] bg-[var(--bg-primary)] px-2"
+      // In fullscreen with the sidebar collapsed the strip becomes the topmost
+      // bar at the window's left edge, so it must clear the traffic lights.
+      style={windowControlsInset ? { paddingLeft: 'var(--app-window-controls-inset-left)' } : undefined}
+    >
       <div className="no-drag flex min-w-0 flex-1 translate-y-1 items-end gap-1 overflow-x-auto">
 	        {tabs.map((tab) => {
 	          const Icon = getUtilityTabIcon(tab.kind);
