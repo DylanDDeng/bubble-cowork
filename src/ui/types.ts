@@ -308,6 +308,7 @@ export interface AppState {
   projectPanelView: ProjectPanelView;
   rightUtilityTabs: ProjectUtilityPanelTarget[];
   activeRightUtilityTab: ProjectUtilityPanelTarget | null;
+  rightUtilityPanelHidden: boolean;
   reviewDiffSelection: ReviewDiffSelection | null;
   terminalDrawerOpen: boolean;
   terminalDrawerHeight: number;
@@ -409,6 +410,7 @@ export interface AppActions {
   openReviewDiff: (selection: ReviewDiffSelectionInput) => void;
   closeRightUtilityTab: (target: ProjectUtilityPanelTarget) => void;
   closeRightUtilityPanels: () => void;
+  showRightUtilityPanels: () => void;
   setTerminalDrawerOpen: (open: boolean) => void;
   setTerminalDrawerHeight: (height: number) => void;
   setBrowserPanelOpen: (open: boolean) => void;

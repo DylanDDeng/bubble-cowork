@@ -168,6 +168,7 @@ export function App() {
     terminalDrawerHeight,
     rightUtilityTabs,
     activeRightUtilityTab,
+    rightUtilityPanelHidden,
     rightPanelFullscreen,
     sessionsLoaded,
     setProjectTreeCollapsed,
@@ -179,6 +180,7 @@ export function App() {
     openRightUtilityTab,
     closeRightUtilityTab: closeRightUtilityTabInStore,
     closeRightUtilityPanels: closeRightUtilityPanelsInStore,
+    showRightUtilityPanels,
     setRightPanelFullscreen,
     closeSplitChat,
     openSplitChat,
@@ -450,9 +452,10 @@ export function App() {
 
   const activeUtilityPanel = useMemo(() => {
     if (rightPanelLauncherOpen) return 'launcher' as const;
+    if (rightUtilityPanelHidden) return null;
     if (activeRightUtilityTab) return getProjectUtilityTabKind(activeRightUtilityTab);
     return null;
-  }, [activeRightUtilityTab, rightPanelLauncherOpen]);
+  }, [activeRightUtilityTab, rightPanelLauncherOpen, rightUtilityPanelHidden]);
 
   const closeRightUtilityPanels = useCallback(() => {
     setRightPanelLauncherOpen(false);
@@ -520,13 +523,28 @@ export function App() {
       closeRightUtilityPanels();
       return;
     }
+    if (rightUtilityTabs.length > 0) {
+      // Re-open with the previous tabs and active tab intact.
+      showRightUtilityPanels();
+      const target = activeRightUtilityTab ?? rightUtilityTabs[0];
+      if (target) activateRightUtilityContent(target);
+      return;
+    }
     openRightUtilityLauncher();
-  }, [activeUtilityPanel, closeRightUtilityPanels, openRightUtilityLauncher]);
+  }, [
+    activateRightUtilityContent,
+    activeRightUtilityTab,
+    activeUtilityPanel,
+    closeRightUtilityPanels,
+    openRightUtilityLauncher,
+    rightUtilityTabs,
+    showRightUtilityPanels,
+  ]);
 
   useEffect(() => {
-    if (!activeRightUtilityTab) return;
+    if (!activeRightUtilityTab || rightUtilityPanelHidden) return;
     activateRightUtilityContent(activeRightUtilityTab);
-  }, [activeRightUtilityTab, activateRightUtilityContent]);
+  }, [activeRightUtilityTab, activateRightUtilityContent, rightUtilityPanelHidden]);
 
   useEffect(() => {
     const nextStatuses = new Map<string, SessionStatus>();
@@ -818,7 +836,10 @@ export function App() {
             <WorkspaceHost
               codexModelConfig={codexModelConfig}
               onWorkspaceGitChanged={refreshEnvironmentGit}
-              dockSecondaryPane={rightUtilityTabs.includes('side-chat') || activeUtilityPanel === 'side-chat'}
+              dockSecondaryPane={
+                activeUtilityPanel === 'side-chat' ||
+                (!rightUtilityPanelHidden && rightUtilityTabs.includes('side-chat'))
+              }
             />
 
             <TerminalDrawer
@@ -842,9 +863,12 @@ export function App() {
       </div>
 
       <AnimatePresence initial={false}>
-      {!showSettings && activeWorkspace === 'chat' && activeUtilityPanel !== null ? (
+      {!showSettings &&
+      activeWorkspace === 'chat' &&
+      (activeUtilityPanel !== null || (rightUtilityPanelHidden && rightUtilityTabs.length > 0)) ? (
         <RightUtilityWorkspace
           key="right-utility-workspace"
+          hidden={activeUtilityPanel === null}
           activePanel={activeUtilityPanel}
           tabs={rightUtilityTabDescriptors}
           activeTab={
@@ -969,6 +993,7 @@ function getUtilityTabIcon(target: ProjectUtilityPanelKind) {
 }
 
 function RightUtilityWorkspace({
+  hidden,
   activePanel,
   tabs,
   activeTab,
@@ -982,6 +1007,7 @@ function RightUtilityWorkspace({
   onTogglePanel,
   children,
 }: {
+  hidden: boolean;
   activePanel: PanelLauncherKind | null;
   tabs: ProjectUtilityTabDescriptor[];
   activeTab: ProjectUtilityPanelTarget | null;
@@ -1045,11 +1071,16 @@ function RightUtilityWorkspace({
     <motion.div
       data-right-utility-workspace
       data-active-panel={activePanel ?? 'none'}
+      aria-hidden={hidden}
       className={`relative flex h-full min-w-0 flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--bg-primary)] ${
         fullscreen ? 'flex-1' : 'flex-shrink-0'
       }`}
+      style={{
+        pointerEvents: hidden ? 'none' : undefined,
+        borderLeftWidth: hidden ? 0 : undefined,
+      }}
       initial={{ width: 0 }}
-      animate={{ width: fullscreen ? 'auto' : width }}
+      animate={{ width: hidden ? 0 : fullscreen ? 'auto' : width }}
       exit={{ width: 0, transition: { type: 'tween', duration: 0.2, ease: [0.32, 0.72, 0, 1] } }}
       transition={
         skipWidthAnimation
@@ -1057,7 +1088,7 @@ function RightUtilityWorkspace({
           : { type: 'tween', duration: 0.24, ease: [0.32, 0.72, 0, 1] }
       }
     >
-      {!fullscreen ? (
+      {!fullscreen && !hidden ? (
         <div
           className="group absolute bottom-0 left-0 top-0 z-20 w-3 -translate-x-1/2 cursor-col-resize no-drag"
           onMouseDown={handleResizeStart}
