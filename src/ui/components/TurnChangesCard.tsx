@@ -4,6 +4,7 @@ import { FileTypeIcon } from './FileTypeIcon';
 import { DiffStatLabel } from './DiffStatLabel';
 import { useTurnDiffContext } from './TurnDiffContext';
 import type { TurnChangeSummary } from '../utils/turn-change-records';
+import { getTurnDiffKey, getTurnDiffLabel } from '../utils/review-diff-selection';
 
 function basename(path: string): string {
   const normalized = path.replaceAll('\\', '/');
@@ -20,7 +21,7 @@ export function TurnChangesCard({ summary }: { summary: TurnChangeSummary }) {
   }
 
   const fileWord = summary.totalFiles === 1 ? 'file' : 'files';
-  const turnKey = `turn:${summary.turnIndex}:${summary.firstMessageIndex}:${summary.lastMessageIndex}`;
+  const turnKey = getTurnDiffKey(summary);
 
   return (
     <div className="my-3 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)]/70">
@@ -59,7 +60,7 @@ export function TurnChangesCard({ summary }: { summary: TurnChangeSummary }) {
                     clickable
                       ? () => onOpenDiff?.(record, {
                           records: summary.records,
-                          label: 'Selected turn',
+                          label: getTurnDiffLabel(summary),
                           turnKey,
                         })
                       : undefined
