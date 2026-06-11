@@ -4,13 +4,6 @@ const STORAGE_KEY = 'cowork.preferredClaudeModel';
 const COMPATIBLE_PROVIDER_STORAGE_KEY = 'cowork.preferredClaudeCompatibleProvider';
 const CONTEXT_1M_STORAGE_KEY = 'cowork.preferredClaudeContext1m';
 
-export const CLAUDE_MODEL_PRESETS = [
-  'claude-sonnet-4-6',
-  'claude-opus-4-7',
-  'claude-opus-4-6',
-  'claude-haiku-4-5',
-];
-
 const CLAUDE_SHORT_ALIASES = new Set(['sonnet', 'opus', 'haiku']);
 
 function parseClaudeShortAlias(model: string | null | undefined): 'sonnet' | 'opus' | 'haiku' | null {
@@ -107,11 +100,7 @@ export function supportsClaude1mContext(model?: string | null): boolean {
 export function isOfficialClaudeModel(model?: string | null): boolean {
   const normalized = canonicalizeClaudeModel(model) || model?.trim() || '';
   if (!normalized) return false;
-  return (
-    CLAUDE_MODEL_PRESETS.includes(normalized) ||
-    normalized.startsWith('claude-') ||
-    CLAUDE_SHORT_ALIASES.has(normalized.toLowerCase())
-  );
+  return normalized.startsWith('claude-') || CLAUDE_SHORT_ALIASES.has(normalized.toLowerCase());
 }
 
 export function formatClaudeModelLabel(model: string, context1m = false): string {
@@ -147,13 +136,5 @@ export function buildClaudeModelOptions(
     .filter((value): value is string => Boolean(value && value.trim()))
     .map((value) => canonicalizeClaudeModel(value) || value.trim());
 
-  const known = CLAUDE_MODEL_PRESETS.filter((value) =>
-    [...normalizedConfigValues, ...normalizedExtras].some((candidate) => candidate === value)
-  );
-
-  const unknown = [...normalizedConfigValues, ...normalizedExtras].filter(
-    (value): value is string => Boolean(value && value.trim() && !CLAUDE_MODEL_PRESETS.includes(value.trim()))
-  );
-
-  return Array.from(new Set([...known, ...CLAUDE_MODEL_PRESETS, ...unknown]));
+  return Array.from(new Set([...normalizedConfigValues, ...normalizedExtras]));
 }

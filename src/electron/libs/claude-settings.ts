@@ -12,12 +12,6 @@ function canonicalizeClaudeModel(model?: string | null): string | null {
   return normalized.replace(/\[1m\]$/i, '');
 }
 
-const CLAUDE_CODE_MODEL_PRESETS = [
-  'claude-sonnet-4-6',
-  'claude-opus-4-7',
-  'claude-opus-4-6',
-  'claude-haiku-4-5',
-];
 const CLAUDE_CODE_MODEL_ALIASES = new Set(['sonnet', 'opus', 'haiku']);
 
 function isClaudeModelLike(value: string): boolean {
@@ -53,6 +47,11 @@ function collectClaudeModelCandidates(value: unknown, models: Set<string>, depth
   }
 
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    const modelKey = canonicalizeClaudeModel(key);
+    if (modelKey && isClaudeModelLike(modelKey)) {
+      models.add(modelKey);
+    }
+
     if (/model|name|label|value|id/i.test(key)) {
       collectClaudeModelCandidates(child, models, depth + 1);
     }
@@ -293,9 +292,7 @@ export function getClaudeModelConfig(): ClaudeModelConfig {
   const compatibleModels = getEnabledCompatibleProviderConfigs().map((provider) => provider.model);
   const options = Array.from(
     new Set(
-      [defaultModel, ...claudeCodeModels, ...CLAUDE_CODE_MODEL_PRESETS, ...compatibleModels].filter(
-        (value): value is string => Boolean(value)
-      )
+      [defaultModel, ...claudeCodeModels, ...compatibleModels].filter((value): value is string => Boolean(value))
     )
   );
 
