@@ -420,10 +420,11 @@ export function SessionWorkspaceControl({
   const branchButtonClass = panelVariant
     ? 'flex h-8 w-full items-center gap-2 rounded-md px-2 text-[12px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-not-allowed disabled:opacity-50'
     : 'inline-flex h-6 max-w-[150px] items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]';
+  const environmentHubLayerProps = panelVariant ? { 'data-environment-hub-layer': true } : {};
 
   return (
     <div className={wrapperClass}>
-      <DropdownMenu.Root onOpenChange={(open) => { if (open) void refreshBranches(); }}>
+      <DropdownMenu.Root modal={!panelVariant} onOpenChange={(open) => { if (open) void refreshBranches(); }}>
         <DropdownMenu.Trigger asChild>
           <button
             type="button"
@@ -439,6 +440,7 @@ export function SessionWorkspaceControl({
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content
+            {...environmentHubLayerProps}
             align="start"
             sideOffset={6}
             className="z-[9999] min-w-[190px] rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-xl"
@@ -472,8 +474,8 @@ export function SessionWorkspaceControl({
 
       <Dialog.Root open={localDialogOpen} onOpenChange={setLocalDialogOpen}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-[90] bg-black/20 backdrop-blur-[1px]" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-[100] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
+          <Dialog.Overlay {...environmentHubLayerProps} className="fixed inset-0 z-[90] bg-black/20 backdrop-blur-[1px]" />
+          <Dialog.Content {...environmentHubLayerProps} className="fixed left-1/2 top-1/2 z-[100] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
             <div className="border-b border-[var(--border)] px-4 py-3">
               <Dialog.Title className="text-[14px] font-semibold text-[var(--text-primary)]">
                 Switch to Local
@@ -547,8 +549,8 @@ export function SessionWorkspaceControl({
 
       <Dialog.Root open={worktreeDialogOpen} onOpenChange={setWorktreeDialogOpen}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-[90] bg-black/20 backdrop-blur-[1px]" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-[100] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
+          <Dialog.Overlay {...environmentHubLayerProps} className="fixed inset-0 z-[90] bg-black/20 backdrop-blur-[1px]" />
+          <Dialog.Content {...environmentHubLayerProps} className="fixed left-1/2 top-1/2 z-[100] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
             <div className="border-b border-[var(--border)] px-4 py-3">
               <Dialog.Title className="text-[14px] font-semibold text-[var(--text-primary)]">
                 Create isolated worktree
@@ -647,8 +649,8 @@ export function SessionWorkspaceControl({
 
       <Dialog.Root open={branchDialog !== null} onOpenChange={(open) => { if (!open) setBranchDialog(null); }}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-[90] bg-black/20 backdrop-blur-[1px]" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-[100] w-[min(440px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
+          <Dialog.Overlay {...environmentHubLayerProps} className="fixed inset-0 z-[90] bg-black/20 backdrop-blur-[1px]" />
+          <Dialog.Content {...environmentHubLayerProps} className="fixed left-1/2 top-1/2 z-[100] w-[min(440px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
             <div className="border-b border-[var(--border)] px-4 py-3">
               <Dialog.Title className="text-[14px] font-semibold text-[var(--text-primary)]">
                 {branchDialog?.reason === 'running' ? 'Open branch safely' : 'Uncommitted changes'}
@@ -749,8 +751,8 @@ export function SessionWorkspaceControl({
 
       <Dialog.Root open={stopConfirmAction !== null} onOpenChange={(open) => { if (!open) setStopConfirmAction(null); }}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-[110] bg-black/20 backdrop-blur-[1px]" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-[120] w-[min(400px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
+          <Dialog.Overlay {...environmentHubLayerProps} className="fixed inset-0 z-[110] bg-black/20 backdrop-blur-[1px]" />
+          <Dialog.Content {...environmentHubLayerProps} className="fixed left-1/2 top-1/2 z-[120] w-[min(400px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_24px_60px_rgba(15,23,42,0.18)] outline-none">
             <div className="border-b border-[var(--border)] px-4 py-3">
               <Dialog.Title className="text-[14px] font-semibold text-[var(--text-primary)]">
                 Stop current task?
@@ -784,7 +786,7 @@ export function SessionWorkspaceControl({
         </Dialog.Portal>
       </Dialog.Root>
 
-      <DropdownMenu.Root onOpenChange={(open) => { if (open) void refreshBranches(); }}>
+      <DropdownMenu.Root modal={!panelVariant} onOpenChange={(open) => { if (open) void refreshBranches(); }}>
         <DropdownMenu.Trigger asChild>
           <button
             type="button"
@@ -800,6 +802,7 @@ export function SessionWorkspaceControl({
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content
+            {...environmentHubLayerProps}
             align="start"
             sideOffset={6}
             className="z-[9999] max-h-[320px] min-w-[240px] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-xl"

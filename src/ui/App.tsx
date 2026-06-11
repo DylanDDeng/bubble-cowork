@@ -938,10 +938,6 @@ export function App() {
           <RightPanelLauncherContent
             hidden={activeUtilityPanel !== 'launcher'}
             browserAvailable={Boolean(activeSessionId)}
-            changeStats={{
-              insertions: gitEnvironment.overview.insertions,
-              deletions: gitEnvironment.overview.deletions,
-            }}
             onOpenFiles={() => openRightUtilityTab('files')}
             onOpenSideChat={() => openRightUtilityTab('side-chat')}
             onOpenBrowser={() => openRightUtilityTab('browser')}
@@ -1397,8 +1393,6 @@ function PanelLauncher({
 type PanelLauncherItem = {
   id: Exclude<PanelLauncherKind, 'launcher'>;
   label: string;
-  detail: string;
-  shortcut: string | null;
   icon: typeof FolderClosed;
   onSelect: () => void;
   disabled?: boolean;
@@ -1407,7 +1401,6 @@ type PanelLauncherItem = {
 
 function getPanelLauncherItems({
   browserAvailable,
-  changeStats,
   onOpenFiles,
   onOpenSideChat,
   onOpenBrowser,
@@ -1415,59 +1408,43 @@ function getPanelLauncherItems({
   onOpenTerminal,
 }: {
   browserAvailable: boolean;
-  changeStats: { insertions: number; deletions: number };
   onOpenFiles: () => void;
   onOpenSideChat: () => void;
   onOpenBrowser: () => void;
   onOpenReview: () => void;
   onOpenTerminal: () => void;
 }): PanelLauncherItem[] {
-	  const hasChanges = changeStats.insertions > 0 || changeStats.deletions > 0;
-	  const reviewDetail = hasChanges
-	    ? `+${changeStats.insertions.toLocaleString()} -${changeStats.deletions.toLocaleString()}`
-	    : 'View code changes';
-
   return [
-	    {
-	      id: 'files' as const,
-	      label: 'Files',
-	      detail: 'Browse project files',
-	      shortcut: '⌘P',
-	      icon: FolderClosed,
-	      onSelect: onOpenFiles,
-	    },
-	    {
-	      id: 'side-chat' as const,
-	      label: 'Side Chat',
-	      detail: 'Start a side conversation',
-	      shortcut: null,
-	      icon: MessageCircle,
-	      onSelect: onOpenSideChat,
-	    },
-	    {
-	      id: 'browser' as const,
-	      label: 'Browser',
-	      detail: 'Open websites',
-	      shortcut: '⌘T',
-	      icon: Globe,
-	      onSelect: onOpenBrowser,
-	      disabled: !browserAvailable,
-	      disabledReason: 'Select a session first',
-	    },
-	    {
-	      id: 'review' as const,
-	      label: 'Review',
-	      detail: reviewDetail,
-	      shortcut: '⌃⌘G',
-	      icon: FileDiff,
+    {
+      id: 'files' as const,
+      label: 'Files',
+      icon: FolderClosed,
+      onSelect: onOpenFiles,
+    },
+    {
+      id: 'side-chat' as const,
+      label: 'Side Chat',
+      icon: MessageCircle,
+      onSelect: onOpenSideChat,
+    },
+    {
+      id: 'browser' as const,
+      label: 'Browser',
+      icon: Globe,
+      onSelect: onOpenBrowser,
+      disabled: !browserAvailable,
+      disabledReason: 'Select a session first',
+    },
+    {
+      id: 'review' as const,
+      label: 'Review',
+      icon: FileDiff,
       onSelect: onOpenReview,
     },
-	    {
-	      id: 'terminal' as const,
-	      label: 'Terminal',
-	      detail: 'Open a right-side shell',
-	      shortcut: '⌃`',
-	      icon: SquareTerminal,
+    {
+      id: 'terminal' as const,
+      label: 'Terminal',
+      icon: SquareTerminal,
       onSelect: onOpenTerminal,
     },
   ];
@@ -1476,7 +1453,6 @@ function getPanelLauncherItems({
 function RightPanelLauncherContent({
   hidden,
   browserAvailable,
-  changeStats,
   onOpenFiles,
   onOpenSideChat,
   onOpenBrowser,
@@ -1485,7 +1461,6 @@ function RightPanelLauncherContent({
 }: {
   hidden: boolean;
   browserAvailable: boolean;
-  changeStats: { insertions: number; deletions: number };
   onOpenFiles: () => void;
   onOpenSideChat: () => void;
   onOpenBrowser: () => void;
@@ -1494,7 +1469,6 @@ function RightPanelLauncherContent({
 }) {
   const items = getPanelLauncherItems({
     browserAvailable,
-    changeStats,
     onOpenFiles,
     onOpenSideChat,
     onOpenBrowser,
@@ -1514,7 +1488,6 @@ function RightPanelLauncherContent({
           {items.map((item) => {
             const Icon = item.icon;
             const disabled = item.disabled === true;
-            const hasChanges = item.id === 'review' && (changeStats.insertions > 0 || changeStats.deletions > 0);
             return (
               <button
                 key={item.id}
@@ -1530,20 +1503,6 @@ function RightPanelLauncherContent({
                 <span className="w-full truncate text-[13px] font-semibold text-[var(--text-primary)]">
                   {item.label}
                 </span>
-                <span
-                  className={`mt-2 w-full truncate text-[11px] ${
-                    hasChanges ? 'font-mono tabular-nums text-[var(--text-secondary)]' : 'text-[var(--text-muted)]'
-                  }`}
-                >
-                  {item.detail}
-                </span>
-                {item.shortcut ? (
-                  <span className="mt-3 rounded-md bg-[var(--bg-tertiary)] px-1.5 py-0.5 font-mono text-[10px] leading-4 text-[var(--text-muted)]">
-                    {item.shortcut}
-                  </span>
-                ) : (
-                  <span className="mt-3 h-5" aria-hidden="true" />
-                )}
               </button>
             );
           })}
