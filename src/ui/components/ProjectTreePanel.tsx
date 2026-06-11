@@ -2869,7 +2869,7 @@ export function ProjectTreePanel({
                 <div
                   className={`aegis-project-file-tabs${isFullscreen && !embedded ? ' window-controls-inset' : ''} drag-region flex h-11 flex-shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-primary)] pl-2 pr-2`}
                 >
-	                  <div className="no-drag flex min-w-0 flex-1 items-end overflow-x-auto">
+	                  <div className="no-drag flex min-w-0 max-w-full items-end overflow-x-auto">
 	                    {openFileTabs.map((tab) => {
 	                      const activeTab = tab.id === activeFileTabId;
 	                      return (
@@ -2910,6 +2910,7 @@ export function ProjectTreePanel({
                       );
                     })}
                   </div>
+                  <div className="min-w-4 flex-1 self-stretch" aria-hidden="true" />
 
                   <div className="no-drag flex flex-shrink-0 items-center gap-1">
                     {(selectedPreview?.kind === 'html' || isMdxFilePreview) && (

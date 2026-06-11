@@ -1306,7 +1306,7 @@ function RightUtilityTabStrip({
       // bar at the window's left edge, so it must clear the traffic lights.
       style={windowControlsInset ? { paddingLeft: 'var(--app-window-controls-inset-left)' } : undefined}
     >
-      <div className="no-drag flex min-w-0 flex-1 translate-y-1 items-end gap-1 overflow-x-auto">
+      <div className="no-drag flex min-w-0 max-w-full translate-y-1 items-end gap-1 overflow-x-auto">
 	        {tabs.map((tab) => {
 	          const Icon = getUtilityTabIcon(tab.kind);
           const active = activeTab === tab.id;
@@ -1355,6 +1355,7 @@ function RightUtilityTabStrip({
           <Plus className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       </div>
+      <div className="min-w-4 flex-1 self-stretch" aria-hidden="true" />
 
       <div className="no-drag ml-1 flex h-full shrink-0 translate-y-1 items-center">
         <PanelLauncher activePanel={activePanel} onToggle={onTogglePanel} />
