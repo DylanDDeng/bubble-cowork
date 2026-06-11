@@ -1280,7 +1280,7 @@ function RightUtilityTabStrip({
   const handleOpenMenu = async (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     const rect = event.currentTarget.getBoundingClientRect();
-    const result = await window.electron.showRightUtilityTabMenu({
+    const result = await window.electron.showNativeMenu({
       x: rect.left,
       y: rect.bottom + 6,
       items: items.map((item) => ({
@@ -1349,8 +1349,7 @@ function RightUtilityTabStrip({
         <button
           type="button"
           onClick={handleOpenMenu}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-t-[7px] border border-b-0 border-transparent text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-          title="Open another panel"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-t-[7px] border border-b-0 border-transparent bg-transparent text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
           aria-label="Open another panel"
         >
           <Plus className="h-3.5 w-3.5" aria-hidden="true" />

@@ -5866,14 +5866,15 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
-  ipcMainHandle('show-right-utility-tab-menu', async (
+  ipcMainHandle('show-native-menu', async (
     _event,
     input: {
       x?: number;
       y?: number;
       items?: Array<{
         id: string;
-        label: string;
+        label?: string;
+        type?: 'normal' | 'separator';
         enabled?: boolean;
         accelerator?: string | null;
       }>;
@@ -5893,12 +5894,17 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       };
 
       const menu = Menu.buildFromTemplate(
-        items.map((item) => ({
-          label: item.label,
-          enabled: item.enabled !== false,
-          accelerator: item.accelerator ?? undefined,
-          click: () => finish({ ok: true, id: item.id }),
-        }))
+        items.map((item) => {
+          if (item.type === 'separator') {
+            return { type: 'separator' as const };
+          }
+          return {
+            label: item.label || item.id,
+            enabled: item.enabled !== false,
+            accelerator: item.accelerator ?? undefined,
+            click: () => finish({ ok: true, id: item.id }),
+          };
+        })
       );
 
       menu.popup({

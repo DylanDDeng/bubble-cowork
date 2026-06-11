@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
-import { FolderClosed, FolderOpen, ChevronDown, ChevronLeft, ChevronRight, Copy, Check, X, Maximize2, Minimize2, File, Files, FileAddIcon, FolderAddIcon, Trash2 } from './icons';
+import { FolderClosed, FolderOpen, ChevronDown, ChevronLeft, ChevronRight, Copy, Check, X, Maximize2, Minimize2, File, Files, FileAddIcon, FolderAddIcon } from './icons';
 import { pptxToHtml } from '@jvmr/pptx-to-html';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
@@ -49,9 +48,6 @@ const PROJECT_ENTRY_DRAG_MIME = 'application/x-aegis-project-entry';
 const PROJECT_TREE_INDENT_PX = 18;
 const PROJECT_TREE_ROW_PADDING_LEFT_PX = 4;
 const PROJECT_TREE_GUIDE_OFFSET_PX = 12;
-const PROJECT_TREE_CONTEXT_MENU_WIDTH_PX = 176;
-const PROJECT_TREE_CONTEXT_MENU_HEIGHT_PX = 132;
-const PROJECT_TREE_CONTEXT_MENU_MARGIN_PX = 8;
 
 function parseStoredPanelWidth(
   stored: string | null,
@@ -171,12 +167,6 @@ type ProjectEntryCreateResult = {
 };
 type ProjectEntryMoveResult = ProjectEntryCreateResult;
 type ProjectDraggedEntry = Pick<ProjectTreeNode, 'kind' | 'name' | 'path'>;
-type ProjectTreeContextMenuState = {
-  x: number;
-  y: number;
-  parentPath: string;
-  target?: ProjectTreeNode;
-};
 
 function CreateEntryIcon({
   kind,
@@ -740,10 +730,6 @@ export function ProjectTreePanel({
   const [copiedPath, setCopiedPath] = useState(false);
   const createDraftIdRef = useRef(0);
   const [createDraft, setCreateDraft] = useState<CreateDraftState | null>(null);
-  const [projectTreeContextMenu, setProjectTreeContextMenu] = useState<ProjectTreeContextMenuState | null>(null);
-  const projectTreeContextMenuRef = useRef<HTMLDivElement | null>(null);
-  const swallowProjectTreeContextMenuClickRef = useRef(false);
-  const swallowProjectTreeContextMenuClickTimerRef = useRef<number | null>(null);
   const [draggedProjectEntry, setDraggedProjectEntry] = useState<ProjectDraggedEntry | null>(null);
   const draggedProjectEntryRef = useRef<ProjectDraggedEntry | null>(null);
   const [projectDropHoverId, setProjectDropHoverId] = useState<string | null>(null);
@@ -1077,7 +1063,6 @@ export function ProjectTreePanel({
     setProjectTreeError(null);
     setPptxSlideIndex(0);
     setCreateDraft(null);
-    setProjectTreeContextMenu(null);
     setDraggedProjectEntry(null);
     draggedProjectEntryRef.current = null;
     setProjectDropHoverId(null);
@@ -1149,7 +1134,6 @@ export function ProjectTreePanel({
 
   const startCreateEntry = useCallback((parentPath: string, kind: CreateEntryKind) => {
     if (!cwd || !parentPath) return;
-    setProjectTreeContextMenu(null);
     expandPath(parentPath);
     setCreateDraft({
       id: createDraftIdRef.current += 1,
@@ -1434,7 +1418,6 @@ export function ProjectTreePanel({
       name: node.name,
       path: node.path,
     };
-    setProjectTreeContextMenu(null);
     setCreateDraft(null);
     draggedProjectEntryRef.current = entry;
     setDraggedProjectEntry(entry);
@@ -1605,37 +1588,6 @@ export function ProjectTreePanel({
       );
     }
   }, [createDraft, cwd, expandPath, selectFilePath, setProjectTree]);
-
-  const openProjectTreeContextMenu = useCallback((event: React.MouseEvent, node?: ProjectTreeNode) => {
-    if (!cwd) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const parentPath = node
-      ? node.kind === 'dir'
-        ? node.path
-        : dirnameOfPath(node.path)
-      : visibleTree?.path || cwd;
-    const x = Math.min(
-      Math.max(PROJECT_TREE_CONTEXT_MENU_MARGIN_PX, event.clientX),
-      Math.max(
-        PROJECT_TREE_CONTEXT_MENU_MARGIN_PX,
-        window.innerWidth - PROJECT_TREE_CONTEXT_MENU_WIDTH_PX - PROJECT_TREE_CONTEXT_MENU_MARGIN_PX
-      )
-    );
-    const y = Math.min(
-      Math.max(PROJECT_TREE_CONTEXT_MENU_MARGIN_PX, event.clientY),
-      Math.max(
-        PROJECT_TREE_CONTEXT_MENU_MARGIN_PX,
-        window.innerHeight - PROJECT_TREE_CONTEXT_MENU_HEIGHT_PX - PROJECT_TREE_CONTEXT_MENU_MARGIN_PX
-      )
-    );
-    setProjectTreeContextMenu({
-      x,
-      y,
-      parentPath,
-      target: node,
-    });
-  }, [cwd, visibleTree?.path]);
 
   const selectExternalFilePath = useCallback(async (
     filePath: string,
@@ -1840,6 +1792,46 @@ export function ProjectTreePanel({
     }
   }, [closePreview, cwd, selectedFilePath, setProjectTree, updateOpenFileTabs]);
 
+  const openProjectTreeContextMenu = useCallback(async (event: React.MouseEvent, node?: ProjectTreeNode) => {
+    if (!cwd) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const parentPath = node
+      ? node.kind === 'dir'
+        ? node.path
+        : dirnameOfPath(node.path)
+      : visibleTree?.path || cwd;
+    const result = await window.electron.showNativeMenu({
+      x: event.clientX + 2,
+      y: event.clientY + 2,
+      items: [
+        { id: 'new-file', label: 'New File' },
+        { id: 'new-folder', label: 'New Folder' },
+        ...(node?.kind === 'file'
+          ? [
+              { id: 'file-actions-separator', type: 'separator' as const },
+              { id: 'delete-file', label: 'Delete File' },
+            ]
+          : []),
+      ],
+    });
+
+    if (!result.ok || !result.id) return;
+
+    if (result.id === 'new-file') {
+      startCreateEntry(parentPath, 'file');
+      return;
+    }
+    if (result.id === 'new-folder') {
+      startCreateEntry(parentPath, 'folder');
+      return;
+    }
+    if (result.id === 'delete-file' && node?.kind === 'file') {
+      void deleteEntry(node);
+    }
+  }, [cwd, deleteEntry, startCreateEntry, visibleTree?.path]);
+
   useEffect(() => {
     const handleOpenProjectFile = (event: Event) => {
       const detail = (event as CustomEvent<{
@@ -1864,63 +1856,6 @@ export function ProjectTreePanel({
     window.addEventListener('aegis:open-project-file', handleOpenProjectFile);
     return () => window.removeEventListener('aegis:open-project-file', handleOpenProjectFile);
   }, [cwd, selectExternalFilePath, selectFilePath]);
-
-  useEffect(() => {
-    const clearSwallowedClick = () => {
-      swallowProjectTreeContextMenuClickRef.current = false;
-      if (swallowProjectTreeContextMenuClickTimerRef.current) {
-        window.clearTimeout(swallowProjectTreeContextMenuClickTimerRef.current);
-        swallowProjectTreeContextMenuClickTimerRef.current = null;
-      }
-    };
-    const handleClick = (event: MouseEvent) => {
-      if (!swallowProjectTreeContextMenuClickRef.current) return;
-      event.preventDefault();
-      event.stopPropagation();
-      clearSwallowedClick();
-    };
-    window.addEventListener('click', handleClick, true);
-    return () => {
-      window.removeEventListener('click', handleClick, true);
-      clearSwallowedClick();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!projectTreeContextMenu) return;
-    const closeMenu = () => setProjectTreeContextMenu(null);
-    const swallowNextClick = () => {
-      swallowProjectTreeContextMenuClickRef.current = true;
-      if (swallowProjectTreeContextMenuClickTimerRef.current) {
-        window.clearTimeout(swallowProjectTreeContextMenuClickTimerRef.current);
-      }
-      swallowProjectTreeContextMenuClickTimerRef.current = window.setTimeout(() => {
-        swallowProjectTreeContextMenuClickRef.current = false;
-        swallowProjectTreeContextMenuClickTimerRef.current = null;
-      }, 750);
-    };
-    const handleMouseDown = (event: MouseEvent) => {
-      const target = event.target;
-      if (target instanceof Node && projectTreeContextMenuRef.current?.contains(target)) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      swallowNextClick();
-      closeMenu();
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        closeMenu();
-      }
-    };
-    window.addEventListener('mousedown', handleMouseDown, true);
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('mousedown', handleMouseDown, true);
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [projectTreeContextMenu]);
 
   const handleCopyPath = async (path: string) => {
     try {
@@ -2904,68 +2839,6 @@ export function ProjectTreePanel({
             )}
           </div>
         </div>
-
-        {projectTreeContextMenu && activeTab === 'files' ? createPortal(
-          <div
-            ref={projectTreeContextMenuRef}
-            className="fixed z-[1000] min-w-[168px] overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] py-1 shadow-[0_18px_42px_rgba(15,23,42,0.18)]"
-            style={{ left: projectTreeContextMenu.x, top: projectTreeContextMenu.y }}
-            onMouseDown={(event) => event.stopPropagation()}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => {
-                startCreateEntry(projectTreeContextMenu.parentPath, 'file');
-                setProjectTreeContextMenu(null);
-              }}
-              className="group flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-            >
-              <span className="inline-flex">
-                <CreateEntryIcon kind="file" size="sm" />
-              </span>
-              <span>New File</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                startCreateEntry(projectTreeContextMenu.parentPath, 'folder');
-                setProjectTreeContextMenu(null);
-              }}
-              className="group flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-            >
-              <span className="inline-flex">
-                <CreateEntryIcon kind="folder" size="sm" />
-              </span>
-              <span>New Folder</span>
-            </button>
-            {projectTreeContextMenu.target?.kind === 'file' ? (
-              <>
-                <div className="my-1 h-px bg-[var(--border)]/60" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const target = projectTreeContextMenu.target;
-                    setProjectTreeContextMenu(null);
-                    if (target) {
-                      void deleteEntry(target);
-                    }
-                  }}
-                  className="group flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--error)] transition-colors hover:bg-[var(--bg-secondary)]"
-                >
-                  <span className="inline-flex">
-                    <Trash2 className="h-4 w-4" aria-hidden="true" />
-                  </span>
-                  <span>Delete File</span>
-                </button>
-              </>
-            ) : null}
-          </div>,
-          document.body
-        ) : null}
 
         {showFilePreviewSurface && (
           <div
