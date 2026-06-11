@@ -30,12 +30,10 @@ import {
   Camera,
   Copy,
   FileText,
-  Globe,
   Loader2,
   Maximize2,
   Minimize2,
   MoreHorizontal,
-  Plus,
   RefreshCw,
   X,
 } from '../icons';
@@ -50,13 +48,11 @@ import type { Attachment } from '../../../shared/types';
 import { useAppStore } from '../../store/useAppStore';
 import {
   useBrowserStateStore,
-  type BrowserHistoryEntry,
   type PersistedBrowserTab,
   type PersistedSessionBrowserState,
 } from '../../store/useBrowserStateStore';
 import {
   browserAddressDisplayValue,
-  buildBrowserAddressSuggestions,
   normalizeBrowserAddressInput,
   resolveBrowserAddressSync,
   resolveBrowserChromeStatus,
@@ -68,14 +64,9 @@ const DEFAULT_HOME_URL = 'about:blank';
 const READOUT_TEXT_CHAR_LIMIT = 6000;
 const READOUT_LINK_LIMIT = 15;
 
-// Stable empty-array reference so Zustand selectors can return a consistent
-// snapshot when no history exists for a session. Returning `[]` inline would
-// create a fresh array each render and trip React's
-// "getSnapshot should be cached" infinite-loop guard.
-const EMPTY_HISTORY: readonly BrowserHistoryEntry[] = Object.freeze([]);
-
 interface BrowserPanelProps {
   sessionId: string;
+  browserSessionId?: string;
   collapsed: boolean;
   width: number;
   onClose: () => void;
@@ -125,6 +116,7 @@ function stateToPersisted(state: SessionBrowserState): PersistedSessionBrowserSt
 
 export function BrowserPanel({
   sessionId,
+  browserSessionId: browserSessionIdProp,
   collapsed,
   width,
   onClose,
@@ -134,22 +126,20 @@ export function BrowserPanel({
   topInset = 0,
   embedded = false,
 }: BrowserPanelProps) {
+  const browserSessionId = browserSessionIdProp ?? sessionId;
   const requestChatInjection = useAppStore((s) => s.requestChatInjection);
 
   const cachedSessionState = useBrowserStateStore(
-    (s) => s.sessionStatesBySessionId[sessionId] ?? null
+    (s) => s.sessionStatesBySessionId[browserSessionId] ?? null
   );
   const upsertSessionState = useBrowserStateStore((s) => s.upsertSessionState);
   const removeSessionState = useBrowserStateStore((s) => s.removeSessionState);
-  const recentHistory = useBrowserStateStore(
-    (s) => s.recentHistoryBySessionId[sessionId] ?? EMPTY_HISTORY
-  ) as BrowserHistoryEntry[];
   const recordHistoryEntry = useBrowserStateStore((s) => s.recordHistoryEntry);
 
   const [sessionState, setSessionState] = useState<SessionBrowserState>(() => {
     if (cachedSessionState) return persistedToState(cachedSessionState);
     return {
-      sessionId,
+      sessionId: browserSessionId,
       open: false,
       activeTabId: null,
       tabs: [],
@@ -181,7 +171,7 @@ export function BrowserPanel({
     const api = window.electron.browser;
 
     api
-      .open({ sessionId, initialUrl: DEFAULT_HOME_URL })
+      .open({ sessionId: browserSessionId, initialUrl: DEFAULT_HOME_URL })
       .then((state) => {
         if (cancelled) return;
         setSessionState(state);
@@ -192,12 +182,12 @@ export function BrowserPanel({
       });
 
     const dispose = api.onState((nextState) => {
-      if (nextState.sessionId !== sessionId) return;
+      if (nextState.sessionId !== browserSessionId) return;
       setSessionState(nextState);
       upsertSessionState(stateToPersisted(nextState));
       const active = nextState.tabs.find((tab) => tab.id === nextState.activeTabId);
       if (active && active.url && active.url !== DEFAULT_HOME_URL) {
-        recordHistoryEntry(sessionId, {
+        recordHistoryEntry(browserSessionId, {
           url: active.url,
           title: active.title,
           faviconUrl: active.faviconUrl,
@@ -210,21 +200,21 @@ export function BrowserPanel({
       cancelled = true;
       dispose();
     };
-  }, [collapsed, recordHistoryEntry, sessionId, upsertSessionState]);
+  }, [browserSessionId, collapsed, recordHistoryEntry, upsertSessionState]);
 
   // Pane is hidden but we keep the state alive; tell main to detach.
   useEffect(() => {
     if (!collapsed) return;
-    window.electron.browser.hide({ sessionId }).catch(() => {
+    window.electron.browser.hide({ sessionId: browserSessionId }).catch(() => {
       // non-fatal
     });
-  }, [collapsed, sessionId]);
+  }, [browserSessionId, collapsed]);
 
   // ===== Context menu -> send selection to chat =====
   useEffect(() => {
     const api = window.electron.browser;
     const dispose = api.onSendSelection((event: BrowserSendSelectionEvent) => {
-      if (event.sessionId !== sessionId) return;
+      if (event.sessionId !== browserSessionId) return;
       const quoted = event.selectionText
         .split('\n')
         .map((line) => `> ${line}`)
@@ -239,7 +229,7 @@ export function BrowserPanel({
       toast.success('Selection sent to chat');
     });
     return () => dispose();
-  }, [requestChatInjection, sessionId]);
+  }, [browserSessionId, requestChatInjection, sessionId]);
 
   // ===== 地址栏同步 =====
   const nextDisplayValue = browserAddressDisplayValue(activeTab);
@@ -264,24 +254,6 @@ export function BrowserPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionState.activeTabId, nextDisplayValue]);
 
-  const addressSuggestions = useMemo(() => {
-    if (!addressEditing) return [];
-    return buildBrowserAddressSuggestions({
-      query: addressValue,
-      activeTabId: sessionState.activeTabId,
-      tabs: sessionState.tabs,
-      recentHistory,
-    });
-  }, [addressEditing, addressValue, sessionState.tabs, sessionState.activeTabId, recentHistory]);
-
-  // The address suggestions dropdown is a DOM overlay; the native WebContentsView
-  // is always composited on top of the DOM, so the dropdown can only render over
-  // the chrome strip — where it would otherwise cover the tab bar and the "+"
-  // button, swallowing real clicks. While the dropdown is open we detach the
-  // native view (browser.hide) so the dropdown can render over the now-empty
-  // content area, and reattach it when the dropdown closes.
-  const overlayActive = addressEditing && addressSuggestions.length > 0;
-
   const chromeStatus = useMemo(
     () =>
       resolveBrowserChromeStatus({
@@ -299,15 +271,13 @@ export function BrowserPanel({
   const rafRef = useRef<number | null>(null);
 
   const pushBounds = useCallback(() => {
-    // Skip while the suggestions overlay is open — reattaching the native view
-    // here would re-cover the dropdown.
-    if (collapsed || overlayActive) return;
+    if (collapsed) return;
     const el = viewportRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
     window.electron.browser
       .setPanelBounds({
-        sessionId,
+        sessionId: browserSessionId,
         bounds: {
           x: Math.round(rect.left),
           y: Math.round(rect.top),
@@ -316,7 +286,7 @@ export function BrowserPanel({
         },
       })
       .catch(() => {});
-  }, [collapsed, overlayActive, sessionId]);
+  }, [browserSessionId, collapsed]);
 
   useLayoutEffect(() => {
     pushBounds();
@@ -362,26 +332,13 @@ export function BrowserPanel({
     };
   }, [collapsed, width, pushBounds]);
 
-  // Detach the native view while the suggestions overlay is open so the dropdown
-  // renders over the content area instead of being hidden behind the web page;
-  // reattach (via pushBounds) once it closes. Reattaching an already-live tab
-  // does not reload it.
-  useEffect(() => {
-    if (collapsed) return;
-    if (overlayActive) {
-      window.electron.browser.hide({ sessionId }).catch(() => {});
-    } else {
-      pushBounds();
-    }
-  }, [overlayActive, collapsed, sessionId, pushBounds]);
-
   // ===== 操作封装 =====
   const handleNavigate = useCallback(
     async (rawInput: string) => {
       const normalized = normalizeBrowserAddressInput(rawInput);
       try {
         const next = await window.electron.browser.navigate({
-          sessionId,
+          sessionId: browserSessionId,
           tabId: sessionState.activeTabId ?? undefined,
           url: normalized,
         });
@@ -392,7 +349,7 @@ export function BrowserPanel({
         setLocalError(String(error));
       }
     },
-    [sessionId, sessionState.activeTabId]
+    [browserSessionId, sessionState.activeTabId]
   );
 
   const handleAddressKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -414,18 +371,12 @@ export function BrowserPanel({
     }
   };
 
-  const handleNewTab = () => {
-    window.electron.browser.newTab({ sessionId, activate: true }).catch((error) => {
-      setLocalError(String(error));
-    });
-  };
-
   const handleCloseBrowser = useCallback(() => {
     window.electron.browser
-      .close({ sessionId })
+      .close({ sessionId: browserSessionId })
       .then((nextState) => {
         setSessionState(nextState);
-        removeSessionState(sessionId);
+        removeSessionState(browserSessionId);
         setAddressDrafts({});
         setLocalError(null);
         onClose();
@@ -435,31 +386,19 @@ export function BrowserPanel({
         setLocalError(message);
         toast.error(`Failed to close browser: ${message}`);
       });
-  }, [onClose, removeSessionState, sessionId]);
-
-  const handleCloseTab = (tabId: string) => {
-    window.electron.browser.closeTab({ sessionId, tabId }).catch((error) => {
-      setLocalError(String(error));
-    });
-  };
-
-  const handleSelectTab = (tabId: string) => {
-    window.electron.browser.selectTab({ sessionId, tabId }).catch((error) => {
-      setLocalError(String(error));
-    });
-  };
+  }, [browserSessionId, onClose, removeSessionState]);
 
   const handleBack = () => {
     if (!activeTab) return;
-    window.electron.browser.goBack({ sessionId, tabId: activeTab.id }).catch(() => {});
+    window.electron.browser.goBack({ sessionId: browserSessionId, tabId: activeTab.id }).catch(() => {});
   };
   const handleForward = () => {
     if (!activeTab) return;
-    window.electron.browser.goForward({ sessionId, tabId: activeTab.id }).catch(() => {});
+    window.electron.browser.goForward({ sessionId: browserSessionId, tabId: activeTab.id }).catch(() => {});
   };
   const handleReload = () => {
     if (!activeTab) return;
-    window.electron.browser.reload({ sessionId, tabId: activeTab.id }).catch(() => {});
+    window.electron.browser.reload({ sessionId: browserSessionId, tabId: activeTab.id }).catch(() => {});
   };
 
   const handleCaptureScreenshot = async () => {
@@ -467,7 +406,7 @@ export function BrowserPanel({
     setScreenshotBusy(true);
     try {
       const result = await window.electron.browser.capture({
-        sessionId,
+        sessionId: browserSessionId,
         tabId: activeTab.id,
       });
       if (!result.ok || !result.base64) {
@@ -507,7 +446,7 @@ export function BrowserPanel({
     setReadoutBusy(true);
     try {
       const result = await window.electron.browser.readPage({
-        sessionId,
+        sessionId: browserSessionId,
         tabId: activeTab.id,
       });
       if (!result.ok) {
@@ -737,7 +676,7 @@ export function BrowserPanel({
             onClick={() => {
               if (activeTab) {
                 window.electron.browser
-                  .openDevTools({ sessionId, tabId: activeTab.id })
+                  .openDevTools({ sessionId: browserSessionId, tabId: activeTab.id })
                   .catch(() => {});
               }
             }}
@@ -772,93 +711,11 @@ export function BrowserPanel({
           </button>
         </div>
 
-        {/* Tab bar */}
-        <div className="flex items-center gap-1 overflow-x-auto px-2 py-1">
-          {sessionState.tabs.map((tab) => {
-            const isActive = tab.id === sessionState.activeTabId;
-            return (
-              <div
-                key={tab.id}
-                className={`group flex h-7 max-w-[180px] items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors ${
-                  isActive
-                    ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-[0_0_0_1px_var(--border)]'
-                    : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() => handleSelectTab(tab.id)}
-                  className="flex min-w-0 flex-1 items-center gap-1.5"
-                  title={tab.title || tab.url}
-                >
-                  {tab.faviconUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={tab.faviconUrl}
-                      alt=""
-                      className="h-3 w-3 flex-shrink-0 rounded-[2px]"
-                    />
-                  ) : (
-                    <Globe className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />
-                  )}
-                  <span className="truncate">{tab.title || tab.url || 'New tab'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleCloseTab(tab.id)}
-                  className="invisible inline-flex h-4 w-4 items-center justify-center rounded-sm text-[var(--text-muted)] group-hover:visible hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-                  title="Close tab"
-                  aria-label="Close tab"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            );
-          })}
-          <button
-            type="button"
-            onClick={handleNewTab}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-            title="New tab"
-            aria-label="New tab"
-          >
-            <Plus className="h-[13px] w-[13px]" />
-          </button>
-        </div>
       </div>
 
       {/* Viewport placeholder: main process mirrors the native WebContentsView here */}
       <div className="relative flex-1 min-h-0 bg-[var(--bg-primary)]">
         <div ref={viewportRef} className="absolute inset-0" />
-        {/* Address suggestions render here (over the content area, not the tab
-            bar) so they never cover the "+" button. The native view is detached
-            while this is shown (see overlayActive effect), so the dropdown is
-            visible instead of hidden behind the web page. */}
-        {overlayActive && (
-          <div className="absolute left-2 right-2 top-2 z-30 overflow-hidden rounded-md border border-[var(--border)] bg-[var(--bg-primary)] shadow-lg">
-            {addressSuggestions.map((suggestion) => (
-              <button
-                key={suggestion.id}
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  setAddressEditing(false);
-                  if (suggestion.kind === 'tab' && suggestion.tabId) {
-                    handleSelectTab(suggestion.tabId);
-                  } else {
-                    void handleNavigate(suggestion.url);
-                  }
-                }}
-                className="block w-full px-2 py-1.5 text-left text-[12px] text-[var(--text-primary)] hover:bg-[var(--sidebar-item-hover)]"
-              >
-                <div className="truncate text-[12px] font-medium">{suggestion.title}</div>
-                <div className="truncate text-[11px] text-[var(--text-muted)]">
-                  {suggestion.detail}
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
         {chromeStatus && (
           <div
             className={`pointer-events-none absolute bottom-2 left-2 right-2 rounded-md border px-2 py-1 text-[11px] ${

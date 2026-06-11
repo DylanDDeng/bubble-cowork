@@ -47,6 +47,7 @@ import { TerminalDrawer } from './components/TerminalDrawer';
 import { RightTerminalPanel } from './components/RightTerminalPanel';
 import { WorkspaceHost } from './components/WorkspaceHost';
 import { ChatPane } from './components/ChatPane';
+import { useBrowserStateStore } from './store/useBrowserStateStore';
 import { EnvironmentHub } from './components/environment/EnvironmentHub';
 import { useActiveEnvironmentContext } from './components/environment/useActiveEnvironmentContext';
 import { useGitEnvironment } from './components/environment/useGitEnvironment';
@@ -96,8 +97,36 @@ function isProjectUtilityFileTab(target: ProjectUtilityPanelTarget | null | unde
   return target === 'files' || Boolean(target?.startsWith('files:'));
 }
 
+function isProjectUtilityBrowserTab(target: ProjectUtilityPanelTarget | null | undefined): boolean {
+  return target === 'browser' || Boolean(target?.startsWith('browser:'));
+}
+
 function getProjectUtilityTabKind(target: ProjectUtilityPanelTarget): ProjectUtilityPanelKind {
-  return isProjectUtilityFileTab(target) ? 'files' : target;
+  if (isProjectUtilityFileTab(target)) return 'files';
+  if (isProjectUtilityBrowserTab(target)) return 'browser';
+  return target;
+}
+
+function getBrowserUtilitySessionId(chatSessionId: string, target: ProjectUtilityPanelTarget): string {
+  return target === 'browser' ? chatSessionId : `${chatSessionId}:${target}`;
+}
+
+function getBrowserUtilityLabel(
+  state: ReturnType<typeof useBrowserStateStore.getState>['sessionStatesBySessionId'][string] | null | undefined
+): string {
+  const activeTab =
+    state?.tabs.find((tab) => tab.id === state.activeTabId) ??
+    state?.tabs[0] ??
+    null;
+  const title = activeTab?.title?.trim();
+  if (title && title !== 'New tab' && title !== 'New page') return title;
+  const url = activeTab?.url?.trim();
+  if (!url || url === 'about:blank') return 'Browser';
+  try {
+    return new URL(url).hostname || 'Browser';
+  } catch {
+    return url;
+  }
 }
 
 function getDefaultRightUtilityPanelWidth(): number {
@@ -144,6 +173,7 @@ export function App() {
   const [activeProjectFileTabs, setActiveProjectFileTabs] = useState<
     Record<string, { filePath: string; name: string } | null>
   >({});
+  const browserSessionStates = useBrowserStateStore((s) => s.sessionStatesBySessionId);
 
   const {
     connected,
@@ -486,14 +516,30 @@ export function App() {
         return { id: tab, kind, label: 'Changes' };
       }
       if (kind === 'browser') {
-        return { id: tab, kind, label: 'Browser' };
+        const browserSessionId = activeSessionId
+          ? getBrowserUtilitySessionId(activeSessionId, tab)
+          : null;
+        return {
+          id: tab,
+          kind,
+          label: getBrowserUtilityLabel(
+            browserSessionId ? browserSessionStates[browserSessionId] : null
+          ),
+        };
       }
       if (kind === 'side-chat') {
         return { id: tab, kind, label: 'Side Chat' };
       }
       return { id: tab, kind, label: workspaceLeaf || 'Terminal' };
     });
-  }, [activeProjectFileTabs, activeSession?.cwd, projectCwd, rightUtilityTabs]);
+  }, [
+    activeProjectFileTabs,
+    activeSession?.cwd,
+    activeSessionId,
+    browserSessionStates,
+    projectCwd,
+    rightUtilityTabs,
+  ]);
 
   const updateProjectFileTabLabel = useCallback((
     tabId: ProjectUtilityPanelTarget,
@@ -509,6 +555,10 @@ export function App() {
 
   const fileUtilityTabs = useMemo(
     () => rightUtilityTabs.filter(isProjectUtilityFileTab),
+    [rightUtilityTabs]
+  );
+  const browserUtilityTabs = useMemo(
+    () => rightUtilityTabs.filter(isProjectUtilityBrowserTab),
     [rightUtilityTabs]
   );
 
@@ -927,20 +977,24 @@ export function App() {
               }
             />
           ) : null}
-          {activeSessionId ? (
-            <BrowserPanel
-              embedded
-              sessionId={activeSessionId}
-              collapsed={activeUtilityPanel !== 'browser'}
-              width={rightUtilityPanelWidth}
-              onClose={() => closeRightUtilityTab('browser')}
-              onWidthChange={setRightUtilityPanelWidth}
-              isFullscreen={rightPanelFullscreen === 'browser'}
-              onToggleFullscreen={() =>
-                setRightPanelFullscreen(rightPanelFullscreen === 'browser' ? null : 'browser')
-              }
-            />
-          ) : null}
+          {activeSessionId
+            ? browserUtilityTabs.map((tabId) => (
+                <BrowserPanel
+                  key={tabId}
+                  embedded
+                  sessionId={activeSessionId}
+                  browserSessionId={getBrowserUtilitySessionId(activeSessionId, tabId)}
+                  collapsed={activeUtilityPanel !== 'browser' || activeRightUtilityTab !== tabId}
+                  width={rightUtilityPanelWidth}
+                  onClose={() => closeRightUtilityTab(tabId)}
+                  onWidthChange={setRightUtilityPanelWidth}
+                  isFullscreen={rightPanelFullscreen === 'browser'}
+                  onToggleFullscreen={() =>
+                    setRightPanelFullscreen(rightPanelFullscreen === 'browser' ? null : 'browser')
+                  }
+                />
+              ))
+            : null}
           <RightTerminalPanel
             embedded
             collapsed={activeUtilityPanel !== 'terminal'}
@@ -1216,16 +1270,38 @@ function RightUtilityTabStrip({
   onTogglePanel: () => void;
 }) {
   const items = [
-    { id: 'files' as const, label: 'Files', shortcut: '⌘P', disabled: false },
-    { id: 'side-chat' as const, label: 'Side Chat', shortcut: null, disabled: false },
-    { id: 'browser' as const, label: 'Browser', shortcut: '⌘T', disabled: !browserAvailable },
-    { id: 'review' as const, label: 'Review', shortcut: '⌃⌘G', disabled: false },
-    { id: 'terminal' as const, label: 'Terminal', shortcut: '⌃`', disabled: false },
+    { id: 'files' as const, label: 'Files', shortcut: '⌘P', accelerator: 'CommandOrControl+P', disabled: false },
+    { id: 'side-chat' as const, label: 'Side Chat', shortcut: null, accelerator: null, disabled: false },
+    { id: 'browser' as const, label: 'Browser', shortcut: '⌘T', accelerator: 'CommandOrControl+T', disabled: !browserAvailable },
+    { id: 'review' as const, label: 'Review', shortcut: '⌃⌘G', accelerator: 'Control+CommandOrControl+G', disabled: false },
+    { id: 'terminal' as const, label: 'Terminal', shortcut: '⌃`', accelerator: 'Control+`', disabled: false },
   ];
+
+  const handleOpenMenu = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const result = await window.electron.showRightUtilityTabMenu({
+      x: rect.left,
+      y: rect.bottom + 6,
+      items: items.map((item) => ({
+        id: item.id,
+        label: item.label,
+        enabled: !item.disabled,
+        accelerator: item.accelerator,
+      })),
+    });
+    if (!result.ok || !result.id) return;
+    const selected = items.find((item) => item.id === result.id);
+    if (!selected || selected.disabled) return;
+    onOpenTab(
+      selected.id,
+      selected.id === 'files' || selected.id === 'browser' ? { newTab: true } : undefined
+    );
+  };
 
   return (
     <div
-      className="drag-region flex h-10 shrink-0 items-center gap-1 border-b border-[var(--border)] bg-[var(--bg-primary)] px-2"
+      className="drag-region relative z-[120] flex h-10 shrink-0 items-center gap-1 overflow-visible border-b border-[var(--border)] bg-[var(--bg-primary)] px-2"
       // In fullscreen with the sidebar collapsed the strip becomes the topmost
       // bar at the window's left edge, so it must clear the traffic lights.
       style={windowControlsInset ? { paddingLeft: 'var(--app-window-controls-inset-left)' } : undefined}
@@ -1270,48 +1346,15 @@ function RightUtilityTabStrip({
             </div>
           );
         })}
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger asChild>
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-t-[7px] border border-b-0 border-transparent text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-              title="Open another panel"
-              aria-label="Open another panel"
-            >
-              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-            </button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content
-              align="start"
-              sideOffset={6}
-              className="z-[1000] w-[292px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_18px_42px_rgba(15,23,42,0.18)]"
-            >
-              {items.map((item) => {
-                const Icon = getUtilityTabIcon(item.id);
-                const active = activeTab ? getProjectUtilityTabKind(activeTab) === item.id : false;
-                return (
-                  <DropdownMenu.Item
-                    key={item.id}
-                    disabled={item.disabled}
-                    onSelect={() => onOpenTab(item.id, item.id === 'files' ? { newTab: true } : undefined)}
-                    className={`flex h-9 cursor-pointer select-none items-center gap-2 rounded-lg px-2.5 text-[12px] outline-none transition-colors focus:bg-[var(--bg-tertiary)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50 ${
-                      active ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'
-                    }`}
-                  >
-                    <Icon className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
-                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                    {item.shortcut ? (
-                      <span className="ml-auto font-mono text-[10px] text-[var(--text-muted)]">
-                        {item.shortcut}
-                      </span>
-                    ) : null}
-                  </DropdownMenu.Item>
-                );
-              })}
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
+        <button
+          type="button"
+          onClick={handleOpenMenu}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-t-[7px] border border-b-0 border-transparent text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+          title="Open another panel"
+          aria-label="Open another panel"
+        >
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
       </div>
 
       <div className="no-drag ml-1 flex h-full shrink-0 translate-y-1 items-center">

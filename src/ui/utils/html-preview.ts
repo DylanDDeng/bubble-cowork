@@ -29,9 +29,9 @@ export async function openHtmlFileInBrowserTab({
     return;
   }
 
-  await window.electron.browser.newTab({
+  await window.electron.browser.navigate({
     sessionId,
+    tabId: currentState.activeTabId ?? undefined,
     url: preview.url,
-    activate: true,
   });
 }

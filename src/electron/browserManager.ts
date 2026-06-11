@@ -1,12 +1,12 @@
 // Per-session in-app browser manager.
 //
 // Based on dpcode (Emanuele-web04/dpcode) DesktopBrowserManager design but
-// scoped to `sessionId` (each chat session has its own tabs + WebContentsView
+// scoped to `sessionId` (each browser page has its own WebContentsView
 // lifecycle). Adds screenshot + page readout (text / links / selection) for
 // Agent integration.
 //
 // Key ideas:
-// 1. One WebContentsView per (sessionId, tabId) while the session is active.
+// 1. One visible WebContentsView per browser page while the session is active.
 // 2. At most one WebContentsView is attached to the BrowserWindow at a time.
 // 3. Inactive sessions are suspended after BROWSER_SESSION_SUSPEND_DELAY_MS
 //    to release Chromium renderer processes.
@@ -89,7 +89,7 @@ function cloneSessionState(state: SessionBrowserState): SessionBrowserState {
 
 function defaultTitleForUrl(url: string): string {
   if (url === ABOUT_BLANK_URL) {
-    return 'New tab';
+    return 'New page';
   }
   try {
     const parsed = new URL(url);
@@ -366,21 +366,31 @@ export class BrowserManager {
 
   newTab(input: BrowserNewTabInput): SessionBrowserState {
     const state = this.ensureWorkspace(input.sessionId);
-    const tab = createBrowserTab(normalizeUrlInput(input.url));
-    state.tabs = [...state.tabs, tab];
-    if (input.activate !== false || !state.activeTabId) {
-      state.activeTabId = tab.id;
+    const tab = this.resolveTab(state);
+    const retiredTabs = state.tabs.filter((item) => item.id !== tab.id);
+    for (const retiredTab of retiredTabs) {
+      this.destroyRuntime(input.sessionId, retiredTab.id);
     }
+    state.tabs = [tab];
+    state.activeTabId = tab.id;
+    tab.url = normalizeUrlInput(input.url);
+    tab.title = defaultTitleForUrl(tab.url);
+    tab.lastCommittedUrl = null;
+    tab.lastError = null;
 
     if (this.activeSessionId === input.sessionId) {
       this.resumeSession(input.sessionId);
-      if (state.activeTabId === tab.id && this.activeBounds) {
+      if (this.activeBounds) {
         this.ensureLiveRuntime(input.sessionId, tab.id);
         void this.loadTab(input.sessionId, tab.id, { force: true });
         this.attachActiveTab(input.sessionId, this.activeBounds);
       }
     } else {
+      this.destroyRuntime(input.sessionId, tab.id);
       tab.status = 'suspended';
+      tab.isLoading = false;
+      tab.canGoBack = false;
+      tab.canGoForward = false;
     }
 
     syncSessionLastError(state);
@@ -710,10 +720,7 @@ export class BrowserManager {
         return { action: 'deny' };
       }
       if (url.startsWith('http://') || url.startsWith('https://') || url === ABOUT_BLANK_URL) {
-        this.newTab({ sessionId, url, activate: true });
-        if (this.activeSessionId === sessionId && this.activeBounds) {
-          this.attachActiveTab(sessionId, this.activeBounds);
-        }
+        this.navigate({ sessionId, tabId, url });
         return { action: 'deny' };
       }
       void shell.openExternal(url);
@@ -1021,10 +1028,10 @@ export class BrowserManager {
       template.push({
         label: 'Search the web',
         click: () => {
-          this.newTab({
+          this.navigate({
             sessionId,
+            tabId,
             url: `${SEARCH_URL_PREFIX}${encodeURIComponent(selectionText)}`,
-            activate: true,
           });
         },
       });
@@ -1033,9 +1040,9 @@ export class BrowserManager {
     if (linkUrl) {
       if (hasSelection) template.push({ type: 'separator' });
       template.push({
-        label: 'Open link in new tab',
+        label: 'Open link',
         click: () => {
-          this.newTab({ sessionId, url: linkUrl, activate: true });
+          this.navigate({ sessionId, tabId, url: linkUrl });
         },
       });
       template.push({
