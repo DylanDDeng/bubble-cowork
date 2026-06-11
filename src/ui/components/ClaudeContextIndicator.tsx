@@ -57,7 +57,7 @@ export function ClaudeContextIndicator({
   modelLabel?: string | null;
 }) {
   const [open, setOpen] = useState(false);
-  const resolvedModelLabel = snapshot?.model || modelLabel || 'Claude';
+  const resolvedModelLabel = modelLabel || snapshot?.model || 'Claude';
   const percent = snapshot?.percent || 0;
 
   return (
@@ -77,9 +77,9 @@ export function ClaudeContextIndicator({
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-1/2 z-40 mb-1.5 w-[220px] -translate-x-1/2 rounded-[8px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] px-2.5 py-2 text-[13px] font-normal leading-5 text-[var(--text-primary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)]">
+        <div className="absolute bottom-full right-0 z-40 mb-1.5 w-[240px] max-w-[calc(100vw-1.5rem)] rounded-[8px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] px-2.5 py-2 text-[13px] font-normal leading-5 text-[var(--text-primary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)]">
           <div className="flex items-center justify-between gap-2">
-            <div className="truncate text-[var(--text-secondary)]">{resolvedModelLabel}</div>
+            <div className="min-w-0 truncate text-[var(--text-secondary)]">{resolvedModelLabel}</div>
             <UsageRing percent={percent} size="h-[18px] w-[18px]" />
           </div>
 
@@ -100,12 +100,12 @@ export function ClaudeContextIndicator({
                 <MetricRow label="Web searches" value={formatCompact(snapshot.webSearchRequests)} />
               ) : null}
               <div className="mt-1.5 border-t border-[var(--border)] pt-1.5 text-[11px] leading-4 text-[var(--text-muted)]">
-                Latest reported by Claude
+                Latest usage for this model
               </div>
             </>
           ) : (
             <div className="mt-1.5 border-t border-[var(--border)] pt-1.5 text-[12px] leading-5 text-[var(--text-secondary)]">
-              Waiting for Claude usage data.
+              Waiting for usage from this model.
             </div>
           )}
         </div>
@@ -117,8 +117,8 @@ export function ClaudeContextIndicator({
 function MetricRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="mt-0.5 flex items-center justify-between gap-2">
-      <span className="text-[var(--text-secondary)]">{label}</span>
-      <span>{value}</span>
+      <span className="shrink-0 text-[var(--text-secondary)]">{label}</span>
+      <span className="min-w-0 truncate text-right">{value}</span>
     </div>
   );
 }

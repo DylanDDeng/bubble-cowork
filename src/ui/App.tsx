@@ -48,7 +48,7 @@ import { RightTerminalPanel } from './components/RightTerminalPanel';
 import { WorkspaceHost } from './components/WorkspaceHost';
 import { ChatPane } from './components/ChatPane';
 import { useBrowserStateStore } from './store/useBrowserStateStore';
-import { EnvironmentHub } from './components/environment/EnvironmentHub';
+import { EnvironmentEditorPicker, EnvironmentHub } from './components/environment/EnvironmentHub';
 import { useActiveEnvironmentContext } from './components/environment/useActiveEnvironmentContext';
 import { useGitEnvironment } from './components/environment/useGitEnvironment';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -873,6 +873,7 @@ export function App() {
                 >
                   <SquareTerminal className="h-[13px] w-[13px] shrink-0" />
                 </button>
+                <EnvironmentEditorPicker context={environmentContext} />
                 <EnvironmentHub
                   context={environmentContext}
                   git={gitEnvironment}

@@ -892,12 +892,26 @@ export interface GitPatchResult {
   truncated: boolean;
 }
 
-export type EnvironmentEditorId = 'finder' | 'system' | 'cursor' | 'vscode';
+export type EnvironmentEditorId =
+  | 'finder'
+  | 'system'
+  | 'cursor'
+  | 'vscode'
+  | 'windsurf'
+  | 'zed'
+  | 'trae'
+  | 'intellij'
+  | 'webstorm'
+  | 'sublime';
 
 export interface EnvironmentEditorLauncher {
   id: EnvironmentEditorId;
   label: string;
   available: boolean;
+  appName?: string;
+  appPath?: string;
+  command?: string;
+  iconDataUrl?: string;
 }
 
 export interface OpenInEditorInput {

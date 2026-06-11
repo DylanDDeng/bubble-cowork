@@ -4,6 +4,7 @@ import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, watch,
 import { execFile } from 'child_process';
 import type { AddressInfo } from 'net';
 import { promisify } from 'util';
+import { homedir, tmpdir } from 'os';
 import { fileURLToPath } from 'url';
 import { basename, dirname, extname, resolve, relative, isAbsolute, join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -105,6 +106,7 @@ import type {
   GitSessionHandoffInput,
   GitPullRequestLookupStatus,
   OpenInEditorInput,
+  EnvironmentEditorId,
   EnvironmentEditorLauncher,
   UpsertAutomationInput,
   WechatClipboardHtmlWriteInput,
@@ -3682,19 +3684,104 @@ async function commandExists(command: string): Promise<boolean> {
   }
 }
 
+interface EditorCandidate {
+  id: EnvironmentEditorId;
+  label: string;
+  appNames?: string[];
+  commands?: string[];
+}
+
+const EDITOR_CANDIDATES: EditorCandidate[] = [
+  { id: 'cursor', label: 'Cursor', appNames: ['Cursor'], commands: ['cursor'] },
+  { id: 'vscode', label: 'VS Code', appNames: ['Visual Studio Code'], commands: ['code'] },
+  { id: 'windsurf', label: 'Windsurf', appNames: ['Windsurf'], commands: ['windsurf'] },
+  { id: 'zed', label: 'Zed', appNames: ['Zed'], commands: ['zed'] },
+  { id: 'trae', label: 'Trae', appNames: ['Trae'], commands: ['trae'] },
+  { id: 'intellij', label: 'IntelliJ IDEA', appNames: ['IntelliJ IDEA', 'IntelliJ IDEA CE'], commands: ['idea'] },
+  { id: 'webstorm', label: 'WebStorm', appNames: ['WebStorm'], commands: ['webstorm'] },
+  { id: 'sublime', label: 'Sublime Text', appNames: ['Sublime Text'], commands: ['subl'] },
+];
+
+function getDarwinAppPath(appName: string): string | null {
+  if (process.platform !== 'darwin') return null;
+  const candidates = [
+    `/Applications/${appName}.app`,
+    join(homedir(), 'Applications', `${appName}.app`),
+  ];
+  return candidates.find((appPath) => existsSync(appPath)) ?? null;
+}
+
+async function getNativeIconDataUrl(appPath: string | null): Promise<string | undefined> {
+  if (!appPath || process.platform !== 'darwin') return undefined;
+
+  let outputPath: string | null = null;
+  try {
+    const plistPath = join(appPath, 'Contents', 'Info.plist');
+    const { stdout } = await execFileAsync('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleIconFile', plistPath], {
+      timeout: 3000,
+    });
+    const iconFile = stdout.trim();
+    if (!iconFile) return undefined;
+
+    const iconFileName = iconFile.endsWith('.icns') ? iconFile : `${iconFile}.icns`;
+    const iconPath = join(appPath, 'Contents', 'Resources', iconFileName);
+    if (!existsSync(iconPath)) return undefined;
+
+    outputPath = join(tmpdir(), `aegis-app-icon-${uuidv4()}.png`);
+    await execFileAsync('sips', ['-s', 'format', 'png', '-z', '128', '128', iconPath, '--out', outputPath], {
+      timeout: 5000,
+    });
+    const png = await fsPromises.readFile(outputPath);
+    return `data:image/png;base64,${png.toString('base64')}`;
+  } catch {
+    return undefined;
+  } finally {
+    if (outputPath) {
+      void fsPromises.unlink(outputPath).catch(() => undefined);
+    }
+  }
+}
+
+async function getAvailableEditorCandidate(candidate: EditorCandidate): Promise<EnvironmentEditorLauncher | null> {
+  const appPath = candidate.appNames?.map(getDarwinAppPath).find((path): path is string => Boolean(path));
+  const appName = candidate.appNames?.find((name) => getDarwinAppPath(name));
+  const commandChecks = await Promise.all((candidate.commands ?? []).map(async (command) => ({
+    command,
+    available: await commandExists(command),
+  })));
+  const command = commandChecks.find((check) => check.available)?.command;
+
+  if (!appPath && !command) return null;
+
+  return {
+    id: candidate.id,
+    label: candidate.label,
+    available: true,
+    appName,
+    appPath,
+    command,
+    iconDataUrl: await getNativeIconDataUrl(appPath ?? null),
+  };
+}
+
 async function getEnvironmentEditorLaunchers(): Promise<EnvironmentEditorLauncher[]> {
-  const cursorApp = process.platform === 'darwin' && existsSync('/Applications/Cursor.app');
-  const vscodeApp = process.platform === 'darwin' && existsSync('/Applications/Visual Studio Code.app');
-  const [cursorCli, vscodeCli] = await Promise.all([
-    commandExists('cursor'),
-    commandExists('code'),
-  ]);
+  const discoveredEditors = (await Promise.all(EDITOR_CANDIDATES.map(getAvailableEditorCandidate))).filter(
+    (editor): editor is EnvironmentEditorLauncher => editor !== null,
+  );
+
+  const finderAppPath = process.platform === 'darwin' ? '/System/Library/CoreServices/Finder.app' : null;
 
   return [
-    { id: 'finder', label: process.platform === 'darwin' ? 'Finder' : 'Files', available: true },
+    {
+      id: 'finder',
+      label: process.platform === 'darwin' ? 'Finder' : 'Files',
+      available: true,
+      appName: process.platform === 'darwin' ? 'Finder' : undefined,
+      appPath: finderAppPath ?? undefined,
+      iconDataUrl: await getNativeIconDataUrl(finderAppPath),
+    },
     { id: 'system', label: 'Default app', available: true },
-    { id: 'cursor', label: 'Cursor', available: cursorApp || cursorCli },
-    { id: 'vscode', label: 'VS Code', available: vscodeApp || vscodeCli },
+    ...discoveredEditors,
   ];
 }
 
@@ -3716,31 +3803,28 @@ async function openInEnvironmentEditor(input: OpenInEditorInput): Promise<{ ok: 
       return errMsg ? { ok: false, message: errMsg } : { ok: true };
     }
 
-    if (editorId === 'cursor') {
-      if (process.platform === 'darwin' && existsSync('/Applications/Cursor.app')) {
-        await execFileAsync('open', ['-a', 'Cursor', cwd], { timeout: 10000 });
-        return { ok: true };
-      }
-      if (await commandExists('cursor')) {
-        await execFileAsync('cursor', [cwd], { timeout: 10000 });
-        return { ok: true };
-      }
-      return { ok: false, message: 'Cursor is not available.' };
+    const candidate = EDITOR_CANDIDATES.find((editor) => editor.id === editorId);
+    if (!candidate) {
+      return { ok: false, message: 'Unsupported editor.' };
     }
 
-    if (editorId === 'vscode') {
-      if (process.platform === 'darwin' && existsSync('/Applications/Visual Studio Code.app')) {
-        await execFileAsync('open', ['-a', 'Visual Studio Code', cwd], { timeout: 10000 });
-        return { ok: true };
-      }
-      if (await commandExists('code')) {
-        await execFileAsync('code', [cwd], { timeout: 10000 });
-        return { ok: true };
-      }
-      return { ok: false, message: 'VS Code is not available.' };
+    const appName = candidate.appNames?.find((name) => getDarwinAppPath(name));
+    if (appName) {
+      await execFileAsync('open', ['-a', appName, cwd], { timeout: 10000 });
+      return { ok: true };
     }
 
-    return { ok: false, message: 'Unsupported editor.' };
+    const commandChecks = await Promise.all((candidate.commands ?? []).map(async (command) => ({
+      command,
+      available: await commandExists(command),
+    })));
+    const command = commandChecks.find((check) => check.available)?.command;
+    if (command) {
+      await execFileAsync(command, [cwd], { timeout: 10000 });
+      return { ok: true };
+    }
+
+    return { ok: false, message: `${candidate.label} is not available.` };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }

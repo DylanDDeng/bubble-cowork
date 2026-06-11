@@ -45,10 +45,7 @@ function selectModelUsageEntry(
 
   const normalizedPreferred = preferredModel?.trim().toLowerCase();
   if (normalizedPreferred) {
-    const exactMatch = entries.find(([model]) => model.trim().toLowerCase() === normalizedPreferred);
-    if (exactMatch) {
-      return exactMatch;
-    }
+    return entries.find(([model]) => isClaudeUsageModelMatch(model, normalizedPreferred)) || null;
   }
 
   return entries.sort((left, right) => {
@@ -56,6 +53,19 @@ function selectModelUsageEntry(
     const rightUsage = right[1].inputTokens + right[1].outputTokens;
     return rightUsage - leftUsage;
   })[0] || null;
+}
+
+function normalizeClaudeUsageModelKey(model?: string | null): string {
+  return (model || '').trim().toLowerCase().replace(/\[1m\]$/i, '');
+}
+
+export function isClaudeUsageModelMatch(
+  reportedModel?: string | null,
+  preferredModel?: string | null
+): boolean {
+  const preferred = normalizeClaudeUsageModelKey(preferredModel);
+  if (!preferred) return true;
+  return normalizeClaudeUsageModelKey(reportedModel) === preferred;
 }
 
 export function buildClaudeContextSnapshot(

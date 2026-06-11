@@ -40,6 +40,7 @@ import {
   buildClaudeContextSnapshot,
   getLatestClaudeContextSnapshot,
   getLatestCodexContextSnapshot,
+  isClaudeUsageModelMatch,
 } from '../utils/context-usage';
 
 function isImeComposingEvent(
@@ -94,9 +95,11 @@ export function PromptInput({
   });
   const runtimeProvider = agentSelection.provider;
   const selectedModel = agentSelection.model;
+  const selectedModelLabel = agentSelection.selectedModelLabel;
   const modelSetupRequired = Boolean(agentSelection.modelSetup);
   const isClaudeContextVisible = runtimeProvider === 'claude' && activeSession?.provider === 'claude';
   const isCodexContextVisible = runtimeProvider === 'codex' && activeSession?.provider === 'codex';
+  const claudeContextModel = isClaudeContextVisible ? selectedModel || activeSession?.model || null : null;
 
   const codexContextSnapshot = useMemo(
     () =>
@@ -109,18 +112,18 @@ export function PromptInput({
     if (!isClaudeContextVisible) {
       return null;
     }
-    const latestFromMessages = getLatestClaudeContextSnapshot(activeSession.messages, activeSession.model);
+    const latestFromMessages = getLatestClaudeContextSnapshot(activeSession.messages, claudeContextModel);
     if (latestFromMessages) {
       return latestFromMessages;
     }
     const latestUsage = activeSession.latestClaudeModelUsage;
-    return latestUsage
+    return latestUsage && isClaudeUsageModelMatch(latestUsage.model, claudeContextModel)
       ? buildClaudeContextSnapshot(latestUsage.model, latestUsage.usage)
       : null;
   }, [
+    claudeContextModel,
     activeSession?.latestClaudeModelUsage,
     activeSession?.messages,
-    activeSession?.model,
     isClaudeContextVisible,
   ]);
   const isRunning = activeSession?.status === 'running';
@@ -750,7 +753,7 @@ export function PromptInput({
               {isClaudeContextVisible ? (
                 <ClaudeContextIndicator
                   snapshot={claudeContextSnapshot}
-                  modelLabel={activeSession.model || selectedModel}
+                  modelLabel={selectedModelLabel || claudeContextModel}
                 />
               ) : null}
               {codexContextSnapshot ? (
