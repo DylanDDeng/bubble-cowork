@@ -3,6 +3,7 @@ import type { ComponentType, SVGProps } from 'react';
 import {
   IconAdjustmentsHorizontal,
   IconAlertTriangle,
+  IconAppWindow,
   IconArrowBackUp,
   IconArrowForwardUp,
   IconArrowLeft,
@@ -210,7 +211,7 @@ export {
   IconLink as Link,
   IconList as List,
   IconListCheck as ListChecks,
-  IconListDetails as EnvironmentIcon,
+  IconAppWindow as EnvironmentIcon,
   IconListNumbers as ListOrdered,
   IconListCheck as ListTodo,
   IconLoader2 as Loader2,
