@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from 'electron';
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'http';
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, watch, type FSWatcher, promises as fsPromises } from 'fs';
 import { execFile } from 'child_process';
@@ -5864,6 +5864,50 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     } catch (error) {
       return { ok: false, message: String(error) };
     }
+  });
+
+  ipcMainHandle('show-right-utility-tab-menu', async (
+    _event,
+    input: {
+      x?: number;
+      y?: number;
+      items?: Array<{
+        id: string;
+        label: string;
+        enabled?: boolean;
+        accelerator?: string | null;
+      }>;
+    }
+  ) => {
+    const items = Array.isArray(input?.items) ? input.items : [];
+    if (items.length === 0) {
+      return { ok: false, message: 'No menu items.' };
+    }
+
+    return await new Promise<{ ok: boolean; id?: string; message?: string }>((resolve) => {
+      let resolved = false;
+      const finish = (result: { ok: boolean; id?: string; message?: string }) => {
+        if (resolved) return;
+        resolved = true;
+        resolve(result);
+      };
+
+      const menu = Menu.buildFromTemplate(
+        items.map((item) => ({
+          label: item.label,
+          enabled: item.enabled !== false,
+          accelerator: item.accelerator ?? undefined,
+          click: () => finish({ ok: true, id: item.id }),
+        }))
+      );
+
+      menu.popup({
+        window: mainWindow,
+        x: Number.isFinite(input?.x) ? Math.round(input.x as number) : undefined,
+        y: Number.isFinite(input?.y) ? Math.round(input.y as number) : undefined,
+        callback: () => finish({ ok: true }),
+      });
+    });
   });
 
   // === IPC 模块注册（从 ipc-handlers.ts 拆分） ===

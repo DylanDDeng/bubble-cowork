@@ -668,20 +668,32 @@ function normalizeChatPanes(
 }
 
 let rightUtilityFileTabCounter = 0;
+let rightUtilityBrowserTabCounter = 0;
 
 function isRightUtilityFileTab(target: ProjectUtilityPanelTarget | null | undefined): boolean {
   return target === 'files' || Boolean(target?.startsWith('files:'));
 }
 
+function isRightUtilityBrowserTab(target: ProjectUtilityPanelTarget | null | undefined): boolean {
+  return target === 'browser' || Boolean(target?.startsWith('browser:'));
+}
+
 function getRightUtilityTabKind(
   target: ProjectUtilityPanelTarget
 ): ProjectUtilityPanelKind {
-  return isRightUtilityFileTab(target) ? 'files' : target;
+  if (isRightUtilityFileTab(target)) return 'files';
+  if (isRightUtilityBrowserTab(target)) return 'browser';
+  return target;
 }
 
 function createRightUtilityFileTabId(): ProjectUtilityPanelTarget {
   rightUtilityFileTabCounter += 1;
   return `files:${Date.now().toString(36)}-${rightUtilityFileTabCounter}`;
+}
+
+function createRightUtilityBrowserTabId(): ProjectUtilityPanelTarget {
+  rightUtilityBrowserTabCounter += 1;
+  return `browser:${Date.now().toString(36)}-${rightUtilityBrowserTabCounter}`;
 }
 
 function resolveRightUtilityTabOpen(
@@ -700,6 +712,14 @@ function resolveRightUtilityTabOpen(
     };
   }
 
+  if (target === 'browser') {
+    const activeTab = options?.newTab ? createRightUtilityBrowserTabId() : 'browser';
+    return {
+      tabs: tabs.includes(activeTab) ? tabs : [...tabs, activeTab],
+      activeTab,
+    };
+  }
+
   return {
     tabs: tabs.includes(target) ? tabs : [...tabs, target],
     activeTab: target,
@@ -712,6 +732,12 @@ function resolveRightUtilityTabOpenPreservingActive(
   activeTab: ProjectUtilityPanelTarget | null
 ): { tabs: ProjectUtilityPanelTarget[]; activeTab: ProjectUtilityPanelTarget } {
   if (target === 'files' && isRightUtilityFileTab(activeTab)) {
+    return {
+      tabs: addRightUtilityTab(tabs, activeTab),
+      activeTab,
+    };
+  }
+  if (target === 'browser' && isRightUtilityBrowserTab(activeTab)) {
     return {
       tabs: addRightUtilityTab(tabs, activeTab),
       activeTab,
@@ -2216,7 +2242,21 @@ export const useAppStore = create<Store>()(
         activeRightUtilityTab: nextActiveTab,
       };
 
-      if (!nextActiveTab) {
+      if (state.activeRightUtilityTab === target && nextActiveTab) {
+        const nextActiveKind = getRightUtilityTabKind(nextActiveTab);
+        if (nextActiveKind === 'files' || nextActiveKind === 'review') {
+          patch.projectPanelView = nextActiveKind === 'review' ? 'changes' : 'files';
+          patch.projectTreeCollapsed = false;
+          patch.browserPanelOpen = false;
+        } else if (nextActiveKind === 'browser') {
+          patch.projectTreeCollapsed = true;
+          patch.browserPanelOpen = true;
+        } else {
+          patch.projectTreeCollapsed = true;
+          patch.browserPanelOpen = false;
+          patch.rightPanelFullscreen = null;
+        }
+      } else if (!nextActiveTab) {
         patch.projectTreeCollapsed = true;
         patch.browserPanelOpen = false;
         patch.rightPanelFullscreen = null;
@@ -2279,18 +2319,24 @@ export const useAppStore = create<Store>()(
   },
 
   setBrowserPanelOpen: (browserPanelOpen) => {
-    set((state) => ({
-      browserPanelOpen,
-      rightUtilityTabs: browserPanelOpen
-        ? addRightUtilityTab(state.rightUtilityTabs, 'browser')
-        : state.rightUtilityTabs,
-      activeRightUtilityTab: browserPanelOpen ? 'browser' : state.activeRightUtilityTab,
-      rightUtilityPanelHidden: browserPanelOpen ? false : state.rightUtilityPanelHidden,
-      rightPanelFullscreen:
-        !browserPanelOpen && state.rightPanelFullscreen === 'browser'
-          ? null
-          : state.rightPanelFullscreen,
-    }));
+    set((state) => {
+      const activeBrowserTab = isRightUtilityBrowserTab(state.activeRightUtilityTab)
+        ? state.activeRightUtilityTab
+        : null;
+      const browserTab = activeBrowserTab ?? 'browser';
+      return {
+        browserPanelOpen,
+        rightUtilityTabs: browserPanelOpen
+          ? addRightUtilityTab(state.rightUtilityTabs, browserTab)
+          : state.rightUtilityTabs,
+        activeRightUtilityTab: browserPanelOpen ? browserTab : state.activeRightUtilityTab,
+        rightUtilityPanelHidden: browserPanelOpen ? false : state.rightUtilityPanelHidden,
+        rightPanelFullscreen:
+          !browserPanelOpen && state.rightPanelFullscreen === 'browser'
+            ? null
+            : state.rightPanelFullscreen,
+      };
+    });
   },
 
   setRightPanelFullscreen: (target) => {
@@ -2299,8 +2345,15 @@ export const useAppStore = create<Store>()(
         rightPanelFullscreen: 'browser',
         browserPanelOpen: true,
         projectTreeCollapsed: true,
-        rightUtilityTabs: addRightUtilityTab(state.rightUtilityTabs, 'browser'),
-        activeRightUtilityTab: 'browser',
+        rightUtilityTabs: addRightUtilityTab(
+          state.rightUtilityTabs,
+          isRightUtilityBrowserTab(state.activeRightUtilityTab)
+            ? state.activeRightUtilityTab
+            : 'browser'
+        ),
+        activeRightUtilityTab: isRightUtilityBrowserTab(state.activeRightUtilityTab)
+          ? state.activeRightUtilityTab
+          : 'browser',
         rightUtilityPanelHidden: false,
       }));
       return;

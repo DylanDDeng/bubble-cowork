@@ -154,7 +154,10 @@ export type ActiveWorkspace = 'chat' | 'skills' | 'prompts' | 'automations';
 export type ChatSidebarView = 'threads' | 'prompts' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
 export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal';
-export type ProjectUtilityPanelTarget = ProjectUtilityPanelKind | `files:${string}`;
+export type ProjectUtilityPanelTarget =
+  | ProjectUtilityPanelKind
+  | `files:${string}`
+  | `browser:${string}`;
 export type ProjectUtilityTabDescriptor = {
   id: ProjectUtilityPanelTarget;
   kind: ProjectUtilityPanelKind;

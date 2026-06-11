@@ -752,6 +752,19 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('open-external-url', url);
   },
 
+  showRightUtilityTabMenu: (input: {
+    x?: number;
+    y?: number;
+    items?: Array<{
+      id: string;
+      label: string;
+      enabled?: boolean;
+      accelerator?: string | null;
+    }>;
+  }) => {
+    return ipcRenderer.invoke('show-right-utility-tab-menu', input);
+  },
+
   // 订阅系统统计（预留）
   subscribeStatistics: (callback: (data: unknown) => void) => {
     const handler = (_: unknown, data: unknown) => {

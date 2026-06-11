@@ -262,6 +262,16 @@ declare global {
     saveSessionEnvironmentNote: (sessionId: string, note: string) => Promise<{ ok: boolean; note?: import('./shared/types').SessionEnvironmentNote; message?: string }>;
     refreshSessionEnvironmentRecap: (sessionId: string) => Promise<{ ok: boolean; recap?: import('./shared/types').SessionEnvironmentRecap; message?: string }>;
     openExternalUrl: (url: string) => Promise<{ ok: boolean; message?: string }>;
+    showRightUtilityTabMenu: (input: {
+      x?: number;
+      y?: number;
+      items?: Array<{
+        id: string;
+        label: string;
+        enabled?: boolean;
+        accelerator?: string | null;
+      }>;
+    }) => Promise<{ ok: boolean; id?: string; message?: string }>;
     subscribeStatistics: (callback: (data: StatisticsData) => void) => () => void;
     getStaticData: () => Promise<StaticData>;
     browser: {
