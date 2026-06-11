@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  CheckCircle2,
   ChevronRight,
   CircleX,
+  FileDiff,
+  FolderSearch,
   LoaderCircle,
   ShieldAlert,
+  SquareTerminal,
 } from './icons';
 import {
   type ToolResultBlock,
@@ -30,6 +34,14 @@ import { DiffStatLabel } from './DiffStatLabel';
 import { useTurnDiffContext } from './TurnDiffContext';
 import { StructuredResponse } from './StructuredResponse';
 import type { ChangeRecord } from '../utils/change-records';
+import {
+  getStageChangeRecords,
+  summarizeWorkstreamEntries,
+  type WorkstreamStage,
+  type WorkstreamStageCommand,
+  type WorkstreamStageFile,
+} from '../utils/workstream-stages';
+import { FileTypeIcon } from './FileTypeIcon';
 
 interface AssistantWorkstreamProps {
   model: WorkstreamModel;
@@ -93,7 +105,7 @@ function groupEntries(entries: WorkstreamEntry[]): EntryGroup[] {
   };
 
   for (const entry of entries) {
-    if (entry.type === 'note' && entry.state !== 'streaming') {
+    if (entry.type === 'note') {
       flush();
       groups.push({ kind: 'text', entry });
     } else {
@@ -116,7 +128,7 @@ function TextSegment({
   const displayText = truncateWithNotice(text, MAX_TRACE_TEXT_CHARS);
   return (
     <div className="my-2 min-w-0 overflow-x-auto">
-      <StructuredResponse content={displayText} />
+      <StructuredResponse content={displayText} streaming={entry.state === 'streaming'} />
     </div>
   );
 }
@@ -132,15 +144,20 @@ function CompactGroup({
   overflowOpen: boolean;
   onToggleOverflow: () => void;
 }) {
-  const showOverflow = entries.length > VISIBLE_COMPACT_ENTRIES;
-  const visibleEntries =
-    showOverflow && !overflowOpen ? entries.slice(0, VISIBLE_COMPACT_ENTRIES) : entries;
-  const hiddenCount = entries.length - VISIBLE_COMPACT_ENTRIES;
+  const { changeRecordsByToolUseId, onOpenDiff } = useTurnDiffContext();
+  const stages = useMemo(
+    () => summarizeWorkstreamEntries(entries, { changeRecordsByToolUseId }),
+    [changeRecordsByToolUseId, entries]
+  );
+  const showOverflow = stages.length > VISIBLE_COMPACT_ENTRIES;
+  const visibleStages =
+    showOverflow && !overflowOpen ? stages.slice(0, VISIBLE_COMPACT_ENTRIES) : stages;
+  const hiddenCount = stages.length - VISIBLE_COMPACT_ENTRIES;
 
   return (
     <div className="my-2 space-y-px">
-      {visibleEntries.map((entry) => (
-        <EntryRow key={entry.id} entry={entry} />
+      {visibleStages.map((stage) => (
+        <StageRow key={stage.id} stage={stage} onOpenDiff={onOpenDiff} />
       ))}
       {showOverflow ? (
         <button
@@ -149,17 +166,302 @@ function CompactGroup({
           className="flex w-full items-center justify-start py-0.5 text-[12px] text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
         >
           {overflowOpen
-            ? 'Hide additional tool calls'
-            : `+${hiddenCount} more tool call${hiddenCount > 1 ? 's' : ''}`}
+            ? 'Hide additional stages'
+            : `+${hiddenCount} more stage${hiddenCount > 1 ? 's' : ''}`}
         </button>
       ) : null}
     </div>
   );
 }
 
+// ── Stage summary rows ─────────────────────────────────────────────────────
+
+function StageRow({
+  stage,
+  onOpenDiff,
+}: {
+  stage: WorkstreamStage;
+  onOpenDiff?: (
+    record: ChangeRecord,
+    scope?: { records: ChangeRecord[]; label?: string; turnKey?: string }
+  ) => void;
+}) {
+  const [expanded, setExpanded] = useState(() => stage.defaultExpanded);
+
+  useEffect(() => {
+    if (stage.defaultExpanded) {
+      setExpanded(true);
+    }
+  }, [stage.defaultExpanded]);
+
+  const hasErrorFallback = stage.status === 'error' && stage.entries.some(hasRawEntryDetail);
+  const canExpand = stage.files.length > 0 || stage.commands.length > 0 || hasErrorFallback;
+  const isPending = stage.status === 'pending';
+  const isError = stage.status === 'error';
+  const titleClass = isError
+    ? 'text-[var(--error)]'
+    : isPending || stage.status === 'waiting'
+      ? 'text-[var(--text-secondary)]'
+      : 'text-[var(--text-muted)]/70 group-hover:text-[var(--text-secondary)]';
+
+  return (
+    <div className="group/stage">
+      <button
+        type="button"
+        onClick={() => canExpand && setExpanded((value) => !value)}
+        disabled={!canExpand}
+        className={`flex w-full items-center gap-1.5 py-0.5 text-left text-[12px] leading-5 transition-colors disabled:opacity-100 ${
+          canExpand ? '' : 'cursor-default'
+        }`}
+        aria-expanded={canExpand ? expanded : undefined}
+      >
+        <StageKindIcon stage={stage} />
+        <span className={`min-w-0 flex-1 truncate ${titleClass}`}>{stage.title}</span>
+        {stage.kind === 'edit' ? (
+          <DiffStatLabel additions={stage.addedLines} deletions={stage.removedLines} muted />
+        ) : null}
+        <StageStatusGlyph stage={stage} expanded={expanded} canExpand={canExpand} />
+      </button>
+      {expanded && canExpand ? (
+        <StageDetails stage={stage} onOpenDiff={onOpenDiff} />
+      ) : null}
+    </div>
+  );
+}
+
+function StageKindIcon({ stage }: { stage: WorkstreamStage }) {
+  const className = `h-3.5 w-3.5 flex-shrink-0 ${
+    stage.status === 'error'
+      ? 'text-[var(--error)]'
+      : stage.status === 'waiting'
+        ? 'text-amber-600'
+        : 'text-[var(--text-muted)]/55'
+  }`;
+
+  if (stage.kind === 'edit') return <FileDiff className={className} />;
+  if (stage.kind === 'command') return <SquareTerminal className={className} />;
+  if (stage.kind === 'approval') return <ShieldAlert className={className} />;
+  if (stage.kind === 'error') return <CircleX className={className} />;
+  return <FolderSearch className={className} />;
+}
+
+function StageStatusGlyph({
+  stage,
+  expanded,
+  canExpand,
+}: {
+  stage: WorkstreamStage;
+  expanded: boolean;
+  canExpand: boolean;
+}) {
+  if (stage.status === 'pending') {
+    return <LoaderCircle className="h-3 w-3 flex-shrink-0 animate-spin text-[var(--text-muted)]/60" />;
+  }
+  if (stage.status === 'error') {
+    return <CircleX className="h-3 w-3 flex-shrink-0 text-[var(--error)]" />;
+  }
+  if (stage.status === 'waiting') {
+    return <ShieldAlert className="h-3 w-3 flex-shrink-0 text-amber-600" />;
+  }
+  if (!canExpand) {
+    return stage.status === 'success' ? (
+      <CheckCircle2 className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]/35" />
+    ) : null;
+  }
+  return (
+    <ChevronRight
+      className={`h-3 w-3 flex-shrink-0 text-[var(--text-muted)]/45 transition-transform ${
+        expanded ? 'rotate-90' : ''
+      }`}
+    />
+  );
+}
+
+function StageDetails({
+  stage,
+  onOpenDiff,
+}: {
+  stage: WorkstreamStage;
+  onOpenDiff?: (
+    record: ChangeRecord,
+    scope?: { records: ChangeRecord[]; label?: string; turnKey?: string }
+  ) => void;
+}) {
+  const showErrorFallback =
+    stage.status === 'error' && stage.files.length === 0 && stage.commands.length === 0;
+
+  return (
+    <div className="mb-1 ml-1 space-y-2 border-l border-[var(--border)]/50 pl-3">
+      {stage.files.length > 0 ? (
+        <StageFilesDetail stage={stage} onOpenDiff={onOpenDiff} />
+      ) : null}
+      {stage.commands.length > 0 ? <StageCommandsDetail commands={stage.commands} /> : null}
+      {showErrorFallback ? <StageErrorFallback entries={stage.entries} /> : null}
+    </div>
+  );
+}
+
+function StageErrorFallback({
+  entries,
+}: {
+  entries: WorkstreamEntry[];
+}) {
+  const visibleEntries = entries.filter(hasRawEntryDetail);
+  if (visibleEntries.length === 0) return null;
+
+  return (
+    <div className="space-y-px">
+      {visibleEntries.map((entry) => (
+        <EntryRow key={entry.id} entry={entry} showChangeHint={false} />
+      ))}
+    </div>
+  );
+}
+
+function StageFilesDetail({
+  stage,
+  onOpenDiff,
+}: {
+  stage: WorkstreamStage;
+  onOpenDiff?: (
+    record: ChangeRecord,
+    scope?: { records: ChangeRecord[]; label?: string; turnKey?: string }
+  ) => void;
+}) {
+  const records = getStageChangeRecords(stage);
+  return (
+    <div className="space-y-px">
+      {stage.files.map((file) => (
+        <StageFileRow
+          key={file.id}
+          file={file}
+          records={records}
+          onOpenDiff={onOpenDiff}
+        />
+      ))}
+    </div>
+  );
+}
+
+function StageFileRow({
+  file,
+  records,
+  onOpenDiff,
+}: {
+  file: WorkstreamStageFile;
+  records: ChangeRecord[];
+  onOpenDiff?: (
+    record: ChangeRecord,
+    scope?: { records: ChangeRecord[]; label?: string; turnKey?: string }
+  ) => void;
+}) {
+  const clickable = Boolean(file.record && onOpenDiff);
+  const operationLabel = formatFileOperation(file.operation);
+  const body = (
+    <>
+      <FileTypeIcon name={file.fileName} className="h-3.5 w-3.5 flex-shrink-0 opacity-75" />
+      <span className="w-12 flex-shrink-0 text-[var(--text-muted)]/60">{operationLabel}</span>
+      <span
+        className={`min-w-0 flex-1 truncate font-mono ${
+          clickable ? 'text-[var(--accent)] group-hover/file:underline' : 'text-[var(--text-secondary)]'
+        }`}
+      >
+        {file.filePath}
+      </span>
+      <DiffStatLabel additions={file.addedLines} deletions={file.removedLines} />
+    </>
+  );
+
+  if (clickable && file.record) {
+    return (
+      <button
+        type="button"
+        onClick={() =>
+          onOpenDiff?.(file.record!, {
+            records,
+            label: stageFileScopeLabel(records.length),
+          })
+        }
+        title={file.filePath}
+        className="group/file flex w-full items-center gap-1.5 rounded-sm px-1 py-0.5 text-left text-[11px] leading-5 transition-colors hover:bg-[var(--bg-tertiary)]/30"
+      >
+        {body}
+      </button>
+    );
+  }
+
+  return (
+    <div
+      title={file.filePath}
+      className="flex w-full items-center gap-1.5 rounded-sm px-1 py-0.5 text-[11px] leading-5"
+    >
+      {body}
+    </div>
+  );
+}
+
+function StageCommandsDetail({ commands }: { commands: WorkstreamStageCommand[] }) {
+  return (
+    <div className="space-y-1">
+      {commands.map((command) => (
+        <div
+          key={command.id}
+          className="overflow-hidden rounded-sm border border-[var(--border)]/45 bg-[var(--bg-secondary)]/30"
+        >
+          <div className="flex items-center gap-2 border-b border-[var(--border)]/45 px-2 py-1">
+            <span className="text-[11px] font-medium text-[var(--text-muted)]">Shell</span>
+            <span className="ml-auto text-[11px] text-[var(--text-muted)]/70">
+              {formatCommandStatus(command.status)}
+            </span>
+          </div>
+          <pre className="whitespace-pre-wrap break-words px-2 py-1 font-mono text-[11px] leading-5 text-[var(--text-secondary)]">
+            $ {command.command}
+          </pre>
+          <pre
+            className={`border-t border-[var(--border)]/35 px-2 py-1 font-mono text-[11px] leading-5 ${
+              command.status === 'error' ? 'text-[var(--error)]' : 'text-[var(--text-muted)]'
+            } whitespace-pre-wrap break-words`}
+          >
+            {command.output.trim()
+              ? truncateWithNotice(command.output.trim(), MAX_TRACE_TEXT_CHARS)
+              : command.outputSummary}
+          </pre>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatFileOperation(operation: WorkstreamStageFile['operation']): string {
+  if (operation === 'write' || operation === 'added') return 'Created';
+  if (operation === 'delete' || operation === 'deleted') return 'Deleted';
+  if (operation === 'renamed') return 'Moved';
+  if (operation === 'read') return 'Read';
+  if (operation === 'search') return 'Searched';
+  return 'Edited';
+}
+
+function stageFileScopeLabel(count: number): string {
+  return count === 1 ? 'Selected file changes' : `${count} files changed in this stage`;
+}
+
+function formatCommandStatus(status: WorkstreamStageCommand['status']): string {
+  if (status === 'pending') return 'Running';
+  if (status === 'error') return 'Error';
+  if (status === 'waiting') return 'Waiting';
+  return 'Success';
+}
+
+function hasRawEntryDetail(entry: WorkstreamEntry): boolean {
+  if (entry.type === 'tool' || entry.type === 'task' || entry.type === 'memory') {
+    return hasEntryDetail(entry);
+  }
+  return Boolean(entry.detail);
+}
+
 // ── Entry row dispatcher ────────────────────────────────────────────────────
 
-function EntryRow({ entry }: { entry: WorkstreamEntry }) {
+function EntryRow({ entry, showChangeHint = true }: { entry: WorkstreamEntry; showChangeHint?: boolean }) {
   if (entry.type === 'thinking') {
     return <ThinkingRow entry={entry} />;
   }
@@ -172,7 +474,7 @@ function EntryRow({ entry }: { entry: WorkstreamEntry }) {
   if (entry.type === 'error') {
     return <ErrorRow entry={entry} />;
   }
-  return <ToolRow entry={entry} />;
+  return <ToolRow entry={entry} showChangeHint={showChangeHint} />;
 }
 
 function StreamingNoteRow({
@@ -256,8 +558,10 @@ function ErrorRow({
 
 function ToolRow({
   entry,
+  showChangeHint = true,
 }: {
   entry: Extract<WorkstreamEntry, { type: 'tool' | 'task' | 'memory' }>;
+  showChangeHint?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const { changeRecordByToolUseId, onOpenDiff } = useTurnDiffContext();
@@ -288,7 +592,7 @@ function ToolRow({
         <RightStatusGlyph entry={entry} canExpand={canExpand} expanded={expanded} />
       </button>
 
-      {changeRecord ? (
+      {showChangeHint && changeRecord ? (
         <EditedFileHint record={changeRecord} onOpen={onOpenDiff} />
       ) : null}
 

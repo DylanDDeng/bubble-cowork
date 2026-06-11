@@ -7,7 +7,12 @@ import {
   type ToolResultBlock,
   type WorkstreamModel,
 } from '../utils/workstream';
+import {
+  formatWorkstreamStageSummary,
+  summarizeWorkstreamEntries,
+} from '../utils/workstream-stages';
 import { TodoProgressCard } from './TodoProgressCard';
+import { useTurnDiffContext } from './TurnDiffContext';
 
 type AssistantMessage = StreamMessage & { type: 'assistant' };
 
@@ -151,7 +156,12 @@ function WorkstreamToggle({
   onToggle: () => void;
 }) {
   const now = useLiveNow(isRunning);
-  const stepCount = model.entries.length;
+  const { changeRecordsByToolUseId } = useTurnDiffContext();
+  const stages = useMemo(
+    () => summarizeWorkstreamEntries(model.entries, { changeRecordsByToolUseId }),
+    [changeRecordsByToolUseId, model.entries]
+  );
+  const workSummary = formatWorkstreamStageSummary(stages);
   const elapsedMs = model.durationMs ?? estimateElapsedMs(model.startedAt, now);
   const elapsedLabel = typeof elapsedMs === 'number' ? formatElapsed(elapsedMs) : null;
   const stateLabel = isRunning ? 'Working' : 'Worked';
@@ -171,9 +181,7 @@ function WorkstreamToggle({
       />
       <span>{expanded ? 'Hide work' : 'Show work'}</span>
       <span className="text-[var(--text-muted)]/35">·</span>
-      <span>
-        {stepCount} step{stepCount === 1 ? '' : 's'}
-      </span>
+      <span className="min-w-0 truncate">{workSummary}</span>
       {showElapsedInToggle ? (
         <>
           <span className="text-[var(--text-muted)]/35">·</span>

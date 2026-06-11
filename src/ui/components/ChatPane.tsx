@@ -1010,11 +1010,15 @@ export function ChatPane({
     [activeTimelineWorkId]
   );
 
-  const { turns, changeRecordByToolUseId } = useMemo(
+  const { turns, changeRecordByToolUseId, changeRecordsByToolUseId } = useMemo(
     () =>
       session
         ? buildTurnChangeContext(session.messages)
-        : { turns: [] as TurnChangeSummary[], changeRecordByToolUseId: new Map<string, ChangeRecord>() },
+        : {
+            turns: [] as TurnChangeSummary[],
+            changeRecordByToolUseId: new Map<string, ChangeRecord>(),
+            changeRecordsByToolUseId: new Map<string, ChangeRecord[]>(),
+          },
     [session?.messages]
   );
 
@@ -1131,9 +1135,10 @@ export function ChatPane({
   const turnDiffContextValue = useMemo<TurnDiffContextValue>(
     () => ({
       changeRecordByToolUseId,
+      changeRecordsByToolUseId,
       onOpenDiff: handleOpenDiff,
     }),
-    [changeRecordByToolUseId, handleOpenDiff]
+    [changeRecordByToolUseId, changeRecordsByToolUseId, handleOpenDiff]
   );
 
   const historyNavigationAnchor = useMemo(() => {
@@ -1513,7 +1518,6 @@ export function ChatPane({
                             resetKey={item.disclosureResetKey}
                           />
                         </div>
-                        {turnCard ? <TurnChangesCard summary={turnCard} /> : null}
                         {copyActionText ? <AssistantCopyAction text={copyActionText} /> : null}
                       </div>
                     );
@@ -1525,6 +1529,7 @@ export function ChatPane({
                     ? copyPlacementByTimelineIndex.actionTextByCardIndex.get(idx) || ''
                     : '';
                   const hideAssistantCopyBar = copyPlacementByTimelineIndex.hiddenMessageIndices.has(idx);
+                  const showTurnChangesCard = Boolean(turnCard) && !item.inlineWorkGroup;
                   return (
                     <div key={`message-${item.originalIndex}`} className={copyActionText ? 'group' : undefined}>
                       <div
@@ -1614,7 +1619,7 @@ export function ChatPane({
                           </div>
                         ) : null}
                       </div>
-                      {turnCard ? <TurnChangesCard summary={turnCard} /> : null}
+                      {showTurnChangesCard && turnCard ? <TurnChangesCard summary={turnCard} /> : null}
                       {copyActionText ? <AssistantCopyAction text={copyActionText} /> : null}
                     </div>
                   );

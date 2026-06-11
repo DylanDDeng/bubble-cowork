@@ -13,7 +13,7 @@ function basename(path: string): string {
 }
 
 export function TurnChangesCard({ summary }: { summary: TurnChangeSummary }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const { onOpenDiff } = useTurnDiffContext();
 
   if (summary.records.length === 0) {

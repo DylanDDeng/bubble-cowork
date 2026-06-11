@@ -18,6 +18,7 @@ import type {
   FolderConfig,
   GitPatchScope,
   SessionScope,
+  WorkspaceChannel,
 } from '../shared/types';
 
 export type {

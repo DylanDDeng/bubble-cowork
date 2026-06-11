@@ -87,6 +87,8 @@ type TraceEntry =
   | { type: 'note'; id: string; content: string; streaming?: boolean }
   | { type: 'tool'; id: string; block: ToolUseBlock };
 
+type TraceToolEntry = Extract<TraceEntry, { type: 'tool' }>;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -557,11 +559,14 @@ export function createBatchWorkstreamModel(params: {
     ? [...traceEntries]
         .reverse()
         .find(
-          (entry) =>
-            entry.type === 'tool' &&
-            !params.toolResultsMap.has(entry.block.id) &&
-            params.toolStatusMap.get(entry.block.id) !== 'success' &&
-            params.toolStatusMap.get(entry.block.id) !== 'error'
+          (entry): entry is TraceToolEntry => {
+            if (entry.type !== 'tool') return false;
+            return (
+              !params.toolResultsMap.has(entry.block.id) &&
+              params.toolStatusMap.get(entry.block.id) !== 'success' &&
+              params.toolStatusMap.get(entry.block.id) !== 'error'
+            );
+          }
         )?.block.id || null
     : null;
   const entries = traceEntries

@@ -1,5 +1,9 @@
 import type { StreamMessage, ContentBlock } from '../types';
-import { getMessageContentBlocks } from './message-content';
+import {
+  getMessageContentBlocks,
+  normalizeToolResultBlock,
+  normalizeToolUseBlock,
+} from './message-content';
 import { createUnifiedDiffHunks, formatUnifiedDiffHunks } from './unified-diff';
 
 export type GitChangeEntry = {
@@ -42,6 +46,7 @@ export interface ChangeRecord {
 }
 
 type ToolResultBlock = ContentBlock & { type: 'tool_result' };
+type ToolUseBlock = ContentBlock & { type: 'tool_use' };
 
 const textEncoder = new TextEncoder();
 
@@ -147,7 +152,7 @@ function normalizeToolOperation(name: string): ChangeOperation | null {
   const normalized = name.trim().toLowerCase();
   if (normalized === 'bash') return 'bash';
   if (normalized === 'write') return 'write';
-  if (normalized === 'edit') return 'edit';
+  if (normalized === 'edit' || normalized === 'multiedit' || normalized === 'notebookedit') return 'edit';
   if (normalized === 'delete') return 'delete';
   return null;
 }
@@ -165,8 +170,14 @@ function buildToolResultMap(messages: StreamMessage[]): Map<string, ToolResultBl
 
   for (const message of messages) {
     for (const block of getMessageContentBlocks(message)) {
-      if (block.type === 'tool_result') {
-        results.set(block.tool_use_id, block as ToolResultBlock);
+      const normalized = normalizeToolResultBlock(block);
+      if (normalized) {
+        results.set(normalized.tool_use_id, {
+          type: 'tool_result',
+          tool_use_id: normalized.tool_use_id,
+          content: normalized.content,
+          is_error: normalized.is_error,
+        });
       }
     }
   }
@@ -387,6 +398,7 @@ function getToolFilePath(input: Record<string, unknown>): string | null {
     'filename',
     'absolute_file_path',
     'absoluteFilePath',
+    'notebook_path',
   ]);
 }
 
@@ -555,7 +567,7 @@ function buildRecordsFromStructuredChanges(
 
 function buildToolRecords(
   index: number,
-  block: Extract<ContentBlock, { type: 'tool_use' }>,
+  block: ToolUseBlock,
   result: ToolResultBlock | undefined
 ): ChangeRecord[] {
   const operation = normalizeToolOperation(block.name || '');
@@ -627,6 +639,7 @@ function buildToolRecords(
       'search',
       'before',
       'original',
+      'old_source',
     ]);
     const newText = getFirstString(input, [
       'new_string',
@@ -636,6 +649,7 @@ function buildToolRecords(
       'replacement',
       'after',
       'updated',
+      'new_source',
     ]);
     const diffContent =
       oldText !== null && newText !== null
@@ -694,8 +708,15 @@ export function extractToolChangeRecords(messages: StreamMessage[]): ChangeRecor
   for (const message of messages) {
     if (message.type !== 'assistant') continue;
     for (const block of getMessageContentBlocks(message)) {
-      if (block.type !== 'tool_use') continue;
-      const nextRecords = buildToolRecords(order, block, results.get(block.id));
+      const normalized = normalizeToolUseBlock(block);
+      if (!normalized) continue;
+      const toolBlock: ToolUseBlock = {
+        type: 'tool_use',
+        id: normalized.id,
+        name: normalized.name,
+        input: normalized.input,
+      };
+      const nextRecords = buildToolRecords(order, toolBlock, results.get(toolBlock.id));
       if (nextRecords.length > 0) {
         records.push(...nextRecords);
         order += nextRecords.length;

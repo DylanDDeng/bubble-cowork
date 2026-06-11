@@ -18,6 +18,8 @@ export interface TurnChangeContext {
   turns: TurnChangeSummary[];
   /** Map tool_use id -> the raw ChangeRecord produced by that tool call. */
   changeRecordByToolUseId: Map<string, ChangeRecord>;
+  /** Map tool_use id -> all raw ChangeRecords produced by that tool call. */
+  changeRecordsByToolUseId: Map<string, ChangeRecord[]>;
 }
 
 /**
@@ -28,6 +30,7 @@ export interface TurnChangeContext {
 export function buildTurnChangeContext(messages: StreamMessage[]): TurnChangeContext {
   const turns: TurnChangeSummary[] = [];
   const changeRecordByToolUseId = new Map<string, ChangeRecord>();
+  const changeRecordsByToolUseId = new Map<string, ChangeRecord[]>();
 
   let turnStart = 0;
   let pendingTurnIndex = 0;
@@ -40,6 +43,12 @@ export function buildTurnChangeContext(messages: StreamMessage[]): TurnChangeCon
     for (const record of records) {
       if (record.toolUseId) {
         changeRecordByToolUseId.set(record.toolUseId, record);
+        const existing = changeRecordsByToolUseId.get(record.toolUseId);
+        if (existing) {
+          existing.push(record);
+        } else {
+          changeRecordsByToolUseId.set(record.toolUseId, [record]);
+        }
       }
     }
 
@@ -67,7 +76,7 @@ export function buildTurnChangeContext(messages: StreamMessage[]): TurnChangeCon
   }
   flush(messages.length);
 
-  return { turns, changeRecordByToolUseId };
+  return { turns, changeRecordByToolUseId, changeRecordsByToolUseId };
 }
 
 function mergeRecordsByPath(records: ChangeRecord[]): ChangeRecord[] {
