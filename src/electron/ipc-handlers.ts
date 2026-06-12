@@ -3780,7 +3780,6 @@ async function getEnvironmentEditorLaunchers(): Promise<EnvironmentEditorLaunche
       appPath: finderAppPath ?? undefined,
       iconDataUrl: await getNativeIconDataUrl(finderAppPath),
     },
-    { id: 'system', label: 'Default app', available: true },
     ...discoveredEditors,
   ];
 }

@@ -112,7 +112,9 @@ export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmen
   useEffect(() => {
     let cancelled = false;
     void window.electron.getEnvironmentEditorLaunchers().then((launchers) => {
-      if (!cancelled) setEditorLaunchers(launchers);
+      if (!cancelled) {
+        setEditorLaunchers(launchers.filter((launcher) => launcher.id !== 'system'));
+      }
     });
     return () => {
       cancelled = true;
