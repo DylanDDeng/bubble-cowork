@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, windows-latest, ubuntu-latest]
+        os: [macos-14, windows-2022, ubuntu-latest]
 
     env:
       # Publish unsigned artifacts (no Apple Developer ID in CI)
@@ -42,6 +42,13 @@ jobs:
         run: |
           echo "PYTHON=${{ steps.setup-python.outputs.python-path }}" >> "$GITHUB_ENV"
           echo "npm_config_python=${{ steps.setup-python.outputs.python-path }}" >> "$GITHUB_ENV"
+
+      - name: Configure MSVC for node-gyp
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "GYP_MSVS_VERSION=2022" >> $env:GITHUB_ENV
+          "npm_config_msvs_version=2022" >> $env:GITHUB_ENV
 
       - name: Setup Node
         uses: actions/setup-node@v4
