@@ -92,6 +92,8 @@ export function PromptInput({
     compatibleProviderId: activeSession?.compatibleProviderId || null,
     claudePermissionMode:
       activeSession?.provider === 'claude' ? activeSession.claudeAccessMode || null : null,
+    claudeReasoningEffort:
+      activeSession?.provider === 'claude' ? activeSession.claudeReasoningEffort || null : null,
   });
   const runtimeProvider = agentSelection.provider;
   const selectedModel = agentSelection.model;
@@ -342,6 +344,10 @@ export function PromptInput({
               : runtimeProvider === 'claude'
                 ? 'execute'
                 : undefined,
+          claudeReasoningEffort:
+            runtimeProvider === 'claude'
+              ? agentSelection.claudeReasoningEffort || undefined
+              : undefined,
           ...codexReferences,
           codexPermissionMode:
             runtimeProvider === 'codex'
@@ -381,6 +387,10 @@ export function PromptInput({
             : runtimeProvider === 'claude'
               ? 'execute'
               : undefined,
+        claudeReasoningEffort:
+          runtimeProvider === 'claude'
+            ? agentSelection.claudeReasoningEffort || undefined
+            : undefined,
         ...codexReferences,
         codexPermissionMode:
           runtimeProvider === 'codex'
@@ -711,6 +721,8 @@ export function PromptInput({
                 onAgentChange={agentSelection.selectAgent}
                 onModelChange={agentSelection.selectModel}
                 codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
+                claudeReasoningEffort={agentSelection.claudeReasoningEffort ?? undefined}
+                onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
                 codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
                 onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
                 codexFastMode={agentSelection.codexFastMode}
