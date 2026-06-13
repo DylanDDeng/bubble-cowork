@@ -11,7 +11,6 @@ import {
   FolderClosed,
   Monitor,
   RefreshCw,
-  Settings,
 } from '../icons';
 import { SessionWorkspaceControl } from '../ChatPane';
 import type { EnvironmentEditorLauncher } from '../../../shared/types';
@@ -337,13 +336,6 @@ export function EnvironmentHub({
                 title={`Refresh · ${formatTime(git.lastUpdatedAt)}`}
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${git.loading ? 'animate-spin' : ''}`} />
-              </button>
-              <button
-                type="button"
-                className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                title="Environment settings"
-              >
-                <Settings className="h-3.5 w-3.5" />
               </button>
             </div>
           </div>
