@@ -102,18 +102,36 @@ function getEditorVisual(editor: EnvironmentEditorLauncher): { mark: ReactNode; 
   }
 }
 
+let cachedEditorLaunchers: EnvironmentEditorLauncher[] | null = null;
+let editorLaunchersRequest: Promise<EnvironmentEditorLauncher[]> | null = null;
+
+function loadEditorLaunchers(): Promise<EnvironmentEditorLauncher[]> {
+  if (!editorLaunchersRequest) {
+    editorLaunchersRequest = window.electron
+      .getEnvironmentEditorLaunchers()
+      .then((launchers) => launchers.filter((launcher) => launcher.id !== 'system'))
+      .then((launchers) => {
+        cachedEditorLaunchers = launchers;
+        return launchers;
+      })
+      .finally(() => {
+        editorLaunchersRequest = null;
+      });
+  }
+  return editorLaunchersRequest;
+}
 
 export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmentContext }) {
   const [open, setOpen] = useState(false);
-  const [editorLaunchers, setEditorLaunchers] = useState<EnvironmentEditorLauncher[]>([]);
+  const [editorLaunchers, setEditorLaunchers] = useState<EnvironmentEditorLauncher[]>(() => cachedEditorLaunchers ?? []);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void window.electron.getEnvironmentEditorLaunchers().then((launchers) => {
+    void loadEditorLaunchers().then((launchers) => {
       if (!cancelled) {
-        setEditorLaunchers(launchers.filter((launcher) => launcher.id !== 'system'));
+        setEditorLaunchers(launchers);
       }
     });
     return () => {
@@ -187,7 +205,7 @@ export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmen
       {open ? (
         <div
           ref={menuRef}
-          className="no-drag fixed right-[86px] top-11 z-[80] w-[260px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_12px_30px_rgba(15,23,42,0.18)]"
+          className="no-drag fixed right-[86px] top-11 z-[80] w-[250px] overflow-hidden rounded-2xl border border-[var(--border)]/70 bg-[var(--bg-primary)] py-3 shadow-[0_18px_48px_rgba(15,23,42,0.16)]"
         >
           {editorLaunchers.map((editor, index) => {
             const visual = getEditorVisual(editor);
@@ -198,27 +216,19 @@ export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmen
                 type="button"
                 disabled={itemDisabled}
                 onClick={() => void openEditor(editor)}
-                className={`group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-45 ${
-                  index === 0 ? '' : 'border-t border-[var(--border)]/70'
-                }`}
+                className="group flex w-full items-center gap-3 px-7 py-2.5 text-left transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-45"
               >
                 {editor.iconDataUrl ? (
-                  <img src={editor.iconDataUrl} alt="" className="h-8 w-8 shrink-0 rounded-lg" />
+                  <img src={editor.iconDataUrl} alt="" className="h-5 w-5 shrink-0 rounded-[5px]" />
                 ) : (
                   <span
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[14px] font-semibold ${visual.tone}`}
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[10px] font-semibold ${visual.tone}`}
                     aria-hidden="true"
                   >
                     {visual.mark}
                   </span>
                 )}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12px] font-medium text-[var(--text-primary)]">{editor.label}</span>
-                  <span className="mt-0.5 block truncate text-[10px] text-[var(--text-muted)]">
-                    {editor.available ? 'Open current workspace' : 'Not installed'}
-                  </span>
-                </span>
-                <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] opacity-70 transition-opacity group-hover:opacity-100" />
+                <span className="min-w-0 flex-1 truncate text-[14px] font-normal text-[var(--text-primary)]">{editor.label}</span>
               </button>
             );
           })}
