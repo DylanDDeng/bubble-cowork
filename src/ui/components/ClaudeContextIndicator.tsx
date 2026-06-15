@@ -1,5 +1,10 @@
 import { useState } from 'react';
 import type { ClaudeContextSnapshot } from '../utils/context-usage';
+import {
+  CONTEXT_CRITICAL_PERCENT,
+  getContextLevelColorVar,
+  getContextUsageLevel,
+} from '../utils/context-usage';
 
 const RING_CIRCUMFERENCE = 37.7;
 
@@ -18,6 +23,7 @@ function formatCurrency(value: number): string {
 function UsageRing({ percent, size = 'h-4 w-4' }: { percent: number; size?: string }) {
   const progress = Math.min(100, Math.max(0, percent));
   const strokeDashoffset = RING_CIRCUMFERENCE * (1 - progress / 100);
+  const ringColor = getContextLevelColorVar(getContextUsageLevel(progress));
 
   return (
     <svg
@@ -39,11 +45,12 @@ function UsageRing({ percent, size = 'h-4 w-4' }: { percent: number; size?: stri
         cy="8"
         r="6"
         fill="none"
-        stroke="var(--text-secondary)"
+        stroke={ringColor}
         strokeWidth="2"
         strokeLinecap="round"
         strokeDasharray={RING_CIRCUMFERENCE}
         strokeDashoffset={strokeDashoffset}
+        style={{ transition: 'stroke-dashoffset 0.3s ease, stroke 0.3s ease' }}
       />
     </svg>
   );
@@ -59,6 +66,8 @@ export function ClaudeContextIndicator({
   const [open, setOpen] = useState(false);
   const resolvedModelLabel = modelLabel || snapshot?.model || 'Claude';
   const percent = snapshot?.percent || 0;
+  const level = getContextUsageLevel(percent);
+  const nearLimit = level !== 'safe' && (snapshot?.total || 0) > 0;
 
   return (
     <div
@@ -88,6 +97,19 @@ export function ClaudeContextIndicator({
               <MetricRow label="Cost" value={formatCurrency(snapshot.costUSD)} />
               <MetricRow label="Used" value={formatCompact(snapshot.used)} />
               {snapshot.total > 0 ? <MetricRow label="Limit" value={formatCompact(snapshot.total)} /> : null}
+              {nearLimit ? (
+                <div
+                  className="mt-1.5 rounded-[6px] px-2 py-1.5 text-[11px] leading-4"
+                  style={{
+                    color: getContextLevelColorVar(level),
+                    backgroundColor: `color-mix(in srgb, ${getContextLevelColorVar(level)} 12%, transparent)`,
+                  }}
+                >
+                  {percent >= CONTEXT_CRITICAL_PERCENT
+                    ? `已用 ${percent}% · 即将自动压缩较早的对话`
+                    : `已用 ${percent}% · 接近上限，稍后会自动压缩`}
+                </div>
+              ) : null}
               <Divider />
               <MetricRow label="Input" value={formatCompact(snapshot.inputTokens)} />
               <MetricRow label="Output" value={formatCompact(snapshot.outputTokens)} />

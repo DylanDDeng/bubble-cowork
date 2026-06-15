@@ -24,6 +24,7 @@ import {
   savePreferredCodexModel,
 } from '../utils/codex-model';
 import {
+  ClaudeAccessMode,
   ClaudePermissionMode,
   ClaudeReasoningEffort,
   CodexReasoningEffort,
@@ -313,7 +314,8 @@ export function useComposerAgentSelection(input?: {
   provider?: AgentProvider | null;
   model?: string | null;
   compatibleProviderId?: ClaudeCompatibleProviderId | null;
-  claudePermissionMode?: ClaudePermissionMode | null;
+  // Accepts the wider access mode (includes 'fullAccess'); normalized internally.
+  claudePermissionMode?: ClaudeAccessMode | null;
   claudeReasoningEffort?: ClaudeReasoningEffort | null;
 }) {
   const claudeModelConfig = useClaudeModelConfig();
