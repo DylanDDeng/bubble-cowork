@@ -4,7 +4,7 @@ import { Check, ChevronDown, ChevronRight, Copy, Search, Zap } from './icons';
 import type { AgentProvider } from '../types';
 import type { ComposerModelOption } from '../hooks/useComposerAgentSelection';
 import { PROVIDERS } from '../utils/provider';
-import type { CodexReasoningEffort, CodexModelConfig } from '../../shared/types';
+import type { ClaudeReasoningEffort, CodexReasoningEffort, CodexModelConfig } from '../../shared/types';
 import {
   useAgentReadiness,
   type AgentReadinessEntry,
@@ -197,6 +197,7 @@ export function ComposerAgentPicker({
 }
 
 const codexEffortOptions: CodexReasoningEffort[] = ['low', 'medium', 'high', 'xhigh'];
+const claudeEffortOptions: ClaudeReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 export function ComposerModelPicker({
   value,
@@ -517,6 +518,14 @@ const codexEffortLabels: Record<CodexReasoningEffort, string> = {
   xhigh: 'X-High',
 };
 
+const claudeEffortLabels: Record<ClaudeReasoningEffort, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'X-High',
+  max: 'Max',
+};
+
 function ModelSubContent({
   modelOptions,
   selectedValue,
@@ -560,6 +569,72 @@ function ModelSubContent({
     </>
   );
 }
+
+const ClaudeAgentSubContent: FC<{
+  modelOptions: ComposerModelOption[];
+  selectedModel: string | null;
+  claudeReasoningEffort: ClaudeReasoningEffort | null;
+  onSelectModel: (option: ComposerModelOption) => void;
+  onClaudeReasoningEffortChange: (effort: ClaudeReasoningEffort) => void;
+}> = ({
+  modelOptions,
+  selectedModel,
+  claudeReasoningEffort,
+  onSelectModel,
+  onClaudeReasoningEffortChange,
+}) => {
+  return (
+    <>
+      <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
+        Reasoning
+      </div>
+      {claudeEffortOptions.map((effort) => {
+        const isSelected = claudeReasoningEffort === effort;
+        return (
+          <DropdownMenu.Item
+            key={effort}
+            onSelect={() => onClaudeReasoningEffortChange(effort)}
+            className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
+          >
+            <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
+              {claudeEffortLabels[effort]}
+            </span>
+            {isSelected ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
+          </DropdownMenu.Item>
+        );
+      })}
+
+      <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
+
+      <DropdownMenu.Sub>
+        <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[state=open]:bg-[var(--bg-tertiary)]">
+          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
+            Model
+          </span>
+          <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+        </DropdownMenu.SubTrigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.SubContent
+            sideOffset={6}
+            alignOffset={-4}
+            className="z-50 w-[200px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)]"
+          >
+            <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
+              Models
+            </div>
+            <div className="max-h-[240px] overflow-y-auto">
+              <ModelSubContent
+                modelOptions={modelOptions}
+                selectedValue={selectedModel}
+                onSelectModel={onSelectModel}
+              />
+            </div>
+          </DropdownMenu.SubContent>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Sub>
+    </>
+  );
+};
 
 const CodexAgentSubContent: FC<{
   codexModels: CodexModelConfig['availableModels'] | undefined;
@@ -720,8 +795,10 @@ export function ComposerAgentModelPicker({
   disabled,
   onAgentChange,
   onModelChange,
-  // Codex props
+  // Agent-specific props
   codexModels,
+  claudeReasoningEffort,
+  onClaudeReasoningEffortChange,
   codexReasoningEffort,
   onCodexReasoningEffortChange,
   codexFastMode,
@@ -735,6 +812,8 @@ export function ComposerAgentModelPicker({
   onAgentChange: (provider: AgentProvider) => void;
   onModelChange: (option: ComposerModelOption) => void;
   codexModels?: CodexModelConfig['availableModels'];
+  claudeReasoningEffort?: ClaudeReasoningEffort | null;
+  onClaudeReasoningEffortChange?: (effort: ClaudeReasoningEffort) => void;
   codexReasoningEffort?: CodexReasoningEffort | null;
   onCodexReasoningEffortChange?: (effort: CodexReasoningEffort) => void;
   codexFastMode?: boolean;
@@ -759,6 +838,10 @@ export function ComposerAgentModelPicker({
   const codexEffortSuffix = agentProvider === 'codex' && codexReasoningEffort
     ? ` ${codexEffortLabels[codexReasoningEffort]}`
     : '';
+  const claudeEffortSuffix = agentProvider === 'claude' && claudeReasoningEffort
+    ? ` ${claudeEffortLabels[claudeReasoningEffort]}`
+    : '';
+  const effortSuffix = claudeEffortSuffix || codexEffortSuffix;
 
   return (
     <DropdownMenu.Root>
@@ -770,12 +853,12 @@ export function ComposerAgentModelPicker({
           title={
             currentReadiness && currentReadiness.state !== 'ready'
               ? `${agentLabel(agentProvider)} — ${currentReadiness.summary}`
-              : `${agentLabel(agentProvider)} / ${modelLabel}${codexEffortSuffix}`
+              : `${agentLabel(agentProvider)} / ${modelLabel}${effortSuffix}`
           }
           aria-label="Select agent and model"
         >
           <AgentIcon provider={agentProvider} />
-          <span className="min-w-0 truncate">{modelLabel}{codexEffortSuffix}</span>
+          <span className="min-w-0 truncate">{modelLabel}{effortSuffix}</span>
           {currentReadiness && currentReadiness.state !== 'ready' && currentReadiness.state !== 'checking' ? (
             <span
               className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${readinessDotClass(currentReadiness.state)}`}
@@ -798,6 +881,46 @@ export function ComposerAgentModelPicker({
             const readiness = readinessByProvider.get(provider);
             const hint = readiness ? readinessHint(readiness) : null;
             const modelOptions = allAgentModelOptions[provider] ?? [];
+
+            if (provider === 'claude') {
+              return (
+                <DropdownMenu.Sub key={provider}>
+                  <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]">
+                    <AgentIcon provider={provider} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12px] font-medium text-[var(--text-primary)]">
+                        {agentLabel(provider)}
+                      </span>
+                      {hint ? (
+                        <span className="block truncate text-[11px] text-[var(--text-muted)]">{hint}</span>
+                      ) : null}
+                    </span>
+                    {readiness && readiness.state !== 'ready' && readiness.state !== 'checking' ? (
+                      <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${readinessDotClass(readiness.state)}`} aria-hidden="true" />
+                    ) : null}
+                    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+                  </DropdownMenu.SubTrigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.SubContent
+                      sideOffset={6}
+                      alignOffset={-4}
+                      className="z-50 w-[220px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)]"
+                    >
+                      <ClaudeAgentSubContent
+                        modelOptions={modelOptions}
+                        selectedModel={modelValue}
+                        claudeReasoningEffort={claudeReasoningEffort ?? null}
+                        onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
+                        onClaudeReasoningEffortChange={(effort) => {
+                          onAgentChange(provider);
+                          onClaudeReasoningEffortChange?.(effort);
+                        }}
+                      />
+                    </DropdownMenu.SubContent>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Sub>
+              );
+            }
 
             // Codex agent: cascading submenu with reasoning, model, speed
             if (provider === 'codex' && codexModels) {

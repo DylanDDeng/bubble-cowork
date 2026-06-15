@@ -214,21 +214,75 @@ function CompactBoundaryCard({
 }: {
   message: Extract<StreamMessage, { type: 'system'; subtype: 'compact_boundary' }>;
 }) {
+  const [open, setOpen] = useState(false);
   const isAuto = message.compactMetadata.trigger === 'auto';
-  const label = isAuto ? 'auto compact' : 'compact';
+  const label = isAuto ? '对话已自动压缩' : '对话已压缩';
+  const tokensLabel =
+    message.compactMetadata.preTokens > 0
+      ? formatCompactTokens(message.compactMetadata.preTokens)
+      : null;
+  const explanation = isAuto
+    ? '上下文接近模型上限，较早的对话已被自动总结为摘要以腾出空间。AI 仍保留这些内容的要点，但逐字细节可能已省略。'
+    : '你手动压缩了对话，较早的内容已被总结为摘要以腾出上下文空间。';
 
   return (
     <div className="my-6 flex justify-center">
       <div className="w-full max-w-[720px]">
         <div className="relative flex items-center justify-center">
           <div className="absolute inset-x-0 top-1/2 border-t border-[var(--border)]" />
-          <span className="relative z-10 bg-[var(--bg-primary)] px-3 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--text-muted)]">
-            {label}
-            {message.compactMetadata.preTokens > 0 ? ` · ${formatCompactTokens(message.compactMetadata.preTokens)}` : ''}
-          </span>
+          <div
+            className="relative z-10"
+            onMouseEnter={() => setOpen(true)}
+            onMouseLeave={() => setOpen(false)}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setOpen(false)}
+          >
+            <button
+              type="button"
+              className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-1 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]"
+              aria-label={`${label}${tokensLabel ? ` · 压缩前 ${tokensLabel} tokens` : ''}`}
+            >
+              <ArchiveIcon />
+              <span>{label}</span>
+              {tokensLabel ? (
+                <span className="text-[var(--text-muted)]">· {tokensLabel} tokens</span>
+              ) : null}
+            </button>
+
+            {open ? (
+              <div className="absolute bottom-full left-1/2 z-40 mb-2 w-[280px] max-w-[calc(100vw-1.5rem)] -translate-x-1/2 rounded-[8px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] px-3 py-2.5 text-left text-[12px] leading-5 text-[var(--text-secondary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)]">
+                {explanation}
+                {tokensLabel ? (
+                  <div className="mt-1.5 border-t border-[var(--border)] pt-1.5 text-[11px] text-[var(--text-muted)]">
+                    压缩前上下文约 {tokensLabel} tokens
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function ArchiveIcon() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="2" y="4" width="20" height="5" rx="1" />
+      <path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9" />
+      <path d="M10 13h4" />
+    </svg>
   );
 }
 

@@ -24,6 +24,31 @@ export type CodexContextSnapshot = {
   reasoningOutputTokens: number;
 };
 
+export type ContextUsageLevel = 'safe' | 'warning' | 'critical';
+
+// Threshold percentages of the context window. The Claude Agent SDK auto-compacts
+// near the upper limit, so we warn ahead of time to make the boundary feel intentional.
+export const CONTEXT_WARNING_PERCENT = 75;
+export const CONTEXT_CRITICAL_PERCENT = 90;
+
+export function getContextUsageLevel(percent: number): ContextUsageLevel {
+  if (percent >= CONTEXT_CRITICAL_PERCENT) return 'critical';
+  if (percent >= CONTEXT_WARNING_PERCENT) return 'warning';
+  return 'safe';
+}
+
+// CSS variable used to color the usage ring / banner for a given level.
+export function getContextLevelColorVar(level: ContextUsageLevel): string {
+  switch (level) {
+    case 'critical':
+      return 'var(--error)';
+    case 'warning':
+      return 'var(--warning)';
+    default:
+      return 'var(--text-secondary)';
+  }
+}
+
 function isResultMessage(message: StreamMessage): message is Extract<StreamMessage, { type: 'result' }> {
   return message.type === 'result';
 }

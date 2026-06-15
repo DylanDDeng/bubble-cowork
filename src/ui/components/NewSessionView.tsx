@@ -277,6 +277,10 @@ export function NewSessionView() {
                 : agentSelection.provider === 'claude'
                   ? 'execute'
                   : undefined,
+            claudeReasoningEffort:
+              agentSelection.provider === 'claude'
+                ? agentSelection.claudeReasoningEffort || undefined
+                : undefined,
             ...codexReferences,
             codexPermissionMode:
             agentSelection.provider === 'codex'
@@ -666,6 +670,8 @@ export function NewSessionView() {
                 onAgentChange={agentSelection.selectAgent}
                 onModelChange={agentSelection.selectModel}
                 codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
+                claudeReasoningEffort={agentSelection.claudeReasoningEffort ?? undefined}
+                onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
                 codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
                 onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
                 codexFastMode={agentSelection.codexFastMode}

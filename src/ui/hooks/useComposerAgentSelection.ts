@@ -24,7 +24,9 @@ import {
   savePreferredCodexModel,
 } from '../utils/codex-model';
 import {
+  ClaudeAccessMode,
   ClaudePermissionMode,
+  ClaudeReasoningEffort,
   CodexReasoningEffort,
   CodexPermissionMode,
   KimiPermissionMode,
@@ -34,6 +36,11 @@ import {
   loadPreferredCodexReasoningEffort,
   savePreferredCodexReasoningEffort,
 } from '../utils/codex-reasoning';
+import {
+  getDefaultClaudeReasoningEffort,
+  loadPreferredClaudeReasoningEffort,
+  savePreferredClaudeReasoningEffort,
+} from '../utils/claude-reasoning';
 import {
   loadPreferredCodexFastMode,
   savePreferredCodexFastMode,
@@ -307,7 +314,9 @@ export function useComposerAgentSelection(input?: {
   provider?: AgentProvider | null;
   model?: string | null;
   compatibleProviderId?: ClaudeCompatibleProviderId | null;
-  claudePermissionMode?: ClaudePermissionMode | null;
+  // Accepts the wider access mode (includes 'fullAccess'); normalized internally.
+  claudePermissionMode?: ClaudeAccessMode | null;
+  claudeReasoningEffort?: ClaudeReasoningEffort | null;
 }) {
   const claudeModelConfig = useClaudeModelConfig();
   const codexModelConfig = useCodexModelConfig();
@@ -639,12 +648,36 @@ export function useComposerAgentSelection(input?: {
         : model
       : 'Default');
 
+  const [claudeReasoningEffort, setClaudeReasoningEffortState] = useState<ClaudeReasoningEffort | null>(() => {
+    if (provider !== 'claude') return null;
+    return input?.claudeReasoningEffort || loadPreferredClaudeReasoningEffort(model) || getDefaultClaudeReasoningEffort(model);
+  });
+
   const [codexReasoningEffort, setCodexReasoningEffortState] = useState<CodexReasoningEffort | null>(() => {
     if (provider !== 'codex' || !model) return null;
     const preferred = loadPreferredCodexReasoningEffort(model);
     if (preferred) return preferred;
     return getDefaultCodexReasoningEffort(codexModelConfig, model) || null;
   });
+
+  // Sync Claude reasoning effort when model changes
+  useEffect(() => {
+    if (provider === 'claude') {
+      setClaudeReasoningEffortState(
+        input?.claudeReasoningEffort || loadPreferredClaudeReasoningEffort(model) || getDefaultClaudeReasoningEffort(model)
+      );
+    } else {
+      setClaudeReasoningEffortState(null);
+    }
+  }, [provider, model, input?.claudeReasoningEffort]);
+
+  const setClaudeReasoningEffort = useCallback(
+    (effort: ClaudeReasoningEffort) => {
+      setClaudeReasoningEffortState(effort);
+      savePreferredClaudeReasoningEffort(model, effort);
+    },
+    [model]
+  );
 
   // Sync reasoning effort when model changes
   useEffect(() => {
@@ -745,6 +778,8 @@ export function useComposerAgentSelection(input?: {
     selectModel,
     codexModelConfig,
     codexModels,
+    claudeReasoningEffort,
+    setClaudeReasoningEffort,
     codexReasoningEffort,
     setCodexReasoningEffort,
     codexFastMode,

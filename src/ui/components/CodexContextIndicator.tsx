@@ -1,5 +1,10 @@
 import { useState } from 'react';
 import type { CodexContextSnapshot } from '../utils/context-usage';
+import {
+  CONTEXT_CRITICAL_PERCENT,
+  getContextLevelColorVar,
+  getContextUsageLevel,
+} from '../utils/context-usage';
 
 const RING_CIRCUMFERENCE = 37.7;
 
@@ -13,6 +18,7 @@ function formatCompact(value: number): string {
 function UsageRing({ percent, size = 'h-4 w-4' }: { percent: number; size?: string }) {
   const progress = Math.min(100, Math.max(0, percent));
   const strokeDashoffset = RING_CIRCUMFERENCE * (1 - progress / 100);
+  const ringColor = getContextLevelColorVar(getContextUsageLevel(progress));
 
   return (
     <svg
@@ -34,11 +40,12 @@ function UsageRing({ percent, size = 'h-4 w-4' }: { percent: number; size?: stri
         cy="8"
         r="6"
         fill="none"
-        stroke="var(--text-secondary)"
+        stroke={ringColor}
         strokeWidth="2"
         strokeLinecap="round"
         strokeDasharray={RING_CIRCUMFERENCE}
         strokeDashoffset={strokeDashoffset}
+        style={{ transition: 'stroke-dashoffset 0.3s ease, stroke 0.3s ease' }}
       />
     </svg>
   );
@@ -46,6 +53,8 @@ function UsageRing({ percent, size = 'h-4 w-4' }: { percent: number; size?: stri
 
 export function CodexContextIndicator({ snapshot }: { snapshot: CodexContextSnapshot }) {
   const [open, setOpen] = useState(false);
+  const level = getContextUsageLevel(snapshot.percent);
+  const nearLimit = level !== 'safe' && snapshot.total > 0;
 
   return (
     <div
@@ -77,6 +86,19 @@ export function CodexContextIndicator({ snapshot }: { snapshot: CodexContextSnap
             <span className="text-[var(--text-secondary)]">Limit</span>
             <span>{formatCompact(snapshot.total)}</span>
           </div>
+          {nearLimit ? (
+            <div
+              className="mt-1.5 rounded-[6px] px-2 py-1.5 text-[11px] leading-4"
+              style={{
+                color: getContextLevelColorVar(level),
+                backgroundColor: `color-mix(in srgb, ${getContextLevelColorVar(level)} 12%, transparent)`,
+              }}
+            >
+              {snapshot.percent >= CONTEXT_CRITICAL_PERCENT
+                ? `已用 ${snapshot.percent}% · 已接近上下文窗口上限`
+                : `已用 ${snapshot.percent}% · 接近上下文窗口上限`}
+            </div>
+          ) : null}
         </div>
       )}
     </div>
