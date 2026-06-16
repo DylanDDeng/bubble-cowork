@@ -20,6 +20,7 @@ import { StructuredResponse } from './StructuredResponse';
 import { WorkingFooter } from './AssistantWorkstream';
 import { PromptInput } from './PromptInput';
 import { NewThreadLanding } from './NewThreadLanding';
+import { ComposerContextPills } from './ComposerContextPills';
 import { InSessionSearch } from './search/InSessionSearch';
 import { ComposerPendingPermissionPanel } from './ComposerPendingPermissionPanel';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -871,6 +872,8 @@ export function ChatPane({
     requestChatInjection,
     setActiveSettingsTab,
     setShowSettings,
+    createDraftSession,
+    removeDraftSession,
   } = useAppStore();
   const session = sessionId ? sessions[sessionId] : null;
   const scrollPositionKey = sessionId ? getChatScrollPositionKey(paneId, sessionId) : null;
@@ -1398,6 +1401,38 @@ export function ChatPane({
     setShowSettings(true);
   };
 
+  // Recent folders for the new-thread context pill's project dropdown.
+  const [threadStarterRecentCwds, setThreadStarterRecentCwds] = useState<string[]>([]);
+  useEffect(() => {
+    if (!showThreadStarter) return;
+    let active = true;
+    window.electron.getRecentCwds(8).then((dirs) => {
+      if (active) setThreadStarterRecentCwds(dirs);
+    });
+    return () => {
+      active = false;
+    };
+  }, [showThreadStarter]);
+  const threadStarterRecentOptions = useMemo(() => {
+    if (!threadStarterCwd) return threadStarterRecentCwds.slice(0, 6);
+    return [threadStarterCwd, ...threadStarterRecentCwds.filter((dir) => dir !== threadStarterCwd)].slice(0, 6);
+  }, [threadStarterCwd, threadStarterRecentCwds]);
+  // Switching the draft's folder starts a fresh draft in that folder and
+  // discards the current empty one (so we don't pile up orphan drafts).
+  const switchDraftFolder = useCallback(
+    (dir: string) => {
+      if (!dir || dir === threadStarterCwd || !sessionId) return;
+      createDraftSession(dir, session?.channelId || null, { projectCwd: dir });
+      removeDraftSession(sessionId);
+    },
+    [createDraftSession, removeDraftSession, session?.channelId, threadStarterCwd, sessionId]
+  );
+  const handleThreadStarterBrowse = useCallback(() => {
+    void window.electron.selectDirectory().then((dir) => {
+      if (dir) switchDraftFolder(dir);
+    });
+  }, [switchDraftFolder]);
+
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     const droppedSessionId = event.dataTransfer.getData('application/x-aegis-session-id');
     if (!droppedSessionId || !onDropSession) {
@@ -1492,6 +1527,14 @@ export function ChatPane({
             >
               <div className="mx-auto w-full max-w-3xl">
                 <PromptInput sessionId={sessionId} menuSide="bottom" />
+                <ComposerContextPills
+                  cwd={threadStarterCwd || null}
+                  projectName={threadStarterProject}
+                  hasSelectedCwd={Boolean(threadStarterCwd)}
+                  onBrowse={handleThreadStarterBrowse}
+                  recentOptions={threadStarterRecentOptions}
+                  onSelectRecent={switchDraftFolder}
+                />
               </div>
             </NewThreadLanding>
           ) : (
