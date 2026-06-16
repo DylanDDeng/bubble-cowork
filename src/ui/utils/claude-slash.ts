@@ -19,18 +19,82 @@ const DEFAULT_COMMAND_DEFINITIONS: Record<
   string,
   { title: string; description: string; submitOnSelect?: boolean }
 > = {
+  compact: {
+    title: '/compact',
+    description: 'Compact the current conversation context',
+  },
+  config: {
+    title: '/config',
+    description: 'Open or update Claude Code configuration',
+  },
   cost: {
     title: '/cost',
     description: 'Show current token and cost usage',
     submitOnSelect: true,
   },
+  doctor: {
+    title: '/doctor',
+    description: 'Check Claude Code installation and runtime health',
+  },
+  help: {
+    title: '/help',
+    description: 'Show Claude Code help and available commands',
+  },
+  init: {
+    title: '/init',
+    description: 'Initialize project memory and guidance for Claude Code',
+  },
+  login: {
+    title: '/login',
+    description: 'Sign in to Claude Code',
+  },
+  logout: {
+    title: '/logout',
+    description: 'Sign out of Claude Code',
+  },
+  mcp: {
+    title: '/mcp',
+    description: 'Manage MCP server connections',
+  },
+  memory: {
+    title: '/memory',
+    description: 'Edit Claude Code memory files',
+  },
+  model: {
+    title: '/model',
+    description: 'Change the Claude model for this conversation',
+  },
+  permissions: {
+    title: '/permissions',
+    description: 'Manage Claude Code tool permissions',
+  },
   plan: {
     title: '/plan',
     description: 'Switch into planning mode',
   },
-  compact: {
-    title: '/compact',
-    description: 'Compact the current conversation context',
+  pr_comments: {
+    title: '/pr_comments',
+    description: 'Fetch pull request comments for Claude to address',
+  },
+  release_notes: {
+    title: '/release_notes',
+    description: 'Show Claude Code release notes',
+  },
+  review: {
+    title: '/review',
+    description: 'Review the current changes',
+  },
+  status: {
+    title: '/status',
+    description: 'Show Claude Code account and session status',
+  },
+  terminal_setup: {
+    title: '/terminal_setup',
+    description: 'Install terminal integration for Claude Code',
+  },
+  vim: {
+    title: '/vim',
+    description: 'Toggle Vim mode',
   },
 };
 

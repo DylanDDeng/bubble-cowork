@@ -6,12 +6,13 @@ import {
   useCallback,
   type KeyboardEvent as ReactKeyboardEvent,
   type MutableRefObject,
+  type ReactNode,
 } from 'react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
 import type { Attachment } from '../types';
-import coworkLogo from '../assets/cowork-logo.svg';
 import { AttachmentChips } from './AttachmentChips';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
@@ -21,7 +22,8 @@ import { ComposerAgentModelPicker } from './ComposerAgentControls';
 import { ClaudePermissionModePicker } from './ClaudePermissionModePicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { KimiPermissionModePicker } from './KimiPermissionModePicker';
-import { FolderOpen } from './icons';
+import { FolderOpen, Folder, Monitor, GitBranch, ChevronDown } from './icons';
+import { NewThreadLanding } from './NewThreadLanding';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
@@ -46,6 +48,9 @@ function isImeComposingEvent(
     (event.nativeEvent as KeyboardEvent).keyCode === 229
   );
 }
+
+const CONTEXT_PILL_CLASS =
+  'inline-flex max-w-[200px] items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-[var(--text-secondary)]';
 
 export function NewSessionView() {
   const {
@@ -453,6 +458,25 @@ export function NewSessionView() {
     !pendingStart &&
     !modelSetupRequired;
 
+  const projectName = cwd ? cwd.split('/').filter(Boolean).pop() || cwd : '';
+  const heading = hasSelectedCwd
+    ? `What should we build in ${projectName}?`
+    : 'What can I help you with?';
+
+  const handleUseStarter = (text: string) => {
+    setPrompt(text);
+    setCursorIndex(text.length);
+    window.requestAnimationFrame(() => {
+      editorRef.current?.focus();
+      editorRef.current?.setCursorIndex(text.length);
+    });
+  };
+
+  const handleConnectApps = () => {
+    setActiveSettingsTab('mcp');
+    setShowSettings(true);
+  };
+
   const handleKeyDown = (e: ReactKeyboardEvent) => {
     if (isImeComposingEvent(e, isComposingRef)) {
       return;
@@ -522,60 +546,14 @@ export function NewSessionView() {
         </div>
       </div>
 
-      <div className="flex-1 flex justify-center px-8 pb-4 pt-10">
-        <div className="flex h-full w-full max-w-[920px] flex-col">
-          <div className="flex flex-1 items-center justify-center text-center">
-            <div>
-              <div className="mb-8 flex justify-center no-drag">
-                <img
-                  src={coworkLogo}
-                  alt=""
-                  className="h-16 w-16 select-none opacity-90 no-drag"
-                  aria-hidden="true"
-                  draggable={false}
-                  onDragStart={(event) => event.preventDefault()}
-                />
-              </div>
-
-              <h1 className="text-[20px] font-bold serif-display leading-tight text-[var(--text-primary)]">
-                What can I help you with?
-              </h1>
-
-              {!hasSelectedCwd ? (
-                <div className="mt-5 text-[13px] text-[var(--text-secondary)]">
-                  Draft the task here, then choose a project folder to run it.
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="mt-auto">
-            <div
-              className={`flex justify-center overflow-hidden transition-all duration-200 ${
-                showCwdHint
-                  ? 'mb-3 max-h-16 opacity-100 translate-y-0'
-                  : 'mb-0 max-h-0 opacity-0 -translate-y-1 pointer-events-none'
-              }`}
-            >
-              <div className="flex items-center gap-3 rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-primary)] shadow-sm">
-                <span>Choose a project folder to start this task.</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void handleSelectProjectFolder();
-                  }}
-                  className="inline-flex h-7 items-center gap-1.5 rounded-md bg-[var(--text-primary)] px-2.5 text-[12px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-85"
-                >
-                  <FolderOpen className="h-3.5 w-3.5" />
-                  Choose
-                </button>
-              </div>
-            </div>
-
-            <div className="mx-auto max-w-4xl">
-              <div className="group relative rounded-[28px] bg-[var(--border)]/45 p-px transition-colors duration-200 focus-within:bg-[var(--border)]/70">
+      <NewThreadLanding
+        heading={heading}
+        onPickSuggestion={handleUseStarter}
+        onConnectApps={handleConnectApps}
+      >
+            <div className="group relative rounded-[18px] bg-[var(--bg-secondary)] p-1.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
               {projectFileMentions.hasMentionQuery ? (
-                <div className="absolute inset-x-0 bottom-full z-40">
+                <div className="absolute inset-x-0 bottom-full z-40 mb-1">
                   <ProjectFileMentionMenu
                     suggestions={projectFileMentions.suggestions}
                     selectedIndex={projectFileMentions.selectedIndex}
@@ -586,7 +564,7 @@ export function NewSessionView() {
                   />
                 </div>
               ) : capabilityMenu.hasSlashQuery ? (
-                <div className="absolute inset-x-0 bottom-full z-40">
+                <div className="absolute inset-x-0 bottom-full z-40 mb-1">
                   <ClaudeSkillMenu
                     suggestions={capabilityMenu.suggestions}
                     selectedIndex={capabilityMenu.selectedIndex}
@@ -601,154 +579,253 @@ export function NewSessionView() {
                   />
                 </div>
               ) : null}
-              <div className="rounded-[26px] border border-[var(--border)]/65 bg-[var(--bg-primary)] transition-colors duration-200">
-              {attachments.length > 0 && (
-                <div className="px-5 pt-4">
-                  <AttachmentChips
-                    attachments={attachments}
-                    onRemove={(id) =>
-                      setAttachments((prev) => prev.filter((a) => a.id !== id))
-                    }
-                  />
-                </div>
-              )}
 
-              <ComposerPromptEditor
-                ref={editorRef}
-                value={capabilityMenu.displayPrompt}
-                cursorIndex={cursorIndex}
-                slashContext={capabilityMenu.slashContext}
-                slashDisplayLabels={capabilityMenu.slashDisplayLabels}
-                agentMentionLabels={{}}
-                onChange={(value, nextCursorIndex) => {
-                  void handlePromptChange(value, nextCursorIndex);
-                }}
-                onPasteText={(context) => {
-                  return handleLongPaste(context);
-                }}
-                onPasteImages={(images) => {
-                  void handlePasteImages(images);
-                }}
-                onCompositionStart={() => {
-                  isComposingRef.current = true;
-                }}
-                onCompositionEnd={() => {
-                  isComposingRef.current = false;
-                }}
-                onKeyDown={handleKeyDown}
-                placeholder={
-                  hasSelectedCwd
-                    ? 'Message the agent...'
-                    : 'Describe your task. Choose a project folder before it runs...'
-                }
-                className="w-full bg-transparent px-4 pt-3 pb-1 text-[14px] outline-none resize-none no-drag min-h-[56px] max-h-[200px]"
-                autoFocus
-              />
-
-              <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
-              <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
-              {!hasSelectedCwd ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    void handleSelectProjectFolder();
-                  }}
-                  disabled={pendingStart}
-                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-[var(--bg-tertiary)] px-2.5 text-[12px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[color-mix(in_srgb,var(--bg-tertiary)_76%,var(--accent)_24%)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-                  title="Choose project folder"
-                >
-                  <FolderOpen className="h-3.5 w-3.5" />
-                  Choose project
-                </button>
-              ) : null}
-              <ComposerAgentModelPicker
-                agentProvider={agentSelection.provider}
-                modelLabel={agentSelection.selectedModelLabel}
-                modelValue={agentSelection.model}
-                allAgentModelOptions={agentSelection.allAgentModelOptions}
-                disabled={pendingStart}
-                onAgentChange={agentSelection.selectAgent}
-                onModelChange={agentSelection.selectModel}
-                codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
-                claudeReasoningEffort={agentSelection.claudeReasoningEffort ?? undefined}
-                onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
-                codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
-                onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
-                codexFastMode={agentSelection.codexFastMode}
-                onCodexFastModeChange={agentSelection.setCodexFastMode}
-              />
-              {agentSelection.provider === 'codex' && (
-                <CodexPermissionModePicker
-                  value={agentSelection.codexPermissionMode}
-                  onChange={agentSelection.setCodexPermissionMode}
-                />
-              )}
-              {agentSelection.provider === 'claude' && (
-                <ClaudePermissionModePicker
-                  value={agentSelection.claudePermissionMode}
-                  onChange={agentSelection.setClaudePermissionMode}
-                  disabled={pendingStart}
-                />
-              )}
-              {agentSelection.provider === 'kimi' && (
-                <KimiPermissionModePicker
-                  value={agentSelection.kimiPermissionMode}
-                  onChange={agentSelection.setKimiPermissionMode}
-                />
-              )}
-
-              <button
-                type="button"
-                onClick={() => {
-                  void handleAddAttachments();
-                }}
-                disabled={pendingStart}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-all duration-150 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-                title="Add files or photos"
-                aria-label="Add files or photos"
-              >
-                <PlusIcon />
-              </button>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-              <button
-                onClick={handleStart}
-                disabled={!canStartTask}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105 no-drag disabled:cursor-not-allowed disabled:opacity-20 disabled:hover:scale-100"
-              >
-                {pendingStart ? (
-                  <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : !hasSelectedCwd ? (
-                  <FolderOpen className="h-[18px] w-[18px]" />
-                ) : (
-                  <ArrowUpIcon />
+              <div className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_1px_3px_rgba(15,23,42,0.06)] transition-colors duration-200 focus-within:border-[color-mix(in_srgb,var(--border)_50%,var(--text-secondary)_50%)]">
+                {attachments.length > 0 && (
+                  <div className="px-4 pt-4">
+                    <AttachmentChips
+                      attachments={attachments}
+                      onRemove={(id) =>
+                        setAttachments((prev) => prev.filter((a) => a.id !== id))
+                      }
+                    />
+                  </div>
                 )}
-              </button>
+
+                <ComposerPromptEditor
+                  ref={editorRef}
+                  value={capabilityMenu.displayPrompt}
+                  cursorIndex={cursorIndex}
+                  slashContext={capabilityMenu.slashContext}
+                  slashDisplayLabels={capabilityMenu.slashDisplayLabels}
+                  agentMentionLabels={{}}
+                  onChange={(value, nextCursorIndex) => {
+                    void handlePromptChange(value, nextCursorIndex);
+                  }}
+                  onPasteText={(context) => {
+                    return handleLongPaste(context);
+                  }}
+                  onPasteImages={(images) => {
+                    void handlePasteImages(images);
+                  }}
+                  onCompositionStart={() => {
+                    isComposingRef.current = true;
+                  }}
+                  onCompositionEnd={() => {
+                    isComposingRef.current = false;
+                  }}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Do anything"
+                  className="w-full bg-transparent px-4 pt-3.5 pb-1 text-[15px] outline-none resize-none no-drag min-h-[52px] max-h-[200px]"
+                  autoFocus
+                />
+
+                <div className="flex items-center justify-between gap-2 px-2.5 pb-2 pt-0.5">
+                  <div className="flex min-w-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleAddAttachments();
+                      }}
+                      disabled={pendingStart}
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-all duration-150 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Add files or photos"
+                      aria-label="Add files or photos"
+                    >
+                      <PlusIcon />
+                    </button>
+                    {agentSelection.provider === 'codex' && (
+                      <CodexPermissionModePicker
+                        value={agentSelection.codexPermissionMode}
+                        onChange={agentSelection.setCodexPermissionMode}
+                      />
+                    )}
+                    {agentSelection.provider === 'claude' && (
+                      <ClaudePermissionModePicker
+                        value={agentSelection.claudePermissionMode}
+                        onChange={agentSelection.setClaudePermissionMode}
+                        disabled={pendingStart}
+                      />
+                    )}
+                    {agentSelection.provider === 'kimi' && (
+                      <KimiPermissionModePicker
+                        value={agentSelection.kimiPermissionMode}
+                        onChange={agentSelection.setKimiPermissionMode}
+                      />
+                    )}
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <ComposerAgentModelPicker
+                      agentProvider={agentSelection.provider}
+                      modelLabel={agentSelection.selectedModelLabel}
+                      modelValue={agentSelection.model}
+                      allAgentModelOptions={agentSelection.allAgentModelOptions}
+                      disabled={pendingStart}
+                      onAgentChange={agentSelection.selectAgent}
+                      onModelChange={agentSelection.selectModel}
+                      codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
+                      claudeReasoningEffort={agentSelection.claudeReasoningEffort ?? undefined}
+                      onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
+                      codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
+                      onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
+                      codexFastMode={agentSelection.codexFastMode}
+                      onCodexFastModeChange={agentSelection.setCodexFastMode}
+                    />
+                    <button
+                      type="button"
+                      disabled
+                      title="Voice input coming soon"
+                      aria-label="Voice input coming soon"
+                      className="flex h-8 w-8 cursor-default items-center justify-center rounded-full text-[var(--text-muted)]"
+                    >
+                      <MicIcon />
+                    </button>
+                    <button
+                      onClick={handleStart}
+                      disabled={!canStartTask}
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105 no-drag disabled:cursor-not-allowed disabled:opacity-20 disabled:hover:scale-100"
+                    >
+                      {pendingStart ? (
+                        <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : !hasSelectedCwd ? (
+                        <FolderOpen className="h-[18px] w-[18px]" />
+                      ) : (
+                        <ArrowUpIcon />
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
-              </div>
-              </div>
+
+              <div className="flex flex-wrap items-center gap-0.5 px-2 pb-1 pt-2.5">
+                <DropdownMenu.Root>
+                  <DropdownMenu.Trigger asChild>
+                    <button
+                      type="button"
+                      disabled={pendingStart}
+                      title="Project folder"
+                      className={CONTEXT_PILL_CLASS}
+                    >
+                      <span className="shrink-0 text-[var(--text-muted)]">
+                        <Folder className="h-3.5 w-3.5" />
+                      </span>
+                      <span className="min-w-0 truncate">
+                        {hasSelectedCwd ? projectName : 'Choose project'}
+                      </span>
+                      <ChevronDown className="h-3 w-3 shrink-0 text-[var(--text-muted)]" />
+                    </button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content
+                      align="start"
+                      side="bottom"
+                      sideOffset={6}
+                      className="z-50 max-h-[320px] w-[280px] overflow-y-auto rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_18px_44px_rgba(15,23,42,0.14)]"
+                    >
+                      <DropdownMenu.Item
+                        onSelect={() => {
+                          void handleSelectProjectFolder();
+                        }}
+                        className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[highlighted]:bg-[var(--bg-tertiary)]"
+                      >
+                        <FolderOpen className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
+                        Browse…
+                      </DropdownMenu.Item>
+                      {recentProjectOptions.length > 0 ? (
+                        <>
+                          <div className="my-1 h-px bg-[var(--border)]" />
+                          <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
+                            Recent
+                          </div>
+                          {recentProjectOptions.map((dir) => (
+                            <DropdownMenu.Item
+                              key={dir}
+                              onSelect={() => handleCwdChange(dir)}
+                              title={dir}
+                              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[highlighted]:bg-[var(--bg-tertiary)]"
+                            >
+                              <Folder className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
+                              <span className="min-w-0 truncate">
+                                {dir.split('/').filter(Boolean).pop() || dir}
+                              </span>
+                            </DropdownMenu.Item>
+                          ))}
+                        </>
+                      ) : null}
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+                {hasSelectedCwd ? (
+                  <>
+                    <ContextPill
+                      icon={<Monitor className="h-3.5 w-3.5" />}
+                      disabled
+                      title="Runs on your machine"
+                    >
+                      Work locally
+                    </ContextPill>
+                    <ContextPill
+                      icon={<GitBranch className="h-3.5 w-3.5" />}
+                      disabled
+                      title="Current branch"
+                    >
+                      main
+                    </ContextPill>
+                  </>
+                ) : null}
               </div>
             </div>
-
-            {recentProjectOptions.length > 0 && !hasSelectedCwd ? (
-              <div className="mt-3 flex flex-wrap justify-center gap-2">
-                {recentProjectOptions.map((dir) => (
-                  <button
-                    key={dir}
-                    type="button"
-                    onClick={() => handleCwdChange(dir)}
-                    className="max-w-[240px] truncate rounded-full border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-                    title={dir}
-                  >
-                    {dir.split('/').filter(Boolean).pop() || dir}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </div>
+      </NewThreadLanding>
     </div>
+  );
+}
+
+function ContextPill({
+  icon,
+  children,
+  onClick,
+  disabled,
+  title,
+}: {
+  icon: ReactNode;
+  children: ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={CONTEXT_PILL_CLASS}
+    >
+      <span className="shrink-0 text-[var(--text-muted)]">{icon}</span>
+      <span className="min-w-0 truncate">{children}</span>
+      <ChevronDown className="h-3 w-3 shrink-0 text-[var(--text-muted)]" />
+    </button>
+  );
+}
+
+function MicIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="9" y="2" width="6" height="12" rx="3" />
+      <path d="M5 10a7 7 0 0 0 14 0" />
+      <line x1="12" y1="19" x2="12" y2="22" />
+    </svg>
   );
 }
 

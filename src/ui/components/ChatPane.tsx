@@ -19,6 +19,7 @@ import { ToolExecutionBatch, WorkstreamDisclosure } from './ToolExecutionBatch';
 import { StructuredResponse } from './StructuredResponse';
 import { WorkingFooter } from './AssistantWorkstream';
 import { PromptInput } from './PromptInput';
+import { NewThreadLanding } from './NewThreadLanding';
 import { InSessionSearch } from './search/InSessionSearch';
 import { ComposerPendingPermissionPanel } from './ComposerPendingPermissionPanel';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -867,6 +868,9 @@ export function ChatPane({
     setHistoryNavigationTarget,
     removePermissionRequest,
     openReviewDiff,
+    requestChatInjection,
+    setActiveSettingsTab,
+    setShowSettings,
   } = useAppStore();
   const session = sessionId ? sessions[sessionId] : null;
   const scrollPositionKey = sessionId ? getChatScrollPositionKey(paneId, sessionId) : null;
@@ -1371,6 +1375,29 @@ export function ChatPane({
   const permissionQueue = session?.permissionRequests || [];
   const activePermissionRequest = permissionQueue[0] || null;
 
+  // A freshly created draft thread with no messages shows the centered landing
+  // (title + composer + starter suggestions), matching the first-entry screen.
+  const showThreadStarter = Boolean(
+    session &&
+      !directAgent &&
+      session.scope !== 'dm' &&
+      session.messages.length === 0 &&
+      session.status !== 'running' &&
+      !session.readOnly &&
+      !activePermissionRequest
+  );
+  const threadStarterCwd = session?.projectCwd || session?.cwd || '';
+  const threadStarterProject = threadStarterCwd
+    ? threadStarterCwd.split('/').filter(Boolean).pop() || threadStarterCwd
+    : '';
+  const threadStarterHeading = threadStarterProject
+    ? `What should we build in ${threadStarterProject}?`
+    : 'What can I help you with?';
+  const openConnectAppsSettings = () => {
+    setActiveSettingsTab('mcp');
+    setShowSettings(true);
+  };
+
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     const droppedSessionId = event.dataTransfer.getData('application/x-aegis-session-id');
     if (!droppedSessionId || !onDropSession) {
@@ -1455,6 +1482,20 @@ export function ChatPane({
               ) : null}
             </div>
           </div>
+          {showThreadStarter ? (
+            <NewThreadLanding
+              heading={threadStarterHeading}
+              onPickSuggestion={(text) =>
+                requestChatInjection({ sessionId, text, mode: 'replace' })
+              }
+              onConnectApps={openConnectAppsSettings}
+            >
+              <div className="mx-auto w-full max-w-3xl">
+                <PromptInput sessionId={sessionId} />
+              </div>
+            </NewThreadLanding>
+          ) : (
+          <>
           <div ref={scrollContainerRef} className="flex-1 overflow-auto p-4 relative">
             {isActive ? <InSessionSearch /> : null}
 
@@ -1694,6 +1735,8 @@ export function ChatPane({
                 </>
               )}
             </div>
+          )}
+          </>
           )}
 
         </>
