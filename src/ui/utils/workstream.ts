@@ -188,9 +188,42 @@ export function extractToolBlocks(
   return blocks;
 }
 
+/**
+ * Stable sort of assistant messages by `createdAt` (ascending). Messages
+ * without a numeric `createdAt`, or with equal timestamps, keep their original
+ * relative order. Used so a work group renders in true emission order even when
+ * a provider commits messages to the store out of order.
+ */
+export function sortMessagesByCreatedAt<T extends StreamMessage>(messages: T[]): T[] {
+  return messages
+    .map((message, index) => {
+      const raw = (message as { createdAt?: unknown }).createdAt;
+      const ts = typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+      return { message, index, ts };
+    })
+    .sort((a, b) => {
+      if (a.ts !== null && b.ts !== null && a.ts !== b.ts) {
+        return a.ts - b.ts;
+      }
+      return a.index - b.index;
+    })
+    .map((entry) => entry.message);
+}
+
 export function extractTraceEntries(
   messages: (StreamMessage & { type: 'assistant' })[],
-  partials?: { partialText?: string; partialThinking?: string }
+  partials?: {
+    partialText?: string;
+    partialThinking?: string;
+    /**
+     * When the live partial is the preamble of the still-streaming message
+     * (its tool calls are committed but its leading text has not landed in the
+     * content blocks yet), slot the partial just above that message's tools
+     * instead of the tail. Without this the preamble renders below the tools
+     * mid-stream and then jumps above once the text block is committed.
+     */
+    placePartialBeforeLastToolRun?: boolean;
+  }
 ): TraceEntry[] {
   const entries: TraceEntry[] = [];
   const trimmedPartialText = partials?.partialText?.trim() || '';
@@ -198,6 +231,9 @@ export function extractTraceEntries(
   const lastMsgIndex = messages.length - 1;
   let textPartialUsed = false;
   let thinkingPartialUsed = false;
+  // Index, in `entries`, of the first tool entry contributed by the last
+  // message — the natural insertion point for an unconsumed preamble partial.
+  let lastMsgFirstToolEntryIndex: number | null = null;
 
   for (let msgIdx = 0; msgIdx < messages.length; msgIdx += 1) {
     const msg = messages[msgIdx];
@@ -265,6 +301,9 @@ export function extractTraceEntries(
 
       const normalizedTool = normalizeToolUseBlock(block);
       if (normalizedTool) {
+        if (isLast && lastMsgFirstToolEntryIndex === null) {
+          lastMsgFirstToolEntryIndex = entries.length;
+        }
         entries.push({
           type: 'tool',
           id: normalizedTool.id,
@@ -275,9 +314,13 @@ export function extractTraceEntries(
   }
 
   // Partials that didn't slot into any empty block (e.g. the streaming text
-  // hasn't been pushed into the message yet) get appended at the tail.
+  // hasn't been pushed into the message yet) are normally appended at the
+  // tail. But when the partial is the preamble of the still-streaming message
+  // (its tools are committed and pending), insert it just above those tools so
+  // it doesn't render below them mid-stream and then jump up on completion.
+  const leftover: TraceEntry[] = [];
   if (trimmedPartialThinking && !thinkingPartialUsed) {
-    entries.push({
+    leftover.push({
       type: 'thinking',
       id: 'streaming-thinking',
       content: trimmedPartialThinking,
@@ -285,12 +328,19 @@ export function extractTraceEntries(
     });
   }
   if (trimmedPartialText && !textPartialUsed) {
-    entries.push({
+    leftover.push({
       type: 'note',
       id: 'streaming-text',
       content: trimmedPartialText,
       streaming: true,
     });
+  }
+  if (leftover.length > 0) {
+    if (partials?.placePartialBeforeLastToolRun && lastMsgFirstToolEntryIndex !== null) {
+      entries.splice(lastMsgFirstToolEntryIndex, 0, ...leftover);
+    } else {
+      entries.push(...leftover);
+    }
   }
 
   return entries;
@@ -550,10 +600,31 @@ export function createBatchWorkstreamModel(params: {
     permissionRequests?: PermissionRequestPayload[];
   };
 }): WorkstreamModel {
-  const allBlocks = extractToolBlocks(params.messages);
-  const traceEntries = extractTraceEntries(params.messages, {
+  // Render the work group in chronological (createdAt) order. Providers can
+  // commit a message to the store out of emission order — e.g. a preamble text
+  // block is buffered and flushed only after the tools it preceded, even though
+  // its createdAt is earlier. Mid-stream that text then renders below the tools
+  // and snaps above them once the store re-sorts on completion. Ordering by
+  // createdAt here makes the streaming and completed views agree. The sort is
+  // stable and preserves arrival order for ties or messages without createdAt.
+  const orderedMessages = sortMessagesByCreatedAt(params.messages);
+  const allBlocks = extractToolBlocks(orderedMessages);
+  // The live partial belongs to the latest streaming message. If that message
+  // already has tool calls but none have resolved yet, the partial is its
+  // preamble and must render above those tools (not appended below them).
+  const lastMessage = orderedMessages[orderedMessages.length - 1];
+  const lastMessageToolUseIds = lastMessage
+    ? getMessageContentBlocks(lastMessage)
+        .map((block) => normalizeToolUseBlock(block)?.id)
+        .filter((id): id is string => Boolean(id))
+    : [];
+  const lastMessageHasPendingTool =
+    lastMessageToolUseIds.length > 0 &&
+    lastMessageToolUseIds.some((id) => !params.toolResultsMap.has(id));
+  const traceEntries = extractTraceEntries(orderedMessages, {
     partialText: params.liveTrace?.partialText,
     partialThinking: params.liveTrace?.partialThinking,
+    placePartialBeforeLastToolRun: lastMessageHasPendingTool,
   });
   const activePendingToolId = params.isSessionRunning
     ? [...traceEntries]
