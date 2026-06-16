@@ -1491,7 +1491,7 @@ export function ChatPane({
               onConnectApps={openConnectAppsSettings}
             >
               <div className="mx-auto w-full max-w-3xl">
-                <PromptInput sessionId={sessionId} />
+                <PromptInput sessionId={sessionId} menuSide="bottom" />
               </div>
             </NewThreadLanding>
           ) : (

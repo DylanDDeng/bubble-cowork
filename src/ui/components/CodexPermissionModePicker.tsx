@@ -1,18 +1,23 @@
 import { useState } from 'react';
-import { ChevronUp } from './icons';
+import { ChevronUp, ChevronDown } from './icons';
 import type { CodexPermissionMode } from '../types';
 
 export function CodexPermissionModePicker({
   value,
   onChange,
   disabled,
+  menuSide = 'top',
 }: {
   value: CodexPermissionMode;
   onChange: (mode: CodexPermissionMode) => void;
   disabled?: boolean;
+  /** Which side the menu opens toward. Bottom-anchored composers open 'top'
+   * (default); the centered new-thread landing passes 'bottom'. */
+  menuSide?: 'top' | 'bottom';
 }) {
   const [open, setOpen] = useState(false);
   const current = MODE_META[value];
+  const Chevron = menuSide === 'bottom' ? ChevronDown : ChevronUp;
 
   return (
     <div className="relative no-drag">
@@ -29,13 +34,17 @@ export function CodexPermissionModePicker({
         }`}
       >
         <span>{current.label}</span>
-        <ChevronUp className={`h-3.5 w-3.5 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <Chevron className={`h-3.5 w-3.5 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && !disabled && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="popover-surface absolute bottom-full left-0 z-20 mb-2 flex min-w-[152px] flex-col gap-0.5 p-1.5">
+          <div
+            className={`popover-surface absolute left-0 z-20 flex min-w-[152px] flex-col gap-0.5 p-1.5 ${
+              menuSide === 'bottom' ? 'top-full mt-2' : 'bottom-full mb-2'
+            }`}
+          >
             {(['defaultPermissions', 'auto', 'fullAccess'] as const).map((mode) => (
               <CodexPermissionModeOption
                 key={mode}

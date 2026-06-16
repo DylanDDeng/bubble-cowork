@@ -61,10 +61,14 @@ export function PromptInput({
   sessionId,
   approvalPending = false,
   approvalPanel,
+  menuSide = 'top',
 }: {
   sessionId?: string | null;
   approvalPending?: boolean;
   approvalPanel?: ReactNode;
+  /** Which side the model/permission menus open toward. The bottom-anchored
+   * chat composer keeps 'top'; the centered new-thread landing passes 'bottom'. */
+  menuSide?: 'top' | 'bottom';
 } = {}) {
   const {
     activeSessionId,
@@ -782,11 +786,13 @@ export function PromptInput({
                 onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
                 codexFastMode={agentSelection.codexFastMode}
                 onCodexFastModeChange={agentSelection.setCodexFastMode}
+                menuSide={menuSide}
               />
               {agentSelection.provider === 'codex' && (
                 <CodexPermissionModePicker
                   value={agentSelection.codexPermissionMode}
                   onChange={agentSelection.setCodexPermissionMode}
+                  menuSide={menuSide}
                 />
               )}
               {agentSelection.provider === 'claude' && (
@@ -794,12 +800,14 @@ export function PromptInput({
                   value={agentSelection.claudePermissionMode}
                   onChange={agentSelection.setClaudePermissionMode}
                   disabled={isBusy}
+                  menuSide={menuSide}
                 />
               )}
               {agentSelection.provider === 'kimi' && (
                 <KimiPermissionModePicker
                   value={agentSelection.kimiPermissionMode}
                   onChange={agentSelection.setKimiPermissionMode}
+                  menuSide={menuSide}
                 />
               )}
               <button

@@ -803,6 +803,7 @@ export function ComposerAgentModelPicker({
   onCodexReasoningEffortChange,
   codexFastMode,
   onCodexFastModeChange,
+  menuSide = 'top',
 }: {
   agentProvider: AgentProvider;
   modelLabel: string;
@@ -818,6 +819,9 @@ export function ComposerAgentModelPicker({
   onCodexReasoningEffortChange?: (effort: CodexReasoningEffort) => void;
   codexFastMode?: boolean;
   onCodexFastModeChange?: (enabled: boolean) => void;
+  /** Which side the menu opens toward. Bottom-anchored composers open 'top'
+   * (default); the centered new-thread landing passes 'bottom'. */
+  menuSide?: 'top' | 'bottom';
 }) {
   const { entries } = useAgentReadiness(null, true);
   const readinessByProvider = useMemo(() => {
@@ -872,7 +876,7 @@ export function ComposerAgentModelPicker({
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           align="start"
-          side="top"
+          side={menuSide}
           sideOffset={8}
           className="z-50 w-[220px] overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_18px_44px_rgba(15,23,42,0.14)]"
         >

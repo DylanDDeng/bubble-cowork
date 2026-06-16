@@ -638,6 +638,7 @@ export function NewSessionView() {
                       <CodexPermissionModePicker
                         value={agentSelection.codexPermissionMode}
                         onChange={agentSelection.setCodexPermissionMode}
+                        menuSide="bottom"
                       />
                     )}
                     {agentSelection.provider === 'claude' && (
@@ -645,12 +646,14 @@ export function NewSessionView() {
                         value={agentSelection.claudePermissionMode}
                         onChange={agentSelection.setClaudePermissionMode}
                         disabled={pendingStart}
+                        menuSide="bottom"
                       />
                     )}
                     {agentSelection.provider === 'kimi' && (
                       <KimiPermissionModePicker
                         value={agentSelection.kimiPermissionMode}
                         onChange={agentSelection.setKimiPermissionMode}
+                        menuSide="bottom"
                       />
                     )}
                   </div>
@@ -671,6 +674,7 @@ export function NewSessionView() {
                       onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
                       codexFastMode={agentSelection.codexFastMode}
                       onCodexFastModeChange={agentSelection.setCodexFastMode}
+                      menuSide="bottom"
                     />
                     <button
                       type="button"
