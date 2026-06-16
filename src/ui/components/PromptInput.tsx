@@ -62,6 +62,8 @@ export function PromptInput({
   approvalPending = false,
   approvalPanel,
   menuSide = 'top',
+  composerSurface = 'chat',
+  footer,
 }: {
   sessionId?: string | null;
   approvalPending?: boolean;
@@ -69,6 +71,13 @@ export function PromptInput({
   /** Which side the model/permission menus open toward. The bottom-anchored
    * chat composer keeps 'top'; the centered new-thread landing passes 'bottom'. */
   menuSide?: 'top' | 'bottom';
+  /** 'chat' is the bottom composer (large rounded pill, no tray). 'landing'
+   * wraps the input in a subtle gray tray that also holds `footer`, matching
+   * the new-thread first-entry composer. */
+  composerSurface?: 'chat' | 'landing';
+  /** Content rendered inside the composer tray, below the input (landing only) —
+   * e.g. the project / branch context pills. */
+  footer?: ReactNode;
 } = {}) {
   const {
     activeSessionId,
@@ -669,6 +678,14 @@ export function PromptInput({
     }
   };
 
+  const isLandingSurface = composerSurface === 'landing';
+  const composerOuterClass = isLandingSurface
+    ? 'group relative rounded-[18px] bg-[var(--bg-secondary)] p-1.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
+    : 'group relative rounded-[28px] bg-transparent transition-shadow duration-200';
+  const composerInnerClass = isLandingSurface
+    ? 'rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_1px_3px_rgba(15,23,42,0.06)] transition-colors duration-200 focus-within:border-[color-mix(in_srgb,var(--border)_50%,var(--text-secondary)_50%)]'
+    : 'rounded-[26px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)] transition-[border-color,box-shadow] duration-200 focus-within:border-[color-mix(in_srgb,var(--border)_92%,transparent)] focus-within:shadow-[0_20px_52px_rgba(15,23,42,0.12)]';
+
   return (
     <div className="bg-transparent">
       <div className="mx-auto max-w-4xl">
@@ -689,7 +706,7 @@ export function PromptInput({
             <span className="min-w-0 truncate">{contextWarning.message}</span>
           </div>
         ) : null}
-        <div className="group relative rounded-[28px] bg-transparent transition-shadow duration-200">
+        <div className={composerOuterClass}>
           {projectFileMentions.hasMentionQuery ? (
             <div className="absolute inset-x-0 bottom-full z-40">
               <ProjectFileMentionMenu
@@ -720,7 +737,7 @@ export function PromptInput({
           {approvalPending && approvalPanel ? (
             approvalPanel
           ) : (
-          <div className="rounded-[26px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)] transition-[border-color,box-shadow] duration-200 focus-within:border-[color-mix(in_srgb,var(--border)_92%,transparent)] focus-within:shadow-[0_20px_52px_rgba(15,23,42,0.12)]">
+          <div className={composerInnerClass}>
           {attachments.length > 0 && (
             <div className="px-5 pt-4">
               <AttachmentChips
@@ -862,6 +879,7 @@ export function PromptInput({
           </div>
           </div>
           )}
+          {footer && isLandingSurface ? footer : null}
         </div>
       </div>
     </div>

@@ -39,6 +39,20 @@ assert.equal(
   4,
   'PromptInput: all four pickers should receive menuSide={menuSide}'
 );
+// PromptInput supports a 'landing' surface that wraps the input in a gray tray
+// and renders the context-pill footer inside it.
+assert.ok(
+  /composerSurface\??:\s*'chat'\s*\|\s*'landing'/.test(prompt),
+  'PromptInput: must support a composerSurface prop'
+);
+assert.ok(
+  prompt.includes('bg-[var(--bg-secondary)]') && prompt.includes('isLandingSurface'),
+  'PromptInput: landing surface must apply the gray tray background'
+);
+assert.ok(
+  prompt.includes('footer && isLandingSurface'),
+  'PromptInput: the footer (context pills) must render inside the landing tray'
+);
 
 // 4. The centered new-thread landing (NewSessionView) opens every picker downward.
 const newSession = read('src/ui/components/NewSessionView.tsx');
@@ -52,8 +66,8 @@ assert.equal(
 //    bottom chat composers keep the default (no menuSide).
 const chatPane = read('src/ui/components/ChatPane.tsx');
 assert.ok(
-  chatPane.includes('<PromptInput sessionId={sessionId} menuSide="bottom" />'),
-  'ChatPane: the centered NewThreadLanding composer should pass menuSide="bottom"'
+  /composerSurface="landing"/.test(chatPane) && /menuSide="bottom"/.test(chatPane),
+  'ChatPane: the centered NewThreadLanding composer should open downward (landing surface)'
 );
 assert.ok(
   chatPane.includes('<PromptInput sessionId={sessionId} />'),

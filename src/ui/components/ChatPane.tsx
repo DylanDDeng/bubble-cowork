@@ -1526,14 +1526,20 @@ export function ChatPane({
               onConnectApps={openConnectAppsSettings}
             >
               <div className="mx-auto w-full max-w-3xl">
-                <PromptInput sessionId={sessionId} menuSide="bottom" />
-                <ComposerContextPills
-                  cwd={threadStarterCwd || null}
-                  projectName={threadStarterProject}
-                  hasSelectedCwd={Boolean(threadStarterCwd)}
-                  onBrowse={handleThreadStarterBrowse}
-                  recentOptions={threadStarterRecentOptions}
-                  onSelectRecent={switchDraftFolder}
+                <PromptInput
+                  sessionId={sessionId}
+                  menuSide="bottom"
+                  composerSurface="landing"
+                  footer={
+                    <ComposerContextPills
+                      cwd={threadStarterCwd || null}
+                      projectName={threadStarterProject}
+                      hasSelectedCwd={Boolean(threadStarterCwd)}
+                      onBrowse={handleThreadStarterBrowse}
+                      recentOptions={threadStarterRecentOptions}
+                      onSelectRecent={switchDraftFolder}
+                    />
+                  }
                 />
               </div>
             </NewThreadLanding>
