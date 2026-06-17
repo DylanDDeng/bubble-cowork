@@ -259,6 +259,13 @@
   box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
+/* Menu/dropdown trigger buttons (model, project, branch and permission pickers)
+   restore focus to the trigger after a pointer selection, which leaves the gray
+   focus ring "stuck" and reads as a selected state. Suppress it on these. */
+:where(button[aria-haspopup]):focus-visible {
+  box-shadow: none;
+}
+
 .composer-inline-chip {
   --composer-inline-chip-bg: var(--composer-chip-bg);
   --composer-inline-chip-text: var(--composer-chip-text);

@@ -34,6 +34,8 @@ export function ClaudePermissionModePicker({
         type="button"
         onClick={() => setOpen((currentOpen) => !currentOpen)}
         disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={open}
         className={`inline-flex items-center gap-1 rounded-md py-1 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
           value === 'bypassPermissions'
             ? 'text-[#b42318] hover:text-[#991b1b]'
