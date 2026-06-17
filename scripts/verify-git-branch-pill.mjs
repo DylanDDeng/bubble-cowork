@@ -15,17 +15,22 @@ const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 
 // 1. Static wiring checks.
 const pills = read('src/ui/components/ComposerContextPills.tsx');
-assert.ok(pills.includes('useGitBranch'), 'ComposerContextPills must use the git-branch hook');
+assert.ok(pills.includes('useGitBranches'), 'ComposerContextPills must use the git-branches hook');
 assert.ok(
   /isRepo\s*&&\s*branch\s*\?/.test(pills),
   'the branch pill must render only when isRepo && branch'
 );
 assert.ok(pills.includes('Work locally'), 'the "Work locally" pill must be present');
 assert.ok(!/>\s*main\s*</.test(pills), 'the branch must not be hardcoded to "main"');
+// The branch pill must be an interactive switcher, not a disabled label.
+assert.ok(
+  pills.includes('gitCheckoutBranch') && pills.includes('localBranches.map'),
+  'the branch pill must list branches and check out the selected one'
+);
 
-const hook = read('src/ui/hooks/useGitBranch.ts');
-assert.ok(hook.includes('getGitBranch'), 'useGitBranch must call the getGitBranch IPC');
-assert.ok(hook.includes('resolveGitBranchState'), 'useGitBranch must export the pure mapping');
+const hook = read('src/ui/hooks/useGitBranches.ts');
+assert.ok(hook.includes('getGitBranches'), 'useGitBranches must call the getGitBranches IPC');
+assert.ok(hook.includes('resolveGitBranchesState'), 'useGitBranches must use the pure mapping');
 
 const newSession = read('src/ui/components/NewSessionView.tsx');
 assert.ok(

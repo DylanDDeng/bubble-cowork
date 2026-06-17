@@ -1538,6 +1538,7 @@ export function ChatPane({
                       onBrowse={handleThreadStarterBrowse}
                       recentOptions={threadStarterRecentOptions}
                       onSelectRecent={switchDraftFolder}
+                      sessionId={sessionId}
                     />
                   }
                 />
