@@ -123,7 +123,7 @@ export function Settings() {
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-y-auto bg-[var(--bg-primary)]">
+      <main className="min-w-0 flex-1 overflow-y-auto bg-[var(--bg-primary)] select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text">
         <div
           className="mx-auto max-w-3xl px-10 py-8"
         >
