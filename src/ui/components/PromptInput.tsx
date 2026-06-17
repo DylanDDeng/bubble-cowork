@@ -679,11 +679,13 @@ export function PromptInput({
   };
 
   const isLandingSurface = composerSurface === 'landing';
+  // Landing: a flat gray tray (recessed) with the white input box raised on top
+  // via its own shadow; the tray only shows below the box, holding the pills.
   const composerOuterClass = isLandingSurface
-    ? 'group relative rounded-[18px] bg-[var(--bg-secondary)] p-1.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
+    ? 'group relative rounded-[18px] bg-[var(--bg-secondary)] shadow-[0_2px_8px_rgba(15,23,42,0.04)]'
     : 'group relative rounded-[28px] bg-transparent transition-shadow duration-200';
   const composerInnerClass = isLandingSurface
-    ? 'rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_1px_3px_rgba(15,23,42,0.06)] transition-colors duration-200 focus-within:border-[color-mix(in_srgb,var(--border)_50%,var(--text-secondary)_50%)]'
+    ? 'rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_4px_16px_rgba(15,23,42,0.08)]'
     : 'rounded-[26px] border border-[color-mix(in_srgb,var(--border)_72%,transparent)] bg-[var(--bg-primary)] shadow-[0_18px_44px_rgba(15,23,42,0.08)] transition-[border-color,box-shadow] duration-200 focus-within:border-[color-mix(in_srgb,var(--border)_92%,transparent)] focus-within:shadow-[0_20px_52px_rgba(15,23,42,0.12)]';
 
   return (

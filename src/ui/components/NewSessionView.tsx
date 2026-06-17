@@ -547,7 +547,7 @@ export function NewSessionView() {
         onPickSuggestion={handleUseStarter}
         onConnectApps={handleConnectApps}
       >
-            <div className="group relative rounded-[18px] bg-[var(--bg-secondary)] p-1.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <div className="group relative rounded-[18px] bg-[var(--bg-secondary)] shadow-[0_2px_8px_rgba(15,23,42,0.04)]">
               {projectFileMentions.hasMentionQuery ? (
                 <div className="absolute inset-x-0 bottom-full z-40 mb-1">
                   <ProjectFileMentionMenu
@@ -576,7 +576,7 @@ export function NewSessionView() {
                 </div>
               ) : null}
 
-              <div className="rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_1px_3px_rgba(15,23,42,0.06)] transition-colors duration-200 focus-within:border-[color-mix(in_srgb,var(--border)_50%,var(--text-secondary)_50%)]">
+              <div className="rounded-[18px] border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_4px_16px_rgba(15,23,42,0.08)]">
                 {attachments.length > 0 && (
                   <div className="px-4 pt-4">
                     <AttachmentChips
