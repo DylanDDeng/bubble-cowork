@@ -1142,6 +1142,10 @@ export const useAppStore = create<Store>()(
       mcpGlobalServers: {},
       mcpProjectServers: {},
       mcpCodexGlobalServers: {},
+      mcpOpencodeGlobalServers: {},
+      mcpOpencodeProjectServers: {},
+      mcpKimiGlobalServers: {},
+      mcpKimiProjectServers: {},
       mcpServerStatus: [],
       claudeUserSkills: [],
       claudeProjectSkills: [],
@@ -1236,6 +1240,10 @@ export const useAppStore = create<Store>()(
           mcpGlobalServers: event.payload.globalServers || event.payload.servers,
           mcpProjectServers: event.payload.projectServers || {},
           mcpCodexGlobalServers: event.payload.codexGlobalServers || {},
+          mcpOpencodeGlobalServers: event.payload.opencodeGlobalServers || {},
+          mcpOpencodeProjectServers: event.payload.opencodeProjectServers || {},
+          mcpKimiGlobalServers: event.payload.kimiGlobalServers || {},
+          mcpKimiProjectServers: event.payload.kimiProjectServers || {},
         });
         break;
 

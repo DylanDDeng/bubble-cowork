@@ -27,7 +27,7 @@ const SETTINGS_TABS = {
   mcp: {
     label: 'MCP Servers',
     title: 'MCP Servers',
-    description: 'Manage MCP tool backends for Claude Code and Codex.',
+    description: 'Manage MCP tool backends for Claude Code, Codex, OpenCode, and Kimi.',
     icon: <Server className="w-4 h-4" />,
   },
   providers: {

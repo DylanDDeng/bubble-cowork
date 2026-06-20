@@ -337,6 +337,10 @@ export interface AppState {
   mcpGlobalServers: Record<string, import('../shared/types').McpServerConfig>;
   mcpProjectServers: Record<string, import('../shared/types').McpServerConfig>;
   mcpCodexGlobalServers: Record<string, import('../shared/types').McpServerConfig>;
+  mcpOpencodeGlobalServers: Record<string, import('../shared/types').McpServerConfig>;
+  mcpOpencodeProjectServers: Record<string, import('../shared/types').McpServerConfig>;
+  mcpKimiGlobalServers: Record<string, import('../shared/types').McpServerConfig>;
+  mcpKimiProjectServers: Record<string, import('../shared/types').McpServerConfig>;
   mcpServerStatus: import('../shared/types').McpServerStatus[];
   claudeUserSkills: import('../shared/types').ClaudeSkillSummary[];
   claudeProjectSkills: import('../shared/types').ClaudeSkillSummary[];

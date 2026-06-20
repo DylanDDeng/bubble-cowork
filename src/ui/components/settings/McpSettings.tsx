@@ -6,11 +6,16 @@ import { sendEvent } from '../../hooks/useIPC';
 import type { McpServerConfig, McpServerStatus } from '../../types';
 import { SettingsGroup } from './SettingsPrimitives';
 
-type StatusTone = 'success' | 'warning' | 'error' | 'muted';
-
-type ServerTool = 'claude' | 'codex';
+type ServerTool = 'claude' | 'codex' | 'opencode' | 'kimi';
 type ServerScope = 'global' | 'project';
-type GroupId = 'claude-global' | 'claude-project' | 'codex-global';
+type GroupId =
+  | 'claude-global'
+  | 'claude-project'
+  | 'codex-global'
+  | 'opencode-global'
+  | 'opencode-project'
+  | 'kimi-global'
+  | 'kimi-project';
 
 interface ActiveEditorState {
   groupId: GroupId;
@@ -54,6 +59,10 @@ export function McpSettingsContent() {
     mcpGlobalServers,
     mcpProjectServers,
     mcpCodexGlobalServers,
+    mcpOpencodeGlobalServers,
+    mcpOpencodeProjectServers,
+    mcpKimiGlobalServers,
+    mcpKimiProjectServers,
     mcpServerStatus,
     showSettings,
     activeSessionId,
@@ -109,11 +118,59 @@ export function McpSettingsContent() {
       allowedTransports: ['stdio'],
     });
 
+    items.push({
+      id: 'opencode-global',
+      tool: 'opencode',
+      scope: 'global',
+      title: 'Global Servers',
+      description: 'Written to ~/.config/opencode/opencode.json. Supports local (stdio) and remote (HTTP) servers.',
+      servers: mcpOpencodeGlobalServers,
+      allowedTransports: ['stdio', 'http'],
+    });
+
+    if (currentProjectPath) {
+      items.push({
+        id: 'opencode-project',
+        tool: 'opencode',
+        scope: 'project',
+        title: 'Project Servers',
+        description: `Written to opencode.json in ${currentProjectName}.`,
+        servers: mcpOpencodeProjectServers,
+        allowedTransports: ['stdio', 'http'],
+      });
+    }
+
+    items.push({
+      id: 'kimi-global',
+      tool: 'kimi',
+      scope: 'global',
+      title: 'Global Servers',
+      description: 'Written to ~/.kimi/mcp.json. Supports local (stdio) and remote (HTTP) servers.',
+      servers: mcpKimiGlobalServers,
+      allowedTransports: ['stdio', 'http'],
+    });
+
+    if (currentProjectPath) {
+      items.push({
+        id: 'kimi-project',
+        tool: 'kimi',
+        scope: 'project',
+        title: 'Project Servers',
+        description: `Written to .kimi-code/mcp.json in ${currentProjectName}.`,
+        servers: mcpKimiProjectServers,
+        allowedTransports: ['stdio', 'http'],
+      });
+    }
+
     return items;
   }, [
     mcpGlobalServers,
     mcpProjectServers,
     mcpCodexGlobalServers,
+    mcpOpencodeGlobalServers,
+    mcpOpencodeProjectServers,
+    mcpKimiGlobalServers,
+    mcpKimiProjectServers,
     currentProjectPath,
     currentProjectName,
   ]);
@@ -140,6 +197,40 @@ export function McpSettingsContent() {
       sendEvent({
         type: 'mcp.save-config',
         payload: { codexGlobalServers: nextServers },
+      });
+      return;
+    }
+    if (groupId === 'opencode-global') {
+      sendEvent({
+        type: 'mcp.save-config',
+        payload: { opencodeGlobalServers: nextServers },
+      });
+      return;
+    }
+    if (groupId === 'opencode-project') {
+      sendEvent({
+        type: 'mcp.save-config',
+        payload: {
+          opencodeProjectServers: nextServers,
+          projectPath: currentProjectPath,
+        },
+      });
+      return;
+    }
+    if (groupId === 'kimi-global') {
+      sendEvent({
+        type: 'mcp.save-config',
+        payload: { kimiGlobalServers: nextServers },
+      });
+      return;
+    }
+    if (groupId === 'kimi-project') {
+      sendEvent({
+        type: 'mcp.save-config',
+        payload: {
+          kimiProjectServers: nextServers,
+          projectPath: currentProjectPath,
+        },
       });
     }
   };
@@ -180,7 +271,7 @@ export function McpSettingsContent() {
   );
 
   const counts = useMemo(() => {
-    const byTool: Record<ServerTool, number> = { claude: 0, codex: 0 };
+    const byTool: Record<ServerTool, number> = { claude: 0, codex: 0, opencode: 0, kimi: 0 };
     for (const group of groups) {
       byTool[group.tool] += Object.keys(group.servers).length;
     }
@@ -233,6 +324,16 @@ function ToolTabBar({
       id: 'codex',
       label: 'Codex',
       hint: '~/.codex/config.toml',
+    },
+    {
+      id: 'opencode',
+      label: 'OpenCode',
+      hint: '~/.config/opencode/opencode.json',
+    },
+    {
+      id: 'kimi',
+      label: 'Kimi',
+      hint: '~/.kimi/mcp.json',
     },
   ];
 
@@ -301,6 +402,16 @@ function ServerGroupSection({
   const emptyDescription = (() => {
     if (group.tool === 'codex') {
       return 'Add a local MCP server for the Codex CLI. Written to ~/.codex/config.toml.';
+    }
+    if (group.tool === 'opencode') {
+      return group.scope === 'project'
+        ? 'Add a workspace-only MCP server for the OpenCode CLI. Written to opencode.json in this project.'
+        : 'Add an MCP server for the OpenCode CLI. Written to ~/.config/opencode/opencode.json.';
+    }
+    if (group.tool === 'kimi') {
+      return group.scope === 'project'
+        ? 'Add a workspace-only MCP server for the Kimi CLI. Written to .kimi-code/mcp.json in this project.'
+        : 'Add an MCP server for the Kimi CLI. Written to ~/.kimi/mcp.json.';
     }
     return group.scope === 'global'
       ? 'Add a reusable MCP connection to make tools available in every Claude Code workspace.'
@@ -394,14 +505,12 @@ function ServerListRow({
         type="button"
         onClick={onToggleExpand}
         aria-expanded={expanded}
-        className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--bg-secondary)]"
+        className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--bg-secondary)]"
       >
-        <ServerAvatar name={name} tone={statusMeta.tone} />
         <div className="min-w-0">
           <div className="truncate text-[13px] font-medium text-[var(--text-primary)]">{name}</div>
-          <div className="mt-0.5 flex items-center gap-1.5 text-[12px] leading-5 text-[var(--text-muted)]">
-            <span className={`inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full ${getStatusDotClassName(statusMeta.tone)}`} />
-            <span className="truncate">{subline}</span>
+          <div className="mt-0.5 truncate text-[12px] leading-5 text-[var(--text-muted)]">
+            {subline}
           </div>
         </div>
         <div className="flex items-center gap-1 text-[var(--text-muted)]">
@@ -467,9 +576,13 @@ function NewServerRow({
   const hint =
     group.tool === 'codex'
       ? 'Add a Codex CLI MCP server.'
-      : group.scope === 'global'
-        ? 'Add a Claude Code global MCP server.'
-        : 'Add a Claude Code project MCP server.';
+      : group.tool === 'opencode'
+        ? 'Add an OpenCode CLI MCP server.'
+        : group.tool === 'kimi'
+          ? 'Add a Kimi CLI MCP server.'
+          : group.scope === 'global'
+            ? 'Add a Claude Code global MCP server.'
+            : 'Add a Claude Code project MCP server.';
 
   return (
     <div>
@@ -527,20 +640,6 @@ function EmptyStateRow({
         <span>{actionLabel}</span>
       </button>
     </div>
-  );
-}
-
-function ServerAvatar({ name, tone }: { name: string; tone: StatusTone }) {
-  const trimmed = name.trim();
-  const letter = (trimmed.charAt(0) || '?').toUpperCase();
-  return (
-    <span className="relative flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-[8px] bg-[var(--accent)] text-[12px] font-semibold text-[var(--accent-foreground)]">
-      <span aria-hidden="true">{letter}</span>
-      <span
-        className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-[var(--bg-primary)] ${getStatusDotClassName(tone)}`}
-        aria-hidden="true"
-      />
-    </span>
   );
 }
 
@@ -968,9 +1067,3 @@ function getInputClassName(hasError: boolean) {
   }`;
 }
 
-function getStatusDotClassName(tone: 'success' | 'warning' | 'error' | 'muted') {
-  if (tone === 'success') return 'bg-green-500';
-  if (tone === 'warning') return 'bg-amber-500';
-  if (tone === 'error') return 'bg-red-500';
-  return 'bg-slate-400';
-}

@@ -17,6 +17,18 @@ import { normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './li
 import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfig, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
 import { getCodexMcpServers, saveCodexMcpServers } from './libs/codex-mcp-settings';
 import {
+  getOpencodeMcpServers,
+  saveOpencodeMcpServers,
+  getOpencodeProjectMcpServers,
+  saveOpencodeProjectMcpServers,
+} from './libs/opencode-mcp-settings';
+import {
+  getKimiMcpServers,
+  saveKimiMcpServers,
+  getKimiProjectMcpServers,
+  saveKimiProjectMcpServers,
+} from './libs/kimi-mcp-settings';
+import {
   loadCompatibleProviderConfig,
   saveCompatibleProviderConfig,
 } from './libs/compatible-provider-config';
@@ -8775,6 +8787,10 @@ function handleMcpGetConfig(mainWindow: BrowserWindow, projectPath?: string): vo
   const globalServers = getGlobalMcpServers();
   const projectServers = projectPath ? getProjectMcpServers(projectPath) : {};
   const codexGlobalServers = getCodexMcpServers();
+  const opencodeGlobalServers = getOpencodeMcpServers();
+  const opencodeProjectServers = projectPath ? getOpencodeProjectMcpServers(projectPath) : {};
+  const kimiGlobalServers = getKimiMcpServers();
+  const kimiProjectServers = projectPath ? getKimiProjectMcpServers(projectPath) : {};
 
   // 合并用于向后兼容
   const mergedServers = { ...globalServers, ...projectServers };
@@ -8786,6 +8802,10 @@ function handleMcpGetConfig(mainWindow: BrowserWindow, projectPath?: string): vo
       globalServers,
       projectServers,
       codexGlobalServers,
+      opencodeGlobalServers,
+      opencodeProjectServers,
+      kimiGlobalServers,
+      kimiProjectServers,
     },
   });
 }
@@ -8798,6 +8818,10 @@ function handleMcpSaveConfig(
     globalServers?: Record<string, McpServerConfig>;
     projectServers?: Record<string, McpServerConfig>;
     codexGlobalServers?: Record<string, McpServerConfig>;
+    opencodeGlobalServers?: Record<string, McpServerConfig>;
+    opencodeProjectServers?: Record<string, McpServerConfig>;
+    kimiGlobalServers?: Record<string, McpServerConfig>;
+    kimiProjectServers?: Record<string, McpServerConfig>;
     projectPath?: string;
   }
 ): void {
@@ -8823,10 +8847,50 @@ function handleMcpSaveConfig(
     }
   }
 
+  // 保存 OpenCode 全局配置（写入 ~/.config/opencode/opencode.json）
+  if (payload.opencodeGlobalServers !== undefined) {
+    try {
+      saveOpencodeMcpServers(payload.opencodeGlobalServers);
+    } catch (error) {
+      console.warn('Failed to save OpenCode MCP servers:', error);
+    }
+  }
+
+  // 保存 OpenCode 项目级配置（写入 <项目根>/opencode.json）
+  if (payload.projectPath && payload.opencodeProjectServers !== undefined) {
+    try {
+      saveOpencodeProjectMcpServers(payload.projectPath, payload.opencodeProjectServers);
+    } catch (error) {
+      console.warn('Failed to save OpenCode project MCP servers:', error);
+    }
+  }
+
+  // 保存 Kimi 全局配置（写入 ~/.kimi/mcp.json）
+  if (payload.kimiGlobalServers !== undefined) {
+    try {
+      saveKimiMcpServers(payload.kimiGlobalServers);
+    } catch (error) {
+      console.warn('Failed to save Kimi MCP servers:', error);
+    }
+  }
+
+  // 保存 Kimi 项目级配置（写入 <项目根>/.kimi-code/mcp.json）
+  if (payload.projectPath && payload.kimiProjectServers !== undefined) {
+    try {
+      saveKimiProjectMcpServers(payload.projectPath, payload.kimiProjectServers);
+    } catch (error) {
+      console.warn('Failed to save Kimi project MCP servers:', error);
+    }
+  }
+
   // 返回更新后的配置
   const globalServers = getGlobalMcpServers();
   const projectServers = payload.projectPath ? getProjectMcpServers(payload.projectPath) : {};
   const codexGlobalServers = getCodexMcpServers();
+  const opencodeGlobalServers = getOpencodeMcpServers();
+  const opencodeProjectServers = payload.projectPath ? getOpencodeProjectMcpServers(payload.projectPath) : {};
+  const kimiGlobalServers = getKimiMcpServers();
+  const kimiProjectServers = payload.projectPath ? getKimiProjectMcpServers(payload.projectPath) : {};
 
   broadcast(mainWindow, {
     type: 'mcp.config',
@@ -8835,6 +8899,10 @@ function handleMcpSaveConfig(
       globalServers,
       projectServers,
       codexGlobalServers,
+      opencodeGlobalServers,
+      opencodeProjectServers,
+      kimiGlobalServers,
+      kimiProjectServers,
     },
   });
 }
