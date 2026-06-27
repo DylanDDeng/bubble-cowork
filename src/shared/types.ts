@@ -83,6 +83,8 @@ export interface McpServerStatus {
   name: string;
   status: 'connected' | 'failed' | 'pending';
   error?: string;
+  /** Which agent reported this status. Used to avoid cross-agent name collisions. */
+  tool?: 'claude' | 'codex' | 'opencode' | 'kimi';
 }
 
 // Claude Skills 摘要

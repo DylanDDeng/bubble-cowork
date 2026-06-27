@@ -42,6 +42,7 @@ interface McpServerStatus {
   name: string;
   status: 'connected' | 'failed' | 'pending';
   error?: string;
+  tool?: 'claude' | 'codex' | 'opencode' | 'kimi';
 }
 
 // SDK 消息类型定义

@@ -24,6 +24,7 @@ import type {
   CodexRateLimitSnapshot,
   CodexRateLimitWindow,
   ProviderSkillDescriptor,
+  McpServerStatus,
 } from '../../../shared/types';
 import { isDev } from '../../util';
 
@@ -1259,7 +1260,15 @@ export class CodexAppServerManager extends EventEmitter {
       }
 
       case 'mcpServer/startupStatus/updated': {
-        this.emit('mcp_status_updated', { params });
+        const servers = this.parseMcpStartupStatus(params);
+        if (isDev()) {
+          console.log(
+            '[Codex AppServer] mcp status updated',
+            'raw=', JSON.stringify(params),
+            'decoded=', JSON.stringify(servers)
+          );
+        }
+        this.emit('mcp_status_updated', { servers });
         break;
       }
 
@@ -1269,6 +1278,56 @@ export class CodexAppServerManager extends EventEmitter {
           console.log('[Codex AppServer] unhandled notification', method);
         }
     }
+  }
+
+  /**
+   * Decode the `mcpServer/startupStatus/updated` notification params into
+   * McpServerStatus[]. The Codex app-server protocol payload is not documented
+   * in the codebase, so this decodes defensively against the most likely
+   * shapes (params.servers / params.mcpServers / params.mcp_servers / params
+   * itself being an array). The raw payload is logged in dev mode above so the
+   * decoder can be tightened once a real sample is captured.
+   */
+  private parseMcpStartupStatus(params: Record<string, unknown>): McpServerStatus[] {
+    const candidates: unknown[] =
+      this.readArray(params, 'servers') ??
+      this.readArray(params, 'mcpServers') ??
+      this.readArray(params, 'mcp_servers') ??
+      (Array.isArray(params) ? params : []);
+
+    const result: McpServerStatus[] = [];
+    for (const entry of candidates) {
+      const obj = this.asObject(entry);
+      if (!obj) continue;
+      const name =
+        this.readString(obj, 'name') ??
+        this.readString(obj, 'serverName') ??
+        this.readString(obj, 'id');
+      if (!name) continue;
+      const rawStatus = (
+        this.readString(obj, 'status') ??
+        this.readString(obj, 'state') ??
+        ''
+      ).toLowerCase();
+      const status: McpServerStatus['status'] =
+        rawStatus === 'connected' ||
+        rawStatus === 'ready' ||
+        rawStatus === 'running' ||
+        rawStatus === 'started' ||
+        rawStatus === 'ok'
+          ? 'connected'
+          : rawStatus === 'failed' ||
+              rawStatus === 'error' ||
+              rawStatus === 'crashed'
+            ? 'failed'
+            : 'pending';
+      const errorStr = this.readString(obj, 'error');
+      const errorObj = this.asObject(obj.error);
+      const error =
+        errorStr ?? this.readString(errorObj, 'message') ?? undefined;
+      result.push({ name, status, ...(error ? { error } : {}) });
+    }
+    return result;
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────

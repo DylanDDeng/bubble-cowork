@@ -483,6 +483,17 @@ export class CodexAdapter implements ProviderAdapter {
       };
       this.emit({ type: 'message', threadId, message });
     });
+
+    // MCP server startup status is global to the codex app-server (not
+    // per-thread). Forward it as an mcp_status StreamMessage on every active
+    // thread so the renderer can update the per-agent MCP status panel.
+    this.manager.on('mcp_status_updated', ({ servers }) => {
+      if (!Array.isArray(servers) || servers.length === 0) return;
+      const message: StreamMessage = { type: 'mcp_status', servers };
+      for (const threadId of this.sessions.keys()) {
+        this.emit({ type: 'message', threadId, message });
+      }
+    });
   }
 
   private emit(event: ProviderRuntimeEvent): void {

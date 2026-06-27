@@ -431,12 +431,13 @@ function ServerGroupSection({
 
       {serverEntries.map(([name, config]) => {
         const isExpanded = activeEditor?.groupId === group.id && activeEditor.name === name;
-        // Codex 与 Claude 共用一套 mcpServerStatus，不同工具下重名时状态无法精确区分。
-        // 目前只对 Claude 显示状态点，Codex 先保持为 "Unknown"。
-        const status =
-          group.tool === 'claude'
-            ? statusEntries.find((entry) => entry.name === name)
-            : undefined;
+        // mcpServerStatus entries are tagged with the reporting agent (tool).
+        // Match by name AND tool so Claude/Codex statuses coexist without
+        // cross-agent name collisions. Opencode/Kimi never report status
+        // (their ACP protocol doesn't expose it), so they stay "Unknown".
+        const status = statusEntries.find(
+          (entry) => entry.name === name && (!entry.tool || entry.tool === group.tool)
+        );
         return (
           <ServerListRow
             key={`${group.id}-${name}`}
@@ -496,7 +497,8 @@ function ServerListRow({
   onCancel: () => void;
 }) {
   const statusMeta = getStatusMeta(status);
-  const sublineParts = [statusMeta.label, (config.type || 'stdio').toUpperCase()];
+  const transport = (config.type || 'stdio').toUpperCase();
+  const sublineParts = status ? [statusMeta.label, transport] : [transport];
   const subline = sublineParts.join(' · ');
 
   return (
