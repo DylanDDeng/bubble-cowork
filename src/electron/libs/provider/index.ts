@@ -5,3 +5,4 @@ export * from './service';
 export { CodexAppServerManager } from './codex-app-server-manager';
 export { CodexAdapter } from './codex-adapter';
 export { KimiAcpAdapter } from './kimi-acp-adapter';
+export { GrokAcpAdapter } from './grok-acp-adapter';

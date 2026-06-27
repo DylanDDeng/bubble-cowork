@@ -249,7 +249,7 @@ function normalizeAgentPermissionPolicyForProfile(
 }
 
 function normalizeAgentProvider(value: unknown): AgentProvider {
-  return value === 'codex' || value === 'opencode' || value === 'kimi'
+  return value === 'codex' || value === 'opencode' || value === 'kimi' || value === 'grok'
     ? value
     : 'claude';
 }
@@ -3394,7 +3394,7 @@ function handleStreamMessage(
       provider === 'claude' ||
       provider === 'codex' ||
       provider === 'opencode' ||
-      provider === 'kimi'
+      provider === 'kimi' || provider === 'grok'
         ? provider
         : undefined;
     const incoming: McpServerStatus[] =

@@ -281,7 +281,7 @@ export function NewSessionView() {
                 ? agentSelection.codexPermissionMode
                 : undefined,
             kimiPermissionMode:
-              agentSelection.provider === 'kimi'
+              agentSelection.provider === 'kimi' || agentSelection.provider === 'grok'
                 ? agentSelection.kimiPermissionMode
                 : undefined,
         teamMode: 'solo',
@@ -637,7 +637,7 @@ export function NewSessionView() {
                         menuSide="bottom"
                       />
                     )}
-                    {agentSelection.provider === 'kimi' && (
+                    {agentSelection.provider === 'kimi' || agentSelection.provider === 'grok' && (
                       <KimiPermissionModePicker
                         value={agentSelection.kimiPermissionMode}
                         onChange={agentSelection.setKimiPermissionMode}

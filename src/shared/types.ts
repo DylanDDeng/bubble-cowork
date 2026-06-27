@@ -84,7 +84,7 @@ export interface McpServerStatus {
   status: 'connected' | 'failed' | 'pending';
   error?: string;
   /** Which agent reported this status. Used to avoid cross-agent name collisions. */
-  tool?: 'claude' | 'codex' | 'opencode' | 'kimi';
+  tool?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok';
 }
 
 // Claude Skills 摘要
@@ -114,6 +114,8 @@ export type ClaudeReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type CodexExecutionMode = 'execute' | 'plan';
 export type CodexPermissionMode = 'defaultPermissions' | 'auto' | 'fullAccess';
 export type KimiPermissionMode = 'default' | 'plan' | 'auto' | 'yolo';
+export type GrokPermissionMode = 'default' | 'plan' | 'auto' | 'yolo';
+export type GrokReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'fullAccess';
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
 export type PlanStepStatus = 'pending' | 'inProgress' | 'completed';
@@ -171,6 +173,20 @@ export interface KimiModelConfig {
   }>;
 }
 
+export interface GrokModelConfig {
+  defaultModel: string | null;
+  options: string[];
+  availableModels: Array<{
+    name: string;
+    label?: string;
+    provider?: string | null;
+    enabled: boolean;
+    isDefault: boolean;
+    maxContextSize?: number | null;
+    capabilities?: string[];
+  }>;
+}
+
 export interface CodexRuntimeStatus {
   ready: boolean;
   cliAvailable: boolean;
@@ -188,6 +204,7 @@ export interface OpenCodeRuntimeStatus {
 }
 
 export type KimiRuntimeAuthState = 'unknown' | 'ready' | 'login_required' | 'error';
+export type GrokRuntimeAuthState = 'unknown' | 'ready' | 'login_required' | 'error';
 
 export interface KimiRuntimeStatus {
   ready: boolean;
@@ -196,6 +213,19 @@ export interface KimiRuntimeStatus {
   cliVersion: string | null;
   acpAvailable: boolean;
   authState: KimiRuntimeAuthState;
+  loginCommand: string | null;
+  summary: string;
+  detail: string;
+  checkedAt: number;
+}
+
+export interface GrokRuntimeStatus {
+  ready: boolean;
+  cliAvailable: boolean;
+  cliPath: string | null;
+  cliVersion: string | null;
+  acpAvailable: boolean;
+  authState: GrokRuntimeAuthState;
   loginCommand: string | null;
   summary: string;
   detail: string;
@@ -386,13 +416,14 @@ export interface WorkspaceChannel {
 }
 
 // Agent 提供商 / runtime
-export type AgentProvider = 'claude' | 'codex' | 'opencode' | 'kimi';
+export type AgentProvider = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok';
 export type SessionSource =
   | 'aegis'
   | 'claude_remote'
   | 'codex_local'
   | 'opencode_local'
-  | 'kimi_local';
+  | 'kimi_local'
+  | 'grok_local';
 
 export interface ProviderComposerCapabilities {
   provider: AgentProvider;
@@ -746,6 +777,8 @@ export interface SessionStartPayload {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: KimiPermissionMode;
+  grokPermissionMode?: GrokPermissionMode;
+  grokReasoningEffort?: GrokReasoningEffort;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
@@ -778,6 +811,8 @@ export interface SessionContinuePayload {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: KimiPermissionMode;
+  grokPermissionMode?: GrokPermissionMode;
+  grokReasoningEffort?: GrokReasoningEffort;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
@@ -973,6 +1008,8 @@ export interface RoutedAgentRuntimePayload {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: KimiPermissionMode;
+  grokPermissionMode?: GrokPermissionMode;
+  grokReasoningEffort?: GrokReasoningEffort;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
@@ -1080,6 +1117,8 @@ export interface SessionInfo {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: KimiPermissionMode;
+  grokPermissionMode?: GrokPermissionMode;
+  grokReasoningEffort?: GrokReasoningEffort;
   opencodePermissionMode?: OpenCodePermissionMode;
   pinned?: boolean;
   folderPath?: string | null;
@@ -1122,6 +1161,8 @@ export interface SessionStatusPayload {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: KimiPermissionMode;
+  grokPermissionMode?: GrokPermissionMode;
+  grokReasoningEffort?: GrokReasoningEffort;
   opencodePermissionMode?: OpenCodePermissionMode;
   hiddenFromThreads?: boolean;
   channelId?: string;
@@ -1206,7 +1247,7 @@ export interface AcpPermissionOption {
 
 export interface AcpPermissionInput {
   kind: 'acp-permission';
-  provider: 'kimi';
+  provider: 'kimi' | 'grok';
   question: string;
   title: string;
   toolName: string;

@@ -49,7 +49,9 @@ import { getCodexRuntimeStatus } from './libs/codex-runtime-status';
 import { getOpencodeModelConfig, saveOpencodeModelVisibility } from './libs/opencode-settings';
 import { getOpencodeRuntimeStatus } from './libs/opencode-runtime-status';
 import { getKimiModelConfig } from './libs/kimi-settings';
+import { getGrokModelConfig } from './libs/grok-settings';
 import { formatKimiRuntimeBlockingMessage, getKimiRuntimeStatus } from './libs/kimi-runtime-status';
+import { formatGrokRuntimeBlockingMessage, getGrokRuntimeStatus } from './libs/grok-runtime-status';
 import { AutomationScheduler } from './libs/automation-scheduler';
 import {
   deletePromptLibraryItem,
@@ -1436,6 +1438,7 @@ function formatProviderLabel(provider: SessionInfo['provider']): string {
   if (provider === 'codex') return 'Codex';
   if (provider === 'opencode') return 'OpenCode';
   if (provider === 'kimi') return 'Kimi Code';
+  if (provider === 'grok') return 'Grok Build';
   return 'Claude Code';
 }
 
@@ -3113,7 +3116,7 @@ const runnerHandles = new Map<
   string,
   {
     handle: RunnerHandle;
-    provider: 'claude' | 'codex' | 'opencode' | 'kimi';
+    provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok';
     compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
     claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
     claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode;
@@ -4197,6 +4200,14 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('get-kimi-runtime-status', async () => {
     return getKimiRuntimeStatus();
+  });
+
+  ipcMainHandle('get-grok-runtime-status', async () => {
+    return getGrokRuntimeStatus();
+  });
+
+  ipcMainHandle('get-grok-model-config', async () => {
+    return getGrokModelConfig();
   });
 
   ipcMainHandle('get-claude-runtime-status', async (_event, model?: string | null) => {
@@ -6101,7 +6112,9 @@ function handleSessionList(mainWindow: BrowserWindow): void {
             ? 'opencode_local'
             : row.provider === 'kimi'
               ? 'kimi_local'
-              : 'aegis',
+              : row.provider === 'grok'
+                ? 'grok_local'
+                : 'aegis',
     readOnly: row.session_origin === 'claude_remote',
     cwd: row.cwd || undefined,
     projectCwd: row.project_cwd || row.cwd || null,
@@ -6192,6 +6205,7 @@ function normalizeRoutedAgentRuntimePayload(
     turn?.provider === 'codex' ||
     turn?.provider === 'opencode' ||
     turn?.provider === 'kimi' ||
+    turn?.provider === 'grok' ||
     turn?.provider === 'claude'
       ? turn.provider
       : 'claude';
@@ -6379,6 +6393,23 @@ async function ensureRoutedAgentTurnRuntimeReady(
         type: 'runner.error',
         payload: {
           message: formatKimiRuntimeBlockingMessage(runtimeStatus),
+          sessionId,
+        },
+      });
+      return false;
+    }
+  } else if (provider === 'grok') {
+    const runtimeStatus = await getGrokRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(sessionId, 'error');
+      broadcast(mainWindow, {
+        type: 'session.status',
+        payload: { sessionId, status: 'error' },
+      });
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatGrokRuntimeBlockingMessage(runtimeStatus),
           sessionId,
         },
       });
@@ -6981,6 +7012,8 @@ async function runRoutedAgentTurn(
           ? sessions.getSession(sessionId)?.opencode_session_id ?? undefined
           : runtime.provider === 'kimi'
             ? sessions.getSession(sessionId)?.kimi_session_id ?? undefined
+            : runtime.provider === 'grok'
+              ? sessions.getSession(sessionId)?.grok_session_id ?? undefined
           : undefined;
 
   if (runtime.provider === 'claude' && !resumeSessionId && historyBeforeTurn.length > 0) {
@@ -7042,6 +7075,8 @@ async function runRoutedAgentTurn(
         ? (runtime.selectedOpenCodePermissionMode || 'defaultPermissions')
         : undefined,
       runtime.provider === 'kimi' ? normalizeKimiPermissionMode(turn.kimiPermissionMode) : undefined,
+      undefined,
+      undefined,
       runtime.provider === 'codex' ? turn.codexSkills : undefined,
       runtime.provider === 'codex' ? turn.codexMentions : undefined,
       turn.routedAgentId,
@@ -7087,6 +7122,8 @@ async function handleSessionStart(
     codexSkills,
     codexMentions,
     kimiPermissionMode,
+    grokPermissionMode,
+    grokReasoningEffort,
     opencodePermissionMode,
     routedAgentProfile,
     routedAgentId,
@@ -7310,6 +7347,22 @@ async function handleSessionStart(
       });
       return null;
     }
+  } else if (chosenProvider === 'grok') {
+    const runtimeStatus = await getGrokRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(session.id, 'error');
+      if (automationRunId) {
+        sessions.finishAutomationRun(automationRunId, 'failed', formatGrokRuntimeBlockingMessage(runtimeStatus));
+        broadcastAutomationChanged(mainWindow);
+      }
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatGrokRuntimeBlockingMessage(runtimeStatus),
+        },
+      });
+      return null;
+    }
   }
 
   // 异步生成更好的标题（不阻塞）
@@ -7379,6 +7432,8 @@ async function handleSessionStart(
     chosenProvider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
     chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
     selectedKimiPermissionMode,
+    undefined,
+    undefined,
     chosenProvider === 'codex' ? codexSkills : undefined,
     chosenProvider === 'codex' ? codexMentions : undefined,
     turnAgentId,
@@ -7421,6 +7476,8 @@ async function handleSessionContinue(
     codexSkills,
     codexMentions,
     kimiPermissionMode,
+    grokPermissionMode,
+    grokReasoningEffort,
     opencodePermissionMode,
     routedAgentProfile,
     routedAgentId,
@@ -7767,11 +7824,24 @@ async function handleSessionContinue(
       });
       return false;
     }
+  } else if (nextProvider === 'grok') {
+    const runtimeStatus = await getGrokRuntimeStatus();
+    if (!runtimeStatus.ready) {
+      sessions.updateSessionStatus(sessionId, 'error');
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: formatGrokRuntimeBlockingMessage(runtimeStatus),
+          sessionId,
+        },
+      });
+      return false;
+    }
   }
 
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
     if (
-      ((nextProvider === 'codex' || nextProvider === 'opencode' || nextProvider === 'kimi') && modelChanged) ||
+      ((nextProvider === 'codex' || nextProvider === 'opencode' || nextProvider === 'kimi' || nextProvider === 'grok') && modelChanged) ||
       (nextProvider === 'codex' && codexPermissionModeChanged) ||
       (nextProvider === 'codex' && codexReasoningEffortChanged) ||
       (nextProvider === 'codex' && codexFastModeChanged) ||
@@ -7844,6 +7914,8 @@ async function handleSessionContinue(
             ? session.opencode_session_id ?? undefined
             : nextProvider === 'kimi'
               ? session.kimi_session_id ?? undefined
+              : nextProvider === 'grok'
+                ? session.grok_session_id ?? undefined
             : undefined;
   let nextResumeSessionId = resumeSessionId;
 
@@ -7906,6 +7978,8 @@ async function handleSessionContinue(
     nextProvider === 'codex' ? nextCodexFastMode : undefined,
     nextProvider === 'opencode' ? (nextOpenCodePermissionMode || 'defaultPermissions') : undefined,
     nextProvider === 'kimi' ? nextKimiPermissionMode : undefined,
+    undefined,
+    undefined,
     nextProvider === 'codex' ? codexSkills : undefined,
     nextProvider === 'codex' ? codexMentions : undefined,
     turnAgentId
@@ -7920,7 +7994,7 @@ function startRunner(
   prompt: string,
   resumeSessionId?: string,
   attachments?: Attachment[],
-  providerOverride?: 'claude' | 'codex' | 'opencode' | 'kimi',
+  providerOverride?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok',
   modelOverride?: string,
   compatibleProviderOverride?: import('../shared/types').ClaudeCompatibleProviderId,
   betasOverride?: string[],
@@ -7933,6 +8007,8 @@ function startRunner(
   codexFastMode?: boolean,
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode,
   kimiPermissionMode?: import('../shared/types').KimiPermissionMode,
+  grokPermissionMode?: import('../shared/types').GrokPermissionMode,
+  grokReasoningEffort?: import('../shared/types').GrokReasoningEffort,
   codexSkills?: ProviderInputReference[],
   codexMentions?: ProviderInputReference[],
   activeAgentId?: string | null,
@@ -8007,6 +8083,8 @@ function startRunner(
     codexReasoningEffort,
     codexFastMode,
     kimiPermissionMode,
+    grokPermissionMode,
+    grokReasoningEffort,
     codexSkills: provider === 'codex' ? codexSkills : undefined,
     codexMentions: provider === 'codex' ? codexMentions : undefined,
     opencodePermissionMode,
@@ -8026,6 +8104,11 @@ function startRunner(
           }
         } else if (provider === 'kimi') {
           sessions.updateKimiSessionId(session.id, message.session_id);
+          if (message.model) {
+            sessions.updateSessionModel(session.id, message.model);
+          }
+        } else if (provider === 'grok') {
+          sessions.updateGrokSessionId(session.id, message.session_id);
           if (message.model) {
             sessions.updateSessionModel(session.id, message.model);
           }

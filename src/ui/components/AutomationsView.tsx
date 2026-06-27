@@ -47,6 +47,7 @@ const PROVIDERS: Array<{ id: AgentProvider; label: string }> = [
   { id: 'claude', label: 'Claude Code' },
   { id: 'codex', label: 'Codex' },
   { id: 'kimi', label: 'Kimi' },
+  { id: 'grok', label: 'Grok' },
   { id: 'opencode', label: 'OpenCode' },
 ];
 
@@ -263,6 +264,7 @@ export function AutomationsView() {
         ...opencodeConfig.availableModels.filter((model) => model.enabled).map((model) => model.name),
         ...opencodeConfig.options,
       ]),
+      grok: unique([]),
     } satisfies Record<AgentProvider, string[]>;
   }, [claudeConfig, codexConfig, kimiConfig, opencodeConfig]);
 

@@ -463,6 +463,14 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-kimi-runtime-status');
   },
 
+  getGrokRuntimeStatus: () => {
+    return ipcRenderer.invoke('get-grok-runtime-status');
+  },
+
+  getGrokModelConfig: () => {
+    return ipcRenderer.invoke('get-grok-model-config');
+  },
+
   getClaudeRuntimeStatus: (model?: string | null) => {
     return ipcRenderer.invoke('get-claude-runtime-status', model);
   },

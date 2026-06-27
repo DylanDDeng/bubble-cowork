@@ -399,7 +399,7 @@ export function PromptInput({
               ? agentSelection.codexPermissionMode
               : undefined,
           kimiPermissionMode:
-            runtimeProvider === 'kimi'
+            runtimeProvider === 'kimi' || runtimeProvider === 'grok'
               ? agentSelection.kimiPermissionMode
               : undefined,
           teamMode: 'solo',
@@ -441,7 +441,7 @@ export function PromptInput({
             ? agentSelection.codexPermissionMode
             : undefined,
         kimiPermissionMode:
-          runtimeProvider === 'kimi'
+          runtimeProvider === 'kimi' || runtimeProvider === 'grok'
             ? agentSelection.kimiPermissionMode
             : undefined,
         teamMode: 'solo',
@@ -814,7 +814,7 @@ export function PromptInput({
                   menuSide={menuSide}
                 />
               )}
-              {agentSelection.provider === 'kimi' && (
+              {agentSelection.provider === 'kimi' || agentSelection.provider === 'grok' && (
                 <KimiPermissionModePicker
                   value={agentSelection.kimiPermissionMode}
                   onChange={agentSelection.setKimiPermissionMode}

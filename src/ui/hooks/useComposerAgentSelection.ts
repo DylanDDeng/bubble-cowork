@@ -4,6 +4,7 @@ import { useClaudeModelConfig } from './useClaudeModelConfig';
 import { useCodexModelConfig } from './useCodexModelConfig';
 import { useOpencodeModelConfig } from './useOpencodeModelConfig';
 import { useKimiModelConfig } from './useKimiModelConfig';
+import { useGrokModelConfig } from './useGrokModelConfig';
 import { useCompatibleProviderConfig } from './useCompatibleProviderConfig';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import {
@@ -62,6 +63,7 @@ import {
   savePreferredKimiPermissionMode,
 } from '../utils/kimi-permission';
 const KIMI_MODEL_STORAGE_KEY = 'cowork.preferredKimiModel';
+const GROK_MODEL_STORAGE_KEY = 'cowork.preferredGrokModel';
 
 export interface ComposerModelOption {
   key: string;
@@ -90,6 +92,21 @@ function savePreferredKimiModel(model: string | null): void {
     return;
   }
   window.localStorage.setItem(KIMI_MODEL_STORAGE_KEY, model);
+}
+
+function loadPreferredGrokModel(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(GROK_MODEL_STORAGE_KEY);
+  return raw?.trim() || null;
+}
+
+function savePreferredGrokModel(model: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (!model) {
+    window.localStorage.removeItem(GROK_MODEL_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(GROK_MODEL_STORAGE_KEY, model);
 }
 
 function resolveCompatibleProviderForModel(
@@ -217,6 +234,52 @@ function resolveConfiguredKimiModel(
   return null;
 }
 
+function buildGrokModelOptions(config: ReturnType<typeof useGrokModelConfig>): ComposerModelOption[] {
+  const defaultOption: ComposerModelOption = {
+    key: 'grok:default',
+    value: '',
+    label: 'Default',
+    description: config.defaultModel ? `Use ${formatGrokModelLabel(config.defaultModel, config)}` : 'Use Grok Build default model',
+  };
+  const models = config.availableModels.length > 0
+    ? config.availableModels
+    : config.options.map((name) => ({ name, label: name, provider: null, enabled: true, isDefault: config.defaultModel === name }));
+  const explicitOptions = models
+    .filter((model) => model.enabled !== false)
+    .map((model) => ({
+      key: `grok:${model.name}`,
+      value: model.name,
+      label: model.label || model.name,
+      description: model.isDefault
+        ? 'Configured default'
+        : model.provider
+          ? model.provider
+          : undefined,
+    }));
+  return [defaultOption, ...explicitOptions];
+}
+
+function formatGrokModelLabel(value: string, config: ReturnType<typeof useGrokModelConfig>): string {
+  const match = config.availableModels.find((model) => model.name === value);
+  return match?.label || value;
+}
+
+function resolveConfiguredGrokModel(
+  requestedModel: string | null | undefined,
+  config: ReturnType<typeof useGrokModelConfig>
+): string | null {
+  const options = buildGrokModelOptions(config);
+  const optionValues = new Set(options.map((option) => option.value.trim()));
+  const candidates = [requestedModel, loadPreferredGrokModel()];
+  for (const candidate of candidates) {
+    const normalized = candidate?.trim() || null;
+    if (normalized && optionValues.has(normalized)) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
 export function useComposerAgentSelection(input?: {
   selectionKey?: string | null;
   provider?: AgentProvider | null;
@@ -230,6 +293,7 @@ export function useComposerAgentSelection(input?: {
   const codexModelConfig = useCodexModelConfig();
   const opencodeModelConfig = useOpencodeModelConfig();
   const kimiModelConfig = useKimiModelConfig();
+  const grokModelConfig = useGrokModelConfig();
   const { compatibleOptions } = useCompatibleProviderConfig();
   const [provider, setProviderState] = useState<AgentProvider>(() => input?.provider || loadPreferredProvider());
   const [model, setModelState] = useState<string | null>(() => input?.model?.trim() || null);
@@ -274,8 +338,9 @@ export function useComposerAgentSelection(input?: {
         label: formatOpencodeModelLabel(option),
       })),
       kimi: buildKimiModelOptions(kimiModelConfig),
+      grok: buildGrokModelOptions(grokModelConfig),
     };
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig]);
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig]);
 
   const modelOptions = useMemo<ComposerModelOption[]>(() => {
     if (provider === 'claude') {
@@ -322,8 +387,12 @@ export function useComposerAgentSelection(input?: {
       return buildKimiModelOptions(kimiModelConfig);
     }
 
+    if (provider === 'grok') {
+      return buildGrokModelOptions(grokModelConfig);
+    }
+
     return [];
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, provider]);
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, provider]);
 
   const resolveModelForProvider = useCallback(
     (
@@ -370,12 +439,19 @@ export function useComposerAgentSelection(input?: {
         };
       }
 
+      if (nextProvider === 'grok') {
+        return {
+          model: resolveConfiguredGrokModel(normalizedRequestedModel, grokModelConfig),
+          compatibleProviderId: null,
+        };
+      }
+
       return {
         model: null,
         compatibleProviderId: null,
       };
     },
-    [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig]
+    [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig]
   );
 
   useEffect(() => {
@@ -459,6 +535,8 @@ export function useComposerAgentSelection(input?: {
         savePreferredOpencodeModel(nextModel);
       } else if (provider === 'kimi') {
         savePreferredKimiModel(nextModel);
+      } else if (provider === 'grok') {
+        savePreferredGrokModel(nextModel);
       }
     },
     [provider]
@@ -494,6 +572,14 @@ export function useComposerAgentSelection(input?: {
       };
     }
 
+    if (provider === 'grok') {
+      return {
+        label: 'Setup Grok',
+        title: 'Configure Grok Build',
+        settingsTab: 'providers',
+      };
+    }
+
     if (provider === 'codex') {
       return {
         label: 'Setup Codex',
@@ -515,7 +601,9 @@ export function useComposerAgentSelection(input?: {
     (model
       ? provider === 'kimi'
         ? formatKimiModelLabel(model, kimiModelConfig)
-        : model
+        : provider === 'grok'
+          ? formatGrokModelLabel(model, grokModelConfig)
+          : model
       : 'Default');
 
   const [claudeReasoningEffort, setClaudeReasoningEffortState] = useState<ClaudeReasoningEffort | null>(() => {

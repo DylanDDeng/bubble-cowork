@@ -27,7 +27,8 @@ export interface SessionRow {
   codex_session_id: string | null;
   opencode_session_id: string | null;
   kimi_session_id: string | null;
-  provider: 'claude' | 'codex' | 'opencode' | 'kimi';
+  grok_session_id: string | null;
+  provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok';
   model: string | null;
   conversation_scope: import('../shared/types').SessionScope | null;
   agent_id: string | null;
@@ -120,6 +121,8 @@ export interface RunnerOptions {
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
+  grokPermissionMode?: import('../shared/types').GrokPermissionMode;
+  grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
   codexSkills?: import('../shared/types').ProviderInputReference[];
   codexMentions?: import('../shared/types').ProviderInputReference[];
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
@@ -150,6 +153,8 @@ export interface RunnerHandle {
       codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
       codexFastMode?: boolean;
       kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
+      grokPermissionMode?: import('../shared/types').GrokPermissionMode;
+      grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
     }
   ) => void;
 }

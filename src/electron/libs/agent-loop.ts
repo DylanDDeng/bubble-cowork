@@ -3,6 +3,7 @@ import { ensureAgentRuntimeRegistry, resolveRuntime } from './runtime';
 import { getProviderService } from './provider/service';
 import { CodexAdapter } from './provider/codex-adapter';
 import { KimiAcpAdapter } from './provider/kimi-acp-adapter';
+import { GrokAcpAdapter } from './provider/grok-acp-adapter';
 import { isDev } from '../util';
 
 let providerServiceInitialized = false;
@@ -19,6 +20,7 @@ export function ensureProviderService(): void {
   const codexAdapter = new CodexAdapter();
   service.registerAdapter(codexAdapter);
   service.registerAdapter(new KimiAcpAdapter());
+  service.registerAdapter(new GrokAcpAdapter());
 
   if (isDev()) {
     console.log('[ProviderService] initialized with adapters:', service.listAdapters().map((a) => a.provider));
@@ -44,7 +46,7 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
   const service = getProviderService();
 
   const threadId = options.session.id;
-  const provider = options.session.provider === 'kimi' ? 'kimi' : 'codex';
+  const provider = options.session.provider === 'kimi' ? 'kimi' : options.session.provider === 'grok' ? 'grok' : 'codex';
   let abortController = new AbortController();
 
   // Subscribe to provider events
@@ -113,6 +115,8 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
     codexReasoningEffort: options.codexReasoningEffort,
     codexFastMode: options.codexFastMode,
     kimiPermissionMode: options.kimiPermissionMode,
+    grokPermissionMode: options.grokPermissionMode,
+    grokReasoningEffort: options.grokReasoningEffort,
     codexSkills: options.codexSkills,
     codexMentions: options.codexMentions,
   });
@@ -144,6 +148,8 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
         codexReasoningEffort?: import('../../shared/types').CodexReasoningEffort;
         codexFastMode?: boolean;
         kimiPermissionMode?: import('../../shared/types').KimiPermissionMode;
+        grokPermissionMode?: import('../../shared/types').GrokPermissionMode;
+        grokReasoningEffort?: import('../../shared/types').GrokReasoningEffort;
       }
     ) => {
       if (abortController.signal.aborted) return;
@@ -159,6 +165,8 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
           codexReasoningEffort: sendOptions?.codexReasoningEffort ?? options.codexReasoningEffort,
           codexFastMode: sendOptions?.codexFastMode ?? options.codexFastMode,
           kimiPermissionMode: sendOptions?.kimiPermissionMode ?? options.kimiPermissionMode,
+          grokPermissionMode: sendOptions?.grokPermissionMode ?? options.grokPermissionMode,
+          grokReasoningEffort: sendOptions?.grokReasoningEffort ?? options.grokReasoningEffort,
           codexSkills,
           codexMentions,
         })

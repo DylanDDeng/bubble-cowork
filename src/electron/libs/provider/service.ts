@@ -24,7 +24,7 @@ import type {
 } from '../../../shared/types';
 
 function isProviderKind(provider: string): provider is ProviderKind {
-  return provider === 'claude' || provider === 'codex' || provider === 'opencode' || provider === 'kimi';
+  return provider === 'claude' || provider === 'codex' || provider === 'opencode' || provider === 'kimi' || provider === 'grok';
 }
 
 class ProviderServiceImpl implements ProviderService {
@@ -271,6 +271,8 @@ class ProviderServiceImpl implements ProviderService {
         codexReasoningEffort: input.codexReasoningEffort,
         codexFastMode: input.codexFastMode,
         kimiPermissionMode: input.kimiPermissionMode,
+        grokPermissionMode: input.grokPermissionMode,
+        grokReasoningEffort: input.grokReasoningEffort,
       });
 
       // Wait a bit for the turn to complete

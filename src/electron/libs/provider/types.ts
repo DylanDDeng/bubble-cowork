@@ -20,6 +20,8 @@ import type {
   CodexExecutionMode,
   CodexReasoningEffort,
   KimiPermissionMode,
+  GrokPermissionMode,
+  GrokReasoningEffort,
   OpenCodePermissionMode,
   ClaudeAccessMode,
   ClaudeExecutionMode,
@@ -39,7 +41,7 @@ import type { SessionRow } from '../../types';
 
 // ── Provider Identity ──────────────────────────────────────────────────────
 
-export type ProviderKind = 'claude' | 'codex' | 'opencode' | 'kimi';
+export type ProviderKind = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok';
 
 export interface ProviderAdapterCapabilities {
   /** Supports switching model mid-session */
@@ -77,6 +79,8 @@ export interface ProviderSessionStartInput {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: KimiPermissionMode;
+  grokPermissionMode?: GrokPermissionMode;
+  grokReasoningEffort?: GrokReasoningEffort;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
@@ -97,6 +101,8 @@ export interface ProviderSendTurnInput {
   codexReasoningEffort?: CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: KimiPermissionMode;
+  grokPermissionMode?: GrokPermissionMode;
+  grokReasoningEffort?: GrokReasoningEffort;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
 }

@@ -16,6 +16,7 @@ import deepseekLogo from '../assets/deepseek-color.svg';
 import minimaxLogo from '../assets/minimax-color.svg';
 import mimoLogo from '../assets/xiaomimimo.svg';
 import moonshotLogo from '../assets/moonshot.svg';
+import grokLogo from '../assets/grok.svg';
 import openaiLogo from '../assets/openai.svg';
 import zhipuLogo from '../assets/zhipu-color.svg';
 import { OpenCodeLogo } from './OpenCodeLogo';
@@ -86,6 +87,9 @@ function ProviderIcon({ provider }: { provider: AgentProvider }) {
 
   if (provider === 'kimi') {
     return <img src={moonshotLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
+  }
+  if (provider === 'grok') {
+    return <img src={grokLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
   }
 
   return null;

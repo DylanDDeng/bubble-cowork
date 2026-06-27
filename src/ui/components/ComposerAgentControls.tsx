@@ -13,6 +13,7 @@ import {
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
 import moonshotLogo from '../assets/moonshot.svg';
+import grokLogo from '../assets/grok.svg';
 import { OpenCodeLogo } from './OpenCodeLogo';
 
 function AgentIcon({ provider }: { provider: AgentProvider }) {
@@ -27,6 +28,9 @@ function AgentIcon({ provider }: { provider: AgentProvider }) {
   }
   if (provider === 'kimi') {
     return <img src={moonshotLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
+  }
+  if (provider === 'grok') {
+    return <img src={grokLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
   }
   return null;
 }

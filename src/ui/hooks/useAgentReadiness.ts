@@ -4,11 +4,13 @@ import type {
   ClaudeRuntimeStatus,
   CodexRuntimeStatus,
   KimiRuntimeStatus,
+  GrokRuntimeStatus,
   OpenCodeRuntimeStatus,
 } from '../types';
 import { useClaudeRuntimeStatus } from './useClaudeRuntimeStatus';
 import { useCodexRuntimeStatus } from './useCodexRuntimeStatus';
 import { useKimiRuntimeStatus } from './useKimiRuntimeStatus';
+import { useGrokRuntimeStatus } from './useGrokRuntimeStatus';
 import { useOpencodeRuntimeStatus } from './useOpencodeRuntimeStatus';
 
 export type AgentReadinessState =
@@ -60,11 +62,17 @@ export function useAgentReadiness(
     loading: kimiLoading,
     refresh: refreshKimi,
   } = useKimiRuntimeStatus(enabled);
+  const {
+    status: grokStatus,
+    loading: grokLoading,
+    refresh: refreshGrok,
+  } = useGrokRuntimeStatus(enabled);
 
   const claudeChecking = enabled && (claudeLoading || claudeStatus.checkedAt === 0);
   const codexChecking = enabled && (codexLoading || codexStatus.checkedAt === 0);
   const opencodeChecking = enabled && (opencodeLoading || opencodeStatus.checkedAt === 0);
   const kimiChecking = enabled && (kimiLoading || kimiStatus.checkedAt === 0);
+  const grokChecking = enabled && (grokLoading || grokStatus.checkedAt === 0);
 
   const entries = useMemo(
     () => [
@@ -72,6 +80,7 @@ export function useAgentReadiness(
       buildCodexEntry(codexStatus, codexChecking),
       buildOpencodeEntry(opencodeStatus, opencodeChecking),
       buildKimiEntry(kimiStatus, kimiChecking),
+      buildGrokEntry(grokStatus, grokChecking),
     ],
     [
       claudeChecking,
@@ -82,6 +91,8 @@ export function useAgentReadiness(
       opencodeStatus,
       kimiChecking,
       kimiStatus,
+      grokChecking,
+      grokStatus,
     ]
   );
 
@@ -89,12 +100,13 @@ export function useAgentReadiness(
     entries,
     readyCount: entries.filter((entry) => entry.state === 'ready').length,
     setupCount: entries.filter((entry) => entry.state !== 'ready' && entry.state !== 'checking').length,
-    loading: claudeChecking || codexChecking || opencodeChecking || kimiChecking,
+    loading: claudeChecking || codexChecking || opencodeChecking || kimiChecking || grokChecking,
     refresh: () => {
       refreshClaude();
       refreshCodex();
       refreshOpencode();
       refreshKimi();
+      refreshGrok();
     },
   };
 }
@@ -294,5 +306,60 @@ function buildKimiEntry(
     state: 'error',
     summary: status.summary || 'Check failed',
     detail: status.detail || 'Aegis could not verify the Kimi Code runtime.',
+  };
+}
+
+function buildGrokEntry(
+  status: GrokRuntimeStatus,
+  loading: boolean
+): AgentReadinessEntry {
+  if (loading) {
+    return {
+      provider: 'grok',
+      label: 'Grok Build',
+      state: 'checking',
+      summary: 'Checking Grok Build',
+      detail: 'Verifying Grok Build ACP and authentication.',
+    };
+  }
+
+  if (status.ready) {
+    return {
+      provider: 'grok',
+      label: 'Grok Build',
+      state: 'ready',
+      summary: 'Ready',
+      detail: status.detail || 'Grok Build can start ACP sessions.',
+    };
+  }
+
+  if (!status.cliAvailable) {
+    return {
+      provider: 'grok',
+      label: 'Grok Build',
+      state: 'missing',
+      summary: 'Runtime missing',
+      detail: status.detail || 'Grok Build was not found on this machine.',
+      command: 'Install Grok Build',
+    };
+  }
+
+  if (status.authState === 'login_required') {
+    return {
+      provider: 'grok',
+      label: 'Grok Build',
+      state: 'needs_login',
+      summary: 'Login required',
+      detail: status.detail || 'Grok Build needs authentication.',
+      command: status.loginCommand,
+    };
+  }
+
+  return {
+    provider: 'grok',
+    label: 'Grok Build',
+    state: 'error',
+    summary: status.summary || 'Check failed',
+    detail: status.detail || 'Aegis could not verify the Grok Build runtime.',
   };
 }

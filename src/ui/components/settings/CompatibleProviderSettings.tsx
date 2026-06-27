@@ -6,11 +6,13 @@ import openaiLogo from '../../assets/openai.svg';
 import minimaxLogo from '../../assets/minimax-color.svg';
 import deepseekLogo from '../../assets/deepseek-color.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
+import grokLogo from '../../assets/grok.svg';
 import mimoLogo from '../../assets/xiaomimimo.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
 import { useClaudeRuntimeStatus } from '../../hooks/useClaudeRuntimeStatus';
 import { useCodexRuntimeStatus } from '../../hooks/useCodexRuntimeStatus';
 import { useKimiRuntimeStatus } from '../../hooks/useKimiRuntimeStatus';
+import { useGrokRuntimeStatus } from '../../hooks/useGrokRuntimeStatus';
 import { useOpencodeRuntimeStatus } from '../../hooks/useOpencodeRuntimeStatus';
 import { OpenCodeLogo } from '../OpenCodeLogo';
 import {
@@ -26,6 +28,7 @@ import type {
   ClaudeRuntimeStatus,
   CodexRuntimeStatus,
   KimiRuntimeStatus,
+  GrokRuntimeStatus,
   OpenCodeRuntimeStatus,
 } from '../../types';
 import { normalizeCompatibleProvidersConfig } from '../../hooks/useCompatibleProviderConfig';
@@ -177,6 +180,7 @@ export function CompatibleProviderSettingsContent() {
   const { status: codexRuntimeStatus, loading: codexRuntimeLoading } = useCodexRuntimeStatus();
   const { status: opencodeRuntimeStatus, loading: opencodeRuntimeLoading } = useOpencodeRuntimeStatus();
   const { status: kimiRuntimeStatus, loading: kimiRuntimeLoading } = useKimiRuntimeStatus();
+  const { status: grokRuntimeStatus, loading: grokRuntimeLoading } = useGrokRuntimeStatus();
 
   useEffect(() => {
     let cancelled = false;
@@ -364,6 +368,12 @@ export function CompatibleProviderSettingsContent() {
           logo={<img src={moonshotLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
           detail={!kimiRuntimeLoading && !kimiRuntimeStatus.ready ? buildKimiSummary(kimiRuntimeStatus, kimiRuntimeLoading) : undefined}
           status={buildKimiRailStatus(kimiRuntimeStatus, kimiRuntimeLoading)}
+        />
+        <RuntimeStatusRow
+          title="Grok Build"
+          logo={<img src={grokLogo} alt="" className="h-5 w-5" aria-hidden="true" />}
+          detail={!grokRuntimeLoading && !grokRuntimeStatus.ready ? buildGrokSummary(grokRuntimeStatus, grokRuntimeLoading) : undefined}
+          status={buildGrokRailStatus(grokRuntimeStatus, grokRuntimeLoading)}
         />
       </SettingsGroup>
 
@@ -850,6 +860,43 @@ function buildOpencodeRailStatus(status: OpenCodeRuntimeStatus, loading: boolean
 }
 
 function buildKimiRailStatus(status: KimiRuntimeStatus, loading: boolean) {
+  if (loading) {
+    return {
+      label: 'Checking',
+      tone: 'text-[var(--text-secondary)]',
+      dot: 'bg-[var(--text-muted)]/60',
+    };
+  }
+
+  if (status.ready) {
+    return {
+      label: 'Connected',
+      tone: 'text-emerald-700',
+      dot: 'bg-emerald-500',
+    };
+  }
+
+  if (status.authState === 'login_required') {
+    return {
+      label: 'Sign in',
+      tone: 'text-amber-700',
+      dot: 'bg-amber-500',
+    };
+  }
+
+  return {
+    label: 'Setup',
+    tone: 'text-amber-700',
+    dot: 'bg-amber-500',
+  };
+}
+
+function buildGrokSummary(status: GrokRuntimeStatus, loading: boolean): string {
+  if (loading) return 'Checking Grok Build runtime...';
+  return status.summary || (status.ready ? 'Grok Build ACP is ready.' : 'Grok Build needs local setup.');
+}
+
+function buildGrokRailStatus(status: GrokRuntimeStatus, loading: boolean) {
   if (loading) {
     return {
       label: 'Checking',
