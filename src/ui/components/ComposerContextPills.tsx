@@ -1,45 +1,16 @@
-import type { ReactNode } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { toast } from 'sonner';
-import { Folder, FolderOpen, Monitor, GitBranch, ChevronDown, Check } from './icons';
+import { Folder, FolderOpen, GitBranch, ChevronDown, Check } from './icons';
 import { useGitBranches } from '../hooks/useGitBranches';
 
 export const CONTEXT_PILL_CLASS =
   'inline-flex max-w-[200px] items-center gap-1.5 rounded-lg px-2 py-1 text-[12.5px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-[var(--text-secondary)]';
 
-export function ContextPill({
-  icon,
-  children,
-  onClick,
-  disabled,
-  title,
-}: {
-  icon: ReactNode;
-  children: ReactNode;
-  onClick?: () => void;
-  disabled?: boolean;
-  title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={CONTEXT_PILL_CLASS}
-    >
-      <span className="shrink-0 text-[var(--text-muted)]">{icon}</span>
-      <span className="min-w-0 truncate">{children}</span>
-      <ChevronDown className="h-3 w-3 shrink-0 text-[var(--text-muted)]" />
-    </button>
-  );
-}
-
 /**
  * Context row shown under the composer on the new-thread surfaces: a project
- * folder selector, a "Work locally" indicator, and — only when the folder is a
- * git repository — the current branch. Used by both the first-entry
- * NewSessionView and the ChatPane "New Thread" draft landing.
+ * folder selector and — only when the folder is a git repository — the current
+ * branch. Used by both the first-entry NewSessionView and the ChatPane "New
+ * Thread" draft landing.
  */
 export function ComposerContextPills({
   cwd,
@@ -145,13 +116,6 @@ export function ComposerContextPills({
       </DropdownMenu.Root>
       {hasSelectedCwd ? (
         <>
-          <ContextPill
-            icon={<Monitor className="h-3.5 w-3.5" />}
-            disabled
-            title="Runs on your machine"
-          >
-            Work locally
-          </ContextPill>
           {isRepo && branch ? (
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
