@@ -44,7 +44,6 @@ type AutomationFormState = {
 };
 
 const PROVIDERS: Array<{ id: AgentProvider; label: string }> = [
-  { id: 'aegis', label: 'Aegis Built-in' },
   { id: 'claude', label: 'Claude Code' },
   { id: 'codex', label: 'Codex' },
   { id: 'kimi', label: 'Kimi' },
@@ -111,7 +110,7 @@ function createEmptyForm(projectCwd: string | null, model = ''): AutomationFormS
     name: '',
     projectCwd: projectCwd || '',
     prompt: '',
-    provider: 'aegis',
+    provider: 'claude',
     model,
     scheduleKind: 'daily',
     timeOfDay: '09:00',
@@ -211,7 +210,6 @@ export function AutomationsView() {
   const codexConfig = useCodexModelConfig();
   const opencodeConfig = useOpencodeModelConfig();
   const kimiConfig = useKimiModelConfig();
-  const [aegisModel, setAegisModel] = useState('');
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
   const [snapshot, setSnapshot] = useState<AutomationSnapshot>({ automations: [], recentRuns: [] });
   const [loading, setLoading] = useState(true);
@@ -234,10 +232,6 @@ export function AutomationsView() {
   useEffect(() => {
     void loadSnapshot();
     void window.electron.getRecentCwds(8).then(setRecentCwds).catch(() => undefined);
-    void window.electron
-      .getAegisBuiltInAgentConfig()
-      .then((config) => setAegisModel(config.model || ''))
-      .catch(() => undefined);
   }, [loadSnapshot]);
 
   useEffect(() => {
@@ -253,7 +247,6 @@ export function AutomationsView() {
     const unique = (items: Array<string | null | undefined>) =>
       Array.from(new Set(items.map((item) => item?.trim()).filter((item): item is string => Boolean(item))));
     return {
-      aegis: unique([aegisModel]),
       claude: unique([claudeConfig.defaultModel, ...claudeConfig.options]),
       codex: unique([
         codexConfig.defaultModel,
@@ -271,7 +264,7 @@ export function AutomationsView() {
         ...opencodeConfig.options,
       ]),
     } satisfies Record<AgentProvider, string[]>;
-  }, [aegisModel, claudeConfig, codexConfig, kimiConfig, opencodeConfig]);
+  }, [claudeConfig, codexConfig, kimiConfig, opencodeConfig]);
 
   const projectOptions = useMemo(
     () => Array.from(new Set([projectCwd, ...recentCwds].filter((cwd): cwd is string => Boolean(cwd)))),
@@ -279,7 +272,7 @@ export function AutomationsView() {
   );
 
   const openNewDialog = (template?: (typeof TEMPLATES)[number]) => {
-    const defaultModel = modelOptions.aegis[0] || '';
+    const defaultModel = modelOptions.claude[0] || '';
     setForm({
       ...createEmptyForm(projectCwd || projectOptions[0] || '', defaultModel),
       ...(template

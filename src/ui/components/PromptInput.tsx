@@ -27,7 +27,6 @@ import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
-import { buildAegisReferencePayload } from '../utils/aegis-composer';
 import { buildCodexReferencePayload } from '../utils/codex-composer';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
@@ -264,7 +263,7 @@ export function PromptInput({
 
   const buildDispatchPrompt = async (): Promise<string | null> => {
     const selectedSkillPrompt =
-      capabilityMenu.selectedSkill && (runtimeProvider === 'codex' || runtimeProvider === 'aegis')
+      capabilityMenu.selectedSkill && runtimeProvider === 'codex'
         ? capabilityMenu.selectedSkillRemainder.trim()
         : prompt.trim();
 
@@ -347,11 +346,6 @@ export function PromptInput({
       runtimeProvider === 'codex'
         ? buildCodexReferencePayload(capabilityMenu.selectedSkill)
         : {};
-    const aegisReferences =
-      runtimeProvider === 'aegis'
-        ? buildAegisReferencePayload(capabilityMenu.selectedSkill)
-        : {};
-
     if (activeSession.isDraft) {
       if (!activeSession.cwd?.trim()) {
         toast.error('Select a project folder before starting a task.');
@@ -408,7 +402,6 @@ export function PromptInput({
             runtimeProvider === 'kimi'
               ? agentSelection.kimiPermissionMode
               : undefined,
-          ...aegisReferences,
           teamMode: 'solo',
           teamId: null,
         },
@@ -451,7 +444,6 @@ export function PromptInput({
           runtimeProvider === 'kimi'
             ? agentSelection.kimiPermissionMode
             : undefined,
-        ...aegisReferences,
         teamMode: 'solo',
         teamId: null,
       },

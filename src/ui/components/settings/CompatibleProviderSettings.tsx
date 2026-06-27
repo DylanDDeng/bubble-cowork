@@ -8,7 +8,6 @@ import deepseekLogo from '../../assets/deepseek-color.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
 import mimoLogo from '../../assets/xiaomimimo.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
-import aegisAvatar from '../../assets/agent-avatars/anime-avatar-03.png';
 import { useClaudeRuntimeStatus } from '../../hooks/useClaudeRuntimeStatus';
 import { useCodexRuntimeStatus } from '../../hooks/useCodexRuntimeStatus';
 import { useKimiRuntimeStatus } from '../../hooks/useKimiRuntimeStatus';
@@ -21,7 +20,6 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import type {
-  AegisBuiltInAgentConfig,
   ClaudeCompatibleProviderConfig,
   ClaudeCompatibleProviderId,
   ClaudeCompatibleProvidersConfig,
@@ -30,25 +28,10 @@ import type {
   KimiRuntimeStatus,
   OpenCodeRuntimeStatus,
 } from '../../types';
-import {
-  AEGIS_BUILT_IN_DEFAULT_MODEL,
-  AEGIS_BUILT_IN_DEFAULT_PROVIDER_ID,
-  getAegisBuiltInProvider,
-  resolveAegisBuiltInModel,
-} from '../../../shared/aegis-built-in-catalog';
 import { normalizeCompatibleProvidersConfig } from '../../hooks/useCompatibleProviderConfig';
 import { SettingsGroup, SettingsToggle } from './SettingsPrimitives';
 
 const DEFAULT_CONFIG = normalizeCompatibleProvidersConfig(undefined);
-const DEFAULT_AEGIS_PROVIDER = getAegisBuiltInProvider(AEGIS_BUILT_IN_DEFAULT_PROVIDER_ID);
-const DEFAULT_AEGIS_BUILT_IN_CONFIG: AegisBuiltInAgentConfig = {
-  providerId: AEGIS_BUILT_IN_DEFAULT_PROVIDER_ID,
-  baseUrl: DEFAULT_AEGIS_PROVIDER?.baseUrl || 'https://api.openai.com/v1',
-  apiKey: '',
-  providerApiKeys: {},
-  model: AEGIS_BUILT_IN_DEFAULT_MODEL,
-  temperature: 0.2,
-};
 const PROVIDER_IDS = ['minimaxCn', 'minimax', 'mimo', 'zhipu', 'moonshot', 'deepseek'] as ClaudeCompatibleProviderId[];
 
 const PROVIDER_META: Record<
@@ -138,46 +121,6 @@ function saveProviderModelHistory(nextHistory: ProviderModelHistory): void {
   window.localStorage.setItem(MODEL_HISTORY_STORAGE_KEY, JSON.stringify(nextHistory));
 }
 
-function normalizeAegisBuiltInAgentConfig(raw: unknown): AegisBuiltInAgentConfig {
-  const input = raw && typeof raw === 'object' ? raw as Partial<AegisBuiltInAgentConfig> : {};
-  const selection = resolveAegisBuiltInModel(input.model, input.providerId);
-  const provider = getAegisBuiltInProvider(selection.providerId) || DEFAULT_AEGIS_PROVIDER;
-  const providerApiKeys = normalizeAegisProviderApiKeys(input.providerApiKeys);
-  const legacyApiKey = input.apiKey?.trim() || '';
-  if (legacyApiKey && !providerApiKeys[selection.providerId]) {
-    providerApiKeys[selection.providerId] = legacyApiKey;
-  }
-  const temperature =
-    typeof input.temperature === 'number' && Number.isFinite(input.temperature)
-      ? Math.max(0, Math.min(2, input.temperature))
-      : DEFAULT_AEGIS_BUILT_IN_CONFIG.temperature;
-  const maxOutputTokens =
-    typeof input.maxOutputTokens === 'number' && Number.isFinite(input.maxOutputTokens)
-      ? Math.max(1, Math.trunc(input.maxOutputTokens))
-      : undefined;
-  return {
-    providerId: selection.providerId,
-    baseUrl: provider?.baseUrl || input.baseUrl?.trim() || DEFAULT_AEGIS_BUILT_IN_CONFIG.baseUrl,
-    apiKey: providerApiKeys[selection.providerId] || '',
-    providerApiKeys,
-    model: selection.encoded,
-    temperature,
-    ...(maxOutputTokens ? { maxOutputTokens } : {}),
-  };
-}
-
-function normalizeAegisProviderApiKeys(value: unknown): Record<string, string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {};
-  }
-
-  return Object.fromEntries(
-    Object.entries(value)
-      .map(([providerId, apiKey]) => [providerId.trim(), typeof apiKey === 'string' ? apiKey.trim() : ''] as const)
-      .filter(([providerId, apiKey]) => providerId && apiKey)
-  );
-}
-
 function rememberProviderModelValue(
   providerId: ClaudeCompatibleProviderId,
   field: 'model' | 'smallFastModel',
@@ -221,7 +164,6 @@ function getProviderModelSuggestions(
 
 export function CompatibleProviderSettingsContent() {
   const [config, setConfig] = useState<ClaudeCompatibleProvidersConfig>(DEFAULT_CONFIG);
-  const [aegisConfig, setAegisConfig] = useState<AegisBuiltInAgentConfig>(DEFAULT_AEGIS_BUILT_IN_CONFIG);
   const [loading, setLoading] = useState(true);
   const [expandedProviderId, setExpandedProviderId] = useState<ClaudeCompatibleProviderId | null>(null);
   const [draftProvider, setDraftProvider] = useState<ClaudeCompatibleProviderConfig | null>(null);
@@ -243,11 +185,6 @@ export function CompatibleProviderSettingsContent() {
       window.electron.getClaudeCompatibleProviderConfig().then((nextConfig) => {
         if (!cancelled) {
           setConfig(normalizeCompatibleProvidersConfig(nextConfig));
-        }
-      }),
-      window.electron.getAegisBuiltInAgentConfig().then((nextConfig) => {
-        if (!cancelled) {
-          setAegisConfig(normalizeAegisBuiltInAgentConfig(nextConfig));
         }
       }),
     ])
@@ -400,22 +337,10 @@ export function CompatibleProviderSettingsContent() {
   };
 
   const activeProviderMessage = message && expandedProviderId && message.providerId === expandedProviderId ? message : null;
-  const aegisConfigured = Boolean(aegisConfig.providerId.trim() && aegisConfig.model.trim());
-  const aegisNeedsKey = aegisConfig.apiKey.trim().length === 0;
 
   return (
     <div className="space-y-6 pb-8">
       <SettingsGroup title="Runtime Health">
-        <RuntimeStatusRow
-          title="Aegis"
-          logo={<img src={aegisAvatar} alt="" className="h-5 w-5 rounded-full object-cover" aria-hidden="true" />}
-          detail={aegisNeedsKey ? 'Configure it in Aegis settings, or provide a matching app environment key.' : undefined}
-          status={
-            aegisConfigured
-              ? { label: 'Configured', tone: 'text-emerald-700', dot: 'bg-emerald-500' }
-              : { label: 'Setup', tone: 'text-amber-700', dot: 'bg-amber-500' }
-          }
-        />
         <RuntimeStatusRow
           title="Claude Code"
           logo={<img src={claudeLogo} alt="" className="h-5 w-5" aria-hidden="true" />}

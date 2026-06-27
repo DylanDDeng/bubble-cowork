@@ -1,4 +1,3 @@
-import { aegisRuntime } from './aegis-runtime';
 import { claudeRuntime } from './claude-runtime';
 import { nativeRuntime } from './native-runtime';
 import { opencodeRuntime } from './opencode-runtime';
@@ -10,7 +9,6 @@ export function ensureAgentRuntimeRegistry(): void {
   if (initialized) {
     return;
   }
-  registerRuntime(aegisRuntime);
   registerRuntime(nativeRuntime);
   registerRuntime(claudeRuntime);
   registerRuntime(opencodeRuntime);

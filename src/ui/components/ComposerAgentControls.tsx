@@ -13,13 +13,9 @@ import {
 import claudeLogo from '../assets/claude-color.svg';
 import openaiLogo from '../assets/openai.svg';
 import moonshotLogo from '../assets/moonshot.svg';
-import aegisAvatar from '../assets/agent-avatars/anime-avatar-03.png';
 import { OpenCodeLogo } from './OpenCodeLogo';
 
 function AgentIcon({ provider }: { provider: AgentProvider }) {
-  if (provider === 'aegis') {
-    return <img src={aegisAvatar} alt="" className="h-4 w-4 flex-shrink-0 rounded-full object-cover" aria-hidden="true" />;
-  }
   if (provider === 'claude') {
     return <img src={claudeLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
   }

@@ -42,6 +42,7 @@ import type {
   TeamProfile,
   TeamMemberProfile,
   SessionTeamMode,
+  McpServerStatus,
 } from '../types';
 import {
   DEFAULT_THEME_STATE,
@@ -202,16 +203,11 @@ function createDirectMessageDraftOptions(profile: AgentProfile): Parameters<type
       profile.provider === 'codex' && profile.reasoningEffort !== 'max'
         ? profile.reasoningEffort
         : undefined,
-    aegisReasoningEffort:
-      profile.provider === 'aegis' && (profile.reasoningEffort === 'high' || profile.reasoningEffort === 'max')
-        ? profile.reasoningEffort
-        : undefined,
     claudeAccessMode: isFullAccess ? 'bypassPermissions' : isReadOnly ? 'plan' : 'default',
     claudeExecutionMode: isReadOnly ? 'plan' : 'execute',
     codexExecutionMode: isReadOnly ? 'plan' : 'execute',
     codexPermissionMode: isFullAccess ? 'fullAccess' : 'defaultPermissions',
     opencodePermissionMode: isFullAccess ? 'fullAccess' : 'defaultPermissions',
-    aegisPermissionMode: isReadOnly ? 'readOnly' : isFullAccess ? 'fullAccess' : 'defaultPermissions',
   };
 }
 
@@ -253,7 +249,7 @@ function normalizeAgentPermissionPolicyForProfile(
 }
 
 function normalizeAgentProvider(value: unknown): AgentProvider {
-  return value === 'aegis' || value === 'codex' || value === 'opencode' || value === 'kimi'
+  return value === 'codex' || value === 'opencode' || value === 'kimi'
     ? value
     : 'claude';
 }
@@ -855,8 +851,6 @@ function createDraftSessionView(
     | 'codexFastMode'
     | 'kimiPermissionMode'
     | 'opencodePermissionMode'
-    | 'aegisPermissionMode'
-    | 'aegisReasoningEffort'
     | 'teamMode'
     | 'teamId'
     | 'projectCwd'
@@ -901,8 +895,6 @@ function createDraftSessionView(
     codexFastMode: options?.codexFastMode,
     kimiPermissionMode: options?.kimiPermissionMode,
     opencodePermissionMode: options?.opencodePermissionMode,
-    aegisPermissionMode: options?.aegisPermissionMode,
-    aegisReasoningEffort: options?.aegisReasoningEffort,
     hiddenFromThreads: false,
     messages: [],
     hydrated: true,
@@ -2907,8 +2899,6 @@ function handleSessionList(
       codexFastMode: session.codexFastMode,
       kimiPermissionMode: session.kimiPermissionMode,
       opencodePermissionMode: session.opencodePermissionMode,
-      aegisPermissionMode: session.aegisPermissionMode,
-      aegisReasoningEffort: session.aegisReasoningEffort,
       pinned: session.pinned || false,
       folderPath: session.folderPath || null,
       hiddenFromThreads: session.hiddenFromThreads === true,
@@ -3024,8 +3014,6 @@ function handleSessionStatus(
     codexFastMode?: SessionInfo['codexFastMode'];
     kimiPermissionMode?: SessionInfo['kimiPermissionMode'];
     opencodePermissionMode?: SessionInfo['opencodePermissionMode'];
-    aegisPermissionMode?: SessionInfo['aegisPermissionMode'];
-    aegisReasoningEffort?: SessionInfo['aegisReasoningEffort'];
     hiddenFromThreads?: boolean;
     channelId?: string;
     teamMode?: SessionInfo['teamMode'];
@@ -3060,8 +3048,6 @@ function handleSessionStatus(
     codexFastMode,
     kimiPermissionMode,
     opencodePermissionMode,
-    aegisPermissionMode,
-    aegisReasoningEffort,
     hiddenFromThreads,
     channelId,
     teamMode,
@@ -3147,14 +3133,6 @@ function handleSessionStatus(
             opencodePermissionMode !== undefined
               ? opencodePermissionMode
               : session.opencodePermissionMode,
-          aegisPermissionMode:
-            aegisPermissionMode !== undefined
-              ? aegisPermissionMode
-              : session.aegisPermissionMode,
-          aegisReasoningEffort:
-            aegisReasoningEffort !== undefined
-              ? aegisReasoningEffort
-              : session.aegisReasoningEffort,
           hiddenFromThreads:
             hiddenFromThreads !== undefined ? hiddenFromThreads : session.hiddenFromThreads,
           channelId:
@@ -3363,6 +3341,25 @@ function handleUserPrompt(
 }
 
 // 处理流式消息
+function mergeMcpServerStatus(
+  current: McpServerStatus[],
+  incoming: McpServerStatus[],
+  tool?: McpServerStatus['tool']
+): McpServerStatus[] {
+  if (!tool) {
+    // No tool tag: replace by name only (legacy behavior).
+    const byName = new Map(incoming.map((s) => [s.name, s]));
+    return [...current.filter((s) => !byName.has(s.name)), ...incoming];
+  }
+  // Replace only this tool's entries; keep other tools' entries intact so
+  // Claude and Codex statuses coexist without cross-agent name collisions.
+  const incomingNames = new Set(incoming.map((s) => s.name));
+  return [
+    ...current.filter((s) => s.tool !== tool || !incomingNames.has(s.name)),
+    ...incoming,
+  ];
+}
+
 function handleStreamMessage(
   payload: { sessionId: string; message: StreamMessage },
   set: SetState,
@@ -3380,6 +3377,40 @@ function handleStreamMessage(
     message.compactMetadata.trigger === 'auto'
   ) {
     toast.success('Claude auto-compacted the conversation context.');
+  }
+
+  // Update global MCP server status from init/mcp_status stream messages.
+  // Claude reports status via system/init.mcp_servers; Codex via mcp_status.
+  // Opencode/Kimi protocols do not report MCP status, so they stay Unknown.
+  if (
+    message.type === 'mcp_status' ||
+    (message.type === 'system' &&
+      message.subtype === 'init' &&
+      Array.isArray(message.mcp_servers) &&
+      message.mcp_servers.length > 0)
+  ) {
+    const provider = session?.provider;
+    const tool: McpServerStatus['tool'] | undefined =
+      provider === 'claude' ||
+      provider === 'codex' ||
+      provider === 'opencode' ||
+      provider === 'kimi'
+        ? provider
+        : undefined;
+    const incoming: McpServerStatus[] =
+      message.type === 'mcp_status'
+        ? message.servers
+        : message.mcp_servers.map((s) => ({
+            name: s.name,
+            status: s.status,
+            ...(s.error ? { error: s.error } : {}),
+          }));
+    const tagged = incoming.map((s) => ({ ...s, tool: tool ?? s.tool }));
+    set((state) => ({
+      mcpServerStatus: mergeMcpServerStatus(state.mcpServerStatus, tagged, tool),
+    }));
+    // mcp_status is a status-only update, not a transcript message.
+    if (message.type === 'mcp_status') return;
   }
 
   set((state) => {

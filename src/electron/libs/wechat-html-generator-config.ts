@@ -1,20 +1,14 @@
 import { app } from 'electron';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import {
-  AEGIS_BUILT_IN_DEFAULT_MODEL,
-  AEGIS_BUILT_IN_DEFAULT_PROVIDER_ID,
-  getAegisBuiltInProvider,
-  resolveAegisBuiltInModel,
-} from '../../shared/aegis-built-in-catalog';
 import type { AgentProvider, WechatMarkdownHtmlGeneratorConfig } from '../../shared/types';
 
 const CONFIG_PATH = () => join(app.getPath('userData'), 'wechat-html-generator.json');
 
 const DEFAULT_CONFIG: WechatMarkdownHtmlGeneratorConfig = {
-  runtime: 'aegis',
-  providerId: AEGIS_BUILT_IN_DEFAULT_PROVIDER_ID,
-  model: AEGIS_BUILT_IN_DEFAULT_MODEL,
+  runtime: 'claude',
+  providerId: 'claude',
+  model: '',
   temperature: 0.2,
 };
 
@@ -37,7 +31,6 @@ function normalizeRuntime(value: unknown): AgentProvider {
     case 'claude':
     case 'codex':
     case 'opencode':
-    case 'aegis':
       return value;
     default:
       return DEFAULT_CONFIG.runtime;
@@ -48,16 +41,17 @@ export function normalizeWechatHtmlGeneratorConfig(
   input?: (Partial<WechatMarkdownHtmlGeneratorConfig> & { mode?: string }) | null,
 ): WechatMarkdownHtmlGeneratorConfig {
   const runtime = normalizeRuntime(input?.runtime);
-  const selection = resolveAegisBuiltInModel(input?.model, input?.providerId);
-  const provider = getAegisBuiltInProvider(selection.providerId);
   const maxOutputTokens = normalizeMaxOutputTokens(input?.maxOutputTokens);
+  const model = typeof input?.model === 'string' ? input.model.trim() : '';
+  const providerId =
+    typeof input?.providerId === 'string' && input.providerId.trim()
+      ? input.providerId.trim()
+      : runtime;
 
   return {
     runtime,
-    providerId: provider?.id || AEGIS_BUILT_IN_DEFAULT_PROVIDER_ID,
-    model: runtime === 'aegis'
-      ? selection.encoded
-      : (typeof input?.model === 'string' ? input.model.trim() : ''),
+    providerId,
+    model,
     temperature: normalizeTemperature(input?.temperature),
     ...(maxOutputTokens ? { maxOutputTokens } : {}),
   };

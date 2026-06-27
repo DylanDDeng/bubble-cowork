@@ -1,6 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron');
 import type {
-  AegisBuiltInAgentConfig,
   AutomationDefinition,
   AutomationSnapshot,
   ClaudeCompatibleProvidersConfig,
@@ -354,14 +353,6 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('save-claude-compatible-provider-config', config);
   },
 
-  getAegisBuiltInAgentConfig: () => {
-    return ipcRenderer.invoke('get-aegis-built-in-agent-config');
-  },
-
-  saveAegisBuiltInAgentConfig: (config: AegisBuiltInAgentConfig) => {
-    return ipcRenderer.invoke('save-aegis-built-in-agent-config', config);
-  },
-
   getWechatHtmlGeneratorConfig: (): Promise<WechatMarkdownHtmlGeneratorConfig> => {
     return ipcRenderer.invoke('get-wechat-html-generator-config');
   },
@@ -440,11 +431,6 @@ contextBridge.exposeInMainWorld('electron', {
     input: Omit<ProviderListSkillsInput, 'provider'>
   ): Promise<ProviderListSkillsResult> => {
     return ipcRenderer.invoke('codex-list-skills', input);
-  },
-  listAegisSkills: (
-    input: Omit<ProviderListSkillsInput, 'provider'>
-  ): Promise<ProviderListSkillsResult> => {
-    return ipcRenderer.invoke('aegis-list-skills', input);
   },
   listCodexPlugins: (
     input?: Omit<ProviderListPluginsInput, 'provider'>

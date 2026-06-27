@@ -3,7 +3,6 @@ import { ArrowLeft, Server, Settings as SettingsIcon, Sun, Moon, Monitor, ChartC
 import { useAppStore } from '../../store/useAppStore';
 import { ClaudeUsageSettingsContent } from './ClaudeUsageSettings';
 import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings';
-import { AegisBuiltInSettingsContent } from './AegisBuiltInSettings';
 import { McpSettingsContent } from './McpSettings';
 import { BridgeSettingsContent } from './BridgeSettings';
 import { ThemePackEditor } from './ThemePackEditor';
@@ -17,12 +16,6 @@ const SETTINGS_TABS = {
     title: 'Workspace Preferences',
     description: 'Adjust appearance and core workspace behavior.',
     icon: <SettingsIcon className="w-4 h-4" />,
-  },
-  aegis: {
-    label: 'Aegis',
-    title: 'Aegis',
-    description: 'Configure the app-owned agent runtime.',
-    icon: <Bot className="w-4 h-4" />,
   },
   mcp: {
     label: 'MCP Servers',
@@ -153,7 +146,6 @@ export function Settings() {
               updateStatus={updateStatus}
             />
           )}
-          {resolvedActiveSettingsTab === 'aegis' && <AegisBuiltInSettingsContent />}
           {resolvedActiveSettingsTab === 'mcp' && <McpSettingsContent />}
           {resolvedActiveSettingsTab === 'providers' && <CompatibleProviderSettingsContent />}
           {resolvedActiveSettingsTab === 'usage' && <ClaudeUsageSettingsContent />}

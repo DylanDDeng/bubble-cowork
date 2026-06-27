@@ -1,13 +1,12 @@
 // UI 层类型定义
 
 // Settings 标签类型
-export type SettingsTab = 'mcp' | 'general' | 'aegis' | 'providers' | 'usage' | 'bridge';
+export type SettingsTab = 'mcp' | 'general' | 'providers' | 'usage' | 'bridge';
 
 import type { ChromeTheme, ThemeFonts, ThemeMode, ThemePack, ThemeState, ThemeVariant } from './theme/theme-types';
 // 从共享类型导入
 import type {
   AgentProvider,
-  AegisBuiltInReasoningEffort,
   AppUpdateStatus,
   ClaudeCompatibleProviderId,
   ClaudeCompatibleProviderConfig,
@@ -98,8 +97,6 @@ export type {
   MemoryWorkspace,
   AgentProvider,
   UpsertAutomationInput,
-  AegisBuiltInAgentConfig,
-  AegisBuiltInReasoningEffort,
   WechatMarkdownHtmlGeneratorConfig,
   ProviderComposerCapabilities,
   ProviderListPluginsInput,
@@ -192,7 +189,7 @@ export type ReviewDiffSelectionInput = Omit<ReviewDiffSelection, 'requestedAt'> 
 
 export type AgentProfileColor = 'amber' | 'sky' | 'emerald' | 'violet' | 'rose' | 'slate';
 export type AgentPermissionPolicy = 'ask' | 'readOnly' | 'fullAccess';
-export type AgentReasoningEffort = ClaudeReasoningEffort | CodexReasoningEffort | AegisBuiltInReasoningEffort;
+export type AgentReasoningEffort = ClaudeReasoningEffort | CodexReasoningEffort;
 export type AgentAvatarAssetKey =
   | 'notion-avatar-01'
   | 'notion-avatar-02'
@@ -257,8 +254,6 @@ export interface SessionView {
   codexFastMode?: boolean;
   kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
-  aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
-  aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort;
   pinned?: boolean;
   folderPath?: string | null;
   hiddenFromThreads?: boolean;

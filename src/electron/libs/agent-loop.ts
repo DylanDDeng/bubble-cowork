@@ -138,19 +138,12 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
       model?: string,
       codexSkills?: import('../../shared/types').ProviderInputReference[],
       codexMentions?: import('../../shared/types').ProviderInputReference[],
-      _aegisSkills?: import('../../shared/types').ProviderInputReference[],
-      _aegisMentions?: import('../../shared/types').ProviderInputReference[],
       sendOptions?: {
         codexExecutionMode?: import('../../shared/types').CodexExecutionMode;
         codexPermissionMode?: import('../../shared/types').CodexPermissionMode;
         codexReasoningEffort?: import('../../shared/types').CodexReasoningEffort;
         codexFastMode?: boolean;
         kimiPermissionMode?: import('../../shared/types').KimiPermissionMode;
-        aegisPermissionMode?: import('../../shared/types').AegisPermissionMode;
-        aegisReasoningEffort?: import('../../shared/types').AegisBuiltInReasoningEffort;
-        aegisAgentProfile?: import('../../shared/types').RoutedAgentRuntimePayload | null;
-        aegisTeam?: import('../../shared/types').TeamProfile | null;
-        aegisTeamAgents?: import('../../shared/types').RoutedAgentRuntimePayload[];
       }
     ) => {
       if (abortController.signal.aborted) return;

@@ -115,9 +115,7 @@ export type CodexExecutionMode = 'execute' | 'plan';
 export type CodexPermissionMode = 'defaultPermissions' | 'auto' | 'fullAccess';
 export type KimiPermissionMode = 'default' | 'plan' | 'auto' | 'yolo';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'fullAccess';
-export type AegisPermissionMode = 'defaultPermissions' | 'readOnly' | 'fullAccess';
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
-export type AegisBuiltInReasoningEffort = 'high' | 'max';
 export type PlanStepStatus = 'pending' | 'inProgress' | 'completed';
 
 export interface PlanStep {
@@ -302,16 +300,6 @@ export interface ClaudeCompatibleProvidersConfig {
   providers: Record<ClaudeCompatibleProviderId, ClaudeCompatibleProviderConfig>;
 }
 
-export interface AegisBuiltInAgentConfig {
-  providerId: string;
-  baseUrl: string;
-  apiKey: string;
-  providerApiKeys?: Record<string, string>;
-  model: string;
-  temperature: number;
-  maxOutputTokens?: number;
-}
-
 export type WechatMarkdownHtmlThemeId = 'black-red-imprint' | 'black-orange-imprint';
 export type WechatMarkdownHtmlGeneratorRuntime = AgentProvider;
 
@@ -398,7 +386,7 @@ export interface WorkspaceChannel {
 }
 
 // Agent 提供商 / runtime
-export type AgentProvider = 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi';
+export type AgentProvider = 'claude' | 'codex' | 'opencode' | 'kimi';
 export type SessionSource =
   | 'aegis'
   | 'claude_remote'
@@ -573,7 +561,6 @@ export interface AutomationRuntimeConfig {
   compatibleProviderId?: ClaudeCompatibleProviderId | null;
   codexReasoningEffort?: CodexReasoningEffort | null;
   codexFastMode?: boolean;
-  aegisReasoningEffort?: AegisBuiltInReasoningEffort | null;
   teamMode?: SessionTeamMode;
   teamId?: string | null;
 }
@@ -761,11 +748,7 @@ export interface SessionStartPayload {
   kimiPermissionMode?: KimiPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
-  aegisSkills?: ProviderInputReference[];
-  aegisMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
-  aegisPermissionMode?: AegisPermissionMode;
-  aegisReasoningEffort?: AegisBuiltInReasoningEffort;
   routedAgentId?: string | null;
   routedAgentProfile?: RoutedAgentRuntimePayload | null;
   routedAgentTurns?: RoutedAgentTurnPayload[];
@@ -797,11 +780,7 @@ export interface SessionContinuePayload {
   kimiPermissionMode?: KimiPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
-  aegisSkills?: ProviderInputReference[];
-  aegisMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
-  aegisPermissionMode?: AegisPermissionMode;
-  aegisReasoningEffort?: AegisBuiltInReasoningEffort;
   routedAgentId?: string | null;
   routedAgentProfile?: RoutedAgentRuntimePayload | null;
   routedAgentTurns?: RoutedAgentTurnPayload[];
@@ -996,11 +975,7 @@ export interface RoutedAgentRuntimePayload {
   kimiPermissionMode?: KimiPermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
-  aegisSkills?: ProviderInputReference[];
-  aegisMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
-  aegisPermissionMode?: AegisPermissionMode;
-  aegisReasoningEffort?: AegisBuiltInReasoningEffort;
 }
 
 export interface RoutedAgentTurnPayload extends RoutedAgentRuntimePayload {
@@ -1106,8 +1081,6 @@ export interface SessionInfo {
   codexFastMode?: boolean;
   kimiPermissionMode?: KimiPermissionMode;
   opencodePermissionMode?: OpenCodePermissionMode;
-  aegisPermissionMode?: AegisPermissionMode;
-  aegisReasoningEffort?: AegisBuiltInReasoningEffort;
   pinned?: boolean;
   folderPath?: string | null;
   hiddenFromThreads?: boolean;
@@ -1150,8 +1123,6 @@ export interface SessionStatusPayload {
   codexFastMode?: boolean;
   kimiPermissionMode?: KimiPermissionMode;
   opencodePermissionMode?: OpenCodePermissionMode;
-  aegisPermissionMode?: AegisPermissionMode;
-  aegisReasoningEffort?: AegisBuiltInReasoningEffort;
   hiddenFromThreads?: boolean;
   channelId?: string;
   teamMode?: SessionTeamMode;

@@ -32,10 +32,6 @@ import {
   loadCompatibleProviderConfig,
   saveCompatibleProviderConfig,
 } from './libs/compatible-provider-config';
-import {
-  loadAegisBuiltInAgentConfig,
-  saveAegisBuiltInAgentConfig,
-} from './libs/aegis-built-in-config';
 import { generateWechatMarkdownHtml } from './libs/wechat-html-generator';
 import {
   loadWechatHtmlGeneratorConfig,
@@ -66,7 +62,6 @@ import { expandClaudeSkillPrompt, listClaudeSkills } from './libs/claude-skills'
 import { loadFeishuBridgeConfig, saveFeishuBridgeConfig } from './libs/feishu-bridge-config';
 import { feishuBridge } from './libs/feishu-bridge';
 import { getMemoryWorkspace, saveMemoryDocument } from './libs/memory-store';
-import { listAegisSkillsForProvider } from './libs/builtin-agent/skills/manager';
 import { formatClaudeRuntimeBlockingMessage, getClaudeRuntimeStatus, getClaudeRuntimeStatusCached, invalidateClaudeRuntimeCache } from './libs/claude-runtime-status';
 import {
   getSkillMarketDetail,
@@ -96,7 +91,6 @@ import type {
 import type {
   ClaudeCompatibleProvidersConfig,
   ClaudeCompatibleProviderId,
-  AegisBuiltInAgentConfig,
   ClaudeUsageRangeDays,
   FolderConfig,
   FontSettingsPayload,
@@ -401,21 +395,6 @@ function normalizeKimiPermissionMode(
   value?: string | null
 ): import('../shared/types').KimiPermissionMode {
   return value === 'plan' || value === 'auto' || value === 'yolo' ? value : 'default';
-}
-
-function normalizeAegisPermissionMode(
-  value?: string | null
-): import('../shared/types').AegisPermissionMode {
-  if (value === 'readOnly') return 'readOnly';
-  return value === 'fullAccess' || value === 'fullAuto'
-    ? 'fullAccess'
-    : 'defaultPermissions';
-}
-
-function normalizeAegisReasoningEffort(
-  value?: string | null
-): import('../shared/types').AegisBuiltInReasoningEffort | undefined {
-  return value === 'max' ? 'max' : value === 'high' ? 'high' : undefined;
 }
 
 function normalizeClaudeAccessMode(
@@ -1454,7 +1433,6 @@ function formatInteger(value: number): string {
 }
 
 function formatProviderLabel(provider: SessionInfo['provider']): string {
-  if (provider === 'aegis') return 'Aegis Built-in';
   if (provider === 'codex') return 'Codex';
   if (provider === 'opencode') return 'OpenCode';
   if (provider === 'kimi') return 'Kimi Code';
@@ -3135,7 +3113,7 @@ const runnerHandles = new Map<
   string,
   {
     handle: RunnerHandle;
-    provider: 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi';
+    provider: 'claude' | 'codex' | 'opencode' | 'kimi';
     compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
     claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
     claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode;
@@ -3146,8 +3124,6 @@ const runnerHandles = new Map<
 	    codexFastMode?: boolean;
 	    kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
 	    opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
-    aegisPermissionMode?: import('../shared/types').AegisPermissionMode;
-    aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort;
     activeAgentId?: string | null;
     activeAgentRunId?: string | null;
     onTurnDone?: (status: SessionStatus, message?: string) => void;
@@ -4047,16 +4023,6 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return loadCompatibleProviderConfig();
   });
 
-  // RPC: 获取 Aegis Built-in Agent 配置
-  ipcMainHandle('get-aegis-built-in-agent-config', async () => {
-    return loadAegisBuiltInAgentConfig();
-  });
-
-  // RPC: 保存 Aegis Built-in Agent 配置
-  ipcMainHandle('save-aegis-built-in-agent-config', async (_, config: AegisBuiltInAgentConfig) => {
-    return saveAegisBuiltInAgentConfig(config);
-  });
-
   ipcMainHandle('get-wechat-html-generator-config', async () => {
     return loadWechatHtmlGeneratorConfig();
   });
@@ -4188,13 +4154,6 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       provider: 'codex',
       cwd: input?.cwd,
       threadId: input?.threadId,
-      forceReload: input?.forceReload,
-    });
-  });
-
-  ipcMainHandle('aegis-list-skills', async (_event, input?: Omit<ProviderListSkillsInput, 'provider'>) => {
-    return listAegisSkillsForProvider({
-      cwd: input?.cwd,
       forceReload: input?.forceReload,
     });
   });
@@ -6164,7 +6123,6 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     codexReasoningEffort: normalizeCodexReasoningEffort(row.codex_reasoning_effort),
     codexFastMode: normalizeCodexFastMode(row.codex_fast_mode),
     opencodePermissionMode: normalizeOpenCodePermissionMode(row.opencode_permission_mode),
-    aegisPermissionMode: row.provider === 'aegis' ? 'defaultPermissions' : undefined,
     pinned: row.pinned === 1,
     folderPath: row.folder_path || null,
     hiddenFromThreads: row.hidden_from_threads === 1,
@@ -6231,7 +6189,6 @@ function normalizeRoutedAgentRuntimePayload(
   }
 
   const provider =
-    turn?.provider === 'aegis' ||
     turn?.provider === 'codex' ||
     turn?.provider === 'opencode' ||
     turn?.provider === 'kimi' ||
@@ -6264,74 +6221,6 @@ function normalizeAvailableAgentTurns(
     uniqueTurns.set(normalized.routedAgentId, normalized);
   }
   return Array.from(uniqueTurns.values());
-}
-
-function buildAegisTeamRuntimeFromStore(
-  teamId: string | null | undefined,
-  providedTeam?: TeamProfile | null,
-  providedTeamAgents?: RoutedAgentRuntimePayload[]
-): { team: TeamProfile | null; agents: RoutedAgentRuntimePayload[] } {
-  const normalizedTeamId = teamId?.trim() || providedTeam?.id?.trim() || '';
-  const providedAgents = normalizeAvailableAgentTurns(providedTeamAgents);
-  if (!normalizedTeamId && !providedTeam) {
-    return { team: null, agents: providedAgents };
-  }
-
-  const snapshots = sessions.getProfileSnapshots();
-  const storedTeam = normalizedTeamId
-    ? snapshots.teamProfiles.find((team) => team.id === normalizedTeamId) || null
-    : null;
-  const team = providedTeam || storedTeam;
-  if (!team) {
-    return { team: null, agents: providedAgents };
-  }
-
-  const agentsById = new Map(providedAgents.map((agent) => [agent.routedAgentId, agent]));
-  for (const profile of snapshots.agentProfiles) {
-    if (typeof profile.id !== 'string' || agentsById.has(profile.id)) {
-      continue;
-    }
-    const provider = profile.provider === 'aegis' ||
-      profile.provider === 'claude' ||
-      profile.provider === 'codex' ||
-      profile.provider === 'opencode' ||
-      profile.provider === 'kimi'
-      ? profile.provider
-      : 'claude';
-    agentsById.set(profile.id, {
-      routedAgentId: profile.id,
-      agent: {
-        id: profile.id,
-        name: typeof profile.name === 'string' && profile.name.trim() ? profile.name : profile.id,
-        role: typeof profile.role === 'string' ? profile.role : undefined,
-        description: typeof profile.description === 'string' ? profile.description : undefined,
-        canDelegate: profile.canDelegate === true,
-      },
-      instructions: typeof profile.instructions === 'string' ? profile.instructions : undefined,
-      provider,
-      model: typeof profile.model === 'string' ? profile.model : undefined,
-      compatibleProviderId:
-        typeof profile.compatibleProviderId === 'string'
-          ? (profile.compatibleProviderId as import('../shared/types').ClaudeCompatibleProviderId)
-          : undefined,
-      claudeReasoningEffort:
-        typeof profile.reasoningEffort === 'string'
-          ? (profile.reasoningEffort as import('../shared/types').ClaudeReasoningEffort)
-          : undefined,
-      codexReasoningEffort:
-        typeof profile.reasoningEffort === 'string'
-          ? (profile.reasoningEffort as import('../shared/types').CodexReasoningEffort)
-          : undefined,
-      aegisReasoningEffort:
-        typeof profile.reasoningEffort === 'string'
-          ? (profile.reasoningEffort as import('../shared/types').AegisBuiltInReasoningEffort)
-          : undefined,
-    });
-  }
-
-  const teamAgentIds = new Set(team.members.map((member) => member.agentId));
-  const agents = Array.from(agentsById.values()).filter((agent) => teamAgentIds.has(agent.routedAgentId));
-  return { team, agents };
 }
 
 function normalizeRoutedAgentTurns(
@@ -6397,10 +6286,6 @@ function applyRoutedAgentTurnRuntime(sessionId: string, turn: RoutedAgentTurnPay
     provider === 'codex' ? normalizeCodexFastMode(turn.codexFastMode) : undefined;
   const selectedOpenCodePermissionMode =
     provider === 'opencode' ? normalizeOpenCodePermissionMode(turn.opencodePermissionMode) : undefined;
-  const selectedAegisPermissionMode =
-    provider === 'aegis' ? normalizeAegisPermissionMode(turn.aegisPermissionMode) : undefined;
-  const selectedAegisReasoningEffort =
-    provider === 'aegis' ? normalizeAegisReasoningEffort(turn.aegisReasoningEffort) : undefined;
 
   sessions.updateSessionProvider(sessionId, provider);
   sessions.updateSessionModel(sessionId, selectedModel || null);
@@ -6439,8 +6324,6 @@ function applyRoutedAgentTurnRuntime(sessionId: string, turn: RoutedAgentTurnPay
     selectedCodexReasoningEffort,
     selectedCodexFastMode,
     selectedOpenCodePermissionMode,
-    selectedAegisPermissionMode,
-    selectedAegisReasoningEffort,
   };
 }
 
@@ -7084,10 +6967,6 @@ async function runRoutedAgentTurn(
         runtime.provider === 'opencode'
           ? (runtime.selectedOpenCodePermissionMode || 'defaultPermissions')
           : undefined,
-      aegisPermissionMode:
-        runtime.provider === 'aegis'
-          ? (runtime.selectedAegisPermissionMode || 'defaultPermissions')
-          : undefined,
       hiddenFromThreads: session.hidden_from_threads === 1,
     },
   });
@@ -7163,17 +7042,8 @@ async function runRoutedAgentTurn(
         ? (runtime.selectedOpenCodePermissionMode || 'defaultPermissions')
         : undefined,
       runtime.provider === 'kimi' ? normalizeKimiPermissionMode(turn.kimiPermissionMode) : undefined,
-      runtime.provider === 'aegis'
-        ? (runtime.selectedAegisPermissionMode || 'defaultPermissions')
-        : undefined,
-      runtime.provider === 'aegis' ? runtime.selectedAegisReasoningEffort : undefined,
       runtime.provider === 'codex' ? turn.codexSkills : undefined,
       runtime.provider === 'codex' ? turn.codexMentions : undefined,
-      runtime.provider === 'aegis' ? turn.aegisSkills : undefined,
-      runtime.provider === 'aegis' ? turn.aegisMentions : undefined,
-      runtime.provider === 'aegis' ? turn : undefined,
-      undefined,
-      undefined,
       turn.routedAgentId,
       resolveTurn,
       agentRunId
@@ -7216,12 +7086,8 @@ async function handleSessionStart(
     codexFastMode,
     codexSkills,
     codexMentions,
-    aegisSkills,
-    aegisMentions,
     kimiPermissionMode,
     opencodePermissionMode,
-    aegisPermissionMode,
-    aegisReasoningEffort,
     routedAgentProfile,
     routedAgentId,
     routedAgentTurns,
@@ -7278,8 +7144,6 @@ async function handleSessionStart(
       : undefined;
   const selectedClaudeReasoningEffort =
     chosenProvider === 'claude' ? normalizeClaudeReasoningEffort(claudeReasoningEffort) : undefined;
-  const selectedAegisReasoningEffort =
-    chosenProvider === 'aegis' ? normalizeAegisReasoningEffort(aegisReasoningEffort) : undefined;
   const selectedKimiPermissionMode =
     chosenProvider === 'kimi' ? normalizeKimiPermissionMode(kimiPermissionMode) : undefined;
   const normalizedTeamMode = normalizeSessionTeamMode(teamMode);
@@ -7375,9 +7239,6 @@ async function handleSessionStart(
       kimiPermissionMode: selectedKimiPermissionMode,
       opencodePermissionMode:
         chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
-      aegisPermissionMode:
-        chosenProvider === 'aegis' ? normalizeAegisPermissionMode(aegisPermissionMode) : undefined,
-      aegisReasoningEffort: chosenProvider === 'aegis' ? selectedAegisReasoningEffort : undefined,
       hiddenFromThreads: session.hidden_from_threads === 1,
       channelId: normalizeWorkspaceChannelId(session.workspace_channel_id),
       teamMode: normalizeSessionTeamMode(session.team_mode),
@@ -7498,10 +7359,6 @@ async function handleSessionStart(
     return session.id;
   }
 
-  const aegisTeamRuntime = chosenProvider === 'aegis'
-    ? buildAegisTeamRuntimeFromStore(normalizedTeamId, teamProfile, teamAgentTurns)
-    : { team: null, agents: [] };
-
   // 启动 Runner
   startRunner(
     mainWindow,
@@ -7522,15 +7379,8 @@ async function handleSessionStart(
     chosenProvider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
     chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
     selectedKimiPermissionMode,
-    chosenProvider === 'aegis' ? normalizeAegisPermissionMode(aegisPermissionMode) : undefined,
-    chosenProvider === 'aegis' ? selectedAegisReasoningEffort : undefined,
     chosenProvider === 'codex' ? codexSkills : undefined,
     chosenProvider === 'codex' ? codexMentions : undefined,
-    chosenProvider === 'aegis' ? aegisSkills : undefined,
-    chosenProvider === 'aegis' ? aegisMentions : undefined,
-    chosenProvider === 'aegis' ? turnAgentProfile : undefined,
-    chosenProvider === 'aegis' ? aegisTeamRuntime.team : undefined,
-    chosenProvider === 'aegis' ? aegisTeamRuntime.agents : undefined,
     turnAgentId,
     automationRunId
       ? (status, failureMessage) => {
@@ -7570,12 +7420,8 @@ async function handleSessionContinue(
     codexFastMode,
     codexSkills,
     codexMentions,
-    aegisSkills,
-    aegisMentions,
     kimiPermissionMode,
     opencodePermissionMode,
-    aegisPermissionMode,
-    aegisReasoningEffort,
     routedAgentProfile,
     routedAgentId,
     routedAgentTurns,
@@ -7729,12 +7575,6 @@ async function handleSessionContinue(
   const nextKimiPermissionMode = nextProvider === 'kimi'
     ? normalizeKimiPermissionMode(kimiPermissionMode)
     : undefined;
-  const nextAegisPermissionMode = nextProvider === 'aegis'
-    ? normalizeAegisPermissionMode(aegisPermissionMode)
-    : undefined;
-  const nextAegisReasoningEffort = nextProvider === 'aegis'
-    ? normalizeAegisReasoningEffort(aegisReasoningEffort)
-    : undefined;
   const nextTeamMode = teamMode !== undefined
     ? normalizeSessionTeamMode(teamMode)
     : normalizeSessionTeamMode(session.team_mode);
@@ -7742,9 +7582,6 @@ async function handleSessionContinue(
     nextTeamMode === 'team' || nextTeamMode === 'manual'
       ? teamId?.trim() || teamProfile?.id || session.team_id || null
       : null;
-  const aegisTeamRuntime = nextProvider === 'aegis'
-    ? buildAegisTeamRuntimeFromStore(nextTeamId, teamProfile, teamAgentTurns)
-    : { team: null, agents: [] };
   const accessModeChanged =
     nextProvider === 'claude' &&
     normalizeClaudeAccessMode(runnerHandles.get(sessionId)?.claudeAccessMode || previousClaudeAccessMode) !==
@@ -7780,13 +7617,6 @@ async function handleSessionContinue(
     normalizeOpenCodePermissionMode(
       runnerHandles.get(sessionId)?.opencodePermissionMode || previousOpenCodePermissionMode
     ) !== nextOpenCodePermissionMode;
-  const aegisPermissionModeChanged =
-    nextProvider === 'aegis' &&
-    normalizeAegisPermissionMode(runnerHandles.get(sessionId)?.aegisPermissionMode) !== nextAegisPermissionMode;
-  const aegisReasoningEffortChanged =
-    nextProvider === 'aegis' &&
-    runnerHandles.get(sessionId)?.aegisReasoningEffort !== nextAegisReasoningEffort;
-
   // 运行时状态检查已移动到会话状态广播之后，以便前端立即显示 spinning 效果
 
   if (isDev()) {
@@ -7809,8 +7639,6 @@ async function handleSessionContinue(
       codexFastModeChanged,
       kimiPermissionMode: nextKimiPermissionMode,
       opencodePermissionModeChanged,
-      aegisPermissionModeChanged,
-      aegisReasoningEffortChanged,
       hasExistingRunner: !!existingEntry,
     });
   }
@@ -7878,9 +7706,6 @@ async function handleSessionContinue(
       kimiPermissionMode: nextKimiPermissionMode,
       opencodePermissionMode:
         nextProvider === 'opencode' ? (nextOpenCodePermissionMode || 'defaultPermissions') : undefined,
-      aegisPermissionMode:
-        nextProvider === 'aegis' ? (nextAegisPermissionMode || 'defaultPermissions') : undefined,
-      aegisReasoningEffort: nextProvider === 'aegis' ? nextAegisReasoningEffort : undefined,
       hiddenFromThreads: session.hidden_from_threads === 1,
       teamMode: nextTeamMode,
       teamId: nextTeamId,
@@ -7951,8 +7776,6 @@ async function handleSessionContinue(
       (nextProvider === 'codex' && codexReasoningEffortChanged) ||
       (nextProvider === 'codex' && codexFastModeChanged) ||
       (nextProvider === 'opencode' && opencodePermissionModeChanged) ||
-      (nextProvider === 'aegis' && aegisPermissionModeChanged) ||
-      (nextProvider === 'aegis' && aegisReasoningEffortChanged) ||
       (nextProvider === 'claude' &&
         (
           modelChanged ||
@@ -7980,14 +7803,6 @@ async function handleSessionContinue(
 	          ? {
 	              kimiPermissionMode: nextKimiPermissionMode,
 	            }
-	          : nextProvider === 'aegis'
-          ? {
-              aegisPermissionMode: nextAegisPermissionMode || 'defaultPermissions',
-              aegisReasoningEffort: nextAegisReasoningEffort,
-              aegisAgentProfile: turnAgentProfile,
-              aegisTeam: aegisTeamRuntime.team,
-              aegisTeamAgents: aegisTeamRuntime.agents,
-            }
           : undefined;
       existingEntry.handle.send(
         runnerPrompt,
@@ -7995,8 +7810,6 @@ async function handleSessionContinue(
         nextModel,
         nextProvider === 'codex' ? codexSkills : undefined,
         nextProvider === 'codex' ? codexMentions : undefined,
-        nextProvider === 'aegis' ? aegisSkills : undefined,
-        nextProvider === 'aegis' ? aegisMentions : undefined,
         sendOptions
       );
 	      if (nextProvider === 'codex') {
@@ -8008,10 +7821,6 @@ async function handleSessionContinue(
 	      if (nextProvider === 'kimi') {
 	        existingEntry.kimiPermissionMode = nextKimiPermissionMode;
 	      }
-	      if (nextProvider === 'aegis') {
-        existingEntry.aegisPermissionMode = nextAegisPermissionMode || 'defaultPermissions';
-        existingEntry.aegisReasoningEffort = nextAegisReasoningEffort;
-      }
       return true;
     }
   }
@@ -8097,15 +7906,8 @@ async function handleSessionContinue(
     nextProvider === 'codex' ? nextCodexFastMode : undefined,
     nextProvider === 'opencode' ? (nextOpenCodePermissionMode || 'defaultPermissions') : undefined,
     nextProvider === 'kimi' ? nextKimiPermissionMode : undefined,
-    nextProvider === 'aegis' ? (nextAegisPermissionMode || 'defaultPermissions') : undefined,
-    nextProvider === 'aegis' ? nextAegisReasoningEffort : undefined,
     nextProvider === 'codex' ? codexSkills : undefined,
     nextProvider === 'codex' ? codexMentions : undefined,
-    nextProvider === 'aegis' ? aegisSkills : undefined,
-    nextProvider === 'aegis' ? aegisMentions : undefined,
-    nextProvider === 'aegis' ? turnAgentProfile : undefined,
-    nextProvider === 'aegis' ? aegisTeamRuntime.team : undefined,
-    nextProvider === 'aegis' ? aegisTeamRuntime.agents : undefined,
     turnAgentId
   );
   return true;
@@ -8118,7 +7920,7 @@ function startRunner(
   prompt: string,
   resumeSessionId?: string,
   attachments?: Attachment[],
-  providerOverride?: 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi',
+  providerOverride?: 'claude' | 'codex' | 'opencode' | 'kimi',
   modelOverride?: string,
   compatibleProviderOverride?: import('../shared/types').ClaudeCompatibleProviderId,
   betasOverride?: string[],
@@ -8131,15 +7933,8 @@ function startRunner(
   codexFastMode?: boolean,
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode,
   kimiPermissionMode?: import('../shared/types').KimiPermissionMode,
-  aegisPermissionMode?: import('../shared/types').AegisPermissionMode,
-  aegisReasoningEffort?: import('../shared/types').AegisBuiltInReasoningEffort,
   codexSkills?: ProviderInputReference[],
   codexMentions?: ProviderInputReference[],
-  aegisSkills?: ProviderInputReference[],
-  aegisMentions?: ProviderInputReference[],
-  aegisAgentProfile?: RoutedAgentRuntimePayload | null,
-  aegisTeam?: TeamProfile | null,
-  aegisTeamAgents?: RoutedAgentRuntimePayload[],
   activeAgentId?: string | null,
   onTurnDone?: (status: SessionStatus, message?: string) => void,
   activeAgentRunId?: string | null,
@@ -8177,9 +7972,7 @@ function startRunner(
       sessionId: session.id,
       provider,
       runner:
-        provider === 'aegis'
-          ? 'aegis built-in'
-          : provider === 'claude'
+        provider === 'claude'
           ? 'claude-agent-sdk'
           : provider === 'codex'
           ? 'codex-app-server'
@@ -8216,14 +8009,7 @@ function startRunner(
     kimiPermissionMode,
     codexSkills: provider === 'codex' ? codexSkills : undefined,
     codexMentions: provider === 'codex' ? codexMentions : undefined,
-    aegisSkills: provider === 'aegis' ? aegisSkills : undefined,
-    aegisMentions: provider === 'aegis' ? aegisMentions : undefined,
-    aegisAgentProfile: provider === 'aegis' ? aegisAgentProfile : undefined,
-    aegisTeam: provider === 'aegis' ? aegisTeam : undefined,
-    aegisTeamAgents: provider === 'aegis' ? aegisTeamAgents : undefined,
     opencodePermissionMode,
-    aegisPermissionMode,
-    aegisReasoningEffort,
     onMessage: (message) => {
       // 提取并保存 claude session id
       if (message.type === 'system' && message.subtype === 'init') {
@@ -8240,10 +8026,6 @@ function startRunner(
           }
         } else if (provider === 'kimi') {
           sessions.updateKimiSessionId(session.id, message.session_id);
-          if (message.model) {
-            sessions.updateSessionModel(session.id, message.model);
-          }
-        } else if (provider === 'aegis') {
           if (message.model) {
             sessions.updateSessionModel(session.id, message.model);
           }
@@ -8323,8 +8105,6 @@ function startRunner(
                     sessions.getSession(session.id)?.opencode_permission_mode || opencodePermissionMode
                   )
                 : undefined,
-            aegisPermissionMode:
-              provider === 'aegis' ? normalizeAegisPermissionMode(aegisPermissionMode) : undefined,
             hiddenFromThreads: sessions.getSession(session.id)?.hidden_from_threads === 1,
           },
         });
@@ -8468,8 +8248,6 @@ function startRunner(
                     sessions.getSession(session.id)?.opencode_permission_mode || opencodePermissionMode
                   )
                 : undefined,
-            aegisPermissionMode:
-              provider === 'aegis' ? normalizeAegisPermissionMode(aegisPermissionMode) : undefined,
             hiddenFromThreads: sessions.getSession(session.id)?.hidden_from_threads === 1,
           },
         });
@@ -8574,10 +8352,6 @@ function startRunner(
                   current?.opencode_permission_mode || opencodePermissionMode
                 )
               : undefined,
-          aegisPermissionMode:
-            provider === 'aegis' ? normalizeAegisPermissionMode(aegisPermissionMode) : undefined,
-          aegisReasoningEffort:
-            provider === 'aegis' ? normalizeAegisReasoningEffort(aegisReasoningEffort) : undefined,
           hiddenFromThreads: current?.hidden_from_threads === 1,
         },
       });
@@ -8634,10 +8408,6 @@ function startRunner(
 	    opencodePermissionMode:
 	      provider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
 	    kimiPermissionMode: provider === 'kimi' ? normalizeKimiPermissionMode(kimiPermissionMode) : undefined,
-	    aegisPermissionMode:
-      provider === 'aegis' ? normalizeAegisPermissionMode(aegisPermissionMode) : undefined,
-    aegisReasoningEffort:
-      provider === 'aegis' ? normalizeAegisReasoningEffort(aegisReasoningEffort) : undefined,
     activeAgentId: normalizedActiveAgentId,
     activeAgentRunId: normalizedActiveAgentRunId,
     onTurnDone,

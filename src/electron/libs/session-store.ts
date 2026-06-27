@@ -15,7 +15,6 @@ import type {
   ClaudeReasoningEffort,
   ClaudeCompatibleProviderId,
   AgentProvider,
-  AegisBuiltInReasoningEffort,
   AutomationDefinition,
   AutomationRunRecord,
   AutomationRunStatus,
@@ -145,7 +144,6 @@ interface AutomationRow {
   compatible_provider_id: ClaudeCompatibleProviderId | null;
   codex_reasoning_effort: CodexReasoningEffort | null;
   codex_fast_mode: number | null;
-  aegis_reasoning_effort: AegisBuiltInReasoningEffort | null;
   team_mode: SessionTeamMode | null;
   team_id: string | null;
   schedule_kind: AutomationSchedule['kind'];
@@ -273,8 +271,7 @@ function normalizeSessionTeamMode(value?: string | null): SessionTeamMode {
 }
 
 function normalizeAutomationProvider(value?: string | null): AgentProvider {
-  return value === 'aegis' ||
-    value === 'claude' ||
+  return value === 'claude' ||
     value === 'codex' ||
     value === 'opencode' ||
     value === 'kimi'
@@ -371,10 +368,6 @@ function normalizeAutomationRuntime(runtime?: AutomationRuntimeConfig | null): A
         ? runtime?.codexReasoningEffort || null
         : null,
     codexFastMode: provider === 'codex' ? runtime?.codexFastMode === true : false,
-    aegisReasoningEffort:
-      provider === 'aegis'
-        ? runtime?.aegisReasoningEffort || null
-        : null,
     teamMode: normalizeSessionTeamMode(runtime?.teamMode),
     teamId: runtime?.teamId?.trim() || null,
   };
@@ -582,7 +575,6 @@ export function initialize(): void {
       compatible_provider_id TEXT,
       codex_reasoning_effort TEXT,
       codex_fast_mode INTEGER DEFAULT 0,
-      aegis_reasoning_effort TEXT,
       team_mode TEXT DEFAULT 'channel_default',
       team_id TEXT,
       schedule_kind TEXT NOT NULL,
@@ -655,6 +647,18 @@ export function initialize(): void {
   ensureColumn('messages', 'parent_turn_id', 'TEXT');
   ensureColumn('messages', 'delegate_call_id', 'TEXT');
   ensureColumn('messages', 'delegate_run_id', 'TEXT');
+
+  // 内置 Aegis runtime 已下线：清理残留的 aegis provider 会话与自动化
+  try {
+    getDb().prepare('DELETE FROM sessions WHERE provider = ?').run('aegis');
+  } catch {
+    // 表/列不存在时忽略
+  }
+  try {
+    getDb().prepare('DELETE FROM automations WHERE provider = ?').run('aegis');
+  } catch {
+    // 忽略
+  }
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
@@ -1327,7 +1331,7 @@ export function createSession(params: {
   associatedWorktreeRef?: string | null;
   allowedTools?: string;
   prompt?: string;
-  provider?: 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi';
+  provider?: 'claude' | 'codex' | 'opencode' | 'kimi';
   model?: string;
   scope?: SessionScope;
   agentId?: string | null;
@@ -1441,7 +1445,6 @@ function automationRowToDefinition(row: AutomationRow): AutomationDefinition {
     compatibleProviderId: row.compatible_provider_id,
     codexReasoningEffort: row.codex_reasoning_effort,
     codexFastMode: row.codex_fast_mode === 1,
-    aegisReasoningEffort: row.aegis_reasoning_effort,
     teamMode: row.team_mode || 'channel_default',
     teamId: row.team_id,
   });
@@ -1536,7 +1539,6 @@ export function saveAutomation(input: UpsertAutomationInput): AutomationDefiniti
       compatible_provider_id,
       codex_reasoning_effort,
       codex_fast_mode,
-      aegis_reasoning_effort,
       team_mode,
       team_id,
       schedule_kind,
@@ -1554,7 +1556,7 @@ export function saveAutomation(input: UpsertAutomationInput): AutomationDefiniti
       created_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       project_cwd = excluded.project_cwd,
@@ -1564,7 +1566,6 @@ export function saveAutomation(input: UpsertAutomationInput): AutomationDefiniti
       compatible_provider_id = excluded.compatible_provider_id,
       codex_reasoning_effort = excluded.codex_reasoning_effort,
       codex_fast_mode = excluded.codex_fast_mode,
-      aegis_reasoning_effort = excluded.aegis_reasoning_effort,
       team_mode = excluded.team_mode,
       team_id = excluded.team_id,
       schedule_kind = excluded.schedule_kind,
@@ -1586,7 +1587,6 @@ export function saveAutomation(input: UpsertAutomationInput): AutomationDefiniti
     normalized.runtime.compatibleProviderId || null,
     normalized.runtime.codexReasoningEffort || null,
     normalized.runtime.codexFastMode ? 1 : 0,
-    normalized.runtime.aegisReasoningEffort || null,
     normalizeSessionTeamMode(normalized.runtime.teamMode),
     normalized.runtime.teamId || null,
     normalized.schedule.kind,
@@ -1834,7 +1834,7 @@ export function setKimiSessionId(sessionId: string, kimiSessionId: string | null
 }
 
 // 更新 Session Provider
-export function updateSessionProvider(sessionId: string, provider: 'aegis' | 'claude' | 'codex' | 'opencode' | 'kimi'): void {
+export function updateSessionProvider(sessionId: string, provider: 'claude' | 'codex' | 'opencode' | 'kimi'): void {
   const now = Date.now();
   const stmt = getDb().prepare(`
     UPDATE sessions SET provider = ?, updated_at = ? WHERE id = ?

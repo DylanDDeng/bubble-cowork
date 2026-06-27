@@ -1,105 +1,23 @@
 import { basename, dirname, isAbsolute } from 'path';
-import {
-  AEGIS_BUILT_IN_DEFAULT_MODEL,
-  getAegisBuiltInProvider,
-  resolveAegisBuiltInModel,
-} from '../../shared/aegis-built-in-catalog';
 import type {
   AgentProvider,
   WechatMarkdownHtmlGenerationInput,
   WechatMarkdownHtmlGenerationResult,
   WechatMarkdownHtmlThemeId,
 } from '../../shared/types';
-import { loadAegisBuiltInAgentConfig } from './aegis-built-in-config';
 import { runCodexOneShot, runOpenCodeOneShot } from './codex-runner';
 import { runClaudeOneShot } from './util';
 import { loadWechatHtmlGeneratorConfig } from './wechat-html-generator-config';
 
-type ChatMessage = {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-};
-
-type ModelSelection = {
-  providerId: string;
-  modelId: string;
+type RuntimeSelection = {
+  runtime: AgentProvider;
+  providerId: AgentProvider;
+  model?: string;
   encodedModel: string;
-  baseUrl: string;
-  apiKey: string;
-  temperature: number;
-  maxOutputTokens?: number;
-};
-
-type RuntimeSelection =
-  | ({ runtime: 'aegis' } & ModelSelection)
-  | {
-      runtime: Exclude<AgentProvider, 'aegis'>;
-      providerId: Exclude<AgentProvider, 'aegis'>;
-      model?: string;
-      encodedModel: string;
-    };
-
-type OpenAiContentPart = {
-  text?: string;
-  type?: string;
-};
-
-type ChatCompletionResponse = {
-  choices?: Array<{
-    message?: {
-      content?: string | OpenAiContentPart[] | null;
-    };
-    text?: string | null;
-  }>;
-  error?: {
-    message?: string;
-  };
 };
 
 const WECHAT_STYLE_MARKER =
   '<p style="display: none;"><mp-style-type data-value="3"></mp-style-type></p>';
-
-const REQUEST_TIMEOUT_MS = 120_000;
-const DEFAULT_MAX_OUTPUT_TOKENS = 12_000;
-const DEFAULT_MODEL = AEGIS_BUILT_IN_DEFAULT_MODEL;
-
-const MOONSHOT_PROVIDER_IDS = new Set(['moonshot-cn', 'moonshot-intl', 'kimi-for-coding']);
-const KIMI_K25_FAMILY = new Set(['kimi-k2.5', 'k2.6-code-preview', 'kimi-k2.6']);
-const KIMI_THINKING_FAMILY = new Set(['kimi-k2-thinking', 'kimi-k2-thinking-turbo']);
-const KIMI_K26_DEFAULT_MAX_TOKENS = 32_768;
-
-const PROVIDER_API_KEY_ENV: Record<string, string[]> = {
-  openai: ['AEGIS_BUILTIN_OPENAI_API_KEY', 'OPENAI_API_KEY'],
-  deepseek: ['DEEPSEEK_API_KEY'],
-  google: ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
-  zhipuai: ['ZHIPUAI_API_KEY', 'ZHIPU_API_KEY'],
-  'zhipuai-coding-plan': ['ZHIPUAI_API_KEY', 'ZHIPU_API_KEY'],
-  zai: ['ZAI_API_KEY'],
-  'zai-coding-plan': ['ZAI_API_KEY'],
-  'moonshot-cn': ['MOONSHOT_API_KEY', 'KIMI_API_KEY'],
-  'moonshot-intl': ['MOONSHOT_API_KEY', 'KIMI_API_KEY'],
-  'kimi-for-coding': ['KIMI_API_KEY', 'MOONSHOT_API_KEY'],
-  groq: ['GROQ_API_KEY'],
-  together: ['TOGETHER_API_KEY'],
-  fireworks: ['FIREWORKS_API_KEY'],
-};
-
-const PROVIDER_BASE_URL_ENV: Record<string, string[]> = {
-  openai: ['AEGIS_BUILTIN_OPENAI_BASE_URL', 'OPENAI_BASE_URL'],
-  deepseek: ['DEEPSEEK_BASE_URL'],
-  google: ['GOOGLE_BASE_URL', 'GEMINI_BASE_URL'],
-  zhipuai: ['ZHIPUAI_BASE_URL', 'ZHIPU_BASE_URL'],
-  'zhipuai-coding-plan': ['ZHIPUAI_BASE_URL', 'ZHIPU_BASE_URL'],
-  zai: ['ZAI_BASE_URL'],
-  'zai-coding-plan': ['ZAI_BASE_URL'],
-  'moonshot-cn': ['MOONSHOT_BASE_URL', 'KIMI_BASE_URL'],
-  'moonshot-intl': ['MOONSHOT_BASE_URL', 'KIMI_BASE_URL'],
-  'kimi-for-coding': ['KIMI_BASE_URL', 'MOONSHOT_BASE_URL'],
-  groq: ['GROQ_BASE_URL'],
-  together: ['TOGETHER_BASE_URL'],
-  fireworks: ['FIREWORKS_BASE_URL'],
-  local: ['LOCAL_OPENAI_BASE_URL', 'OLLAMA_BASE_URL'],
-};
 
 const BLACK_RED_IMPRINT_SYSTEM_PROMPT = `# 角色
 你是一位兼具品牌视觉意识与出版级版式判断的公众号排版设计师，擅长把文章排成「黑红刊刻风」：冷静、锋利、有秩序，但依然耐读。
@@ -237,32 +155,8 @@ function readFirstEnv(names: string[]): string {
   return '';
 }
 
-function getBuiltinBaseUrl(providerId: string): string {
-  const config = loadAegisBuiltInAgentConfig();
-  const provider = getAegisBuiltInProvider(providerId);
-  const envBaseUrl = readFirstEnv([
-    ...(PROVIDER_BASE_URL_ENV[providerId] || []),
-    'AEGIS_BUILTIN_BASE_URL',
-  ]);
-  return (envBaseUrl || provider?.baseUrl || config.baseUrl || 'https://api.openai.com/v1')
-    .trim()
-    .replace(/\/+$/, '');
-}
-
-function getBuiltinApiKey(providerId: string): string {
-  const config = loadAegisBuiltInAgentConfig();
-  const envKey = readFirstEnv([
-    ...(PROVIDER_API_KEY_ENV[providerId] || []),
-    'AEGIS_BUILTIN_API_KEY',
-  ]);
-  const storedKey = config.providerApiKeys?.[providerId]
-    || (config.providerId === providerId ? config.apiKey : '');
-  return (storedKey || envKey).trim();
-}
-
 function normalizeGeneratorRuntime(value?: string | null): AgentProvider | null {
   switch ((value || '').trim().toLowerCase()) {
-    case 'aegis':
     case 'claude':
     case 'codex':
     case 'opencode':
@@ -272,37 +166,13 @@ function normalizeGeneratorRuntime(value?: string | null): AgentProvider | null 
   }
 }
 
-function resolveAegisSelection(modelOverride?: string): ModelSelection {
-  const aegisConfig = loadAegisBuiltInAgentConfig();
-  const selection = resolveAegisBuiltInModel(
-    modelOverride?.trim()
-      || process.env.AEGIS_BUILTIN_MODEL?.trim()
-      || aegisConfig.model?.trim()
-      || process.env.OPENAI_MODEL?.trim()
-      || DEFAULT_MODEL,
-    aegisConfig.providerId
-  );
-  return {
-    providerId: selection.providerId,
-    modelId: selection.modelId,
-    encodedModel: selection.encoded,
-    baseUrl: getBuiltinBaseUrl(selection.providerId),
-    apiKey: getBuiltinApiKey(selection.providerId),
-    temperature: aegisConfig.temperature,
-    maxOutputTokens: aegisConfig.maxOutputTokens,
-  };
-}
 
 function resolveSelection(): RuntimeSelection {
   const wechatConfig = loadWechatHtmlGeneratorConfig();
   const explicitRuntime = normalizeGeneratorRuntime(process.env.AEGIS_WECHAT_HTML_RUNTIME);
   const explicitWechatModel = process.env.AEGIS_WECHAT_HTML_MODEL?.trim();
 
-  const runtime = explicitRuntime || wechatConfig.runtime || 'aegis';
-  if (runtime === 'aegis') {
-    return { runtime, ...resolveAegisSelection(explicitWechatModel || undefined) };
-  }
-
+  const runtime = explicitRuntime || wechatConfig.runtime || 'claude';
   const model = explicitWechatModel || wechatConfig.model?.trim() || '';
   return {
     runtime,
@@ -310,48 +180,6 @@ function resolveSelection(): RuntimeSelection {
     model: model || undefined,
     encodedModel: model || `${runtime}:default`,
   };
-}
-
-function isFireworksKimi(providerId: string, modelId: string): boolean {
-  const model = modelId.toLowerCase();
-  return providerId === 'fireworks' && (
-    model.includes('kimi') ||
-    model.includes('k2p6') ||
-    model === 'k2.6'
-  );
-}
-
-function buildProviderRequestExtras(selection: ModelSelection): {
-  extraBody?: Record<string, unknown>;
-  omitTemperature?: boolean;
-  maxTokens?: number;
-} {
-  if (isFireworksKimi(selection.providerId, selection.modelId)) {
-    return { maxTokens: KIMI_K26_DEFAULT_MAX_TOKENS };
-  }
-  if (
-    selection.providerId === 'deepseek' &&
-    (selection.modelId === 'deepseek-v4-flash' || selection.modelId === 'deepseek-v4-pro')
-  ) {
-    return {
-      extraBody: {
-        thinking: { type: 'enabled' },
-        reasoning_effort: 'high',
-      },
-    };
-  }
-  if (MOONSHOT_PROVIDER_IDS.has(selection.providerId)) {
-    if (KIMI_K25_FAMILY.has(selection.modelId)) {
-      return {
-        omitTemperature: true,
-        extraBody: { thinking: { type: 'disabled' } },
-      };
-    }
-    if (KIMI_THINKING_FAMILY.has(selection.modelId)) {
-      return { omitTemperature: true };
-    }
-  }
-  return {};
 }
 
 function normalizeLineEndings(text: string): string {
@@ -433,15 +261,6 @@ function buildUserPrompt(input: WechatMarkdownHtmlGenerationInput): string {
   return parts.join('\n');
 }
 
-function parseMessageContent(content: string | OpenAiContentPart[] | null | undefined): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .map((part) => (typeof part?.text === 'string' ? part.text : ''))
-    .join('')
-    .trim();
-}
-
 function stripMarkdownFence(text: string): string {
   const trimmed = text.trim();
   const match = /^```(?:html)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
@@ -470,64 +289,6 @@ function normalizeGeneratedHtml(rawHtml: string): string {
   return html;
 }
 
-async function requestChatText(input: {
-  messages: ChatMessage[];
-  selection: ModelSelection;
-}): Promise<string> {
-  if (!input.selection.apiKey && input.selection.providerId !== 'local') {
-    throw new Error('WeChat HTML generation requires an API key. Configure Settings > Aegis > WeChat HTML, or set a matching provider environment key.');
-  }
-
-  const extras = buildProviderRequestExtras(input.selection);
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (input.selection.apiKey) {
-    headers.Authorization = `Bearer ${input.selection.apiKey}`;
-  }
-
-  const body: Record<string, unknown> = {
-    model: input.selection.modelId,
-    messages: input.messages,
-    stream: false,
-    max_tokens: input.selection.maxOutputTokens || extras.maxTokens || DEFAULT_MAX_OUTPUT_TOKENS,
-  };
-  if (!extras.omitTemperature) {
-    body.temperature = input.selection.temperature;
-  }
-  if (extras.extraBody) {
-    Object.assign(body, extras.extraBody);
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    const response = await fetch(`${input.selection.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      throw new Error(`Model request failed with ${response.status}${detail ? `: ${detail.slice(0, 1200)}` : ''}`);
-    }
-
-    const parsed = await response.json() as ChatCompletionResponse;
-    if (parsed.error?.message) {
-      throw new Error(parsed.error.message);
-    }
-    const choice = parsed.choices?.[0];
-    const text = parseMessageContent(choice?.message?.content) || (choice?.text || '').trim();
-    if (!text) {
-      throw new Error('Model returned empty content.');
-    }
-    return text;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 function deriveWorkingDirectory(filePath?: string): string | undefined {
   if (!filePath || !isAbsolute(filePath)) return undefined;
   return dirname(filePath);
@@ -549,18 +310,6 @@ async function requestAgentText(input: {
   promptInput: WechatMarkdownHtmlGenerationInput;
   selection: RuntimeSelection;
 }): Promise<{ text: string; model?: string }> {
-  const systemPrompt = getWechatHtmlSystemPrompt(input.promptInput.themeId || 'black-red-imprint');
-  if (input.selection.runtime === 'aegis') {
-    const text = await requestChatText({
-      selection: input.selection,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: buildUserPrompt(input.promptInput) },
-      ],
-    });
-    return { text, model: input.selection.encodedModel };
-  }
-
   const prompt = buildAgentOneShotPrompt(input.promptInput);
   const cwd = deriveWorkingDirectory(input.promptInput.filePath);
   const model = input.selection.model || undefined;

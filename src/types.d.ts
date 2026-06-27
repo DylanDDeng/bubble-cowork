@@ -2,7 +2,6 @@
 // 实际类型定义在 src/shared/types.ts
 
 import type {
-  AegisBuiltInAgentConfig,
   AutomationDefinition,
   AutomationSnapshot,
   ClientEvent,
@@ -138,8 +137,6 @@ declare global {
     getClaudeModelConfig: () => Promise<ClaudeModelConfig>;
     getClaudeCompatibleProviderConfig: () => Promise<ClaudeCompatibleProvidersConfig>;
     saveClaudeCompatibleProviderConfig: (config: ClaudeCompatibleProvidersConfig) => Promise<ClaudeCompatibleProvidersConfig>;
-    getAegisBuiltInAgentConfig: () => Promise<AegisBuiltInAgentConfig>;
-    saveAegisBuiltInAgentConfig: (config: AegisBuiltInAgentConfig) => Promise<AegisBuiltInAgentConfig>;
     getWechatHtmlGeneratorConfig: () => Promise<WechatMarkdownHtmlGeneratorConfig>;
     saveWechatHtmlGeneratorConfig: (config: WechatMarkdownHtmlGeneratorConfig) => Promise<WechatMarkdownHtmlGeneratorConfig>;
     generateWechatMarkdownHtml: (input: WechatMarkdownHtmlGenerationInput) => Promise<WechatMarkdownHtmlGenerationResult>;
@@ -159,7 +156,6 @@ declare global {
     getCodexRuntimeStatus: () => Promise<CodexRuntimeStatus>;
     getCodexComposerCapabilities: () => Promise<ProviderComposerCapabilities>;
     listCodexSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
-    listAegisSkills: (input: Omit<ProviderListSkillsInput, 'provider'>) => Promise<ProviderListSkillsResult>;
     listCodexPlugins: (input?: Omit<ProviderListPluginsInput, 'provider'>) => Promise<ProviderListPluginsResult>;
     readCodexPlugin: (input: Omit<ProviderReadPluginInput, 'provider'>) => Promise<ProviderReadPluginResult>;
     getOpencodeModelConfig: () => Promise<OpenCodeModelConfig>;

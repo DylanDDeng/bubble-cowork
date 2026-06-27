@@ -61,16 +61,6 @@ import {
   loadPreferredKimiPermissionMode,
   savePreferredKimiPermissionMode,
 } from '../utils/kimi-permission';
-import {
-  AEGIS_BUILT_IN_MODELS,
-  AEGIS_BUILT_IN_PROVIDERS,
-  getAegisBuiltInModel,
-  getAegisBuiltInProvider,
-  resolveAegisBuiltInModel,
-} from '../../shared/aegis-built-in-catalog';
-import type { AegisBuiltInAgentConfig } from '../../shared/types';
-
-const AEGIS_MODEL_STORAGE_KEY = 'cowork.preferredAegisModel';
 const KIMI_MODEL_STORAGE_KEY = 'cowork.preferredKimiModel';
 
 export interface ComposerModelOption {
@@ -85,21 +75,6 @@ export interface ComposerModelSetupState {
   label: string;
   title: string;
   settingsTab: SettingsTab;
-}
-
-function loadPreferredAegisModel(): string | null {
-  if (typeof window === 'undefined') return null;
-  const raw = window.localStorage.getItem(AEGIS_MODEL_STORAGE_KEY);
-  return raw?.trim() || null;
-}
-
-function savePreferredAegisModel(model: string | null): void {
-  if (typeof window === 'undefined') return;
-  if (!model) {
-    window.localStorage.removeItem(AEGIS_MODEL_STORAGE_KEY);
-    return;
-  }
-  window.localStorage.setItem(AEGIS_MODEL_STORAGE_KEY, model);
 }
 
 function loadPreferredKimiModel(): string | null {
@@ -130,13 +105,6 @@ function resolveCompatibleProviderForModel(
     return preferredProviderId;
   }
   return matches[0]?.id || null;
-}
-
-function formatAegisModelLabel(value: string): string {
-  const selection = resolveAegisBuiltInModel(value);
-  const provider = getAegisBuiltInProvider(selection.providerId);
-  const model = getAegisBuiltInModel(selection.providerId, selection.modelId);
-  return model?.name || `${provider?.name || selection.providerId} · ${selection.modelId}`;
 }
 
 function buildConfiguredClaudeModelValues(
@@ -203,66 +171,6 @@ function resolveConfiguredClaudeSelection(
   );
 }
 
-function getAegisProviderApiKey(config: AegisBuiltInAgentConfig, providerId: string): string {
-  return config.providerApiKeys?.[providerId] || (config.providerId === providerId ? config.apiKey : '');
-}
-
-function getConfiguredAegisProviderIds(config: AegisBuiltInAgentConfig | null): Set<string> {
-  if (!config) {
-    return new Set();
-  }
-
-  return new Set(
-    AEGIS_BUILT_IN_PROVIDERS
-      .map((provider) => provider.id)
-      .filter((providerId) => getAegisProviderApiKey(config, providerId).trim().length > 0)
-  );
-}
-
-function buildConfiguredAegisModelOptions(config: AegisBuiltInAgentConfig | null): ComposerModelOption[] {
-  const configuredProviderIds = getConfiguredAegisProviderIds(config);
-  if (configuredProviderIds.size === 0) {
-    return [];
-  }
-
-  return AEGIS_BUILT_IN_MODELS.filter((model) => configuredProviderIds.has(model.providerId)).map((model) => {
-    const provider = getAegisBuiltInProvider(model.providerId);
-    const encoded = `${model.providerId}:${model.id}`;
-    return {
-      key: `aegis:${encoded}`,
-      value: encoded,
-      label: model.name,
-      description: provider?.name || model.providerId,
-    };
-  });
-}
-
-function resolveConfiguredAegisModel(
-  requestedModel: string | null | undefined,
-  config: AegisBuiltInAgentConfig | null
-): string | null {
-  const options = buildConfiguredAegisModelOptions(config);
-  if (options.length === 0) {
-    return null;
-  }
-
-  const optionValues = new Set(options.map((option) => option.value));
-  const candidates = [
-    requestedModel,
-    loadPreferredAegisModel(),
-    config ? resolveAegisBuiltInModel(config.model, config.providerId).encoded : null,
-  ];
-
-  for (const candidate of candidates) {
-    const normalized = candidate ? resolveAegisBuiltInModel(candidate).encoded : null;
-    if (normalized && optionValues.has(normalized)) {
-      return normalized;
-    }
-  }
-
-  return options[0]?.value || null;
-}
-
 function buildKimiModelOptions(config: ReturnType<typeof useKimiModelConfig>): ComposerModelOption[] {
   const defaultOption: ComposerModelOption = {
     key: 'kimi:default',
@@ -323,37 +231,12 @@ export function useComposerAgentSelection(input?: {
   const opencodeModelConfig = useOpencodeModelConfig();
   const kimiModelConfig = useKimiModelConfig();
   const { compatibleOptions } = useCompatibleProviderConfig();
-  const [aegisConfig, setAegisConfig] = useState<AegisBuiltInAgentConfig | null>(null);
   const [provider, setProviderState] = useState<AgentProvider>(() => input?.provider || loadPreferredProvider());
   const [model, setModelState] = useState<string | null>(() => input?.model?.trim() || null);
   const [compatibleProviderId, setCompatibleProviderId] = useState<ClaudeCompatibleProviderId | null>(
     () => input?.compatibleProviderId || null
   );
   const lastSelectionKeyRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const refreshAegisConfig = () => {
-      window.electron
-        .getAegisBuiltInAgentConfig()
-        .then((config) => {
-          if (!cancelled) {
-            setAegisConfig(config);
-          }
-        })
-        .catch((error) => {
-          console.error('Failed to load Aegis model config:', error);
-        });
-    };
-
-    refreshAegisConfig();
-    window.addEventListener('aegis-built-in-agent-config-updated', refreshAegisConfig);
-
-    return () => {
-      cancelled = true;
-      window.removeEventListener('aegis-built-in-agent-config-updated', refreshAegisConfig);
-    };
-  }, []);
 
   const allAgentModelOptions = useMemo(() => {
     return {
@@ -391,9 +274,8 @@ export function useComposerAgentSelection(input?: {
         label: formatOpencodeModelLabel(option),
       })),
       kimi: buildKimiModelOptions(kimiModelConfig),
-      aegis: buildConfiguredAegisModelOptions(aegisConfig),
     };
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, aegisConfig]);
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig]);
 
   const modelOptions = useMemo<ComposerModelOption[]>(() => {
     if (provider === 'claude') {
@@ -440,8 +322,8 @@ export function useComposerAgentSelection(input?: {
       return buildKimiModelOptions(kimiModelConfig);
     }
 
-    return buildConfiguredAegisModelOptions(aegisConfig);
-  }, [aegisConfig, claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, provider]);
+    return [];
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, provider]);
 
   const resolveModelForProvider = useCallback(
     (
@@ -489,11 +371,11 @@ export function useComposerAgentSelection(input?: {
       }
 
       return {
-        model: resolveConfiguredAegisModel(normalizedRequestedModel, aegisConfig),
+        model: null,
         compatibleProviderId: null,
       };
     },
-    [aegisConfig, claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig]
+    [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig]
   );
 
   useEffect(() => {
@@ -577,8 +459,6 @@ export function useComposerAgentSelection(input?: {
         savePreferredOpencodeModel(nextModel);
       } else if (provider === 'kimi') {
         savePreferredKimiModel(nextModel);
-      } else {
-        savePreferredAegisModel(nextModel);
       }
     },
     [provider]
@@ -614,14 +494,6 @@ export function useComposerAgentSelection(input?: {
       };
     }
 
-    if (provider === 'aegis') {
-      return {
-        label: 'Configure Aegis',
-        title: 'Configure Aegis model',
-        settingsTab: 'aegis',
-      };
-    }
-
     if (provider === 'codex') {
       return {
         label: 'Setup Codex',
@@ -641,10 +513,8 @@ export function useComposerAgentSelection(input?: {
     modelSetup?.label ||
     selectedModelOption?.label ||
     (model
-      ? provider === 'aegis'
-        ? formatAegisModelLabel(model)
-        : provider === 'kimi'
-          ? formatKimiModelLabel(model, kimiModelConfig)
+      ? provider === 'kimi'
+        ? formatKimiModelLabel(model, kimiModelConfig)
         : model
       : 'Default');
 

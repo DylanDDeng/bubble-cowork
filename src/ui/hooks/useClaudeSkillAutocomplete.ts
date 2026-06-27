@@ -224,7 +224,7 @@ export function useComposerCapabilityMenu({
   useEffect(() => {
     let cancelled = false;
 
-    if (!enabled || !enableSkills || (provider !== 'codex' && provider !== 'aegis')) {
+    if (!enabled || !enableSkills || provider !== 'codex') {
       setCodexSlashSkills([]);
       return () => {
         cancelled = true;
@@ -232,10 +232,7 @@ export function useComposerCapabilityMenu({
     }
 
     const cwd = projectPath?.trim() || undefined;
-    const skillsPromise =
-      provider === 'aegis'
-        ? window.electron.listAegisSkills({ cwd })
-        : window.electron.listCodexSkills({ cwd });
+    const skillsPromise = window.electron.listCodexSkills({ cwd });
     const pluginsPromise =
       provider === 'codex'
         ? window.electron.listCodexPlugins({ cwd })
@@ -287,7 +284,7 @@ export function useComposerCapabilityMenu({
       if (!enableSkills) {
         return [];
       }
-      if (provider === 'codex' || provider === 'aegis') {
+      if (provider === 'codex') {
         return codexSlashSkills;
       }
       if (provider === 'claude') {

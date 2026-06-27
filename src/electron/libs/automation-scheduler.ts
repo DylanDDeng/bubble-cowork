@@ -43,11 +43,6 @@ function buildAutomationSessionPayload(
     codexFastMode: provider === 'codex' ? automation.runtime.codexFastMode === true : undefined,
     kimiPermissionMode: provider === 'kimi' ? 'yolo' : undefined,
     opencodePermissionMode: provider === 'opencode' ? 'fullAccess' : undefined,
-    aegisPermissionMode: provider === 'aegis' ? 'fullAccess' : undefined,
-    aegisReasoningEffort:
-      provider === 'aegis' ? automation.runtime.aegisReasoningEffort || undefined : undefined,
-    teamMode: provider === 'aegis' ? automation.runtime.teamMode : undefined,
-    teamId: provider === 'aegis' ? automation.runtime.teamId || null : undefined,
     hiddenFromThreads: false,
     channelId: DEFAULT_WORKSPACE_CHANNEL_ID,
     automationRunId: runId,

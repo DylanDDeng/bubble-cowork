@@ -27,7 +27,6 @@ import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
-import { buildAegisReferencePayload } from '../utils/aegis-composer';
 import { buildCodexReferencePayload } from '../utils/codex-composer';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
@@ -126,8 +125,7 @@ export function NewSessionView() {
 
   const buildDispatchPrompt = async (dispatchCwd = cwd): Promise<string | null> => {
     const selectedSkillPrompt =
-      capabilityMenu.selectedSkill &&
-      (agentSelection.provider === 'codex' || agentSelection.provider === 'aegis')
+      capabilityMenu.selectedSkill && agentSelection.provider === 'codex'
         ? capabilityMenu.selectedSkillRemainder.trim()
         : prompt.trim();
 
@@ -244,11 +242,6 @@ export function NewSessionView() {
       agentSelection.provider === 'codex'
         ? buildCodexReferencePayload(capabilityMenu.selectedSkill)
         : {};
-    const aegisReferences =
-      agentSelection.provider === 'aegis'
-        ? buildAegisReferencePayload(capabilityMenu.selectedSkill)
-        : {};
-
     const tempTitleSource = displayPrompt || outgoingPrompt;
     const tempTitle = tempTitleSource.slice(0, 30) + (tempTitleSource.length > 30 ? '...' : '');
     const channelId = activeChannelByProject[dispatchCwd] || DEFAULT_WORKSPACE_CHANNEL_ID;
@@ -291,7 +284,6 @@ export function NewSessionView() {
               agentSelection.provider === 'kimi'
                 ? agentSelection.kimiPermissionMode
                 : undefined,
-        ...aegisReferences,
         teamMode: 'solo',
         teamId: null,
       },
