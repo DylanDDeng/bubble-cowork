@@ -250,6 +250,10 @@ function normalizeCodexReasoningEffort(
 function normalizeOpenCodePermissionMode(
   value?: string | null
 ): OpenCodePermissionMode {
+  if (value === 'plan') {
+    return 'plan';
+  }
+
   return value === 'fullAccess' || value === 'fullAuto'
     ? 'fullAccess'
     : 'defaultPermissions';

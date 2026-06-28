@@ -285,6 +285,21 @@ function resolveConfiguredGrokModel(
   return null;
 }
 
+function buildOpencodeComposerModelOptions(config: ReturnType<typeof useOpencodeModelConfig>): ComposerModelOption[] {
+  const defaultOption: ComposerModelOption = {
+    key: 'opencode:default',
+    value: '',
+    label: 'Default',
+    description: config.defaultModel ? `Use ${formatOpencodeModelLabel(config.defaultModel)}` : 'Use OpenCode default model',
+  };
+  const explicitOptions = buildOpencodeModelOptions(config).map((option) => ({
+    key: `opencode:${option}`,
+    value: option,
+    label: formatOpencodeModelLabel(option),
+  }));
+  return [defaultOption, ...explicitOptions];
+}
+
 export function useComposerAgentSelection(input?: {
   selectionKey?: string | null;
   provider?: AgentProvider | null;
@@ -338,11 +353,7 @@ export function useComposerAgentSelection(input?: {
         value: option,
         label: formatCodexModelLabel(option),
       })),
-      opencode: buildOpencodeModelOptions(opencodeModelConfig).map((option) => ({
-        key: `opencode:${option}`,
-        value: option,
-        label: formatOpencodeModelLabel(option),
-      })),
+      opencode: buildOpencodeComposerModelOptions(opencodeModelConfig),
       kimi: buildKimiModelOptions(kimiModelConfig),
       grok: buildGrokModelOptions(grokModelConfig),
     };
@@ -382,11 +393,7 @@ export function useComposerAgentSelection(input?: {
     }
 
     if (provider === 'opencode') {
-      return buildOpencodeModelOptions(opencodeModelConfig).map((option) => ({
-        key: `opencode:${option}`,
-        value: option,
-        label: formatOpencodeModelLabel(option),
-      }));
+      return buildOpencodeComposerModelOptions(opencodeModelConfig);
     }
 
     if (provider === 'kimi') {
@@ -594,11 +601,11 @@ export function useComposerAgentSelection(input?: {
       };
     }
 
-    return {
-      label: 'Setup OpenCode',
-      title: 'Configure OpenCode models',
-      settingsTab: 'providers',
-    };
+    if (provider === 'opencode') {
+      return null;
+    }
+
+    return null;
   }, [modelOptions.length, provider]);
 
   const selectedModelLabel =

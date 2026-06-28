@@ -30,7 +30,9 @@ export function OpenCodePermissionModePicker({
         className={`inline-flex items-center gap-1 rounded-md py-1 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
           value === 'fullAccess'
             ? 'text-[#b42318] hover:text-[#991b1b]'
-            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            : value === 'plan'
+              ? 'text-[#7c3aed] hover:text-[#6d28d9]'
+              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
         }`}
       >
         <span>{current.label}</span>
@@ -45,7 +47,7 @@ export function OpenCodePermissionModePicker({
               menuSide === 'bottom' ? 'top-full mt-2' : 'bottom-full mb-2'
             }`}
           >
-            {(['defaultPermissions', 'fullAccess'] as const).map((mode) => (
+            {(['defaultPermissions', 'plan', 'fullAccess'] as const).map((mode) => (
               <OpenCodePermissionModeOption
                 key={mode}
                 mode={mode}
@@ -71,6 +73,9 @@ const MODE_META: Record<
 > = {
   defaultPermissions: {
     label: 'Default',
+  },
+  plan: {
+    label: 'Plan',
   },
   fullAccess: {
     label: 'Full Access',

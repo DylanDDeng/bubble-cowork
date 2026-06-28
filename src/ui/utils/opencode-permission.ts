@@ -5,6 +5,10 @@ const STORAGE_KEY = 'cowork.preferredOpencodePermissionMode';
 function normalizeOpenCodePermissionMode(
   raw: string | null | undefined
 ): OpenCodePermissionMode {
+  if (raw === 'plan') {
+    return 'plan';
+  }
+
   if (raw === 'fullAccess' || raw === 'fullAuto') {
     return 'fullAccess';
   }

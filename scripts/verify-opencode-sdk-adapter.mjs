@@ -82,6 +82,13 @@ assert.ok(
   'OpenCode SDK adapter must enrich token usage with model context limits'
 );
 assert.ok(
+  adapter.includes('planMode: true') &&
+    adapter.includes('getOpenCodeAgentForMode') &&
+    adapter.includes("mode === 'plan' ? 'plan'") &&
+    adapter.includes('...(agent ? { agent } : {})'),
+  'OpenCode SDK adapter must map Composer Plan mode to the OpenCode plan agent'
+);
+assert.ok(
   adapter.includes('messageRoles') &&
     adapter.includes('pendingPartUpdates') &&
     adapter.includes("role === 'user'") &&
@@ -179,10 +186,12 @@ assert.ok(
 const openCodePermissionPicker = read('src/ui/components/OpenCodePermissionModePicker.tsx');
 assert.ok(
   openCodePermissionPicker.includes('OpenCodePermissionMode') &&
+    openCodePermissionPicker.includes('Plan') &&
+    openCodePermissionPicker.includes("'plan'") &&
     openCodePermissionPicker.includes('Full Access') &&
     openCodePermissionPicker.includes("'defaultPermissions'") &&
     openCodePermissionPicker.includes("'fullAccess'"),
-  'OpenCode permission picker must expose default and full access modes'
+  'OpenCode permission picker must expose default, plan, and full access modes'
 );
 
 const composerSelection = read('src/ui/hooks/useComposerAgentSelection.ts');
@@ -192,6 +201,13 @@ assert.ok(
     composerSelection.includes('opencodePermissionMode') &&
     composerSelection.includes('setOpencodePermissionMode'),
   'Composer agent selection must persist OpenCode permission mode'
+);
+assert.ok(
+  composerSelection.includes('buildOpencodeComposerModelOptions') &&
+    composerSelection.includes("'opencode:default'") &&
+    composerSelection.includes('Use OpenCode default model') &&
+    !composerSelection.includes('Setup OpenCode'),
+  'Composer agent selection must use OpenCode default model instead of Setup OpenCode'
 );
 
 for (const file of [

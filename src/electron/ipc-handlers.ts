@@ -390,6 +390,10 @@ function normalizeCodexFastMode(value: unknown): boolean {
 function normalizeOpenCodePermissionMode(
   value?: string | null
 ): import('../shared/types').OpenCodePermissionMode {
+  if (value === 'plan') {
+    return 'plan';
+  }
+
   return value === 'fullAccess' || value === 'fullAuto'
     ? 'fullAccess'
     : 'defaultPermissions';

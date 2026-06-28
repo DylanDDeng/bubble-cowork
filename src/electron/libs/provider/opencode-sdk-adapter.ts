@@ -33,7 +33,7 @@ const CAPABILITIES: ProviderAdapterCapabilities = {
   imageAttachments: true,
   forkThread: true,
   compactThread: true,
-  planMode: false,
+  planMode: true,
 };
 
 type OpenCodeModelSelection = {
@@ -154,7 +154,15 @@ async function requestOpenCode<T>(request: Promise<unknown>): Promise<T> {
 function normalizeOpenCodePermissionMode(
   mode: OpenCodePermissionMode | undefined
 ): OpenCodePermissionMode {
+  if (mode === 'plan') {
+    return 'plan';
+  }
+
   return mode === 'fullAccess' ? 'fullAccess' : 'defaultPermissions';
+}
+
+function getOpenCodeAgentForMode(mode: OpenCodePermissionMode | undefined): string | undefined {
+  return mode === 'plan' ? 'plan' : undefined;
 }
 
 function parseOpenCodeModel(model: string | undefined): OpenCodeModelSelection | undefined {
@@ -444,12 +452,14 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
       return null;
     }
     const model = parseOpenCodeModel(input.model || session.model);
+    const agent = getOpenCodeAgentForMode(session.permissionMode);
     return requestOpenCode<Record<string, unknown>>(
       session.client.session.prompt({
         path: { id: session.providerSessionId },
         query: { directory: session.cwd },
         body: {
           ...(model ? { model } : {}),
+          ...(agent ? { agent } : {}),
           parts,
         },
       })
@@ -462,6 +472,7 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
     model: string | undefined
   ): Promise<Record<string, unknown>> {
     const descriptor = session.availableCommands.get(command.name);
+    const agent = descriptor?.agent || getOpenCodeAgentForMode(session.permissionMode);
     return requestOpenCode<Record<string, unknown>>(
       session.client.session.command({
         path: { id: session.providerSessionId },
@@ -469,7 +480,7 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
         body: {
           command: command.name,
           arguments: command.args,
-          ...(descriptor?.agent ? { agent: descriptor.agent } : {}),
+          ...(agent ? { agent } : {}),
           ...(descriptor?.model || model ? { model: descriptor?.model || model } : {}),
         },
       })

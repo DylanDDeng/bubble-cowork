@@ -116,7 +116,7 @@ export type CodexPermissionMode = 'defaultPermissions' | 'auto' | 'fullAccess';
 export type KimiPermissionMode = 'default' | 'plan' | 'auto' | 'yolo';
 export type GrokPermissionMode = 'default' | 'plan' | 'auto' | 'yolo';
 export type GrokReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-export type OpenCodePermissionMode = 'defaultPermissions' | 'fullAccess';
+export type OpenCodePermissionMode = 'defaultPermissions' | 'plan' | 'fullAccess';
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
 export type PlanStepStatus = 'pending' | 'inProgress' | 'completed';
 
