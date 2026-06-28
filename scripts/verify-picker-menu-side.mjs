@@ -15,6 +15,7 @@ for (const file of [
   'src/ui/components/ClaudePermissionModePicker.tsx',
   'src/ui/components/CodexPermissionModePicker.tsx',
   'src/ui/components/KimiPermissionModePicker.tsx',
+  'src/ui/components/OpenCodePermissionModePicker.tsx',
 ]) {
   const src = read(file);
   assert.ok(/menuSide\??:\s*'top'\s*\|\s*'bottom'/.test(src), `${file}: missing menuSide prop`);
@@ -31,13 +32,13 @@ assert.ok(
 );
 assert.ok(controls.includes('side={menuSide}'), 'ComposerAgentControls: should pass side={menuSide}');
 
-// 3. PromptInput threads menuSide through to all four pickers and defaults to top.
+// 3. PromptInput threads menuSide through to the model picker plus permission pickers and defaults to top.
 const prompt = read('src/ui/components/PromptInput.tsx');
 assert.ok(prompt.includes("menuSide = 'top'"), 'PromptInput: menuSide should default to top');
 assert.equal(
   (prompt.match(/menuSide=\{menuSide\}/g) || []).length,
-  4,
-  'PromptInput: all four pickers should receive menuSide={menuSide}'
+  5,
+  'PromptInput: model picker and all permission pickers should receive menuSide={menuSide}'
 );
 // PromptInput supports a 'landing' surface that wraps the input in a gray tray
 // and renders the context-pill footer inside it.
@@ -58,8 +59,8 @@ assert.ok(
 const newSession = read('src/ui/components/NewSessionView.tsx');
 assert.equal(
   (newSession.match(/menuSide="bottom"/g) || []).length,
-  4,
-  'NewSessionView: all four pickers should pass menuSide="bottom"'
+  5,
+  'NewSessionView: model picker and all permission pickers should pass menuSide="bottom"'
 );
 
 // 5. The empty-draft landing in ChatPane opens the composer downward, while the

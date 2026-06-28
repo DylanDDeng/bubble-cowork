@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type {
   AcpPermissionInput,
   Attachment,
+  AvailableCommand,
   ContentBlock,
   McpServerStatus,
   OpenCodePermissionMode,
@@ -53,6 +54,7 @@ type ActiveOpenCodeSession = {
   assistantMessages: Map<string, OpenCodeAssistantAccumulator>;
   messageRoles: Map<string, OpenCodeMessageRole>;
   pendingPartUpdates: Map<string, PendingOpenCodePartUpdate[]>;
+  availableCommands: Map<string, OpenCodeCommandDescriptor>;
   finalizedAssistantMessageIds: Set<string>;
   emittedToolCallIds: Set<string>;
   emittedToolResultIds: Set<string>;
@@ -61,6 +63,13 @@ type ActiveOpenCodeSession = {
 };
 
 type OpenCodeMessageRole = 'user' | 'assistant';
+
+type OpenCodeCommandDescriptor = {
+  name: string;
+  description: string;
+  agent?: string;
+  model?: string;
+};
 
 type PendingOpenCodePartUpdate = {
   part: Record<string, unknown>;
@@ -81,6 +90,24 @@ type OpenCodeAssistantAccumulator = {
   createdAt?: number;
   completedAt?: number;
 };
+
+const FALLBACK_OPENCODE_COMMANDS: AvailableCommand[] = [
+  { name: 'help', description: 'Show OpenCode help' },
+  { name: 'connect', description: 'Add a provider to OpenCode' },
+  { name: 'compact', description: 'Compact the current session' },
+  { name: 'details', description: 'Toggle tool execution details' },
+  { name: 'editor', description: 'Open an external editor for composing messages' },
+  { name: 'exit', description: 'Exit OpenCode' },
+  { name: 'export', description: 'Export the current conversation' },
+  { name: 'init', description: 'Create or update AGENTS.md' },
+  { name: 'models', description: 'List available models' },
+  { name: 'new', description: 'Start a new session' },
+  { name: 'sessions', description: 'List and switch between sessions' },
+  { name: 'share', description: 'Share the current session' },
+  { name: 'themes', description: 'List available themes' },
+  { name: 'thinking', description: 'Toggle visibility of thinking blocks' },
+  { name: 'unshare', description: 'Unshare the current session' },
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -142,6 +169,18 @@ function parseOpenCodeModel(model: string | undefined): OpenCodeModelSelection |
   return {
     providerID: normalized.slice(0, slashIndex),
     modelID: normalized.slice(slashIndex + 1),
+  };
+}
+
+function parseOpenCodeSlashCommand(prompt: string): { name: string; args: string } | null {
+  const trimmed = prompt.trim();
+  const match = trimmed.match(/^\/([A-Za-z0-9_.:-]+)(?:\s+([\s\S]*))?$/);
+  if (!match) {
+    return null;
+  }
+  return {
+    name: match[1].toLowerCase(),
+    args: match[2]?.trim() || '',
   };
 }
 
@@ -324,6 +363,12 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
       assistantMessages: new Map(),
       messageRoles: new Map(),
       pendingPartUpdates: new Map(),
+      availableCommands: new Map(
+        FALLBACK_OPENCODE_COMMANDS.map((command) => [
+          command.name,
+          { name: command.name, description: command.description },
+        ])
+      ),
       finalizedAssistantMessageIds: new Set(),
       emittedToolCallIds: new Set(),
       emittedToolResultIds: new Set(),
@@ -341,6 +386,7 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
       model: input.model,
     });
     await this.emitMcpStatus(session);
+    await this.emitAvailableCommands(session);
 
     if (input.prompt || input.attachments?.length) {
       await this.sendTurn({
@@ -373,13 +419,32 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
     session.status = 'running';
     this.emit({ type: 'status_change', threadId: input.threadId, status: 'running' });
 
-    const parts = await buildPromptParts(input.prompt, input.attachments);
-    if (parts.length === 0) {
+    const slashCommand = parseOpenCodeSlashCommand(input.prompt);
+    const shouldRunCommand =
+      slashCommand &&
+      !input.attachments?.length &&
+      session.availableCommands.has(slashCommand.name);
+    const response = shouldRunCommand
+      ? await this.executeSlashCommand(session, slashCommand, input.model || session.model)
+      : await this.executePrompt(session, input);
+    if (!response) {
       return;
     }
 
+    this.ingestPromptResponse(session, response);
+    this.emitTurnResult(session, getRecord(response.info));
+  }
+
+  private async executePrompt(
+    session: ActiveOpenCodeSession,
+    input: ProviderSendTurnInput
+  ): Promise<Record<string, unknown> | null> {
+    const parts = await buildPromptParts(input.prompt, input.attachments);
+    if (parts.length === 0) {
+      return null;
+    }
     const model = parseOpenCodeModel(input.model || session.model);
-    const response = await requestOpenCode<Record<string, unknown>>(
+    return requestOpenCode<Record<string, unknown>>(
       session.client.session.prompt({
         path: { id: session.providerSessionId },
         query: { directory: session.cwd },
@@ -389,9 +454,26 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
         },
       })
     );
+  }
 
-    this.ingestPromptResponse(session, response);
-    this.emitTurnResult(session, getRecord(response.info));
+  private async executeSlashCommand(
+    session: ActiveOpenCodeSession,
+    command: { name: string; args: string },
+    model: string | undefined
+  ): Promise<Record<string, unknown>> {
+    const descriptor = session.availableCommands.get(command.name);
+    return requestOpenCode<Record<string, unknown>>(
+      session.client.session.command({
+        path: { id: session.providerSessionId },
+        query: { directory: session.cwd },
+        body: {
+          command: command.name,
+          arguments: command.args,
+          ...(descriptor?.agent ? { agent: descriptor.agent } : {}),
+          ...(descriptor?.model || model ? { model: descriptor?.model || model } : {}),
+        },
+      })
+    );
   }
 
   async stopSession(threadId: string): Promise<void> {
@@ -1004,6 +1086,70 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
     } catch (error) {
       console.warn('[OpenCodeSdkAdapter] failed to read MCP status:', error);
     }
+  }
+
+  private async emitAvailableCommands(session: ActiveOpenCodeSession): Promise<void> {
+    let commands = FALLBACK_OPENCODE_COMMANDS;
+    if (session.client.command?.list) {
+      try {
+        const result = await requestOpenCode<unknown[]>(
+          session.client.command.list({ query: { directory: session.cwd } })
+        );
+        const sdkCommands = result
+          .map((value) => this.normalizeOpenCodeCommand(value))
+          .filter((command): command is AvailableCommand & OpenCodeCommandDescriptor => Boolean(command));
+        if (sdkCommands.length > 0) {
+          commands = sdkCommands;
+        }
+      } catch (error) {
+        console.warn('[OpenCodeSdkAdapter] failed to list commands:', error);
+      }
+    }
+
+    session.availableCommands = new Map(
+      commands.map((command) => [
+        command.name,
+        {
+          name: command.name,
+          description: command.description,
+          agent: (command as OpenCodeCommandDescriptor).agent,
+          model: (command as OpenCodeCommandDescriptor).model,
+        },
+      ])
+    );
+    this.emit({
+      type: 'message',
+      threadId: session.threadId,
+      message: {
+        type: 'system',
+        subtype: 'available_commands_update',
+        session_id: session.providerSessionId,
+        availableCommands: commands,
+      },
+    });
+  }
+
+  private normalizeOpenCodeCommand(value: unknown): (AvailableCommand & OpenCodeCommandDescriptor) | null {
+    const record = getRecord(value);
+    if (!record) {
+      return null;
+    }
+    const name = getString(record.name).replace(/^\//, '').trim().toLowerCase();
+    if (!name) {
+      return null;
+    }
+    const description =
+      getString(record.description) ||
+      getString(record.template) ||
+      'OpenCode slash command';
+    const agent = getString(record.agent).trim();
+    const model = getString(record.model).trim();
+    return {
+      name,
+      description,
+      ...(agent ? { agent } : {}),
+      ...(model ? { model } : {}),
+    };
   }
 
   private async refreshModelLimits(client: OpenCodeClient, cwd: string): Promise<void> {

@@ -31,6 +31,7 @@ import {
   CodexReasoningEffort,
   CodexPermissionMode,
   KimiPermissionMode,
+  OpenCodePermissionMode,
 } from '../../shared/types';
 import {
   getDefaultCodexReasoningEffort,
@@ -62,6 +63,10 @@ import {
   loadPreferredKimiPermissionMode,
   savePreferredKimiPermissionMode,
 } from '../utils/kimi-permission';
+import {
+  loadPreferredOpencodePermissionMode,
+  savePreferredOpencodePermissionMode,
+} from '../utils/opencode-permission';
 const KIMI_MODEL_STORAGE_KEY = 'cowork.preferredKimiModel';
 const GROK_MODEL_STORAGE_KEY = 'cowork.preferredGrokModel';
 
@@ -287,6 +292,7 @@ export function useComposerAgentSelection(input?: {
   compatibleProviderId?: ClaudeCompatibleProviderId | null;
   // Accepts the wider access mode (includes 'fullAccess'); normalized internally.
   claudePermissionMode?: ClaudeAccessMode | null;
+  opencodePermissionMode?: OpenCodePermissionMode | null;
   claudeReasoningEffort?: ClaudeReasoningEffort | null;
 }) {
   const claudeModelConfig = useClaudeModelConfig();
@@ -705,12 +711,19 @@ export function useComposerAgentSelection(input?: {
   const [kimiPermissionMode, setKimiPermissionModeState] = useState<KimiPermissionMode>(() =>
     loadPreferredKimiPermissionMode()
   );
+  const [opencodePermissionMode, setOpencodePermissionModeState] = useState<OpenCodePermissionMode>(() =>
+    input?.opencodePermissionMode || loadPreferredOpencodePermissionMode()
+  );
 
   useEffect(() => {
     setClaudePermissionModeState(
       normalizeClaudePermissionMode(input?.claudePermissionMode || loadPreferredClaudePermissionMode())
     );
   }, [input?.claudePermissionMode, input?.selectionKey]);
+
+  useEffect(() => {
+    setOpencodePermissionModeState(input?.opencodePermissionMode || loadPreferredOpencodePermissionMode());
+  }, [input?.opencodePermissionMode, input?.selectionKey]);
 
   const setClaudePermissionMode = useCallback((mode: ClaudePermissionMode) => {
     const normalized = normalizeClaudePermissionMode(mode);
@@ -721,6 +734,11 @@ export function useComposerAgentSelection(input?: {
   const setKimiPermissionMode = useCallback((mode: KimiPermissionMode) => {
     setKimiPermissionModeState(mode);
     savePreferredKimiPermissionMode(mode);
+  }, []);
+
+  const setOpencodePermissionMode = useCallback((mode: OpenCodePermissionMode) => {
+    setOpencodePermissionModeState(mode);
+    savePreferredOpencodePermissionMode(mode);
   }, []);
 
   return {
@@ -748,5 +766,7 @@ export function useComposerAgentSelection(input?: {
     setCodexPermissionMode,
     kimiPermissionMode,
     setKimiPermissionMode,
+    opencodePermissionMode,
+    setOpencodePermissionMode,
   };
 }

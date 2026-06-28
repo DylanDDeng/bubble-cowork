@@ -6,7 +6,11 @@ export type OpenCodeClient = {
     create(options?: unknown): Promise<unknown>;
     get(options: unknown): Promise<unknown>;
     prompt(options: unknown): Promise<unknown>;
+    command(options: unknown): Promise<unknown>;
     abort(options: unknown): Promise<unknown>;
+  };
+  command?: {
+    list(options?: unknown): Promise<unknown>;
   };
   config?: {
     providers(options?: unknown): Promise<unknown>;

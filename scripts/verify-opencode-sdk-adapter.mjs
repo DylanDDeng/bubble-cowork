@@ -35,6 +35,11 @@ assert.ok(
     manager.includes("external_directory: 'ask'"),
   'OpenCode serve manager must default tools to ask permissions'
 );
+assert.ok(
+  manager.includes('command(options: unknown)') &&
+    manager.includes('list(options?: unknown)'),
+  'OpenCode SDK client type must expose command list and session command APIs'
+);
 
 const adapter = read('src/electron/libs/provider/opencode-sdk-adapter.ts');
 assert.ok(
@@ -59,6 +64,14 @@ assert.ok(
     adapter.includes('data:') &&
     adapter.includes('pathToFileURL'),
   'OpenCode SDK adapter must send prompts and support image/file attachment fallback'
+);
+assert.ok(
+  adapter.includes('emitAvailableCommands') &&
+    adapter.includes('session.client.command.list') &&
+    adapter.includes("subtype: 'available_commands_update'") &&
+    adapter.includes('parseOpenCodeSlashCommand') &&
+    adapter.includes('session.client.session.command'),
+  'OpenCode SDK adapter must list and execute OpenCode slash commands through the SDK'
 );
 assert.ok(
   adapter.includes('refreshModelLimits') &&
@@ -148,12 +161,37 @@ assert.ok(
     promptInput.includes('isOpenCodeContextVisible ? ('),
   'PromptInput must render OpenCode context usage like other providers, including waiting state'
 );
+assert.ok(
+  promptInput.includes('OpenCodePermissionModePicker') &&
+    promptInput.includes("runtimeProvider === 'opencode'") &&
+    promptInput.includes('agentSelection.opencodePermissionMode') &&
+    promptInput.includes('agentSelection.setOpencodePermissionMode'),
+  'PromptInput must render and send the OpenCode permission mode'
+);
 
 const openCodeIndicator = read('src/ui/components/OpenCodeContextIndicator.tsx');
 assert.ok(
   openCodeIndicator.includes('OpenCodeContextSnapshot | null') &&
     openCodeIndicator.includes('Waiting for OpenCode usage from this model.'),
   'OpenCode context indicator must support an empty waiting state before first usage'
+);
+
+const openCodePermissionPicker = read('src/ui/components/OpenCodePermissionModePicker.tsx');
+assert.ok(
+  openCodePermissionPicker.includes('OpenCodePermissionMode') &&
+    openCodePermissionPicker.includes('Full Access') &&
+    openCodePermissionPicker.includes("'defaultPermissions'") &&
+    openCodePermissionPicker.includes("'fullAccess'"),
+  'OpenCode permission picker must expose default and full access modes'
+);
+
+const composerSelection = read('src/ui/hooks/useComposerAgentSelection.ts');
+assert.ok(
+  composerSelection.includes('loadPreferredOpencodePermissionMode') &&
+    composerSelection.includes('savePreferredOpencodePermissionMode') &&
+    composerSelection.includes('opencodePermissionMode') &&
+    composerSelection.includes('setOpencodePermissionMode'),
+  'Composer agent selection must persist OpenCode permission mode'
 );
 
 for (const file of [

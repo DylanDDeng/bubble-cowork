@@ -24,6 +24,7 @@ import { ComposerAgentModelPicker } from './ComposerAgentControls';
 import { ClaudePermissionModePicker } from './ClaudePermissionModePicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { KimiPermissionModePicker } from './KimiPermissionModePicker';
+import { OpenCodePermissionModePicker } from './OpenCodePermissionModePicker';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
@@ -109,6 +110,8 @@ export function PromptInput({
     compatibleProviderId: activeSession?.compatibleProviderId || null,
     claudePermissionMode:
       activeSession?.provider === 'claude' ? activeSession.claudeAccessMode || null : null,
+    opencodePermissionMode:
+      activeSession?.provider === 'opencode' ? activeSession.opencodePermissionMode || null : null,
     claudeReasoningEffort:
       activeSession?.provider === 'claude' ? activeSession.claudeReasoningEffort || null : null,
   });
@@ -416,6 +419,10 @@ export function PromptInput({
             runtimeProvider === 'kimi' || runtimeProvider === 'grok'
               ? agentSelection.kimiPermissionMode
               : undefined,
+          opencodePermissionMode:
+            runtimeProvider === 'opencode'
+              ? agentSelection.opencodePermissionMode
+              : undefined,
           teamMode: 'solo',
           teamId: null,
         },
@@ -457,6 +464,10 @@ export function PromptInput({
         kimiPermissionMode:
           runtimeProvider === 'kimi' || runtimeProvider === 'grok'
             ? agentSelection.kimiPermissionMode
+            : undefined,
+        opencodePermissionMode:
+          runtimeProvider === 'opencode'
+            ? agentSelection.opencodePermissionMode
             : undefined,
         teamMode: 'solo',
         teamId: null,
@@ -828,7 +839,15 @@ export function PromptInput({
                   menuSide={menuSide}
                 />
               )}
-              {agentSelection.provider === 'kimi' || agentSelection.provider === 'grok' && (
+              {agentSelection.provider === 'opencode' && (
+                <OpenCodePermissionModePicker
+                  value={agentSelection.opencodePermissionMode}
+                  onChange={agentSelection.setOpencodePermissionMode}
+                  disabled={isBusy}
+                  menuSide={menuSide}
+                />
+              )}
+              {(agentSelection.provider === 'kimi' || agentSelection.provider === 'grok') && (
                 <KimiPermissionModePicker
                   value={agentSelection.kimiPermissionMode}
                   onChange={agentSelection.setKimiPermissionMode}

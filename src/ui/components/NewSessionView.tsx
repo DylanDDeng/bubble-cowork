@@ -20,6 +20,7 @@ import { ComposerAgentModelPicker } from './ComposerAgentControls';
 import { ClaudePermissionModePicker } from './ClaudePermissionModePicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { KimiPermissionModePicker } from './KimiPermissionModePicker';
+import { OpenCodePermissionModePicker } from './OpenCodePermissionModePicker';
 import { FolderOpen } from './icons';
 import { NewThreadLanding } from './NewThreadLanding';
 import { ComposerContextPills } from './ComposerContextPills';
@@ -256,34 +257,38 @@ export function NewSessionView() {
         channelId,
         attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
         provider: agentSelection.provider,
-            model: agentSelection.model || undefined,
-            compatibleProviderId:
-            agentSelection.provider === 'claude'
-                ? agentSelection.compatibleProviderId || undefined
-                : undefined,
-            claudeAccessMode:
-              agentSelection.provider === 'claude'
-                ? agentSelection.claudePermissionMode
-                : undefined,
-            claudeExecutionMode:
-              agentSelection.provider === 'claude' && agentSelection.claudePermissionMode === 'plan'
-                ? 'plan'
-                : agentSelection.provider === 'claude'
-                  ? 'execute'
-                  : undefined,
-            claudeReasoningEffort:
-              agentSelection.provider === 'claude'
-                ? agentSelection.claudeReasoningEffort || undefined
-                : undefined,
-            ...codexReferences,
-            codexPermissionMode:
-            agentSelection.provider === 'codex'
-                ? agentSelection.codexPermissionMode
-                : undefined,
-            kimiPermissionMode:
-              agentSelection.provider === 'kimi' || agentSelection.provider === 'grok'
-                ? agentSelection.kimiPermissionMode
-                : undefined,
+        model: agentSelection.model || undefined,
+        compatibleProviderId:
+          agentSelection.provider === 'claude'
+            ? agentSelection.compatibleProviderId || undefined
+            : undefined,
+        claudeAccessMode:
+          agentSelection.provider === 'claude'
+            ? agentSelection.claudePermissionMode
+            : undefined,
+        claudeExecutionMode:
+          agentSelection.provider === 'claude' && agentSelection.claudePermissionMode === 'plan'
+            ? 'plan'
+            : agentSelection.provider === 'claude'
+              ? 'execute'
+              : undefined,
+        claudeReasoningEffort:
+          agentSelection.provider === 'claude'
+            ? agentSelection.claudeReasoningEffort || undefined
+            : undefined,
+        ...codexReferences,
+        codexPermissionMode:
+          agentSelection.provider === 'codex'
+            ? agentSelection.codexPermissionMode
+            : undefined,
+        kimiPermissionMode:
+          agentSelection.provider === 'kimi' || agentSelection.provider === 'grok'
+            ? agentSelection.kimiPermissionMode
+            : undefined,
+        opencodePermissionMode:
+          agentSelection.provider === 'opencode'
+            ? agentSelection.opencodePermissionMode
+            : undefined,
         teamMode: 'solo',
         teamId: null,
       },
@@ -637,7 +642,15 @@ export function NewSessionView() {
                         menuSide="bottom"
                       />
                     )}
-                    {agentSelection.provider === 'kimi' || agentSelection.provider === 'grok' && (
+                    {agentSelection.provider === 'opencode' && (
+                      <OpenCodePermissionModePicker
+                        value={agentSelection.opencodePermissionMode}
+                        onChange={agentSelection.setOpencodePermissionMode}
+                        disabled={pendingStart}
+                        menuSide="bottom"
+                      />
+                    )}
+                    {(agentSelection.provider === 'kimi' || agentSelection.provider === 'grok') && (
                       <KimiPermissionModePicker
                         value={agentSelection.kimiPermissionMode}
                         onChange={agentSelection.setKimiPermissionMode}
