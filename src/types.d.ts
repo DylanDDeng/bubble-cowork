@@ -233,6 +233,7 @@ declare global {
       }>;
     }>;
     gitCheckoutBranch: (input: import('./shared/types').GitCheckoutBranchInput) => Promise<{ ok: boolean; output?: string; message?: string }>;
+    gitCreateBranch: (input: import('./shared/types').GitCreateBranchInput) => Promise<{ ok: boolean; output?: string; message?: string }>;
     gitCreateWorktree: (input: import('./shared/types').GitCreateWorktreeInput) => Promise<{ ok: boolean; message?: string; worktree?: import('./shared/types').GitWorktree | null }>;
     gitSessionHandoff: (input: import('./shared/types').GitSessionHandoffInput) => Promise<{ ok: boolean; message?: string; worktree?: import('./shared/types').GitWorktree | null; session?: unknown }>;
     getGitHistory: (cwd: string) => Promise<{

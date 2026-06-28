@@ -296,11 +296,11 @@ function buildOpencodeSummary(status: OpenCodeRuntimeStatus, loading: boolean): 
   }
 
   if (status.ready) {
-    return 'OpenCode ACP is ready.';
+    return 'OpenCode SDK is ready.';
   }
 
   if (!status.cliAvailable) {
-    return 'OpenCode ACP was not found.';
+    return 'OpenCode CLI was not found.';
   }
 
   return 'OpenCode needs local setup.';

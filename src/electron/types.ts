@@ -155,6 +155,7 @@ export interface RunnerHandle {
       kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
       grokPermissionMode?: import('../shared/types').GrokPermissionMode;
       grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
+      opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
     }
   ) => void;
 }

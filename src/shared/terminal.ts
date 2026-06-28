@@ -11,7 +11,7 @@ export const MAX_TERMINAL_ENV_KEY_LENGTH = 128;
 export const MAX_TERMINAL_ENV_VALUE_LENGTH = 8192;
 export const MAX_TERMINAL_WRITE_LENGTH = 65536;
 
-export type TerminalAgentKind = 'shell' | 'claude' | 'codex' | 'opencode';
+export type TerminalAgentKind = 'shell' | 'claude' | 'codex' | 'opencode' | 'grok';
 export type ManagedTerminalAgentKind = 'claude' | 'codex';
 export type TerminalCliKind = ManagedTerminalAgentKind | 'opencode';
 export type TerminalActivityState = 'idle' | 'running' | 'attention' | 'review';
@@ -289,7 +289,13 @@ function validateEnv(value: unknown): TerminalValidationResult<Record<string, st
 }
 
 export function isTerminalAgentKind(value: unknown): value is TerminalAgentKind {
-  return value === 'shell' || value === 'claude' || value === 'codex' || value === 'opencode';
+  return (
+    value === 'shell' ||
+    value === 'claude' ||
+    value === 'codex' ||
+    value === 'opencode' ||
+    value === 'grok'
+  );
 }
 
 export function isManagedTerminalAgentKind(value: unknown): value is ManagedTerminalAgentKind {

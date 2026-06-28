@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import * as Dialog from '@radix-ui/react-dialog';
+import * as Dialog from '@/ui/components/ui/dialog';
 import { X } from '../icons';
 import type { PromptLibraryItem } from '../../types';
 import { savePromptLibraryItem } from '../../utils/prompt-library-api';

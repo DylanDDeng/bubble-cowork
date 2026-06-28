@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import * as Dialog from '@radix-ui/react-dialog';
+import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
+import * as Dialog from '@/ui/components/ui/dialog';
 import { Check, ChevronDown, GitBranch, GitFork, Loader2, Monitor, X } from './icons';
 import { toast } from 'sonner';
 import { sendEvent } from '../hooks/useIPC';
@@ -445,7 +445,7 @@ export function SessionWorkspaceControl({
             {...environmentHubLayerProps}
             align="start"
             sideOffset={6}
-            className="z-[9999] min-w-[190px] rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-xl"
+            className="z-[9999] min-w-[190px] rounded-[var(--popover-radius)] border border-[var(--popover-border)] bg-[var(--popover-bg)] p-1 shadow-[var(--popover-shadow)]"
           >
             <DropdownMenu.Item
               disabled={!isWorktree || busyAction !== null}
@@ -453,7 +453,7 @@ export function SessionWorkspaceControl({
                 event.preventDefault();
                 setLocalDialogOpen(true);
               }}
-              className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
+              className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
             >
               <Monitor className="h-3.5 w-3.5 text-[var(--text-muted)]" />
               <span className="flex-1">Local</span>
@@ -465,7 +465,7 @@ export function SessionWorkspaceControl({
                 event.preventDefault();
                 setWorktreeDialogOpen(true);
               }}
-              className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
+              className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
             >
               <GitFork className="h-3.5 w-3.5 text-[var(--text-muted)]" />
               <span className="flex-1">New worktree</span>
@@ -807,7 +807,7 @@ export function SessionWorkspaceControl({
             {...environmentHubLayerProps}
             align="start"
             sideOffset={6}
-            className="z-[9999] max-h-[320px] min-w-[240px] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-1 shadow-xl"
+            className="z-[9999] max-h-[320px] min-w-[240px] overflow-y-auto rounded-[var(--popover-radius)] border border-[var(--popover-border)] bg-[var(--popover-bg)] p-1 shadow-[var(--popover-shadow)]"
           >
             {branchesError ? (
               <div className="px-2 py-1.5 text-xs text-[var(--text-muted)]">{branchesError}</div>
@@ -822,7 +822,7 @@ export function SessionWorkspaceControl({
                     event.preventDefault();
                     void handleSelectBranch(entry);
                   }}
-                  className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
+                  className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
                 >
                   <GitBranch className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
                   <span className="min-w-0 flex-1 truncate">{entry.name}</span>

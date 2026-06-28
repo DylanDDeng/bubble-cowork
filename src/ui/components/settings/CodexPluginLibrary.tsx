@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import * as Dialog from '@radix-ui/react-dialog';
+import * as Dialog from '@/ui/components/ui/dialog';
 import { CheckCircle2, LoaderCircle, Plug, RefreshCw, Search, X } from '../icons';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';

@@ -1,5 +1,5 @@
 import { type FC, useEffect, useMemo, useState } from 'react';
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
 import { Check, ChevronDown, ChevronRight, Copy, Search, Zap } from './icons';
 import type { AgentProvider } from '../types';
 import type { ComposerModelOption } from '../hooks/useComposerAgentSelection';
@@ -309,7 +309,7 @@ export function ComposerModelPicker({
 
             {/* Model submenu trigger */}
             <DropdownMenu.Sub>
-              <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[state=open]:bg-[var(--bg-tertiary)]">
+              <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[popup-open]:bg-[var(--bg-tertiary)]">
                 <span className="flex min-w-0 flex-1 items-center gap-1.5">
                   {codexFastMode && <Zap className="h-3 w-3 flex-shrink-0 text-[var(--accent)]" />}
                   <span className="truncate text-[12px] text-[var(--text-primary)]">
@@ -364,7 +364,7 @@ export function ComposerModelPicker({
 
             {/* Speed submenu trigger */}
             <DropdownMenu.Sub>
-              <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[state=open]:bg-[var(--bg-tertiary)]">
+              <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[popup-open]:bg-[var(--bg-tertiary)]">
                 <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
                   Speed
                 </span>
@@ -607,7 +607,7 @@ const ClaudeAgentSubContent: FC<{
       <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
 
       <DropdownMenu.Sub>
-        <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[state=open]:bg-[var(--bg-tertiary)]">
+        <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[popup-open]:bg-[var(--bg-tertiary)]">
           <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
             Model
           </span>
@@ -680,7 +680,7 @@ const CodexAgentSubContent: FC<{
 
       {/* Model submenu */}
       <DropdownMenu.Sub>
-        <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[state=open]:bg-[var(--bg-tertiary)]">
+        <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[popup-open]:bg-[var(--bg-tertiary)]">
           <span className="flex min-w-0 flex-1 items-center gap-1.5">
             {codexFastMode && <Zap className="h-3 w-3 flex-shrink-0 text-[var(--accent)]" />}
             <span className="truncate text-[12px] text-[var(--text-primary)]">Model</span>
@@ -733,7 +733,7 @@ const CodexAgentSubContent: FC<{
 
       {/* Speed submenu */}
       <DropdownMenu.Sub>
-        <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[state=open]:bg-[var(--bg-tertiary)]">
+        <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[popup-open]:bg-[var(--bg-tertiary)]">
           <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
             Speed
           </span>

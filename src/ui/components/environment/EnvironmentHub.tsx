@@ -18,6 +18,7 @@ import type { ActiveEnvironmentContext } from './useActiveEnvironmentContext';
 import type { GitEnvironmentState } from './useGitEnvironment';
 import { EnvironmentGitActionsSection } from './EnvironmentGitActionsSection';
 import { EnvironmentContextSection } from './EnvironmentContextSection';
+import * as DropdownMenu from '../ui/dropdown-menu';
 
 function getPathLeaf(path: string): string {
   const segments = path.split(/[\\/]+/).filter(Boolean);
@@ -121,10 +122,7 @@ function loadEditorLaunchers(): Promise<EnvironmentEditorLauncher[]> {
 }
 
 export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmentContext }) {
-  const [open, setOpen] = useState(false);
   const [editorLaunchers, setEditorLaunchers] = useState<EnvironmentEditorLauncher[]>(() => cachedEditorLaunchers ?? []);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,25 +136,6 @@ export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmen
     };
   }, []);
 
-  useEffect(() => {
-    if (!open) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (!target) return;
-      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [open]);
-
   const primaryEditor = editorLaunchers.find((editor) => editor.available) ?? editorLaunchers[0] ?? null;
   const primaryEditorVisual = primaryEditor ? getEditorVisual(primaryEditor) : null;
 
@@ -168,72 +147,77 @@ export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmen
     });
     if (!result.ok) {
       toast.error(result.message || `Failed to open ${editor.label}.`);
-      return;
     }
-    setOpen(false);
   };
 
   const disabled = !primaryEditor || !context.effectiveCwd;
 
+  const triggerVisual = primaryEditor?.iconDataUrl ? (
+    <img src={primaryEditor.iconDataUrl} alt="" className="h-4 w-4 shrink-0 rounded-[4px]" />
+  ) : primaryEditorVisual ? (
+    <span className={`flex h-4 w-4 items-center justify-center rounded-[4px] text-[9px] font-semibold ${primaryEditorVisual.tone}`}>
+      {primaryEditorVisual.mark}
+    </span>
+  ) : (
+    <Code2 className="h-[14px] w-[14px] shrink-0" />
+  );
+
   return (
-    <div className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        disabled={disabled}
-        onClick={() => setOpen((value) => !value)}
-        className={`no-drag inline-flex h-7 min-w-7 items-center justify-center rounded-lg px-1.5 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
-          open
-            ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-        }`}
-        title={primaryEditor ? `Open in ${primaryEditor.label}` : 'No editor detected'}
-        aria-label="Open workspace in editor"
-        aria-expanded={open}
-      >
-        {primaryEditor?.iconDataUrl ? (
-          <img src={primaryEditor.iconDataUrl} alt="" className="h-4 w-4 shrink-0 rounded-[4px]" />
-        ) : primaryEditorVisual ? (
-          <span className={`flex h-4 w-4 items-center justify-center rounded-[4px] text-[9px] font-semibold ${primaryEditorVisual.tone}`}>
-            {primaryEditorVisual.mark}
-          </span>
-        ) : (
-          <Code2 className="h-[14px] w-[14px] shrink-0" />
-        )}
-      </button>
-      {open ? (
-        <div
-          ref={menuRef}
-          className="no-drag fixed right-[86px] top-11 z-[80] w-[250px] overflow-hidden rounded-2xl border border-[var(--border)]/70 bg-[var(--bg-primary)] py-3 shadow-[0_18px_48px_rgba(15,23,42,0.16)]"
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          className={`no-drag inline-flex h-7 min-w-7 items-center justify-center rounded-md px-1.5 text-[11px] font-medium transition-colors ${
+            disabled
+              ? 'cursor-not-allowed opacity-45'
+              : 'cursor-pointer text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] data-[popup-open]:bg-[var(--sidebar-item-active)] data-[popup-open]:text-[var(--text-primary)]'
+          }`}
+          title={primaryEditor ? `Open in ${primaryEditor.label}` : 'No editor detected'}
+          aria-label="Open workspace in editor"
         >
-          {editorLaunchers.map((editor, index) => {
+          {triggerVisual}
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={6}
+          className="z-[9999] min-w-[200px] rounded-[var(--popover-radius)] border border-[var(--popover-border)] bg-[var(--popover-bg)] p-1 shadow-[var(--popover-shadow)]"
+        >
+          <DropdownMenu.Group>
+            <DropdownMenu.Label>Open in…</DropdownMenu.Label>
+            {editorLaunchers.map((editor) => {
             const visual = getEditorVisual(editor);
             const itemDisabled = !editor.available || !context.effectiveCwd;
             return (
-              <button
+              <DropdownMenu.Item
                 key={editor.id}
-                type="button"
                 disabled={itemDisabled}
-                onClick={() => void openEditor(editor)}
-                className="group flex w-full items-center gap-3 px-7 py-2.5 text-left transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-45"
+                onSelect={(event) => {
+                  event.preventDefault();
+                  void openEditor(editor);
+                }}
+                className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
               >
                 {editor.iconDataUrl ? (
-                  <img src={editor.iconDataUrl} alt="" className="h-5 w-5 shrink-0 rounded-[5px]" />
+                  <img src={editor.iconDataUrl} alt="" className="h-4 w-4 shrink-0 rounded-[4px]" />
                 ) : (
-                  <span
-                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[10px] font-semibold ${visual.tone}`}
-                    aria-hidden="true"
-                  >
+                  <span className={`flex h-4 w-4 items-center justify-center rounded-[4px] text-[9px] font-semibold ${visual.tone}`}>
                     {visual.mark}
                   </span>
                 )}
-                <span className="min-w-0 flex-1 truncate text-[14px] font-normal text-[var(--text-primary)]">{editor.label}</span>
-              </button>
+                <span className="min-w-0 flex-1 truncate">{editor.label}</span>
+                {!editor.available ? (
+                  <span className="shrink-0 text-[10px] text-[var(--text-muted)]">not detected</span>
+                ) : null}
+              </DropdownMenu.Item>
             );
           })}
-        </div>
-      ) : null}
-    </div>
+          </DropdownMenu.Group>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }
 

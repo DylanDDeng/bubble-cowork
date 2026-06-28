@@ -265,3 +265,13 @@ export async function checkoutBranch(input: {
   const { stdout, stderr } = await runGit(input.cwd, ['checkout', input.branch], 120_000);
   return `${stdout || ''}${stderr || ''}`.trim();
 }
+
+export async function createBranch(input: {
+  cwd: string;
+  branch: string;
+}): Promise<string> {
+  const branch = input.branch.trim();
+  await runGit(input.cwd, ['check-ref-format', '--branch', branch], 5000);
+  const { stdout, stderr } = await runGit(input.cwd, ['checkout', '-b', branch], 120_000);
+  return `${stdout || ''}${stderr || ''}`.trim();
+}

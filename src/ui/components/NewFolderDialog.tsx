@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import * as Dialog from '@radix-ui/react-dialog';
+import * as Dialog from '@/ui/components/ui/dialog';
 import { sendEvent } from '../hooks/useIPC';
 
 interface NewFolderDialogProps {

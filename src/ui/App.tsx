@@ -1,6 +1,6 @@
 import { useEffect, useRef, useMemo, useState, useCallback, type ReactNode } from 'react';
-import * as Dialog from '@radix-ui/react-dialog';
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as Dialog from '@/ui/components/ui/dialog';
+import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
 import { Toaster, toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -849,7 +849,7 @@ export function App() {
       ) : activeWorkspace === 'automations' ? (
         <AutomationsView />
       ) : chatLayoutMode === 'split' || (activeSession && !showNewSession) ? (
-        <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden rounded-l-[12px] bg-[var(--bg-primary)]">
           {/* Top drag region */}
           <div className="h-12 drag-region flex-shrink-0 bg-[var(--bg-primary)]">
             <div className="flex h-full items-center justify-between px-3">
@@ -1874,7 +1874,7 @@ function GitHeaderActions({
           <DropdownMenu.Trigger asChild>
             <button
               type="button"
-              className="inline-flex h-6 items-center justify-center border-l border-[var(--border)]/60 px-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] data-[state=open]:bg-[var(--bg-tertiary)] data-[state=open]:text-[var(--text-primary)]"
+              className="inline-flex h-6 items-center justify-center border-l border-[var(--border)]/60 px-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] data-[popup-open]:bg-[var(--bg-tertiary)] data-[popup-open]:text-[var(--text-primary)]"
               aria-label="Git actions"
             >
               <ChevronDown className="h-3 w-3" />

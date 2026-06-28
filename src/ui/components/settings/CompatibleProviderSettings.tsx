@@ -761,8 +761,8 @@ function buildCodexSummary(status: CodexRuntimeStatus, loading: boolean): string
 
 function buildOpencodeSummary(status: OpenCodeRuntimeStatus, loading: boolean): string {
   if (loading) return 'Checking OpenCode runtime...';
-  if (status.ready) return 'OpenCode ACP is ready.';
-  if (!status.cliAvailable) return 'OpenCode ACP was not found.';
+  if (status.ready) return 'OpenCode SDK is ready.';
+  if (!status.cliAvailable) return 'OpenCode CLI was not found.';
   return 'OpenCode needs local setup.';
 }
 

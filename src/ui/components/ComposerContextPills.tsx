@@ -1,6 +1,8 @@
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { useMemo, useState } from 'react';
+import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
+import * as Dialog from '@/ui/components/ui/dialog';
 import { toast } from 'sonner';
-import { Folder, FolderOpen, GitBranch, ChevronDown, Check } from './icons';
+import { Folder, FolderOpen, GitBranch, ChevronDown, Check, Plus, Search, X } from './icons';
 import { useGitBranches } from '../hooks/useGitBranches';
 
 export const CONTEXT_PILL_CLASS =
@@ -34,6 +36,27 @@ export function ComposerContextPills({
 }) {
   const { current: branch, isRepo, localBranches, loading: branchesLoading, refresh: refreshBranches } =
     useGitBranches(hasSelectedCwd ? cwd : null);
+  const [branchQuery, setBranchQuery] = useState('');
+  const [newBranchName, setNewBranchName] = useState('');
+  const [creatingBranch, setCreatingBranch] = useState(false);
+  const [createBranchDialogOpen, setCreateBranchDialogOpen] = useState(false);
+  const filteredLocalBranches = useMemo(() => {
+    const query = branchQuery.trim().toLowerCase();
+    if (!query) return localBranches;
+    return localBranches.filter((entry) => entry.name.toLowerCase().includes(query));
+  }, [branchQuery, localBranches]);
+  const newBranchValidationMessage = useMemo(() => {
+    const name = newBranchName.trim();
+    if (!name) return null;
+    if (name.endsWith('/')) return '分支名不能以“/”结尾。';
+    if (name.includes('..')) return '分支名不能包含“..”。';
+    if (localBranches.some((entry) => entry.name === name)) {
+      return `分支 ${name} 已存在。`;
+    }
+    return null;
+  }, [localBranches, newBranchName]);
+  const canCreateBranch =
+    newBranchName.trim().length > 0 && !newBranchValidationMessage && !creatingBranch;
 
   const handleSelectBranch = async (name: string) => {
     const dir = cwd?.trim();
@@ -52,6 +75,38 @@ export function ComposerContextPills({
       refreshBranches();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : `Couldn't switch to ${name}.`);
+    }
+  };
+
+  const handleCreateBranch = async () => {
+    const dir = cwd?.trim();
+    const name = newBranchName.trim();
+    if (!dir || !name || creatingBranch) return;
+    if (newBranchValidationMessage) {
+      toast.error(newBranchValidationMessage);
+      return;
+    }
+
+    setCreatingBranch(true);
+    try {
+      const result = await window.electron.gitCreateBranch({
+        cwd: dir,
+        branch: name,
+        sessionId: sessionId ?? null,
+      });
+      if (!result?.ok) {
+        toast.error(result?.message || `Couldn't create ${name}.`);
+        return;
+      }
+      toast.success(`Created and switched to ${name}.`);
+      setNewBranchName('');
+      setCreateBranchDialogOpen(false);
+      setBranchQuery('');
+      refreshBranches();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : `Couldn't create ${name}.`);
+    } finally {
+      setCreatingBranch(false);
     }
   };
 
@@ -137,36 +192,130 @@ export function ComposerContextPills({
                   align="start"
                   side="bottom"
                   sideOffset={6}
-                  className="z-50 max-h-[320px] w-[260px] overflow-y-auto rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_18px_44px_rgba(15,23,42,0.14)]"
+                  className="z-50 flex max-h-[360px] w-[280px] flex-col overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-2 shadow-[0_18px_44px_rgba(15,23,42,0.14)]"
                 >
-                  {branchesLoading && localBranches.length === 0 ? (
-                    <div className="px-2 py-1.5 text-[12px] text-[var(--text-muted)]">Loading branches…</div>
-                  ) : localBranches.length === 0 ? (
-                    <div className="px-2 py-1.5 text-[12px] text-[var(--text-muted)]">No branches found</div>
-                  ) : (
-                    localBranches.map((entry) => (
-                      <DropdownMenu.Item
-                        key={entry.name}
-                        onSelect={() => {
-                          void handleSelectBranch(entry.name);
-                        }}
-                        title={entry.name}
-                        className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[highlighted]:bg-[var(--bg-tertiary)]"
-                      >
-                        <GitBranch className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
-                        <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-                        {entry.name === branch ? (
-                          <Check className="h-4 w-4 shrink-0 text-[var(--accent)]" />
-                        ) : null}
-                      </DropdownMenu.Item>
-                    ))
-                  )}
+                  <div
+                    className="flex h-8 items-center gap-2 rounded-lg px-2 text-[13px] text-[var(--text-secondary)]"
+                    onKeyDown={(event) => event.stopPropagation()}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <Search className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
+                    <input
+                      value={branchQuery}
+                      onChange={(event) => setBranchQuery(event.target.value)}
+                      placeholder="搜索分支"
+                      className="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+                    />
+                  </div>
+                  <div className="px-2 pb-1 pt-2 text-[11px] font-medium text-[var(--text-muted)]">
+                    分支
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    {branchesLoading && localBranches.length === 0 ? (
+                      <div className="px-2 py-1.5 text-[12px] text-[var(--text-muted)]">Loading branches…</div>
+                    ) : filteredLocalBranches.length === 0 ? (
+                      <div className="px-2 py-1.5 text-[12px] text-[var(--text-muted)]">No branches found</div>
+                    ) : (
+                      filteredLocalBranches.map((entry) => (
+                        <DropdownMenu.Item
+                          key={entry.name}
+                          onSelect={() => {
+                            void handleSelectBranch(entry.name);
+                          }}
+                          title={entry.name}
+                          className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[highlighted]:bg-[var(--bg-tertiary)]"
+                        >
+                          <GitBranch className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
+                          <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+                          {entry.name === branch ? (
+                            <Check className="h-4 w-4 shrink-0 text-[var(--accent)]" />
+                          ) : null}
+                        </DropdownMenu.Item>
+                      ))
+                    )}
+                  </div>
+                  <div className="mt-2 border-t border-[var(--border)] pt-1">
+                    <DropdownMenu.Item
+                      onSelect={() => {
+                        setNewBranchName('');
+                        setCreateBranchDialogOpen(true);
+                      }}
+                      className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-[13px] text-[var(--text-secondary)] outline-none data-[highlighted]:bg-[var(--bg-tertiary)] data-[highlighted]:text-[var(--text-primary)]"
+                    >
+                      <Plus className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
+                      <span className="min-w-0 truncate">创建并检出新分支...</span>
+                    </DropdownMenu.Item>
+                  </div>
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
           ) : null}
         </>
       ) : null}
+      <Dialog.Root open={createBranchDialogOpen} onOpenChange={setCreateBranchDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[90] bg-black/20 backdrop-blur-[1px]" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[91] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-[22px] border border-[var(--border)] bg-[var(--bg-primary)] p-6 shadow-[0_24px_80px_rgba(15,23,42,0.22)] outline-none">
+            <div className="mb-7 flex items-start justify-between gap-4">
+              <Dialog.Title className="text-[20px] font-semibold leading-7 tracking-[-0.02em] text-[var(--text-primary)]">
+                创建并检出分支
+              </Dialog.Title>
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="-mr-1 flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                  aria-label="关闭"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </Dialog.Close>
+            </div>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleCreateBranch();
+              }}
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <label htmlFor="composer-new-branch-name" className="text-[13px] font-semibold text-[var(--text-primary)]">
+                  分支名称
+                </label>
+              </div>
+              <input
+                id="composer-new-branch-name"
+                value={newBranchName}
+                onChange={(event) => setNewBranchName(event.target.value)}
+                placeholder="feature/name"
+                disabled={creatingBranch}
+                autoFocus
+                className="h-12 w-full rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] px-4 text-[15px] text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] disabled:opacity-60"
+              />
+              {newBranchValidationMessage ? (
+                <div className="mt-3 text-[13px] font-medium text-[var(--error)]">
+                  {newBranchValidationMessage}
+                </div>
+              ) : null}
+              <div className="mt-7 flex justify-end gap-3">
+                <Dialog.Close asChild>
+                  <button
+                    type="button"
+                    className="rounded-[12px] bg-[var(--bg-tertiary)] px-5 py-2.5 text-[14px] font-semibold text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)]"
+                  >
+                    关闭
+                  </button>
+                </Dialog.Close>
+                <button
+                  type="submit"
+                  disabled={!canCreateBranch}
+                  className="rounded-[12px] bg-[var(--text-primary)] px-5 py-2.5 text-[14px] font-semibold text-[var(--bg-primary)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {creatingBranch ? '创建中...' : '创建并检出'}
+                </button>
+              </div>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

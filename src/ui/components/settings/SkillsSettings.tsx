@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import * as Dialog from '@radix-ui/react-dialog';
+import * as Dialog from '@/ui/components/ui/dialog';
 import { ExternalLink, FileText, LoaderCircle, Search, X } from '../icons';
 import { sendEvent } from '../../hooks/useIPC';
 import { useAppStore } from '../../store/useAppStore';

@@ -397,7 +397,7 @@ export function Sidebar() {
                   ? 'pointer-events-none -translate-x-2 opacity-0'
                   : 'translate-x-0 opacity-100'
               }`}
-            style={{ width: sidebarWidth, minWidth: sidebarWidth }}
+            style={{ width: sidebarWidth, minWidth: sidebarWidth, backdropFilter: 'var(--app-sidebar-backdrop-filter)', WebkitBackdropFilter: 'var(--app-sidebar-backdrop-filter)' }}
             aria-hidden={sidebarCollapsed}
           >
             <div className="drag-region flex h-12 flex-shrink-0 items-center gap-0.5 pl-[84px] pr-2">
@@ -539,7 +539,7 @@ function SidebarNavRow({
         onClick();
         (e.currentTarget as HTMLButtonElement).blur();
       }}
-      className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left no-drag transition-colors duration-150 ${
+      className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left no-drag transition-colors duration-150 ${
         active
           ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
           : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'

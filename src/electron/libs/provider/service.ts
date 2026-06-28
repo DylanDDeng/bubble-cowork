@@ -244,10 +244,59 @@ class ProviderServiceImpl implements ProviderService {
       throw new Error(`No adapter registered for provider "${provider}"`);
     }
 
-    const session = await adapter.startSession(input);
+    if (adapter.runOneShot) {
+      return adapter.runOneShot(input);
+    }
+
     let text = '';
+    let deltaText = '';
+    let sessionId: string | undefined;
+    let model: string | undefined;
+    let settled = false;
+    let resolveDone!: () => void;
+    let rejectDone!: (error: Error) => void;
+    const done = new Promise<void>((resolve, reject) => {
+      resolveDone = resolve;
+      rejectDone = reject;
+    });
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      rejectDone(new Error(`${adapter.displayName} did not finish one-shot prompt within 300000ms.`));
+    }, 300_000);
+    timeout.unref?.();
+
+    const settleSuccess = () => {
+      if (settled) return;
+      settled = true;
+      resolveDone();
+    };
+
+    const settleError = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      rejectDone(error);
+    };
 
     const listener = (event: ProviderRuntimeEvent) => {
+      if (event.threadId !== input.threadId) {
+        return;
+      }
+
+      if (event.type === 'system_init') {
+        sessionId = event.sessionId;
+        model = event.model || model;
+        return;
+      }
+
+      if (event.type === 'message' && event.message.type === 'stream_event') {
+        const eventDelta = event.message.event.delta;
+        if (eventDelta?.type === 'text_delta' && typeof eventDelta.text === 'string') {
+          deltaText += eventDelta.text;
+        }
+        return;
+      }
+
       if (event.type === 'message' && event.message.type === 'assistant') {
         const content = event.message.message.content as Array<{ type: string; text?: string }>;
         for (const block of content) {
@@ -255,38 +304,41 @@ class ProviderServiceImpl implements ProviderService {
             text += block.text;
           }
         }
+        return;
+      }
+
+      if (event.type === 'message' && event.message.type === 'result') {
+        settleSuccess();
+        return;
+      }
+
+      if (event.type === 'status_change' && event.status === 'completed') {
+        settleSuccess();
+        return;
+      }
+
+      if (event.type === 'error') {
+        settleError(event.error);
       }
     };
 
-    adapter.events.on('event', listener);
+    this.events.on('event', listener);
 
     try {
-      await adapter.sendTurn({
-        threadId: input.threadId,
-        prompt: input.prompt,
-        attachments: input.attachments,
-        model: input.model,
-        codexExecutionMode: input.codexExecutionMode,
-        codexPermissionMode: input.codexPermissionMode,
-        codexReasoningEffort: input.codexReasoningEffort,
-        codexFastMode: input.codexFastMode,
-        kimiPermissionMode: input.kimiPermissionMode,
-        grokPermissionMode: input.grokPermissionMode,
-        grokReasoningEffort: input.grokReasoningEffort,
-      });
-
-      // Wait a bit for the turn to complete
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const session = await this.startSession(input);
+      sessionId = session.providerSessionId || sessionId;
+      model = session.model || model;
+      await done;
 
       return {
-        text: text.trim(),
-        sessionId: session.providerSessionId,
-        model: session.model,
+        text: (text || deltaText).trim(),
+        sessionId,
+        model,
       };
     } finally {
-      adapter.events.off('event', listener);
-      await adapter.stopSession(input.threadId);
-      this.directory.remove(input.threadId);
+      clearTimeout(timeout);
+      this.events.off('event', listener);
+      await this.stopSession(input.threadId);
     }
   }
 }

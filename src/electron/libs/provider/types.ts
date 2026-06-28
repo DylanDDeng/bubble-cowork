@@ -103,6 +103,7 @@ export interface ProviderSendTurnInput {
   kimiPermissionMode?: KimiPermissionMode;
   grokPermissionMode?: GrokPermissionMode;
   grokReasoningEffort?: GrokReasoningEffort;
+  opencodePermissionMode?: OpenCodePermissionMode;
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
 }
@@ -143,6 +144,7 @@ export interface ProviderAdapter {
 
   // Permission responses
   respondToRequest(threadId: string, requestId: string, decision: PermissionResult): Promise<void>;
+  runOneShot?(input: ProviderSessionStartInput): Promise<{ text: string; sessionId?: string; model?: string }>;
 
   // Optional provider discovery APIs
   getComposerCapabilities?(): ProviderComposerCapabilities;

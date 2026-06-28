@@ -386,7 +386,24 @@ export async function runOpenCodeOneShot(params: {
   model?: string;
   opencodePermissionMode?: OpenCodePermissionMode;
 }): Promise<{ text: string; sessionId?: string; model?: string }> {
-  return runAcpOneShot(OPENCODE_ADAPTER, params);
+  const { getProviderService } = await import('./provider/service');
+  const { OpenCodeSdkAdapter } = await import('./provider/opencode-sdk-adapter');
+
+  const service = getProviderService();
+  if (!service.getAdapter('opencode')) {
+    service.registerAdapter(new OpenCodeSdkAdapter());
+  }
+
+  const threadId = `opencode-oneshot-${Date.now()}-${uuidv4()}`;
+  return service.runOneShot({
+    provider: 'opencode',
+    threadId,
+    cwd: params.cwd || process.cwd(),
+    prompt: params.prompt,
+    model: params.model,
+    resumeSessionId: params.resumeSessionId,
+    opencodePermissionMode: params.opencodePermissionMode,
+  });
 }
 
 async function requestWithTimeout<T>(

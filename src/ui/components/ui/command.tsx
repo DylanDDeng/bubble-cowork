@@ -1,5 +1,5 @@
 import * as React from 'react';
-import * as DialogPrimitive from '@radix-ui/react-dialog';
+import * as DialogPrimitive from '@/ui/components/ui/dialog';
 import { Command as CommandPrimitive } from 'cmdk';
 import { cn } from '@/ui/lib/utils';
 
@@ -30,7 +30,7 @@ function CommandDialog({ open, onOpenChange, children, className, label }: Comma
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[90] bg-[rgba(15,23,42,0.28)] backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[90] bg-[rgba(15,23,42,0.28)] backdrop-blur-[2px] data-[open]:animate-in data-[closed]:animate-out" />
         <DialogPrimitive.Content
           aria-label={label ?? 'Search'}
           className={cn(

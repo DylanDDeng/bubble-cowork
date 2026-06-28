@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown } from './icons';
+import { ChevronDown, Terminal } from './icons';
 import { useAgentReadiness, type AgentReadinessEntry } from '../hooks/useAgentReadiness';
 import type { TerminalActivityState, TerminalAgentKind } from '../../shared/terminal';
+import { OpenCodeLogo } from './OpenCodeLogo';
+import claudeLogo from '../assets/claude-color.svg';
+import openaiLogo from '../assets/openai.svg';
+import grokLogo from '../assets/grok.svg';
 import {
   TerminalChrome,
   type TerminalChromeTab,
@@ -17,7 +21,7 @@ type TerminalAgentSpec = {
   kind: TerminalAgentKind;
   label: string;
   command: string | null;
-  provider: 'claude' | 'codex' | 'opencode' | null;
+  provider: 'claude' | 'codex' | 'opencode' | 'grok' | null;
   shortcut: string;
 };
 
@@ -26,7 +30,24 @@ const TERMINAL_AGENT_SPECS: TerminalAgentSpec[] = [
   { kind: 'claude', label: 'Claude Code', command: 'claude', provider: 'claude', shortcut: '2' },
   { kind: 'codex', label: 'Codex', command: 'codex', provider: 'codex', shortcut: '3' },
   { kind: 'opencode', label: 'OpenCode', command: 'opencode', provider: 'opencode', shortcut: '4' },
+  { kind: 'grok', label: 'Grok Build', command: 'grok', provider: 'grok', shortcut: '5' },
 ];
+
+function AgentLogo({ kind }: { kind: TerminalAgentKind }) {
+  if (kind === 'claude') {
+    return <img src={claudeLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
+  }
+  if (kind === 'codex') {
+    return <img src={openaiLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
+  }
+  if (kind === 'opencode') {
+    return <OpenCodeLogo />;
+  }
+  if (kind === 'grok') {
+    return <img src={grokLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
+  }
+  return <Terminal className="h-4 w-4 flex-shrink-0 text-[var(--text-muted)]" aria-hidden="true" />;
+}
 
 const LAST_AGENT_STORAGE_KEY = 'aegis.terminal.lastAgent';
 
@@ -350,7 +371,7 @@ export function SessionTerminal({
               ref={pickerMenuRef}
               role="menu"
               style={{ position: 'fixed', top: pickerAnchor.top, left: pickerAnchor.left }}
-              className="z-[200] w-56 overflow-hidden rounded-md border border-[var(--border)]/80 bg-[var(--bg-primary)] py-1 shadow-lg"
+              className="popover-surface popover-surface--lg z-[200] min-w-[224px] overflow-hidden p-1.5"
             >
               {TERMINAL_AGENT_SPECS.map((spec) => {
                 const readiness = spec.provider ? readinessByProvider.get(spec.provider) : null;
@@ -362,11 +383,9 @@ export function SessionTerminal({
                     type="button"
                     role="menuitem"
                     onClick={() => handleAddTabWithAgent(spec.kind)}
-                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)]/60"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)]"
                   >
-                    <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-[var(--bg-secondary)]/60 text-[10px] text-[var(--text-muted)]">
-                      {spec.shortcut}
-                    </span>
+                    <AgentLogo kind={spec.kind} />
                     <span className={`flex-1 truncate ${dimmed ? 'text-[var(--text-muted)]' : ''}`}>
                       {spec.label}
                     </span>

@@ -674,6 +674,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('git-checkout-branch', input);
   },
 
+  gitCreateBranch: (input: unknown) => {
+    return ipcRenderer.invoke('git-create-branch', input);
+  },
+
   gitCreateWorktree: (input: unknown) => {
     return ipcRenderer.invoke('git-create-worktree', input);
   },

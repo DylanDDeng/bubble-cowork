@@ -292,7 +292,12 @@ function parsePermissionRequest(request: PermissionRequestPayload): ParsedPermis
 
   if (isAcpPermissionInput(input)) {
     return {
-      kindLabel: 'KIMI ACP',
+      kindLabel:
+        input.provider === 'opencode'
+          ? 'OPENCODE'
+          : input.provider === 'grok'
+            ? 'GROK ACP'
+            : 'KIMI ACP',
       tool: input.toolName || request.toolName,
       fileName: null,
       fileDir: null,

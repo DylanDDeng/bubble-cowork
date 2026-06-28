@@ -968,6 +968,12 @@ export interface GitCheckoutBranchInput {
   sessionId?: string | null;
 }
 
+export interface GitCreateBranchInput {
+  cwd: string;
+  branch: string;
+  sessionId?: string | null;
+}
+
 export interface GitCreateWorktreeInput {
   cwd: string;
   branch: string;
@@ -1247,7 +1253,7 @@ export interface AcpPermissionOption {
 
 export interface AcpPermissionInput {
   kind: 'acp-permission';
-  provider: 'kimi' | 'grok';
+  provider: 'kimi' | 'grok' | 'opencode';
   question: string;
   title: string;
   toolName: string;
@@ -1331,6 +1337,7 @@ export type StreamMessage =
       duration_ms: number;
       total_cost_usd: number;
       usage: Usage;
+      model?: string;
       modelUsage?: Record<string, ClaudeModelUsage>;
     })
   | (StreamMessageBase & {
@@ -1412,6 +1419,9 @@ export interface Usage {
   output_tokens: number;
   cache_creation_input_tokens?: number | null;
   cache_read_input_tokens?: number | null;
+  reasoning_output_tokens?: number | null;
+  context_window?: number | null;
+  total_tokens?: number | null;
 }
 
 export interface CodexContextUsage {

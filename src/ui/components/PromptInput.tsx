@@ -19,6 +19,7 @@ import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
 import { ClaudeContextIndicator } from './ClaudeContextIndicator';
 import { CodexContextIndicator } from './CodexContextIndicator';
+import { OpenCodeContextIndicator } from './OpenCodeContextIndicator';
 import { ComposerAgentModelPicker } from './ComposerAgentControls';
 import { ClaudePermissionModePicker } from './ClaudePermissionModePicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
@@ -39,6 +40,7 @@ import {
   buildClaudeContextSnapshot,
   getLatestClaudeContextSnapshot,
   getLatestCodexContextSnapshot,
+  getLatestOpenCodeContextSnapshot,
   getContextLevelColorVar,
   getContextUsageLevel,
   isClaudeUsageModelMatch,
@@ -116,7 +118,9 @@ export function PromptInput({
   const modelSetupRequired = Boolean(agentSelection.modelSetup);
   const isClaudeContextVisible = runtimeProvider === 'claude' && activeSession?.provider === 'claude';
   const isCodexContextVisible = runtimeProvider === 'codex' && activeSession?.provider === 'codex';
+  const isOpenCodeContextVisible = runtimeProvider === 'opencode' && activeSession?.provider === 'opencode';
   const claudeContextModel = isClaudeContextVisible ? selectedModel || activeSession?.model || null : null;
+  const openCodeContextModel = isOpenCodeContextVisible ? selectedModel || activeSession?.model || null : null;
 
   const codexContextSnapshot = useMemo(
     () =>
@@ -143,9 +147,15 @@ export function PromptInput({
     activeSession?.messages,
     isClaudeContextVisible,
   ]);
+  const openCodeContextSnapshot = useMemo(
+    () =>
+      isOpenCodeContextVisible
+        ? getLatestOpenCodeContextSnapshot(activeSession.messages, openCodeContextModel)
+        : null,
+    [activeSession?.messages, isOpenCodeContextVisible, openCodeContextModel]
+  );
   const contextWarning = useMemo(() => {
-    // Claude auto-compacts near the limit; Codex does not, so the copy differs.
-    // Kimi/OpenCode report no usage and have no snapshot here.
+    // Claude auto-compacts near the limit; Codex/OpenCode do not, so the copy differs.
     let percent = 0;
     let total = 0;
     let autoCompacts = false;
@@ -156,6 +166,10 @@ export function PromptInput({
     } else if (codexContextSnapshot) {
       percent = codexContextSnapshot.percent;
       total = codexContextSnapshot.total || 0;
+      autoCompacts = false;
+    } else if (openCodeContextSnapshot) {
+      percent = openCodeContextSnapshot.percent;
+      total = openCodeContextSnapshot.total || 0;
       autoCompacts = false;
     } else {
       return null;
@@ -176,7 +190,7 @@ export function PromptInput({
         ? `上下文已用 ${percent}% · 已接近上下文窗口上限`
         : `上下文已用 ${percent}% · 接近上下文窗口上限`;
     return { color, message };
-  }, [claudeContextSnapshot, codexContextSnapshot]);
+  }, [claudeContextSnapshot, codexContextSnapshot, openCodeContextSnapshot]);
 
   const isRunning = activeSession?.status === 'running';
   const isBusy = isRunning || pendingStart || approvalPending;
@@ -844,6 +858,12 @@ export function PromptInput({
               ) : null}
               {codexContextSnapshot ? (
                 <CodexContextIndicator snapshot={codexContextSnapshot} />
+              ) : null}
+              {isOpenCodeContextVisible ? (
+                <OpenCodeContextIndicator
+                  snapshot={openCodeContextSnapshot}
+                  modelLabel={selectedModelLabel || openCodeContextModel}
+                />
               ) : null}
               {isRunning && !approvalPending ? (
                 <button

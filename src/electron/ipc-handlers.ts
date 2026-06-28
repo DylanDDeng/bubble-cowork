@@ -108,6 +108,7 @@ import type {
   ProviderListSkillsInput,
   ProviderReadPluginInput,
   GitCheckoutBranchInput,
+  GitCreateBranchInput,
   GitCreateWorktreeInput,
   GitPatchResult,
   GitPatchScope,
@@ -135,6 +136,7 @@ import { register as registerSkillMarket } from './ipc/skill-market'
 import {
   applyStash,
   checkoutBranch,
+  createBranch,
   createWorktree,
   dropStash,
   getCurrentBranch,
@@ -5378,6 +5380,23 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return null;
   };
 
+  const getGitBranchMutationBlockMessage = async (
+    cwd: string,
+    sessionId?: string | null
+  ): Promise<string | null> => {
+    const session = sessionId ? sessions.getSession(sessionId) : null;
+    if (session && (runnerHandles.has(session.id) || session.status === 'running')) {
+      return 'Stop the current task before switching branches.';
+    }
+
+    const blockingSession = await findRunningSessionSharingGitRoot(cwd, sessionId || null);
+    if (blockingSession) {
+      return `Another running session is using this workspace: ${blockingSession.title || blockingSession.id}. Open a worktree/new thread or wait for it to finish before switching branches.`;
+    }
+
+    return null;
+  };
+
   ipcMainHandle('get-git-branches', async (_event, cwd: string) => {
     if (!cwd) return { ok: false, error: 'no-cwd', detachedHead: false, headShortHash: null, entries: [] };
 
@@ -5401,20 +5420,31 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       return { ok: false, message: 'Branch checkout requires a workspace and branch.' };
     }
     try {
-      const session = input.sessionId ? sessions.getSession(input.sessionId) : null;
-      if (session && (runnerHandles.has(session.id) || session.status === 'running')) {
-        return { ok: false, message: 'Stop the current task before switching branches.' };
-      }
-
-      const blockingSession = await findRunningSessionSharingGitRoot(cwd, input.sessionId || null);
-      if (blockingSession) {
-        return {
-          ok: false,
-          message: `Another running session is using this workspace: ${blockingSession.title || blockingSession.id}. Open a worktree/new thread or wait for it to finish before switching branches.`,
-        };
+      const blockMessage = await getGitBranchMutationBlockMessage(cwd, input.sessionId || null);
+      if (blockMessage) {
+        return { ok: false, message: blockMessage };
       }
 
       const output = await checkoutBranch({ cwd, branch });
+      return { ok: true, output };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMainHandle('git-create-branch', async (_event, input: GitCreateBranchInput) => {
+    const cwd = input.cwd?.trim();
+    const branch = input.branch?.trim();
+    if (!cwd || !branch) {
+      return { ok: false, message: 'Creating a branch requires a workspace and branch name.' };
+    }
+    try {
+      const blockMessage = await getGitBranchMutationBlockMessage(cwd, input.sessionId || null);
+      if (blockMessage) {
+        return { ok: false, message: blockMessage };
+      }
+
+      const output = await createBranch({ cwd, branch });
       return { ok: true, output };
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : String(error) };
@@ -6375,7 +6405,7 @@ async function ensureRoutedAgentTurnRuntimeReady(
       broadcast(mainWindow, {
         type: 'runner.error',
         payload: {
-          message: 'OpenCode ACP is not ready. Check Settings > Providers.',
+          message: 'OpenCode SDK is not ready. Check Settings > Providers.',
           sessionId,
         },
       });
@@ -7320,13 +7350,13 @@ async function handleSessionStart(
     if (!runtimeStatus.ready) {
       sessions.updateSessionStatus(session.id, 'error');
       if (automationRunId) {
-        sessions.finishAutomationRun(automationRunId, 'failed', 'OpenCode ACP is not ready. Check Settings > Providers.');
+        sessions.finishAutomationRun(automationRunId, 'failed', 'OpenCode SDK is not ready. Check Settings > Providers.');
         broadcastAutomationChanged(mainWindow);
       }
       broadcast(mainWindow, {
         type: 'runner.error',
         payload: {
-          message: 'OpenCode ACP is not ready. Check Settings > Providers.',
+          message: 'OpenCode SDK is not ready. Check Settings > Providers.',
         },
       });
       return null;
@@ -7805,7 +7835,7 @@ async function handleSessionContinue(
       broadcast(mainWindow, {
         type: 'runner.error',
         payload: {
-          message: 'OpenCode ACP is not ready. Check Settings > Providers.',
+          message: 'OpenCode SDK is not ready. Check Settings > Providers.',
           sessionId,
         },
       });
@@ -8054,7 +8084,7 @@ function startRunner(
           ? 'codex-app-server'
           : provider === 'kimi'
             ? 'kimi acp'
-            : 'opencode acp',
+            : 'opencode sdk',
       model: modelOverride,
       compatibleProviderId,
       cwd: runnerSession.cwd || process.cwd(),

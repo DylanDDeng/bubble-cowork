@@ -433,7 +433,7 @@ function ServerGroupSection({
         const isExpanded = activeEditor?.groupId === group.id && activeEditor.name === name;
         // mcpServerStatus entries are tagged with the reporting agent (tool).
         // Match by name AND tool so Claude/Codex statuses coexist without
-        // cross-agent name collisions. Opencode/Kimi never report status
+        // cross-agent name collisions. Kimi/Grok protocols do not report status
         // (their ACP protocol doesn't expose it), so they stay "Unknown".
         const status = statusEntries.find(
           (entry) => entry.name === name && (!entry.tool || entry.tool === group.tool)
@@ -1068,4 +1068,3 @@ function getInputClassName(hasError: boolean) {
       : 'border-[var(--border)] focus:border-[var(--text-muted)]'
   }`;
 }
-

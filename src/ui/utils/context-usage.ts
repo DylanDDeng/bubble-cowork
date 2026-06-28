@@ -24,6 +24,19 @@ export type CodexContextSnapshot = {
   reasoningOutputTokens: number;
 };
 
+export type OpenCodeContextSnapshot = {
+  model: string;
+  used: number;
+  total: number;
+  percent: number;
+  costUSD: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  reasoningOutputTokens: number;
+};
+
 export type ContextUsageLevel = 'safe' | 'warning' | 'critical';
 
 // Threshold percentages of the context window. The Claude Agent SDK auto-compacts
@@ -162,6 +175,60 @@ export function getLatestCodexContextSnapshot(messages: StreamMessage[]): CodexC
       cachedInputTokens: message.usage.cachedInputTokens || 0,
       outputTokens: message.usage.outputTokens || 0,
       reasoningOutputTokens: message.usage.reasoningOutputTokens || 0,
+    };
+  }
+
+  return null;
+}
+
+export function getLatestOpenCodeContextSnapshot(
+  messages: StreamMessage[],
+  preferredModel?: string | null
+): OpenCodeContextSnapshot | null {
+  const normalizedPreferred = preferredModel?.trim().toLowerCase();
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!isResultMessage(message) || !message.usage) {
+      continue;
+    }
+
+    const usage = message.usage;
+    const contextWindow = usage.context_window || 0;
+    if (contextWindow <= 0) {
+      continue;
+    }
+
+    const model = typeof (message as { model?: unknown }).model === 'string'
+      ? ((message as { model: string }).model || '').trim()
+      : '';
+    if (
+      normalizedPreferred &&
+      model &&
+      model.toLowerCase() !== normalizedPreferred
+    ) {
+      continue;
+    }
+
+    const inputTokens = usage.input_tokens || 0;
+    const outputTokens = usage.output_tokens || 0;
+    const cacheReadTokens = usage.cache_read_input_tokens || 0;
+    const cacheCreationTokens = usage.cache_creation_input_tokens || 0;
+    const reasoningOutputTokens = usage.reasoning_output_tokens || 0;
+    const used =
+      usage.total_tokens ||
+      inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens + reasoningOutputTokens;
+
+    return {
+      model: model || preferredModel || 'OpenCode',
+      used,
+      total: contextWindow,
+      percent: Math.min(100, Math.max(0, Math.round((used / contextWindow) * 100))),
+      costUSD: message.total_cost_usd || 0,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheCreationTokens,
+      reasoningOutputTokens,
     };
   }
 

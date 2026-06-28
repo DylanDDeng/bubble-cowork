@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import * as Dialog from '@radix-ui/react-dialog';
+import * as Dialog from '@/ui/components/ui/dialog';
 import { toast } from 'sonner';
 import {
   Calendar,

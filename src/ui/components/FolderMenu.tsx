@@ -1,4 +1,4 @@
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
 import { Folder, ChevronRight, Check, Plus, XSquare } from './icons';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
@@ -45,7 +45,7 @@ export function FolderMenu({ sessionId, currentFolderPath, onNewFolderRequest }:
 
   return (
     <DropdownMenu.Sub>
-      <DropdownMenu.SubTrigger className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg cursor-pointer hover:bg-[var(--bg-tertiary)] outline-none transition-colors duration-150 data-[state=open]:bg-[var(--bg-tertiary)]">
+      <DropdownMenu.SubTrigger className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg cursor-pointer hover:bg-[var(--bg-tertiary)] outline-none transition-colors duration-150 data-[popup-open]:bg-[var(--bg-tertiary)]">
         <Folder className="w-3.5 h-3.5" />
         Move to Folder
         <ChevronRight className="w-3.5 h-3.5 ml-auto" />

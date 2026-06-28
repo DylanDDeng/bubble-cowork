@@ -3,6 +3,6 @@ import type { AgentRuntime } from './types';
 
 export const opencodeRuntime: AgentRuntime = {
   id: 'opencode',
-  displayName: 'OpenCode ACP',
+  displayName: 'OpenCode SDK',
   run: runOpenCode,
 };

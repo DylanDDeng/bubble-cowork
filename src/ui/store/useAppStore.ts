@@ -3381,7 +3381,7 @@ function handleStreamMessage(
 
   // Update global MCP server status from init/mcp_status stream messages.
   // Claude reports status via system/init.mcp_servers; Codex via mcp_status.
-  // Opencode/Kimi protocols do not report MCP status, so they stay Unknown.
+  // OpenCode SDK and Codex can report MCP status; Kimi/Grok protocols stay Unknown.
   if (
     message.type === 'mcp_status' ||
     (message.type === 'system' &&

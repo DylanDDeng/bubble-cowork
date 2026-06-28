@@ -4,6 +4,7 @@ import { getProviderService } from './provider/service';
 import { CodexAdapter } from './provider/codex-adapter';
 import { KimiAcpAdapter } from './provider/kimi-acp-adapter';
 import { GrokAcpAdapter } from './provider/grok-acp-adapter';
+import { OpenCodeSdkAdapter } from './provider/opencode-sdk-adapter';
 import { isDev } from '../util';
 
 let providerServiceInitialized = false;
@@ -19,6 +20,7 @@ export function ensureProviderService(): void {
   // Register Codex adapter (uses codex app-server)
   const codexAdapter = new CodexAdapter();
   service.registerAdapter(codexAdapter);
+  service.registerAdapter(new OpenCodeSdkAdapter());
   service.registerAdapter(new KimiAcpAdapter());
   service.registerAdapter(new GrokAcpAdapter());
 
@@ -30,12 +32,13 @@ export function ensureProviderService(): void {
 export function runAgentLoop(options: RunnerOptions): RunnerHandle {
   const provider = options.session.provider || 'claude';
 
-  // Codex and Kimi use the ProviderAdapter architecture.
-  if (provider === 'codex' || provider === 'kimi') {
+  ensureProviderService();
+  const service = getProviderService();
+
+  if (service.getAdapter(provider)) {
     return runProviderServiceAgent(options);
   }
 
-  // For Claude and OpenCode, keep using the existing RuntimeRegistry
   ensureAgentRuntimeRegistry();
   const runtime = resolveRuntime(provider);
   return runtime.run(options);
@@ -46,12 +49,13 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
   const service = getProviderService();
 
   const threadId = options.session.id;
-  const provider = options.session.provider === 'kimi' ? 'kimi' : options.session.provider === 'grok' ? 'grok' : 'codex';
+  const provider = options.session.provider || 'codex';
   let abortController = new AbortController();
 
   // Subscribe to provider events
   const handleEvent = (event: import('./provider/types').ProviderRuntimeEvent) => {
     if (abortController.signal.aborted) return;
+    if (event.threadId !== threadId) return;
 
     switch (event.type) {
       case 'message': {
@@ -117,6 +121,7 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
     kimiPermissionMode: options.kimiPermissionMode,
     grokPermissionMode: options.grokPermissionMode,
     grokReasoningEffort: options.grokReasoningEffort,
+    opencodePermissionMode: options.opencodePermissionMode,
     codexSkills: options.codexSkills,
     codexMentions: options.codexMentions,
   });
@@ -150,6 +155,7 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
         kimiPermissionMode?: import('../../shared/types').KimiPermissionMode;
         grokPermissionMode?: import('../../shared/types').GrokPermissionMode;
         grokReasoningEffort?: import('../../shared/types').GrokReasoningEffort;
+        opencodePermissionMode?: import('../../shared/types').OpenCodePermissionMode;
       }
     ) => {
       if (abortController.signal.aborted) return;
@@ -167,6 +173,8 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
           kimiPermissionMode: sendOptions?.kimiPermissionMode ?? options.kimiPermissionMode,
           grokPermissionMode: sendOptions?.grokPermissionMode ?? options.grokPermissionMode,
           grokReasoningEffort: sendOptions?.grokReasoningEffort ?? options.grokReasoningEffort,
+          opencodePermissionMode:
+            sendOptions?.opencodePermissionMode ?? options.opencodePermissionMode,
           codexSkills,
           codexMentions,
         })
