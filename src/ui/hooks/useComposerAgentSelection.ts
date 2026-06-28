@@ -663,9 +663,9 @@ export function useComposerAgentSelection(input?: {
   );
 
   const codexModels = useMemo(() => {
-    if (provider !== 'codex' || !codexModelConfig) return [];
+    if (!codexModelConfig) return [];
     return codexModelConfig.availableModels;
-  }, [provider, codexModelConfig]);
+  }, [codexModelConfig]);
 
   // Fast mode state
   const supportsCodexFastModeCheck = useMemo(

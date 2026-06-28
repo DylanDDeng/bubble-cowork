@@ -951,29 +951,21 @@ export function ComposerAgentModelPicker({
                       alignOffset={-4}
                       className="z-50 w-[220px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)]"
                     >
-                      {agentProvider === 'codex' ? (
-                        <CodexAgentSubContent
-                          codexModels={codexModels}
-                          selectedModel={modelValue}
-                          codexReasoningEffort={codexReasoningEffort ?? null}
-                          codexFastMode={codexFastMode ?? false}
-                          onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
-                          onCodexReasoningEffortChange={(effort) => {
-                            onAgentChange(provider);
-                            onCodexReasoningEffortChange?.(effort);
-                          }}
-                          onCodexFastModeChange={(enabled) => {
-                            onAgentChange(provider);
-                            onCodexFastModeChange?.(enabled);
-                          }}
-                        />
-                      ) : (
-                        <ModelSubContent
-                          modelOptions={modelOptions}
-                          selectedValue={modelValue}
-                          onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
-                        />
-                      )}
+                      <CodexAgentSubContent
+                        codexModels={codexModels}
+                        selectedModel={modelValue}
+                        codexReasoningEffort={codexReasoningEffort ?? null}
+                        codexFastMode={codexFastMode ?? false}
+                        onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
+                        onCodexReasoningEffortChange={(effort) => {
+                          onAgentChange(provider);
+                          onCodexReasoningEffortChange?.(effort);
+                        }}
+                        onCodexFastModeChange={(enabled) => {
+                          onAgentChange(provider);
+                          onCodexFastModeChange?.(enabled);
+                        }}
+                      />
                     </DropdownMenu.SubContent>
                   </DropdownMenu.Portal>
                 </DropdownMenu.Sub>
