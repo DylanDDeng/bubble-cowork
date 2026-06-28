@@ -164,10 +164,6 @@ export function useEnvironmentGitActions({
       toast.error('Commit or discard local changes before pushing.');
       return;
     }
-    if (overview.isDefaultBranch) {
-      toast.error('Default branch pushes are disabled from Environment. Create a branch or worktree first.');
-      return;
-    }
     if (!overview.hasOriginRemote) {
       toast.error('No origin remote is configured.');
       return;
@@ -347,7 +343,6 @@ export function useEnvironmentGitActions({
       overview.hasOriginRemote &&
       overview.totalChanges === 0 &&
       overview.aheadCount > 0 &&
-      !overview.isDefaultBranch &&
       !diverged;
     const canCreatePr =
       !busy &&
@@ -388,11 +383,6 @@ export function useEnvironmentGitActions({
               </button>
             </div>
             <div className="space-y-3 px-4 py-3.5">
-              {overview.isDefaultBranch ? (
-                <div className="rounded-[var(--radius-lg)] border border-[var(--warning)]/35 bg-[color-mix(in_srgb,var(--warning)_10%,transparent)] px-3 py-2 text-[12px] leading-5 text-[var(--text-primary)]">
-                  This is the default branch. Prefer creating a branch or worktree before committing.
-                </div>
-              ) : null}
               <div className="flex items-center justify-between text-[12px]">
                 <span className="text-[var(--text-secondary)]">Branch</span>
                 <span className="font-medium text-[var(--text-primary)]">{overview.branch || 'HEAD'}</span>
@@ -523,10 +513,6 @@ export function EnvironmentGitActionsSection({
       {overview.aheadCount > 0 && overview.behindCount > 0 ? (
         <div className="text-[11px] leading-4 text-[var(--text-muted)]">
           Branch has diverged. Rebase or merge manually before syncing.
-        </div>
-      ) : overview.isDefaultBranch ? (
-        <div className="text-[11px] leading-4 text-[var(--text-muted)]">
-          Default branch push is disabled here. Create a branch or worktree first.
         </div>
       ) : null}
       {actions.dialog}
