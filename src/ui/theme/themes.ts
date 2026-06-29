@@ -31,7 +31,11 @@ const TRANSITION_CLASS = 'no-transitions';
 
 const SURFACE_UNDER_BASE_ALPHA: Record<ThemeVariant, number> = {
   dark: 0.16,
-  light: 0.04,
+  // Light main canvas (--bg-primary) used to be nudged toward ink (~#F5F5F5).
+  // Keep it as the theme's pure surface (pure white for the default theme) so
+  // the chat/content area matches the in-app browser. The contrast slider still
+  // darkens it via SURFACE_UNDER_CONTRAST_STEP; the sidebar has its own surface.
+  light: 0,
 };
 
 const SURFACE_UNDER_CONTRAST_STEP: Record<ThemeVariant, number> = {

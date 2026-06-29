@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { setupIPCHandlers, cleanup } from './ipc-handlers';
 import { registerBrowserIpc, disposeBrowserIpc } from './browser-ipc';
+import { browserManager } from './browserManager';
 import { isDev, getPreloadPath, getUIPath, DEV_SERVER_URL, ipcMainHandle } from './util';
 import { ensureShellEnvironment } from './libs/shell-environment';
 import type { AppUpdateStatus } from '../shared/types';
@@ -911,6 +912,7 @@ app.whenReady().then(() => {
   ipcMainHandle('set-theme', async (_event, theme: 'light' | 'dark' | 'system') => {
     nativeTheme.themeSource = theme;
     mainWindow?.setBackgroundColor(getMainWindowBackgroundColor());
+    browserManager.applyThemeBackground();
     return { ok: true };
   });
   createWindow();

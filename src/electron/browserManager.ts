@@ -14,7 +14,7 @@
 //    onto the attached view.
 
 import * as Crypto from 'node:crypto';
-import { BrowserWindow, Menu, clipboard, shell, WebContentsView } from 'electron';
+import { BrowserWindow, Menu, clipboard, nativeTheme, shell, WebContentsView } from 'electron';
 import type {
   BrowserCapturePageResult,
   BrowserNavigateInput,
@@ -53,6 +53,15 @@ interface LiveTabRuntime {
   sessionId: string;
   tabId: string;
   view: WebContentsView;
+}
+
+// Native WebContentsViews default to a white background, which clashes with the
+// app's themed chrome (especially the dark theme) before a page paints and in
+// any letterbox gaps. Track the app's --bg-primary by theme bucket so the view
+// blends in. Mirrors getMainWindowBackgroundColor() in main.ts. Keep these in
+// sync with --bg-primary in themes.ts (light = pure white, dark = #0E0E0E).
+function browserViewBackgroundColor(): string {
+  return nativeTheme.shouldUseDarkColors ? '#0E0E0E' : '#ffffff';
 }
 
 function createBrowserTab(url = ABOUT_BLANK_URL): BrowserTabState {
@@ -294,6 +303,19 @@ export class BrowserManager {
 
   getState(input: BrowserSessionInput): SessionBrowserState {
     return cloneSessionState(this.getOrCreateState(input.sessionId));
+  }
+
+  // Re-apply the themed background to every live view. Called when the app
+  // theme changes so open browser views track light/dark like the window.
+  applyThemeBackground(): void {
+    const color = browserViewBackgroundColor();
+    for (const runtime of this.runtimes.values()) {
+      try {
+        runtime.view.setBackgroundColor(color);
+      } catch {
+        // View may already be destroyed; ignore.
+      }
+    }
   }
 
   setPanelBounds(input: BrowserSetPanelBoundsInput): SessionBrowserState {
@@ -707,6 +729,7 @@ export class BrowserManager {
         sandbox: true,
       },
     });
+    view.setBackgroundColor(browserViewBackgroundColor());
     const runtime: LiveTabRuntime = {
       key: buildRuntimeKey(sessionId, tabId),
       sessionId,
