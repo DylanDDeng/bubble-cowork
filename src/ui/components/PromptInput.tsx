@@ -122,8 +122,10 @@ export function PromptInput({
   const isClaudeContextVisible = runtimeProvider === 'claude' && activeSession?.provider === 'claude';
   const isCodexContextVisible = runtimeProvider === 'codex' && activeSession?.provider === 'codex';
   const isOpenCodeContextVisible = runtimeProvider === 'opencode' && activeSession?.provider === 'opencode';
+  const isPiContextVisible = runtimeProvider === 'pi' && activeSession?.provider === 'pi';
   const claudeContextModel = isClaudeContextVisible ? selectedModel || activeSession?.model || null : null;
   const openCodeContextModel = isOpenCodeContextVisible ? selectedModel || activeSession?.model || null : null;
+  const piContextModel = isPiContextVisible ? selectedModel || activeSession?.model || null : null;
 
   const codexContextSnapshot = useMemo(
     () =>
@@ -157,8 +159,15 @@ export function PromptInput({
         : null,
     [activeSession?.messages, isOpenCodeContextVisible, openCodeContextModel]
   );
+  const piContextSnapshot = useMemo(
+    () =>
+      isPiContextVisible
+        ? getLatestOpenCodeContextSnapshot(activeSession.messages, piContextModel, 'Pi')
+        : null,
+    [activeSession?.messages, isPiContextVisible, piContextModel]
+  );
   const contextWarning = useMemo(() => {
-    // Claude auto-compacts near the limit; Codex/OpenCode do not, so the copy differs.
+    // Claude auto-compacts near the limit; Codex/OpenCode/Pi do not, so the copy differs.
     let percent = 0;
     let total = 0;
     let autoCompacts = false;
@@ -173,6 +182,10 @@ export function PromptInput({
     } else if (openCodeContextSnapshot) {
       percent = openCodeContextSnapshot.percent;
       total = openCodeContextSnapshot.total || 0;
+      autoCompacts = false;
+    } else if (piContextSnapshot) {
+      percent = piContextSnapshot.percent;
+      total = piContextSnapshot.total || 0;
       autoCompacts = false;
     } else {
       return null;
@@ -193,7 +206,7 @@ export function PromptInput({
         ? `上下文已用 ${percent}% · 已接近上下文窗口上限`
         : `上下文已用 ${percent}% · 接近上下文窗口上限`;
     return { color, message };
-  }, [claudeContextSnapshot, codexContextSnapshot, openCodeContextSnapshot]);
+  }, [claudeContextSnapshot, codexContextSnapshot, openCodeContextSnapshot, piContextSnapshot]);
 
   const isRunning = activeSession?.status === 'running';
   const isBusy = isRunning || pendingStart || approvalPending;
@@ -882,6 +895,13 @@ export function PromptInput({
                 <OpenCodeContextIndicator
                   snapshot={openCodeContextSnapshot}
                   modelLabel={selectedModelLabel || openCodeContextModel}
+                />
+              ) : null}
+              {isPiContextVisible ? (
+                <OpenCodeContextIndicator
+                  snapshot={piContextSnapshot}
+                  modelLabel={selectedModelLabel || piContextModel}
+                  providerLabel="Pi"
                 />
               ) : null}
               {isRunning && !approvalPending ? (

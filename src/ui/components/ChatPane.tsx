@@ -1385,6 +1385,12 @@ export function ChatPane({
       !directAgent &&
       session.scope !== 'dm' &&
       session.messages.length === 0 &&
+      // Only treat an empty session as a fresh thread once we know it's actually
+      // empty. Drafts/new sessions are created hydrated; an existing session that
+      // hasn't loaded its history yet is hydrated=false with messages=[], and must
+      // not flash the New Thread landing while its history is still loading (e.g.
+      // right after dropping it into the Side Chat).
+      session.hydrated &&
       session.status !== 'running' &&
       !session.readOnly &&
       !activePermissionRequest
@@ -1439,7 +1445,7 @@ export function ChatPane({
       return;
     }
     event.preventDefault();
-    onActivate();
+    event.stopPropagation();
     onDropSession(droppedSessionId);
   };
 
@@ -1451,13 +1457,14 @@ export function ChatPane({
           : 'bg-[color-mix(in_srgb,var(--bg-primary)_96%,var(--bg-secondary))]'
       }`}
       onMouseDown={() => {
-        if (!isActive) {
+        if (!isActive && (sessionId || !onDropSession)) {
           onActivate();
         }
       }}
       onDragOver={(event) => {
         if (onDropSession) {
           event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
         }
       }}
       onDrop={handleDrop}
@@ -1645,7 +1652,10 @@ export function ChatPane({
                           userPromptActions={
                             item.message.type === 'user_prompt' &&
                             session.readOnly !== true &&
-                            (session.provider === 'claude' || session.provider === 'codex' || session.provider === 'opencode')
+                            (session.provider === 'claude' ||
+                              session.provider === 'codex' ||
+                              session.provider === 'opencode' ||
+                              session.provider === 'pi')
                               ? {
                                   canEditAndRetry: item.originalIndex === lastUserPromptIndex,
                                   isSessionRunning: session.status === 'running',

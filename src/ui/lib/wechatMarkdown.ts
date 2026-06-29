@@ -39,7 +39,7 @@ export type WeChatCopyResult =
       format: 'html' | 'markdown' | 'source-html';
       model?: string;
       providerId?: string;
-      runtime?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok';
+      runtime?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi';
     }
   | { ok: false; error: string };
 
@@ -1273,7 +1273,7 @@ async function copyWechatHtmlPayload(
   clipboardHtml: string,
   fallbackText: string,
   fallbackFormat: 'markdown' | 'source-html',
-  meta?: { model?: string; providerId?: string; runtime?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' },
+  meta?: { model?: string; providerId?: string; runtime?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi' },
 ): Promise<WeChatCopyResult> {
   // 1. Prefer the modern Clipboard API. For clipboard text/html, write the
   // WeChat body fragment rather than a full <!doctype><html><body> document.

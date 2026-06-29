@@ -20,6 +20,7 @@ import grokLogo from '../assets/grok.svg';
 import openaiLogo from '../assets/openai.svg';
 import zhipuLogo from '../assets/zhipu-color.svg';
 import { OpenCodeLogo } from './OpenCodeLogo';
+import { PiLogo } from './PiLogo';
 import { Input } from './ui/input';
 
 type PickerMode = 'provider' | 'model';
@@ -90,6 +91,9 @@ function ProviderIcon({ provider }: { provider: AgentProvider }) {
   }
   if (provider === 'grok') {
     return <img src={grokLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
+  }
+  if (provider === 'pi') {
+    return <PiLogo />;
   }
 
   return null;

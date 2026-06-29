@@ -1445,6 +1445,7 @@ function formatProviderLabel(provider: SessionInfo['provider']): string {
   if (provider === 'opencode') return 'OpenCode';
   if (provider === 'kimi') return 'Kimi Code';
   if (provider === 'grok') return 'Grok Build';
+  if (provider === 'pi') return 'Pi';
   return 'Claude Code';
 }
 
@@ -3122,7 +3123,7 @@ const runnerHandles = new Map<
   string,
   {
     handle: RunnerHandle;
-    provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok';
+    provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi';
     compatibleProviderId?: import('../shared/types').ClaudeCompatibleProviderId;
     claudeAccessMode?: import('../shared/types').ClaudeAccessMode;
     claudeExecutionMode?: import('../shared/types').ClaudeExecutionMode;
@@ -6148,6 +6149,8 @@ function handleSessionList(mainWindow: BrowserWindow): void {
               ? 'kimi_local'
               : row.provider === 'grok'
                 ? 'grok_local'
+                : row.provider === 'pi'
+                  ? 'pi_local'
                 : 'aegis',
     readOnly: row.session_origin === 'claude_remote',
     cwd: row.cwd || undefined,
@@ -6240,6 +6243,7 @@ function normalizeRoutedAgentRuntimePayload(
     turn?.provider === 'opencode' ||
     turn?.provider === 'kimi' ||
     turn?.provider === 'grok' ||
+    turn?.provider === 'pi' ||
     turn?.provider === 'claude'
       ? turn.provider
       : 'claude';
@@ -7048,7 +7052,9 @@ async function runRoutedAgentTurn(
             ? sessions.getSession(sessionId)?.kimi_session_id ?? undefined
             : runtime.provider === 'grok'
               ? sessions.getSession(sessionId)?.grok_session_id ?? undefined
-          : undefined;
+              : runtime.provider === 'pi'
+                ? sessions.getSession(sessionId)?.pi_session_id ?? undefined
+                : undefined;
 
   if (runtime.provider === 'claude' && !resumeSessionId && historyBeforeTurn.length > 0) {
     try {
@@ -7875,7 +7881,7 @@ async function handleSessionContinue(
 
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
     if (
-      ((nextProvider === 'codex' || nextProvider === 'opencode' || nextProvider === 'kimi' || nextProvider === 'grok') && modelChanged) ||
+      ((nextProvider === 'codex' || nextProvider === 'opencode' || nextProvider === 'kimi' || nextProvider === 'grok' || nextProvider === 'pi') && modelChanged) ||
       (nextProvider === 'codex' && codexPermissionModeChanged) ||
       (nextProvider === 'codex' && codexReasoningEffortChanged) ||
       (nextProvider === 'codex' && codexFastModeChanged) ||
@@ -7950,7 +7956,9 @@ async function handleSessionContinue(
               ? session.kimi_session_id ?? undefined
               : nextProvider === 'grok'
                 ? session.grok_session_id ?? undefined
-            : undefined;
+                : nextProvider === 'pi'
+                  ? session.pi_session_id ?? undefined
+                  : undefined;
   let nextResumeSessionId = resumeSessionId;
 
   if (
@@ -8028,7 +8036,7 @@ function startRunner(
   prompt: string,
   resumeSessionId?: string,
   attachments?: Attachment[],
-  providerOverride?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok',
+  providerOverride?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi',
   modelOverride?: string,
   compatibleProviderOverride?: import('../shared/types').ClaudeCompatibleProviderId,
   betasOverride?: string[],
@@ -8143,6 +8151,11 @@ function startRunner(
           }
         } else if (provider === 'grok') {
           sessions.updateGrokSessionId(session.id, message.session_id);
+          if (message.model) {
+            sessions.updateSessionModel(session.id, message.model);
+          }
+        } else if (provider === 'pi') {
+          sessions.updatePiSessionId(session.id, message.session_id);
           if (message.model) {
             sessions.updateSessionModel(session.id, message.model);
           }

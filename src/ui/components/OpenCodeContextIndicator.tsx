@@ -52,15 +52,17 @@ function UsageRing({ percent, size = 'h-4 w-4' }: { percent: number; size?: stri
 export function OpenCodeContextIndicator({
   snapshot,
   modelLabel,
+  providerLabel = 'OpenCode',
 }: {
   snapshot: OpenCodeContextSnapshot | null;
   modelLabel?: string | null;
+  providerLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const percent = snapshot?.percent || 0;
   const level = getContextUsageLevel(percent);
   const nearLimit = level !== 'safe' && (snapshot?.total || 0) > 0;
-  const resolvedModelLabel = modelLabel || snapshot?.model || 'OpenCode';
+  const resolvedModelLabel = modelLabel || snapshot?.model || providerLabel;
 
   return (
     <div
@@ -73,7 +75,7 @@ export function OpenCodeContextIndicator({
       <button
         type="button"
         className="flex h-8 w-8 items-center justify-center rounded-[6px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-        aria-label="OpenCode context and token usage"
+        aria-label={`${providerLabel} context and token usage`}
       >
         <UsageRing percent={percent} />
       </button>
@@ -110,12 +112,12 @@ export function OpenCodeContextIndicator({
               <MetricRow label="Cache read" value={formatCompact(snapshot.cacheReadTokens)} />
               <MetricRow label="Cache write" value={formatCompact(snapshot.cacheCreationTokens)} />
               <div className="mt-1.5 border-t border-[var(--border)] pt-1.5 text-[11px] leading-4 text-[var(--text-muted)]">
-                Latest OpenCode usage for this model
+                Latest {providerLabel} usage for this model
               </div>
             </>
           ) : (
             <div className="mt-1.5 border-t border-[var(--border)] pt-1.5 text-[12px] leading-5 text-[var(--text-secondary)]">
-              Waiting for OpenCode usage from this model.
+              Waiting for {providerLabel} usage from this model.
             </div>
           )}
         </div>

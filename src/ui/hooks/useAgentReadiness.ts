@@ -81,6 +81,7 @@ export function useAgentReadiness(
       buildOpencodeEntry(opencodeStatus, opencodeChecking),
       buildKimiEntry(kimiStatus, kimiChecking),
       buildGrokEntry(grokStatus, grokChecking),
+      buildPiEntry(),
     ],
     [
       claudeChecking,
@@ -361,5 +362,15 @@ function buildGrokEntry(
     state: 'error',
     summary: status.summary || 'Check failed',
     detail: status.detail || 'Aegis could not verify the Grok Build runtime.',
+  };
+}
+
+function buildPiEntry(): AgentReadinessEntry {
+  return {
+    provider: 'pi',
+    label: 'Pi',
+    state: 'ready',
+    summary: 'Ready',
+    detail: 'Pi SDK is bundled with Aegis.',
   };
 }

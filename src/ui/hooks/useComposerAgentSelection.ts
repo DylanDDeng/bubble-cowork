@@ -300,6 +300,17 @@ function buildOpencodeComposerModelOptions(config: ReturnType<typeof useOpencode
   return [defaultOption, ...explicitOptions];
 }
 
+function buildPiModelOptions(): ComposerModelOption[] {
+  return [
+    {
+      key: 'pi:default',
+      value: '',
+      label: 'Default',
+      description: 'Use Pi default model',
+    },
+  ];
+}
+
 export function useComposerAgentSelection(input?: {
   selectionKey?: string | null;
   provider?: AgentProvider | null;
@@ -356,6 +367,7 @@ export function useComposerAgentSelection(input?: {
       opencode: buildOpencodeComposerModelOptions(opencodeModelConfig),
       kimi: buildKimiModelOptions(kimiModelConfig),
       grok: buildGrokModelOptions(grokModelConfig),
+      pi: buildPiModelOptions(),
     };
   }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig]);
 
@@ -402,6 +414,10 @@ export function useComposerAgentSelection(input?: {
 
     if (provider === 'grok') {
       return buildGrokModelOptions(grokModelConfig);
+    }
+
+    if (provider === 'pi') {
+      return buildPiModelOptions();
     }
 
     return [];
@@ -455,6 +471,13 @@ export function useComposerAgentSelection(input?: {
       if (nextProvider === 'grok') {
         return {
           model: resolveConfiguredGrokModel(normalizedRequestedModel, grokModelConfig),
+          compatibleProviderId: null,
+        };
+      }
+
+      if (nextProvider === 'pi') {
+        return {
+          model: null,
           compatibleProviderId: null,
         };
       }

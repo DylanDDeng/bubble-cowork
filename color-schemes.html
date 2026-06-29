@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>配色方案提案 · 悬浮三栏布局</title>
+<style>
+  :root {
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font);
+    background: #f4f4f6;
+    color: #1b1b1f;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    padding: 48px 24px 80px;
+  }
+
+  .page { max-width: 1180px; margin: 0 auto; }
+
+  header.hero { margin-bottom: 40px; }
+  header.hero h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+  header.hero p {
+    margin-top: 10px; max-width: 720px;
+    color: #5a5a63; font-size: 15px;
+  }
+
+  .principles {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 12px; margin: 28px 0 52px;
+  }
+  .principle {
+    background: #fff; border: 1px solid rgba(20,20,30,0.07);
+    border-radius: 14px; padding: 16px 18px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+  .principle .num {
+    font-size: 12px; font-weight: 700; color: #9a9aa3;
+    letter-spacing: 0.04em;
+  }
+  .principle h3 { font-size: 14px; margin: 4px 0 6px; }
+  .principle p { font-size: 12.5px; color: #66666f; line-height: 1.5; }
+
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+    gap: 28px;
+  }
+
+  /* ---- Palette card ---- */
+  .card {
+    background: #fff; border: 1px solid rgba(20,20,30,0.08);
+    border-radius: 20px; overflow: hidden;
+    box-shadow: 0 10px 40px -28px rgba(15,20,40,0.4);
+  }
+  .card .meta { padding: 18px 20px 14px; }
+  .card .meta .tag {
+    display: inline-block; font-size: 11px; font-weight: 600;
+    color: #8a8a93; letter-spacing: 0.05em; text-transform: uppercase;
+  }
+  .card .meta h2 { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; margin-top: 2px; }
+  .card .meta p { font-size: 13px; color: #6a6a72; margin-top: 4px; }
+
+  /* ---- The floating 3-column mockup ---- */
+  .mock {
+    --pad: 9px;
+    --gap: 9px;
+    --radius: 16px;
+    height: 270px;
+    padding: var(--pad);
+    display: flex;
+    background: var(--m-canvas);
+  }
+  .mock .sidebar {
+    width: 58px; flex-shrink: 0;
+    background: var(--m-sidebar);
+    border-radius: calc(var(--radius) - 4px);
+    box-shadow:
+      inset 0 1px 0 var(--m-highlight),
+      inset -1px 0 0 rgba(0,0,0,0.03);
+    padding: 12px 0;
+    display: flex; flex-direction: column; align-items: center; gap: 9px;
+  }
+  .mock .sidebar .logo {
+    width: 24px; height: 24px; border-radius: 8px;
+    background: var(--m-accent); margin-bottom: 6px;
+  }
+  .mock .sidebar .nav {
+    width: 26px; height: 26px; border-radius: 8px;
+    background: var(--m-side-item);
+  }
+  .mock .sidebar .nav.active {
+    background: var(--m-side-active);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+  }
+
+  .mock .main {
+    flex: 1; min-width: 0;
+    margin-left: var(--gap);
+    background: var(--m-workbench);
+    border-radius: var(--radius);
+    box-shadow:
+      inset 0 0 0 1px var(--m-frame-line),
+      inset 0 1px 0 var(--m-highlight),
+      0 14px 40px -34px rgba(15,20,40,0.55);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .mock .main .topbar {
+    height: 30px; display: flex; align-items: center; gap: 6px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--m-frame-line);
+  }
+  .mock .main .topbar .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--m-side-item); }
+  .mock .main .topbar .crumb {
+    margin-left: auto; height: 8px; width: 60px; border-radius: 4px;
+    background: var(--m-side-item);
+  }
+  .mock .main .body { flex: 1; padding: 16px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .mock .bubble {
+    border-radius: 11px; padding: 9px 11px;
+    font-size: 0; max-width: 78%;
+  }
+  .mock .bubble .ln { height: 7px; border-radius: 4px; margin: 4px 0; }
+  .mock .bubble.user {
+    align-self: flex-end; background: var(--m-accent-soft);
+  }
+  .mock .bubble.user .ln { background: var(--m-accent); opacity: 0.55; }
+  .mock .bubble.ai {
+    align-self: flex-start; background: var(--m-bubble);
+  }
+  .mock .bubble.ai .ln { background: var(--m-text-faint); }
+  .mock .composer {
+    margin: 0 16px 14px; height: 34px; border-radius: 11px;
+    background: var(--m-composer);
+    box-shadow: inset 0 0 0 1px var(--m-frame-line);
+    display: flex; align-items: center; padding: 0 12px;
+  }
+  .mock .composer .ph { height: 7px; width: 110px; border-radius: 4px; background: var(--m-text-faint); }
+  .mock .composer .send { margin-left: auto; width: 22px; height: 22px; border-radius: 7px; background: var(--m-accent); }
+
+  .mock .files {
+    width: 92px; flex-shrink: 0; margin-left: var(--gap);
+    background: var(--m-panel);
+    border-radius: calc(var(--radius) - 2px);
+    box-shadow:
+      inset 0 0 0 1px var(--m-frame-line),
+      inset 0 1px 0 var(--m-highlight);
+    padding: 12px 10px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .mock .files .head { height: 8px; width: 46px; border-radius: 4px; background: var(--m-text-faint); margin-bottom: 2px; }
+  .mock .files .row { display: flex; align-items: center; gap: 6px; }
+  .mock .files .row .ic { width: 11px; height: 11px; border-radius: 3px; background: var(--m-side-item); }
+  .mock .files .row .nm { height: 7px; flex: 1; border-radius: 4px; background: var(--m-side-item); }
+  .mock .files .row.sel .nm { background: var(--m-accent); opacity: 0.5; }
+
+  /* ---- Swatches ---- */
+  .swatches {
+    display: flex; gap: 0; padding: 14px 20px 18px;
+    border-top: 1px solid rgba(20,20,30,0.06);
+  }
+  .swatch { flex: 1; }
+  .swatch .chip {
+    height: 38px; border-radius: 8px;
+    border: 1px solid rgba(20,20,30,0.08);
+    margin: 0 4px 6px;
+  }
+  .swatch .lbl { font-size: 9.5px; color: #8a8a93; text-align: center; line-height: 1.3; }
+  .swatch .hex { font-size: 10px; font-weight: 600; color: #44444c; text-align: center; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+  .card.dark .meta { background: #16181c; }
+  .card.dark .meta .tag { color: #8d909a; }
+  .card.dark .meta h2 { color: #f0f1f3; }
+  .card.dark .meta p { color: #a3a6b0; }
+  .card.dark .swatches { background: #16181c; border-top-color: rgba(255,255,255,0.08); }
+  .card.dark .swatch .lbl { color: #8d909a; }
+  .card.dark .swatch .hex { color: #cfd1d6; }
+  .card.dark { background: #16181c; border-color: rgba(255,255,255,0.08); }
+
+  footer { margin-top: 56px; color: #8a8a93; font-size: 12.5px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="hero">
+    <h1>配色方案提案</h1>
+    <p>针对当前"悬浮内嵌式三栏"布局的 5 套配色。每张卡片都用真实的三栏结构渲染,
+       下方列出可直接替换到 <code>index.css</code> 的核心色值(画布 / 侧栏 / 主区 / 文件栏 / 强调色)。</p>
+
+    <div class="principles">
+      <div class="principle">
+        <div class="num">01</div><h3>中性色加温度</h3>
+        <p>纯灰最显廉价,微偏暖或偏冷会显得有设计意图。</p>
+      </div>
+      <div class="principle">
+        <div class="num">02</div><h3>明度阶梯克制</h3>
+        <p>画布→侧栏→面板亮度差要小,靠柔和阴影分层而非颜色对比。</p>
+      </div>
+      <div class="principle">
+        <div class="num">03</div><h3>不用纯白</h3>
+        <p>用带色温的"近白",屏幕上更耐看、不刺眼。</p>
+      </div>
+      <div class="principle">
+        <div class="num">04</div><h3>强调色只一处</h3>
+        <p>大面积保持低饱和中性,只在按钮/选中态点一个有质感的颜色。</p>
+      </div>
+      <div class="principle">
+        <div class="num">05</div><h3>半透明描边</h3>
+        <p>hairline 半透明边框比灰色实线更精致、更现代。</p>
+      </div>
+    </div>
+  </header>
+
+  <div class="grid">
+
+    <!-- 1. Warm Sand -->
+    <div class="card" style="
+      --m-canvas:#EDEAE3; --m-sidebar:#E3DFD6; --m-workbench:#FCFBF8; --m-panel:#F6F4EF;
+      --m-accent:#C2683D; --m-accent-soft:#F0E2D7; --m-bubble:#F2EFE9; --m-composer:#FFFFFF;
+      --m-side-item:#D5D0C5; --m-side-active:#FBFAF7; --m-frame-line:rgba(70,55,40,0.10);
+      --m-highlight:rgba(255,255,255,0.7); --m-text-faint:#D9D4CB;">
+      <div class="meta">
+        <span class="tag">温暖 · 人文</span>
+        <h2>Warm Sand 暖砂米</h2>
+        <p>偏暖的砂米中性色,温润耐看,赤陶强调色带手工质感。适合长时间使用、内容创作类工具。</p>
+      </div>
+      <div class="mock">
+        <div class="sidebar"><div class="logo"></div><div class="nav active"></div><div class="nav"></div><div class="nav"></div></div>
+        <div class="main">
+          <div class="topbar"><span class="dot"></span><span class="crumb"></span></div>
+          <div class="body">
+            <div class="bubble ai"><div class="ln" style="width:120px"></div><div class="ln" style="width:90px"></div></div>
+            <div class="bubble user"><div class="ln" style="width:80px"></div><div class="ln" style="width:60px"></div></div>
+            <div class="bubble ai"><div class="ln" style="width:140px"></div></div>
+          </div>
+          <div class="composer"><span class="ph"></span><span class="send"></span></div>
+        </div>
+        <div class="files">
+          <div class="head"></div>
+          <div class="row"><span class="ic"></span><span class="nm"></span></div>
+          <div class="row sel"><span class="ic"></span><span class="nm"></span></div>
+          <div class="row"><span class="ic"></span><span class="nm"></span></div>
+          <div class="row"><span class="ic"></span><span class="nm"></span></div>
+        </div>
+      </div>
+      <div class="swatches">
+        <div class="swatch"><div class="chip" style="background:#EDEAE3"></div><div class="hex">#EDEAE3</div><div class="lbl">画布</div></div>
+        <div class="swatch"><div class="chip" style="background:#E3DFD6"></div><div class="hex">#E3DFD6</div><div class="lbl">侧栏</div></div>
+        <div class="swatch"><div class="chip" style="background:#FCFBF8"></div><div class="hex">#FCFBF8</div><div class="lbl">主区</div></div>
+        <div class="swatch"><div class="chip" style="background:#F6F4EF"></div><div class="hex">#F6F4EF</div><div class="lbl">文件栏</div></div>
+        <div class="swatch"><div class="chip" style="background:#C2683D"></div><div class="hex">#C2683D</div><div class="lbl">强调</div></div>
+      </div>
+    </div>
+
+    <!-- 2. Cool Slate -->
+    <div class="card" style="
+      --m-canvas:#E7E9EE; --m-sidebar:#DBDEE6; --m-workbench:#FCFDFE; --m-panel:#F3F5F9;
+      --m-accent:#5B6CFF; --m-accent-soft:#E2E5FB; --m-bubble:#EEF0F5; --m-composer:#FFFFFF;
+      --m-side-item:#CCD0DA; --m-side-active:#FBFCFE; --m-frame-line:rgba(30,40,70,0.10);
+      --m-highlight:rgba(255,255,255,0.8); --m-text-faint:#D2D6DF;">
+      <div class="meta">
+        <span class="tag">冷静 · 专业</span>
+        <h2>Cool Slate 冷石板</h2>
+        <p>极轻微偏蓝的石板灰,干净专业(Linear 风)。靛蓝强调色现代锐利,适合开发/效率工具。</p>
+      </div>
+      <div class="mock">
+        <div class="sidebar"><div class="logo"></div><div class="nav active"></div><div class="nav"></div><div class="nav"></div></div>
+        <div class="main">
+          <div class="topbar"><span class="dot"></span><span class="crumb"></span></div>
+          <div class="body">
+            <div class="bubble ai"><div class="ln" style="width:120px"></div><div class="ln" style="width:90px"></div></div>
+            <div class="bubble user"><div class="ln" style="width:80px"></div><div class="ln" style="width:60px"></div></div>
+            <div class="bubble ai"><div class="ln" style="width:140px"></div></div>
+          </div>
+          <div class="composer"><span class="ph"></span><span class="send"></span></div>
+        </div>
+        <div class="files">
+          <div class="head"></div>
+          <div class="row"><span class="ic"></span><span class="nm"></span></div>
+          <div class="row sel"><span class="ic"></span><span class="nm"></span></div>
+          <div class="row"><span class="ic"></span><span class="nm"></span></div>
+          <div class="row"><span class="ic"></span><span class="nm"></span></div>
+        </div>
+      </div>
+      <div class="swatches">
+        <div class="swatch"><div class="chip" style="background:#E7E9EE"></div><div class="hex">#E7E9EE</div><div class="lbl">画布</div></div>
+        <div class="swatch"><div class="chip" style="background:#DBDEE6"></div><div class="hex">#DBDEE6</div><div class="lbl">侧栏</div></div>
+        <div class="swatch"><div class="chip" style="background:#FCFDFE"></div><div class="hex">#FCFDFE</div><div class="lbl">主区</div></div>
+        <div class="swatch"><div class="chip" style="background:#F3F5F9"></div><div class="hex">#F3F5F9</div><div class="lbl">文件栏</div></div>
+        <div class="swatch"><div class="chip" style="background:#5B6CFF"></div><div class="hex">#5B6CFF</div><div class="lbl">强调</div></div>
+      </div>
+    </div>
+
+    <!-- 3. Sage Greige -->
+    <div class="card" style="
+      --m-canvas:#E6E8E3; --m-sidebar:#DADDD5; --m-workbench:#FCFCFB; --m-panel:#F3F4EF;
+      --m-accent:#6B8E7F; --m-accent-soft:#DEE8E2; --m-bubble:#EFF0EC; --m-composer:#FFFFFF;
+      --m-side-item:#CDD0C8; --m-side-active:#FBFBF9; --m-frame-line:rgba(50,60,45,0.10);
+      --m-highlight:rgba(255,255,255,0.72); --m-text-faint:#D4D7CE;">
+      <div class="meta">
+        <span class="tag">自然 · 松弛</span>
+        <h2>Sage Greige 灰绿</h2>
+        <p>带一丝灰绿的中性色,平静、高级、不抢眼。鼠尾草绿强调色低饱和却有记忆点。</p>
+      </div>
+      <div class="mock">
+        <div class="sidebar"><div class="logo"></div><div class="nav active"></div><div class="nav"></div><div class="nav"></div></div>
+        <div class="main">
+          <div class="topbar"><span class="dot"></span><span class="crumb"></span></div>
+          <div class="body">
+            <div class="bubble ai"><div class="ln" style="width:120px"></div><div class="ln" style="width:90px"></div></div>
+            <div class="bubble user"><div class="ln" style="width:80px"></div><div class="ln" style="width:60px"></div></div>
+            <div class="bubble ai"><div class="ln" style="width:140px"></div></div>
+          </div>
+          <div class="composer"><span class="ph"></span><span class="send"></span></div>
+        </div>
+        <div class="files">
+          <div class="head"></div>
+          <div class="row"><span class="ic"></span><span class="nm"></span></div>
+          <div class="row sel"><span class="ic"></span><span class="nm"></span></div>
+          <div class="row"><span class="ic"></span><span class="nm"></span></div>
+          <div class="row"><span class="ic"></span><span class="nm"></span></div>
+        </div>
+      </div>
+      <div class="swatches">
+        <div class="swatch"><div class="chip" style="background:#E6E8E3"></div><div class="hex">#E6E8E3</div><div class="lbl">画布</div></div>
+        <div class="swatch"><div class="chip" style="background:#DADDD5"></div><div class="hex">#DADDD5</div><div class="lbl">侧栏</div></div>
+        <div class="swatch"><div class="chip" style="background:#FCFCFB"></div><div class="hex">#FCFCFB</div><div class="lbl">主区</div></div>
+        <div class="swatch"><div class="chip" style="background:#F3F4EF"></div><div class="hex">#F3F4EF</div><div class="lbl">文件栏</div></div>
+        <div class="swatch"><div class="chip" style="background:#6B8E7F"></div><div class="hex">#6B8E7F</div><div class="lbl">强调</div></div>
+      </div>
+    </div>
+
+    <!-- 4. Mono Paper -->
+    <div class="card" style="
+      --m-canvas:#F1F0EE; --m-sidebar:#EAE9E6; --m-workbench:#FFFFFF; --m-panel:#FAFAF9;
+      --m-accent:#1A1A1A; --m-accent-soft:#EAEAEA; --m-bubble:#F4F4F3; --m-composer:#FFFFFF;
+      --m-side-item:#DEDEDB; --m-side-active:#FFFFFF; --m-frame-line:rgba(20,20,20,0.08);
+      --m-highlight:rgba(255,255,255,0.9); --m-text-faint:#E2E2DF;">
+      <div class="meta">
+        <span class="tag">极简 · 克制</span>
+        <h2>Mono Paper 纸白</h2>
+        <p>几乎不用灰,靠极细描边和阴影分层(Notion 风)。墨黑强调色,极简但不单调。</p>
+      </div>
+      <div class="mock">
+        <div class="sidebar"><div class="logo"></div><div class="nav active"></div><div class="nav"></div><div class="nav"></div></div>
+        <div class="main">
+          <div class="topbar"><span class="dot"></span><span class="crumb"></span></div>
+          <div class="body">
+            <div class="bubble ai"><div class="ln" style="width:120px"></div><div class="ln" style="width:90px"></div></div>
+            <div class="bubble user"><div class="ln" style="width:80px"></div><div class="ln" style="width:60px"></div></div>
+            <div class="bubble ai"><div class="ln" style="width:140px"></div></div>
+          </div>
+          <div class="composer"><span class="ph"></span><span class="send"></span></div>
+        </div>
+        <div class="files">
+          <div class="head"></div>
+          <div class="row"><span class="ic"></span><span class="nm"></span></div>
+          <div class="row sel"><span class="ic"></span><span class="nm"></span></div>
+          <div class="row"><span class="ic"></span><span class="nm"></span></div>
+          <div class="row"><span class="ic"></span><span class="nm"></span></div>
+        </div>
+      </div>
+      <div class="swatches">
+        <div class="swatch"><div class="chip" style="background:#F1F0EE"></div><div class="hex">#F1F0EE</div><div class="lbl">画布</div></div>
+        <div class="swatch"><div class="chip" style="background:#EAE9E6"></div><div class="hex">#EAE9E6</div><div class="lbl">侧栏</div></div>
+        <div class="swatch"><div class="chip" style="background:#FFFFFF"></div><div class="hex">#FFFFFF</div><div class="lbl">主区</div></div>
+        <div class="swatch"><div class="chip" style="background:#FAFAF9"></div><div class="hex">#FAFAF9</div><div class="lbl">文件栏</div></div>
+        <div class="swatch"><div class="chip" style="background:#1A1A1A"></div><div class="hex">#1A1A1A</div><div class="lbl">强调</div></div>
+      </div>
+    </div>
+
+    <!-- 5. Graphite (dark) -->
+    <div class="card dark" style="
+      --m-canvas:#0E0F12; --m-sidebar:#16181C; --m-workbench:#1C1F24; --m-panel:#16181C;
+      --m-accent:#7C93FF; --m-accent-soft:#23283A; --m-bubble:#23262C; --m-composer:#212429;
+      --m-side-item:#2C3037; --m-side-active:#33373F; --m-frame-line:rgba(255,255,255,0.07);
+      --m-highlight:rgba(255,255,255,0.04); --m-text-faint:#33373F;">
+      <div class="meta">
+        <span class="tag">沉稳 · Premium</span>
+        <h2>Graphite 深石墨</h2>
+        <p>暗色版本。近黑画布 + 略亮石墨面板,层次靠极轻高光和描边。柔蓝强调色不刺眼。</p>
+      </div>
+      <div class="mock">
+        <div class="sidebar"><div class="logo"></div><div class="nav active"></div><div class="nav"></div><div class="nav"></div></div>
+        <div class="main">
+          <div class="topbar"><span class="dot"></span><span class="crumb"></span></div>
+          <div class="body">
+            <div class="bubble ai"><div class="ln" style="width:120px"></div><div class="ln" style="width:90px"></div></div>
+            <div class="bubble user"><div class="ln" style="width:80px"></div><div class="ln" style="width:60px"></div></div>
+            <div class="bubble ai"><div class="ln" style="width:140px"></div></div>
+          </div>
+          <div class="composer"><span class="ph"></span><span class="send"></span></div>
+        </div>
+        <div class="files">
+          <div class="head"></div>
+          <div class="row"><span class="ic"></span><span class="nm"></span></div>
+          <div class="row sel"><span class="ic"></span><span class="nm"></span></div>
+          <div class="row"><span class="ic"></span><span class="nm"></span></div>
+          <div class="row"><span class="ic"></span><span class="nm"></span></div>
+        </div>
+      </div>
+      <div class="swatches">
+        <div class="swatch"><div class="chip" style="background:#0E0F12"></div><div class="hex">#0E0F12</div><div class="lbl">画布</div></div>
+        <div class="swatch"><div class="chip" style="background:#16181C"></div><div class="hex">#16181C</div><div class="lbl">侧栏</div></div>
+        <div class="swatch"><div class="chip" style="background:#1C1F24"></div><div class="hex">#1C1F24</div><div class="lbl">主区</div></div>
+        <div class="swatch"><div class="chip" style="background:#16181C"></div><div class="hex">#16181C</div><div class="lbl">文件栏</div></div>
+        <div class="swatch"><div class="chip" style="background:#7C93FF"></div><div class="hex">#7C93FF</div><div class="lbl">强调</div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <footer>
+    映射到 index.css 变量:画布 → <code>--app-canvas</code> · 侧栏 → <code>--app-sidebar-surface</code> ·
+    主区 → <code>--workbench-surface</code> · 文件栏 → <code>--context-panel-surface</code> · 强调 → <code>--accent</code>
+  </footer>
+</div>
+</body>
+</html>

@@ -279,7 +279,8 @@ function normalizeAutomationProvider(value?: string | null): AgentProvider {
     value === 'codex' ||
     value === 'opencode' ||
     value === 'kimi' ||
-    value === 'grok'
+    value === 'grok' ||
+    value === 'pi'
     ? value
     : 'claude';
 }
@@ -428,6 +429,7 @@ export function initialize(): void {
       opencode_session_id TEXT,
       kimi_session_id TEXT,
       grok_session_id TEXT,
+      pi_session_id TEXT,
       provider TEXT NOT NULL DEFAULT 'claude',
       model TEXT,
       conversation_scope TEXT DEFAULT 'project',
@@ -617,6 +619,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'opencode_session_id', 'TEXT');
   ensureColumn('sessions', 'kimi_session_id', 'TEXT');
   ensureColumn('sessions', 'grok_session_id', 'TEXT');
+  ensureColumn('sessions', 'pi_session_id', 'TEXT');
   ensureColumn('sessions', 'provider', "TEXT NOT NULL DEFAULT 'claude'");
   ensureColumn('sessions', 'model', 'TEXT');
   ensureColumn('sessions', 'conversation_scope', "TEXT DEFAULT 'project'");
@@ -874,6 +877,9 @@ function getSessionSourceOrigin(sessionId: string): SessionSource {
   if (row.provider === 'grok') {
     return 'grok_local';
   }
+  if (row.provider === 'pi') {
+    return 'pi_local';
+  }
   return 'aegis';
 }
 
@@ -1125,6 +1131,8 @@ function backfillMessageMetadata(): void {
                   ? 'kimi_local'
                   : row.provider === 'grok'
                     ? 'grok_local'
+                    : row.provider === 'pi'
+                      ? 'pi_local'
                   : 'aegis';
         const searchText = normalizeSearchText(extractSearchableMessageText(parsed));
         updateStmt.run(extractMessageType(parsed), sourceOrigin, searchText, row.created_at, row.id);
@@ -1343,7 +1351,7 @@ export function createSession(params: {
   associatedWorktreeRef?: string | null;
   allowedTools?: string;
   prompt?: string;
-  provider?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok';
+  provider?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi';
   model?: string;
   scope?: SessionScope;
   agentId?: string | null;
@@ -1862,8 +1870,25 @@ export function setGrokSessionId(sessionId: string, grokSessionId: string | null
   stmt.run(grokSessionId, now, sessionId);
 }
 
+// 更新 Pi Session ID
+export function updatePiSessionId(sessionId: string, piSessionId: string): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET pi_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(piSessionId, now, sessionId);
+}
+
+export function setPiSessionId(sessionId: string, piSessionId: string | null): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET pi_session_id = ?, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(piSessionId, now, sessionId);
+}
+
 // 更新 Session Provider
-export function updateSessionProvider(sessionId: string, provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok'): void {
+export function updateSessionProvider(sessionId: string, provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi'): void {
   const now = Date.now();
   const stmt = getDb().prepare(`
     UPDATE sessions SET provider = ?, updated_at = ? WHERE id = ?

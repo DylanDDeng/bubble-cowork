@@ -31,6 +31,10 @@ export function WorkspaceHost({
 
   const primaryBasis = useMemo(() => `${chatSplitRatio * 100}%`, [chatSplitRatio]);
   const secondaryBasis = useMemo(() => `${(1 - chatSplitRatio) * 100}%`, [chatSplitRatio]);
+  const primarySessionId =
+    dockSecondaryPane && chatLayoutMode === 'split'
+      ? chatPanes.primary.sessionId
+      : activeSessionId;
 
   const applyDroppedSession = (paneId: 'primary' | 'secondary', sessionId: string) => {
     openSplitChat(paneId, sessionId);
@@ -143,7 +147,7 @@ export function WorkspaceHost({
       >
         <ChatPane
           paneId="primary"
-          sessionId={activeSessionId}
+          sessionId={primarySessionId}
           isActive={activePaneId === 'primary'}
           onActivate={() => setActivePane('primary')}
           codexModelConfig={codexModelConfig}

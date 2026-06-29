@@ -15,6 +15,7 @@ import openaiLogo from '../assets/openai.svg';
 import moonshotLogo from '../assets/moonshot.svg';
 import grokLogo from '../assets/grok.svg';
 import { OpenCodeLogo } from './OpenCodeLogo';
+import { PiLogo } from './PiLogo';
 
 function AgentIcon({ provider }: { provider: AgentProvider }) {
   if (provider === 'claude') {
@@ -31,6 +32,9 @@ function AgentIcon({ provider }: { provider: AgentProvider }) {
   }
   if (provider === 'grok') {
     return <img src={grokLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
+  }
+  if (provider === 'pi') {
+    return <PiLogo />;
   }
   return null;
 }

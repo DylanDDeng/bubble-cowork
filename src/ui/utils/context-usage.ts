@@ -183,7 +183,8 @@ export function getLatestCodexContextSnapshot(messages: StreamMessage[]): CodexC
 
 export function getLatestOpenCodeContextSnapshot(
   messages: StreamMessage[],
-  preferredModel?: string | null
+  preferredModel?: string | null,
+  fallbackModelLabel = 'OpenCode'
 ): OpenCodeContextSnapshot | null {
   const normalizedPreferred = preferredModel?.trim().toLowerCase();
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -219,7 +220,7 @@ export function getLatestOpenCodeContextSnapshot(
       inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens + reasoningOutputTokens;
 
     return {
-      model: model || preferredModel || 'OpenCode',
+      model: model || preferredModel || fallbackModelLabel,
       used,
       total: contextWindow,
       percent: Math.min(100, Math.max(0, Math.round((used / contextWindow) * 100))),

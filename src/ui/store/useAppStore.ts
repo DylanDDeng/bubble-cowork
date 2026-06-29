@@ -647,7 +647,8 @@ function normalizeChatLayoutMode(value: unknown): ChatLayoutMode {
 
 function normalizeChatPanes(
   panes: import('../shared/types').UiResumeState['chatPanes'] | undefined,
-  fallbackSessionId: string | null
+  fallbackSessionId: string | null,
+  layoutMode: ChatLayoutMode
 ): Record<ChatPaneId, ChatPaneState> {
   return {
     primary: {
@@ -657,7 +658,11 @@ function normalizeChatPanes(
     },
     secondary: {
       id: 'secondary',
-      sessionId: panes?.secondary?.sessionId ?? null,
+      // The secondary pane (Side Chat) only holds a session while the split is
+      // active. Persisted state can carry a stale secondary sessionId from
+      // before this invariant was enforced; drop it unless we're in split mode
+      // so the Side Chat restores to its empty "Drop a conversation here" state.
+      sessionId: layoutMode === 'split' ? panes?.secondary?.sessionId ?? null : null,
       surface: 'chat',
     },
   };
@@ -820,7 +825,8 @@ const initialUiResumeState = getInitialUiResumeState();
 const initialRightUtilityTab = getInitialRightUtilityTab(initialUiResumeState);
 const initialChatPanes = normalizeChatPanes(
   initialUiResumeState?.chatPanes,
-  initialUiResumeState?.activeSessionId ?? null
+  initialUiResumeState?.activeSessionId ?? null,
+  normalizeChatLayoutMode(initialUiResumeState?.chatLayoutMode)
 );
 
 function createEmptyStreamingState() {
@@ -2042,12 +2048,31 @@ export const useAppStore = create<Store>()(
         state.chatPanes.primary.sessionId ??
         state.chatPanes.secondary.sessionId ??
         state.activeSessionId;
+      // Collapsing to single tears down the split: the surviving session moves
+      // into the primary pane and the secondary pane (the Side Chat) is emptied.
+      // Leaving a sessionId on the secondary pane here would persist to disk and
+      // make the Side Chat reopen with stale content instead of its empty state.
       return {
         chatLayoutMode: 'single',
         savedSplitVisible: false,
         activePaneId: 'primary',
         activeSessionId: focusedSessionId,
         showNewSession: focusedSessionId === null,
+        chatPanes: {
+          ...state.chatPanes,
+          primary: {
+            ...state.chatPanes.primary,
+            id: 'primary',
+            sessionId: focusedSessionId,
+            surface: 'chat',
+          },
+          secondary: {
+            ...state.chatPanes.secondary,
+            id: 'secondary',
+            sessionId: null,
+            surface: 'chat',
+          },
+        },
       };
     });
     persistUiResumeStateSnapshot(get());
@@ -2384,7 +2409,7 @@ export const useAppStore = create<Store>()(
       const chatLayoutMode = normalizeChatLayoutMode(resumeState.chatLayoutMode);
       const savedSplitVisible = resumeState.savedSplitVisible ?? state.savedSplitVisible;
       const activePaneId = normalizeActivePaneId(resumeState.activePaneId);
-      const chatPanes = normalizeChatPanes(resumeState.chatPanes, resumeState.activeSessionId);
+      const chatPanes = normalizeChatPanes(resumeState.chatPanes, resumeState.activeSessionId, chatLayoutMode);
       const activeSessionId = chatPanes[activePaneId].sessionId ?? resumeState.activeSessionId;
 
       return {
@@ -2751,7 +2776,8 @@ export const useAppStore = create<Store>()(
         const activePaneId = normalizeActivePaneId(persisted?.activePaneId);
         const chatPanes = normalizeChatPanes(
           persisted?.chatPanes as import('../shared/types').UiResumeState['chatPanes'],
-          currentState.activeSessionId
+          currentState.activeSessionId,
+          chatLayoutMode
         );
         const draftSessions = Object.fromEntries(
           Object.entries(persisted?.draftSessions || {}).filter(([, session]) => session?.isDraft)
@@ -3394,7 +3420,9 @@ function handleStreamMessage(
       provider === 'claude' ||
       provider === 'codex' ||
       provider === 'opencode' ||
-      provider === 'kimi' || provider === 'grok'
+      provider === 'kimi' ||
+      provider === 'grok' ||
+      provider === 'pi'
         ? provider
         : undefined;
     const incoming: McpServerStatus[] =

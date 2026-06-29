@@ -84,7 +84,7 @@ export interface McpServerStatus {
   status: 'connected' | 'failed' | 'pending';
   error?: string;
   /** Which agent reported this status. Used to avoid cross-agent name collisions. */
-  tool?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok';
+  tool?: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi';
 }
 
 // Claude Skills 摘要
@@ -416,14 +416,15 @@ export interface WorkspaceChannel {
 }
 
 // Agent 提供商 / runtime
-export type AgentProvider = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok';
+export type AgentProvider = 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi';
 export type SessionSource =
   | 'aegis'
   | 'claude_remote'
   | 'codex_local'
   | 'opencode_local'
   | 'kimi_local'
-  | 'grok_local';
+  | 'grok_local'
+  | 'pi_local';
 
 export interface ProviderComposerCapabilities {
   provider: AgentProvider;

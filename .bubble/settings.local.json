@@ -27,7 +27,11 @@
       "Bash(head:*)",
       "Bash(tail:*)",
       "Bash(npx tsc:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(python3:*)",
+      "Bash(for app:*)",
+      "Bash(tmp=$(mktemp:*)",
+      "Bash(gh pr:*)"
     ]
   }
 }

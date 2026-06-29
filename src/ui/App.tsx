@@ -174,6 +174,7 @@ export function App() {
     Record<string, { filePath: string; name: string } | null>
   >({});
   const browserSessionStates = useBrowserStateStore((s) => s.sessionStatesBySessionId);
+  const removeBrowserSessionState = useBrowserStateStore((s) => s.removeSessionState);
 
   const {
     connected,
@@ -213,7 +214,6 @@ export function App() {
     showRightUtilityPanels,
     setRightPanelFullscreen,
     closeSplitChat,
-    openSplitChat,
     globalError,
     clearGlobalError,
     theme,
@@ -453,7 +453,6 @@ export function App() {
     if (targetKind === 'side-chat') {
       setBrowserPanelOpen(false);
       setProjectTreeCollapsed(true);
-      openSplitChat('secondary', null);
       return;
     }
 
@@ -463,7 +462,6 @@ export function App() {
   }, [
     chatLayoutMode,
     closeSplitChat,
-    openSplitChat,
     rightUtilityTabs,
     setBrowserPanelOpen,
     setProjectPanelView,
@@ -499,11 +497,22 @@ export function App() {
   }, [activateRightUtilityContent, setActiveRightUtilityTab]);
 
   const closeRightUtilityTab = useCallback((target: ProjectUtilityPanelTarget) => {
-    if (getProjectUtilityTabKind(target) === 'side-chat') {
+    const kind = getProjectUtilityTabKind(target);
+    if (kind === 'side-chat') {
       closeSplitChat();
     }
+    if (kind === 'browser' && activeSessionId) {
+      // Removing a browser tab must also tear down its native WebContentsView.
+      // The in-chrome close button does this; the tab-strip close used to only
+      // drop the tab, leaving the page attached to the window where it floated
+      // over whatever replaced the tab (e.g. the Side Chat). close() is
+      // idempotent, so routing both close paths through here is safe.
+      const browserSessionId = getBrowserUtilitySessionId(activeSessionId, target);
+      void window.electron.browser.close({ sessionId: browserSessionId }).catch(() => {});
+      removeBrowserSessionState(browserSessionId);
+    }
     closeRightUtilityTabInStore(target);
-  }, [closeRightUtilityTabInStore, closeSplitChat]);
+  }, [activeSessionId, closeRightUtilityTabInStore, closeSplitChat, removeBrowserSessionState]);
 
   const rightUtilityTabDescriptors = useMemo<ProjectUtilityTabDescriptor[]>(() => {
     const workspaceLeaf = getPathLeaf(activeSession?.cwd || projectCwd || '');
@@ -1189,9 +1198,11 @@ function RightSideChatPanel({
   const {
     activePaneId,
     chatPanes,
+    openSplitChat,
     setActivePane,
     swapChatPanes,
   } = useAppStore();
+  const [sideChatDropActive, setSideChatDropActive] = useState(false);
 
   const secondaryControls = (
     <>
@@ -1230,6 +1241,21 @@ function RightSideChatPanel({
   return (
     <div
       className="absolute inset-0 flex min-h-0 min-w-0 flex-col bg-[var(--bg-primary)]"
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes('application/x-aegis-session-id')) {
+          return;
+        }
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        setSideChatDropActive(true);
+      }}
+      onDragLeave={(event) => {
+        const nextTarget = event.relatedTarget as Node | null;
+        if (nextTarget && event.currentTarget.contains(nextTarget)) {
+          return;
+        }
+        setSideChatDropActive(false);
+      }}
     >
       <ChatPane
         paneId="secondary"
@@ -1237,6 +1263,11 @@ function RightSideChatPanel({
         isActive={activePaneId === 'secondary'}
         onActivate={() => setActivePane('secondary')}
         codexModelConfig={codexModelConfig}
+        dropHint={sideChatDropActive ? 'Open in Side Chat' : null}
+        onDropSession={(sessionId) => {
+          setSideChatDropActive(false);
+          openSplitChat('secondary', sessionId);
+        }}
         onClose={onClose}
         headerActions={secondaryControls}
         onWorkspaceGitChanged={onWorkspaceGitChanged}

@@ -28,7 +28,8 @@ export interface SessionRow {
   opencode_session_id: string | null;
   kimi_session_id: string | null;
   grok_session_id: string | null;
-  provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok';
+  pi_session_id: string | null;
+  provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'grok' | 'pi';
   model: string | null;
   conversation_scope: import('../shared/types').SessionScope | null;
   agent_id: string | null;

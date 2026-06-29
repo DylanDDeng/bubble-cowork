@@ -5,6 +5,7 @@ import { CodexAdapter } from './provider/codex-adapter';
 import { KimiAcpAdapter } from './provider/kimi-acp-adapter';
 import { GrokAcpAdapter } from './provider/grok-acp-adapter';
 import { OpenCodeSdkAdapter } from './provider/opencode-sdk-adapter';
+import { PiSdkAdapter } from './provider/pi-sdk-adapter';
 import { isDev } from '../util';
 
 let providerServiceInitialized = false;
@@ -23,6 +24,7 @@ export function ensureProviderService(): void {
   service.registerAdapter(new OpenCodeSdkAdapter());
   service.registerAdapter(new KimiAcpAdapter());
   service.registerAdapter(new GrokAcpAdapter());
+  service.registerAdapter(new PiSdkAdapter());
 
   if (isDev()) {
     console.log('[ProviderService] initialized with adapters:', service.listAdapters().map((a) => a.provider));
