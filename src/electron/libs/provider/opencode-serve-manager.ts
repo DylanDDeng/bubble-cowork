@@ -1,5 +1,28 @@
 import { createServer } from 'net';
-import { loadOpenCodeSdk, type OpenCodeSdkModule } from './opencode-sdk-loader';
+import {
+  loadOpenCodeSdk,
+  loadOpenCodeV2Sdk,
+  type OpenCodeSdkModule,
+  type OpenCodeV2SdkModule,
+} from './opencode-sdk-loader';
+
+type OpenCodePermissionReplyApi = {
+  reply(options: unknown): Promise<unknown>;
+};
+
+type OpenCodeQuestionReplyApi = {
+  reply(options: unknown): Promise<unknown>;
+  reject(options: unknown): Promise<unknown>;
+};
+
+type OpenCodeV2Client = {
+  permission?: OpenCodePermissionReplyApi;
+  question?: OpenCodeQuestionReplyApi;
+  session?: {
+    permission?: OpenCodePermissionReplyApi;
+    question?: OpenCodeQuestionReplyApi;
+  };
+};
 
 export type OpenCodeClient = {
   session: {
@@ -22,6 +45,7 @@ export type OpenCodeClient = {
     status(options?: unknown): Promise<unknown>;
   };
   postSessionIdPermissionsPermissionId(options: unknown): Promise<unknown>;
+  v2?: OpenCodeV2Client;
 };
 
 type OpenCodeServerHandle = {
@@ -31,6 +55,7 @@ type OpenCodeServerHandle = {
 
 type OpenCodeServerState = {
   sdk: OpenCodeSdkModule;
+  v2Sdk: OpenCodeV2SdkModule | null;
   server: OpenCodeServerHandle;
 };
 
@@ -74,6 +99,12 @@ export class OpenCodeServeManager {
       baseUrl: state.server.url,
       directory,
     }) as OpenCodeClient;
+    if (state.v2Sdk) {
+      client.v2 = state.v2Sdk.createOpencodeClient({
+        baseUrl: state.server.url,
+        directory,
+      }) as OpenCodeV2Client;
+    }
     return client;
   }
 
@@ -106,6 +137,10 @@ export class OpenCodeServeManager {
 
   private async startServer(): Promise<OpenCodeServerState> {
     const sdk = await loadOpenCodeSdk();
+    const v2Sdk = await loadOpenCodeV2Sdk().catch((error) => {
+      console.warn('[OpenCodeServeManager] failed to load OpenCode v2 client:', error);
+      return null;
+    });
     const hostname = '127.0.0.1';
     const port = await findAvailablePort(hostname);
     this.abortController = new AbortController();
@@ -116,6 +151,6 @@ export class OpenCodeServeManager {
       timeout: 15_000,
       config: buildDefaultOpenCodeConfig(),
     });
-    return { sdk, server };
+    return { sdk, v2Sdk, server };
   }
 }

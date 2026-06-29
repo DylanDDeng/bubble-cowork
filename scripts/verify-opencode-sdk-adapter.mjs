@@ -18,6 +18,10 @@ assert.ok(
   'OpenCode SDK loader must use native dynamic import for the ESM-only SDK'
 );
 assert.ok(
+  loader.includes("@opencode-ai/sdk/v2") && loader.includes('loadOpenCodeV2Sdk'),
+  'OpenCode SDK loader must expose the v2 client for permission/question APIs'
+);
+assert.ok(
   !/import\s+.*from ['"]@opencode-ai\/sdk['"]/.test(loader),
   'OpenCode SDK loader must not statically import the ESM-only SDK'
 );
@@ -40,6 +44,13 @@ assert.ok(
     manager.includes('list(options?: unknown)'),
   'OpenCode SDK client type must expose command list and session command APIs'
 );
+assert.ok(
+  manager.includes('v2?: OpenCodeV2Client') &&
+    manager.includes('session?: {') &&
+    manager.includes('question?: OpenCodeQuestionReplyApi') &&
+    manager.includes('permission?: OpenCodePermissionReplyApi'),
+  'OpenCode serve manager must attach v2 permission and question clients'
+);
 
 const adapter = read('src/electron/libs/provider/opencode-sdk-adapter.ts');
 assert.ok(
@@ -57,6 +68,22 @@ assert.ok(
     adapter.includes("provider: 'opencode'") &&
     adapter.includes("response: 'once' | 'always' | 'reject'"),
   'OpenCode SDK adapter must map SDK permission events and replies'
+);
+assert.ok(
+  adapter.includes("case 'permission.asked'") &&
+    adapter.includes("case 'permission.v2.asked'") &&
+    adapter.includes('respondToOpenCodePermissionReply') &&
+    adapter.includes('respondToOpenCodePermissionV2'),
+  'OpenCode SDK adapter must handle legacy and v2 permission ask events'
+);
+assert.ok(
+  adapter.includes("case 'question.asked'") &&
+    adapter.includes("case 'question.v2.asked'") &&
+    adapter.includes('AskUserQuestionInput') &&
+    adapter.includes('buildOpenCodeQuestionInput') &&
+    adapter.includes('respondToOpenCodeQuestion') &&
+    adapter.includes('questionV2Reply'),
+  'OpenCode SDK adapter must show and answer OpenCode question popups'
 );
 assert.ok(
   adapter.includes('session.client.session.prompt') &&

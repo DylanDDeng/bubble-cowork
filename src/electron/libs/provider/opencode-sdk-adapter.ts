@@ -4,6 +4,7 @@ import { pathToFileURL } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   AcpPermissionInput,
+  AskUserQuestionInput,
   Attachment,
   AvailableCommand,
   ContentBlock,
@@ -59,10 +60,23 @@ type ActiveOpenCodeSession = {
   emittedToolCallIds: Set<string>;
   emittedToolResultIds: Set<string>;
   emittedPermissionIds: Set<string>;
+  emittedQuestionIds: Set<string>;
+  pendingRequests: Map<string, OpenCodePendingRequest>;
   eventReady: Promise<void>;
 };
 
 type OpenCodeMessageRole = 'user' | 'assistant';
+
+type OpenCodePendingRequest =
+  | { kind: 'permission-legacy' }
+  | { kind: 'permission' }
+  | { kind: 'permission-v2' }
+  | { kind: 'question'; questions: OpenCodeQuestionDescriptor[] }
+  | { kind: 'question-v2'; questions: OpenCodeQuestionDescriptor[] };
+
+type OpenCodeQuestionDescriptor = {
+  question: string;
+};
 
 type OpenCodeCommandDescriptor = {
   name: string;
@@ -279,6 +293,72 @@ function mapPermissionDecision(decision: PermissionResult): 'once' | 'always' | 
   return decision.scope === 'session' ? 'always' : 'once';
 }
 
+function splitQuestionAnswer(value: string): string[] {
+  return value
+    .split(',')
+    .map((answer) => answer.trim())
+    .filter(Boolean);
+}
+
+function buildQuestionAnswers(
+  questions: OpenCodeQuestionDescriptor[],
+  decision: PermissionResult
+): string[][] {
+  const answers = getRecord(decision.updatedInput?.answers);
+  return questions.map((question) => splitQuestionAnswer(getString(answers?.[question.question])));
+}
+
+function buildOpenCodeQuestionInput(questionsValue: unknown): AskUserQuestionInput | null {
+  if (!Array.isArray(questionsValue)) {
+    return null;
+  }
+
+  const questions = questionsValue
+    .map((questionValue) => {
+      const questionRecord = getRecord(questionValue);
+      const questionText = getString(questionRecord?.question).trim();
+      if (!questionRecord || !questionText) {
+        return null;
+      }
+      const optionValues = Array.isArray(questionRecord.options) ? questionRecord.options : [];
+      const options = optionValues
+        .map((optionValue) => {
+          const optionRecord = getRecord(optionValue);
+          const label = getString(optionRecord?.label).trim();
+          if (!label) {
+            return null;
+          }
+          const description = getString(optionRecord?.description).trim();
+          return {
+            label,
+            ...(description ? { description } : {}),
+          };
+        })
+        .filter((option): option is { label: string; description?: string } => Boolean(option));
+      return {
+        question: questionText,
+        ...(getString(questionRecord.header).trim()
+          ? { header: getString(questionRecord.header).trim() }
+          : {}),
+        ...(options.length > 0 ? { options } : {}),
+        ...(questionRecord.multiple === true ? { multiSelect: true } : {}),
+      };
+    })
+    .filter((question): question is AskUserQuestionInput['questions'][number] => Boolean(question));
+
+  return questions.length > 0 ? { questions } : null;
+}
+
+function describeResources(resourcesValue: unknown): string {
+  if (!Array.isArray(resourcesValue)) {
+    return '';
+  }
+  return resourcesValue
+    .map((resource) => getString(resource).trim())
+    .filter(Boolean)
+    .join(', ');
+}
+
 function mapMcpStatus(status: unknown): McpServerStatus['status'] {
   const raw = getString(getRecord(status)?.status);
   if (raw === 'connected') return 'connected';
@@ -381,6 +461,8 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
       emittedToolCallIds: new Set(),
       emittedToolResultIds: new Set(),
       emittedPermissionIds: new Set(),
+      emittedQuestionIds: new Set(),
+      pendingRequests: new Map(),
       eventReady,
     };
     session.eventTask = this.consumeEvents(session, markEventReady);
@@ -535,7 +617,17 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
     if (!session) {
       throw new Error(`No OpenCode session found for thread "${threadId}"`);
     }
-    await this.respondToOpenCodePermission(session, requestId, mapPermissionDecision(decision));
+    const request = session.pendingRequests.get(requestId) || { kind: 'permission-legacy' };
+    if (request.kind === 'question' || request.kind === 'question-v2') {
+      await this.respondToOpenCodeQuestion(session, requestId, request, decision);
+    } else if (request.kind === 'permission') {
+      await this.respondToOpenCodePermissionReply(session, requestId, mapPermissionDecision(decision));
+    } else if (request.kind === 'permission-v2') {
+      await this.respondToOpenCodePermissionV2(session, requestId, mapPermissionDecision(decision));
+    } else {
+      await this.respondToOpenCodePermission(session, requestId, mapPermissionDecision(decision));
+    }
+    session.pendingRequests.delete(requestId);
   }
 
   private async resolveProviderSessionId(
@@ -634,6 +726,18 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
         break;
       case 'permission.updated':
         this.handlePermissionUpdated(session, properties);
+        break;
+      case 'permission.asked':
+        this.handlePermissionAsked(session, properties);
+        break;
+      case 'permission.v2.asked':
+        this.handlePermissionV2Asked(session, properties);
+        break;
+      case 'question.asked':
+        this.handleQuestionAsked(session, properties, 'question');
+        break;
+      case 'question.v2.asked':
+        this.handleQuestionAsked(session, properties, 'question-v2');
         break;
       case 'session.status':
         this.handleSessionStatus(session, getString(properties.sessionID), getRecord(properties.status));
@@ -910,9 +1014,14 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
       return;
     }
     session.emittedPermissionIds.add(permissionId);
+    session.pendingRequests.set(permissionId, { kind: 'permission-legacy' });
 
     if (session.permissionMode === 'fullAccess') {
-      void this.respondToOpenCodePermission(session, permissionId, 'always');
+      void this.respondToOpenCodePermission(session, permissionId, 'always').then(() => {
+        session.pendingRequests.delete(permissionId);
+      }).catch((error) => {
+        console.warn('[OpenCodeSdkAdapter] failed to auto-approve legacy permission:', error);
+      });
       return;
     }
 
@@ -938,6 +1047,148 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
       threadId: session.threadId,
       requestId: permissionId,
       toolName,
+      input,
+    });
+  }
+
+  private handlePermissionAsked(
+    session: ActiveOpenCodeSession,
+    properties: Record<string, unknown>
+  ): void {
+    if (getString(properties.sessionID) !== session.providerSessionId) {
+      return;
+    }
+    const permissionId = getString(properties.id);
+    if (!permissionId || session.emittedPermissionIds.has(permissionId)) {
+      return;
+    }
+    session.emittedPermissionIds.add(permissionId);
+    session.pendingRequests.set(permissionId, { kind: 'permission' });
+
+    if (session.permissionMode === 'fullAccess') {
+      void this.respondToOpenCodePermissionReply(session, permissionId, 'always').then(() => {
+        session.pendingRequests.delete(permissionId);
+      }).catch((error) => {
+        console.warn('[OpenCodeSdkAdapter] failed to auto-approve permission:', error);
+      });
+      return;
+    }
+
+    const permission = getString(properties.permission) || 'permission';
+    const patterns = Array.isArray(properties.patterns)
+      ? properties.patterns.map((pattern) => getString(pattern)).filter(Boolean)
+      : [];
+    const title = patterns.length > 0
+      ? `OpenCode wants ${permission} permission for ${patterns.join(', ')}`
+      : `OpenCode wants ${permission} permission`;
+    const toolName = inferToolName(permission);
+    const input: AcpPermissionInput = {
+      kind: 'acp-permission',
+      provider: 'opencode',
+      question: title,
+      title,
+      toolName,
+      options: buildPermissionOptions(),
+      toolCall: {
+        permission,
+        patterns,
+        metadata: properties.metadata,
+        always: properties.always,
+        tool: properties.tool,
+      },
+    };
+
+    this.emit({
+      type: 'permission_request',
+      threadId: session.threadId,
+      requestId: permissionId,
+      toolName,
+      input,
+    });
+  }
+
+  private handlePermissionV2Asked(
+    session: ActiveOpenCodeSession,
+    properties: Record<string, unknown>
+  ): void {
+    if (getString(properties.sessionID) !== session.providerSessionId) {
+      return;
+    }
+    const permissionId = getString(properties.id);
+    if (!permissionId || session.emittedPermissionIds.has(permissionId)) {
+      return;
+    }
+    session.emittedPermissionIds.add(permissionId);
+    session.pendingRequests.set(permissionId, { kind: 'permission-v2' });
+
+    if (session.permissionMode === 'fullAccess') {
+      void this.respondToOpenCodePermissionV2(session, permissionId, 'always').then(() => {
+        session.pendingRequests.delete(permissionId);
+      }).catch((error) => {
+        console.warn('[OpenCodeSdkAdapter] failed to auto-approve v2 permission:', error);
+      });
+      return;
+    }
+
+    const action = getString(properties.action) || 'perform an action';
+    const resources = describeResources(properties.resources);
+    const title = resources
+      ? `OpenCode wants to ${action}: ${resources}`
+      : `OpenCode wants to ${action}`;
+    const toolName = inferToolName(action);
+    const input: AcpPermissionInput = {
+      kind: 'acp-permission',
+      provider: 'opencode',
+      question: title,
+      title,
+      toolName,
+      options: buildPermissionOptions(),
+      toolCall: {
+        action,
+        resources: properties.resources,
+        save: properties.save,
+        metadata: properties.metadata,
+        source: properties.source,
+      },
+    };
+
+    this.emit({
+      type: 'permission_request',
+      threadId: session.threadId,
+      requestId: permissionId,
+      toolName,
+      input,
+    });
+  }
+
+  private handleQuestionAsked(
+    session: ActiveOpenCodeSession,
+    properties: Record<string, unknown>,
+    kind: 'question' | 'question-v2'
+  ): void {
+    if (getString(properties.sessionID) !== session.providerSessionId) {
+      return;
+    }
+    const questionId = getString(properties.id);
+    if (!questionId || session.emittedQuestionIds.has(questionId)) {
+      return;
+    }
+    const input = buildOpenCodeQuestionInput(properties.questions);
+    if (!input) {
+      return;
+    }
+
+    session.emittedQuestionIds.add(questionId);
+    session.pendingRequests.set(questionId, {
+      kind,
+      questions: input.questions.map((question) => ({ question: question.question })),
+    });
+
+    this.emit({
+      type: 'permission_request',
+      threadId: session.threadId,
+      requestId: questionId,
+      toolName: 'AskUserQuestion',
       input,
     });
   }
@@ -1225,6 +1476,98 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
         },
         query: { directory: session.cwd },
         body: { response },
+      })
+    );
+  }
+
+  private async respondToOpenCodePermissionReply(
+    session: ActiveOpenCodeSession,
+    permissionId: string,
+    reply: 'once' | 'always' | 'reject'
+  ): Promise<void> {
+    if (!session.client.v2?.permission?.reply) {
+      throw new Error('OpenCode SDK does not expose permission.reply.');
+    }
+    await requestOpenCode<boolean>(
+      session.client.v2.permission.reply({
+        requestID: permissionId,
+        directory: session.cwd,
+        reply,
+      })
+    );
+  }
+
+  private async respondToOpenCodePermissionV2(
+    session: ActiveOpenCodeSession,
+    permissionId: string,
+    reply: 'once' | 'always' | 'reject'
+  ): Promise<void> {
+    if (!session.client.v2?.session?.permission?.reply) {
+      throw new Error('OpenCode SDK does not expose session.permission.reply.');
+    }
+    await requestOpenCode<void>(
+      session.client.v2.session.permission.reply({
+        sessionID: session.providerSessionId,
+        requestID: permissionId,
+        reply,
+      })
+    );
+  }
+
+  private async respondToOpenCodeQuestion(
+    session: ActiveOpenCodeSession,
+    requestId: string,
+    request: Extract<OpenCodePendingRequest, { kind: 'question' | 'question-v2' }>,
+    decision: PermissionResult
+  ): Promise<void> {
+    if (decision.behavior === 'deny') {
+      if (request.kind === 'question-v2') {
+        if (!session.client.v2?.session?.question?.reject) {
+          throw new Error('OpenCode SDK does not expose session.question.reject.');
+        }
+        await requestOpenCode<void>(
+          session.client.v2.session.question.reject({
+            sessionID: session.providerSessionId,
+            requestID: requestId,
+          })
+        );
+        return;
+      }
+      if (!session.client.v2?.question?.reject) {
+        throw new Error('OpenCode SDK does not expose question.reject.');
+      }
+      await requestOpenCode<boolean>(
+        session.client.v2.question.reject({
+          requestID: requestId,
+          directory: session.cwd,
+        })
+      );
+      return;
+    }
+
+    const answers = buildQuestionAnswers(request.questions, decision);
+    if (request.kind === 'question-v2') {
+      if (!session.client.v2?.session?.question?.reply) {
+        throw new Error('OpenCode SDK does not expose session.question.reply.');
+      }
+      await requestOpenCode<void>(
+        session.client.v2.session.question.reply({
+          sessionID: session.providerSessionId,
+          requestID: requestId,
+          questionV2Reply: { answers },
+        })
+      );
+      return;
+    }
+
+    if (!session.client.v2?.question?.reply) {
+      throw new Error('OpenCode SDK does not expose question.reply.');
+    }
+    await requestOpenCode<boolean>(
+      session.client.v2.question.reply({
+        requestID: requestId,
+        directory: session.cwd,
+        answers,
       })
     );
   }
