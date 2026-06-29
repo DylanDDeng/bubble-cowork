@@ -1528,8 +1528,8 @@ function RightPanelLauncherContent({
                 onClick={item.onSelect}
                 title={disabled ? item.disabledReason : item.label}
                 className={`group flex h-12 min-w-0 items-center gap-3 rounded-lg border px-4 text-left transition-colors ${
-                  'border-transparent bg-[var(--bg-secondary)]/70 text-[var(--text-secondary)] hover:border-[var(--border)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-                } ${disabled ? 'cursor-not-allowed opacity-45 hover:border-transparent hover:bg-[var(--bg-secondary)]/70 hover:text-[var(--text-secondary)]' : ''}`}
+                  'border-transparent bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:border-[var(--border)] hover:bg-[var(--sidebar-item-active)] hover:text-[var(--text-primary)]'
+                } ${disabled ? 'cursor-not-allowed opacity-45 hover:border-transparent hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-secondary)]' : ''}`}
               >
                 <Icon className="h-[18px] w-[18px] shrink-0 text-[var(--text-muted)] transition-colors group-hover:text-[var(--text-primary)]" />
                 <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[var(--text-primary)]">
