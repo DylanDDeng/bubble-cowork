@@ -1,4 +1,3 @@
-import { Columns2 } from './icons';
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { ChatPane } from './ChatPane';
@@ -111,35 +110,6 @@ const LeafPane = memo(function LeafPane({
     [clearDrop, isEmpty, leaf.id, placeSessionInPane, splitPaneAt]
   );
 
-  const headerActions = (
-    <>
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          splitPaneAt(leaf.id, 'right', null);
-        }}
-        className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-        aria-label="Split right"
-        title="Split right"
-      >
-        <Columns2 className="h-3.5 w-3.5" />
-      </button>
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          splitPaneAt(leaf.id, 'bottom', null);
-        }}
-        className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-        aria-label="Split down"
-        title="Split down"
-      >
-        <Columns2 className="h-3.5 w-3.5 rotate-90" />
-      </button>
-    </>
-  );
-
   return (
     <div
       ref={ref}
@@ -155,7 +125,6 @@ const LeafPane = memo(function LeafPane({
         onActivate={() => setActivePaneById(leaf.id)}
         codexModelConfig={codexModelConfig}
         onClose={canClose ? () => closePaneById(leaf.id) : undefined}
-        headerActions={headerActions}
         onWorkspaceGitChanged={onWorkspaceGitChanged}
       />
       {dropFill ? (
