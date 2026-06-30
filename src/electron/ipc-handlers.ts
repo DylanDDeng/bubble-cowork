@@ -3916,17 +3916,32 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       if ((source.provider || 'claude') !== 'claude') {
         return { ok: false as const, message: 'Forking is only supported for Claude sessions.' };
       }
-      if (!source.claude_session_id) {
-        return {
-          ok: false as const,
-          message: 'Send a message first — there is no Claude session to fork yet.',
-        };
+      // The app doesn't always persist claude_session_id (it can resume by
+      // rebuilding from history). If it's missing, bootstrap a resumable
+      // session from the transcript first, then fork that.
+      let sourceClaudeId = source.claude_session_id || undefined;
+      if (!sourceClaudeId) {
+        const sourceHistory = sessions.getSessionHistory(sourceSessionId);
+        if (sourceHistory.length === 0) {
+          return {
+            ok: false as const,
+            message: 'Send a message first — there is no conversation to fork yet.',
+          };
+        }
+        const bootstrap = await bootstrapClaudeSessionFromHistory({
+          history: sourceHistory,
+          cwd: source.cwd,
+          model: source.model,
+          compatibleProviderId: source.compatible_provider_id || undefined,
+          betas: parseStoredBetas(source.betas),
+          claudeReasoningEffort: normalizeClaudeReasoningEffort(source.claude_reasoning_effort),
+        });
+        sourceClaudeId = bootstrap.sessionId;
+        // Persist so future forks/resumes of the source are instant.
+        sessions.setClaudeSessionId(sourceSessionId, sourceClaudeId);
       }
 
-      const forkedClaudeId = await forkClaudeAgentSession(
-        source.claude_session_id,
-        source.cwd || undefined
-      );
+      const forkedClaudeId = await forkClaudeAgentSession(sourceClaudeId, source.cwd || undefined);
 
       const fork = sessions.createSession({
         title: `${source.title} (fork)`,

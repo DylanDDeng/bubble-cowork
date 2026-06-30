@@ -302,10 +302,11 @@ function SessionItem({
   onTogglePin: () => void;
 }) {
   const forkSessionToPane = useAppStore((s) => s.forkSessionToPane);
-  // Forking branches a Claude conversation; available once it has a resumable
-  // session id (i.e. after the first turn) and not for drafts.
-  const canFork =
-    !session.isDraft && session.provider === 'claude' && Boolean(session.claudeSessionId);
+  // Fork branches a Claude conversation. The resumable session id isn't always
+  // persisted (the app can rebuild from history), so gate only on a non-draft
+  // Claude session; the main process bootstraps a fork point if needed and
+  // returns a friendly error for an empty conversation.
+  const canFork = !session.isDraft && session.provider === 'claude';
 
   const handleContextMenu = async (event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();

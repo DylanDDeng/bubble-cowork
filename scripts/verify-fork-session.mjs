@@ -23,10 +23,10 @@ const ipc = read('src/electron/ipc-handlers.ts');
 assert.ok(
   ipc.includes("ipcMainHandle('fork-session'") &&
     ipc.includes('forkClaudeAgentSession(') &&
-    ipc.includes('setClaudeSessionId(') &&
+    ipc.includes('bootstrapClaudeSessionFromHistory(') &&
     ipc.includes('replaceSessionHistory(') &&
     ipc.includes('buildSessionInfoFromRow('),
-  'fork-session handler must fork, set the new claude session id, copy history, and return SessionInfo'
+  'fork-session handler must bootstrap a fork point when needed, fork, copy history, and return SessionInfo'
 );
 
 // Preload bridge
@@ -54,8 +54,7 @@ assert.ok(
     tree.includes('window.electron.showNativeMenu(') &&
     tree.includes('forkSessionToPane(session.id)') &&
     tree.includes('canFork') &&
-    tree.includes("session.provider === 'claude'") &&
-    tree.includes('session.claudeSessionId'),
+    tree.includes("session.provider === 'claude'"),
   'sidebar session items must offer Fork via a native context menu, gated to Claude sessions'
 );
 
