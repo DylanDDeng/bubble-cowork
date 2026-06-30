@@ -200,6 +200,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('generate-session-title', prompt);
   },
 
+  forkSession: (sessionId: string) => {
+    return ipcRenderer.invoke('fork-session', sessionId);
+  },
+
   // 获取最近工作目录
   getRecentCwds: (limit?: number) => {
     return ipcRenderer.invoke('get-recent-cwds', limit);

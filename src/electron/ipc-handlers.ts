@@ -10,7 +10,7 @@ import { basename, dirname, extname, resolve, relative, isAbsolute, join } from 
 import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
 import { runCodexOneShot, runOpenCodeOneShot } from './libs/codex-runner';
-import { generateSessionTitle, runClaudeOneShot } from './libs/util';
+import { forkClaudeAgentSession, generateSessionTitle, runClaudeOneShot } from './libs/util';
 import { ensureProviderService, runAgentLoop } from './libs/agent-loop';
 import { readProjectTree } from './libs/project-tree';
 import { normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
@@ -3906,6 +3906,73 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return generateSessionTitle(prompt);
   });
 
+  // Fork a Claude conversation into a new session (branch the transcript).
+  ipcMainHandle('fork-session', async (_event, sourceSessionId: string) => {
+    try {
+      const source = sessions.getSession(sourceSessionId);
+      if (!source) {
+        return { ok: false as const, message: 'Session not found.' };
+      }
+      if ((source.provider || 'claude') !== 'claude') {
+        return { ok: false as const, message: 'Forking is only supported for Claude sessions.' };
+      }
+      if (!source.claude_session_id) {
+        return {
+          ok: false as const,
+          message: 'Send a message first — there is no Claude session to fork yet.',
+        };
+      }
+
+      const forkedClaudeId = await forkClaudeAgentSession(
+        source.claude_session_id,
+        source.cwd || undefined
+      );
+
+      const fork = sessions.createSession({
+        title: `${source.title} (fork)`,
+        cwd: source.cwd || undefined,
+        projectCwd: source.project_cwd ?? source.cwd ?? null,
+        envMode: source.env_mode === 'worktree' ? 'worktree' : 'local',
+        worktreePath: source.worktree_path ?? null,
+        associatedWorktreePath: source.associated_worktree_path ?? null,
+        associatedWorktreeBranch: source.associated_worktree_branch ?? null,
+        associatedWorktreeRef: source.associated_worktree_ref ?? null,
+        provider: 'claude',
+        model: source.model || undefined,
+        scope: normalizeSessionScope(source.conversation_scope),
+        agentId: source.agent_id || null,
+        compatibleProviderId: source.compatible_provider_id || undefined,
+        betas: parseStoredBetas(source.betas),
+        claudeAccessMode: normalizeClaudeAccessMode(source.claude_access_mode),
+        claudeExecutionMode: normalizeClaudeExecutionMode(
+          source.claude_execution_mode,
+          source.claude_access_mode
+        ),
+        claudeReasoningEffort: normalizeClaudeReasoningEffort(source.claude_reasoning_effort),
+        channelId: normalizeWorkspaceChannelId(source.workspace_channel_id),
+        teamMode: normalizeSessionTeamMode(source.team_mode),
+        teamId: source.team_id || null,
+      });
+
+      sessions.setClaudeSessionId(fork.id, forkedClaudeId);
+
+      // Copy the transcript so the forked pane shows the same conversation.
+      const history = sessions.getSessionHistory(sourceSessionId);
+      if (history.length > 0) {
+        sessions.replaceSessionHistory(fork.id, history);
+      }
+
+      const row = sessions.getSession(fork.id);
+      if (!row) {
+        return { ok: false as const, message: 'Failed to read the forked session.' };
+      }
+      return { ok: true as const, session: buildSessionInfoFromRow(row) };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false as const, message };
+    }
+  });
+
   // RPC: 获取最近工作目录
   ipcMainHandle('get-recent-cwds', async (_, limit?: number) => {
     return sessions.listRecentCwds(limit);
@@ -6128,11 +6195,12 @@ async function handleClientEvent(
   }
 }
 
-// 会话列表
-function handleSessionList(mainWindow: BrowserWindow): void {
-  const rows = sessions.listSessions();
-  const latestClaudeModelUsageBySession = sessions.getLatestClaudeModelUsageBySession();
-  const sessionInfos: SessionInfo[] = rows.map((row) => ({
+// Map a stored session row to the renderer-facing SessionInfo shape.
+function buildSessionInfoFromRow(
+  row: ReturnType<typeof sessions.listSessions>[number],
+  latestClaudeModelUsage?: ReturnType<typeof sessions.getLatestClaudeModelUsageBySession>[string]
+): SessionInfo {
+  return {
     id: row.id,
     title: row.title,
     status: row.status as SessionInfo['status'],
@@ -6179,10 +6247,19 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     channelId: normalizeWorkspaceChannelId(row.workspace_channel_id),
     teamMode: normalizeSessionTeamMode(row.team_mode),
     teamId: row.team_id || null,
-    latestClaudeModelUsage: latestClaudeModelUsageBySession[row.id],
+    latestClaudeModelUsage,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-  }));
+  };
+}
+
+// 会话列表
+function handleSessionList(mainWindow: BrowserWindow): void {
+  const rows = sessions.listSessions();
+  const latestClaudeModelUsageBySession = sessions.getLatestClaudeModelUsageBySession();
+  const sessionInfos: SessionInfo[] = rows.map((row) =>
+    buildSessionInfoFromRow(row, latestClaudeModelUsageBySession[row.id])
+  );
 
   broadcast(mainWindow, {
     type: 'session.list',

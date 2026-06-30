@@ -21,6 +21,20 @@ async function loadClaudeAgentSdk(): Promise<ClaudeAgentSdkModule> {
   return dynamicImport('@anthropic-ai/claude-agent-sdk');
 }
 
+/**
+ * Fork an existing Claude Code session via the agent SDK. Returns the new
+ * resumable session id (usable as `resume` in a subsequent query). `dir` scopes
+ * the on-disk session lookup to the project directory (the original cwd).
+ */
+export async function forkClaudeAgentSession(
+  sourceClaudeSessionId: string,
+  dir?: string
+): Promise<string> {
+  const sdk = await loadClaudeAgentSdk();
+  const result = await sdk.forkSession(sourceClaudeSessionId, dir ? { dir } : undefined);
+  return result.sessionId;
+}
+
 // SDK 消息类型
 interface SDKMessage {
   type: string;

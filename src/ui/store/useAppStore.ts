@@ -869,6 +869,56 @@ function layoutPatch(layout: WorkspaceLayout) {
   };
 }
 
+// Build a fresh (unhydrated) SessionView from a server SessionInfo — used when a
+// session appears outside the normal session.list flow (e.g. forking). History
+// is loaded lazily by ChatPane once the pane mounts.
+function freshSessionViewFromInfo(info: import('../shared/types').SessionInfo): SessionView {
+  return {
+    id: info.id,
+    title: info.title,
+    status: info.status,
+    scope: info.scope,
+    agentId: info.agentId || null,
+    source: info.source || 'aegis',
+    readOnly: info.readOnly === true,
+    cwd: info.cwd,
+    projectCwd: info.projectCwd ?? info.cwd ?? null,
+    envMode: info.envMode ?? (info.worktreePath ? 'worktree' : 'local'),
+    worktreePath: info.worktreePath ?? null,
+    associatedWorktreePath: info.associatedWorktreePath ?? null,
+    associatedWorktreeBranch: info.associatedWorktreeBranch ?? null,
+    associatedWorktreeRef: info.associatedWorktreeRef ?? null,
+    claudeSessionId: info.claudeSessionId,
+    provider: info.provider || 'claude',
+    model: info.model,
+    compatibleProviderId: info.compatibleProviderId,
+    betas: info.betas,
+    claudeAccessMode: normalizeClaudeAccessMode(info.claudeAccessMode),
+    claudeExecutionMode: normalizeClaudeExecutionMode(info.claudeExecutionMode, info.claudeAccessMode),
+    claudeReasoningEffort: normalizeClaudeReasoningEffort(info.claudeReasoningEffort),
+    codexExecutionMode: normalizeCodexExecutionMode(info.codexExecutionMode),
+    codexPermissionMode: info.codexPermissionMode,
+    codexReasoningEffort: info.codexReasoningEffort,
+    codexFastMode: info.codexFastMode,
+    opencodePermissionMode: info.opencodePermissionMode,
+    pinned: info.pinned || false,
+    folderPath: info.folderPath || null,
+    hiddenFromThreads: info.hiddenFromThreads === true,
+    channelId: normalizeWorkspaceChannelId(info.channelId),
+    teamMode: normalizeSessionTeamMode(info.teamMode),
+    teamId: info.teamId || null,
+    latestClaudeModelUsage: info.latestClaudeModelUsage,
+    messages: [],
+    hydrated: false,
+    historyCursor: null,
+    hasMoreHistory: false,
+    loadingMoreHistory: false,
+    permissionRequests: [],
+    streaming: createEmptyStreamingState(),
+    updatedAt: info.updatedAt,
+  };
+}
+
 function createEmptyStreamingState() {
   return {
     isStreaming: false,
@@ -1985,6 +2035,24 @@ export const useAppStore = create<Store>()(
   movePaneTo: (leafId, targetLeafId, edge) => {
     set((state) => layoutPatch(tree.movePane(state.workspaceLayout, leafId, targetLeafId, edge)));
     persistUiResumeStateSnapshot(get());
+  },
+
+  forkSessionToPane: async (sessionId) => {
+    const result = await window.electron.forkSession(sessionId);
+    if (!result?.ok || !result.session) {
+      if (result?.message) toast.error(result.message);
+      return;
+    }
+    const view = freshSessionViewFromInfo(result.session);
+    set((state) => ({ sessions: { ...state.sessions, [view.id]: view } }));
+    // Open the fork beside the focused pane (or fill it if the pane is empty).
+    const active = tree.getActiveLeaf(get().workspaceLayout);
+    if (active.sessionId === null) {
+      get().placeSessionInPane(active.id, view.id);
+    } else {
+      get().splitPaneAt(active.id, 'right', view.id);
+    }
+    toast.success('Forked into a new pane');
   },
 
   openSplitChat: (paneId, sessionId) => {

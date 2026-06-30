@@ -4,6 +4,7 @@
 import type {
   AutomationDefinition,
   AutomationSnapshot,
+  SessionInfo,
   ClientEvent,
   ClaudeCompatibleProvidersConfig,
   ServerEvent,
@@ -100,6 +101,9 @@ declare global {
       callback: () => { ok: boolean; message?: string } | Promise<{ ok: boolean; message?: string }>
     ) => () => void;
     generateSessionTitle: (prompt: string) => Promise<string>;
+    forkSession: (
+      sessionId: string
+    ) => Promise<{ ok: boolean; session?: SessionInfo; message?: string }>;
     getRecentCwds: (limit?: number) => Promise<string[]>;
     getAutomations: () => Promise<AutomationSnapshot>;
     saveAutomation: (input: UpsertAutomationInput) => Promise<AutomationDefinition>;

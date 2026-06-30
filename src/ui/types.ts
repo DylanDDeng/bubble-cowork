@@ -418,6 +418,8 @@ export interface AppActions {
     targetLeafId: string,
     edge: import('./store/layout-tree').SplitEdge
   ) => void;
+  // Fork a session's conversation and open the fork in a new pane.
+  forkSessionToPane: (sessionId: string) => Promise<void>;
   setShowNewSession: (show: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSidebarWidth: (width: number) => void;
