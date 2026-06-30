@@ -6,6 +6,7 @@ import {
   Plus,
 } from './icons';
 import { useAppStore } from '../store/useAppStore';
+import { allLeaves } from '../store/layout-tree';
 import { sendEvent } from '../hooks/useIPC';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import type { AgentProvider, SessionView } from '../types';
@@ -64,44 +65,25 @@ export function FolderTreeView({
 }: ProjectTreeViewProps) {
   const {
     sessions,
-    activeSessionId,
     activeWorkspace,
-    activePaneId,
-    savedSplitVisible,
-    setChatLayoutMode,
-    chatPanes,
-    setActivePane,
+    workspaceLayout,
     sidebarSearchQuery,
   } = useAppStore();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
   const isChatWorkspaceActive = activeWorkspace === 'chat';
 
-  const splitPair = useMemo<{ primary: SessionView; secondary: SessionView } | null>(() => {
-    if (!savedSplitVisible) {
-      return null;
-    }
-
-    const primarySessionId = chatPanes.primary.sessionId;
-    const secondarySessionId = chatPanes.secondary.sessionId;
-    if (!primarySessionId || !secondarySessionId || primarySessionId === secondarySessionId) {
-      return null;
-    }
-
-    const primary = sessions[primarySessionId];
-    const secondary = sessions[secondarySessionId];
-    if (
-      !primary ||
-      !secondary ||
-      primary.hiddenFromThreads ||
-      secondary.hiddenFromThreads ||
-      primary.scope === 'dm' ||
-      secondary.scope === 'dm'
-    ) {
-      return null;
-    }
-
-    return { primary, secondary };
-  }, [savedSplitVisible, chatPanes.primary.sessionId, chatPanes.secondary.sessionId, sessions]);
+  // Sessions currently mounted in any workspace pane. With recursive tiling
+  // there is no single "split pair" — every open session simply renders with the
+  // selected/highlight style in the normal thread list.
+  const openSessionIds = useMemo(
+    () =>
+      new Set(
+        allLeaves(workspaceLayout.root)
+          .map((leaf) => leaf.sessionId)
+          .filter((id): id is string => Boolean(id))
+      ),
+    [workspaceLayout]
+  );
 
   const { pinnedSessions, projectGroups } = useMemo(() => {
     let sessionList = Object.values(sessions).filter(
@@ -109,11 +91,6 @@ export function FolderTreeView({
         !session.hiddenFromThreads &&
         session.scope !== 'dm'
     );
-
-    if (splitPair) {
-      const hiddenIds = new Set([splitPair.secondary.id]);
-      sessionList = sessionList.filter((session) => !hiddenIds.has(session.id));
-    }
 
     if (sidebarSearchQuery.trim()) {
       const query = sidebarSearchQuery.toLowerCase();
@@ -168,7 +145,7 @@ export function FolderTreeView({
       });
 
     return { pinnedSessions, projectGroups };
-  }, [projectCwd, sessions, sidebarSearchQuery, splitPair]);
+  }, [projectCwd, sessions, sidebarSearchQuery]);
 
   const isExpanded = (key: string) => !collapsedGroups.has(key);
 
@@ -192,7 +169,7 @@ export function FolderTreeView({
             Pinned
           </div>
           {pinnedSessions.map((session) => {
-            const isSessionActive = isChatWorkspaceActive && activeSessionId === session.id;
+            const isSessionActive = isChatWorkspaceActive && openSessionIds.has(session.id);
 
             return (
               <SessionItem
@@ -272,28 +249,8 @@ export function FolderTreeView({
                   </div>
                 ) : (
                   group.sessions.map((session) => {
-                    const isSessionActive = isChatWorkspaceActive && activeSessionId === session.id;
-
-                    if (splitPair && session.id === splitPair.primary.id) {
-                      return (
-                        <SplitSessionRow
-                          key={`split:${splitPair.primary.id}:${splitPair.secondary.id}`}
-                          primary={splitPair.primary}
-                          secondary={splitPair.secondary}
-                          activePaneId={activePaneId}
-                          isActive={isChatWorkspaceActive}
-                          depth={1}
-                          onOpenPrimary={() => {
-                            setChatLayoutMode('split');
-                            setActivePane('primary');
-                          }}
-                          onOpenSecondary={() => {
-                            setChatLayoutMode('split');
-                            setActivePane('secondary');
-                          }}
-                        />
-                      );
-                    }
+                    const isSessionActive =
+                      isChatWorkspaceActive && openSessionIds.has(session.id);
 
                     return (
                       <SessionItem
