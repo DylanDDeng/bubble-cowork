@@ -301,8 +301,35 @@ function SessionItem({
   onClick: () => void;
   onTogglePin: () => void;
 }) {
+  const forkSessionToPane = useAppStore((s) => s.forkSessionToPane);
+  // Forking branches a Claude conversation; available once it has a resumable
+  // session id (i.e. after the first turn) and not for drafts.
+  const canFork =
+    !session.isDraft && session.provider === 'claude' && Boolean(session.claudeSessionId);
+
+  const handleContextMenu = async (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const result = await window.electron.showNativeMenu({
+      x: event.clientX,
+      y: event.clientY,
+      items: [
+        { id: 'fork', label: 'Fork into a new pane', enabled: canFork },
+        { id: 'sep', type: 'separator' },
+        { id: 'pin', label: session.pinned ? 'Unpin' : 'Pin' },
+      ],
+    });
+    if (!result.ok || !result.id) return;
+    if (result.id === 'fork') {
+      void forkSessionToPane(session.id);
+    } else if (result.id === 'pin') {
+      onTogglePin();
+    }
+  };
+
   return (
     <div
+      onContextMenu={handleContextMenu}
       className={`group/session relative cursor-pointer rounded-lg py-1.5 pl-8 pr-3 transition-colors duration-150 ${
         isActive
           ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'

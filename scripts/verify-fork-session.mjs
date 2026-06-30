@@ -46,15 +46,17 @@ assert.ok(
   'forkSessionToPane must call the IPC, build a SessionView, and open it in a pane'
 );
 
-// Pane header button, gated to Claude sessions with a session id
-const host = read('src/ui/components/WorkspaceHost.tsx');
+// Right-click native context menu on the sidebar session row, gated to Claude
+// sessions with a session id.
+const tree = read('src/ui/components/FolderTreeView.tsx');
 assert.ok(
-  host.includes('GitFork') &&
-    host.includes('forkSessionToPane(leaf.sessionId)') &&
-    host.includes('canFork') &&
-    host.includes("session.provider === 'claude'") &&
-    host.includes('session.claudeSessionId'),
-  'WorkspaceHost must show a Fork button only for Claude sessions with a session id'
+  tree.includes('onContextMenu={handleContextMenu}') &&
+    tree.includes('window.electron.showNativeMenu(') &&
+    tree.includes('forkSessionToPane(session.id)') &&
+    tree.includes('canFork') &&
+    tree.includes("session.provider === 'claude'") &&
+    tree.includes('session.claudeSessionId'),
+  'sidebar session items must offer Fork via a native context menu, gated to Claude sessions'
 );
 
 console.log('fork-session: wiring checks passed');

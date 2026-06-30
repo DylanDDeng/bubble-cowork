@@ -1,4 +1,3 @@
-import { GitFork } from './icons';
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { ChatPane } from './ChatPane';
@@ -58,13 +57,6 @@ const LeafPane = memo(function LeafPane({
   const placeSessionInPane = useAppStore((s) => s.placeSessionInPane);
   const setActivePaneById = useAppStore((s) => s.setActivePaneById);
   const closePaneById = useAppStore((s) => s.closePaneById);
-  const forkSessionToPane = useAppStore((s) => s.forkSessionToPane);
-  const session = useAppStore((s) => (leaf.sessionId ? s.sessions[leaf.sessionId] : null));
-  // Forking branches a Claude conversation; only available once it has a
-  // resumable session id (i.e. after the first turn) and not for drafts.
-  const canFork = Boolean(
-    session && !session.isDraft && session.provider === 'claude' && session.claudeSessionId
-  );
 
   const ref = useRef<HTMLDivElement>(null);
   const [dropEdge, setDropEdge] = useState<SplitEdge | null>(null);
@@ -133,22 +125,6 @@ const LeafPane = memo(function LeafPane({
         onActivate={() => setActivePaneById(leaf.id)}
         codexModelConfig={codexModelConfig}
         onClose={canClose ? () => closePaneById(leaf.id) : undefined}
-        headerActions={
-          canFork ? (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                if (leaf.sessionId) void forkSessionToPane(leaf.sessionId);
-              }}
-              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-              aria-label="Fork conversation into a new pane"
-              title="Fork into a new pane"
-            >
-              <GitFork className="h-3.5 w-3.5" />
-            </button>
-          ) : undefined
-        }
         onWorkspaceGitChanged={onWorkspaceGitChanged}
       />
       {dropFill ? (
