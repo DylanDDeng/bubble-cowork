@@ -53,8 +53,11 @@ type PendingStopWorkspaceAction =
 const CHAT_SCROLL_BOTTOM_THRESHOLD_PX = 120;
 const chatPaneScrollPositions = new Map<string, ChatScrollPosition>();
 
-function getChatScrollPositionKey(paneId: 'primary' | 'secondary', sessionId: string): string {
-  return `${paneId}:${sessionId}`;
+// Key scroll memory on the session, not the pane id: with the recursive tiling
+// layout a session can move between leaves (split/unsplit, move) and should keep
+// its scroll position.
+function getChatScrollPositionKey(_paneId: string, sessionId: string): string {
+  return `session:${sessionId}`;
 }
 
 function isNearScrollBottom(container: HTMLDivElement): boolean {
@@ -850,7 +853,7 @@ export function ChatPane({
   headerActions,
   onWorkspaceGitChanged,
 }: {
-  paneId: 'primary' | 'secondary';
+  paneId: string;
   sessionId: string | null;
   isActive: boolean;
   onActivate: () => void;

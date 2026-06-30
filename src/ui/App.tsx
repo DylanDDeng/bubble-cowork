@@ -896,10 +896,6 @@ export function App() {
             <WorkspaceHost
               codexModelConfig={codexModelConfig}
               onWorkspaceGitChanged={refreshEnvironmentGit}
-              dockSecondaryPane={
-                activeUtilityPanel === 'side-chat' ||
-                (!rightUtilityPanelHidden && rightUtilityTabs.includes('side-chat'))
-              }
             />
 
             <TerminalDrawer
@@ -949,7 +945,11 @@ export function App() {
             hidden={activeUtilityPanel !== 'launcher'}
             browserAvailable={Boolean(activeSessionId)}
             onOpenFiles={() => openRightUtilityTab('files')}
-            onOpenSideChat={() => openRightUtilityTab('side-chat')}
+            onOpenSideChat={() => {
+              const store = useAppStore.getState();
+              store.splitPaneAt(store.workspaceLayout.activePaneId, 'right', null);
+              setRightPanelLauncherOpen(false);
+            }}
             onOpenBrowser={() => openRightUtilityTab('browser')}
             onOpenReview={() => openRightUtilityTab('review')}
             onOpenTerminal={() => openRightUtilityTab('terminal')}
@@ -1009,12 +1009,6 @@ export function App() {
             onClose={() => closeRightUtilityTab('terminal')}
             sessionId={activeSessionId}
             cwd={activeSession?.cwd || projectCwd || null}
-          />
-          <RightSideChatPanel
-            collapsed={activeUtilityPanel !== 'side-chat'}
-            codexModelConfig={codexModelConfig}
-            onClose={() => closeRightUtilityTab('side-chat')}
-            onWorkspaceGitChanged={refreshEnvironmentGit}
           />
         </RightUtilityWorkspace>
       ) : null}
@@ -1299,7 +1293,6 @@ function RightUtilityTabStrip({
 }) {
   const items = [
     { id: 'files' as const, label: 'Files', shortcut: '⌘P', accelerator: 'CommandOrControl+P', disabled: false },
-    { id: 'side-chat' as const, label: 'Side Chat', shortcut: null, accelerator: null, disabled: false },
     { id: 'browser' as const, label: 'Browser', shortcut: '⌘T', accelerator: 'CommandOrControl+T', disabled: !browserAvailable },
     { id: 'review' as const, label: 'Review', shortcut: '⌃⌘G', accelerator: 'Control+CommandOrControl+G', disabled: false },
     { id: 'terminal' as const, label: 'Terminal', shortcut: '⌃`', accelerator: 'Control+`', disabled: false },
