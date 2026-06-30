@@ -290,6 +290,10 @@ export interface AppState {
   activeSessionId: string | null;
   activeWorkspace: ActiveWorkspace;
   chatSidebarView: ChatSidebarView;
+  // Source of truth for the chat workspace layout (recursive tiling tree).
+  workspaceLayout: import('./store/layout-tree').WorkspaceLayout;
+  // Legacy two-pane fields, DERIVED from workspaceLayout after every change so
+  // existing consumers keep working. Do not write these directly.
   chatLayoutMode: ChatLayoutMode;
   savedSplitVisible: boolean;
   activePaneId: ChatPaneId;
@@ -399,6 +403,21 @@ export interface AppActions {
   openSplitChat: (paneId: ChatPaneId, sessionId: string | null) => void;
   closeSplitChat: () => void;
   swapChatPanes: () => void;
+  // Recursive tiling actions (operate on workspaceLayout by leaf id).
+  splitPaneAt: (
+    leafId: string,
+    edge: import('./store/layout-tree').SplitEdge,
+    sessionId: string | null
+  ) => void;
+  closePaneById: (leafId: string) => void;
+  resizeSplitById: (splitId: string, sizes: number[]) => void;
+  setActivePaneById: (leafId: string) => void;
+  placeSessionInPane: (leafId: string, sessionId: string | null) => void;
+  movePaneTo: (
+    leafId: string,
+    targetLeafId: string,
+    edge: import('./store/layout-tree').SplitEdge
+  ) => void;
   setShowNewSession: (show: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSidebarWidth: (width: number) => void;

@@ -58,9 +58,15 @@ export interface UiResumeState {
   projectPanelView: 'files' | 'changes';
   terminalDrawerOpen?: boolean;
   terminalDrawerHeight?: number;
+  // Recursive tiling workspace layout (source of truth). Serialized PaneNode
+  // tree + active leaf id; see src/ui/store/layout-tree.ts. Opaque here to keep
+  // the shared types renderer-agnostic.
+  schemaVersion?: number;
+  workspaceLayout?: unknown;
+  // Legacy two-pane fields (compat shadow; derived from workspaceLayout).
   chatLayoutMode?: 'single' | 'split';
   savedSplitVisible?: boolean;
-  activePaneId?: 'primary' | 'secondary';
+  activePaneId?: 'primary' | 'secondary' | string;
   chatPanes?: {
     primary: { id: 'primary'; sessionId: string | null; surface?: 'chat' | 'terminal' };
     secondary: { id: 'secondary'; sessionId: string | null; surface?: 'chat' | 'terminal' };

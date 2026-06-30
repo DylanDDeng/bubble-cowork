@@ -59,20 +59,20 @@ assert.ok(
 );
 
 const store = read('src/ui/store/useAppStore.ts');
+// closeSplitChat collapses the recursive tiling tree to a single pane showing
+// the focused session — the "reopen empty / no stale content" guarantee now
+// lives in the layout-tree (covered by verify:layout-tree).
 const closeSplitChat = store.match(/closeSplitChat: \(\) => \{[\s\S]*?\n  \},/)?.[0] || '';
 assert.ok(
-  closeSplitChat.includes('secondary: {') &&
-    /secondary: \{[\s\S]*?sessionId: null/.test(closeSplitChat),
-  'closeSplitChat must clear the secondary pane so the Side Chat reopens empty instead of restoring stale content'
+  closeSplitChat.includes('tree.singleLayout') && closeSplitChat.includes('layoutPatch'),
+  'closeSplitChat must collapse the workspace layout tree to a single focused pane'
 );
-
-const normalizeChatPanes = store.match(/function normalizeChatPanes\([\s\S]*?\n}/)?.[0] || '';
+// Pane writes route through workspaceLayout (source of truth) via layoutPatch.
 assert.ok(
-  normalizeChatPanes.includes('layoutMode: ChatLayoutMode') &&
-    /secondary: \{[\s\S]*?layoutMode === 'split' \? panes\?\.secondary\?\.sessionId \?\? null : null/.test(
-      normalizeChatPanes
-    ),
-  'normalizeChatPanes must drop a persisted secondary session unless the restored layout is split (self-heals stale Side Chat state on launch)'
+  store.includes('layoutPatch(') &&
+    store.includes("from './layout-tree'") &&
+    store.includes("from './layout-adapter'"),
+  'the store must drive panes from the workspaceLayout tree via layoutPatch'
 );
 
 const workspaceHost = read('src/ui/components/WorkspaceHost.tsx');

@@ -1,6 +1,15 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { toast } from 'sonner';
+import * as tree from './layout-tree';
+import type { PaneId, SplitEdge, WorkspaceLayout } from './layout-tree';
+import {
+  deriveLegacyFields,
+  legacyPaneToLeafId,
+  repairLayout,
+  resolveWorkspaceLayout,
+  WORKSPACE_LAYOUT_SCHEMA_VERSION,
+} from './layout-adapter';
 import type {
   ActiveWorkspace,
   AppState,
@@ -783,6 +792,7 @@ function persistUiResumeStateSnapshot(state: Pick<
   | 'projectPanelView'
   | 'terminalDrawerOpen'
   | 'terminalDrawerHeight'
+  | 'workspaceLayout'
   | 'chatLayoutMode'
   | 'savedSplitVisible'
   | 'activePaneId'
@@ -794,6 +804,8 @@ function persistUiResumeStateSnapshot(state: Pick<
   }
 
   void window.electron.saveUiResumeState({
+    schemaVersion: WORKSPACE_LAYOUT_SCHEMA_VERSION,
+    workspaceLayout: state.workspaceLayout,
     activeSessionId: state.activeSessionId,
     showNewSession: state.showNewSession,
     projectCwd: state.projectCwd,
@@ -801,6 +813,8 @@ function persistUiResumeStateSnapshot(state: Pick<
     projectPanelView: state.projectPanelView,
     terminalDrawerOpen: state.terminalDrawerOpen,
     terminalDrawerHeight: state.terminalDrawerHeight,
+    // Legacy two-pane fields kept in the blob as a compat shadow so an older
+    // app version can still restore a (collapsed) layout after a downgrade.
     chatLayoutMode: state.chatLayoutMode,
     savedSplitVisible: state.savedSplitVisible,
     activePaneId: state.activePaneId,
@@ -823,11 +837,37 @@ function getInitialUiResumeState(): import('../shared/types').UiResumeState | nu
 
 const initialUiResumeState = getInitialUiResumeState();
 const initialRightUtilityTab = getInitialRightUtilityTab(initialUiResumeState);
-const initialChatPanes = normalizeChatPanes(
-  initialUiResumeState?.chatPanes,
-  initialUiResumeState?.activeSessionId ?? null,
-  normalizeChatLayoutMode(initialUiResumeState?.chatLayoutMode)
+const initialWorkspaceLayout = repairLayout(
+  resolveWorkspaceLayout(initialUiResumeState as Parameters<typeof resolveWorkspaceLayout>[0])
 );
+const initialLegacyPaneFields = deriveLegacyFields(initialWorkspaceLayout);
+
+// Build the legacy pane patch (chatPanes/chatLayoutMode/activePaneId/...) from a
+// layout tree. workspaceLayout is the source of truth; these fields are derived
+// after every layout mutation so existing two-pane consumers keep working.
+function layoutPatch(layout: WorkspaceLayout) {
+  const legacy = deriveLegacyFields(layout);
+  return {
+    workspaceLayout: layout,
+    chatLayoutMode: legacy.chatLayoutMode,
+    savedSplitVisible: legacy.savedSplitVisible,
+    activePaneId: legacy.activePaneId,
+    chatPanes: {
+      primary: {
+        id: 'primary' as const,
+        sessionId: legacy.chatPanes.primary.sessionId,
+        surface: legacy.chatPanes.primary.surface ?? ('chat' as const),
+      },
+      secondary: {
+        id: 'secondary' as const,
+        sessionId: legacy.chatPanes.secondary.sessionId,
+        surface: legacy.chatPanes.secondary.surface ?? ('chat' as const),
+      },
+    },
+    chatSplitRatio: legacy.chatSplitRatio,
+    activeSessionId: tree.activeSessionId(layout),
+  };
+}
 
 function createEmptyStreamingState() {
   return {
@@ -1040,11 +1080,23 @@ export const useAppStore = create<Store>()(
       activeSessionId: initialUiResumeState?.activeSessionId ?? null,
       activeWorkspace: 'chat' as ActiveWorkspace,
       chatSidebarView: 'threads' as ChatSidebarView,
-      chatLayoutMode: normalizeChatLayoutMode(initialUiResumeState?.chatLayoutMode),
-      savedSplitVisible: initialUiResumeState?.savedSplitVisible ?? false,
-      activePaneId: normalizeActivePaneId(initialUiResumeState?.activePaneId),
-      chatPanes: initialChatPanes,
-      chatSplitRatio: sanitizeChatSplitRatio(initialUiResumeState?.chatSplitRatio),
+      workspaceLayout: initialWorkspaceLayout,
+      chatLayoutMode: initialLegacyPaneFields.chatLayoutMode,
+      savedSplitVisible: initialLegacyPaneFields.savedSplitVisible,
+      activePaneId: initialLegacyPaneFields.activePaneId,
+      chatPanes: {
+        primary: {
+          id: 'primary',
+          sessionId: initialLegacyPaneFields.chatPanes.primary.sessionId,
+          surface: initialLegacyPaneFields.chatPanes.primary.surface ?? 'chat',
+        },
+        secondary: {
+          id: 'secondary',
+          sessionId: initialLegacyPaneFields.chatPanes.secondary.sessionId,
+          surface: initialLegacyPaneFields.chatPanes.secondary.surface ?? 'chat',
+        },
+      },
+      chatSplitRatio: initialLegacyPaneFields.chatSplitRatio,
       showNewSession: initialUiResumeState?.showNewSession ?? true,
       newSessionKey: 0,
       sidebarCollapsed: false,
@@ -1301,62 +1353,19 @@ export const useAppStore = create<Store>()(
   },
 
   setActiveSession: (sessionId) => {
+    // Load the session into the focused leaf (works for single or N-pane).
     set((state) => {
-      if (state.chatLayoutMode === 'single') {
-        if (!sessionId) {
-          return {
-            activeSessionId: null,
-            activeWorkspace: 'chat',
-          };
-        }
-
-        const session = state.sessions[sessionId];
-        if (!session) {
-          return {
-            activeSessionId: sessionId,
-            activeWorkspace: 'chat',
-          };
-        }
-
-        return {
-          activeSessionId: sessionId,
-          activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, session),
-          activeWorkspace: 'chat',
-          showNewSession: false,
-        };
-      }
-
-      const nextPaneId = state.activePaneId;
-      const nextPanes = {
-        ...state.chatPanes,
-        [nextPaneId]: {
-          ...state.chatPanes[nextPaneId],
-          sessionId,
-          surface: 'chat',
-        },
-      };
-
-      if (!sessionId) {
-        return {
-          activeSessionId: null,
-          chatPanes: nextPanes,
-        };
-      }
-
-      const session = state.sessions[sessionId];
-      if (!session) {
-        return {
-          activeSessionId: sessionId,
-          chatPanes: nextPanes,
-        };
-      }
-
+      const active = tree.getActiveLeaf(state.workspaceLayout);
+      const layout = tree.placeSession(state.workspaceLayout, active.id, sessionId);
+      const session = sessionId ? state.sessions[sessionId] : null;
       return {
-        activeSessionId: sessionId,
-        activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, session),
-        chatPanes: nextPanes,
+        ...layoutPatch(layout),
         activeWorkspace: 'chat',
-        showNewSession: false,
+        // Forcing a session shows it; clearing leaves the new-session flag as-is.
+        showNewSession: sessionId ? false : state.showNewSession,
+        activeChannelByProject: session
+          ? applyActiveProjectChannel(state.activeChannelByProject, session)
+          : state.activeChannelByProject,
       };
     });
 
@@ -1876,39 +1885,47 @@ export const useAppStore = create<Store>()(
     return sessionId;
   },
 
-  setActivePane: (activePaneId) =>
-    {
-      set((state) => ({
-        activePaneId,
-        activeSessionId: state.chatPanes[activePaneId].sessionId,
-        activeWorkspace: 'chat',
-        showNewSession: state.chatPanes[activePaneId].sessionId === null,
-      }));
-      persistUiResumeStateSnapshot(get());
-    },
+  setActivePane: (activePaneId) => {
+    set((state) => ({
+      ...layoutPatch(
+        tree.setActivePane(state.workspaceLayout, legacyPaneToLeafId(state.workspaceLayout, activePaneId))
+      ),
+      activeWorkspace: 'chat',
+    }));
+    persistUiResumeStateSnapshot(get());
+  },
+
+  setActivePaneById: (leafId) => {
+    set((state) => ({
+      ...layoutPatch(tree.setActivePane(state.workspaceLayout, leafId)),
+      activeWorkspace: 'chat',
+    }));
+    persistUiResumeStateSnapshot(get());
+  },
 
   setChatLayoutMode: (chatLayoutMode) => {
-    set({ chatLayoutMode });
+    set((state) => {
+      if (chatLayoutMode === 'single') {
+        const active = tree.getActiveLeaf(state.workspaceLayout);
+        return layoutPatch(
+          tree.singleLayout(tree.makeLeaf(active.id, active.sessionId, active.surface))
+        );
+      }
+      if (tree.isSplit(state.workspaceLayout)) return {};
+      const active = tree.getActiveLeaf(state.workspaceLayout);
+      return layoutPatch(tree.splitPane(state.workspaceLayout, active.id, 'right', null));
+    });
     persistUiResumeStateSnapshot(get());
   },
 
-  setSavedSplitVisible: (savedSplitVisible) => {
-    set({ savedSplitVisible });
-    persistUiResumeStateSnapshot(get());
-  },
+  // savedSplitVisible is derived from workspaceLayout; retained as a no-op.
+  setSavedSplitVisible: () => {},
 
   setChatPaneSession: (paneId, sessionId) => {
     set((state) => ({
-      chatPanes: {
-        ...state.chatPanes,
-        [paneId]: {
-          ...state.chatPanes[paneId],
-          sessionId,
-          surface: 'chat',
-        },
-      },
-      activePaneId: paneId,
-      activeSessionId: sessionId,
+      ...layoutPatch(
+        tree.placeSession(state.workspaceLayout, legacyPaneToLeafId(state.workspaceLayout, paneId), sessionId)
+      ),
       activeWorkspace: 'chat',
       showNewSession: sessionId === null,
     }));
@@ -1916,209 +1933,127 @@ export const useAppStore = create<Store>()(
   },
 
   setChatPaneSurface: (paneId, surface) => {
+    set((state) => ({
+      ...layoutPatch(
+        tree.setPaneSurface(state.workspaceLayout, legacyPaneToLeafId(state.workspaceLayout, paneId), surface)
+      ),
+      activeWorkspace: 'chat',
+    }));
+    persistUiResumeStateSnapshot(get());
+  },
+
+  setChatSplitRatio: (chatSplitRatio) => {
     set((state) => {
-      const pane = state.chatPanes[paneId];
+      const ratio = sanitizeChatSplitRatio(chatSplitRatio);
+      const root = state.workspaceLayout.root;
+      if (root.type !== 'split' || root.children.length !== 2) {
+        return { chatSplitRatio: ratio };
+      }
+      return layoutPatch(tree.resizeSplit(state.workspaceLayout, root.id, [ratio, 1 - ratio]));
+    });
+    persistUiResumeStateSnapshot(get());
+  },
+
+  resizeSplitById: (splitId, sizes) => {
+    set((state) => layoutPatch(tree.resizeSplit(state.workspaceLayout, splitId, sizes)));
+    persistUiResumeStateSnapshot(get());
+  },
+
+  splitPaneAt: (leafId, edge, sessionId) => {
+    set((state) => {
+      const targetSession = sessionId ? state.sessions[sessionId] : null;
       return {
-        chatPanes: {
-          ...state.chatPanes,
-          [paneId]: {
-            ...pane,
-            surface,
-          },
-        },
-        activePaneId: paneId,
-        activeSessionId: pane.sessionId,
+        ...layoutPatch(tree.splitPane(state.workspaceLayout, leafId, edge, sessionId)),
+        activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, targetSession),
         activeWorkspace: 'chat',
-        showNewSession: surface === 'chat' && pane.sessionId === null,
+        showNewSession: sessionId === null,
       };
     });
     persistUiResumeStateSnapshot(get());
   },
 
-  setChatSplitRatio: (chatSplitRatio) => {
-    set({ chatSplitRatio: sanitizeChatSplitRatio(chatSplitRatio) });
+  placeSessionInPane: (leafId, sessionId) => {
+    set((state) => {
+      const targetSession = sessionId ? state.sessions[sessionId] : null;
+      return {
+        ...layoutPatch(tree.placeSession(state.workspaceLayout, leafId, sessionId)),
+        activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, targetSession),
+        activeWorkspace: 'chat',
+        showNewSession: sessionId === null,
+      };
+    });
+    persistUiResumeStateSnapshot(get());
+  },
+
+  closePaneById: (leafId) => {
+    set((state) => layoutPatch(tree.closePane(state.workspaceLayout, leafId)));
+    persistUiResumeStateSnapshot(get());
+  },
+
+  movePaneTo: (leafId, targetLeafId, edge) => {
+    set((state) => layoutPatch(tree.movePane(state.workspaceLayout, leafId, targetLeafId, edge)));
     persistUiResumeStateSnapshot(get());
   },
 
   openSplitChat: (paneId, sessionId) => {
     set((state) => {
-      const otherPaneId: ChatPaneId = paneId === 'primary' ? 'secondary' : 'primary';
+      const layout = state.workspaceLayout;
       const targetSession = sessionId ? state.sessions[sessionId] : null;
-
-      if (sessionId && state.chatLayoutMode === 'split') {
-        const existingPaneId = state.chatPanes.primary.sessionId === sessionId
-          ? 'primary'
-          : state.chatPanes.secondary.sessionId === sessionId
-            ? 'secondary'
-            : null;
-
-        if (existingPaneId) {
+      if (sessionId) {
+        const holder = tree.allLeaves(layout.root).find((leaf) => leaf.sessionId === sessionId);
+        if (holder) {
           return {
-            activePaneId: existingPaneId,
-            activeSessionId: sessionId,
+            ...layoutPatch(tree.setActivePane(layout, holder.id)),
             activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, targetSession),
             activeWorkspace: 'chat',
             showNewSession: false,
           };
         }
       }
-
-      if (state.chatLayoutMode === 'single') {
-        const currentSessionId =
-          state.activeSessionId ??
-          state.chatPanes[state.activePaneId]?.sessionId ??
-          state.chatPanes.primary.sessionId ??
-          null;
-        const nextPrimarySessionId =
-          paneId === 'primary'
-            ? sessionId ?? currentSessionId
-            : currentSessionId;
-        const nextSecondarySessionId =
-          paneId === 'secondary'
-            ? sessionId
-            : currentSessionId && currentSessionId !== sessionId
-              ? currentSessionId
-              : null;
-        const dedupedSecondarySessionId =
-          nextSecondarySessionId && nextSecondarySessionId !== nextPrimarySessionId
-            ? nextSecondarySessionId
-            : null;
-        const nextActiveSessionId =
-          paneId === 'secondary' && sessionId && sessionId === nextPrimarySessionId
-            ? dedupedSecondarySessionId
-            : sessionId;
-
-        return {
-          chatLayoutMode: 'split',
-          savedSplitVisible: true,
-          activePaneId: paneId,
-          activeSessionId: nextActiveSessionId,
-          activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, targetSession),
-          activeWorkspace: 'chat',
-          showNewSession: nextActiveSessionId === null,
-          chatPanes: {
-            primary: {
-              id: 'primary',
-              sessionId: nextPrimarySessionId,
-              surface: 'chat',
-            },
-            secondary: {
-              id: 'secondary',
-              sessionId: dedupedSecondarySessionId,
-              surface: 'chat',
-            },
-          },
-        };
-      }
-
+      const active = tree.getActiveLeaf(layout);
+      const edge: SplitEdge = paneId === 'primary' ? 'left' : 'right';
       return {
-        chatLayoutMode: 'split',
-        savedSplitVisible: true,
-        activePaneId: paneId,
-        activeSessionId: sessionId,
+        ...layoutPatch(tree.splitPane(layout, active.id, edge, sessionId)),
         activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, targetSession),
         activeWorkspace: 'chat',
         showNewSession: sessionId === null,
-        chatPanes: {
-          ...state.chatPanes,
-          [paneId]: {
-            ...state.chatPanes[paneId],
-            sessionId,
-            surface: 'chat',
-          },
-          ...(sessionId && state.chatPanes[otherPaneId].sessionId === sessionId
-            ? {
-                [otherPaneId]: {
-                  ...state.chatPanes[otherPaneId],
-                  sessionId: null,
-                  surface: 'chat' as const,
-                },
-              }
-            : {}),
-        },
       };
     });
     persistUiResumeStateSnapshot(get());
   },
 
   closeSplitChat: () => {
+    // Collapse the whole tree down to a single pane showing the focused session.
     set((state) => {
-      const focusedSessionId =
-        state.chatPanes[state.activePaneId].sessionId ??
-        state.chatPanes.primary.sessionId ??
-        state.chatPanes.secondary.sessionId ??
-        state.activeSessionId;
-      // Collapsing to single tears down the split: the surviving session moves
-      // into the primary pane and the secondary pane (the Side Chat) is emptied.
-      // Leaving a sessionId on the secondary pane here would persist to disk and
-      // make the Side Chat reopen with stale content instead of its empty state.
-      return {
-        chatLayoutMode: 'single',
-        savedSplitVisible: false,
-        activePaneId: 'primary',
-        activeSessionId: focusedSessionId,
-        showNewSession: focusedSessionId === null,
-        chatPanes: {
-          ...state.chatPanes,
-          primary: {
-            ...state.chatPanes.primary,
-            id: 'primary',
-            sessionId: focusedSessionId,
-            surface: 'chat',
-          },
-          secondary: {
-            ...state.chatPanes.secondary,
-            id: 'secondary',
-            sessionId: null,
-            surface: 'chat',
-          },
-        },
-      };
+      const active = tree.getActiveLeaf(state.workspaceLayout);
+      const collapsed = tree.singleLayout(tree.makeLeaf(active.id, active.sessionId, active.surface));
+      return { ...layoutPatch(collapsed), showNewSession: active.sessionId === null };
     });
     persistUiResumeStateSnapshot(get());
   },
 
   swapChatPanes: () => {
     set((state) => {
-      if (state.chatLayoutMode !== 'split') {
-        return state;
-      }
-
-      const nextActivePaneId = state.activePaneId === 'primary' ? 'secondary' : 'primary';
-      return {
-        chatPanes: {
-          primary: {
-            ...state.chatPanes.secondary,
-            id: 'primary',
-          },
-          secondary: {
-            ...state.chatPanes.primary,
-            id: 'secondary',
-          },
-        },
-        activePaneId: nextActivePaneId,
-        activeSessionId: state.chatPanes[nextActivePaneId].sessionId,
-      };
+      const leaves = tree.allLeaves(state.workspaceLayout.root);
+      if (leaves.length < 2) return {};
+      return layoutPatch(tree.swapLeaves(state.workspaceLayout, leaves[0].id, leaves[1].id));
     });
     persistUiResumeStateSnapshot(get());
   },
 
   setShowNewSession: (show) => {
-    set((state) => ({
-      showNewSession: show,
-      activeWorkspace: 'chat',
-      newSessionKey: show ? state.newSessionKey + 1 : state.newSessionKey,
-      chatPanes: show
-        ? {
-            ...state.chatPanes,
-            [state.activePaneId]: {
-              ...state.chatPanes[state.activePaneId],
-              sessionId: null,
-            },
-          }
-        : state.chatPanes,
-      activeSessionId: show ? null : state.activeSessionId,
-    }));
+    set((state) => {
+      if (!show) {
+        return { showNewSession: false, activeWorkspace: 'chat' };
+      }
+      const active = tree.getActiveLeaf(state.workspaceLayout);
+      return {
+        ...layoutPatch(tree.placeSession(state.workspaceLayout, active.id, null)),
+        activeWorkspace: 'chat',
+        newSessionKey: state.newSessionKey + 1,
+        showNewSession: true,
+      };
+    });
     persistUiResumeStateSnapshot(get());
   },
 
@@ -2450,15 +2385,9 @@ export const useAppStore = create<Store>()(
         ...state.activeChannelByProject,
         [getProjectChannelKey(draftProjectCwd)]: normalizeWorkspaceChannelId(draftChannelId),
       },
-      activeSessionId: draft.id,
-      chatPanes: {
-        ...state.chatPanes,
-        [state.activePaneId]: {
-          ...state.chatPanes[state.activePaneId],
-          sessionId: draft.id,
-          surface: 'chat',
-        },
-      },
+      ...layoutPatch(
+        tree.placeSession(state.workspaceLayout, tree.getActiveLeaf(state.workspaceLayout).id, draft.id)
+      ),
       activeWorkspace: 'chat',
       showNewSession: false,
     }));
@@ -2473,36 +2402,27 @@ export const useAppStore = create<Store>()(
         return state;
       }
 
-      const { [sessionId]: removed, ...rest } = state.sessions;
-      const visibleSessionIds = Object.values(rest)
-        .filter((item) => !item.hiddenFromThreads)
-        .sort((left, right) => right.updatedAt - left.updatedAt)
-        .map((item) => item.id);
-      const nextActiveSessionId =
-        state.activeSessionId === sessionId ? visibleSessionIds[0] || null : state.activeSessionId;
-      const nextPanes = {
-        primary: {
-          id: 'primary' as const,
-          sessionId: state.chatPanes.primary.sessionId === sessionId ? (nextActiveSessionId ?? null) : state.chatPanes.primary.sessionId,
-          surface: 'chat',
-        },
-        secondary: {
-          id: 'secondary' as const,
-          sessionId: state.chatPanes.secondary.sessionId === sessionId ? null : state.chatPanes.secondary.sessionId,
-          surface: 'chat',
-        },
-      };
+      const { [sessionId]: _removed, ...rest } = state.sessions;
+      // Vacate every leaf holding the removed draft (it stays as an empty pane).
+      let layout = tree.clearMissingSessions(state.workspaceLayout, (sid) => sid in rest);
+      // If the focused pane is now empty because it held the removed-and-active
+      // draft, backfill it with the most recent remaining session.
+      const activeLeaf = tree.getActiveLeaf(layout);
+      if (activeLeaf.sessionId === null && state.activeSessionId === sessionId) {
+        const fallback = Object.values(rest)
+          .filter((item) => !item.hiddenFromThreads)
+          .sort((left, right) => right.updatedAt - left.updatedAt)
+          .map((item) => item.id)[0];
+        if (fallback) {
+          layout = tree.placeSession(layout, activeLeaf.id, fallback);
+        }
+      }
 
       return {
         ...state,
         sessions: rest,
-        activeSessionId: nextActiveSessionId,
-        chatPanes: nextPanes,
-        chatLayoutMode:
-          state.chatLayoutMode === 'split' && !nextPanes.secondary.sessionId ? 'single' : state.chatLayoutMode,
-        activePaneId:
-          state.chatLayoutMode === 'split' && !nextPanes.secondary.sessionId ? 'primary' : state.activePaneId,
-        showNewSession: nextActiveSessionId === null,
+        ...layoutPatch(layout),
+        showNewSession: tree.activeSessionId(layout) === null,
         pendingDraftSessionId:
           state.pendingDraftSessionId === sessionId ? null : state.pendingDraftSessionId,
       };
@@ -2700,6 +2620,8 @@ export const useAppStore = create<Store>()(
         agentSetupDismissedAt: state.agentSetupDismissedAt,
         agentSetupCompletedAt: state.agentSetupCompletedAt,
         chatSidebarView: state.chatSidebarView,
+        schemaVersion: WORKSPACE_LAYOUT_SCHEMA_VERSION,
+        workspaceLayout: state.workspaceLayout,
         chatLayoutMode: state.chatLayoutMode,
         savedSplitVisible: state.savedSplitVisible,
         activePaneId: state.activePaneId,
@@ -2731,6 +2653,8 @@ export const useAppStore = create<Store>()(
           agentSetupDismissedAt?: number | null;
           agentSetupCompletedAt?: number | null;
           chatSidebarView?: ChatSidebarView;
+          schemaVersion?: number;
+          workspaceLayout?: unknown;
           chatLayoutMode?: ChatLayoutMode;
           savedSplitVisible?: boolean;
           activePaneId?: ChatPaneId;
@@ -2771,14 +2695,26 @@ export const useAppStore = create<Store>()(
           ? persisted.uiFontFamily
           : DEFAULT_UI_FONT_FAMILY;
         const chatCodeFontFamily = persisted?.chatCodeFontFamily ?? currentState.chatCodeFontFamily;
-        const chatLayoutMode = normalizeChatLayoutMode(persisted?.chatLayoutMode);
-        const savedSplitVisible = persisted?.savedSplitVisible ?? currentState.savedSplitVisible;
-        const activePaneId = normalizeActivePaneId(persisted?.activePaneId);
-        const chatPanes = normalizeChatPanes(
-          persisted?.chatPanes as import('../shared/types').UiResumeState['chatPanes'],
-          currentState.activeSessionId,
-          chatLayoutMode
+        // workspaceLayout is the source of truth; derive the legacy pane fields.
+        const workspaceLayout = repairLayout(
+          resolveWorkspaceLayout(persisted as Parameters<typeof resolveWorkspaceLayout>[0])
         );
+        const derivedPaneFields = deriveLegacyFields(workspaceLayout);
+        const chatLayoutMode = derivedPaneFields.chatLayoutMode;
+        const savedSplitVisible = derivedPaneFields.savedSplitVisible;
+        const activePaneId = derivedPaneFields.activePaneId;
+        const chatPanes: Record<ChatPaneId, ChatPaneState> = {
+          primary: {
+            id: 'primary',
+            sessionId: derivedPaneFields.chatPanes.primary.sessionId,
+            surface: derivedPaneFields.chatPanes.primary.surface ?? 'chat',
+          },
+          secondary: {
+            id: 'secondary',
+            sessionId: derivedPaneFields.chatPanes.secondary.sessionId,
+            surface: derivedPaneFields.chatPanes.secondary.surface ?? 'chat',
+          },
+        };
         const draftSessions = Object.fromEntries(
           Object.entries(persisted?.draftSessions || {}).filter(([, session]) => session?.isDraft)
         ) as Record<string, SessionView>;
@@ -2814,11 +2750,12 @@ export const useAppStore = create<Store>()(
           agentSetupDismissedAt: persisted?.agentSetupDismissedAt ?? currentState.agentSetupDismissedAt,
           agentSetupCompletedAt: persisted?.agentSetupCompletedAt ?? currentState.agentSetupCompletedAt,
           chatSidebarView: sidebarView,
+          workspaceLayout,
           chatLayoutMode,
           savedSplitVisible,
           activePaneId,
           chatPanes,
-          chatSplitRatio: sanitizeChatSplitRatio(persisted?.chatSplitRatio, currentState.chatSplitRatio),
+          chatSplitRatio: derivedPaneFields.chatSplitRatio,
           sidebarCollapsed: persisted?.sidebarCollapsed ?? currentState.sidebarCollapsed,
           sidebarWidth: sanitizeSidebarWidth(persisted?.sidebarWidth, currentState.sidebarWidth),
           projectTreeCollapsed: persisted?.projectTreeCollapsed ?? currentState.projectTreeCollapsed,
@@ -2960,7 +2897,6 @@ function handleSessionList(
   const showNewSession = get().showNewSession && !hasVisibleSessions;
 
   const keepNewSessionOpen = get().showNewSession;
-  const currentPanes = get().chatPanes;
 
   // 默认选中最新更新的会话，但如果当前明确停留在 New Thread，就不要偷偷回填旧会话
   let activeSessionId = keepNewSessionOpen ? null : get().activeSessionId;
@@ -2972,42 +2908,27 @@ function handleSessionList(
     activeSessionId = visibleSessionIds[0] || null;
   }
 
-  const normalizePaneSessionId = (sessionId: string | null): string | null => {
-    if (!sessionId) {
-      return null;
+  // Reconcile every pane in the tree: drop sessions that no longer exist or are
+  // hidden, then backfill the focused pane with the resolved active session.
+  let layout = tree.clearMissingSessions(
+    get().workspaceLayout,
+    (sid) => Boolean(sessionsMap[sid]) && !sessionsMap[sid].hiddenFromThreads
+  );
+  if (!keepNewSessionOpen && activeSessionId) {
+    const activeLeaf = tree.getActiveLeaf(layout);
+    if (activeLeaf.sessionId === null) {
+      layout = tree.placeSession(layout, activeLeaf.id, activeSessionId);
     }
-
-    return sessionsMap[sessionId] && !sessionsMap[sessionId].hiddenFromThreads ? sessionId : null;
-  };
-
-  const nextPanes: Record<ChatPaneId, ChatPaneState> = {
-    primary: {
-      id: 'primary',
-      sessionId:
-        normalizePaneSessionId(currentPanes.primary.sessionId) ??
-        activeSessionId,
-      surface: 'chat',
-    },
-    secondary: {
-      id: 'secondary',
-      sessionId: normalizePaneSessionId(currentPanes.secondary.sessionId),
-      surface: 'chat',
-    },
-  };
+  }
 
   set({
     sessions: sessionsMap,
     workspaceChannelsByProject: nextWorkspaceChannelsByProject,
     activeChannelByProject: nextActiveChannelByProject,
+    ...layoutPatch(layout),
+    // Honor an explicit "stay on New Thread" even if a pane still holds a session.
+    activeSessionId: keepNewSessionOpen ? null : tree.activeSessionId(layout),
     showNewSession,
-    activeSessionId,
-    chatPanes: nextPanes,
-    chatLayoutMode:
-      get().chatLayoutMode === 'split' && nextPanes.secondary.sessionId ? 'split' : 'single',
-    activePaneId:
-      get().chatLayoutMode === 'split' && nextPanes.secondary.sessionId
-        ? get().activePaneId
-        : 'primary',
     sessionsLoaded: true,
   });
 }
@@ -3302,34 +3223,22 @@ function handleSessionDeleted(
   get: () => Store
 ) {
   const state = get();
-  const { [sessionId]: deleted, ...rest } = state.sessions;
+  const { [sessionId]: _deleted, ...rest } = state.sessions;
 
-  // 如果删除的是当前活动会话，选择另一个
-  let newActiveId = state.activeSessionId;
+  // Vacate every pane holding the deleted session; backfill the focused pane if
+  // it was showing the deleted (active) session.
+  let layout = tree.clearMissingSessions(state.workspaceLayout, (sid) => sid in rest);
   if (state.activeSessionId === sessionId) {
-    const remaining = Object.keys(rest);
-    newActiveId = remaining.length > 0 ? remaining[0] : null;
+    const activeLeaf = tree.getActiveLeaf(layout);
+    if (activeLeaf.sessionId === null) {
+      const fallback = Object.keys(rest)[0];
+      if (fallback) layout = tree.placeSession(layout, activeLeaf.id, fallback);
+    }
   }
-
-  const nextPanes: Record<ChatPaneId, ChatPaneState> = {
-    primary: {
-      id: 'primary',
-      sessionId: state.chatPanes.primary.sessionId === sessionId ? (newActiveId ?? null) : state.chatPanes.primary.sessionId,
-      surface: 'chat',
-    },
-    secondary: {
-      id: 'secondary',
-      sessionId: state.chatPanes.secondary.sessionId === sessionId ? null : state.chatPanes.secondary.sessionId,
-      surface: 'chat',
-    },
-  };
 
   set({
     sessions: rest,
-    activeSessionId: newActiveId,
-    chatPanes: nextPanes,
-    chatLayoutMode: state.chatLayoutMode === 'split' && nextPanes.secondary.sessionId ? 'split' : 'single',
-    activePaneId: state.chatLayoutMode === 'split' && nextPanes.secondary.sessionId ? state.activePaneId : 'primary',
+    ...layoutPatch(layout),
     showNewSession: Object.keys(rest).length === 0,
   });
 }
