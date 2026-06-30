@@ -65,7 +65,10 @@ const READOUT_TEXT_CHAR_LIMIT = 6000;
 const READOUT_LINK_LIMIT = 15;
 
 interface BrowserPanelProps {
-  sessionId: string;
+  // The chat session to inject "send to chat" output into. Null when the
+  // browser is used standalone (no conversation open) — in that case the
+  // to-chat actions create a new draft conversation on demand.
+  sessionId: string | null;
   browserSessionId?: string;
   collapsed: boolean;
   width: number;
@@ -126,8 +129,15 @@ export function BrowserPanel({
   topInset = 0,
   embedded = false,
 }: BrowserPanelProps) {
-  const browserSessionId = browserSessionIdProp ?? sessionId;
+  const browserSessionId = browserSessionIdProp ?? sessionId ?? '__standalone-browser__';
   const requestChatInjection = useAppStore((s) => s.requestChatInjection);
+  const createDraftSession = useAppStore((s) => s.createDraftSession);
+  // Target chat session for "send to chat" actions; create a draft if browsing
+  // standalone (no conversation open).
+  const resolveChatTargetId = useCallback(
+    () => sessionId ?? createDraftSession(),
+    [sessionId, createDraftSession]
+  );
 
   const cachedSessionState = useBrowserStateStore(
     (s) => s.sessionStatesBySessionId[browserSessionId] ?? null
@@ -221,7 +231,7 @@ export function BrowserPanel({
         .join('\n');
       const text = `From [${event.pageTitle || event.pageUrl}](${event.pageUrl}):\n\n${quoted}`;
       requestChatInjection({
-        sessionId,
+        sessionId: resolveChatTargetId(),
         text,
         mode: 'append',
         source: 'browser:selection',
@@ -427,7 +437,7 @@ export function BrowserPanel({
         result.pageUrl || activeTab.url
       })`;
       requestChatInjection({
-        sessionId,
+        sessionId: resolveChatTargetId(),
         text: note,
         attachments: [attachment],
         mode: 'append',
@@ -455,7 +465,7 @@ export function BrowserPanel({
       }
       const text = formatReadoutText(result);
       requestChatInjection({
-        sessionId,
+        sessionId: resolveChatTargetId(),
         text,
         mode: 'append',
         source: 'browser:readout',

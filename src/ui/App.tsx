@@ -107,8 +107,16 @@ function getProjectUtilityTabKind(target: ProjectUtilityPanelTarget): ProjectUti
   return target;
 }
 
-function getBrowserUtilitySessionId(chatSessionId: string, target: ProjectUtilityPanelTarget): string {
-  return target === 'browser' ? chatSessionId : `${chatSessionId}:${target}`;
+// Standalone browser session used when no chat session is active, so the
+// browser can be used for plain browsing without first opening a conversation.
+const STANDALONE_BROWSER_SESSION_ID = '__standalone-browser__';
+
+function getBrowserUtilitySessionId(
+  chatSessionId: string | null,
+  target: ProjectUtilityPanelTarget
+): string {
+  const base = chatSessionId ?? STANDALONE_BROWSER_SESSION_ID;
+  return target === 'browser' ? base : `${base}:${target}`;
 }
 
 function getBrowserUtilityLabel(
@@ -931,7 +939,7 @@ export function App() {
             activeRightUtilityTab ??
             (activeUtilityPanel !== 'launcher' ? activeUtilityPanel : null)
           }
-          browserAvailable={Boolean(activeSessionId)}
+          browserAvailable={true}
           width={rightUtilityPanelWidth}
           onWidthChange={setRightUtilityPanelWidth}
           fullscreen={rightPanelFullscreen !== null}
@@ -943,7 +951,7 @@ export function App() {
         >
           <RightPanelLauncherContent
             hidden={activeUtilityPanel !== 'launcher'}
-            browserAvailable={Boolean(activeSessionId)}
+            browserAvailable={true}
             onOpenFiles={() => openRightUtilityTab('files')}
             onOpenSideChat={() => {
               const store = useAppStore.getState();
@@ -983,24 +991,22 @@ export function App() {
               }
             />
           ) : null}
-          {activeSessionId
-            ? browserUtilityTabs.map((tabId) => (
-                <BrowserPanel
-                  key={tabId}
-                  embedded
-                  sessionId={activeSessionId}
-                  browserSessionId={getBrowserUtilitySessionId(activeSessionId, tabId)}
-                  collapsed={activeUtilityPanel !== 'browser' || activeRightUtilityTab !== tabId}
-                  width={rightUtilityPanelWidth}
-                  onClose={() => closeRightUtilityTab(tabId)}
-                  onWidthChange={setRightUtilityPanelWidth}
-                  isFullscreen={rightPanelFullscreen === 'browser'}
-                  onToggleFullscreen={() =>
-                    setRightPanelFullscreen(rightPanelFullscreen === 'browser' ? null : 'browser')
-                  }
-                />
-              ))
-            : null}
+          {browserUtilityTabs.map((tabId) => (
+            <BrowserPanel
+              key={tabId}
+              embedded
+              sessionId={activeSessionId}
+              browserSessionId={getBrowserUtilitySessionId(activeSessionId, tabId)}
+              collapsed={activeUtilityPanel !== 'browser' || activeRightUtilityTab !== tabId}
+              width={rightUtilityPanelWidth}
+              onClose={() => closeRightUtilityTab(tabId)}
+              onWidthChange={setRightUtilityPanelWidth}
+              isFullscreen={rightPanelFullscreen === 'browser'}
+              onToggleFullscreen={() =>
+                setRightPanelFullscreen(rightPanelFullscreen === 'browser' ? null : 'browser')
+              }
+            />
+          ))}
           <RightTerminalPanel
             embedded
             collapsed={activeUtilityPanel !== 'terminal'}
