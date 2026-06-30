@@ -17,6 +17,11 @@ const tscBin = path.join(
   process.platform === 'win32' ? 'tsc.cmd' : 'tsc'
 );
 
+const testFiles = [
+  'scripts/tests/layout-tree.test.ts',
+  'scripts/tests/layout-adapter.test.ts',
+];
+
 const compile = spawnSync(
   tscBin,
   [
@@ -27,7 +32,7 @@ const compile = spawnSync(
     '--esModuleInterop',
     '--strict',
     '--outDir', tmpDir,
-    'scripts/tests/layout-tree.test.ts',
+    ...testFiles,
   ],
   { cwd: root, stdio: 'inherit' }
 );
@@ -36,14 +41,14 @@ if (compile.status !== 0) {
   process.exit(compile.status ?? 1);
 }
 
-const run = spawnSync(
-  process.execPath,
-  [path.join(tmpDir, 'scripts', 'tests', 'layout-tree.test.js')],
-  { cwd: root, stdio: 'inherit' }
-);
-fs.rmSync(tmpDir, { recursive: true, force: true });
-if (run.status !== 0) {
-  process.exit(run.status ?? 1);
+for (const file of testFiles) {
+  const compiled = path.join(tmpDir, file.replace(/\.ts$/, '.js'));
+  const run = spawnSync(process.execPath, [compiled], { cwd: root, stdio: 'inherit' });
+  if (run.status !== 0) {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    process.exit(run.status ?? 1);
+  }
 }
+fs.rmSync(tmpDir, { recursive: true, force: true });
 
-console.log('layout-tree: checks passed');
+console.log('layout-tree + layout-adapter: checks passed');
