@@ -73,8 +73,13 @@ assert.ok(
     store.includes("from './layout-adapter'") &&
     store.includes('splitPaneAt:') &&
     store.includes('closePaneById:') &&
-    store.includes('placeSessionInPane:'),
-  'the store must expose the tiling actions and drive panes via layoutPatch'
+    store.includes('placeSessionInPane:') &&
+    // Guard the stale-tree bug class: session-routing paths (new session, DM,
+    // workspace switch) must update the tree, never write the active pane
+    // directly, or the focused pane renders empty while the session exists.
+    !store.includes('[state.activePaneId]: {') &&
+    !store.includes('[current.activePaneId]: {'),
+  'the store must expose the tiling actions and drive panes via layoutPatch (no direct chatPanes[activePaneId] writes)'
 );
 
 // --- Side Chat folded into the tree (no docked panel) ----------------------

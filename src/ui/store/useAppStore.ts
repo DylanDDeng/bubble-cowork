@@ -1389,18 +1389,16 @@ export const useAppStore = create<Store>()(
 
       return {
         activeWorkspace,
-        activeSessionId: nextActiveSessionId,
+        ...layoutPatch(
+          tree.placeSession(
+            state.workspaceLayout,
+            tree.getActiveLeaf(state.workspaceLayout).id,
+            nextActiveSessionId
+          )
+        ),
         activeChannelByProject: nextActiveSessionId && state.sessions[nextActiveSessionId]
           ? applyActiveProjectChannel(state.activeChannelByProject, state.sessions[nextActiveSessionId])
           : state.activeChannelByProject,
-        chatPanes: {
-          ...state.chatPanes,
-        [state.activePaneId]: {
-          ...state.chatPanes[state.activePaneId],
-          sessionId: nextActiveSessionId,
-          surface: 'chat',
-        },
-      },
       };
     }),
 
@@ -1868,15 +1866,9 @@ export const useAppStore = create<Store>()(
             ...current.sessions,
             [nextSession.id]: nextSession,
           },
-      activeSessionId: sessionId,
-      chatPanes: {
-        ...current.chatPanes,
-        [current.activePaneId]: {
-          ...current.chatPanes[current.activePaneId],
-          sessionId,
-          surface: 'chat',
-        },
-      },
+      ...layoutPatch(
+        tree.placeSession(current.workspaceLayout, tree.getActiveLeaf(current.workspaceLayout).id, sessionId)
+      ),
       activeWorkspace: 'chat',
       chatSidebarView: 'threads',
       showNewSession: false,
@@ -3154,23 +3146,29 @@ function handleSessionStatus(
     };
 
     const shouldFocusNewSession = state.activeWorkspace === 'chat' && hiddenFromThreads !== true;
+    const sessionsAfter = {
+      ...nextSessions,
+      [sessionId]: newSession,
+    };
+
+    // Update the workspace layout tree (source of truth), not just legacy
+    // chatPanes. The pending draft was just removed from sessions, so vacate any
+    // leaf still holding it; then place the new real session into the focused
+    // pane. Without this the active leaf keeps the dead draft id and renders the
+    // empty "Drop a conversation here" state even though the session exists.
+    let layout = state.workspaceLayout;
+    if (pendingDraftSessionId) {
+      layout = tree.clearMissingSessions(layout, (sid) => sid in sessionsAfter);
+    }
+    if (shouldFocusNewSession) {
+      layout = tree.placeSession(layout, tree.getActiveLeaf(layout).id, sessionId);
+    }
 
     set({
-      sessions: {
-        ...nextSessions,
-        [sessionId]: newSession,
-      },
+      sessions: sessionsAfter,
       activeChannelByProject: applyActiveProjectChannel(state.activeChannelByProject, newSession),
+      ...layoutPatch(layout),
       activeSessionId: shouldFocusNewSession ? sessionId : state.activeSessionId,
-      chatPanes: shouldFocusNewSession
-        ? {
-            ...state.chatPanes,
-            [state.activePaneId]: {
-              ...state.chatPanes[state.activePaneId],
-              sessionId,
-            },
-          }
-        : state.chatPanes,
       showNewSession: false,
       pendingStart: false,
       pendingDraftSessionId: null,
