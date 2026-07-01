@@ -3971,11 +3971,8 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
       sessions.setClaudeSessionId(fork.id, forkedClaudeId);
 
-      // Copy the transcript so the forked pane shows the same conversation.
-      const history = sessions.getSessionHistory(sourceSessionId);
-      if (history.length > 0) {
-        sessions.replaceSessionHistory(fork.id, history);
-      }
+      // Copy the transcript (re-keyed) so the forked pane shows the conversation.
+      sessions.copySessionHistory(sourceSessionId, fork.id);
 
       const row = sessions.getSession(fork.id);
       if (!row) {

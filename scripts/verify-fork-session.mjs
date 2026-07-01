@@ -24,9 +24,18 @@ assert.ok(
   ipc.includes("ipcMainHandle('fork-session'") &&
     ipc.includes('forkClaudeAgentSession(') &&
     ipc.includes('bootstrapClaudeSessionFromHistory(') &&
-    ipc.includes('replaceSessionHistory(') &&
+    ipc.includes('copySessionHistory(') &&
     ipc.includes('buildSessionInfoFromRow('),
   'fork-session handler must bootstrap a fork point when needed, fork, copy history, and return SessionInfo'
+);
+
+// The transcript copy must re-key messages to avoid a messages.id collision.
+const store2 = read('src/electron/libs/session-store.ts');
+assert.ok(
+  store2.includes('export function copySessionHistory') &&
+    /uuidv4\(\)/.test(store2.split('copySessionHistory')[1] || '') &&
+    (store2.split('copySessionHistory')[1] || '').includes('parentTurnId'),
+  'copySessionHistory must re-key message uuids (and remap parentTurnId) to avoid a messages.id collision'
 );
 
 // Preload bridge

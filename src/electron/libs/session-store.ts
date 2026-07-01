@@ -2312,6 +2312,39 @@ export function replaceSessionHistory(sessionId: string, messages: StreamMessage
   invalidateClaudeUsageReportCache();
 }
 
+/**
+ * Copy one session's transcript into another (for forking). Every message is
+ * re-keyed with a fresh uuid so it doesn't collide with the source's rows
+ * (messages.id is the message uuid, unique across the table); parentTurnId is
+ * remapped consistently so turn grouping survives the copy.
+ */
+export function copySessionHistory(sourceSessionId: string, destSessionId: string): void {
+  const history = getSessionHistory(sourceSessionId);
+  if (history.length === 0) return;
+
+  const idMap = new Map<string, string>();
+  for (const message of history) {
+    const uuid = (message as { uuid?: string }).uuid;
+    if (typeof uuid === 'string' && !idMap.has(uuid)) {
+      idMap.set(uuid, uuidv4());
+    }
+  }
+
+  const copied = history.map((message) => {
+    const source = message as { uuid?: string; parentTurnId?: string };
+    const next = { ...message } as { uuid?: string; parentTurnId?: string };
+    if (typeof source.uuid === 'string') {
+      next.uuid = idMap.get(source.uuid);
+    }
+    if (typeof source.parentTurnId === 'string' && idMap.has(source.parentTurnId)) {
+      next.parentTurnId = idMap.get(source.parentTurnId);
+    }
+    return next as StreamMessage;
+  });
+
+  replaceSessionHistory(destSessionId, copied);
+}
+
 // 获取会话历史消息
 export function getSessionHistory(sessionId: string): StreamMessage[] {
   const stmt = getDb().prepare(`
