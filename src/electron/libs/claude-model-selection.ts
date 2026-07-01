@@ -41,11 +41,10 @@ export function normalizeClaudeRequestedModel(model?: string | null): string | u
 
 export function supportsClaude1mContext(model?: string | null): boolean {
   const normalized = normalizeClaudeRequestedModel(model);
-  return (
-    normalized === 'claude-sonnet-4-6' ||
-    normalized === 'claude-opus-4-7' ||
-    normalized === 'claude-opus-4-6'
-  );
+  if (!normalized) return false;
+  // Family-based (any sonnet/opus generation), mirroring the frontend rule in
+  // src/ui/utils/claude-model.ts so new model versions are supported without a code change.
+  return /^claude-(sonnet|opus)-\d+/i.test(normalized);
 }
 
 export function toClaudeCodeRuntimeModel(

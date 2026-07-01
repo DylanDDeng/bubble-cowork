@@ -125,6 +125,51 @@ export function formatClaudeModelLabel(model: string, context1m = false): string
   return model;
 }
 
+// Collapse each Claude family (sonnet/opus/haiku) to a single "latest" entry and drop
+// superseded versions. Within a family the survivor is:
+//   1. the bare alias (e.g. "sonnet" → "Sonnet (latest)") if one is present — it always
+//      tracks the newest model, so the concrete latest version is merged into it; else
+//   2. the highest concrete version, decided by comparing version numbers parsed from the
+//      id, so a newer generation wins automatically — no hardcoded model list to maintain.
+// Models that don't parse into a family (Fable, third-party ids) pass through untouched,
+// and anything in `protectedModels` (e.g. the currently selected model) is always kept.
+function collapseClaudeFamiliesToLatest(
+  models: string[],
+  protectedModels: Set<string> = new Set()
+): string[] {
+  const aliasByFamily = new Map<string, string>();
+  for (const model of models) {
+    const alias = parseClaudeShortAlias(model);
+    if (alias) aliasByFamily.set(alias, model);
+  }
+
+  const latestByFamily = new Map<string, { major: number; minor: number; id: string }>();
+  for (const model of models) {
+    const parsed = parseClaudeModelFamily(model);
+    if (!parsed) continue;
+    const current = latestByFamily.get(parsed.family);
+    if (
+      !current ||
+      parsed.major > current.major ||
+      (parsed.major === current.major && parsed.minor > current.minor)
+    ) {
+      latestByFamily.set(parsed.family, { major: parsed.major, minor: parsed.minor, id: model });
+    }
+  }
+
+  return models.filter((model) => {
+    if (protectedModels.has(model)) return true;
+    const alias = parseClaudeShortAlias(model);
+    if (alias) return aliasByFamily.get(alias) === model;
+    const parsed = parseClaudeModelFamily(model);
+    if (!parsed) return true;
+    // Drop superseded versions, and drop the concrete latest when a bare alias already
+    // represents this family's "latest" slot (they resolve to the same model).
+    if (latestByFamily.get(parsed.family)?.id !== model) return false;
+    return !aliasByFamily.has(parsed.family);
+  });
+}
+
 export function buildClaudeModelOptions(
   config: ClaudeModelConfig,
   extraModels: Array<string | null | undefined> = []
@@ -136,5 +181,6 @@ export function buildClaudeModelOptions(
     .filter((value): value is string => Boolean(value && value.trim()))
     .map((value) => canonicalizeClaudeModel(value) || value.trim());
 
-  return Array.from(new Set([...normalizedConfigValues, ...normalizedExtras]));
+  const all = Array.from(new Set([...normalizedConfigValues, ...normalizedExtras]));
+  return collapseClaudeFamiliesToLatest(all, new Set(normalizedExtras));
 }
