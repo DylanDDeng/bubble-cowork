@@ -258,7 +258,7 @@ function normalizeAgentPermissionPolicyForProfile(
 }
 
 function normalizeAgentProvider(value: unknown): AgentProvider {
-  return value === 'codex' || value === 'opencode' || value === 'kimi' || value === 'grok'
+  return value === 'codex' || value === 'opencode' || value === 'kimi' || value === 'grok' || value === 'pi'
     ? value
     : 'claude';
 }

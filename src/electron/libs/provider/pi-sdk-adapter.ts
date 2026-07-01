@@ -19,6 +19,7 @@ import type {
 } from './types';
 import {
   loadPiSdk,
+  createPiAuthAndRegistry,
   type PiAgentMessage,
   type PiAgentSession,
   type PiAgentSessionEvent,
@@ -324,8 +325,7 @@ export class PiSdkAdapter implements ProviderAdapter {
   async startSession(input: ProviderSessionStartInput): Promise<ProviderSession> {
     const cwd = input.cwd || process.cwd();
     const sdk = await loadPiSdk();
-    const authStorage = sdk.AuthStorage.create();
-    const modelRegistry = sdk.ModelRegistry.create(authStorage);
+    const { authStorage, modelRegistry } = createPiAuthAndRegistry(sdk);
     const selectedModel = this.resolveModel(modelRegistry, input.model);
     const sessionManager = await this.createSessionManager(input.resumeSessionId, cwd, sdk.SessionManager);
 
@@ -514,8 +514,7 @@ export class PiSdkAdapter implements ProviderAdapter {
       return;
     }
     const sdk = await loadPiSdk();
-    const authStorage = sdk.AuthStorage.create();
-    const modelRegistry = sdk.ModelRegistry.create(authStorage);
+    const { modelRegistry } = createPiAuthAndRegistry(sdk);
     const selectedModel = this.resolveModel(modelRegistry, model);
     if (!selectedModel) {
       session.model = model;

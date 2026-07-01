@@ -30,6 +30,7 @@ import type {
   CodexRuntimeStatus,
   KimiModelConfig,
   GrokModelConfig,
+  PiModelConfig,
   OpenCodeModelConfig,
   OpenCodeRuntimeStatus,
   KimiRuntimeStatus,
@@ -171,6 +172,7 @@ declare global {
     getKimiRuntimeStatus: () => Promise<KimiRuntimeStatus>;
     getGrokRuntimeStatus: () => Promise<GrokRuntimeStatus>;
     getGrokModelConfig: () => Promise<GrokModelConfig>;
+    getPiModelConfig: () => Promise<PiModelConfig>;
     getClaudeRuntimeStatus: (model?: string | null) => Promise<ClaudeRuntimeStatus>;
     getSkillMarketHot: (limit?: number) => Promise<SkillMarketItem[]>;
     searchSkillMarket: (query: string, limit?: number) => Promise<SkillMarketItem[]>;

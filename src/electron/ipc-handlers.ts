@@ -50,6 +50,7 @@ import { getOpencodeModelConfig, saveOpencodeModelVisibility } from './libs/open
 import { getOpencodeRuntimeStatus } from './libs/opencode-runtime-status';
 import { getKimiModelConfig } from './libs/kimi-settings';
 import { getGrokModelConfig } from './libs/grok-settings';
+import { getPiModelConfig } from './libs/pi-settings';
 import { formatKimiRuntimeBlockingMessage, getKimiRuntimeStatus } from './libs/kimi-runtime-status';
 import { formatGrokRuntimeBlockingMessage, getGrokRuntimeStatus } from './libs/grok-runtime-status';
 import { AutomationScheduler } from './libs/automation-scheduler';
@@ -4294,6 +4295,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('get-grok-model-config', async () => {
     return getGrokModelConfig();
+  });
+
+  ipcMainHandle('get-pi-model-config', async () => {
+    return getPiModelConfig();
   });
 
   ipcMainHandle('get-claude-runtime-status', async (_event, model?: string | null) => {

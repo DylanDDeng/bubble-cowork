@@ -5,6 +5,7 @@ import { useCodexModelConfig } from './useCodexModelConfig';
 import { useOpencodeModelConfig } from './useOpencodeModelConfig';
 import { useKimiModelConfig } from './useKimiModelConfig';
 import { useGrokModelConfig } from './useGrokModelConfig';
+import { usePiModelConfig } from './usePiModelConfig';
 import { useCompatibleProviderConfig } from './useCompatibleProviderConfig';
 import { loadPreferredProvider, savePreferredProvider } from '../utils/provider';
 import {
@@ -69,6 +70,7 @@ import {
 } from '../utils/opencode-permission';
 const KIMI_MODEL_STORAGE_KEY = 'cowork.preferredKimiModel';
 const GROK_MODEL_STORAGE_KEY = 'cowork.preferredGrokModel';
+const PI_MODEL_STORAGE_KEY = 'cowork.preferredPiModel';
 
 export interface ComposerModelOption {
   key: string;
@@ -112,6 +114,21 @@ function savePreferredGrokModel(model: string | null): void {
     return;
   }
   window.localStorage.setItem(GROK_MODEL_STORAGE_KEY, model);
+}
+
+function loadPreferredPiModel(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(PI_MODEL_STORAGE_KEY);
+  return raw?.trim() || null;
+}
+
+function savePreferredPiModel(model: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (!model) {
+    window.localStorage.removeItem(PI_MODEL_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(PI_MODEL_STORAGE_KEY, model);
 }
 
 function resolveCompatibleProviderForModel(
@@ -300,15 +317,52 @@ function buildOpencodeComposerModelOptions(config: ReturnType<typeof useOpencode
   return [defaultOption, ...explicitOptions];
 }
 
-function buildPiModelOptions(): ComposerModelOption[] {
-  return [
-    {
-      key: 'pi:default',
-      value: '',
-      label: 'Default',
-      description: 'Use Pi default model',
-    },
-  ];
+function formatPiModelLabel(value: string, config: ReturnType<typeof usePiModelConfig>): string {
+  const match = config.availableModels.find((model) => model.name === value);
+  return match?.label || value;
+}
+
+function buildPiModelOptions(config: ReturnType<typeof usePiModelConfig>): ComposerModelOption[] {
+  const defaultOption: ComposerModelOption = {
+    key: 'pi:default',
+    value: '',
+    label: 'Default',
+    description: config.defaultModel
+      ? `Use ${formatPiModelLabel(config.defaultModel, config)}`
+      : 'Use Pi default model',
+  };
+  const models = config.availableModels.length > 0
+    ? config.availableModels
+    : config.options.map((name) => ({ name, label: name, provider: null, enabled: true, isDefault: config.defaultModel === name }));
+  const explicitOptions = models
+    .filter((model) => model.enabled !== false)
+    .map((model) => ({
+      key: `pi:${model.name}`,
+      value: model.name,
+      label: model.label || model.name,
+      description: model.isDefault
+        ? 'Configured default'
+        : model.provider
+          ? model.provider
+          : undefined,
+    }));
+  return [defaultOption, ...explicitOptions];
+}
+
+function resolveConfiguredPiModel(
+  requestedModel: string | null | undefined,
+  config: ReturnType<typeof usePiModelConfig>
+): string | null {
+  const options = buildPiModelOptions(config);
+  const optionValues = new Set(options.map((option) => option.value.trim()));
+  const candidates = [requestedModel, loadPreferredPiModel()];
+  for (const candidate of candidates) {
+    const normalized = candidate?.trim() || null;
+    if (normalized && optionValues.has(normalized)) {
+      return normalized;
+    }
+  }
+  return null;
 }
 
 export function useComposerAgentSelection(input?: {
@@ -326,6 +380,7 @@ export function useComposerAgentSelection(input?: {
   const opencodeModelConfig = useOpencodeModelConfig();
   const kimiModelConfig = useKimiModelConfig();
   const grokModelConfig = useGrokModelConfig();
+  const piModelConfig = usePiModelConfig();
   const { compatibleOptions } = useCompatibleProviderConfig();
   const [provider, setProviderState] = useState<AgentProvider>(() => input?.provider || loadPreferredProvider());
   const [model, setModelState] = useState<string | null>(() => input?.model?.trim() || null);
@@ -367,9 +422,9 @@ export function useComposerAgentSelection(input?: {
       opencode: buildOpencodeComposerModelOptions(opencodeModelConfig),
       kimi: buildKimiModelOptions(kimiModelConfig),
       grok: buildGrokModelOptions(grokModelConfig),
-      pi: buildPiModelOptions(),
+      pi: buildPiModelOptions(piModelConfig),
     };
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig]);
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig]);
 
   const modelOptions = useMemo<ComposerModelOption[]>(() => {
     if (provider === 'claude') {
@@ -417,11 +472,11 @@ export function useComposerAgentSelection(input?: {
     }
 
     if (provider === 'pi') {
-      return buildPiModelOptions();
+      return buildPiModelOptions(piModelConfig);
     }
 
     return [];
-  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, provider]);
+  }, [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig, provider]);
 
   const resolveModelForProvider = useCallback(
     (
@@ -477,7 +532,7 @@ export function useComposerAgentSelection(input?: {
 
       if (nextProvider === 'pi') {
         return {
-          model: null,
+          model: resolveConfiguredPiModel(normalizedRequestedModel, piModelConfig),
           compatibleProviderId: null,
         };
       }
@@ -487,7 +542,7 @@ export function useComposerAgentSelection(input?: {
         compatibleProviderId: null,
       };
     },
-    [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig]
+    [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig]
   );
 
   useEffect(() => {
@@ -573,6 +628,8 @@ export function useComposerAgentSelection(input?: {
         savePreferredKimiModel(nextModel);
       } else if (provider === 'grok') {
         savePreferredGrokModel(nextModel);
+      } else if (provider === 'pi') {
+        savePreferredPiModel(nextModel);
       }
     },
     [provider]

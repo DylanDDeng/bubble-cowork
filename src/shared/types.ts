@@ -193,6 +193,20 @@ export interface GrokModelConfig {
   }>;
 }
 
+export interface PiModelConfig {
+  defaultModel: string | null;
+  options: string[];
+  availableModels: Array<{
+    name: string;
+    label?: string;
+    provider?: string | null;
+    enabled: boolean;
+    isDefault: boolean;
+    maxContextSize?: number | null;
+    capabilities?: string[];
+  }>;
+}
+
 export interface CodexRuntimeStatus {
   ready: boolean;
   cliAvailable: boolean;

@@ -79,6 +79,7 @@ export type {
   OpenCodeRuntimeStatus,
   KimiModelConfig,
   GrokModelConfig,
+  PiModelConfig,
   KimiPermissionMode,
   KimiRuntimeStatus,
   GrokRuntimeStatus,
