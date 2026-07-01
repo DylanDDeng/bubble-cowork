@@ -14,6 +14,12 @@ import { cn } from '@/ui/lib/utils';
 
 type AsChildProp = { asChild?: boolean };
 
+// Base UI renders Menu.Popup with position:static inside Menu.Positioner (the
+// actual positioned element), so z-* classes on the popup are inert. The
+// z-index must live on the Positioner or popups paint underneath fixed
+// layers (e.g. the Environment hub panel at z-[70]).
+const POSITIONER_Z_CLASS = 'z-[9999]';
+
 
 /* ---------- Root ---------- */
 const Root = Menu.Root;
@@ -39,7 +45,7 @@ type ContentProps = React.ComponentProps<typeof Menu.Positioner> &
 
 const Content = React.forwardRef<HTMLDivElement, ContentProps>(
   ({ className, sideOffset, side, align, alignOffset, ...props }, ref) => (
-    <Menu.Positioner sideOffset={sideOffset} side={side} align={align} alignOffset={alignOffset}>
+    <Menu.Positioner className={POSITIONER_Z_CLASS} sideOffset={sideOffset} side={side} align={align} alignOffset={alignOffset}>
       <Menu.Popup
         ref={ref}
         className={cn('popover-surface z-50 min-w-[8rem] overflow-hidden p-1.5', className)}
@@ -54,7 +60,7 @@ Content.displayName = 'DropdownMenuContent';
 const ContentWithPortal = React.forwardRef<HTMLDivElement, ContentProps>(
   ({ className, sideOffset, side, align, alignOffset, ...props }, ref) => (
     <Menu.Portal>
-      <Menu.Positioner sideOffset={sideOffset} side={side} align={align} alignOffset={alignOffset}>
+      <Menu.Positioner className={POSITIONER_Z_CLASS} sideOffset={sideOffset} side={side} align={align} alignOffset={alignOffset}>
         <Menu.Popup
           ref={ref}
           className={cn('popover-surface z-50 min-w-[8rem] overflow-hidden p-1.5', className)}
@@ -222,7 +228,7 @@ type SubContentProps = React.ComponentProps<typeof Menu.Positioner> &
 const SubContent = React.forwardRef<HTMLDivElement, SubContentProps>(
   ({ className, sideOffset, side, align, alignOffset, ...props }, ref) => (
     <Menu.Portal>
-      <Menu.Positioner sideOffset={sideOffset} side={side} align={align} alignOffset={alignOffset}>
+      <Menu.Positioner className={POSITIONER_Z_CLASS} sideOffset={sideOffset} side={side} align={align} alignOffset={alignOffset}>
         <Menu.Popup
           ref={ref}
           className={cn('popover-surface z-50 min-w-[8rem] overflow-hidden p-1.5', className)}

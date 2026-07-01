@@ -11,7 +11,8 @@ const TooltipTrigger = TooltipPrimitive.Trigger;
 const TooltipContent = React.forwardRef<HTMLDivElement, React.ComponentProps<typeof TooltipPrimitive.Popup> & { sideOffset?: number }>(
   ({ className, sideOffset = 4, ...props }, ref) => (
     <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Positioner sideOffset={sideOffset}>
+      {/* z-index lives on the Positioner: the Popup is position:static, so z-* there is inert. */}
+      <TooltipPrimitive.Positioner className="z-[9999]" sideOffset={sideOffset}>
         <TooltipPrimitive.Popup
           ref={ref}
           className={cn(
