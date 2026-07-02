@@ -416,7 +416,9 @@ export function SessionWorkspaceControl({
     return null;
   }
 
-  const BusyIcon = busyAction || branchesLoading ? Loader2 : null;
+  // Only real switch operations replace the workspace icon; the silent
+  // branch-list refresh on dropdown open must not flash it into a spinner.
+  const BusyIcon = busyAction ? Loader2 : null;
   const panelVariant = variant === 'panel';
   const wrapperClass = panelVariant ? 'flex flex-col gap-1.5' : 'flex min-w-0 items-center gap-1';
   const rowButtonClass = panelVariant
@@ -815,7 +817,9 @@ export function SessionWorkspaceControl({
             {branchesError ? (
               <div className="px-2 py-1.5 text-xs text-[var(--text-muted)]">{branchesError}</div>
             ) : branchOptions.length === 0 ? (
-              <div className="px-2 py-1.5 text-xs text-[var(--text-muted)]">No branches</div>
+              <div className="px-2 py-1.5 text-xs text-[var(--text-muted)]">
+                {branchesLoading ? 'Loading branches…' : 'No branches'}
+              </div>
             ) : (
               branchOptions.map((entry) => (
                 <DropdownMenu.Item
