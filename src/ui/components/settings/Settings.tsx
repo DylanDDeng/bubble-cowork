@@ -118,17 +118,28 @@ export function Settings() {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto bg-[var(--bg-primary)] select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text">
+        {/* The usage tab is a centered profile page; pin its title to the
+            top-left of the pane so it doesn't crowd the avatar header. */}
+        {resolvedActiveSettingsTab === 'usage' ? (
+          <div className="px-6 pt-5">
+            <h1 className="text-[15px] font-semibold tracking-normal text-[var(--text-primary)]">
+              {activeMeta.title}
+            </h1>
+          </div>
+        ) : null}
         <div
           className="mx-auto max-w-3xl px-10 py-8"
         >
-          <header className="mb-6">
-            <h1 className="text-[17px] font-semibold tracking-normal text-[var(--text-primary)]">
-              {activeMeta.title}
-            </h1>
-            <p className="mt-1 text-[12px] leading-5 text-[var(--text-muted)]">
-              {activeMeta.description}
-            </p>
-          </header>
+          {resolvedActiveSettingsTab !== 'usage' ? (
+            <header className="mb-6">
+              <h1 className="text-[17px] font-semibold tracking-normal text-[var(--text-primary)]">
+                {activeMeta.title}
+              </h1>
+              <p className="mt-1 text-[12px] leading-5 text-[var(--text-muted)]">
+                {activeMeta.description}
+              </p>
+            </header>
+          ) : null}
 
           {resolvedActiveSettingsTab === 'general' && (
             <GeneralSettingsContent
