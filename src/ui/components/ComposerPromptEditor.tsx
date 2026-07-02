@@ -541,14 +541,46 @@ export const ComposerPromptEditor = forwardRef<
     const fallbackHeight = Number.isFinite(lineHeight) ? lineHeight : fontSize * 1.35;
     const hasRangeRect = rangeRect.width > 0 || rangeRect.height > 0;
 
-    const x = hasRangeRect
-      ? rangeRect.left - containerRect.left
+    // A collapsed range whose container is an element (the caret sits between
+    // an atomic chip and nothing) reports a zero rect. Anchor the caret to the
+    // adjacent node instead: right edge of the node before it, else left edge
+    // of the node after it.
+    let caretAnchor: { left: number; top: number; height: number } | null = hasRangeRect
+      ? { left: rangeRect.left, top: rangeRect.top, height: rangeRect.height }
+      : null;
+    if (!caretAnchor && range.startContainer instanceof HTMLElement) {
+      const rectOfNode = (node: Node): DOMRect => {
+        if (node instanceof HTMLElement) {
+          return node.getBoundingClientRect();
+        }
+        const nodeRange = document.createRange();
+        nodeRange.selectNodeContents(node);
+        return nodeRange.getBoundingClientRect();
+      };
+      const before = range.startContainer.childNodes[range.startOffset - 1];
+      const after = range.startContainer.childNodes[range.startOffset];
+      if (before) {
+        const rect = rectOfNode(before);
+        if (rect.width > 0 || rect.height > 0) {
+          caretAnchor = { left: rect.right, top: rect.top, height: rect.height };
+        }
+      }
+      if (!caretAnchor && after) {
+        const rect = rectOfNode(after);
+        if (rect.width > 0 || rect.height > 0) {
+          caretAnchor = { left: rect.left, top: rect.top, height: rect.height };
+        }
+      }
+    }
+
+    const x = caretAnchor
+      ? caretAnchor.left - containerRect.left
       : editorRect.left - containerRect.left + paddingLeft;
-    const y = hasRangeRect
-      ? rangeRect.top - containerRect.top
+    const y = caretAnchor
+      ? caretAnchor.top - containerRect.top
       : editorRect.top - containerRect.top + paddingTop;
-    const height = hasRangeRect
-      ? Math.max(rangeRect.height, fallbackHeight * 0.85)
+    const height = caretAnchor
+      ? Math.max(caretAnchor.height, fallbackHeight * 0.85)
       : fallbackHeight;
 
     setFakeCaret({
