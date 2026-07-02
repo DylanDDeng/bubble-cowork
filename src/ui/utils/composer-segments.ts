@@ -1,4 +1,5 @@
 import { splitPromptIntoProjectFileSegments } from './project-file-mentions';
+import { splitTextIntoGitHubRepoSegments } from './github-repo-links';
 import { parseComposerCapabilityToken } from './composer-capability-token';
 
 export type SlashSegmentKind = 'skill' | 'command' | 'plugin';
@@ -21,6 +22,7 @@ export interface SlashTokenContext {
 export type PromptSegment =
   | { type: 'text'; text: string }
   | { type: 'mention'; path: string; text: string; start: number; end: number }
+  | { type: 'repo'; owner: string; repo: string; url: string; text: string; start: number; end: number }
   | {
       type: 'slash';
       kind: SlashSegmentKind;
@@ -105,9 +107,13 @@ function appendProjectFileSegments(
   text: string,
   offset: number
 ): void {
+  let cursor = 0;
   for (const segment of splitPromptIntoProjectFileSegments(text)) {
     if (segment.type === 'text') {
-      target.push({ type: 'text', text: segment.text });
+      for (const part of splitTextIntoGitHubRepoSegments(segment.text, offset + cursor)) {
+        target.push(part);
+      }
+      cursor += segment.text.length;
       continue;
     }
 
@@ -118,6 +124,7 @@ function appendProjectFileSegments(
       start: segment.start + offset,
       end: segment.end + offset,
     });
+    cursor = segment.end;
   }
 }
 
@@ -127,7 +134,9 @@ export function splitPromptIntoComposerSegments(
 ): PromptSegment[] {
   const slashToken = context ? extractLeadingSlashToken(prompt, context) : null;
   if (!slashToken) {
-    return splitPromptIntoProjectFileSegments(prompt) as PromptSegment[];
+    const segments: PromptSegment[] = [];
+    appendProjectFileSegments(segments, prompt, 0);
+    return segments;
   }
 
   const segments: PromptSegment[] = [];

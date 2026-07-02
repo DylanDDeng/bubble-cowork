@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { getFileTypeIconUrl } from './FileTypeIcon';
 import { extractProjectFileMentions } from '../utils/project-file-mentions';
+import { extractGitHubRepoTokens } from '../utils/github-repo-links';
 import {
   removeLeadingSlashTokenAdjacentToCursor,
   splitPromptIntoComposerSegments,
@@ -306,6 +307,29 @@ function createAgentMentionNode(label: string, rawText: string): HTMLSpanElement
   return chip;
 }
 
+function createRepoNode(owner: string, repo: string, rawText: string): HTMLSpanElement {
+  const chip = document.createElement('span');
+  chip.dataset.segmentType = 'repo';
+  chip.dataset.rawText = rawText;
+  chip.contentEditable = 'false';
+  chip.spellcheck = false;
+  chip.title = rawText;
+  chip.className = 'composer-inline-chip composer-inline-chip--repo';
+
+  const iconBox = document.createElement('span');
+  iconBox.className = 'composer-inline-chip__icon';
+  iconBox.setAttribute('aria-hidden', 'true');
+  iconBox.innerHTML =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-4.3 1.4 -4.3 -2.5 -6 -3m12 5v-3.5c0 -1 .1 -1.4 -.5 -2c2.8 -.3 5.5 -1.4 5.5 -6a4.6 4.6 0 0 0 -1.3 -3.2a4.2 4.2 0 0 0 -.1 -3.2s-1.1 -.3 -3.5 1.3a12.3 12.3 0 0 0 -6.2 0c-2.4 -1.6 -3.5 -1.3 -3.5 -1.3a4.2 4.2 0 0 0 -.1 3.2a4.6 4.6 0 0 0 -1.3 3.2c0 4.6 2.7 5.7 5.5 6c-.6 .6 -.6 1.2 -.5 2v3.5"/></svg>';
+
+  const label = document.createElement('span');
+  label.className = 'composer-inline-chip__label';
+  label.textContent = `${owner}/${repo}`;
+
+  chip.append(iconBox, label);
+  return chip;
+}
+
 function createSlashNode(
   kind: SlashSegmentKind,
   name: string,
@@ -373,6 +397,11 @@ function renderSegments(
       continue;
     }
 
+    if (segment.type === 'repo') {
+      root.append(createRepoNode(segment.owner, segment.repo, segment.text));
+      continue;
+    }
+
     root.append(createSlashNode(segment.kind, segment.name, segment.text, slashDisplayLabels));
   }
 }
@@ -395,6 +424,26 @@ function removeMentionAdjacentToCursor(
       return {
         value: `${value.slice(0, mention.start)}${value.slice(mention.end)}`,
         cursorIndex: mention.start,
+      };
+    }
+  }
+
+  return null;
+}
+
+function removeRepoTokenAdjacentToCursor(
+  value: string,
+  cursorIndex: number,
+  key: 'Backspace' | 'Delete'
+): { value: string; cursorIndex: number } | null {
+  for (const token of extractGitHubRepoTokens(value)) {
+    if (
+      (key === 'Backspace' && cursorIndex === token.end) ||
+      (key === 'Delete' && cursorIndex === token.start)
+    ) {
+      return {
+        value: `${value.slice(0, token.start)}${value.slice(token.end)}`,
+        cursorIndex: token.start,
       };
     }
   }
@@ -773,6 +822,18 @@ export const ComposerPromptEditor = forwardRef<
             if (mentionRemoval) {
               event.preventDefault();
               props.onChange(mentionRemoval.value, mentionRemoval.cursorIndex);
+              syncFakeCaret();
+              return;
+            }
+
+            const repoRemoval = removeRepoTokenAdjacentToCursor(
+              props.value,
+              props.cursorIndex,
+              event.key
+            );
+            if (repoRemoval) {
+              event.preventDefault();
+              props.onChange(repoRemoval.value, repoRemoval.cursorIndex);
               syncFakeCaret();
               return;
             }

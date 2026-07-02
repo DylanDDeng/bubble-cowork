@@ -73,6 +73,8 @@
   --composer-mention-chip-bg: rgba(0, 0, 0, 0.04);
   --composer-mention-chip-border: rgba(0, 0, 0, 0.06);
   --composer-mention-chip-text: #404040;
+  --composer-repo-chip-bg: rgba(9, 105, 218, 0.07);
+  --composer-repo-chip-text: #0969DA;
   --tree-item-hover: rgba(17, 24, 39, 0.05);
   --tree-item-active: rgba(17, 24, 39, 0.08);
   --tree-item-border: rgba(17, 24, 39, 0.12);
@@ -184,6 +186,8 @@
   --composer-mention-chip-bg: rgba(255, 255, 255, 0.05);
   --composer-mention-chip-border: rgba(255, 255, 255, 0.08);
   --composer-mention-chip-text: #D4D4D4;
+  --composer-repo-chip-bg: rgba(88, 166, 255, 0.12);
+  --composer-repo-chip-text: #58A6FF;
   --tree-item-hover: rgba(255, 255, 255, 0.05);
   --tree-item-active: rgba(255, 255, 255, 0.09);
   --tree-item-border: rgba(255, 255, 255, 0.14);
@@ -300,6 +304,11 @@
 .composer-inline-chip--mention {
   --composer-inline-chip-bg: var(--composer-mention-chip-bg);
   --composer-inline-chip-text: var(--composer-mention-chip-text);
+}
+
+.composer-inline-chip--repo {
+  --composer-inline-chip-bg: var(--composer-repo-chip-bg);
+  --composer-inline-chip-text: var(--composer-repo-chip-text);
 }
 
 .composer-inline-chip--large {
