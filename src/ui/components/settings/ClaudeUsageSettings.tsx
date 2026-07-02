@@ -413,9 +413,7 @@ function TokenActivitySection({ daily }: { daily: ClaudeUsageDailyPoint[] }) {
       </div>
 
       <div className="mt-4">
-        {mode === 'daily' ? <DailyHeatmap daily={daily} /> : null}
-        {mode === 'weekly' ? <WeeklyHeatmap daily={daily} /> : null}
-        {mode === 'cumulative' ? <CumulativeChart daily={daily} /> : null}
+        <ActivityHeatmap daily={daily} mode={mode} />
       </div>
     </div>
   );
@@ -450,21 +448,64 @@ function parseDateKey(dateKey: string): Date {
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-function DailyHeatmap({ daily }: { daily: ClaudeUsageDailyPoint[] }) {
+interface HeatmapTip {
+  /** Cell anchor position as percentages of the svg box. */
+  xPct: number;
+  yPct: number;
+  title: string;
+  detail: string;
+}
+
+function HeatmapHoverTip({ tip }: { tip: HeatmapTip | null }) {
+  if (!tip) return null;
+  const transform =
+    tip.xPct < 12
+      ? 'translate(0, -100%)'
+      : tip.xPct > 88
+        ? 'translate(-100%, -100%)'
+        : 'translate(-50%, -100%)';
+
+  return (
+    <div
+      className="pointer-events-none absolute z-10 whitespace-nowrap rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1.5 text-[11px] leading-4 shadow-[0_10px_28px_rgba(15,23,42,0.14)]"
+      style={{ left: `${tip.xPct}%`, top: `${tip.yPct}%`, transform, marginTop: '-7px' }}
+    >
+      <div className="font-medium text-[var(--text-primary)]">{tip.title}</div>
+      <div className="text-[var(--text-muted)]">{tip.detail}</div>
+    </div>
+  );
+}
+
+function formatTokenDetail(tokens: number): string {
+  return tokens > 0 ? `${tokens.toLocaleString('en-US')} tokens` : 'No tokens';
+}
+
+function ActivityHeatmap({ daily, mode }: { daily: ClaudeUsageDailyPoint[]; mode: ActivityViewMode }) {
   const cell = 10;
   const gap = 3;
   const pitch = cell + gap;
   const labelBand = 20;
 
-  const { weeks, monthLabels } = useMemo(() => {
+  const { weeks, monthLabels, weekSums, weekStartDates, cumulativeByDate } = useMemo(() => {
     const firstWeekday = daily.length > 0 ? parseDateKey(daily[0].date).getDay() : 0;
     const weekCount = Math.ceil((firstWeekday + daily.length) / 7);
     const grid: Array<Array<ClaudeUsageDailyPoint | null>> = Array.from({ length: weekCount }, () =>
       Array.from({ length: 7 }, () => null)
     );
+    const weekSums: number[] = Array.from({ length: weekCount }, () => 0);
+    const weekStartDates: Array<string | null> = Array.from({ length: weekCount }, () => null);
+    const cumulativeByDate = new Map<string, number>();
+    let running = 0;
     daily.forEach((point, index) => {
       const slot = firstWeekday + index;
-      grid[Math.floor(slot / 7)][slot % 7] = point;
+      const weekIndex = Math.floor(slot / 7);
+      grid[weekIndex][slot % 7] = point;
+      weekSums[weekIndex] += point.totalTokens;
+      if (!weekStartDates[weekIndex]) {
+        weekStartDates[weekIndex] = point.date;
+      }
+      running += point.totalTokens;
+      cumulativeByDate.set(point.date, running);
     });
 
     const labels: Array<{ week: number; label: string }> = [];
@@ -482,184 +523,106 @@ function DailyHeatmap({ daily }: { daily: ClaudeUsageDailyPoint[] }) {
       }
     });
 
-    return { weeks: grid, monthLabels: labels };
+    return { weeks: grid, monthLabels: labels, weekSums, weekStartDates, cumulativeByDate };
   }, [daily]);
 
-  const thresholds = useMemo(() => quantileThresholds(daily.map((point) => point.totalTokens)), [daily]);
+  // Same calendar grid in every mode; only the value a cell encodes changes:
+  // its day, its whole week, or the running total up to that day.
+  const cellValue = (point: ClaudeUsageDailyPoint, weekIndex: number): number => {
+    if (mode === 'weekly') return weekSums[weekIndex];
+    if (mode === 'cumulative') return cumulativeByDate.get(point.date) || 0;
+    return point.totalTokens;
+  };
+
+  const thresholds = useMemo(() => {
+    if (mode === 'weekly') return quantileThresholds(weekSums);
+    if (mode === 'cumulative') return quantileThresholds(Array.from(cumulativeByDate.values()));
+    return quantileThresholds(daily.map((point) => point.totalTokens));
+  }, [cumulativeByDate, daily, mode, weekSums]);
+
+  const cellTip = (
+    point: ClaudeUsageDailyPoint,
+    weekIndex: number,
+    dayIndex: number,
+    width: number,
+    height: number
+  ): HeatmapTip => {
+    const anchor = {
+      xPct: ((weekIndex * pitch + cell / 2) / width) * 100,
+      yPct: ((dayIndex * pitch) / height) * 100,
+    };
+    if (mode === 'weekly') {
+      const start = weekStartDates[weekIndex];
+      return {
+        ...anchor,
+        title: start ? `Week of ${formatLongDate(start)}` : 'Week',
+        detail: formatTokenDetail(weekSums[weekIndex]),
+      };
+    }
+    if (mode === 'cumulative') {
+      const cumulative = cumulativeByDate.get(point.date) || 0;
+      return {
+        ...anchor,
+        title: formatLongDate(point.date),
+        detail: cumulative > 0 ? `${cumulative.toLocaleString('en-US')} tokens to date` : 'No tokens yet',
+      };
+    }
+    return {
+      ...anchor,
+      title: formatLongDate(point.date),
+      detail: formatTokenDetail(point.totalTokens),
+    };
+  };
+
+  const [tip, setTip] = useState<HeatmapTip | null>(null);
+  useEffect(() => {
+    setTip(null);
+  }, [mode]);
   const width = weeks.length * pitch - gap;
   const height = 7 * pitch - gap + labelBand;
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label="Daily token activity heatmap">
-      {weeks.map((week, weekIndex) =>
-        week.map((point, dayIndex) => {
-          if (!point) return null;
-          const level = heatLevel(point.totalTokens, thresholds);
-          return (
-            <rect
-              key={point.date}
-              x={weekIndex * pitch}
-              y={dayIndex * pitch}
-              width={cell}
-              height={cell}
-              rx={2.5}
-              fill={heatFill(level)}
-            >
-              <title>{`${point.date} · ${formatCompactNumber(point.totalTokens)} tokens`}</title>
-            </rect>
-          );
-        })
-      )}
-      {monthLabels.map((entry) => (
-        <text
-          key={`${entry.week}-${entry.label}`}
-          x={entry.week * pitch}
-          y={height - 4}
-          fontSize="10"
-          fill="var(--text-muted)"
-        >
-          {entry.label}
-        </text>
-      ))}
-    </svg>
-  );
-}
-
-function WeeklyHeatmap({ daily }: { daily: ClaudeUsageDailyPoint[] }) {
-  const cell = 14;
-  const gap = 3;
-  const pitch = cell + gap;
-  const labelBand = 20;
-
-  const weeksData = useMemo(() => {
-    const firstWeekday = daily.length > 0 ? parseDateKey(daily[0].date).getDay() : 0;
-    const weekCount = Math.ceil((firstWeekday + daily.length) / 7);
-    const sums: Array<{ tokens: number; startDate: string | null }> = Array.from(
-      { length: weekCount },
-      () => ({ tokens: 0, startDate: null })
-    );
-    daily.forEach((point, index) => {
-      const bucket = sums[Math.floor((firstWeekday + index) / 7)];
-      bucket.tokens += point.totalTokens;
-      if (!bucket.startDate) {
-        bucket.startDate = point.date;
-      }
-    });
-    return sums;
-  }, [daily]);
-
-  const monthLabels = useMemo(() => {
-    const labels: Array<{ week: number; label: string }> = [];
-    let lastMonth = -1;
-    weeksData.forEach((week, weekIndex) => {
-      if (!week.startDate) return;
-      const month = parseDateKey(week.startDate).getMonth();
-      if (month !== lastMonth) {
-        const lastLabel = labels[labels.length - 1];
-        if (!lastLabel || weekIndex - lastLabel.week >= 3) {
-          labels.push({ week: weekIndex, label: MONTH_LABELS[month] });
-        }
-        lastMonth = month;
-      }
-    });
-    return labels;
-  }, [weeksData]);
-
-  const thresholds = useMemo(
-    () => quantileThresholds(weeksData.map((week) => week.tokens)),
-    [weeksData]
-  );
-  const width = weeksData.length * pitch - gap;
-  const height = cell + labelBand;
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label="Weekly token activity heatmap">
-      {weeksData.map((week, weekIndex) => (
-        <rect
-          key={week.startDate || weekIndex}
-          x={weekIndex * pitch}
-          y={0}
-          width={cell}
-          height={cell}
-          rx={3}
-          fill={heatFill(heatLevel(week.tokens, thresholds))}
-        >
-          <title>{`Week of ${week.startDate || '—'} · ${formatCompactNumber(week.tokens)} tokens`}</title>
-        </rect>
-      ))}
-      {monthLabels.map((entry) => (
-        <text
-          key={`${entry.week}-${entry.label}`}
-          x={entry.week * pitch}
-          y={height - 4}
-          fontSize="10"
-          fill="var(--text-muted)"
-        >
-          {entry.label}
-        </text>
-      ))}
-    </svg>
-  );
-}
-
-function CumulativeChart({ daily }: { daily: ClaudeUsageDailyPoint[] }) {
-  const width = 720;
-  const height = 160;
-  const labelBand = 20;
-
-  const { areaPath, linePath, total, monthLabels } = useMemo(() => {
-    const total = daily.reduce((sum, point) => sum + point.totalTokens, 0);
-    const denominator = Math.max(total, 1);
-    let running = 0;
-    const points = daily.map((point, index) => {
-      running += point.totalTokens;
-      const x = daily.length > 1 ? (index / (daily.length - 1)) * width : 0;
-      const y = height - (running / denominator) * (height - 8);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    });
-    const linePath = points.length > 0 ? `M${points.join(' L')}` : '';
-    const areaPath = points.length > 0 ? `${linePath} L${width},${height} L0,${height} Z` : '';
-
-    const labels: Array<{ x: number; label: string }> = [];
-    let lastMonth = -1;
-    daily.forEach((point, index) => {
-      const month = parseDateKey(point.date).getMonth();
-      if (month !== lastMonth) {
-        const x = daily.length > 1 ? (index / (daily.length - 1)) * width : 0;
-        const lastLabel = labels[labels.length - 1];
-        if (!lastLabel || x - lastLabel.x >= 40) {
-          labels.push({ x, label: MONTH_LABELS[month] });
-        }
-        lastMonth = month;
-      }
-    });
-
-    return { areaPath, linePath, total, monthLabels: labels };
-  }, [daily]);
-
-  return (
-    <div>
+    <div className="relative" onMouseLeave={() => setTip(null)}>
+      <HeatmapHoverTip tip={tip} />
       <svg
-        viewBox={`0 0 ${width} ${height + labelBand}`}
+        viewBox={`0 0 ${width} ${height}`}
         className="h-auto w-full"
         role="img"
-        aria-label="Cumulative token usage"
+        aria-label={`${mode} token activity heatmap`}
       >
-        <path d={areaPath} fill="#3b82d8" opacity="0.12" />
-        <path d={linePath} fill="none" stroke="#3b82d8" strokeWidth="2" strokeLinejoin="round" />
+        {weeks.map((week, weekIndex) =>
+          week.map((point, dayIndex) => {
+            if (!point) return null;
+            const level = heatLevel(cellValue(point, weekIndex), thresholds);
+            return (
+              <rect
+                key={point.date}
+                x={weekIndex * pitch}
+                y={dayIndex * pitch}
+                width={cell}
+                height={cell}
+                rx={2.5}
+                fill={heatFill(level)}
+                onMouseEnter={() => setTip(cellTip(point, weekIndex, dayIndex, width, height))}
+              />
+            );
+          })
+        )}
         {monthLabels.map((entry) => (
-          <text key={`${entry.x}-${entry.label}`} x={entry.x} y={height + labelBand - 4} fontSize="10" fill="var(--text-muted)">
+          <text
+            key={`${entry.week}-${entry.label}`}
+            x={entry.week * pitch}
+            y={height - 4}
+            fontSize="10"
+            fill="var(--text-muted)"
+          >
             {entry.label}
           </text>
         ))}
       </svg>
-      <div className="mt-1 text-right text-[11.5px] text-[var(--text-muted)]">
-        {formatCompactNumber(total)} tokens over the last year
-      </div>
     </div>
   );
 }
-
 /* ---------- Insight columns ---------- */
 
 function InsightRow({ label, value }: { label: string; value: string }) {
