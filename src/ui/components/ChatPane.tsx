@@ -812,7 +812,7 @@ export function SessionWorkspaceControl({
             {...environmentHubLayerProps}
             align="start"
             sideOffset={6}
-            className="z-[9999] max-h-[320px] min-w-[240px] overflow-y-auto rounded-[var(--popover-radius)] border border-[var(--popover-border)] bg-[var(--popover-bg)] p-1 shadow-[var(--popover-shadow)]"
+            className="scrollbar-slim z-[9999] max-h-[320px] min-w-[240px] overflow-y-auto rounded-[var(--popover-radius)] border border-[var(--popover-border)] bg-[var(--popover-bg)] p-1 shadow-[var(--popover-shadow)]"
           >
             {branchesError ? (
               <div className="px-2 py-1.5 text-xs text-[var(--text-muted)]">{branchesError}</div>

@@ -537,6 +537,30 @@ body {
   background: var(--text-muted);
 }
 
+/* 紧凑弹层用的细滚动条：更窄、悬停容器时才显示、上下留边不顶圆角 */
+.scrollbar-slim::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.scrollbar-slim::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 10px 0;
+}
+
+.scrollbar-slim::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+
+.scrollbar-slim:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 35%, transparent);
+}
+
+.scrollbar-slim::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
 .aegis-terminal-pane .xterm,
 .aegis-terminal-pane .xterm .xterm-viewport,
 .aegis-terminal-pane .xterm .xterm-screen {

@@ -323,7 +323,7 @@ export function EnvironmentHub({
               </button>
             </div>
           </div>
-          <div className="max-h-[calc(min(680px,100vh-64px)-58px)] overflow-y-auto pb-2">
+          <div className="scrollbar-slim max-h-[calc(min(680px,100vh-64px)-58px)] overflow-y-auto pb-2">
             {context.unavailableReason ? (
               <div className="border-t border-[var(--border)] px-4 py-4 text-[12px] leading-5 text-[var(--text-muted)]">
                 {context.unavailableReason}
