@@ -318,6 +318,8 @@ function SessionItem({
         { id: 'fork', label: 'Fork into a new pane', enabled: canFork },
         { id: 'sep', type: 'separator' },
         { id: 'pin', label: session.pinned ? 'Unpin' : 'Pin' },
+        { id: 'sep2', type: 'separator' },
+        { id: 'delete', label: 'Delete' },
       ],
     });
     if (!result.ok || !result.id) return;
@@ -325,6 +327,11 @@ function SessionItem({
       void forkSessionToPane(session.id);
     } else if (result.id === 'pin') {
       onTogglePin();
+    } else if (result.id === 'delete') {
+      const detail = session.status === 'running' ? ' The running task will be stopped.' : '';
+      if (window.confirm(`Delete "${session.title}"? This permanently removes the conversation.${detail}`)) {
+        sendEvent({ type: 'session.delete', payload: { sessionId: session.id } });
+      }
     }
   };
 
