@@ -33,6 +33,23 @@ if (process.platform === 'darwin') {
 }
 
 function configureUserDataPath(): void {
+  // Explicit isolation for tests and fresh-user simulation. macOS resolves
+  // appData through system APIs that ignore $HOME, so an env override is the
+  // only reliable way to point a launch at a sandboxed data directory.
+  const override = process.env.AEGIS_USER_DATA_DIR?.trim();
+  if (override) {
+    const resolved = path.resolve(override);
+    try {
+      fs.mkdirSync(resolved, { recursive: true });
+    } catch (error) {
+      console.warn('[main] Failed to create AEGIS_USER_DATA_DIR, using default userData:', error);
+      return;
+    }
+    app.setPath('userData', resolved);
+    console.log('[main] userData overridden via AEGIS_USER_DATA_DIR:', resolved);
+    return;
+  }
+
   if (!isDev()) {
     return;
   }
