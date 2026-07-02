@@ -154,8 +154,6 @@ export function ClaudeUsageSettingsContent() {
   const activeReport = activeProviderCard.report;
   const estimatedCost = activeReport?.costMode === 'estimated';
   const stats = useMemo(() => (activeReport ? computeUsageStats(activeReport) : null), [activeReport]);
-  const codexPlanType =
-    activeProviderCard.id === 'codex' ? codexRateLimits?.rateLimits?.planType || null : null;
 
   return (
     <div className="space-y-8 pb-10">
@@ -164,8 +162,6 @@ export function ClaudeUsageSettingsContent() {
         provider={activeProviderCard}
         providers={providers}
         onSelectProvider={setActiveProvider}
-        planType={codexPlanType}
-        estimatedCost={estimatedCost}
       />
 
       {renderUsageState(activeProviderCard) || (
@@ -219,23 +215,12 @@ function UsageProfileHeader({
   provider,
   providers,
   onSelectProvider,
-  planType,
-  estimatedCost,
 }: {
   profile: UserProfile | null;
   provider: UsageProviderCard;
   providers: UsageProviderCard[];
   onSelectProvider: (id: AgentProvider) => void;
-  planType: string | null;
-  estimatedCost: boolean;
 }) {
-  const badge = planType
-    ? formatPlanName(planType)
-    : provider.report && provider.report.totals.totalTokens > 0
-      ? estimatedCost
-        ? 'Estimated'
-        : 'Actual'
-      : null;
   const handle = profile?.handle ? `@${profile.handle}` : '';
 
   return (
@@ -256,16 +241,8 @@ function UsageProfileHeader({
         <div className="min-h-[30px] text-[20px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
           {profile?.displayName ?? ' '}
         </div>
-        <div className="mt-1 flex items-center justify-center gap-2 text-[12.5px] text-[var(--text-muted)]">
-          {handle ? <span>{handle}</span> : null}
-          {badge ? (
-            <>
-              {handle ? <span aria-hidden="true">·</span> : null}
-              <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-secondary)]">
-                {badge}
-              </span>
-            </>
-          ) : null}
+        <div className="mt-1 min-h-[18px] text-center text-[12.5px] text-[var(--text-muted)]">
+          {handle}
         </div>
       </div>
 
