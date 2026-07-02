@@ -307,9 +307,14 @@ function SessionItem({
   // `thread/fork`, OpenCode via the SDK's `session.fork`. Other providers have
   // no fork mechanism yet. The main process returns a friendly error for an
   // empty conversation.
-  const canFork =
-    !session.isDraft &&
-    (session.provider === 'claude' || session.provider === 'codex' || session.provider === 'opencode');
+  const providerSupportsFork =
+    session.provider === 'claude' || session.provider === 'codex' || session.provider === 'opencode';
+  const canFork = !session.isDraft && providerSupportsFork;
+  const forkLabel = canFork
+    ? 'Fork into a new pane'
+    : providerSupportsFork
+      ? 'Fork into a new pane (send a message first)'
+      : 'Fork into a new pane (not supported for this provider)';
 
   const handleContextMenu = async (event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -320,9 +325,7 @@ function SessionItem({
       items: [
         {
           id: 'fork',
-          label: canFork
-            ? 'Fork into a new pane'
-            : 'Fork into a new pane (not supported for this provider)',
+          label: forkLabel,
           enabled: canFork,
         },
         { id: 'sep', type: 'separator' },
