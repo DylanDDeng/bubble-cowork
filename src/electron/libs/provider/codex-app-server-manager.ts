@@ -365,15 +365,26 @@ export class CodexAppServerManager extends EventEmitter {
     let response: Record<string, unknown>;
 
     if (resumeCursor) {
+      // Current codex app-server exposes thread/resume; older builds used
+      // thread/load. Try both before giving up and creating a fresh thread —
+      // the old load-only path silently dropped the conversation context.
       try {
         response = (await this.sendRequest(
-          'thread/load',
+          'thread/resume',
           { threadId: resumeCursor },
           REQUEST_TIMEOUT_MS
         )) as Record<string, unknown>;
       } catch {
-        // Fall through to create new
-        response = await this.createNewThread(cwd, options);
+        try {
+          response = (await this.sendRequest(
+            'thread/load',
+            { threadId: resumeCursor },
+            REQUEST_TIMEOUT_MS
+          )) as Record<string, unknown>;
+        } catch {
+          // Fall through to create new
+          response = await this.createNewThread(cwd, options);
+        }
       }
     } else {
       response = await this.createNewThread(cwd, options);
