@@ -133,7 +133,7 @@ const CAPABILITIES: ProviderAdapterCapabilities = {
   pluginDiscovery: true,
   mcpServers: true,
   imageAttachments: true,
-  forkThread: false,
+  forkThread: true,
   compactThread: false,
   planMode: true,
 };
@@ -800,6 +800,10 @@ export class CodexAdapter implements ProviderAdapter {
       status: 'running',
       model,
     };
+  }
+
+  async forkThread(input: { cwd: string; providerThreadId: string }): Promise<string> {
+    return this.manager.forkThread(input.cwd, input.providerThreadId);
   }
 
   async sendTurn(input: ProviderSendTurnInput): Promise<void> {

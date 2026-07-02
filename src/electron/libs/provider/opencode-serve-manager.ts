@@ -31,6 +31,7 @@ export type OpenCodeClient = {
     prompt(options: unknown): Promise<unknown>;
     command(options: unknown): Promise<unknown>;
     abort(options: unknown): Promise<unknown>;
+    fork(options: unknown): Promise<unknown>;
   };
   command?: {
     list(options?: unknown): Promise<unknown>;

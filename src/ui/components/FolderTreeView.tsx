@@ -302,11 +302,14 @@ function SessionItem({
   onTogglePin: () => void;
 }) {
   const forkSessionToPane = useAppStore((s) => s.forkSessionToPane);
-  // Fork branches a Claude conversation. The resumable session id isn't always
-  // persisted (the app can rebuild from history), so gate only on a non-draft
-  // Claude session; the main process bootstraps a fork point if needed and
-  // returns a friendly error for an empty conversation.
-  const canFork = !session.isDraft && session.provider === 'claude';
+  // Fork branches the provider-side conversation: Claude via the SDK's native
+  // fork (bootstrapped from history if needed), Codex via app-server
+  // `thread/fork`, OpenCode via the SDK's `session.fork`. Other providers have
+  // no fork mechanism yet. The main process returns a friendly error for an
+  // empty conversation.
+  const canFork =
+    !session.isDraft &&
+    (session.provider === 'claude' || session.provider === 'codex' || session.provider === 'opencode');
 
   const handleContextMenu = async (event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -315,7 +318,13 @@ function SessionItem({
       x: event.clientX,
       y: event.clientY,
       items: [
-        { id: 'fork', label: 'Fork into a new pane', enabled: canFork },
+        {
+          id: 'fork',
+          label: canFork
+            ? 'Fork into a new pane'
+            : 'Fork into a new pane (not supported for this provider)',
+          enabled: canFork,
+        },
         { id: 'sep', type: 'separator' },
         { id: 'pin', label: session.pinned ? 'Unpin' : 'Pin' },
         { id: 'sep2', type: 'separator' },

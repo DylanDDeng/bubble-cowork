@@ -408,6 +408,26 @@ export class CodexAppServerManager extends EventEmitter {
     return { providerThreadId, model: model || undefined };
   }
 
+  /**
+   * Fork a recorded thread into a new independent one via `thread/fork`.
+   * The source rollout is left untouched; returns the forked thread id.
+   */
+  async forkThread(cwd: string, sourceProviderThreadId: string): Promise<string> {
+    await this.ensureSpawned(cwd);
+    const response = (await this.sendRequest(
+      'thread/fork',
+      { threadId: sourceProviderThreadId },
+      REQUEST_TIMEOUT_MS
+    )) as Record<string, unknown>;
+    const forkedId = String(
+      (response.thread as Record<string, unknown>)?.id || response.threadId || response.id || ''
+    );
+    if (!forkedId) {
+      throw new Error('thread/fork did not return a thread id');
+    }
+    return forkedId;
+  }
+
   private async createNewThread(
     cwd: string,
     options: CodexRunOptions = {}

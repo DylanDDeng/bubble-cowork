@@ -3910,6 +3910,74 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return generateSessionTitle(prompt);
   });
 
+  // Fork a codex/opencode conversation: fork the provider-side thread through
+  // the adapter (codex `thread/fork`, opencode `session.fork`), then mirror the
+  // Aegis session row and transcript so both branches continue independently.
+  async function forkProviderThreadSession(
+    source: import('./types').SessionRow,
+    provider: 'codex' | 'opencode'
+  ): Promise<{ ok: true; session: SessionInfo } | { ok: false; message: string }> {
+    const providerThreadId =
+      provider === 'codex' ? source.codex_session_id : source.opencode_session_id;
+    if (!providerThreadId) {
+      return {
+        ok: false as const,
+        message: 'Send a message first — there is no conversation to fork yet.',
+      };
+    }
+
+    // Adapters register lazily on the first agent run; make sure they exist
+    // even when forking is the first provider interaction after launch.
+    ensureProviderService();
+    const adapter = getProviderService().getAdapter(provider);
+    if (!adapter?.forkThread) {
+      return { ok: false as const, message: `Forking is not available for ${provider}.` };
+    }
+
+    const forkedThreadId = await adapter.forkThread({
+      cwd: source.cwd || process.cwd(),
+      providerThreadId,
+    });
+
+    const fork = sessions.createSession({
+      title: `${source.title} (fork)`,
+      cwd: source.cwd || undefined,
+      projectCwd: source.project_cwd ?? source.cwd ?? null,
+      envMode: source.env_mode === 'worktree' ? 'worktree' : 'local',
+      worktreePath: source.worktree_path ?? null,
+      associatedWorktreePath: source.associated_worktree_path ?? null,
+      associatedWorktreeBranch: source.associated_worktree_branch ?? null,
+      associatedWorktreeRef: source.associated_worktree_ref ?? null,
+      provider,
+      model: source.model || undefined,
+      scope: normalizeSessionScope(source.conversation_scope),
+      agentId: source.agent_id || null,
+      codexExecutionMode: normalizeCodexExecutionMode(source.codex_execution_mode),
+      codexPermissionMode: normalizeCodexPermissionMode(source.codex_permission_mode),
+      codexReasoningEffort: normalizeCodexReasoningEffort(source.codex_reasoning_effort),
+      codexFastMode: normalizeCodexFastMode(source.codex_fast_mode),
+      opencodePermissionMode: normalizeOpenCodePermissionMode(source.opencode_permission_mode),
+      channelId: normalizeWorkspaceChannelId(source.workspace_channel_id),
+      teamMode: normalizeSessionTeamMode(source.team_mode),
+      teamId: source.team_id || null,
+    });
+
+    if (provider === 'codex') {
+      sessions.updateCodexSessionId(fork.id, forkedThreadId);
+    } else {
+      sessions.updateOpencodeSessionId(fork.id, forkedThreadId);
+    }
+
+    // Copy the transcript (re-keyed) so the forked pane shows the conversation.
+    sessions.copySessionHistory(source.id, fork.id);
+
+    const row = sessions.getSession(fork.id);
+    if (!row) {
+      return { ok: false as const, message: 'Failed to read the forked session.' };
+    }
+    return { ok: true as const, session: buildSessionInfoFromRow(row) };
+  }
+
   // Fork a Claude conversation into a new session (branch the transcript).
   ipcMainHandle('fork-session', async (_event, sourceSessionId: string) => {
     try {
@@ -3917,8 +3985,15 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       if (!source) {
         return { ok: false as const, message: 'Session not found.' };
       }
-      if ((source.provider || 'claude') !== 'claude') {
-        return { ok: false as const, message: 'Forking is only supported for Claude sessions.' };
+      const sourceProvider = (source.provider || 'claude') as AgentProvider;
+      if (sourceProvider === 'codex' || sourceProvider === 'opencode') {
+        return forkProviderThreadSession(source, sourceProvider);
+      }
+      if (sourceProvider !== 'claude') {
+        return {
+          ok: false as const,
+          message: 'Forking is only supported for Claude, Codex, and OpenCode sessions.',
+        };
       }
       // The app doesn't always persist claude_session_id (it can resume by
       // rebuilding from history). If it's missing, bootstrap a resumable

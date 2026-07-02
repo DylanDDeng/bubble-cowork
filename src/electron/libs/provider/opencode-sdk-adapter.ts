@@ -630,6 +630,23 @@ export class OpenCodeSdkAdapter implements ProviderAdapter {
     session.pendingRequests.delete(requestId);
   }
 
+  async forkThread(input: { cwd: string; providerThreadId: string }): Promise<string> {
+    const cwd = input.cwd || process.cwd();
+    const client = await this.manager.getClient(cwd);
+    const forked = await requestOpenCode<Record<string, unknown>>(
+      client.session.fork({
+        path: { id: input.providerThreadId },
+        query: { directory: cwd },
+        body: {},
+      })
+    );
+    const forkedId = getString(forked.id).trim();
+    if (!forkedId) {
+      throw new Error('OpenCode SDK did not return a forked session id.');
+    }
+    return forkedId;
+  }
+
   private async resolveProviderSessionId(
     client: OpenCodeClient,
     cwd: string,

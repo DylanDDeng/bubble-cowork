@@ -146,6 +146,12 @@ export interface ProviderAdapter {
   respondToRequest(threadId: string, requestId: string, decision: PermissionResult): Promise<void>;
   runOneShot?(input: ProviderSessionStartInput): Promise<{ text: string; sessionId?: string; model?: string }>;
 
+  /**
+   * Fork a recorded provider thread into a new independent one. Present only
+   * on adapters with capabilities.forkThread; returns the forked thread id.
+   */
+  forkThread?(input: { cwd: string; providerThreadId: string }): Promise<string>;
+
   // Optional provider discovery APIs
   getComposerCapabilities?(): ProviderComposerCapabilities;
   getRateLimits?(): Promise<CodexRateLimitReport>;
