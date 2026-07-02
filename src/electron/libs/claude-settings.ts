@@ -299,6 +299,35 @@ export function getClaudeModelConfig(): ClaudeModelConfig {
   return { defaultModel, options };
 }
 
+/**
+ * Model config with the official catalog as the primary source: models come
+ * from the SDK's supportedModels (what the signed-in account can actually
+ * use), plus compatible-provider models. The locally-recorded candidates in
+ * ~/.claude.json only fill in when the catalog probe is unavailable, so stale
+ * or retired entries stop leaking into the picker.
+ */
+export async function getClaudeModelConfigWithCatalog(): Promise<ClaudeModelConfig> {
+  const { getClaudeSupportedModels } = await import('./claude-model-catalog');
+  const s = loadClaudeSettings();
+  const defaultModel = canonicalizeClaudeModel(s.model);
+  const compatibleModels = getEnabledCompatibleProviderConfigs().map((provider) => provider.model);
+
+  const catalogModels = await getClaudeSupportedModels();
+  if (catalogModels.length === 0) {
+    return getClaudeModelConfig();
+  }
+
+  const options = Array.from(
+    new Set(
+      [defaultModel, ...catalogModels, ...compatibleModels].filter((value): value is string =>
+        Boolean(value)
+      )
+    )
+  );
+
+  return { defaultModel, options };
+}
+
 // 获取 MCP 服务器配置（合并全局和项目级配置）
 export function getMcpServers(projectPath?: string): Record<string, McpServerConfig> {
   const config = loadClaudeJson();

@@ -14,7 +14,7 @@ import { forkClaudeAgentSession, generateSessionTitle, runClaudeOneShot } from '
 import { ensureProviderService, runAgentLoop } from './libs/agent-loop';
 import { readProjectTree } from './libs/project-tree';
 import { normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
-import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfig, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
+import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfigWithCatalog, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
 import { getCodexMcpServers, saveCodexMcpServers } from './libs/codex-mcp-settings';
 import {
   getOpencodeMcpServers,
@@ -4175,9 +4175,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   );
 
-  // RPC: 获取 Claude 模型配置
+  // RPC: 获取 Claude 模型配置(官方目录优先,本地记录兜底)
   ipcMainHandle('get-claude-model-config', async () => {
-    return getClaudeModelConfig();
+    return getClaudeModelConfigWithCatalog();
   });
 
   // RPC: 获取 Claude-compatible provider 配置
