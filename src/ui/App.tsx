@@ -57,6 +57,7 @@ import { applyThemePreferences } from './theme/themes';
 import { extractLatestSuccessfulHtmlArtifactFromLatestTurn } from './utils/artifacts';
 import { openHtmlFileInBrowserTab } from './utils/html-preview';
 import { StructuredResponse } from './components/StructuredResponse';
+import { AgentOnboardingView, useAgentOnboardingGate } from './components/onboarding/AgentOnboardingView';
 import {
   getMessageContentBlocks,
   normalizeToolResultBlock,
@@ -253,6 +254,8 @@ export function App() {
 
     return unsubscribe;
   }, [electronAvailable]);
+
+  const agentOnboarding = useAgentOnboardingGate(electronAvailable);
 
   if (!electronAvailable) {
     return (
@@ -826,6 +829,23 @@ export function App() {
     }
     return -1;
   }, [activeSession?.messages]);
+
+  // First-run (or zero-agents) takeover: the main UI is unusable without at
+  // least one working agent, so detection/install guidance becomes the page.
+  if (agentOnboarding.visible) {
+    return (
+      <div
+        className={`aegis-window-shell flex h-full min-h-0 ${
+          windowShellRounded ? 'aegis-window-shell--rounded' : ''
+        }`}
+      >
+        <div className="drag-region fixed left-0 top-0 h-9 w-full" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <AgentOnboardingView onComplete={agentOnboarding.dismiss} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

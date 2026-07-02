@@ -525,6 +525,11 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('stop-feishu-bridge');
   },
 
+  // 本机 agent 运行时检测
+  getAgentRuntimeDirectory: (force?: boolean) => {
+    return ipcRenderer.invoke('get-agent-runtime-directory', force);
+  },
+
   // 用户资料
   getUserProfile: () => {
     return ipcRenderer.invoke('get-user-profile');

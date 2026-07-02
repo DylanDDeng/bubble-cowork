@@ -45,6 +45,7 @@ import {
   saveFontSelections,
 } from './libs/font-settings';
 import { getUserProfile, saveUserProfile } from './libs/user-profile';
+import { getAgentRuntimeDirectory } from './libs/agent-runtime-directory';
 import { getCodexModelConfig, saveCodexModelVisibility } from './libs/codex-settings';
 import { getCodexRuntimeStatus } from './libs/codex-runtime-status';
 import { getOpencodeModelConfig, saveOpencodeModelVisibility } from './libs/opencode-settings';
@@ -4451,6 +4452,11 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('stop-feishu-bridge', async () => {
     return feishuBridge.stop();
+  });
+
+  // RPC: 本机 agent 运行时检测目录(onboarding / provider 状态)
+  ipcMainHandle('get-agent-runtime-directory', async (_event, force?: boolean) => {
+    return getAgentRuntimeDirectory(force === true);
   });
 
   // RPC: 用户资料(展示名/handle,用于 Usage 档案头)

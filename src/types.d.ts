@@ -183,6 +183,9 @@ declare global {
     getSkillMarketDetail: (id: string) => Promise<SkillMarketDetail>;
     installSkillFromMarket: (id: string) => Promise<SkillMarketInstallResult>;
     expandClaudeSkillPrompt: (skillFilePath: string, skillName: string, userPrompt: string) => Promise<{ ok: boolean; prompt?: string; message?: string }>;
+    getAgentRuntimeDirectory: (
+      force?: boolean
+    ) => Promise<import('./shared/types').AgentRuntimeDirectoryReport>;
     getUserProfile: () => Promise<import('./shared/types').UserProfile>;
     saveUserProfile: (
       update: import('./shared/types').UserProfileUpdate

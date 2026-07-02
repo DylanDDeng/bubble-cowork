@@ -1470,6 +1470,27 @@ export interface LatestClaudeModelUsage {
   usage: ClaudeModelUsage;
 }
 
+export type AgentRuntimeState = 'ready' | 'login_required' | 'not_installed' | 'error';
+
+export interface AgentRuntimeEntry {
+  provider: AgentProvider;
+  title: string;
+  state: AgentRuntimeState;
+  version: string | null;
+  summary: string;
+  detail: string | null;
+  installCommand: string | null;
+  loginCommand: string | null;
+  docsUrl: string | null;
+  checkedAt: number;
+}
+
+export interface AgentRuntimeDirectoryReport {
+  entries: AgentRuntimeEntry[];
+  readyCount: number;
+  checkedAt: number;
+}
+
 export interface UserProfile {
   displayName: string;
   handle: string;
