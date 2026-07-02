@@ -179,6 +179,10 @@ declare global {
     getSkillMarketDetail: (id: string) => Promise<SkillMarketDetail>;
     installSkillFromMarket: (id: string) => Promise<SkillMarketInstallResult>;
     expandClaudeSkillPrompt: (skillFilePath: string, skillName: string, userPrompt: string) => Promise<{ ok: boolean; prompt?: string; message?: string }>;
+    getUserProfile: () => Promise<import('./shared/types').UserProfile>;
+    saveUserProfile: (
+      update: import('./shared/types').UserProfileUpdate
+    ) => Promise<import('./shared/types').UserProfile>;
     getFontSettings: () => Promise<FontSettingsPayload>;
     saveFontSelections: (selections: FontSettingsPayload['selections']) => Promise<FontSettingsPayload>;
     listSystemFonts: () => Promise<SystemFontOption[]>;

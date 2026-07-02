@@ -9,17 +9,17 @@ import { OpenCodeLogo } from '../OpenCodeLogo';
 import type {
   AgentProvider,
   ClaudeUsageDailyPoint,
-  ClaudeUsageModelSummary,
-  ClaudeUsageRangeDays,
   ClaudeUsageReport,
   CodexRateLimitReport,
   CodexRateLimitSnapshot,
   CodexRateLimitWindow,
 } from '../../types';
-import { SegmentedControl, SegmentedControlItem, SettingsGroup } from './SettingsPrimitives';
+import type { UserProfile } from '../../../shared/types';
+import { useUserProfile } from '../../hooks/useUserProfile';
+import { SettingsGroup } from './SettingsPrimitives';
 
-const RANGE_OPTIONS: ClaudeUsageRangeDays[] = [7, 30, 90];
 const MODEL_COLORS = ['#315EFB', '#0F9D90', '#D97757', '#7C3AED', '#F59E0B', '#E11D48'];
+const HEATMAP_LEVEL_COLORS = ['#d3e5fa', '#a8cbf6', '#6ba5ec', '#3b82d8', '#1d5fb8'];
 
 type UsageProviderCard = {
   id: AgentProvider;
@@ -28,16 +28,11 @@ type UsageProviderCard = {
   report: ClaudeUsageReport | null;
   loading: boolean;
   error: string | null;
-  status: {
-    label: string;
-    tone: string;
-    dot: string;
-    summary: string;
-  };
 };
 
+type ActivityViewMode = 'daily' | 'weekly' | 'cumulative';
+
 export function ClaudeUsageSettingsContent() {
-  const [rangeDays, setRangeDays] = useState<ClaudeUsageRangeDays>(7);
   const [activeProvider, setActiveProvider] = useState<AgentProvider>('claude');
   const [claudeReport, setClaudeReport] = useState<ClaudeUsageReport | null>(null);
   const [codexReport, setCodexReport] = useState<ClaudeUsageReport | null>(null);
@@ -51,6 +46,7 @@ export function ClaudeUsageSettingsContent() {
   const [codexError, setCodexError] = useState<string | null>(null);
   const [opencodeError, setOpencodeError] = useState<string | null>(null);
   const [codexRateLimitsError, setCodexRateLimitsError] = useState<string | null>(null);
+  const userProfile = useUserProfile();
 
   useEffect(() => {
     let cancelled = false;
@@ -64,9 +60,9 @@ export function ClaudeUsageSettingsContent() {
       setOpencodeError(null);
 
       const [claudeResult, codexResult, opencodeResult] = await Promise.allSettled([
-        window.electron.getClaudeUsageReport(rangeDays),
-        window.electron.getCodexUsageReport(rangeDays),
-        window.electron.getOpencodeUsageReport(rangeDays),
+        window.electron.getClaudeUsageReport(365),
+        window.electron.getCodexUsageReport(365),
+        window.electron.getOpencodeUsageReport(365),
       ]);
 
       if (cancelled) {
@@ -104,7 +100,7 @@ export function ClaudeUsageSettingsContent() {
     return () => {
       cancelled = true;
     };
-  }, [rangeDays]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,7 +148,6 @@ export function ClaudeUsageSettingsContent() {
         report: claudeReport,
         loading: claudeLoading,
         error: claudeError,
-        status: buildProviderUsageStatus(claudeReport, claudeLoading, claudeError, false),
       },
       {
         id: 'codex',
@@ -161,7 +156,6 @@ export function ClaudeUsageSettingsContent() {
         report: codexReport,
         loading: codexLoading,
         error: codexError,
-        status: buildProviderUsageStatus(codexReport, codexLoading, codexError, true),
       },
       {
         id: 'opencode',
@@ -170,112 +164,41 @@ export function ClaudeUsageSettingsContent() {
         report: opencodeReport,
         loading: opencodeLoading,
         error: opencodeError,
-        status: buildProviderUsageStatus(opencodeReport, opencodeLoading, opencodeError, false),
       },
     ],
-    [
-      claudeError,
-      claudeLoading,
-      claudeReport,
-      codexError,
-      codexLoading,
-      codexReport,
-      opencodeError,
-      opencodeLoading,
-      opencodeReport,
-    ]
+    [claudeError, claudeLoading, claudeReport, codexError, codexLoading, codexReport, opencodeError, opencodeLoading, opencodeReport]
   );
 
   const activeProviderCard = providers.find((provider) => provider.id === activeProvider) || providers[0];
   const activeReport = activeProviderCard.report;
-  const showReadyState = Boolean(activeReport && !activeProviderCard.error);
-  const modelColors = useMemo(() => {
-    const entries = activeReport?.models || [];
-    return Object.fromEntries(
-      entries.map((model, index) => [model.model, MODEL_COLORS[index % MODEL_COLORS.length]])
-    ) as Record<string, string>;
-  }, [activeReport]);
-
-  const estimatedCost = activeProviderCard.report?.costMode === 'estimated';
+  const estimatedCost = activeReport?.costMode === 'estimated';
+  const stats = useMemo(() => (activeReport ? computeUsageStats(activeReport) : null), [activeReport]);
+  const codexPlanType =
+    activeProviderCard.id === 'codex' ? codexRateLimits?.rateLimits?.planType || null : null;
 
   return (
-    <div className="space-y-6 pb-8">
-      <SettingsGroup>
-        <div className="px-4 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <ProviderSegmentedControl
-              providers={providers}
-              activeId={activeProviderCard.id}
-              onSelect={setActiveProvider}
-            />
-            <RangeSegmentedControl
-              value={rangeDays}
-              onChange={setRangeDays}
-            />
+    <div className="space-y-8 pb-10">
+      <UsageProfileHeader
+        profile={userProfile}
+        provider={activeProviderCard}
+        providers={providers}
+        onSelectProvider={setActiveProvider}
+        planType={codexPlanType}
+        estimatedCost={estimatedCost}
+      />
+
+      {renderUsageState(activeProviderCard) || (
+        <>
+          <UsageStatStrip stats={stats!} estimatedCost={estimatedCost} />
+
+          <TokenActivitySection daily={activeReport!.daily} />
+
+          <div className="grid grid-cols-1 gap-x-12 gap-y-8 md:grid-cols-2">
+            <ActivityInsights report={activeReport!} stats={stats!} />
+            <TopModels report={activeReport!} />
           </div>
-
-          {activeProviderCard.report?.note ? (
-            <div className="mt-3 text-[11.5px] leading-5 text-[var(--text-muted)]">
-              {activeProviderCard.report.note}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="grid grid-cols-2 gap-px border-t border-[var(--border)] bg-[var(--border)] xl:grid-cols-4">
-          <MetricTile
-            title="Tokens"
-            value={
-              activeReport
-                ? formatCompactNumber(activeReport.totals.totalTokens)
-                : activeProviderCard.loading
-                  ? '—'
-                  : '0'
-            }
-            subtitle={
-              activeReport
-                ? `In ${formatCompactNumber(activeReport.totals.inputTokens)} · Out ${formatCompactNumber(activeReport.totals.outputTokens)}`
-                : undefined
-            }
-          />
-          <MetricTile
-            title="Cost"
-            value={
-              activeReport
-                ? formatCurrency(activeReport.totals.totalCostUsd, estimatedCost)
-                : activeProviderCard.loading
-                  ? '—'
-                  : '$0.00'
-            }
-            subtitle={activeReport ? (estimatedCost ? 'Estimated' : 'Actual') : undefined}
-          />
-          <MetricTile
-            title="Sessions"
-            value={
-              activeReport
-                ? activeReport.totals.sessionCount.toLocaleString('en-US')
-                : activeProviderCard.loading
-                  ? '—'
-                  : '0'
-            }
-            subtitle={activeReport ? `${activeReport.rangeDays}d window` : undefined}
-          />
-          <MetricTile
-            title="Cache hit"
-            value={
-              activeReport
-                ? formatPercent(activeReport.totals.cacheHitRate)
-                : activeProviderCard.loading
-                  ? '—'
-                  : '0%'
-            }
-            subtitle={
-              activeReport
-                ? `${formatCompactNumber(activeReport.totals.cacheReadTokens)} cached`
-                : undefined
-            }
-          />
-        </div>
-      </SettingsGroup>
+        </>
+      )}
 
       {activeProviderCard.id === 'codex' ? (
         <CodexRateLimitsPanel
@@ -284,70 +207,555 @@ export function ClaudeUsageSettingsContent() {
           error={codexRateLimitsError}
         />
       ) : null}
-
-      <SettingsGroup title="Daily usage">
-        {renderUsageState(activeProviderCard) || (
-          <div className="px-4 py-4">
-            {showReadyState && activeReport!.totals.totalTokens > 0 ? (
-              <UsageChart
-                daily={activeReport!.daily}
-                models={activeReport!.models}
-                modelColors={modelColors}
-                costEstimated={activeReport!.costMode === 'estimated'}
-              />
-            ) : (
-              <InlineEmpty label="No usage in this range." />
-            )}
-          </div>
-        )}
-      </SettingsGroup>
-
-      <SettingsGroup title="Model breakdown">
-        {renderUsageState(activeProviderCard) ||
-          (activeReport && activeReport.models.length > 0 ? (
-            <div>
-              <div className="grid grid-cols-[minmax(0,1.4fr)_1fr_110px_90px_110px] gap-4 px-4 py-2 text-[10.5px] font-medium uppercase tracking-[0.12em] text-[var(--text-muted)]">
-                <div>Model</div>
-                <div>Tokens</div>
-                <div>Cost</div>
-                <div>Sessions</div>
-                <div>Cache</div>
-              </div>
-
-              <div className="divide-y divide-[var(--border)] border-t border-[var(--border)]">
-                {activeReport.models.map((model) => (
-                  <div
-                    key={model.model}
-                    className="grid grid-cols-[minmax(0,1.4fr)_1fr_110px_90px_110px] gap-4 px-4 py-3 text-[12.5px]"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <ModelProviderLogo model={model.model} color={modelColors[model.model]} />
-                        <span className="truncate font-medium text-[var(--text-primary)]">{model.model}</span>
-                      </div>
-                      <div className="mt-0.5 text-[11.5px] text-[var(--text-muted)]">
-                        In {formatCompactNumber(model.inputTokens)} · Out {formatCompactNumber(model.outputTokens)}
-                      </div>
-                    </div>
-                    <div className="font-medium text-[var(--text-primary)]">
-                      {formatCompactNumber(model.totalTokens)}
-                    </div>
-                    <div className="font-medium text-[var(--text-primary)]">
-                      {formatCurrency(model.totalCostUsd, activeReport.costMode === 'estimated')}
-                    </div>
-                    <div className="text-[var(--text-primary)]">{model.sessionCount.toLocaleString('en-US')}</div>
-                    <div className="text-[var(--text-muted)]">{formatCompactNumber(model.cacheReadTokens)}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <InlineEmpty label="No model activity in this range." />
-          ))}
-      </SettingsGroup>
     </div>
   );
 }
+
+/* ---------- Profile header ---------- */
+
+const AVATAR_COLORS = ['#0F9D90', '#315EFB', '#D97757', '#7C3AED', '#DB2777', '#B45309', '#15803D'];
+
+function avatarColorFor(name: string): string {
+  let hash = 0;
+  for (let index = 0; index < name.length; index += 1) {
+    hash = (hash * 31 + name.charCodeAt(index)) | 0;
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function initialsOf(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '?';
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    return `${words[0][0]}${words[1][0]}`.toUpperCase();
+  }
+  return trimmed.slice(0, 2).toUpperCase();
+}
+
+function UsageProfileHeader({
+  profile,
+  provider,
+  providers,
+  onSelectProvider,
+  planType,
+  estimatedCost,
+}: {
+  profile: UserProfile | null;
+  provider: UsageProviderCard;
+  providers: UsageProviderCard[];
+  onSelectProvider: (id: AgentProvider) => void;
+  planType: string | null;
+  estimatedCost: boolean;
+}) {
+  const badge = planType
+    ? formatPlanName(planType)
+    : provider.report && provider.report.totals.totalTokens > 0
+      ? estimatedCost
+        ? 'Estimated'
+        : 'Actual'
+      : null;
+  const handle = profile?.handle ? `@${profile.handle}` : '';
+
+  return (
+    <div className="flex flex-col items-center gap-3">
+      {profile ? (
+        <div
+          className="flex h-16 w-16 items-center justify-center rounded-full text-[22px] font-semibold text-white shadow-[0_1px_2px_rgba(15,23,42,0.1)]"
+          style={{ backgroundColor: avatarColorFor(profile.displayName) }}
+          aria-hidden="true"
+        >
+          {initialsOf(profile.displayName)}
+        </div>
+      ) : (
+        // Neutral skeleton for the first-ever load; never flash wrong initials.
+        <div className="h-16 w-16 rounded-full bg-[var(--bg-tertiary)]" aria-hidden="true" />
+      )}
+      <div className="text-center">
+        <div className="min-h-[30px] text-[20px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
+          {profile?.displayName ?? ' '}
+        </div>
+        <div className="mt-1 flex items-center justify-center gap-2 text-[12.5px] text-[var(--text-muted)]">
+          {handle ? <span>{handle}</span> : null}
+          {badge ? (
+            <>
+              {handle ? <span aria-hidden="true">·</span> : null}
+              <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-secondary)]">
+                {badge}
+              </span>
+            </>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-1 flex items-center justify-center gap-2.5" role="group" aria-label="Select provider">
+        {providers.map((entry) => {
+          const active = entry.id === provider.id;
+          return (
+            <button
+              key={entry.id}
+              type="button"
+              onClick={() => onSelectProvider(entry.id)}
+              title={entry.title}
+              aria-label={entry.title}
+              aria-pressed={active}
+              className={`flex h-9 w-9 items-center justify-center rounded-full border bg-[var(--bg-primary)] transition-all [&_img]:h-4 [&_img]:w-4 [&_svg]:h-4 [&_svg]:w-4 ${
+                active
+                  ? 'border-[var(--accent)] shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_18%,transparent)]'
+                  : 'border-[var(--border)] opacity-45 grayscale hover:opacity-90 hover:grayscale-0'
+              }`}
+            >
+              {entry.logo}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Stat strip ---------- */
+
+interface UsageStats {
+  totalTokens: number;
+  peakDayTokens: number;
+  peakDayDate: string | null;
+  totalCostUsd: number;
+  currentStreak: number;
+  longestStreak: number;
+  activeDays: number;
+}
+
+function computeUsageStats(report: ClaudeUsageReport): UsageStats {
+  const daily = report.daily;
+  let dailyTotalTokens = 0;
+  let peakDayTokens = 0;
+  let peakDayDate: string | null = null;
+  let activeDays = 0;
+  let longestStreak = 0;
+  let runningStreak = 0;
+
+  for (const point of daily) {
+    dailyTotalTokens += point.totalTokens;
+    if (point.totalTokens > peakDayTokens) {
+      peakDayTokens = point.totalTokens;
+      peakDayDate = point.date;
+    }
+    if (point.totalTokens > 0) {
+      activeDays += 1;
+      runningStreak += 1;
+      longestStreak = Math.max(longestStreak, runningStreak);
+    } else {
+      runningStreak = 0;
+    }
+  }
+
+  // Current streak counts back from the last day; an empty "today" doesn't
+  // break a streak that is still alive as of yesterday.
+  let currentStreak = 0;
+  let index = daily.length - 1;
+  if (index >= 0 && daily[index].totalTokens <= 0) {
+    index -= 1;
+  }
+  while (index >= 0 && daily[index].totalTokens > 0) {
+    currentStreak += 1;
+    index -= 1;
+  }
+
+  return {
+    // Sum of the daily series so the strip, heatmap, and cumulative views all
+    // agree; report.totals counts from a different source (result.usage).
+    totalTokens: dailyTotalTokens,
+    peakDayTokens,
+    peakDayDate,
+    totalCostUsd: report.totals.totalCostUsd,
+    currentStreak,
+    longestStreak,
+    activeDays,
+  };
+}
+
+function UsageStatStrip({ stats, estimatedCost }: { stats: UsageStats; estimatedCost: boolean }) {
+  const cells = [
+    { value: formatCompactNumber(stats.totalTokens), label: 'Total tokens' },
+    { value: formatCompactNumber(stats.peakDayTokens), label: 'Peak day tokens' },
+    { value: formatCurrency(stats.totalCostUsd, estimatedCost), label: 'Total cost' },
+    { value: `${stats.currentStreak}d`, label: 'Current streak' },
+    { value: `${stats.longestStreak}d`, label: 'Longest streak' },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-[var(--border)] sm:grid-cols-3 lg:grid-cols-5 lg:divide-x lg:divide-[var(--border)]">
+      {cells.map((cell) => (
+        <div key={cell.label} className="px-4 py-4 text-center">
+          <div className="text-[17px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
+            {cell.value}
+          </div>
+          <div className="mt-1 text-[12px] text-[var(--text-muted)]">{cell.label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------- Token activity ---------- */
+
+function TokenActivitySection({ daily }: { daily: ClaudeUsageDailyPoint[] }) {
+  const [mode, setMode] = useState<ActivityViewMode>('daily');
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <div className="text-[13.5px] font-semibold text-[var(--text-primary)]">Token activity</div>
+        <div className="flex items-center gap-4 text-[12.5px]">
+          {(
+            [
+              ['daily', 'Daily'],
+              ['weekly', 'Weekly'],
+              ['cumulative', 'Cumulative'],
+            ] as Array<[ActivityViewMode, string]>
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setMode(value)}
+              className={`transition-colors ${
+                mode === value
+                  ? 'font-medium text-[var(--text-primary)]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4">
+        {mode === 'daily' ? <DailyHeatmap daily={daily} /> : null}
+        {mode === 'weekly' ? <WeeklyHeatmap daily={daily} /> : null}
+        {mode === 'cumulative' ? <CumulativeChart daily={daily} /> : null}
+      </div>
+    </div>
+  );
+}
+
+function quantileThresholds(values: number[]): number[] {
+  const sorted = values.filter((value) => value > 0).sort((left, right) => left - right);
+  if (sorted.length === 0) {
+    return [0, 0, 0, 0];
+  }
+  const pick = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+  return [pick(0.2), pick(0.4), pick(0.6), pick(0.8)];
+}
+
+function heatLevel(value: number, thresholds: number[]): number {
+  if (value <= 0) return 0;
+  if (value <= thresholds[0]) return 1;
+  if (value <= thresholds[1]) return 2;
+  if (value <= thresholds[2]) return 3;
+  if (value <= thresholds[3]) return 4;
+  return 5;
+}
+
+function heatFill(level: number): string {
+  return level === 0 ? 'var(--bg-tertiary)' : HEATMAP_LEVEL_COLORS[level - 1];
+}
+
+function parseDateKey(dateKey: string): Date {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(year, (month || 1) - 1, day || 1);
+}
+
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function DailyHeatmap({ daily }: { daily: ClaudeUsageDailyPoint[] }) {
+  const cell = 10;
+  const gap = 3;
+  const pitch = cell + gap;
+  const labelBand = 20;
+
+  const { weeks, monthLabels } = useMemo(() => {
+    const firstWeekday = daily.length > 0 ? parseDateKey(daily[0].date).getDay() : 0;
+    const weekCount = Math.ceil((firstWeekday + daily.length) / 7);
+    const grid: Array<Array<ClaudeUsageDailyPoint | null>> = Array.from({ length: weekCount }, () =>
+      Array.from({ length: 7 }, () => null)
+    );
+    daily.forEach((point, index) => {
+      const slot = firstWeekday + index;
+      grid[Math.floor(slot / 7)][slot % 7] = point;
+    });
+
+    const labels: Array<{ week: number; label: string }> = [];
+    let lastMonth = -1;
+    grid.forEach((week, weekIndex) => {
+      const firstPoint = week.find((point) => point !== null);
+      if (!firstPoint) return;
+      const month = parseDateKey(firstPoint.date).getMonth();
+      if (month !== lastMonth) {
+        const lastLabel = labels[labels.length - 1];
+        if (!lastLabel || weekIndex - lastLabel.week >= 3) {
+          labels.push({ week: weekIndex, label: MONTH_LABELS[month] });
+        }
+        lastMonth = month;
+      }
+    });
+
+    return { weeks: grid, monthLabels: labels };
+  }, [daily]);
+
+  const thresholds = useMemo(() => quantileThresholds(daily.map((point) => point.totalTokens)), [daily]);
+  const width = weeks.length * pitch - gap;
+  const height = 7 * pitch - gap + labelBand;
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label="Daily token activity heatmap">
+      {weeks.map((week, weekIndex) =>
+        week.map((point, dayIndex) => {
+          if (!point) return null;
+          const level = heatLevel(point.totalTokens, thresholds);
+          return (
+            <rect
+              key={point.date}
+              x={weekIndex * pitch}
+              y={dayIndex * pitch}
+              width={cell}
+              height={cell}
+              rx={2.5}
+              fill={heatFill(level)}
+            >
+              <title>{`${point.date} · ${formatCompactNumber(point.totalTokens)} tokens`}</title>
+            </rect>
+          );
+        })
+      )}
+      {monthLabels.map((entry) => (
+        <text
+          key={`${entry.week}-${entry.label}`}
+          x={entry.week * pitch}
+          y={height - 4}
+          fontSize="10"
+          fill="var(--text-muted)"
+        >
+          {entry.label}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+function WeeklyHeatmap({ daily }: { daily: ClaudeUsageDailyPoint[] }) {
+  const cell = 14;
+  const gap = 3;
+  const pitch = cell + gap;
+  const labelBand = 20;
+
+  const weeksData = useMemo(() => {
+    const firstWeekday = daily.length > 0 ? parseDateKey(daily[0].date).getDay() : 0;
+    const weekCount = Math.ceil((firstWeekday + daily.length) / 7);
+    const sums: Array<{ tokens: number; startDate: string | null }> = Array.from(
+      { length: weekCount },
+      () => ({ tokens: 0, startDate: null })
+    );
+    daily.forEach((point, index) => {
+      const bucket = sums[Math.floor((firstWeekday + index) / 7)];
+      bucket.tokens += point.totalTokens;
+      if (!bucket.startDate) {
+        bucket.startDate = point.date;
+      }
+    });
+    return sums;
+  }, [daily]);
+
+  const monthLabels = useMemo(() => {
+    const labels: Array<{ week: number; label: string }> = [];
+    let lastMonth = -1;
+    weeksData.forEach((week, weekIndex) => {
+      if (!week.startDate) return;
+      const month = parseDateKey(week.startDate).getMonth();
+      if (month !== lastMonth) {
+        const lastLabel = labels[labels.length - 1];
+        if (!lastLabel || weekIndex - lastLabel.week >= 3) {
+          labels.push({ week: weekIndex, label: MONTH_LABELS[month] });
+        }
+        lastMonth = month;
+      }
+    });
+    return labels;
+  }, [weeksData]);
+
+  const thresholds = useMemo(
+    () => quantileThresholds(weeksData.map((week) => week.tokens)),
+    [weeksData]
+  );
+  const width = weeksData.length * pitch - gap;
+  const height = cell + labelBand;
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label="Weekly token activity heatmap">
+      {weeksData.map((week, weekIndex) => (
+        <rect
+          key={week.startDate || weekIndex}
+          x={weekIndex * pitch}
+          y={0}
+          width={cell}
+          height={cell}
+          rx={3}
+          fill={heatFill(heatLevel(week.tokens, thresholds))}
+        >
+          <title>{`Week of ${week.startDate || '—'} · ${formatCompactNumber(week.tokens)} tokens`}</title>
+        </rect>
+      ))}
+      {monthLabels.map((entry) => (
+        <text
+          key={`${entry.week}-${entry.label}`}
+          x={entry.week * pitch}
+          y={height - 4}
+          fontSize="10"
+          fill="var(--text-muted)"
+        >
+          {entry.label}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+function CumulativeChart({ daily }: { daily: ClaudeUsageDailyPoint[] }) {
+  const width = 720;
+  const height = 160;
+  const labelBand = 20;
+
+  const { areaPath, linePath, total, monthLabels } = useMemo(() => {
+    const total = daily.reduce((sum, point) => sum + point.totalTokens, 0);
+    const denominator = Math.max(total, 1);
+    let running = 0;
+    const points = daily.map((point, index) => {
+      running += point.totalTokens;
+      const x = daily.length > 1 ? (index / (daily.length - 1)) * width : 0;
+      const y = height - (running / denominator) * (height - 8);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    const linePath = points.length > 0 ? `M${points.join(' L')}` : '';
+    const areaPath = points.length > 0 ? `${linePath} L${width},${height} L0,${height} Z` : '';
+
+    const labels: Array<{ x: number; label: string }> = [];
+    let lastMonth = -1;
+    daily.forEach((point, index) => {
+      const month = parseDateKey(point.date).getMonth();
+      if (month !== lastMonth) {
+        const x = daily.length > 1 ? (index / (daily.length - 1)) * width : 0;
+        const lastLabel = labels[labels.length - 1];
+        if (!lastLabel || x - lastLabel.x >= 40) {
+          labels.push({ x, label: MONTH_LABELS[month] });
+        }
+        lastMonth = month;
+      }
+    });
+
+    return { areaPath, linePath, total, monthLabels: labels };
+  }, [daily]);
+
+  return (
+    <div>
+      <svg
+        viewBox={`0 0 ${width} ${height + labelBand}`}
+        className="h-auto w-full"
+        role="img"
+        aria-label="Cumulative token usage"
+      >
+        <path d={areaPath} fill="#3b82d8" opacity="0.12" />
+        <path d={linePath} fill="none" stroke="#3b82d8" strokeWidth="2" strokeLinejoin="round" />
+        {monthLabels.map((entry) => (
+          <text key={`${entry.x}-${entry.label}`} x={entry.x} y={height + labelBand - 4} fontSize="10" fill="var(--text-muted)">
+            {entry.label}
+          </text>
+        ))}
+      </svg>
+      <div className="mt-1 text-right text-[11.5px] text-[var(--text-muted)]">
+        {formatCompactNumber(total)} tokens over the last year
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Insight columns ---------- */
+
+function InsightRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-2.5">
+      <span className="text-[13px] text-[var(--text-secondary)]">{label}</span>
+      <span className="text-[13px] font-medium text-[var(--text-primary)]">{value}</span>
+    </div>
+  );
+}
+
+function ActivityInsights({ report, stats }: { report: ClaudeUsageReport; stats: UsageStats }) {
+  const topModel = report.models[0] || null;
+  const modelTokenSum = report.models.reduce((sum, model) => sum + model.totalTokens, 0);
+  const topModelShare =
+    topModel && modelTokenSum > 0 ? Math.round((topModel.totalTokens / modelTokenSum) * 100) : 0;
+
+  return (
+    <div>
+      <div className="text-[13.5px] font-semibold text-[var(--text-primary)]">Activity insights</div>
+      <div className="mt-2">
+        <InsightRow label="Cache hit rate" value={formatPercent(report.totals.cacheHitRate)} />
+        {topModel ? (
+          <InsightRow label="Most used model" value={`${shortModelName(topModel.model)} · ${topModelShare}%`} />
+        ) : null}
+        <InsightRow label="Sessions" value={report.totals.sessionCount.toLocaleString('en-US')} />
+        <InsightRow label="Active days" value={`${stats.activeDays} / ${report.rangeDays}`} />
+        <InsightRow
+          label="Busiest day"
+          value={stats.peakDayDate ? formatLongDate(stats.peakDayDate) : '—'}
+        />
+      </div>
+    </div>
+  );
+}
+
+function TopModels({ report }: { report: ClaudeUsageReport }) {
+  const modelColors = useMemo(
+    () =>
+      Object.fromEntries(
+        report.models.map((model, index) => [model.model, MODEL_COLORS[index % MODEL_COLORS.length]])
+      ) as Record<string, string>,
+    [report.models]
+  );
+  const top = report.models.slice(0, 5);
+
+  return (
+    <div>
+      <div className="text-[13.5px] font-semibold text-[var(--text-primary)]">Top models</div>
+      <div className="mt-2">
+        {top.length > 0 ? (
+          top.map((model) => (
+            <div key={model.model} className="flex items-center justify-between gap-4 py-2.5">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <ModelProviderLogo model={model.model} color={modelColors[model.model]} />
+                <span className="truncate text-[13px] font-medium text-[var(--text-primary)]">
+                  {model.model}
+                </span>
+              </div>
+              <span className="shrink-0 text-[13px] text-[var(--text-muted)]">
+                {formatCompactNumber(model.totalTokens)} tokens
+              </span>
+            </div>
+          ))
+        ) : (
+          <div className="py-2.5 text-[13px] text-[var(--text-muted)]">No model activity yet.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function shortModelName(model: string): string {
+  return model.length > 26 ? `${model.slice(0, 24)}…` : model;
+}
+
+/* ---------- States ---------- */
 
 function renderUsageState(provider: UsageProviderCard) {
   if (provider.loading && !provider.report) {
@@ -356,7 +764,7 @@ function renderUsageState(provider: UsageProviderCard) {
 
   if (provider.error && !provider.loading) {
     return (
-      <div className="px-4 py-4 text-[12px] text-[var(--error)]">
+      <div className="px-4 py-4 text-center text-[12px] text-[var(--error)]">
         <span className="font-medium">Unable to load usage.</span> {provider.error}
       </div>
     );
@@ -368,10 +776,14 @@ function renderUsageState(provider: UsageProviderCard) {
         label={
           provider.id === 'opencode'
             ? 'OpenCode usage pipeline is not wired up yet.'
-            : 'No usage recorded in this range.'
+            : 'No usage recorded yet.'
         }
       />
     );
+  }
+
+  if (provider.report && provider.report.totals.totalTokens <= 0) {
+    return <InlineEmpty label="No usage recorded in the last year." />;
   }
 
   return null;
@@ -379,102 +791,8 @@ function renderUsageState(provider: UsageProviderCard) {
 
 function InlineEmpty({ label }: { label: string }) {
   return (
-    <div className="px-4 py-8 text-center text-[12px] text-[var(--text-muted)]">{label}</div>
+    <div className="px-4 py-10 text-center text-[12px] text-[var(--text-muted)]">{label}</div>
   );
-}
-
-function ProviderSegmentedControl({
-  providers,
-  activeId,
-  onSelect,
-}: {
-  providers: UsageProviderCard[];
-  activeId: AgentProvider;
-  onSelect: (id: AgentProvider) => void;
-}) {
-  return (
-    <SegmentedControl ariaLabel="Select provider">
-      {providers.map((provider) => (
-        <SegmentedControlItem
-          key={provider.id}
-          active={provider.id === activeId}
-          onClick={() => onSelect(provider.id)}
-          ariaLabel={provider.title}
-        >
-          {provider.logo}
-          <span>{provider.title}</span>
-          <span className={`h-1.5 w-1.5 rounded-full ${provider.status.dot}`} aria-hidden="true" />
-        </SegmentedControlItem>
-      ))}
-    </SegmentedControl>
-  );
-}
-
-function RangeSegmentedControl({
-  value,
-  onChange,
-}: {
-  value: ClaudeUsageRangeDays;
-  onChange: (value: ClaudeUsageRangeDays) => void;
-}) {
-  return (
-    <SegmentedControl ariaLabel="Select time range">
-      {RANGE_OPTIONS.map((days) => (
-        <SegmentedControlItem
-          key={days}
-          active={value === days}
-          onClick={() => onChange(days)}
-          className="min-w-[38px]"
-        >
-          {days}D
-        </SegmentedControlItem>
-      ))}
-    </SegmentedControl>
-  );
-}
-
-function buildProviderUsageStatus(
-  report: ClaudeUsageReport | null,
-  loading: boolean,
-  error: string | null,
-  estimatedCost: boolean
-) {
-  if (loading) {
-    return {
-      label: 'Loading',
-      tone: 'text-[var(--text-secondary)]',
-      dot: 'bg-[var(--text-muted)]',
-      summary: 'Refreshing usage data…',
-    };
-  }
-
-  if (error) {
-    return {
-      label: 'Error',
-      tone: 'text-[#b42318]',
-      dot: 'bg-[#ef4444]',
-      summary: 'Unable to load usage right now.',
-    };
-  }
-
-  if (!report || report.totals.totalTokens <= 0) {
-    return {
-      label: 'Idle',
-      tone: 'text-[var(--text-secondary)]',
-      dot: 'bg-[var(--text-muted)]',
-      summary: 'No usage recorded in this period.',
-    };
-  }
-
-  return {
-    label: estimatedCost ? 'Estimated' : 'Actual',
-    tone: estimatedCost ? 'text-[#b54708]' : 'text-[#067647]',
-    dot: estimatedCost ? 'bg-[#f59e0b]' : 'bg-[#22c55e]',
-    summary: `${formatCompactNumber(report.totals.totalTokens)} tokens · ${formatCurrency(
-      report.totals.totalCostUsd,
-      estimatedCost
-    )}`,
-  };
 }
 
 function normalizeUsageLoadError(error: unknown, channel: string): string {
@@ -507,6 +825,8 @@ function MetricTile({
     </div>
   );
 }
+
+/* ---------- Codex limits ---------- */
 
 function CodexRateLimitsPanel({
   report,
@@ -783,6 +1103,8 @@ function formatRateLimitReachedType(value: string): string {
   return formatPlanName(value.replace(/_/g, ' '));
 }
 
+/* ---------- Shared formatting ---------- */
+
 function ModelProviderLogo({
   model,
   color,
@@ -850,272 +1172,10 @@ function getProviderLogoForModel(model: string): string | null {
   return null;
 }
 
-function UsageChart({
-  daily,
-  models,
-  modelColors,
-  costEstimated = false,
-}: {
-  daily: ClaudeUsageDailyPoint[];
-  models: ClaudeUsageModelSummary[];
-  modelColors: Record<string, string>;
-  costEstimated?: boolean;
-}) {
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const viewBoxWidth = 960;
-  const viewBoxHeight = 340;
-  const marginTop = 14;
-  const marginRight = 16;
-  const marginBottom = 56;
-  const marginLeft = 58;
-  const plotWidth = viewBoxWidth - marginLeft - marginRight;
-  const plotHeight = viewBoxHeight - marginTop - marginBottom;
-  const maxValue = Math.max(...daily.map((entry) => entry.totalTokens), 1);
-  const yMax = getNiceMax(maxValue);
-  const tickCount = 4;
-  const ticks = Array.from({ length: tickCount + 1 }, (_, index) => (yMax / tickCount) * index);
-  const slotWidth = plotWidth / Math.max(daily.length, 1);
-  const barWidth = Math.max(8, Math.min(28, slotWidth * 0.64));
-  const labelStep = Math.max(1, Math.ceil(daily.length / 14));
-  const modelOrder = models.map((model) => model.model);
-  const hoveredPoint = hoveredIndex !== null ? daily[hoveredIndex] : null;
-  const hoveredCostMap = hoveredPoint?.byModelCostUsd || {};
-  const hoveredCenterX =
-    hoveredIndex !== null ? marginLeft + slotWidth * hoveredIndex + slotWidth / 2 : null;
-  const hoveredRows = hoveredPoint
-    ? models
-        .map((model) => {
-          const tokens = hoveredPoint.byModel[model.model] || 0;
-          const actualCostUsd = hoveredCostMap[model.model];
-          const estimatedCostUsd =
-            typeof actualCostUsd === 'number'
-              ? actualCostUsd
-              : model.totalTokens > 0 && tokens > 0
-                ? (model.totalCostUsd * tokens) / model.totalTokens
-                : 0;
-
-          return {
-            model: model.model,
-            tokens,
-            costUsd: estimatedCostUsd,
-            isEstimated: costEstimated || (typeof actualCostUsd !== 'number' && estimatedCostUsd > 0),
-          };
-        })
-        .filter((row) => row.tokens > 0 || row.costUsd > 0)
-        .sort((left, right) => right.tokens - left.tokens || right.costUsd - left.costUsd)
-    : [];
-  const tooltipAlign =
-    hoveredCenterX === null
-      ? 'center'
-      : hoveredCenterX < 190
-        ? 'left'
-        : hoveredCenterX > viewBoxWidth - 190
-          ? 'right'
-          : 'center';
-  const tooltipTransform =
-    tooltipAlign === 'left'
-      ? 'translateX(0)'
-      : tooltipAlign === 'right'
-        ? 'translateX(-100%)'
-        : 'translateX(-50%)';
-
-  return (
-    <div className="relative" onMouseLeave={() => setHoveredIndex(null)}>
-      {hoveredPoint && hoveredCenterX !== null && (
-        <div
-          className="pointer-events-none absolute top-0 z-10 w-[240px] rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)]/96 px-4 py-3 shadow-[0_18px_45px_rgba(15,23,42,0.12)] backdrop-blur"
-          style={{
-            left: `${(hoveredCenterX / viewBoxWidth) * 100}%`,
-            transform: tooltipTransform,
-          }}
-        >
-          <div className="text-sm font-semibold text-[var(--text-primary)]">
-            {formatLongDate(hoveredPoint.date)}
-          </div>
-          <div className="mt-1 text-sm text-[var(--text-secondary)]">
-            {formatCompactNumber(hoveredPoint.totalTokens)} total tokens
-          </div>
-
-          <div className="mt-3 space-y-2">
-            {hoveredRows.length > 0 ? (
-              hoveredRows.map((row) => (
-                <div key={row.model} className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <ModelProviderLogo
-                        model={row.model}
-                        color={modelColors[row.model]}
-                        className="h-3.5 w-3.5"
-                      />
-                      <span className="truncate text-sm font-medium text-[var(--text-primary)]">
-                        {row.model}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-right text-sm text-[var(--text-secondary)]">
-                    <div>{formatCompactNumber(row.tokens)}</div>
-                    <div>{formatCurrency(row.costUsd, row.isEstimated)}</div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-sm text-[var(--text-secondary)]">No usage on this day.</div>
-            )}
-          </div>
-        </div>
-      )}
-
-      <svg viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`} className="h-auto w-full">
-        {ticks.map((tick) => {
-          const y = marginTop + plotHeight - (tick / yMax) * plotHeight;
-          return (
-            <g key={tick}>
-              <line
-                x1={marginLeft}
-                x2={marginLeft + plotWidth}
-                y1={y}
-                y2={y}
-                stroke="var(--border)"
-                strokeDasharray="4 6"
-              />
-              <text
-                x={marginLeft - 10}
-                y={y + 4}
-                textAnchor="end"
-                fontSize="12"
-                fill="var(--text-secondary)"
-              >
-                {formatAxisTick(tick)}
-              </text>
-            </g>
-          );
-        })}
-
-        {daily.map((entry, index) => {
-          const slotX = marginLeft + slotWidth * index;
-          const x = marginLeft + slotWidth * index + (slotWidth - barWidth) / 2;
-          let stackedHeight = 0;
-          const entryCostMap = entry.byModelCostUsd || {};
-          const costOnlyModels = modelOrder.filter(
-            (modelName) =>
-              (entry.byModel[modelName] || 0) <= 0 && (entryCostMap[modelName] || 0) > 0
-          );
-
-          return (
-            <g key={entry.date}>
-              {hoveredIndex === index && (
-                <rect
-                  x={slotX}
-                  y={marginTop}
-                  width={slotWidth}
-                  height={plotHeight}
-                  rx="10"
-                  fill="var(--bg-tertiary)"
-                  opacity="0.65"
-                />
-              )}
-
-              {modelOrder.map((modelName) => {
-                const value = entry.byModel[modelName] || 0;
-                if (value <= 0) {
-                  return null;
-                }
-
-                const height = (value / yMax) * plotHeight;
-                const y = marginTop + plotHeight - stackedHeight - height;
-                stackedHeight += height;
-
-                return (
-                  <rect
-                    key={`${entry.date}-${modelName}`}
-                    x={x}
-                    y={y}
-                    width={barWidth}
-                    height={Math.max(height, 1)}
-                    fill={modelColors[modelName]}
-                  />
-                );
-              })}
-
-              {costOnlyModels.map((modelName, markerIndex) => {
-                const markerHeight = 5;
-                const markerGap = 2;
-                const y =
-                  marginTop +
-                  plotHeight -
-                  stackedHeight -
-                  (markerIndex + 1) * (markerHeight + markerGap);
-
-                return (
-                  <rect
-                    key={`${entry.date}-${modelName}-marker`}
-                    x={x}
-                    y={y}
-                    width={barWidth}
-                    height={markerHeight}
-                    fill={modelColors[modelName]}
-                    opacity="0.95"
-                  />
-                );
-              })}
-
-              {(index % labelStep === 0 || index === daily.length - 1) && (
-                <text
-                  x={x + barWidth / 2}
-                  y={viewBoxHeight - 18}
-                  textAnchor="middle"
-                  fontSize="12"
-                  fill="var(--text-secondary)"
-                >
-                  {formatShortDate(entry.date)}
-                </text>
-              )}
-
-              <rect
-                x={slotX}
-                y={marginTop}
-                width={slotWidth}
-                height={plotHeight}
-                fill="transparent"
-                onMouseEnter={() => setHoveredIndex(index)}
-                onMouseMove={() => setHoveredIndex(index)}
-              />
-            </g>
-          );
-        })}
-      </svg>
-
-      <div className="mt-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-[var(--text-secondary)]">
-        {models.map((model) => (
-          <div key={model.model} className="flex items-center gap-2">
-            <ModelProviderLogo
-              model={model.model}
-              color={modelColors[model.model]}
-              className="h-3.5 w-3.5"
-            />
-            <span>{model.model}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function getNiceMax(value: number): number {
-  if (value <= 1000) {
-    return 1000;
-  }
-
-  const magnitude = 10 ** Math.floor(Math.log10(value));
-  const normalized = value / magnitude;
-
-  if (normalized <= 1) return magnitude;
-  if (normalized <= 2) return 2 * magnitude;
-  if (normalized <= 5) return 5 * magnitude;
-  return 10 * magnitude;
-}
-
 function formatCompactNumber(value: number): string {
+  if (value >= 1_000_000_000) {
+    return `${trimTrailingZero((value / 1_000_000_000).toFixed(1))}B`;
+  }
   if (value >= 1_000_000) {
     return `${trimTrailingZero((value / 1_000_000).toFixed(1))}M`;
   }
@@ -1146,25 +1206,8 @@ function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-function formatAxisTick(value: number): string {
-  if (value === 0) {
-    return '0';
-  }
-  if (value >= 1000) {
-    return `${trimTrailingZero((value / 1000).toFixed(1))}K`;
-  }
-  return value.toLocaleString('en-US');
-}
-
-function formatShortDate(dateKey: string): string {
-  const [year, month, day] = dateKey.split('-').map(Number);
-  const date = new Date(year, (month || 1) - 1, day || 1);
-  return `${date.getMonth() + 1}/${date.getDate()}`;
-}
-
 function formatLongDate(dateKey: string): string {
-  const [year, month, day] = dateKey.split('-').map(Number);
-  const date = new Date(year, (month || 1) - 1, day || 1);
+  const date = parseDateKey(dateKey);
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 

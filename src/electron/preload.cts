@@ -521,6 +521,14 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('stop-feishu-bridge');
   },
 
+  // 用户资料
+  getUserProfile: () => {
+    return ipcRenderer.invoke('get-user-profile');
+  },
+  saveUserProfile: (update: { displayName: string | null; handle: string | null }) => {
+    return ipcRenderer.invoke('save-user-profile', update);
+  },
+
   // 字体设置
   getFontSettings: () => {
     return ipcRenderer.invoke('get-font-settings');

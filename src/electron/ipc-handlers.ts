@@ -44,6 +44,7 @@ import {
   listSystemFonts,
   saveFontSelections,
 } from './libs/font-settings';
+import { getUserProfile, saveUserProfile } from './libs/user-profile';
 import { getCodexModelConfig, saveCodexModelVisibility } from './libs/codex-settings';
 import { getCodexRuntimeStatus } from './libs/codex-runtime-status';
 import { getOpencodeModelConfig, saveOpencodeModelVisibility } from './libs/opencode-settings';
@@ -98,6 +99,7 @@ import type {
   FolderConfig,
   FontSettingsPayload,
   FeishuBridgeConfig,
+  UserProfileUpdate,
   UpsertPromptLibraryItemInput,
   ProviderInputReference,
   RoutedAgentPublicProfile,
@@ -4368,6 +4370,15 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('stop-feishu-bridge', async () => {
     return feishuBridge.stop();
+  });
+
+  // RPC: 用户资料(展示名/handle,用于 Usage 档案头)
+  ipcMainHandle('get-user-profile', async () => {
+    return getUserProfile();
+  });
+
+  ipcMainHandle('save-user-profile', async (_event, update: UserProfileUpdate) => {
+    return saveUserProfile(update);
   });
 
   // RPC: 获取字体设置

@@ -1470,7 +1470,19 @@ export interface LatestClaudeModelUsage {
   usage: ClaudeModelUsage;
 }
 
-export type ClaudeUsageRangeDays = 7 | 30 | 90;
+export interface UserProfile {
+  displayName: string;
+  handle: string;
+  /** True when the user set the name themselves (vs. git/OS defaults). */
+  customized: boolean;
+}
+
+export interface UserProfileUpdate {
+  displayName: string | null;
+  handle: string | null;
+}
+
+export type ClaudeUsageRangeDays = 7 | 30 | 90 | 365;
 
 export interface ClaudeUsageModelSummary {
   model: string;

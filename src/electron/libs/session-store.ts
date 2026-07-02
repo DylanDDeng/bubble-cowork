@@ -3370,7 +3370,7 @@ function backfillClaudeSessionModelsFromInitMessages(): number {
 }
 
 export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsageReport {
-  const safeDays: ClaudeUsageRangeDays = days === 7 || days === 90 ? days : 30;
+  const safeDays: ClaudeUsageRangeDays = days === 7 || days === 90 || days === 365 ? days : 30;
   const todayStart = startOfLocalDay(Date.now());
   const rangeStart = todayStart - (safeDays - 1) * DAY_MS;
   const cached = claudeUsageReportCache.get(safeDays);
@@ -3535,7 +3535,7 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
 }
 
 export function getCodexUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsageReport {
-  const safeDays: ClaudeUsageRangeDays = days === 7 || days === 90 ? days : 30;
+  const safeDays: ClaudeUsageRangeDays = days === 7 || days === 90 || days === 365 ? days : 30;
   const todayStart = startOfLocalDay(Date.now());
   const rangeStart = todayStart - (safeDays - 1) * DAY_MS;
   const cached = codexUsageReportCache.get(safeDays);
@@ -3659,7 +3659,7 @@ export function getCodexUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsag
 }
 
 export function getOpencodeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsageReport {
-  const safeDays: ClaudeUsageRangeDays = days === 7 || days === 90 ? days : 30;
+  const safeDays: ClaudeUsageRangeDays = days === 7 || days === 90 || days === 365 ? days : 30;
   const todayStart = startOfLocalDay(Date.now());
   const rangeStart = todayStart - (safeDays - 1) * DAY_MS;
   const cached = opencodeUsageReportCache.get(safeDays);
