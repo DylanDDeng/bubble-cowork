@@ -608,25 +608,32 @@ export function NewSessionView() {
                     isComposingRef.current = false;
                   }}
                   onKeyDown={handleKeyDown}
-                  placeholder="Do anything"
-                  className="w-full bg-transparent px-4 pt-3.5 pb-1 text-[15px] outline-none resize-none no-drag min-h-[52px] max-h-[200px]"
+                  placeholder="Message the agent..."
+                  className="w-full bg-transparent px-4 pt-3 pb-1 text-[14px] outline-none resize-none no-drag min-h-[56px] max-h-[200px]"
                   autoFocus
                 />
 
-                <div className="flex items-center justify-between gap-2 px-2.5 pb-2 pt-0.5">
-                  <div className="flex min-w-0 items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void handleAddAttachments();
-                      }}
+                {/* Control order mirrors PromptInput (model → permission → attach)
+                    so the first-run composer matches every later composer. */}
+                <div className="flex items-end justify-between gap-2 px-2.5 pb-2">
+                  <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
+                    <ComposerAgentModelPicker
+                      agentProvider={agentSelection.provider}
+                      modelLabel={agentSelection.selectedModelLabel}
+                      modelValue={agentSelection.model}
+                      allAgentModelOptions={agentSelection.allAgentModelOptions}
                       disabled={pendingStart}
-                      className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-all duration-150 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
-                      title="Add files or photos"
-                      aria-label="Add files or photos"
-                    >
-                      <PlusIcon />
-                    </button>
+                      onAgentChange={agentSelection.selectAgent}
+                      onModelChange={agentSelection.selectModel}
+                      codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
+                      claudeReasoningEffort={agentSelection.claudeReasoningEffort ?? undefined}
+                      onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
+                      codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
+                      onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
+                      codexFastMode={agentSelection.codexFastMode}
+                      onCodexFastModeChange={agentSelection.setCodexFastMode}
+                      menuSide="bottom"
+                    />
                     {agentSelection.provider === 'codex' && (
                       <CodexPermissionModePicker
                         value={agentSelection.codexPermissionMode}
@@ -657,35 +664,21 @@ export function NewSessionView() {
                         menuSide="bottom"
                       />
                     )}
-                  </div>
-
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <ComposerAgentModelPicker
-                      agentProvider={agentSelection.provider}
-                      modelLabel={agentSelection.selectedModelLabel}
-                      modelValue={agentSelection.model}
-                      allAgentModelOptions={agentSelection.allAgentModelOptions}
-                      disabled={pendingStart}
-                      onAgentChange={agentSelection.selectAgent}
-                      onModelChange={agentSelection.selectModel}
-                      codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
-                      claudeReasoningEffort={agentSelection.claudeReasoningEffort ?? undefined}
-                      onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
-                      codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
-                      onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
-                      codexFastMode={agentSelection.codexFastMode}
-                      onCodexFastModeChange={agentSelection.setCodexFastMode}
-                      menuSide="bottom"
-                    />
                     <button
                       type="button"
-                      disabled
-                      title="Voice input coming soon"
-                      aria-label="Voice input coming soon"
-                      className="flex h-8 w-8 cursor-default items-center justify-center rounded-full text-[var(--text-muted)]"
+                      onClick={() => {
+                        void handleAddAttachments();
+                      }}
+                      disabled={pendingStart}
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-all duration-150 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Add files or photos"
+                      aria-label="Add files or photos"
                     >
-                      <MicIcon />
+                      <PlusIcon />
                     </button>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-2">
                     <button
                       onClick={handleStart}
                       disabled={!canStartTask}
@@ -720,25 +713,6 @@ export function NewSessionView() {
   );
 }
 
-function MicIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="9" y="2" width="6" height="12" rx="3" />
-      <path d="M5 10a7 7 0 0 0 14 0" />
-      <line x1="12" y1="19" x2="12" y2="22" />
-    </svg>
-  );
-}
 
 function ArrowUpIcon() {
   return (
