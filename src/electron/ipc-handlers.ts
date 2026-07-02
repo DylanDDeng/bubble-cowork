@@ -124,6 +124,7 @@ import type {
   WechatClipboardHtmlWriteInput,
   WechatMarkdownHtmlGenerationInput,
   WechatMarkdownHtmlGeneratorConfig,
+  AgentProvider,
 } from '../shared/types';
 import { getProviderService } from './libs/provider/service';
 import { disposeTerminalRuntime } from './libs/terminal-runtime';
@@ -4154,6 +4155,11 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('get-opencode-usage-report', async (_, days?: ClaudeUsageRangeDays) => {
     return sessions.getOpencodeUsageReport(days);
+  });
+
+  // RPC: 任意 provider 的 usage 报表(kimi/grok/pi 走 Claude 协议报表)
+  ipcMainHandle('get-agent-usage-report', async (_, provider: AgentProvider, days?: ClaudeUsageRangeDays) => {
+    return sessions.getAgentUsageReport(provider, days);
   });
 
   ipcMainHandle('get-prompt-library', async () => {

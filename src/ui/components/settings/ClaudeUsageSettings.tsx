@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import claudeLogo from '../../assets/claude-color.svg';
 import deepseekLogo from '../../assets/deepseek-color.svg';
+import grokLogo from '../../assets/grok.svg';
 import minimaxLogo from '../../assets/minimax-color.svg';
 import moonshotLogo from '../../assets/moonshot.svg';
 import openaiLogo from '../../assets/openai.svg';
+import piLogo from '../../assets/pi-logo-auto.svg';
 import zhipuLogo from '../../assets/zhipu-color.svg';
 import { OpenCodeLogo } from '../OpenCodeLogo';
 import type {
@@ -30,21 +32,33 @@ type UsageProviderCard = {
   error: string | null;
 };
 
+type ProviderUsageState = {
+  report: ClaudeUsageReport | null;
+  loading: boolean;
+  error: string | null;
+};
+
+const USAGE_PROVIDERS: Array<{ id: AgentProvider; title: string; logoSrc?: string }> = [
+  { id: 'claude', title: 'Claude Code', logoSrc: claudeLogo },
+  { id: 'codex', title: 'Codex CLI', logoSrc: openaiLogo },
+  { id: 'opencode', title: 'OpenCode' },
+  { id: 'kimi', title: 'Kimi', logoSrc: moonshotLogo },
+  { id: 'grok', title: 'Grok', logoSrc: grokLogo },
+  { id: 'pi', title: 'Pi', logoSrc: piLogo },
+];
+
+const INITIAL_PROVIDER_USAGE: Record<AgentProvider, ProviderUsageState> = Object.fromEntries(
+  USAGE_PROVIDERS.map((provider) => [provider.id, { report: null, loading: true, error: null }])
+) as Record<AgentProvider, ProviderUsageState>;
+
 type ActivityViewMode = 'daily' | 'weekly' | 'cumulative';
 
 export function ClaudeUsageSettingsContent() {
   const [activeProvider, setActiveProvider] = useState<AgentProvider>('claude');
-  const [claudeReport, setClaudeReport] = useState<ClaudeUsageReport | null>(null);
-  const [codexReport, setCodexReport] = useState<ClaudeUsageReport | null>(null);
-  const [opencodeReport, setOpencodeReport] = useState<ClaudeUsageReport | null>(null);
+  const [usageByProvider, setUsageByProvider] =
+    useState<Record<AgentProvider, ProviderUsageState>>(INITIAL_PROVIDER_USAGE);
   const [codexRateLimits, setCodexRateLimits] = useState<CodexRateLimitReport | null>(null);
-  const [claudeLoading, setClaudeLoading] = useState(true);
-  const [codexLoading, setCodexLoading] = useState(true);
-  const [opencodeLoading, setOpencodeLoading] = useState(true);
   const [codexRateLimitsLoading, setCodexRateLimitsLoading] = useState(true);
-  const [claudeError, setClaudeError] = useState<string | null>(null);
-  const [codexError, setCodexError] = useState<string | null>(null);
-  const [opencodeError, setOpencodeError] = useState<string | null>(null);
   const [codexRateLimitsError, setCodexRateLimitsError] = useState<string | null>(null);
   const userProfile = useUserProfile();
 
@@ -52,47 +66,29 @@ export function ClaudeUsageSettingsContent() {
     let cancelled = false;
 
     const load = async () => {
-      setClaudeLoading(true);
-      setCodexLoading(true);
-      setOpencodeLoading(true);
-      setClaudeError(null);
-      setCodexError(null);
-      setOpencodeError(null);
-
-      const [claudeResult, codexResult, opencodeResult] = await Promise.allSettled([
-        window.electron.getClaudeUsageReport(365),
-        window.electron.getCodexUsageReport(365),
-        window.electron.getOpencodeUsageReport(365),
-      ]);
+      const results = await Promise.allSettled(
+        USAGE_PROVIDERS.map((provider) => window.electron.getAgentUsageReport(provider.id, 365))
+      );
 
       if (cancelled) {
         return;
       }
 
-      if (claudeResult.status === 'fulfilled') {
-        setClaudeReport(claudeResult.value);
-      } else {
-        setClaudeReport(null);
-        setClaudeError(normalizeUsageLoadError(claudeResult.reason, 'get-claude-usage-report'));
-      }
-
-      if (codexResult.status === 'fulfilled') {
-        setCodexReport(codexResult.value);
-      } else {
-        setCodexReport(null);
-        setCodexError(normalizeUsageLoadError(codexResult.reason, 'get-codex-usage-report'));
-      }
-
-      if (opencodeResult.status === 'fulfilled') {
-        setOpencodeReport(opencodeResult.value);
-      } else {
-        setOpencodeReport(null);
-        setOpencodeError(normalizeUsageLoadError(opencodeResult.reason, 'get-opencode-usage-report'));
-      }
-
-      setClaudeLoading(false);
-      setCodexLoading(false);
-      setOpencodeLoading(false);
+      setUsageByProvider(() => {
+        const next = {} as Record<AgentProvider, ProviderUsageState>;
+        USAGE_PROVIDERS.forEach((provider, index) => {
+          const result = results[index];
+          next[provider.id] =
+            result.status === 'fulfilled'
+              ? { report: result.value, loading: false, error: null }
+              : {
+                  report: null,
+                  loading: false,
+                  error: normalizeUsageLoadError(result.reason, 'get-agent-usage-report'),
+                };
+        });
+        return next;
+      });
     };
 
     void load();
@@ -140,33 +136,18 @@ export function ClaudeUsageSettingsContent() {
   }, []);
 
   const providers = useMemo<UsageProviderCard[]>(
-    () => [
-      {
-        id: 'claude',
-        title: 'Claude Code',
-        logo: <img src={claudeLogo} alt="" className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />,
-        report: claudeReport,
-        loading: claudeLoading,
-        error: claudeError,
-      },
-      {
-        id: 'codex',
-        title: 'Codex CLI',
-        logo: <img src={openaiLogo} alt="" className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />,
-        report: codexReport,
-        loading: codexLoading,
-        error: codexError,
-      },
-      {
-        id: 'opencode',
-        title: 'OpenCode',
-        logo: <OpenCodeLogo className="h-3.5 w-3.5 flex-shrink-0" />,
-        report: opencodeReport,
-        loading: opencodeLoading,
-        error: opencodeError,
-      },
-    ],
-    [claudeError, claudeLoading, claudeReport, codexError, codexLoading, codexReport, opencodeError, opencodeLoading, opencodeReport]
+    () =>
+      USAGE_PROVIDERS.map((provider) => ({
+        id: provider.id,
+        title: provider.title,
+        logo: provider.logoSrc ? (
+          <img src={provider.logoSrc} alt="" className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+        ) : (
+          <OpenCodeLogo className="h-3.5 w-3.5 flex-shrink-0" />
+        ),
+        ...usageByProvider[provider.id],
+      })),
+    [usageByProvider]
   );
 
   const activeProviderCard = providers.find((provider) => provider.id === activeProvider) || providers[0];
@@ -723,7 +704,9 @@ function TopModels({ report }: { report: ClaudeUsageReport }) {
       ) as Record<string, string>,
     [report.models]
   );
-  const top = report.models.slice(0, 5);
+  const top = report.models
+    .filter((model) => model.totalTokens > 0 || model.totalCostUsd > 0)
+    .slice(0, 5);
 
   return (
     <div>
@@ -1155,6 +1138,14 @@ function getProviderLogoForModel(model: string): string | null {
 
   if (normalized.startsWith('glm')) {
     return zhipuLogo;
+  }
+
+  if (normalized.startsWith('grok')) {
+    return grokLogo;
+  }
+
+  if (normalized === 'pi' || normalized.startsWith('pi-') || normalized.startsWith('inflection')) {
+    return piLogo;
   }
 
   if (normalized.startsWith('kimi')) {

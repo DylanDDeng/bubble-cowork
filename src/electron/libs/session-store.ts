@@ -43,8 +43,10 @@ import type {
 
 let db: Database.Database | null = null;
 const DAY_MS = 24 * 60 * 60 * 1000;
+// Keyed by `${provider}:${rangeDays}` — Claude-protocol providers (claude,
+// kimi, grok, pi) all store Claude-shaped result messages and share this cache.
 const claudeUsageReportCache = new Map<
-  ClaudeUsageRangeDays,
+  string,
   { version: number; dayStart: number; report: ClaudeUsageReport }
 >();
 const codexUsageReportCache = new Map<
@@ -3370,10 +3372,57 @@ function backfillClaudeSessionModelsFromInitMessages(): number {
 }
 
 export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsageReport {
+  return getClaudeProtocolUsageReport('claude', days);
+}
+
+const USAGE_PROVIDER_MODEL_FALLBACK: Partial<Record<AgentProvider, string>> = {
+  kimi: 'Kimi',
+  grok: 'Grok',
+  pi: 'Pi',
+};
+
+function looksLikeClaudeModelAlias(value: string): boolean {
+  return /^claude[-\s]/i.test(value) || /^(opus|sonnet|haiku)\b/i.test(value);
+}
+
+// Picks the model name to attribute a result row to. For claude the session
+// model is authoritative; for Claude-compatible providers, prefer the
+// message-level model, then the session model, skipping Claude aliases the
+// SDK reports about itself, and fall back to the provider's display name.
+function resolveUsageRowModel(
+  provider: AgentProvider,
+  sessionModel: string | null,
+  resultModel: unknown
+): string {
+  if (provider === 'claude') {
+    return sessionModel || 'Unknown';
+  }
+
+  const candidates = [
+    typeof resultModel === 'string' ? resultModel : null,
+    sessionModel,
+  ];
+  for (const candidate of candidates) {
+    const trimmed = candidate?.trim();
+    if (trimmed && !looksLikeClaudeModelAlias(trimmed)) {
+      return trimmed;
+    }
+  }
+
+  return USAGE_PROVIDER_MODEL_FALLBACK[provider] || 'Unknown';
+}
+
+// Builds a usage report for any provider whose runner stores Claude-shaped
+// `result` messages (claude itself plus kimi/grok/pi).
+function getClaudeProtocolUsageReport(
+  provider: AgentProvider,
+  days: ClaudeUsageRangeDays = 30
+): ClaudeUsageReport {
   const safeDays: ClaudeUsageRangeDays = days === 7 || days === 90 || days === 365 ? days : 30;
   const todayStart = startOfLocalDay(Date.now());
   const rangeStart = todayStart - (safeDays - 1) * DAY_MS;
-  const cached = claudeUsageReportCache.get(safeDays);
+  const cacheKey = `${provider}:${safeDays}`;
+  const cached = claudeUsageReportCache.get(cacheKey);
   if (cached && cached.version === claudeUsageReportDataVersion && cached.dayStart === todayStart) {
     return cached.report;
   }
@@ -3386,11 +3435,11 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
       s.model AS session_model
     FROM messages m
     INNER JOIN sessions s ON s.id = m.session_id
-    WHERE s.provider = 'claude'
+    WHERE s.provider = ?
       AND m.created_at >= ?
       AND m.message_type = 'result'
     ORDER BY m.created_at ASC
-  `).all(rangeStart) as JoinedClaudeMessageRow[];
+  `).all(provider, rangeStart) as JoinedClaudeMessageRow[];
 
   const dailyMap = new Map<string, {
     totalTokens: number;
@@ -3439,7 +3488,12 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
     totalCacheCreationTokens += cacheCreationTokens;
     sessionIds.add(row.session_id);
 
-    const rawModelUsage = result.modelUsage;
+    // Claude-compatible runners (kimi/grok/pi) launch the SDK under a Claude
+    // model alias, so their modelUsage keys and even the stored session model
+    // can name a Claude model that was never actually used. Only trust the
+    // per-model split for claude itself; other providers attribute each
+    // result row to the best non-alias model name available.
+    const rawModelUsage = provider === 'claude' ? result.modelUsage : undefined;
     if (rawModelUsage && Object.keys(rawModelUsage).length > 0) {
       for (const [model, usage] of Object.entries(rawModelUsage)) {
         const summary = modelSummaries.get(model) || emptyModelSummary(model);
@@ -3470,7 +3524,11 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
       continue;
     }
 
-    const fallbackModel = row.session_model || 'Unknown';
+    const fallbackModel = resolveUsageRowModel(
+      provider,
+      row.session_model,
+      (result as { model?: unknown }).model
+    );
     const summary = modelSummaries.get(fallbackModel) || emptyModelSummary(fallbackModel);
     summary.inputTokens += inputTokens;
     summary.outputTokens += outputTokens;
@@ -3505,8 +3563,11 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
 
   const cacheDenominator = totalInputTokens + totalCacheReadTokens + totalCacheCreationTokens;
 
-  const report = {
+  const report: ClaudeUsageReport = {
     rangeDays: safeDays,
+    // Non-claude runners compute costs against provider-specific pricing the
+    // SDK may not know exactly; surface those as estimates.
+    ...(provider === 'claude' ? {} : { costMode: 'estimated' as const }),
     totals: {
       inputTokens: totalInputTokens,
       outputTokens: totalOutputTokens,
@@ -3525,13 +3586,26 @@ export function getClaudeUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsa
     })),
   };
 
-  claudeUsageReportCache.set(safeDays, {
+  claudeUsageReportCache.set(cacheKey, {
     version: claudeUsageReportDataVersion,
     dayStart: todayStart,
     report,
   });
 
   return report;
+}
+
+export function getAgentUsageReport(
+  provider: AgentProvider,
+  days: ClaudeUsageRangeDays = 30
+): ClaudeUsageReport {
+  if (provider === 'codex') {
+    return getCodexUsageReport(days);
+  }
+  if (provider === 'opencode') {
+    return getOpencodeUsageReport(days);
+  }
+  return getClaudeProtocolUsageReport(provider, days);
 }
 
 export function getCodexUsageReport(days: ClaudeUsageRangeDays = 30): ClaudeUsageReport {

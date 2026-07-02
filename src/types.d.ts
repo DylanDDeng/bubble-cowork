@@ -152,6 +152,10 @@ declare global {
     getCodexUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getCodexRateLimits: () => Promise<CodexRateLimitReport>;
     getOpencodeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
+    getAgentUsageReport: (
+      provider: import('./shared/types').AgentProvider,
+      days?: ClaudeUsageRangeDays
+    ) => Promise<ClaudeUsageReport>;
     getPromptLibrary: () => Promise<PromptLibraryItem[]>;
     savePromptLibraryItem: (input: UpsertPromptLibraryItemInput) => Promise<PromptLibraryItem[]>;
     deletePromptLibraryItem: (id: string) => Promise<PromptLibraryItem[]>;
