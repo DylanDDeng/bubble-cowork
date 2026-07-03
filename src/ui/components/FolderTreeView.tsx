@@ -331,9 +331,12 @@ function SessionItem({
         },
         {
           id: 'fork-worktree',
+          // 依赖对话 fork：Claude/Codex/OpenCode 有 fork API，Kimi/Grok/Pi 没有
           label: canFork
             ? 'Fork into a new worktree'
-            : 'Fork into a new worktree (send a message first)',
+            : providerSupportsFork
+              ? 'Fork into a new worktree (send a message first)'
+              : 'Fork into a new worktree (not supported for this provider)',
           enabled: canFork,
         },
         { id: 'sep', type: 'separator' },
