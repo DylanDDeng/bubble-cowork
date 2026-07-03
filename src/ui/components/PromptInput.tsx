@@ -168,7 +168,7 @@ export function PromptInput({
     [activeSession?.messages, isPiContextVisible, piContextModel]
   );
   const contextWarning = useMemo(() => {
-    // Claude auto-compacts near the limit; Codex/OpenCode/Pi do not, so the copy differs.
+    // Claude and Codex auto-compact near the limit; OpenCode/Pi do not, so the copy differs.
     let percent = 0;
     let total = 0;
     let autoCompacts = false;
@@ -179,7 +179,7 @@ export function PromptInput({
     } else if (codexContextSnapshot) {
       percent = codexContextSnapshot.percent;
       total = codexContextSnapshot.total || 0;
-      autoCompacts = false;
+      autoCompacts = true;
     } else if (openCodeContextSnapshot) {
       percent = openCodeContextSnapshot.percent;
       total = openCodeContextSnapshot.total || 0;

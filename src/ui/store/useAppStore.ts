@@ -2635,11 +2635,12 @@ function handleStreamMessage(
   if (
     message.type === 'system' &&
     message.subtype === 'compact_boundary' &&
-    session?.provider === 'claude' &&
+    (session?.provider === 'claude' || session?.provider === 'codex') &&
     activeSessionId === sessionId &&
     message.compactMetadata.trigger === 'auto'
   ) {
-    toast.success('Claude auto-compacted the conversation context.');
+    const providerName = session.provider === 'codex' ? 'Codex' : 'Claude';
+    toast.success(`${providerName} auto-compacted the conversation context.`);
   }
 
   // Update global MCP server status from init/mcp_status stream messages.

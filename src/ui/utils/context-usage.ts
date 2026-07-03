@@ -39,8 +39,9 @@ export type OpenCodeContextSnapshot = {
 
 export type ContextUsageLevel = 'safe' | 'warning' | 'critical';
 
-// Threshold percentages of the context window. The Claude Agent SDK auto-compacts
-// near the upper limit, so we warn ahead of time to make the boundary feel intentional.
+// Threshold percentages of the context window. Claude (Agent SDK) and Codex
+// auto-compact near the upper limit, so we warn ahead of time to make the
+// boundary feel intentional.
 export const CONTEXT_WARNING_PERCENT = 75;
 export const CONTEXT_CRITICAL_PERCENT = 90;
 

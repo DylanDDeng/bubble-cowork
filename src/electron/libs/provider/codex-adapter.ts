@@ -174,6 +174,9 @@ export class CodexAdapter implements ProviderAdapter {
   // transcript grows in place like dpcode instead of replacing full snapshots.
   private streamingText = new Map<string, StreamingTextState>();
   private streamingThinking = new Map<string, StreamingThinkingState>();
+  // Latest context-window occupancy per thread, so a compaction event can
+  // report roughly how many tokens it reclaimed.
+  private lastKnownContextTokens = new Map<string, number>();
   private finalizedStreamingText = new Map<string, string>();
   private emittedToolCalls = new Map<string, Set<string>>();
   private emittedToolResults = new Map<string, Set<string>>();
@@ -227,6 +230,7 @@ export class CodexAdapter implements ProviderAdapter {
     });
 
     this.manager.on('token_usage_updated', ({ threadId, usage }) => {
+      this.lastKnownContextTokens.set(threadId, usage.totalTokens || 0);
       const message: StreamMessage = {
         type: 'system',
         subtype: 'token_usage',
@@ -234,6 +238,23 @@ export class CodexAdapter implements ProviderAdapter {
         session_id: threadId,
         provider: 'codex',
         usage,
+      };
+      this.emit({ type: 'message', threadId, message });
+    });
+
+    this.manager.on('context_compacted', ({ threadId }) => {
+      // Codex reports neither trigger nor pre-compaction size; Aegis never
+      // issues manual compacts, so this can only be an auto compaction, and
+      // the latest token_usage snapshot is the best preTokens approximation.
+      const message: StreamMessage = {
+        type: 'system',
+        subtype: 'compact_boundary',
+        uuid: uuidv4(),
+        session_id: threadId,
+        compactMetadata: {
+          trigger: 'auto',
+          preTokens: this.lastKnownContextTokens.get(threadId) || 0,
+        },
       };
       this.emit({ type: 'message', threadId, message });
     });
@@ -861,6 +882,7 @@ export class CodexAdapter implements ProviderAdapter {
     this.clearStreamingState(threadId);
     this.sessions.delete(threadId);
     this.lastStartInput.delete(threadId);
+    this.lastKnownContextTokens.delete(threadId);
   }
 
   async stopAll(): Promise<void> {
@@ -870,6 +892,7 @@ export class CodexAdapter implements ProviderAdapter {
     }
     this.sessions.clear();
     this.lastStartInput.clear();
+    this.lastKnownContextTokens.clear();
   }
 
   listSessions(): ProviderSession[] {

@@ -128,6 +128,10 @@ export class CodexAppServerManager extends EventEmitter {
   private pluginsCache = new Map<string, ProviderListPluginsResult>();
   private pluginDetailCache = new Map<string, ProviderReadPluginResult>();
   private lastActiveThreadId: string | null = null;
+  // One compaction reaches us twice (deprecated `thread/compacted` notification
+  // + `contextCompaction` item) with no shared id, so dedupe by time instead.
+  private static readonly COMPACTION_DEDUPE_MS = 5000;
+  private lastCompactionEmitAt = new Map<string, number>();
 
   constructor(private readonly binaryPath = 'codex') {
     super();
@@ -1193,6 +1197,16 @@ export class CodexAppServerManager extends EventEmitter {
         break;
       }
 
+      // Deprecated in favor of the `contextCompaction` item type, but still
+      // emitted by current codex builds; emitContextCompacted dedupes the pair.
+      case 'thread/compacted': {
+        const threadId = this.findThreadByProviderThreadId(this.readString(params, 'threadId'));
+        if (threadId) {
+          this.emitContextCompacted(threadId);
+        }
+        break;
+      }
+
       case 'account/rateLimits/updated': {
         this.emit('rate_limits_updated', this.parseRateLimitReport(params));
         break;
@@ -1254,6 +1268,10 @@ export class CodexAppServerManager extends EventEmitter {
             this.emit('plan_item_completed', { threadId, text: text ?? '', itemId, turnId, params });
             break;
           }
+          case 'contextCompaction': {
+            this.emitContextCompacted(threadId);
+            break;
+          }
         }
 
         this.emit('item_completed', { threadId, params });
@@ -1309,6 +1327,16 @@ export class CodexAppServerManager extends EventEmitter {
           console.log('[Codex AppServer] unhandled notification', method);
         }
     }
+  }
+
+  private emitContextCompacted(threadId: string): void {
+    const now = Date.now();
+    const last = this.lastCompactionEmitAt.get(threadId) || 0;
+    if (now - last < CodexAppServerManager.COMPACTION_DEDUPE_MS) {
+      return;
+    }
+    this.lastCompactionEmitAt.set(threadId, now);
+    this.emit('context_compacted', { threadId });
   }
 
   /**
@@ -1804,7 +1832,7 @@ export class CodexAppServerManager extends EventEmitter {
 
   private normalizeItemType(
     item: Record<string, unknown>
-  ): 'agentMessage' | 'toolCall' | 'toolResult' | 'plan' | null {
+  ): 'agentMessage' | 'toolCall' | 'toolResult' | 'plan' | 'contextCompaction' | null {
     const raw =
       this.readString(item, 'type') ||
       this.readString(item, 'itemType') ||
@@ -1822,6 +1850,10 @@ export class CodexAppServerManager extends EventEmitter {
 
     if (normalized === 'plan') {
       return 'plan';
+    }
+
+    if (normalized === 'contextcompaction' || normalized === 'compaction') {
+      return 'contextCompaction';
     }
 
     if (
