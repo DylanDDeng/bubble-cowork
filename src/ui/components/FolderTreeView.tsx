@@ -1,8 +1,8 @@
 import { useMemo, useState, type DragEvent } from 'react';
 import {
+  ArrowsSplit,
   FolderClosed,
   FolderOpen,
-  GitFork,
   Pin,
   Plus,
 } from './icons';
@@ -406,15 +406,15 @@ function SessionItem({
       </button>
 
       <div className="flex min-h-[22px] items-center gap-2">
+        <span className="flex-1 truncate text-[13px] font-normal leading-[1.3]">{session.title}</span>
         {session.envMode === 'worktree' && session.worktreePath ? (
           <span
             className="flex-shrink-0"
             title={`Runs in a worktree${session.associatedWorktreeBranch ? ` · ${session.associatedWorktreeBranch}` : ''}`}
           >
-            <GitFork className="h-3.5 w-3.5 text-[var(--text-muted)]" aria-label="Runs in a worktree" />
+            <ArrowsSplit className="h-3.5 w-3.5 text-[var(--text-muted)]" aria-label="Runs in a worktree" />
           </span>
         ) : null}
-        <span className="flex-1 truncate text-[13px] font-normal leading-[1.3]">{session.title}</span>
         <span className="flex-shrink-0 text-[12px] text-[var(--text-muted)]">
           {formatSidebarTime(session.updatedAt)}
         </span>
