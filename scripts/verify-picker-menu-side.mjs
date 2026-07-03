@@ -32,13 +32,14 @@ assert.ok(
 );
 assert.ok(controls.includes('side={menuSide}'), 'ComposerAgentControls: should pass side={menuSide}');
 
-// 3. PromptInput threads menuSide through to the model picker plus permission pickers and defaults to top.
+// 3. PromptInput threads menuSide through to the model picker plus permission
+//    pickers, the fan-out picker, and defaults to top.
 const prompt = read('src/ui/components/PromptInput.tsx');
 assert.ok(prompt.includes("menuSide = 'top'"), 'PromptInput: menuSide should default to top');
 assert.equal(
   (prompt.match(/menuSide=\{menuSide\}/g) || []).length,
-  5,
-  'PromptInput: model picker and all permission pickers should receive menuSide={menuSide}'
+  6,
+  'PromptInput: model, permission, and fan-out pickers should receive menuSide={menuSide}'
 );
 // PromptInput supports a 'landing' surface that wraps the input in a gray tray
 // and renders the context-pill footer inside it.
