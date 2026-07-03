@@ -18,14 +18,19 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { isHtmlFilePath, openHtmlFileInBrowserTab } from '../utils/html-preview';
+import {
+  isHtmlFilePath,
+  openUrlInBrowserSession,
+  resolveHtmlPreviewUrl,
+} from '../utils/html-preview';
+import { getBrowserUtilitySessionId } from '../utils/browser-utility';
 import {
   copyMarkdownAsWechatAiHtml,
   copyMarkdownAsWechatHtml,
   type WeChatAiThemeId,
   type WeChatStaticThemeId,
 } from '../lib/wechatMarkdown';
-import type { ProjectTreeNode, ProjectUtilityPanelKind } from '../types';
+import type { ProjectTreeNode, ProjectUtilityPanelKind, ProjectUtilityPanelTarget } from '../types';
 
 type ProjectPanelTab = 'files';
 type ViewMode = 'view' | 'code' | 'split';
@@ -1191,15 +1196,55 @@ export function ProjectTreePanel({
       }
 
       try {
-        await openHtmlFileInBrowserTab({
-          cwd,
-          filePath,
-          sessionId: activeSessionId,
-        });
+        const url = await resolveHtmlPreviewUrl({ cwd, filePath });
         if (previewRequestIdRef.current !== requestId) return;
+
         if (onOpenUtilityTab) {
-          onOpenUtilityTab('browser');
+          // Re-activate the browser tab that already shows this file instead
+          // of opening a duplicate.
+          const browserTargets = useAppStore
+            .getState()
+            .rightUtilityTabs.filter(
+              (target) => target === 'browser' || target.startsWith('browser:')
+            );
+          for (const target of browserTargets) {
+            const targetState = await window.electron.browser.getState({
+              sessionId: getBrowserUtilitySessionId(activeSessionId, target),
+            });
+            if (previewRequestIdRef.current !== requestId) return;
+            if (targetState.tabs.some((tab) => tab.url === url)) {
+              useAppStore.getState().setActiveRightUtilityTab(target);
+              return;
+            }
+          }
+
+          // The base browser session hosts the first preview; every further
+          // file gets its own browser tab so previews never replace each other.
+          const baseState = await window.electron.browser.getState({
+            sessionId: activeSessionId,
+          });
+          if (previewRequestIdRef.current !== requestId) return;
+          if (baseState.tabs.length === 0) {
+            await openUrlInBrowserSession({ sessionId: activeSessionId, url });
+            if (previewRequestIdRef.current !== requestId) return;
+            onOpenUtilityTab('browser');
+          } else {
+            // Seed the new browser session with the file URL before its panel
+            // exists: once the tab is activated, the mounting BrowserPanel's
+            // open(DEFAULT_HOME_URL) finds a populated session and leaves it
+            // alone. Activating first instead would race the mount load and
+            // intermittently lose the file URL to about:blank.
+            const target: ProjectUtilityPanelTarget = `browser:${crypto.randomUUID()}`;
+            await openUrlInBrowserSession({
+              sessionId: getBrowserUtilitySessionId(activeSessionId, target),
+              url,
+            });
+            if (previewRequestIdRef.current !== requestId) return;
+            useAppStore.getState().setActiveRightUtilityTab(target);
+          }
         } else {
+          await openUrlInBrowserSession({ sessionId: activeSessionId, url });
+          if (previewRequestIdRef.current !== requestId) return;
           setBrowserPanelOpen(true);
           setProjectTreeCollapsed(true);
         }

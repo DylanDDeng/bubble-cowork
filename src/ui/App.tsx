@@ -56,6 +56,7 @@ import { useCodexModelConfig } from './hooks/useCodexModelConfig';
 import { applyThemePreferences } from './theme/themes';
 import { extractLatestSuccessfulHtmlArtifactFromLatestTurn } from './utils/artifacts';
 import { openHtmlFileInBrowserTab } from './utils/html-preview';
+import { getBrowserUtilitySessionId } from './utils/browser-utility';
 import { StructuredResponse } from './components/StructuredResponse';
 import { AgentOnboardingView, useAgentOnboardingGate } from './components/onboarding/AgentOnboardingView';
 import {
@@ -106,18 +107,6 @@ function getProjectUtilityTabKind(target: ProjectUtilityPanelTarget): ProjectUti
   if (isProjectUtilityFileTab(target)) return 'files';
   if (isProjectUtilityBrowserTab(target)) return 'browser';
   return target;
-}
-
-// Standalone browser session used when no chat session is active, so the
-// browser can be used for plain browsing without first opening a conversation.
-const STANDALONE_BROWSER_SESSION_ID = '__standalone-browser__';
-
-function getBrowserUtilitySessionId(
-  chatSessionId: string | null,
-  target: ProjectUtilityPanelTarget
-): string {
-  const base = chatSessionId ?? STANDALONE_BROWSER_SESSION_ID;
-  return target === 'browser' ? base : `${base}:${target}`;
 }
 
 function getBrowserUtilityLabel(
