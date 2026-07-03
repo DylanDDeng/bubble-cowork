@@ -75,13 +75,17 @@ export async function provisionIsolatedWorkspace(
 }
 
 // 给已存在的 session 套上隔离 worktree（Move into a new worktree）。
-export async function assignIsolatedWorkspace(sessionId: string): Promise<IsolatedWorkspaceActionResult> {
+// labelHint（如 LLM 起的英文名）优先，缺省退回 session 标题。
+export async function assignIsolatedWorkspace(
+  sessionId: string,
+  labelHint?: string | null
+): Promise<IsolatedWorkspaceActionResult> {
   const row = sessions.getSession(sessionId);
   if (!row) return { ok: false, message: 'Session not found.' };
   const projectCwd = row.project_cwd || row.cwd;
   if (!projectCwd) return { ok: false, message: 'This thread has no project folder.' };
   try {
-    const provision = await provisionIsolatedWorkspace(projectCwd, row.title);
+    const provision = await provisionIsolatedWorkspace(projectCwd, labelHint || row.title);
     sessions.updateSessionWorkspace(sessionId, {
       envMode: 'worktree',
       projectCwd: provision.repoRoot,

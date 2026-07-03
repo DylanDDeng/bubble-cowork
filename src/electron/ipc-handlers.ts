@@ -10,7 +10,12 @@ import { basename, dirname, extname, resolve, relative, isAbsolute, join } from 
 import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
 import { runCodexOneShot, runOpenCodeOneShot } from './libs/codex-runner';
-import { forkClaudeAgentSession, generateSessionTitle, runClaudeOneShot } from './libs/util';
+import {
+  forkClaudeAgentSession,
+  generateSessionTitle,
+  generateWorktreeBranchSlug,
+  runClaudeOneShot,
+} from './libs/util';
 import { ensureProviderService, runAgentLoop } from './libs/agent-loop';
 import { readProjectTree } from './libs/project-tree';
 import { normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
@@ -4154,7 +4159,15 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     if (row.env_mode === 'worktree' && row.worktree_path) {
       return { ok: false, message: 'This thread is already in a worktree.' };
     }
-    const result = await assignIsolatedWorkspace(sessionId);
+    // 用该 thread 的 provider 给分支起英文名（标题/末条提示词做素材），失败退回本地命名
+    const llmSlug = await generateWorktreeBranchSlug({
+      prompt: row.title || row.last_prompt || 'worktree',
+      cwd: row.project_cwd || row.cwd || undefined,
+      provider: (row.provider || 'claude') as AgentProvider,
+      model: row.model || undefined,
+      compatibleProviderId: row.compatible_provider_id || undefined,
+    });
+    const result = await assignIsolatedWorkspace(sessionId, llmSlug);
     if (result.ok) broadcastSessionWorkspace(mainWindow, sessionId);
     return result;
   });
@@ -6555,8 +6568,16 @@ async function handleSessionStart(
   let isolated: IsolatedWorkspaceProvision | null = null;
   if (createIsolatedWorkspace && sessionCwd) {
     try {
-      // 分支名 hint 用提示词开头（title 此刻还是临时占位）
-      isolated = await provisionIsolatedWorkspace(sessionCwd, prompt.slice(0, 80));
+      // 先让选定的 provider 用英文概括任务当分支名（超时/失败静默退回本地 slug/哈希）
+      const llmSlug = await generateWorktreeBranchSlug({
+        prompt,
+        cwd: sessionCwd,
+        provider: chosenProvider,
+        model: normalizeModel(model) || undefined,
+        compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
+        betas: chosenProvider === 'claude' ? normalizeBetas(betas) : undefined,
+      });
+      isolated = await provisionIsolatedWorkspace(sessionCwd, llmSlug || prompt.slice(0, 80));
     } catch (error) {
       broadcast(mainWindow, {
         type: 'runner.error',
