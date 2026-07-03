@@ -58,6 +58,13 @@ import { formatGrokRuntimeBlockingMessage, getGrokRuntimeStatus } from './libs/g
 import { AutomationScheduler } from './libs/automation-scheduler';
 import { recycleSessionWorktree } from './libs/worktree-hygiene';
 import {
+  applyIsolatedWorkspace,
+  assignIsolatedWorkspace,
+  discardIsolatedWorkspace,
+  provisionIsolatedWorkspace,
+  type IsolatedWorkspaceProvision,
+} from './libs/worktree-threads';
+import {
   configureNotifications,
   getNotificationSettings,
   notifySessionDone,
@@ -3186,6 +3193,27 @@ function broadcastAutomationChanged(mainWindow: BrowserWindow): void {
   });
 }
 
+// worktree ↔ local 切换后同步 renderer 的 workspace 字段（cwd/envMode/worktree*）
+function broadcastSessionWorkspace(mainWindow: BrowserWindow, sessionId: string): void {
+  const row = sessions.getSession(sessionId);
+  if (!row) return;
+  broadcast(mainWindow, {
+    type: 'session.status',
+    payload: {
+      sessionId,
+      status: (row.status || 'idle') as SessionStatus,
+      cwd: row.cwd || undefined,
+      projectCwd: row.project_cwd || row.cwd || null,
+      envMode: row.env_mode === 'worktree' ? 'worktree' : 'local',
+      worktreePath: row.worktree_path || null,
+      associatedWorktreePath: row.associated_worktree_path || null,
+      associatedWorktreeBranch: row.associated_worktree_branch || null,
+      associatedWorktreeRef: row.associated_worktree_ref || null,
+      hiddenFromThreads: row.hidden_from_threads === 1,
+    },
+  });
+}
+
 async function emitProjectTree(mainWindow: BrowserWindow, cwd: string, scheduledVersion: number): Promise<void> {
   try {
     const tree = await readProjectTree(cwd);
@@ -4022,7 +4050,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   }
 
   // Fork a Claude conversation into a new session (branch the transcript).
-  ipcMainHandle('fork-session', async (_event, sourceSessionId: string) => {
+  async function forkSessionInternal(
+    sourceSessionId: string
+  ): Promise<{ ok: true; session: SessionInfo } | { ok: false; message: string }> {
     try {
       const source = sessions.getSession(sourceSessionId);
       if (!source) {
@@ -4105,6 +4135,38 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       const message = error instanceof Error ? error.message : String(error);
       return { ok: false as const, message };
     }
+  }
+
+  ipcMainHandle('fork-session', async (_event, sourceSessionId: string) => {
+    return forkSessionInternal(sourceSessionId);
+  });
+
+  // "派生到隔离副本"：fork 对话 + 新建隔离 worktree，一步完成。
+  // worktree 建不出来时降级为普通 fork（对话已存在），把原因带回给 UI。
+  ipcMainHandle('fork-session-to-worktree', async (_event, sourceSessionId: string) => {
+    const forked = await forkSessionInternal(sourceSessionId);
+    if (!forked.ok) return forked;
+    const assigned = await assignIsolatedWorkspace(forked.session.id);
+    if (!assigned.ok) {
+      return { ok: true as const, session: forked.session, warning: assigned.message };
+    }
+    const row = sessions.getSession(forked.session.id);
+    return {
+      ok: true as const,
+      session: row ? buildSessionInfoFromRow(row) : forked.session,
+    };
+  });
+
+  ipcMainHandle('apply-worktree-changes', async (_event, sessionId: string) => {
+    const result = await applyIsolatedWorkspace(sessionId, (id) => runnerHandles.has(id));
+    if (result.ok) broadcastSessionWorkspace(mainWindow, sessionId);
+    return result;
+  });
+
+  ipcMainHandle('discard-worktree-changes', async (_event, sessionId: string) => {
+    const result = await discardIsolatedWorkspace(sessionId, (id) => runnerHandles.has(id));
+    if (result.ok) broadcastSessionWorkspace(mainWindow, sessionId);
+    return result;
   });
 
   // RPC: 获取最近工作目录
@@ -6469,6 +6531,7 @@ async function handleSessionStart(
     teamId,
     hiddenFromThreads,
     channelId,
+    createIsolatedWorkspace,
   } = payload;
   const sessionScope = normalizeSessionScope(scope);
   const sessionAgentId = sessionScope === 'dm' ? agentId?.trim() || null : null;
@@ -6484,6 +6547,25 @@ async function handleSessionStart(
   const normalizedProjectCwd = projectCwd?.trim() || sessionCwd || null;
   const normalizedEnvMode = envMode === 'worktree' ? 'worktree' : 'local';
   const normalizedWorktreePath = worktreePath?.trim() || null;
+
+  // "在隔离副本中运行"：开跑前建好 worktree（session 的 cwd 会指向它），
+  // 建不出来（非 git 仓库等）直接明确报错，不静默降级到项目本体。
+  let isolated: IsolatedWorkspaceProvision | null = null;
+  if (createIsolatedWorkspace && sessionCwd) {
+    try {
+      isolated = await provisionIsolatedWorkspace(sessionCwd);
+    } catch (error) {
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: `Could not create an isolated copy — this needs a git repository with at least one commit. ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        },
+      });
+      return null;
+    }
+  }
   const sourcePrompt = prompt.trim();
   const longPromptAttachment = await maybeConvertLongPromptToAttachment({
     cwd: sessionCwd,
@@ -6533,12 +6615,16 @@ async function handleSessionStart(
   const session = sessions.createSession({
     title,
     cwd: sessionCwd,
-    projectCwd: normalizedProjectCwd,
-    envMode: normalizedEnvMode,
-    worktreePath: normalizedWorktreePath,
-    associatedWorktreePath: associatedWorktreePath?.trim() || normalizedWorktreePath,
-    associatedWorktreeBranch: associatedWorktreeBranch?.trim() || null,
-    associatedWorktreeRef: associatedWorktreeRef?.trim() || associatedWorktreeBranch?.trim() || null,
+    projectCwd: isolated ? isolated.repoRoot : normalizedProjectCwd,
+    envMode: isolated ? 'worktree' : normalizedEnvMode,
+    worktreePath: isolated ? isolated.worktreePath : normalizedWorktreePath,
+    associatedWorktreePath: isolated
+      ? isolated.worktreePath
+      : associatedWorktreePath?.trim() || normalizedWorktreePath,
+    associatedWorktreeBranch: isolated ? isolated.branch : associatedWorktreeBranch?.trim() || null,
+    associatedWorktreeRef: isolated
+      ? isolated.baseRef
+      : associatedWorktreeRef?.trim() || associatedWorktreeBranch?.trim() || null,
     scope: sessionScope,
     agentId: sessionAgentId,
     allowedTools,

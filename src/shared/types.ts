@@ -804,6 +804,8 @@ export interface SessionStartPayload {
   teamId?: string | null;
   hiddenFromThreads?: boolean;
   channelId?: string;
+  // "在隔离副本中运行"：开跑前在项目里建一个 worktree，session 全程活在里面
+  createIsolatedWorkspace?: boolean;
 }
 
 export interface SessionContinuePayload {

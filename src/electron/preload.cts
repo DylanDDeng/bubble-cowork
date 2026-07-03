@@ -204,6 +204,18 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('fork-session', sessionId);
   },
 
+  forkSessionToWorktree: (sessionId: string) => {
+    return ipcRenderer.invoke('fork-session-to-worktree', sessionId);
+  },
+
+  applyWorktreeChanges: (sessionId: string) => {
+    return ipcRenderer.invoke('apply-worktree-changes', sessionId);
+  },
+
+  discardWorktreeChanges: (sessionId: string) => {
+    return ipcRenderer.invoke('discard-worktree-changes', sessionId);
+  },
+
   // 获取最近工作目录
   getRecentCwds: (limit?: number) => {
     return ipcRenderer.invoke('get-recent-cwds', limit);

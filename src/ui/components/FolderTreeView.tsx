@@ -300,6 +300,7 @@ function SessionItem({
   onTogglePin: () => void;
 }) {
   const forkSessionToPane = useAppStore((s) => s.forkSessionToPane);
+  const forkSessionToWorktreePane = useAppStore((s) => s.forkSessionToWorktreePane);
   // Fork branches the provider-side conversation: Claude via the SDK's native
   // fork (bootstrapped from history if needed), Codex via app-server
   // `thread/fork`, OpenCode via the SDK's `session.fork`. Other providers have
@@ -326,6 +327,13 @@ function SessionItem({
           label: forkLabel,
           enabled: canFork,
         },
+        {
+          id: 'fork-worktree',
+          label: canFork
+            ? 'Fork into an isolated copy'
+            : 'Fork into an isolated copy (send a message first)',
+          enabled: canFork,
+        },
         { id: 'sep', type: 'separator' },
         { id: 'pin', label: session.pinned ? 'Unpin' : 'Pin' },
         { id: 'sep2', type: 'separator' },
@@ -335,6 +343,8 @@ function SessionItem({
     if (!result.ok || !result.id) return;
     if (result.id === 'fork') {
       void forkSessionToPane(session.id);
+    } else if (result.id === 'fork-worktree') {
+      void forkSessionToWorktreePane(session.id);
     } else if (result.id === 'pin') {
       onTogglePin();
     } else if (result.id === 'delete') {

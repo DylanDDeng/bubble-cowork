@@ -8,7 +8,7 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from 'react';
-import { Plus, Square } from './icons';
+import { Plus, ShieldCheck, Square } from './icons';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
@@ -97,6 +97,8 @@ export function PromptInput({
   } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  // "在隔离副本中运行"：agent 在项目的隔离 worktree 里干活，改动不碰项目本体
+  const [isolatedWorkspace, setIsolatedWorkspace] = useState(false);
   const [cursorIndex, setCursorIndex] = useState(0);
   const editorRef = useRef<ComposerPromptEditorHandle | null>(null);
   const isComposingRef = useRef(false);
@@ -233,6 +235,7 @@ export function PromptInput({
     setPrompt('');
     setCursorIndex(0);
     setAttachments([]);
+    setIsolatedWorkspace(false);
     window.requestAnimationFrame(() => {
       editorRef.current?.focus();
       editorRef.current?.setCursorIndex(0);
@@ -404,6 +407,7 @@ export function PromptInput({
           associatedWorktreeRef: activeSession.associatedWorktreeRef ?? null,
           scope: 'project',
           channelId,
+          createIsolatedWorkspace: isolatedWorkspace || undefined,
           attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
           provider: runtimeProvider,
           model: selectedModel || undefined,
@@ -836,6 +840,28 @@ export function PromptInput({
                 onCodexFastModeChange={agentSelection.setCodexFastMode}
                 menuSide={menuSide}
               />
+              {activeSession?.isDraft ? (
+                <button
+                  type="button"
+                  onClick={() => setIsolatedWorkspace((current) => !current)}
+                  disabled={isBusy}
+                  className={`flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-50 ${
+                    isolatedWorkspace
+                      ? 'text-[var(--accent)] hover:text-[var(--accent)]'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                  title={
+                    isolatedWorkspace
+                      ? 'Runs in an isolated copy — the agent will not touch your project files until you apply the changes'
+                      : 'Run in an isolated copy: the agent works on a safe copy of your project'
+                  }
+                  aria-label="Run in an isolated copy"
+                  aria-pressed={isolatedWorkspace}
+                >
+                  <ShieldCheck className="h-4 w-4 flex-shrink-0" />
+                  {isolatedWorkspace ? <span className="font-medium">Isolated</span> : null}
+                </button>
+              ) : null}
               {agentSelection.provider === 'codex' && (
                 <CodexPermissionModePicker
                   value={agentSelection.codexPermissionMode}

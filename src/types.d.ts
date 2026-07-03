@@ -105,6 +105,13 @@ declare global {
     forkSession: (
       sessionId: string
     ) => Promise<{ ok: boolean; session?: SessionInfo; message?: string }>;
+    forkSessionToWorktree: (
+      sessionId: string
+    ) => Promise<{ ok: boolean; session?: SessionInfo; message?: string; warning?: string }>;
+    applyWorktreeChanges: (
+      sessionId: string
+    ) => Promise<{ ok: boolean; message?: string; conflict?: boolean }>;
+    discardWorktreeChanges: (sessionId: string) => Promise<{ ok: boolean; message?: string }>;
     getRecentCwds: (limit?: number) => Promise<string[]>;
     getAutomations: () => Promise<AutomationSnapshot>;
     saveAutomation: (input: UpsertAutomationInput) => Promise<AutomationDefinition>;
