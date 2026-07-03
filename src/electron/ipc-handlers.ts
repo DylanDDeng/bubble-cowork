@@ -3922,6 +3922,33 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return sessions.listRunGroups(projectCwd || undefined);
   });
 
+  ipcMainHandle('run-group-summary', async (_event, groupId: string) => {
+    return runGroupService ? runGroupService.summary(groupId) : null;
+  });
+
+  ipcMainHandle('run-group-member-diff', async (_event, groupId: string, memberIndex: number) => {
+    return runGroupService ? runGroupService.memberDiff(groupId, memberIndex) : null;
+  });
+
+  ipcMainHandle('adopt-run-group', async (_event, groupId: string, sessionId: string) => {
+    if (!runGroupService) return { ok: false, message: 'Run group service is not ready.' };
+    return runGroupService.adopt(groupId, sessionId);
+  });
+
+  ipcMainHandle('discard-run-group', async (_event, groupId: string) => {
+    if (!runGroupService) return { ok: false, message: 'Run group service is not ready.' };
+    return runGroupService.discard(groupId);
+  });
+
+  ipcMainHandle('list-reclaimable-worktrees', async (_event, projectCwd: string) => {
+    return runGroupService ? runGroupService.listReclaimableWorktrees(projectCwd) : [];
+  });
+
+  ipcMainHandle('reclaim-worktrees', async (_event, projectCwd: string) => {
+    if (!runGroupService) return { removed: 0 };
+    return runGroupService.reclaimWorktrees(projectCwd);
+  });
+
   // 处理客户端事件
   ipcMain.removeAllListeners('client-event');
   ipcMain.on('client-event', async (_, eventJson: string) => {

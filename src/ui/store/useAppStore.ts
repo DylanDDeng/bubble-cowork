@@ -1254,6 +1254,7 @@ export const useAppStore = create<Store>()(
       claudeSkillsProjectRoot: undefined,
       // Settings 状态
       showSettings: false,
+      runGroupViewId: null,
       activeSettingsTab: 'general' as SettingsTab,
       agentSetupOpen: false,
       agentSetupDismissedAt: null,
@@ -2596,6 +2597,8 @@ export const useAppStore = create<Store>()(
   setMcpServerStatus: (status) => set({ mcpServerStatus: status }),
   // Settings Actions
   setShowSettings: (show) => set({ showSettings: show }),
+
+  setRunGroupViewId: (groupId) => set({ runGroupViewId: groupId }),
   setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
   setAgentSetupOpen: (open) => set({ agentSetupOpen: open }),
   dismissAgentSetup: () =>

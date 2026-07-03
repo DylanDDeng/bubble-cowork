@@ -1,21 +1,31 @@
 import * as sessions from './session-store';
 import {
   assertGitRepo,
+  commitAllChanges,
   createWorktree,
   deleteBranch,
   ensureWorktreesExcluded,
+  getDiffAgainstRef,
+  getDiffStatAgainstRef,
   getGitTopLevel,
   getHeadCommit,
   hasDirtyWorkingTree,
+  hasTrackedChanges,
+  listWorktrees,
   removeWorktree,
+  squashMergeBranch,
 } from './git-service';
 import type { SessionRow } from '../types';
 import type {
+  RunGroupAdoptResult,
   RunGroupInfo,
   RunGroupMember,
+  RunGroupMemberSummary,
   RunGroupStartInput,
   RunGroupStartResult,
+  RunGroupSummary,
   SessionStartPayload,
+  SessionStatus,
 } from '../../shared/types';
 
 export const MAX_RUN_GROUP_MEMBERS = 6;
@@ -302,6 +312,182 @@ export class RunGroupService {
 
   // Phase 3 的通知在此挂接（group 全员到达终态）。
   onGroupSettled: ((group: RunGroupInfo) => void) | null = null;
+
+  async summary(groupId: string): Promise<RunGroupSummary | null> {
+    const group = sessions.getRunGroup(groupId);
+    if (!group) return null;
+    const members: RunGroupMemberSummary[] = await Promise.all(
+      group.members.map(async (member) => {
+        const row = member.sessionId ? sessions.getSession(member.sessionId) : undefined;
+        let diffStat: RunGroupMemberSummary['diffStat'] = null;
+        if (member.worktreePath && group.baseRef) {
+          diffStat = await getDiffStatAgainstRef(member.worktreePath, group.baseRef).catch(() => null);
+        }
+        return {
+          ...member,
+          sessionStatus: (row?.status as SessionStatus | undefined) ?? null,
+          title: row?.title ?? null,
+          startedAt: row?.created_at ?? null,
+          updatedAt: row?.updated_at ?? null,
+          diffStat,
+          excerpt: member.sessionId ? sessions.getLastAssistantExcerpt(member.sessionId) : null,
+        };
+      })
+    );
+    return { group, members };
+  }
+
+  async memberDiff(groupId: string, memberIndex: number): Promise<string | null> {
+    const group = sessions.getRunGroup(groupId);
+    const member = group?.members.find((item) => item.index === memberIndex);
+    if (!group?.baseRef || !member?.worktreePath) return null;
+    return getDiffAgainstRef(member.worktreePath, group.baseRef).catch(() => null);
+  }
+
+  // 采纳赢家：squash-merge 到主工作区暂存区（用户审查后自行 commit）。
+  // 落败成员的 worktree 强制回收（采纳是"选这个、弃其余"的显式决定）；
+  // 赢家分支保留（误采纳可从分支恢复），worktree 移除。
+  async adopt(groupId: string, sessionId: string): Promise<RunGroupAdoptResult> {
+    const group = sessions.getRunGroup(groupId);
+    if (!group) return { ok: false, message: 'Run group not found.' };
+    if (group.status === 'adopted') return { ok: false, message: 'This fan-out was already adopted.' };
+    const winner = group.members.find((member) => member.sessionId === sessionId);
+    if (!winner) return { ok: false, message: 'That session is not a member of this fan-out.' };
+    if (!winner.worktreePath || !winner.branch) {
+      return { ok: false, message: 'The winning agent has no worktree to adopt.' };
+    }
+    const winnerRow = sessions.getSession(sessionId);
+    if (winnerRow?.status === 'running') {
+      return { ok: false, message: 'Stop the winning agent before adopting its result.' };
+    }
+    if (await hasTrackedChanges(group.projectCwd)) {
+      return {
+        ok: false,
+        message:
+          'Your main workspace has uncommitted changes. Commit or stash them before adopting a fan-out result.',
+      };
+    }
+
+    // 1. 赢家未提交的工作先落到其分支（squash-merge 只吃已提交内容）
+    try {
+      await commitAllChanges({
+        cwd: winner.worktreePath,
+        message: `aegis: fan-out result (${winner.provider})`,
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        message: `Failed to commit the winning worktree: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+
+    // 2. squash-merge 到主工作区（冲突则干净中止，worktree 原样保留）
+    const merge = await squashMergeBranch({ cwd: group.projectCwd, branch: winner.branch });
+    if (!merge.ok) {
+      return {
+        ok: false,
+        conflict: merge.conflict,
+        message: merge.conflict
+          ? 'The result conflicts with your main workspace. The merge was aborted cleanly; resolve manually from the member branch.'
+          : merge.message,
+      };
+    }
+
+    // 3. 状态落库
+    sessions.setRunGroupAdoptedSession(groupId, sessionId);
+    sessions.setRunGroupStatus(groupId, 'adopted', Date.now());
+
+    // 4. 回收：赢家 worktree（改动已在分支 + 主工作区暂存区）+ 落败成员（强制）
+    const members = sessions.getRunGroup(groupId)?.members ?? [];
+    for (const member of members) {
+      if (!member.worktreePath) continue;
+      const isWinner = member.sessionId === sessionId;
+      try {
+        await removeWorktree({ cwd: group.projectCwd, path: member.worktreePath, force: true });
+        member.worktreePath = null;
+        if (!isWinner && member.branch) {
+          await deleteBranch({ cwd: group.projectCwd, branch: member.branch, force: true }).catch(
+            () => undefined
+          );
+        }
+      } catch (error) {
+        console.warn(`[RunGroup] failed to remove worktree ${member.worktreePath}:`, error);
+      }
+    }
+    sessions.updateRunGroupMembers(groupId, members);
+    this.emit(groupId);
+    return { ok: true, message: merge.message };
+  }
+
+  // 全组放弃：停掉 running 成员，回收全部 worktree（含 dirty——放弃是显式决定），删分支。
+  async discard(groupId: string): Promise<{ ok: boolean; message?: string }> {
+    const group = sessions.getRunGroup(groupId);
+    if (!group) return { ok: false, message: 'Run group not found.' };
+    for (const member of group.members) {
+      if (member.sessionId) {
+        const row = sessions.getSession(member.sessionId);
+        if (row?.status === 'running') this.stopSession(member.sessionId);
+      }
+    }
+    const members = sessions.getRunGroup(groupId)?.members ?? [];
+    for (const member of members) {
+      if (!member.worktreePath) continue;
+      try {
+        await removeWorktree({ cwd: group.projectCwd, path: member.worktreePath, force: true });
+        if (member.branch) {
+          await deleteBranch({ cwd: group.projectCwd, branch: member.branch, force: true }).catch(
+            () => undefined
+          );
+        }
+        member.worktreePath = null;
+      } catch (error) {
+        console.warn(`[RunGroup] failed to remove worktree ${member.worktreePath}:`, error);
+      }
+    }
+    sessions.updateRunGroupMembers(groupId, members);
+    sessions.setRunGroupStatus(groupId, 'discarded', Date.now());
+    this.emit(groupId);
+    return { ok: true };
+  }
+
+  // 启动 GC 的"可清理"清单：.worktrees 下无任何 session 引用且 clean 的 worktree。
+  // 不默认静默删——列出来让用户一键清理。
+  async listReclaimableWorktrees(projectCwd: string): Promise<string[]> {
+    const worktrees = await listWorktrees(projectCwd).catch(() => []);
+    const referenced = new Set<string>();
+    for (const row of sessions.listSessions()) {
+      if (row.worktree_path) referenced.add(row.worktree_path);
+      if (row.associated_worktree_path) referenced.add(row.associated_worktree_path);
+    }
+    for (const group of sessions.listRunGroups()) {
+      for (const member of group.members) {
+        if (member.worktreePath) referenced.add(member.worktreePath);
+      }
+    }
+    const reclaimable: string[] = [];
+    for (const worktree of worktrees) {
+      if (worktree.current) continue;
+      if (!worktree.path.includes('/.worktrees/') && !worktree.path.includes('\\.worktrees\\')) continue;
+      if (referenced.has(worktree.path)) continue;
+      const dirty = await hasDirtyWorkingTree(worktree.path).catch(() => true);
+      if (!dirty) reclaimable.push(worktree.path);
+    }
+    return reclaimable;
+  }
+
+  async reclaimWorktrees(projectCwd: string): Promise<{ removed: number }> {
+    const reclaimable = await this.listReclaimableWorktrees(projectCwd);
+    let removed = 0;
+    for (const worktreePath of reclaimable) {
+      try {
+        await removeWorktree({ cwd: projectCwd, path: worktreePath });
+        removed += 1;
+      } catch (error) {
+        console.warn(`[RunGroup] failed to reclaim ${worktreePath}:`, error);
+      }
+    }
+    return { removed };
+  }
 
   private emit(groupId: string): void {
     const group = sessions.getRunGroup(groupId);

@@ -31,6 +31,7 @@ import { useAppStore } from './store/useAppStore';
 import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { Sidebar, SidebarHeaderTrigger } from './components/Sidebar';
+import { RunGroupView } from './components/RunGroupView';
 import { PromptLibraryView } from './components/prompts/PromptLibraryView';
 import { AutomationsView } from './components/AutomationsView';
 import { NewSessionView } from './components/NewSessionView';
@@ -2094,6 +2095,8 @@ function GitHeaderActions({
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      <RunGroupView />
     </div>
   );
 }

@@ -55,9 +55,11 @@ import type {
   WechatMarkdownHtmlGenerationInput,
   WechatMarkdownHtmlGenerationResult,
   WechatMarkdownHtmlGeneratorConfig,
+  RunGroupAdoptResult,
   RunGroupInfo,
   RunGroupStartInput,
   RunGroupStartResult,
+  RunGroupSummary,
 } from './shared/types';
 import type {
   BrowserCapturePageResult,
@@ -117,6 +119,12 @@ declare global {
     startRunGroup: (input: RunGroupStartInput) => Promise<RunGroupStartResult>;
     cancelRunGroup: (groupId: string) => Promise<{ ok: boolean; message?: string }>;
     listRunGroups: (projectCwd?: string) => Promise<RunGroupInfo[]>;
+    getRunGroupSummary: (groupId: string) => Promise<RunGroupSummary | null>;
+    getRunGroupMemberDiff: (groupId: string, memberIndex: number) => Promise<string | null>;
+    adoptRunGroup: (groupId: string, sessionId: string) => Promise<RunGroupAdoptResult>;
+    discardRunGroup: (groupId: string) => Promise<{ ok: boolean; message?: string }>;
+    listReclaimableWorktrees: (projectCwd: string) => Promise<string[]>;
+    reclaimWorktrees: (projectCwd: string) => Promise<{ removed: number }>;
     startTerminalSession: (sessionId: string, cwd: string, cols?: number, rows?: number, agentKind?: TerminalAgentKind) => Promise<StartTerminalSessionResult>;
     writeTerminalSession: (sessionId: string, data: string) => Promise<{ ok: boolean; message?: string }>;
     resizeTerminalSession: (sessionId: string, cols: number, rows: number) => Promise<{ ok: boolean; message?: string }>;

@@ -85,6 +85,7 @@ export function RunGroupList({
   const [groups, setGroups] = useState<RunGroupInfo[]>([]);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const activeSessionId = useAppStore((state) => state.activeSessionId);
+  const setRunGroupViewId = useAppStore((state) => state.setRunGroupViewId);
 
   useEffect(() => {
     let disposed = false;
@@ -141,15 +142,25 @@ export function RunGroupList({
             <div className="group/rg flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--sidebar-item-hover)]">
               <button
                 type="button"
-                onClick={() => toggle(group.id)}
-                className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                title={group.prompt}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  toggle(group.id);
+                }}
+                className="flex h-4 w-4 flex-shrink-0 items-center justify-center"
+                aria-label={isCollapsed ? 'Expand fan-out' : 'Collapse fan-out'}
               >
                 {isCollapsed ? (
-                  <ChevronRight className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />
+                  <ChevronRight className="h-3 w-3 text-[var(--text-muted)]" />
                 ) : (
-                  <ChevronDown className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]" />
+                  <ChevronDown className="h-3 w-3 text-[var(--text-muted)]" />
                 )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setRunGroupViewId(group.id)}
+                className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                title={`${group.prompt} — open comparison`}
+              >
                 <GitFork className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
                 <span className="min-w-0 flex-1 truncate text-[12px]">{group.prompt}</span>
                 <span className="flex-shrink-0 text-[11px] text-[var(--text-muted)]">

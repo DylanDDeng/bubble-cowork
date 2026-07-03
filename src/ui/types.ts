@@ -354,6 +354,8 @@ export interface AppState {
   claudeSkillsProjectRoot?: string;
   // Settings 状态
   showSettings: boolean;
+  // 打开中的 fan-out 比较视图（overlay）；null = 关闭
+  runGroupViewId: string | null;
   activeSettingsTab: SettingsTab;
   agentSetupOpen: boolean;
   agentSetupDismissedAt: number | null;
@@ -377,6 +379,7 @@ export interface AppActions {
   setActiveSession: (sessionId: string | null) => void;
   // Fan-out 成员的一次性平铺布局：首个装入聚焦 leaf，其余按右/下分裂（最多 4 个平铺）。
   layoutRunGroupSessions: (sessionIds: string[]) => void;
+  setRunGroupViewId: (groupId: string | null) => void;
   setActiveWorkspace: (workspace: ActiveWorkspace) => void;
   setChatSidebarView: (view: ChatSidebarView) => void;
   createWorkspaceChannel: (projectCwd: string, name: string) => string | null;

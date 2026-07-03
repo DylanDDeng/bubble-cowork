@@ -292,6 +292,83 @@ export async function removeWorktree(input: {
   await runGit(input.cwd, args, 120_000);
 }
 
+export interface GitDiffStatSummary {
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+  untracked: number;
+}
+
+// 工作树对 ref 的比较（同时覆盖已 commit 与未 commit 的改动）。
+// 不能用 `<ref>...HEAD`：CLI agent 通常不 commit，HEAD == ref 时那种形式恒为空。
+export async function getDiffStatAgainstRef(cwd: string, ref: string): Promise<GitDiffStatSummary> {
+  const { stdout } = await runGit(cwd, ['diff', '--numstat', ref], 60_000);
+  let filesChanged = 0;
+  let insertions = 0;
+  let deletions = 0;
+  for (const line of stdout.split('\n')) {
+    const match = line.match(/^(\d+|-)\t(\d+|-)\t/);
+    if (!match) continue;
+    filesChanged += 1;
+    if (match[1] !== '-') insertions += Number(match[1]);
+    if (match[2] !== '-') deletions += Number(match[2]);
+  }
+  const { stdout: statusOut } = await runGit(
+    cwd,
+    ['status', '--porcelain=v1', '--untracked-files=all'],
+    30_000
+  );
+  const untracked = statusOut.split('\n').filter((line) => line.startsWith('?? ')).length;
+  return { filesChanged, insertions, deletions, untracked };
+}
+
+const MAX_DIFF_TEXT_CHARS = 400_000;
+
+export async function getDiffAgainstRef(cwd: string, ref: string): Promise<string> {
+  const { stdout } = await runGit(cwd, ['diff', ref], 120_000);
+  return stdout.length > MAX_DIFF_TEXT_CHARS
+    ? `${stdout.slice(0, MAX_DIFF_TEXT_CHARS)}\n… (diff truncated)`
+    : stdout;
+}
+
+// tracked 改动（暂存或未暂存）才阻塞 adopt；用户自己的 untracked 文件不阻塞——
+// merge 若会覆盖 untracked 文件，git 自己会中止。
+export async function hasTrackedChanges(cwd: string): Promise<boolean> {
+  const { stdout } = await runGit(cwd, ['status', '--porcelain=v1', '--untracked-files=no'], 30_000);
+  return stdout.trim().length > 0;
+}
+
+export async function commitAllChanges(input: {
+  cwd: string;
+  message: string;
+}): Promise<boolean> {
+  await runGit(input.cwd, ['add', '-A'], 60_000);
+  const { stdout } = await runGit(input.cwd, ['status', '--porcelain=v1'], 30_000);
+  if (!stdout.trim()) return false;
+  await runGit(input.cwd, ['commit', '-m', input.message, '--no-verify'], 60_000);
+  return true;
+}
+
+// squash-merge 到主工作区暂存区（不自动 commit，改动留给用户审查）。
+// 冲突时用 `git reset --merge` 干净中止（冲突的 squash-merge 后 MERGE_HEAD 不存在，
+// `merge --abort` 不可用）。
+export async function squashMergeBranch(input: {
+  cwd: string;
+  branch: string;
+}): Promise<{ ok: boolean; conflict: boolean; message: string }> {
+  try {
+    const { stdout, stderr } = await runGit(input.cwd, ['merge', '--squash', input.branch], 120_000);
+    return { ok: true, conflict: false, message: `${stdout || ''}${stderr || ''}`.trim() };
+  } catch (error) {
+    // CONFLICT 行走 stdout；execFile 的 error.message 只含 stderr，必须合并检查
+    const err = error as { message?: string; stdout?: string; stderr?: string };
+    const combined = `${err.stdout || ''}\n${err.stderr || ''}\n${err.message || ''}`;
+    const conflict = /conflict/i.test(combined);
+    await runGit(input.cwd, ['reset', '--merge'], 60_000).catch(() => undefined);
+    return { ok: false, conflict, message: combined.trim() };
+  }
+}
+
 export async function deleteBranch(input: {
   cwd: string;
   branch: string;

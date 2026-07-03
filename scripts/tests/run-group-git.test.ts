@@ -11,12 +11,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  commitAllChanges,
   createWorktree,
   deleteBranch,
   ensureWorktreesExcluded,
+  getDiffStatAgainstRef,
   getHeadCommit,
   hasDirtyWorkingTree,
+  hasTrackedChanges,
   removeWorktree,
+  squashMergeBranch,
 } from '../../src/electron/libs/git-service';
 
 function git(cwd: string, args: string[]): string {
@@ -81,6 +85,38 @@ async function main() {
       createWorktree({ cwd: repo, branch: baseRef, newBranch: 'aegis/fan/test/1-claude' }),
       'duplicate branch is rejected by git'
     );
+
+    // --- diffstat: worktree-vs-ref must see UNCOMMITTED work (review finding
+    // 10: agents usually do not commit; `<ref>...HEAD` would report 0/0) ---
+    fs.writeFileSync(path.join(wt1.path, 'README.md'), 'hello\nchanged\n');
+    const stat = await getDiffStatAgainstRef(wt1.path, baseRef);
+    assert.equal(stat.filesChanged, 1, 'uncommitted tracked change counted');
+    assert.ok(stat.insertions >= 1, 'insertions counted');
+    assert.equal(stat.untracked, 1, 'untracked agent-output.txt counted');
+
+    // --- adopt plumbing: auto-commit + squash-merge into a clean main tree ---
+    assert.equal(await hasTrackedChanges(repo), false, 'main tree has no tracked changes');
+    const committed = await commitAllChanges({ cwd: wt1.path, message: 'aegis: fan-out result (test)' });
+    assert.equal(committed, true, 'winner work committed to its branch');
+    const merge = await squashMergeBranch({ cwd: repo, branch: 'aegis/fan/test/1-claude' });
+    assert.equal(merge.ok, true, `squash-merge succeeds: ${merge.message}`);
+    assert.equal(await hasTrackedChanges(repo), true, 'squash result staged for review');
+    assert.ok(
+      fs.readFileSync(path.join(repo, 'agent-output.txt'), 'utf8').includes('work'),
+      'winner file landed in main workspace'
+    );
+    git(repo, ['commit', '-m', 'adopt winner']);
+
+    // --- conflict path: aborted cleanly, no merge state left behind ---
+    const wt3 = await createWorktree({ cwd: repo, branch: baseRef, newBranch: 'aegis/fan/test/3-grok' });
+    fs.writeFileSync(path.join(wt3.path, 'README.md'), 'hello\nconflicting\n');
+    await commitAllChanges({ cwd: wt3.path, message: 'aegis: fan-out result (grok)' });
+    const conflicted = await squashMergeBranch({ cwd: repo, branch: 'aegis/fan/test/3-grok' });
+    assert.equal(conflicted.ok, false, 'conflicting merge reports failure');
+    assert.equal(conflicted.conflict, true, 'conflict detected');
+    assert.equal(await hasTrackedChanges(repo), false, 'reset --merge left the main tree clean');
+    const postStatus = git(repo, ['status', '--porcelain']);
+    assert.equal(postStatus.trim(), '', 'no conflict markers or merge state remain');
 
     console.log('run-group-git: all checks passed');
   } finally {

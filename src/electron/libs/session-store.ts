@@ -1578,6 +1578,20 @@ export function listSessionsByRunGroup(groupId: string): SessionRow[] {
     .all(groupId) as SessionRow[];
 }
 
+// 比较视图的成员摘要：末条 assistant 输出的截断文本（search_text 已在写入时抽取）。
+export function getLastAssistantExcerpt(sessionId: string, maxChars = 280): string | null {
+  const row = getDb()
+    .prepare(
+      `SELECT search_text FROM messages
+       WHERE session_id = ? AND message_type = 'assistant' AND search_text IS NOT NULL AND search_text != ''
+       ORDER BY created_at DESC LIMIT 1`
+    )
+    .get(sessionId) as { search_text: string } | undefined;
+  if (!row?.search_text) return null;
+  const collapsed = row.search_text.replace(/\s+/g, ' ').trim();
+  return collapsed.length > maxChars ? `${collapsed.slice(0, maxChars - 1)}…` : collapsed;
+}
+
 // 删除 session 后的 group 收尾：被采纳成员被删 → 置 NULL；最后一个成员被删 → 删 group 行。
 // 返回受影响的 groupId（若 group 仍存在），供调用方重算/广播。
 export function handleRunGroupSessionDeleted(groupId: string, sessionId: string): {

@@ -821,6 +821,31 @@ export interface RunGroupStartResult {
   memberSessionIds?: string[];
 }
 
+export interface RunGroupMemberSummary extends RunGroupMember {
+  sessionStatus: SessionStatus | null;
+  title: string | null;
+  startedAt: number | null;
+  updatedAt: number | null;
+  diffStat: {
+    filesChanged: number;
+    insertions: number;
+    deletions: number;
+    untracked: number;
+  } | null;
+  excerpt: string | null;
+}
+
+export interface RunGroupSummary {
+  group: RunGroupInfo;
+  members: RunGroupMemberSummary[];
+}
+
+export interface RunGroupAdoptResult {
+  ok: boolean;
+  conflict?: boolean;
+  message?: string;
+}
+
 // Payload 类型
 export interface SessionStartPayload {
   title: string;

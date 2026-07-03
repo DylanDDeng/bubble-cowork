@@ -31,9 +31,11 @@ import type {
   WechatMarkdownHtmlGenerationInput,
   WechatMarkdownHtmlGenerationResult,
   WechatMarkdownHtmlGeneratorConfig,
+  RunGroupAdoptResult,
   RunGroupInfo,
   RunGroupStartInput,
   RunGroupStartResult,
+  RunGroupSummary,
 } from '../shared/types';
 import type {
   BrowserCapturePageResult,
@@ -247,6 +249,30 @@ contextBridge.exposeInMainWorld('electron', {
 
   listRunGroups: (projectCwd?: string): Promise<RunGroupInfo[]> => {
     return ipcRenderer.invoke('list-run-groups', projectCwd);
+  },
+
+  getRunGroupSummary: (groupId: string): Promise<RunGroupSummary | null> => {
+    return ipcRenderer.invoke('run-group-summary', groupId);
+  },
+
+  getRunGroupMemberDiff: (groupId: string, memberIndex: number): Promise<string | null> => {
+    return ipcRenderer.invoke('run-group-member-diff', groupId, memberIndex);
+  },
+
+  adoptRunGroup: (groupId: string, sessionId: string): Promise<RunGroupAdoptResult> => {
+    return ipcRenderer.invoke('adopt-run-group', groupId, sessionId);
+  },
+
+  discardRunGroup: (groupId: string): Promise<{ ok: boolean; message?: string }> => {
+    return ipcRenderer.invoke('discard-run-group', groupId);
+  },
+
+  listReclaimableWorktrees: (projectCwd: string): Promise<string[]> => {
+    return ipcRenderer.invoke('list-reclaimable-worktrees', projectCwd);
+  },
+
+  reclaimWorktrees: (projectCwd: string): Promise<{ removed: number }> => {
+    return ipcRenderer.invoke('reclaim-worktrees', projectCwd);
   },
 
   startTerminalSession: (
