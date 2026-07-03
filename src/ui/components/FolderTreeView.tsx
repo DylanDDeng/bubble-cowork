@@ -250,28 +250,70 @@ export function FolderTreeView({
                     No threads yet
                   </div>
                 ) : (
-                  group.sessions.map((session) => {
-                    const isSessionActive =
-                      isChatWorkspaceActive && openSessionIds.has(session.id);
-
-                    return (
-                      <SessionItem
-                        key={session.id}
-                        session={session}
-                        isActive={isSessionActive}
-                        runtimeBadge={
-                          session.runtimeNotice
-                            ? session.runtimeNotice
-                            : !isSessionActive && session.status === 'running'
-                              ? 'running'
-                              : null
-                        }
-                        depth={1}
-                        onClick={() => onSessionClick(session.id)}
-                        onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
-                      />
+                  (() => {
+                    // 项目 → worktree（分支）→ threads 的三层结构：worktree thread
+                    // 的 cwd 已指向隔离检出，挂在分支小节下如实呈现，而不是提为
+                    // 顶层"假项目"或混在项目本体的 thread 里。
+                    const regularSessions = group.sessions.filter(
+                      (session) => !(session.envMode === 'worktree' && session.worktreePath)
                     );
-                  })
+                    const worktreeGroups = new Map<string, SessionView[]>();
+                    for (const session of group.sessions) {
+                      if (session.envMode === 'worktree' && session.worktreePath) {
+                        const list = worktreeGroups.get(session.worktreePath) ?? [];
+                        list.push(session);
+                        worktreeGroups.set(session.worktreePath, list);
+                      }
+                    }
+                    const renderSession = (session: SessionView, depth: number) => {
+                      const isSessionActive =
+                        isChatWorkspaceActive && openSessionIds.has(session.id);
+                      return (
+                        <SessionItem
+                          key={session.id}
+                          session={session}
+                          isActive={isSessionActive}
+                          runtimeBadge={
+                            session.runtimeNotice
+                              ? session.runtimeNotice
+                              : !isSessionActive && session.status === 'running'
+                                ? 'running'
+                                : null
+                          }
+                          depth={depth}
+                          showWorktreeBadge={depth < 2}
+                          onClick={() => onSessionClick(session.id)}
+                          onTogglePin={() =>
+                            sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })
+                          }
+                        />
+                      );
+                    };
+                    return (
+                      <>
+                        {regularSessions.map((session) => renderSession(session, 1))}
+                        {Array.from(worktreeGroups.entries()).map(([worktreePath, worktreeSessions]) => {
+                          const branch =
+                            worktreeSessions.find((item) => item.associatedWorktreeBranch)
+                              ?.associatedWorktreeBranch ||
+                            worktreePath.split('/').filter(Boolean).pop() ||
+                            'worktree';
+                          return (
+                            <div key={worktreePath}>
+                              <div
+                                className="ml-4 flex h-6 min-w-0 items-center gap-1.5 px-2 text-[var(--text-muted)]"
+                                title={worktreePath}
+                              >
+                                <ArrowsSplit className="h-3 w-3 flex-shrink-0" />
+                                <span className="min-w-0 truncate font-mono text-[11px]">{branch}</span>
+                              </div>
+                              {worktreeSessions.map((session) => renderSession(session, 2))}
+                            </div>
+                          );
+                        })}
+                      </>
+                    );
+                  })()
                 )}
               </div>
             )}
@@ -295,6 +337,7 @@ function SessionItem({
   depth,
   onClick,
   onTogglePin,
+  showWorktreeBadge = true,
 }: {
   session: SessionView;
   isActive: boolean;
@@ -302,6 +345,8 @@ function SessionItem({
   depth: number;
   onClick: () => void;
   onTogglePin: () => void;
+  /** worktree 子分组的分支头已表达归属时，行内徽标可省 */
+  showWorktreeBadge?: boolean;
 }) {
   const forkSessionToPane = useAppStore((s) => s.forkSessionToPane);
   const createDraftSession = useAppStore((s) => s.createDraftSession);
@@ -431,7 +476,7 @@ function SessionItem({
 
       <div className="flex min-h-[22px] items-center gap-2">
         <span className="flex-1 truncate text-[13px] font-normal leading-[1.3]">{session.title}</span>
-        {session.envMode === 'worktree' && session.worktreePath ? (
+        {showWorktreeBadge && session.envMode === 'worktree' && session.worktreePath ? (
           <span
             className="flex-shrink-0"
             title={`Runs in a worktree${session.associatedWorktreeBranch ? ` · ${session.associatedWorktreeBranch}` : ''}`}
