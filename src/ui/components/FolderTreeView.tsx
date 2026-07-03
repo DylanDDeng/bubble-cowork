@@ -10,6 +10,7 @@ import { allLeaves } from '../store/layout-tree';
 import { sendEvent } from '../hooks/useIPC';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import type { AgentProvider, SessionView } from '../types';
+import { ProjectRunGroups, useRunGroups } from './RunGroupList';
 
 type ProjectGroup = {
   key: string;
@@ -71,6 +72,11 @@ export function FolderTreeView({
   } = useAppStore();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
   const isChatWorkspaceActive = activeWorkspace === 'chat';
+  const runGroups = useRunGroups();
+  const visibleRunGroups = useMemo(
+    () => runGroups.filter((group) => group.status !== 'discarded'),
+    [runGroups]
+  );
 
   // Sessions currently mounted in any workspace pane. With recursive tiling
   // there is no single "split pair" — every open session simply renders with the
@@ -135,6 +141,21 @@ export function FolderTreeView({
       });
     }
 
+    // Fan-out 组挂在项目下（orca 式）：项目哪怕没有普通 thread，只要有 fan-out
+    // 也要有分组条目可挂
+    if (!sidebarSearchQuery.trim()) {
+      for (const runGroup of visibleRunGroups) {
+        if (!grouped.has(runGroup.projectCwd)) {
+          grouped.set(runGroup.projectCwd, {
+            key: runGroup.projectCwd,
+            label: getProjectLabel(runGroup.projectCwd),
+            fullPath: runGroup.projectCwd,
+            sessions: [],
+          });
+        }
+      }
+    }
+
     const projectGroups = Array.from(grouped.values())
       .map((group) => ({
         ...group,
@@ -147,7 +168,7 @@ export function FolderTreeView({
       });
 
     return { pinnedSessions, projectGroups };
-  }, [projectCwd, sessions, sidebarSearchQuery]);
+  }, [projectCwd, sessions, sidebarSearchQuery, visibleRunGroups]);
 
   const isExpanded = (key: string) => !collapsedGroups.has(key);
 
@@ -245,7 +266,14 @@ export function FolderTreeView({
 
             {expanded && (
               <div className="mt-1">
-                {group.sessions.length === 0 ? (
+                <ProjectRunGroups
+                  groups={visibleRunGroups.filter(
+                    (runGroup) => runGroup.projectCwd === group.fullPath
+                  )}
+                  onOpenSession={(sessionId) => onSessionClick(sessionId)}
+                />
+                {group.sessions.length === 0 &&
+                !visibleRunGroups.some((runGroup) => runGroup.projectCwd === group.fullPath) ? (
                   <div className="ml-4 rounded-lg px-2 py-1.5 text-[12px] text-[var(--text-muted)]">
                     No threads yet
                   </div>
