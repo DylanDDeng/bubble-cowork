@@ -28,28 +28,60 @@ export interface IsolatedWorkspaceActionResult {
   conflict?: boolean;
 }
 
+// 分支第三级尽量像 session title 一样可读：从提示词/标题提取 ascii slug。
+// 中日韩等非 ascii 内容进不了安全的分支名，退回短哈希（侧栏显示层会再兜底）。
+function branchSlugFromHint(hint?: string | null): string | null {
+  if (!hint) return null;
+  const slug = hint
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .split('-')
+    .filter(Boolean)
+    .slice(0, 6)
+    .join('-')
+    .slice(0, 40)
+    .replace(/-+$/g, '');
+  return slug.length >= 3 ? slug : null;
+}
+
 // 建一个隔离 worktree（从项目当前 HEAD 出发）。session.start 的
-// createIsolatedWorkspace 开关和"派生到隔离副本"都走这里。
+// createIsolatedWorkspace 开关和 Move into a new worktree 都走这里。
+// labelHint（提示词/标题）用于生成可读的分支名。
 export async function provisionIsolatedWorkspace(
-  projectCwd: string
+  projectCwd: string,
+  labelHint?: string | null
 ): Promise<IsolatedWorkspaceProvision> {
   await assertGitRepo(projectCwd);
   const repoRoot = await getGitTopLevel(projectCwd);
   await ensureWorktreesExcluded(repoRoot);
   const baseRef = await getHeadCommit(repoRoot);
-  const branch = `aegis/iso/${uuidv4().slice(0, 8)}`;
-  const worktree = await createWorktree({ cwd: repoRoot, branch: baseRef, newBranch: branch });
-  return { repoRoot, worktreePath: worktree.path, branch, baseRef };
+  const slug = branchSlugFromHint(labelHint);
+  const candidates = slug
+    ? [`aegis/iso/${slug}`, `aegis/iso/${slug}-${uuidv4().slice(0, 4)}`]
+    : [`aegis/iso/${uuidv4().slice(0, 8)}`];
+  let lastError: unknown = null;
+  for (const branch of candidates) {
+    try {
+      const worktree = await createWorktree({ cwd: repoRoot, branch: baseRef, newBranch: branch });
+      return { repoRoot, worktreePath: worktree.path, branch, baseRef };
+    } catch (error) {
+      // 同名分支已存在（同一句提示词重复开）→ 带短后缀重试一次
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-// 给已存在的 session（如刚 fork 出来的）套上隔离 worktree。
+// 给已存在的 session 套上隔离 worktree（Move into a new worktree）。
 export async function assignIsolatedWorkspace(sessionId: string): Promise<IsolatedWorkspaceActionResult> {
   const row = sessions.getSession(sessionId);
   if (!row) return { ok: false, message: 'Session not found.' };
   const projectCwd = row.project_cwd || row.cwd;
   if (!projectCwd) return { ok: false, message: 'This thread has no project folder.' };
   try {
-    const provision = await provisionIsolatedWorkspace(projectCwd);
+    const provision = await provisionIsolatedWorkspace(projectCwd, row.title);
     sessions.updateSessionWorkspace(sessionId, {
       envMode: 'worktree',
       projectCwd: provision.repoRoot,

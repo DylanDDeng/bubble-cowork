@@ -318,14 +318,26 @@ export function FolderTreeView({
                               ?.associatedWorktreeBranch ||
                             worktreePath.split('/').filter(Boolean).pop() ||
                             'worktree';
+                          // 分支第三级是随机哈希（中文标题进不了分支名的兜底）时，
+                          // 显示层退回用首条 thread 的标题当小节名，分支放 tooltip
+                          const branchTail = branch.split('/').pop() || branch;
+                          const isOpaqueBranch = /^[0-9a-f]{8}(-[0-9a-f]{4})?$/.test(branchTail);
+                          const headerLabel =
+                            isOpaqueBranch && sample?.title ? sample.title : branch;
                           return (
                             <div key={worktreePath}>
                               <div
                                 className="group/worktree ml-4 flex h-6 min-w-0 items-center gap-1.5 px-2 text-[var(--text-muted)]"
-                                title={worktreePath}
+                                title={`${branch} · ${worktreePath}`}
                               >
                                 <ArrowsSplit className="h-3 w-3 flex-shrink-0" />
-                                <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{branch}</span>
+                                <span
+                                  className={`min-w-0 flex-1 truncate text-[11px] ${
+                                    headerLabel === branch ? 'font-mono' : ''
+                                  }`}
+                                >
+                                  {headerLabel}
+                                </span>
                                 <button
                                   type="button"
                                   className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md opacity-0 transition-all duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] focus:opacity-100 group-hover/worktree:opacity-100"

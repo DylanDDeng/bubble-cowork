@@ -6555,7 +6555,8 @@ async function handleSessionStart(
   let isolated: IsolatedWorkspaceProvision | null = null;
   if (createIsolatedWorkspace && sessionCwd) {
     try {
-      isolated = await provisionIsolatedWorkspace(sessionCwd);
+      // 分支名 hint 用提示词开头（title 此刻还是临时占位）
+      isolated = await provisionIsolatedWorkspace(sessionCwd, prompt.slice(0, 80));
     } catch (error) {
       broadcast(mainWindow, {
         type: 'runner.error',
