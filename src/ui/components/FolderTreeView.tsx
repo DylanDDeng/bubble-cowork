@@ -149,6 +149,25 @@ export function FolderTreeView({
     return { pinnedSessions, projectGroups };
   }, [projectCwd, sessions, sidebarSearchQuery]);
 
+  const createDraftSession = useAppStore((s) => s.createDraftSession);
+
+  // 在既有 worktree 里开新对话：新草稿的 cwd 指向同一个隔离检出
+  const createDraftSessionInWorktree = (
+    worktreePath: string,
+    branch: string,
+    sample: SessionView | undefined
+  ) => {
+    createDraftSession(worktreePath, sample?.channelId || null, {
+      title: `New Chat - ${branch}`,
+      projectCwd: sample?.projectCwd ?? null,
+      envMode: 'worktree',
+      worktreePath,
+      associatedWorktreePath: worktreePath,
+      associatedWorktreeBranch: sample?.associatedWorktreeBranch ?? branch,
+      associatedWorktreeRef: sample?.associatedWorktreeRef ?? null,
+    });
+  };
+
   const isExpanded = (key: string) => !collapsedGroups.has(key);
 
   const toggleGroupExpanded = (key: string) => {
@@ -293,6 +312,7 @@ export function FolderTreeView({
                       <>
                         {regularSessions.map((session) => renderSession(session, 1))}
                         {Array.from(worktreeGroups.entries()).map(([worktreePath, worktreeSessions]) => {
+                          const sample = worktreeSessions[0];
                           const branch =
                             worktreeSessions.find((item) => item.associatedWorktreeBranch)
                               ?.associatedWorktreeBranch ||
@@ -301,11 +321,23 @@ export function FolderTreeView({
                           return (
                             <div key={worktreePath}>
                               <div
-                                className="ml-4 flex h-6 min-w-0 items-center gap-1.5 px-2 text-[var(--text-muted)]"
+                                className="group/worktree ml-4 flex h-6 min-w-0 items-center gap-1.5 px-2 text-[var(--text-muted)]"
                                 title={worktreePath}
                               >
                                 <ArrowsSplit className="h-3 w-3 flex-shrink-0" />
-                                <span className="min-w-0 truncate font-mono text-[11px]">{branch}</span>
+                                <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{branch}</span>
+                                <button
+                                  type="button"
+                                  className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md opacity-0 transition-all duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] focus:opacity-100 group-hover/worktree:opacity-100"
+                                  title={`New thread in ${branch}`}
+                                  aria-label={`New thread in worktree ${branch}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    createDraftSessionInWorktree(worktreePath, branch, sample);
+                                  }}
+                                >
+                                  <Plus className="h-3 w-3" strokeWidth={1.9} />
+                                </button>
                               </div>
                               {worktreeSessions.map((session) => renderSession(session, 2))}
                             </div>
