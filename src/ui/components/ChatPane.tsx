@@ -24,7 +24,6 @@ import { ComposerContextPills } from './ComposerContextPills';
 import { InSessionSearch } from './search/InSessionSearch';
 import { ComposerPendingPermissionPanel } from './ComposerPendingPermissionPanel';
 import { ErrorBoundary } from './ErrorBoundary';
-import { AgentAvatar } from './AgentAvatar';
 import { TurnChangesCard } from './TurnChangesCard';
 import { TurnDiffContext, type TurnDiffContextValue } from './TurnDiffContext';
 import { CodexActivePlanCard } from './CodexActivePlanCard';
@@ -870,7 +869,6 @@ export function ChatPane({
 }) {
   const {
     sessions,
-    agentProfiles,
     historyNavigationTarget,
     loadOlderSessionHistory,
     setHistoryNavigationTarget,
@@ -884,10 +882,6 @@ export function ChatPane({
   } = useAppStore();
   const session = sessionId ? sessions[sessionId] : null;
   const scrollPositionKey = sessionId ? getChatScrollPositionKey(paneId, sessionId) : null;
-  const directAgent =
-    session?.scope === 'dm' && session.agentId
-      ? agentProfiles[session.agentId] || null
-      : null;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const historyRequested = useRef(new Set<string>());
   const scrollUpdateStateRef = useRef<{ key: string; messageCount: number } | null>(null);
@@ -1389,7 +1383,6 @@ export function ChatPane({
   // (title + composer + starter suggestions), matching the first-entry screen.
   const showThreadStarter = Boolean(
     session &&
-      !directAgent &&
       session.scope !== 'dm' &&
       session.messages.length === 0 &&
       // Only treat an empty session as a fresh thread once we know it's actually
@@ -1495,24 +1488,9 @@ export function ChatPane({
         <>
           <div className="flex h-9 items-center justify-between bg-[var(--bg-primary)] px-3">
             <div className="flex min-w-0 items-center gap-2 text-[12px] text-[var(--text-secondary)]">
-              {directAgent ? (
-                <>
-                  <AgentAvatar profile={directAgent} size="sm" decorative />
-                  <span className="truncate font-medium text-[var(--text-primary)]">
-                    {directAgent.name.trim() || session.title || 'Agent thread'}
-                  </span>
-                  <span className="shrink-0 text-[var(--text-muted)]">·</span>
-                  <span className="truncate text-[var(--text-muted)]">
-                    {directAgent.role.trim() || 'Agent'} · No project context
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="truncate font-medium text-[var(--text-primary)]">
-                    {session.title || 'Chat'}
-                  </span>
-                </>
-              )}
+              <span className="truncate font-medium text-[var(--text-primary)]">
+                {session.title || 'Chat'}
+              </span>
             </div>
             <div className="flex items-center gap-1">
               {headerActions}

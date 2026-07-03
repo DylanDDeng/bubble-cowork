@@ -23,16 +23,8 @@ import type {
   ProjectUtilityPanelTarget,
   ReviewDiffSelection,
   ReviewDiffSelectionInput,
-  AgentProvider,
-  AgentProfile,
-  ClaudeCompatibleProviderId,
-  AgentProfileColor,
-  AgentProfileAvatar,
-  AgentPermissionPolicy,
-  AgentAvatarAssetKey,
   SessionView,
   ServerEvent,
-  ClientEvent,
   SessionInfo,
   StreamMessage,
   ContentBlock,
@@ -48,8 +40,6 @@ import type {
   ChromeTheme,
   PromptLibraryInsertMode,
   WorkspaceChannel,
-  TeamProfile,
-  TeamMemberProfile,
   SessionTeamMode,
   McpServerStatus,
 } from '../types';
@@ -98,23 +88,6 @@ function getProjectChannelKey(cwd?: string | null): string {
   return cwd?.trim() || '__no_project__';
 }
 
-function syncProfilesToMain(
-  agentProfiles: Record<string, AgentProfile>,
-  teamProfiles: Record<string, TeamProfile>
-): void {
-  if (typeof window === 'undefined' || !window.electron?.sendClientEvent) {
-    return;
-  }
-  const event: ClientEvent = {
-    type: 'profiles.sync',
-    payload: {
-      agentProfiles: Object.values(agentProfiles),
-      teamProfiles: Object.values(teamProfiles),
-    },
-  };
-  window.electron.sendClientEvent(event);
-}
-
 function normalizeWorkspaceChannelId(value?: string | null): string {
   const trimmed = value?.trim();
   return trimmed || DEFAULT_WORKSPACE_CHANNEL_ID;
@@ -135,7 +108,6 @@ function createDefaultWorkspaceChannel(projectCwd?: string | null): WorkspaceCha
     id: DEFAULT_WORKSPACE_CHANNEL_ID,
     projectCwd: projectCwd?.trim() || '',
     name: 'all',
-    defaultTeamId: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -171,356 +143,6 @@ function applyActiveProjectChannel(
     ...activeChannelByProject,
     [getProjectChannelKey(session.cwd)]: normalizeWorkspaceChannelId(session.channelId),
   };
-}
-
-const STARTER_AGENT_PROFILES: Array<
-  Omit<AgentProfile, 'createdAt' | 'updatedAt'>
-> = [];
-
-function createStarterAgentProfiles(): Record<string, AgentProfile> {
-  const now = Date.now();
-  return Object.fromEntries(
-    STARTER_AGENT_PROFILES.map((profile, index) => [
-      profile.id,
-      {
-        ...profile,
-        createdAt: now + index,
-        updatedAt: now + index,
-      },
-    ])
-  );
-}
-
-function createDirectMessageDraftOptions(profile: AgentProfile): Parameters<typeof createDraftSessionView>[2] {
-  const effectivePermissionPolicy = normalizeAgentPermissionPolicyForProfile(
-    profile.permissionPolicy,
-    profile,
-    profile.id
-  );
-  const isReadOnly = effectivePermissionPolicy === 'readOnly';
-  const isFullAccess = effectivePermissionPolicy === 'fullAccess';
-
-  return {
-    title: profile.name.trim() || 'Direct Message',
-    scope: 'dm',
-    agentId: profile.id,
-    provider: profile.provider,
-    model: profile.model,
-    compatibleProviderId: profile.provider === 'claude' ? profile.compatibleProviderId : undefined,
-    claudeReasoningEffort: profile.provider === 'claude' ? profile.reasoningEffort : undefined,
-    codexReasoningEffort:
-      profile.provider === 'codex' && profile.reasoningEffort !== 'max'
-        ? profile.reasoningEffort
-        : undefined,
-    claudeAccessMode: isFullAccess ? 'bypassPermissions' : isReadOnly ? 'plan' : 'default',
-    claudeExecutionMode: isReadOnly ? 'plan' : 'execute',
-    codexExecutionMode: isReadOnly ? 'plan' : 'execute',
-    codexPermissionMode: isFullAccess ? 'fullAccess' : 'defaultPermissions',
-    opencodePermissionMode: isFullAccess ? 'fullAccess' : 'defaultPermissions',
-  };
-}
-
-function normalizeAgentProfileColor(value: unknown): AgentProfileColor {
-  return value === 'sky' ||
-    value === 'emerald' ||
-    value === 'violet' ||
-    value === 'rose' ||
-    value === 'slate'
-    ? value
-    : 'amber';
-}
-
-function normalizeAgentPermissionPolicy(value: unknown): AgentPermissionPolicy {
-  return value === 'readOnly' || value === 'fullAccess' ? value : 'ask';
-}
-
-function isReviewerAgentProfile(profile: Partial<AgentProfile>, id?: string): boolean {
-  const searchText = `${id || ''} ${profile.name || ''} ${profile.role || ''}`.toLowerCase();
-  return (
-    searchText.includes('reviewer') ||
-    searchText.includes('review') ||
-    searchText.includes('评审') ||
-    searchText.includes('审查') ||
-    searchText.includes('审阅')
-  );
-}
-
-function normalizeAgentPermissionPolicyForProfile(
-  value: unknown,
-  profile: Partial<AgentProfile>,
-  id?: string
-): AgentPermissionPolicy {
-  const policy = normalizeAgentPermissionPolicy(value);
-  if (policy === 'readOnly' && isReviewerAgentProfile(profile, id)) {
-    return 'ask';
-  }
-  return policy;
-}
-
-function normalizeAgentProvider(value: unknown): AgentProvider {
-  return value === 'codex' || value === 'opencode' || value === 'kimi' || value === 'grok' || value === 'pi'
-    ? value
-    : 'claude';
-}
-
-function normalizeClaudeCompatibleProviderId(value: unknown): ClaudeCompatibleProviderId | undefined {
-  return value === 'minimaxCn' ||
-    value === 'minimax' ||
-    value === 'mimo' ||
-    value === 'zhipu' ||
-    value === 'moonshot' ||
-    value === 'deepseek'
-    ? value
-    : undefined;
-}
-
-function normalizeAgentReasoningEffort(value: unknown): AgentProfile['reasoningEffort'] {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-  const normalized = value.trim().toLowerCase();
-  return normalized === 'low' ||
-    normalized === 'medium' ||
-    normalized === 'high' ||
-    normalized === 'xhigh' ||
-    normalized === 'max'
-    ? normalized
-    : undefined;
-}
-
-function normalizeAgentAvatarAssetKey(
-  value: unknown,
-  fallback: AgentAvatarAssetKey
-): AgentAvatarAssetKey {
-  return value === 'notion-avatar-01' ||
-    value === 'notion-avatar-02' ||
-    value === 'notion-avatar-03' ||
-    value === 'notion-avatar-04' ||
-    value === 'notion-avatar-05' ||
-    value === 'anime-avatar-01' ||
-    value === 'anime-avatar-02' ||
-    value === 'anime-avatar-03' ||
-    value === 'anime-avatar-04' ||
-    value === 'anime-avatar-05'
-    ? value
-    : fallback;
-}
-
-function inferAgentAvatarAssetKey(profile: Partial<AgentProfile>, id: string): AgentAvatarAssetKey {
-  const searchText = `${id} ${profile.name || ''} ${profile.role || ''}`.toLowerCase();
-  if (searchText.includes('build') || searchText.includes('code') || searchText.includes('implement')) {
-    return 'notion-avatar-02';
-  }
-  if (searchText.includes('review')) {
-    return 'notion-avatar-03';
-  }
-  if (searchText.includes('research') || searchText.includes('search')) {
-    return 'notion-avatar-04';
-  }
-  if (searchText.includes('run') || searchText.includes('test')) {
-    return 'notion-avatar-05';
-  }
-  if (searchText.includes('write') || searchText.includes('doc')) {
-    return 'notion-avatar-05';
-  }
-  if (searchText.includes('architect') || searchText.includes('design')) {
-    return 'notion-avatar-04';
-  }
-  if (searchText.includes('coord') || searchText.includes('kabi')) {
-    return 'notion-avatar-01';
-  }
-  return 'notion-avatar-04';
-}
-
-function mapLegacySketchAvatarKey(value: unknown): AgentAvatarAssetKey | null {
-  switch (value) {
-    case 'coordinator':
-      return 'notion-avatar-01';
-    case 'builder':
-      return 'notion-avatar-02';
-    case 'reviewer':
-      return 'notion-avatar-03';
-    case 'researcher':
-    case 'architect':
-      return 'notion-avatar-04';
-    case 'runner':
-    case 'scribe':
-      return 'notion-avatar-05';
-    case 'operator':
-      return 'notion-avatar-04';
-    default:
-      return null;
-  }
-}
-
-function normalizeAgentProfileAvatar(
-  value: unknown,
-  profile: Partial<AgentProfile>,
-  id: string
-): AgentProfileAvatar {
-  const fallback = inferAgentAvatarAssetKey(profile, id);
-  if (!value || typeof value !== 'object') {
-    return { type: 'asset', key: fallback };
-  }
-  const avatar = value as Partial<AgentProfileAvatar>;
-  const legacyAssetKey = mapLegacySketchAvatarKey(avatar.key);
-  return {
-    type: 'asset',
-    key: legacyAssetKey || normalizeAgentAvatarAssetKey(avatar.key, fallback),
-  };
-}
-
-function normalizeAgentProfiles(value: unknown): Record<string, AgentProfile> {
-  if (!value || typeof value !== 'object') {
-    return createStarterAgentProfiles();
-  }
-
-  const now = Date.now();
-  const entries = Object.entries(value as Record<string, Partial<AgentProfile>>)
-    .map(([id, profile]) => {
-      const normalizedId = profile.id?.trim() || id.trim();
-      const name = profile.name?.trim() || 'Agent';
-      const provider = normalizeAgentProvider(profile.provider);
-      if (!normalizedId) {
-        return null;
-      }
-      return [
-        normalizedId,
-        {
-          id: normalizedId,
-          name,
-          role: profile.role?.trim() || 'Agent',
-          description: profile.description?.trim() || '',
-          instructions: profile.instructions?.trim() || '',
-          avatar: normalizeAgentProfileAvatar(profile.avatar, profile, normalizedId),
-          provider,
-          model: profile.model?.trim() || undefined,
-          compatibleProviderId:
-            provider === 'claude'
-              ? normalizeClaudeCompatibleProviderId(profile.compatibleProviderId)
-              : undefined,
-          reasoningEffort: normalizeAgentReasoningEffort(profile.reasoningEffort),
-          permissionPolicy: normalizeAgentPermissionPolicyForProfile(
-            profile.permissionPolicy,
-            profile,
-            normalizedId
-          ),
-          canDelegate: profile.canDelegate === true,
-          color: normalizeAgentProfileColor(profile.color),
-          enabled: profile.enabled !== false,
-          createdAt: typeof profile.createdAt === 'number' ? profile.createdAt : now,
-          updatedAt: typeof profile.updatedAt === 'number' ? profile.updatedAt : now,
-        } satisfies AgentProfile,
-      ] as const;
-    })
-    .filter((entry): entry is readonly [string, AgentProfile] => Boolean(entry));
-
-  return Object.fromEntries(entries);
-}
-
-function createUniqueAgentProfileId(existing: Record<string, AgentProfile>): string {
-  const base = 'agent';
-  let index = Object.keys(existing).length + 1;
-  let candidate = `${base}-${index}`;
-  while (existing[candidate]) {
-    index += 1;
-    candidate = `${base}-${index}`;
-  }
-  return candidate;
-}
-
-function normalizeProjectAgentRosters(
-  value: unknown,
-  agentProfiles: Record<string, AgentProfile>
-): Record<string, string[]> {
-  if (!value || typeof value !== 'object') {
-    return {};
-  }
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .map(([projectKey, profileIds]) => [
-        projectKey,
-        Array.isArray(profileIds)
-          ? profileIds.filter((profileId): profileId is string => (
-              typeof profileId === 'string' && Boolean(agentProfiles[profileId])
-            ))
-          : [],
-      ])
-      .filter(([projectKey]) => Boolean(projectKey.trim()))
-  );
-}
-
-function normalizeTeamMemberProfiles(
-  value: unknown,
-  agentProfiles: Record<string, AgentProfile>
-): TeamMemberProfile[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((item, index): TeamMemberProfile | null => {
-      if (!item || typeof item !== 'object') return null;
-      const record = item as Partial<TeamMemberProfile>;
-      const agentId = record.agentId?.trim();
-      if (!agentId || !agentProfiles[agentId]) return null;
-      return {
-        agentId,
-        role: record.role?.trim() || undefined,
-        enabled: record.enabled !== false,
-        order: typeof record.order === 'number' ? record.order : index,
-      };
-    })
-    .filter((member): member is TeamMemberProfile => Boolean(member))
-    .sort((left, right) => left.order - right.order)
-    .map((member, index) => ({ ...member, order: index }));
-}
-
-function normalizeTeamProfiles(
-  value: unknown,
-  agentProfiles: Record<string, AgentProfile>
-): Record<string, TeamProfile> {
-  if (!value || typeof value !== 'object') {
-    return {};
-  }
-
-  const now = Date.now();
-  return Object.fromEntries(
-    Object.entries(value as Record<string, Partial<TeamProfile>>)
-      .map(([id, team]) => {
-        const normalizedId = team.id?.trim() || id.trim();
-        if (!normalizedId) return null;
-        const members = normalizeTeamMemberProfiles(team.members, agentProfiles);
-        const leaderAgentId =
-          team.leaderAgentId && agentProfiles[team.leaderAgentId]
-            ? team.leaderAgentId
-            : members.find((member) => agentProfiles[member.agentId])?.agentId || null;
-        return [
-          normalizedId,
-          {
-            id: normalizedId,
-            name: team.name?.trim() || 'New Team',
-            description: team.description?.trim() || undefined,
-            leaderAgentId,
-            instructions: team.instructions?.trim() || undefined,
-            members,
-            createdAt: typeof team.createdAt === 'number' ? team.createdAt : now,
-            updatedAt: typeof team.updatedAt === 'number' ? team.updatedAt : now,
-          } satisfies TeamProfile,
-        ] as const;
-      })
-      .filter((entry): entry is readonly [string, TeamProfile] => Boolean(entry))
-  );
-}
-
-function createUniqueTeamProfileId(existing: Record<string, TeamProfile>): string {
-  let index = Object.keys(existing).length + 1;
-  let candidate = `team-${index}`;
-  while (existing[candidate]) {
-    index += 1;
-    candidate = `team-${index}`;
-  }
-  return candidate;
 }
 
 function normalizeSessionTeamMode(value: unknown): SessionTeamMode {
@@ -1124,10 +746,6 @@ export const useAppStore = create<Store>()(
       sessions: {},
       workspaceChannelsByProject: {},
       activeChannelByProject: {},
-      agentProfiles: createStarterAgentProfiles(),
-      teamProfiles: {},
-      projectAgentRostersByProject: {},
-      selectedProjectAgentByProject: {},
       activeSessionId: initialUiResumeState?.activeSessionId ?? null,
       activeWorkspace: 'chat' as ActiveWorkspace,
       chatSidebarView: 'threads' as ChatSidebarView,
@@ -1362,25 +980,6 @@ export const useAppStore = create<Store>()(
         });
         break;
 
-      case 'profiles.list':
-        set((state) => {
-          const agentProfileRecords = Object.fromEntries(
-            event.payload.agentProfiles.map((profile) => [profile.id, profile])
-          );
-          const incomingAgentProfiles =
-            event.payload.agentProfiles.length > 0
-              ? normalizeAgentProfiles(agentProfileRecords)
-              : state.agentProfiles;
-          const teamProfileRecords = Object.fromEntries(
-            event.payload.teamProfiles.map((team) => [team.id, team])
-          );
-          return {
-            agentProfiles: incomingAgentProfiles,
-            teamProfiles: normalizeTeamProfiles(teamProfileRecords, incomingAgentProfiles),
-          };
-        });
-        break;
-
       case 'session.pinned':
         handleSessionPinned(event.payload, set, get);
         break;
@@ -1531,7 +1130,6 @@ export const useAppStore = create<Store>()(
               id: channelId,
               projectCwd,
               name: channelId,
-              defaultTeamId: null,
               createdAt: now,
               updatedAt: now,
             },
@@ -1629,257 +1227,6 @@ export const useAppStore = create<Store>()(
       };
     }),
 
-  createAgentProfile: () => {
-    const state = get();
-    const now = Date.now();
-    const profileId = createUniqueAgentProfileId(state.agentProfiles);
-    const profile: AgentProfile = {
-      id: profileId,
-      name: 'New Agent',
-      role: 'Agent',
-      description: '',
-      instructions: '',
-      avatar: { type: 'asset', key: 'notion-avatar-04' },
-      provider: loadPreferredProvider(),
-      reasoningEffort: undefined,
-      permissionPolicy: 'ask',
-      canDelegate: false,
-      color: 'violet',
-      enabled: true,
-      createdAt: now,
-      updatedAt: now,
-    };
-    const nextAgentProfiles = {
-      ...state.agentProfiles,
-      [profileId]: profile,
-    };
-    set({ agentProfiles: nextAgentProfiles });
-    syncProfilesToMain(nextAgentProfiles, state.teamProfiles);
-    return profileId;
-  },
-
-  updateAgentProfile: (profileId, patch) =>
-    set((state) => {
-      const current = state.agentProfiles[profileId];
-      if (!current) {
-        return state;
-      }
-      const nextProvider =
-        patch.provider !== undefined ? normalizeAgentProvider(patch.provider) : current.provider;
-      const hasModelPatch = Object.prototype.hasOwnProperty.call(patch, 'model');
-      const hasCompatibleProviderPatch = Object.prototype.hasOwnProperty.call(
-        patch,
-        'compatibleProviderId'
-      );
-      const nextAgentProfiles = {
-        ...state.agentProfiles,
-        [profileId]: {
-          ...current,
-          ...patch,
-          id: current.id,
-          name: patch.name !== undefined ? patch.name : current.name,
-          role: patch.role !== undefined ? patch.role : current.role,
-          description:
-            patch.description !== undefined ? patch.description : current.description,
-          instructions:
-            patch.instructions !== undefined ? patch.instructions : current.instructions,
-          avatar:
-            patch.avatar !== undefined
-              ? normalizeAgentProfileAvatar(patch.avatar, current, current.id)
-              : current.avatar,
-          provider: nextProvider,
-          model: hasModelPatch ? patch.model?.trim() || undefined : current.model,
-          compatibleProviderId:
-            nextProvider === 'claude'
-              ? hasCompatibleProviderPatch
-                ? normalizeClaudeCompatibleProviderId(patch.compatibleProviderId)
-                : current.compatibleProviderId
-              : undefined,
-          permissionPolicy:
-            patch.permissionPolicy !== undefined
-              ? normalizeAgentPermissionPolicyForProfile(
-                  patch.permissionPolicy,
-                  { ...current, ...patch },
-                  current.id
-                )
-              : normalizeAgentPermissionPolicyForProfile(
-                  current.permissionPolicy,
-                  { ...current, ...patch },
-                  current.id
-                ),
-          canDelegate:
-            patch.canDelegate !== undefined ? patch.canDelegate === true : current.canDelegate,
-          color:
-            patch.color !== undefined ? normalizeAgentProfileColor(patch.color) : current.color,
-          createdAt: current.createdAt,
-          updatedAt: Date.now(),
-        },
-      };
-      syncProfilesToMain(nextAgentProfiles, state.teamProfiles);
-      return { agentProfiles: nextAgentProfiles };
-    }),
-
-  deleteAgentProfile: (profileId) =>
-    set((state) => {
-      if (!state.agentProfiles[profileId]) {
-        return state;
-      }
-      const nextProfiles = { ...state.agentProfiles };
-      delete nextProfiles[profileId];
-      const nextRosters = Object.fromEntries(
-        Object.entries(state.projectAgentRostersByProject)
-          .map(([projectKey, profileIds]) => [
-            projectKey,
-            profileIds.filter((id) => id !== profileId && Boolean(nextProfiles[id])),
-          ])
-          .filter(([, profileIds]) => profileIds.length > 0)
-      );
-      const nextSelectedProjectAgents = Object.fromEntries(
-        Object.entries(state.selectedProjectAgentByProject).filter(
-          ([projectKey, selectedProfileId]) =>
-            selectedProfileId !== profileId && nextRosters[projectKey]?.includes(selectedProfileId)
-        )
-      );
-      const nextTeamProfiles = Object.fromEntries(
-        Object.entries(state.teamProfiles)
-          .map(([teamId, team]) => {
-            const members = team.members
-              .filter((member) => member.agentId !== profileId && Boolean(nextProfiles[member.agentId]))
-              .map((member, index) => ({ ...member, order: index }));
-            const leaderAgentId =
-              team.leaderAgentId !== profileId && team.leaderAgentId && nextProfiles[team.leaderAgentId]
-                ? team.leaderAgentId
-                : members[0]?.agentId || null;
-            return [teamId, { ...team, members, leaderAgentId, updatedAt: Date.now() }] as const;
-          })
-          .filter(([, team]) => team.members.length > 0)
-      );
-      syncProfilesToMain(nextProfiles, nextTeamProfiles);
-      return {
-        agentProfiles: nextProfiles,
-        teamProfiles: nextTeamProfiles,
-        projectAgentRostersByProject: nextRosters,
-        selectedProjectAgentByProject: nextSelectedProjectAgents,
-      };
-    }),
-
-  createTeamProfile: () => {
-    const state = get();
-    const now = Date.now();
-    const teamId = createUniqueTeamProfileId(state.teamProfiles);
-    const enabledProfiles = Object.values(state.agentProfiles)
-      .filter((profile) => profile.enabled)
-      .sort((left, right) => left.createdAt - right.createdAt);
-    const members = enabledProfiles.slice(0, 3).map((profile, index) => ({
-      agentId: profile.id,
-      role: profile.role.trim() || undefined,
-      enabled: true,
-      order: index,
-    }));
-    const team: TeamProfile = {
-      id: teamId,
-      name: 'New Team',
-      description: '',
-      leaderAgentId: members[0]?.agentId || null,
-      instructions: '',
-      members,
-      createdAt: now,
-      updatedAt: now,
-    };
-    const nextTeamProfiles = {
-      ...state.teamProfiles,
-      [teamId]: team,
-    };
-    set({ teamProfiles: nextTeamProfiles });
-    syncProfilesToMain(state.agentProfiles, nextTeamProfiles);
-    return teamId;
-  },
-
-  updateTeamProfile: (teamId, patch) =>
-    set((state) => {
-      const current = state.teamProfiles[teamId];
-      if (!current) return state;
-      const rawMembers = patch.members !== undefined ? patch.members : current.members;
-      const members = normalizeTeamMemberProfiles(rawMembers, state.agentProfiles);
-      const leaderCandidate =
-        patch.leaderAgentId !== undefined ? patch.leaderAgentId : current.leaderAgentId;
-      const leaderAgentId =
-        leaderCandidate && state.agentProfiles[leaderCandidate] && members.some((member) => member.agentId === leaderCandidate)
-          ? leaderCandidate
-          : members[0]?.agentId || null;
-      const nextTeamProfiles = {
-        ...state.teamProfiles,
-        [teamId]: {
-          ...current,
-          ...patch,
-          id: current.id,
-          name: patch.name !== undefined ? patch.name : current.name,
-          description: patch.description !== undefined ? patch.description : current.description,
-          instructions: patch.instructions !== undefined ? patch.instructions : current.instructions,
-          leaderAgentId,
-          members,
-          createdAt: current.createdAt,
-          updatedAt: Date.now(),
-        },
-      };
-      syncProfilesToMain(state.agentProfiles, nextTeamProfiles);
-      return { teamProfiles: nextTeamProfiles };
-    }),
-
-  deleteTeamProfile: (teamId) =>
-    set((state) => {
-      if (!state.teamProfiles[teamId]) return state;
-      const nextTeams = { ...state.teamProfiles };
-      delete nextTeams[teamId];
-      const nextChannels = Object.fromEntries(
-        Object.entries(state.workspaceChannelsByProject).map(([projectKey, channels]) => [
-          projectKey,
-          channels.map((channel) =>
-            channel.defaultTeamId === teamId
-              ? { ...channel, defaultTeamId: null, updatedAt: Date.now() }
-              : channel
-          ),
-        ])
-      );
-      const nextSessions = Object.fromEntries(
-        Object.entries(state.sessions).map(([sessionId, session]) => [
-          sessionId,
-          session.teamId === teamId
-            ? { ...session, teamMode: 'channel_default' as const, teamId: null, updatedAt: Date.now() }
-            : session,
-        ])
-      );
-      syncProfilesToMain(state.agentProfiles, nextTeams);
-      return {
-        teamProfiles: nextTeams,
-        workspaceChannelsByProject: nextChannels,
-        sessions: nextSessions,
-      };
-    }),
-
-  setWorkspaceChannelDefaultTeam: (projectCwd, channelId, teamId) =>
-    set((state) => {
-      const projectKey = getProjectChannelKey(projectCwd);
-      const channels = ensureDefaultWorkspaceChannel(
-        state.workspaceChannelsByProject[projectKey],
-        projectCwd
-      );
-      return {
-        workspaceChannelsByProject: {
-          ...state.workspaceChannelsByProject,
-          [projectKey]: channels.map((channel) =>
-            channel.id === normalizeWorkspaceChannelId(channelId)
-              ? {
-                  ...channel,
-                  defaultTeamId: teamId && state.teamProfiles[teamId] ? teamId : null,
-                  updatedAt: Date.now(),
-                }
-              : channel
-          ),
-        },
-      };
-    }),
-
   setSessionTeam: (sessionId, teamMode, teamId) =>
     set((state) => {
       const session = state.sessions[sessionId];
@@ -1901,77 +1248,6 @@ export const useAppStore = create<Store>()(
         },
       };
     }),
-
-  setProjectAgentRoster: (projectCwd, profileIds) =>
-    set((state) => {
-      const projectKey = getProjectChannelKey(projectCwd);
-      const validProfileIds = profileIds.filter((profileId) => Boolean(state.agentProfiles[profileId]));
-      const nextRosters = { ...state.projectAgentRostersByProject };
-      nextRosters[projectKey] = validProfileIds;
-      const nextSelectedProjectAgents = { ...state.selectedProjectAgentByProject };
-      if (!validProfileIds.includes(nextSelectedProjectAgents[projectKey])) {
-        delete nextSelectedProjectAgents[projectKey];
-      }
-      return {
-        projectAgentRostersByProject: nextRosters,
-        selectedProjectAgentByProject: nextSelectedProjectAgents,
-      };
-    }),
-
-  setSelectedProjectAgentForProject: (projectCwd, profileId) =>
-    set((state) => {
-      const projectKey = getProjectChannelKey(projectCwd);
-      if (!projectKey) {
-        return state;
-      }
-
-      const projectRoster = state.projectAgentRostersByProject[projectKey] || [];
-      const nextSelectedProjectAgents = { ...state.selectedProjectAgentByProject };
-      if (profileId && projectRoster.includes(profileId) && state.agentProfiles[profileId]?.enabled) {
-        nextSelectedProjectAgents[projectKey] = profileId;
-      } else {
-        delete nextSelectedProjectAgents[projectKey];
-      }
-
-      return {
-        selectedProjectAgentByProject: nextSelectedProjectAgents,
-      };
-    }),
-
-  openAgentDirectMessage: (profileId) => {
-    const state = get();
-    const profile = state.agentProfiles[profileId];
-    if (!profile || !profile.enabled) {
-      return null;
-    }
-
-    const existing = Object.values(state.sessions)
-      .filter((session) => session.scope === 'dm' && session.agentId === profileId)
-      .sort((left, right) => right.updatedAt - left.updatedAt)[0];
-    const nextSession = existing || createDraftSessionView(
-      null,
-      DEFAULT_WORKSPACE_CHANNEL_ID,
-      createDirectMessageDraftOptions(profile)
-    );
-    const sessionId = nextSession.id;
-
-    set((current) => ({
-      sessions: existing
-        ? current.sessions
-        : {
-            ...current.sessions,
-            [nextSession.id]: nextSession,
-          },
-      ...layoutPatch(
-        tree.placeSession(current.workspaceLayout, tree.getActiveLeaf(current.workspaceLayout).id, sessionId)
-      ),
-      activeWorkspace: 'chat',
-      chatSidebarView: 'threads',
-      showNewSession: false,
-    }));
-    persistUiResumeStateSnapshot(get());
-    return sessionId;
-  },
 
   setActivePane: (activePaneId) => {
     set((state) => ({
@@ -2721,10 +1997,6 @@ export const useAppStore = create<Store>()(
         activeWorkspace: state.activeWorkspace,
         workspaceChannelsByProject: state.workspaceChannelsByProject,
         activeChannelByProject: state.activeChannelByProject,
-        agentProfiles: state.agentProfiles,
-        teamProfiles: state.teamProfiles,
-        projectAgentRostersByProject: state.projectAgentRostersByProject,
-        selectedProjectAgentByProject: state.selectedProjectAgentByProject,
         agentSetupDismissedAt: state.agentSetupDismissedAt,
         agentSetupCompletedAt: state.agentSetupCompletedAt,
         chatSidebarView: state.chatSidebarView,
@@ -2754,10 +2026,6 @@ export const useAppStore = create<Store>()(
           activeWorkspace?: ActiveWorkspace;
           workspaceChannelsByProject?: Record<string, WorkspaceChannel[]>;
           activeChannelByProject?: Record<string, string>;
-          agentProfiles?: Record<string, AgentProfile>;
-          teamProfiles?: Record<string, TeamProfile>;
-          projectAgentRostersByProject?: Record<string, string[]>;
-          selectedProjectAgentByProject?: Record<string, string>;
           agentSetupDismissedAt?: number | null;
           agentSetupCompletedAt?: number | null;
           chatSidebarView?: ChatSidebarView;
@@ -2781,23 +2049,6 @@ export const useAppStore = create<Store>()(
           draftSessions?: Record<string, SessionView>;
         } | undefined;
         const theme = persisted?.theme || currentState.theme;
-        const agentProfiles = normalizeAgentProfiles(
-          persisted?.agentProfiles || currentState.agentProfiles
-        );
-        const projectAgentRostersByProject = normalizeProjectAgentRosters(
-          persisted?.projectAgentRostersByProject,
-          agentProfiles
-        );
-        const selectedProjectAgentByProject = Object.fromEntries(
-          Object.entries(persisted?.selectedProjectAgentByProject || {}).filter(
-            ([projectKey, profileId]) =>
-              typeof projectKey === 'string' &&
-              typeof profileId === 'string' &&
-              Boolean(agentProfiles[profileId]) &&
-              (projectAgentRostersByProject[projectKey] || []).includes(profileId)
-          )
-        );
-        const teamProfiles = normalizeTeamProfiles(persisted?.teamProfiles, agentProfiles);
         const themeState = normalizeThemeState(persisted?.themeState || currentState.themeState);
         const uiFontFamily = persisted?.uiFontFamily?.trim()
           ? persisted.uiFontFamily
@@ -2850,10 +2101,6 @@ export const useAppStore = create<Store>()(
           workspaceChannelsByProject:
             persisted?.workspaceChannelsByProject || currentState.workspaceChannelsByProject,
           activeChannelByProject: persisted?.activeChannelByProject || currentState.activeChannelByProject,
-          agentProfiles,
-          teamProfiles,
-          projectAgentRostersByProject,
-          selectedProjectAgentByProject,
           agentSetupOpen: false,
           agentSetupDismissedAt: persisted?.agentSetupDismissedAt ?? currentState.agentSetupDismissedAt,
           agentSetupCompletedAt: persisted?.agentSetupCompletedAt ?? currentState.agentSetupCompletedAt,
@@ -2929,7 +2176,6 @@ function handleSessionList(
             id: channelId,
             projectCwd: session.cwd || '',
             name: channelId,
-            defaultTeamId: null,
             createdAt: now,
             updatedAt: now,
           },

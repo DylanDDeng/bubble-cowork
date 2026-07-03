@@ -25,10 +25,6 @@ export interface SessionStateEntry {
   pendingPermissions?: Map<string, any>
 }
 
-export interface RoutedAgentSequence {
-  cancelled: boolean
-}
-
 /**
  * 完整的 IPC handler 上下文。
  * 每个模块的 register(context) 只访问它需要的字段。
@@ -41,7 +37,6 @@ export interface IPCHandlerContext {
   localPreviewServers: Map<string, LocalPreviewServer>
   runnerHandles: Map<string, RunnerHandle>
   sessionStates: Map<string, SessionStateEntry>
-  activeRoutedAgentSequences: Map<string, RoutedAgentSequence>
 
   // --- 工具函数（set in factory） ---
   broadcast: (type: string, payload: any) => void
@@ -64,7 +59,6 @@ export function createIPCHandlerContext(mainWindow: BrowserWindow): IPCHandlerCo
   const localPreviewServers = new Map<string, LocalPreviewServer>()
   const runnerHandles = new Map<string, RunnerHandle>()
   const sessionStates = new Map<string, SessionStateEntry>()
-  const activeRoutedAgentSequences = new Map<string, RoutedAgentSequence>()
 
   const ATTACHMENT_MIME_TYPES = new Set([
     'text/plain', 'text/markdown', 'text/tsx', 'text/typescript',
@@ -103,7 +97,6 @@ export function createIPCHandlerContext(mainWindow: BrowserWindow): IPCHandlerCo
     localPreviewServers,
     runnerHandles,
     sessionStates,
-    activeRoutedAgentSequences,
     broadcast,
     broadcastFolderChanged,
     ATTACHMENT_MIME_TYPES,

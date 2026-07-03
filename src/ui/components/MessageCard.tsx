@@ -8,7 +8,6 @@ import { StructuredResponse } from './StructuredResponse';
 import { SelectedClaudeCommandChip } from './SelectedClaudeCommandChip';
 import { SelectedClaudeSkillChip } from './SelectedClaudeSkillChip';
 import { ToolExecutionBatch } from './ToolExecutionBatch';
-import { AgentAvatar } from './AgentAvatar';
 import { getContentBlocks, isAnyToolUseBlockType } from '../utils/message-content';
 import type { ClaudeSlashCommand } from '../utils/claude-slash';
 import { buildProviderSlashCommands, getSessionSlashCommands, parseSelectedSlashCommandPrompt } from '../utils/claude-slash';
@@ -112,9 +111,6 @@ export function MessageCard({
     case 'proposed_plan':
       return <ProposedPlanCard planMarkdown={message.planMarkdown} />;
 
-    case 'delegate_activity':
-      return <DelegateActivityCard message={message} />;
-
     case 'user':
       // user 消息里的 tool_result 已经被工作流批次吸收，单独渲染没意义
       return null;
@@ -130,76 +126,6 @@ export function MessageCard({
     default:
       return null;
   }
-}
-
-function DelegateActivityCard({
-  message,
-}: {
-  message: Extract<StreamMessage, { type: 'delegate_activity' }>;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const { agentProfiles } = useAppStore();
-  const profile = agentProfiles[message.call.agentId] || null;
-  const name = profile?.name.trim() || message.call.agentId;
-  const stateLabel =
-    message.state === 'running'
-      ? 'checking'
-      : message.state === 'error'
-        ? 'blocked'
-        : 'checked';
-  const resultLabel = message.result?.status && message.result.status !== 'ok'
-    ? ` · ${message.result.status}`
-    : '';
-  const raw = message.raw?.trim();
-
-  return (
-    <div className="my-2 flex justify-start">
-      <div className="max-w-[760px] min-w-0 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)]/70 px-3 py-2 text-[12px] text-[var(--text-secondary)]">
-        <button
-          type="button"
-          onClick={() => setExpanded((value) => !value)}
-          className="flex w-full min-w-0 items-center gap-2 text-left"
-          aria-expanded={expanded}
-        >
-          <ChevronRight
-            className={`h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-90' : ''}`}
-          />
-          {profile ? <AgentAvatar profile={profile} size="sm" decorative /> : null}
-          <span className="min-w-0 flex-1 truncate">
-            {name} {stateLabel} — "{message.call.reason}"{resultLabel}
-          </span>
-        </button>
-        {expanded ? (
-          <div className="mt-2 space-y-2 pl-5">
-            <div>
-              <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">Task</div>
-              <div className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5 text-[var(--text-secondary)]">
-                {message.call.task}
-              </div>
-            </div>
-            {message.result?.summary ? (
-              <div>
-                <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">Summary</div>
-                <div className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5 text-[var(--text-primary)]">
-                  {message.result.summary}
-                </div>
-              </div>
-            ) : null}
-            {raw ? (
-              <details className="text-[12px]">
-                <summary className="cursor-pointer text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
-                  Raw activity
-                </summary>
-                <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-[var(--border)] bg-[var(--bg-primary)] p-2 text-[11px] leading-4 text-[var(--text-secondary)]">
-                  {raw}
-                </pre>
-              </details>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
 }
 
 function formatCompactTokens(value: number): string {
@@ -721,8 +647,6 @@ function AssistantCard({
 }) {
   const isStreaming = message.streaming === true;
   const isProgress = presentation === 'progress';
-  const { agentProfiles } = useAppStore();
-  const agentProfile = message.agentId ? agentProfiles[message.agentId] || null : null;
   const blocks = useMemo(
     () => getContentBlocks(message.message.content as unknown),
     [message.message.content]
@@ -775,18 +699,6 @@ function AssistantCard({
           : 'my-3 min-w-0 group'
       }
     >
-      {!isProgress && agentProfile ? (
-        <div className="mb-2 flex min-w-0 items-center gap-2 text-[12px] text-[var(--text-muted)]">
-          <AgentAvatar profile={agentProfile} size="sm" decorative />
-          <span className="truncate font-medium text-[var(--text-primary)]">
-            {agentProfile.name.trim() || 'Agent'}
-          </span>
-          <span className="shrink-0">·</span>
-          <span className="truncate">
-            {agentProfile.role.trim() || 'Project agent'}
-          </span>
-        </div>
-      ) : null}
       {hasTrace ? (
         <ToolExecutionBatch
           messages={[traceOnlyMessage]}

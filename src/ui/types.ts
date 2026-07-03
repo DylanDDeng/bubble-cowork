@@ -127,12 +127,7 @@ export type {
   GitPatchResult,
   CanonicalToolKind,
   WorkspaceChannel,
-  TeamProfile,
-  TeamMemberProfile,
   SessionTeamMode,
-  DelegateCall,
-  DelegateResult,
-  DelegateActivityState,
 } from '../shared/types';
 
 // 主题类型
@@ -193,45 +188,6 @@ export type ReviewDiffSelectionInput = Omit<ReviewDiffSelection, 'requestedAt'> 
   requestedAt?: number;
 };
 
-export type AgentProfileColor = 'amber' | 'sky' | 'emerald' | 'violet' | 'rose' | 'slate';
-export type AgentPermissionPolicy = 'ask' | 'readOnly' | 'fullAccess';
-export type AgentReasoningEffort = ClaudeReasoningEffort | CodexReasoningEffort;
-export type AgentAvatarAssetKey =
-  | 'notion-avatar-01'
-  | 'notion-avatar-02'
-  | 'notion-avatar-03'
-  | 'notion-avatar-04'
-  | 'notion-avatar-05'
-  | 'anime-avatar-01'
-  | 'anime-avatar-02'
-  | 'anime-avatar-03'
-  | 'anime-avatar-04'
-  | 'anime-avatar-05';
-
-export interface AgentProfileAvatar {
-  type: 'asset';
-  key: AgentAvatarAssetKey;
-}
-
-export interface AgentProfile {
-  id: string;
-  name: string;
-  role: string;
-  description: string;
-  instructions: string;
-  avatar: AgentProfileAvatar;
-  provider: AgentProvider;
-  model?: string;
-  compatibleProviderId?: ClaudeCompatibleProviderId;
-  reasoningEffort?: AgentReasoningEffort;
-  permissionPolicy: AgentPermissionPolicy;
-  canDelegate?: boolean;
-  color: AgentProfileColor;
-  enabled: boolean;
-  createdAt: number;
-  updatedAt: number;
-}
-
 // UI 会话视图状态
 export interface SessionView {
   id: string;
@@ -288,10 +244,6 @@ export interface AppState {
   sessions: Record<string, SessionView>;
   workspaceChannelsByProject: Record<string, WorkspaceChannel[]>;
   activeChannelByProject: Record<string, string>;
-  agentProfiles: Record<string, AgentProfile>;
-  teamProfiles: Record<string, import('../shared/types').TeamProfile>;
-  projectAgentRostersByProject: Record<string, string[]>;
-  selectedProjectAgentByProject: Record<string, string>;
   activeSessionId: string | null;
   activeWorkspace: ActiveWorkspace;
   chatSidebarView: ChatSidebarView;
@@ -386,24 +338,11 @@ export interface AppActions {
   renameWorkspaceChannel: (projectCwd: string, channelId: string, newName: string) => boolean;
   setActiveChannelForProject: (projectCwd: string, channelId: string) => void;
   setSessionChannel: (sessionId: string, channelId: string) => void;
-  createAgentProfile: () => string;
-  updateAgentProfile: (profileId: string, patch: Partial<Omit<AgentProfile, 'id' | 'createdAt'>>) => void;
-  deleteAgentProfile: (profileId: string) => void;
-  createTeamProfile: () => string;
-  updateTeamProfile: (
-    teamId: string,
-    patch: Partial<Omit<import('../shared/types').TeamProfile, 'id' | 'createdAt'>>
-  ) => void;
-  deleteTeamProfile: (teamId: string) => void;
-  setWorkspaceChannelDefaultTeam: (projectCwd: string, channelId: string, teamId: string | null) => void;
   setSessionTeam: (
     sessionId: string,
     teamMode: import('../shared/types').SessionTeamMode,
     teamId?: string | null
   ) => void;
-  setProjectAgentRoster: (projectCwd: string, profileIds: string[]) => void;
-  setSelectedProjectAgentForProject: (projectCwd: string, profileId: string | null) => void;
-  openAgentDirectMessage: (profileId: string) => string | null;
   setActivePane: (paneId: ChatPaneId) => void;
   setChatLayoutMode: (mode: ChatLayoutMode) => void;
   setSavedSplitVisible: (visible: boolean) => void;
