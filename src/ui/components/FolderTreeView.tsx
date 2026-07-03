@@ -304,6 +304,8 @@ function SessionItem({
   onTogglePin: () => void;
 }) {
   const forkSessionToPane = useAppStore((s) => s.forkSessionToPane);
+  const createDraftSession = useAppStore((s) => s.createDraftSession);
+  const inWorktree = session.envMode === 'worktree' && Boolean(session.worktreePath);
   // Fork branches the provider-side conversation: Claude via the SDK's native
   // fork (bootstrapped from history if needed), Codex via app-server
   // `thread/fork`, OpenCode via the SDK's `session.fork`. Other providers have
@@ -332,16 +334,26 @@ function SessionItem({
           label: forkLabel,
           enabled: canFork,
         },
-        {
-          id: 'move-worktree',
-          // 不 fork 对话、provider 无关：同一条 thread 挪进隔离 worktree 继续
-          label: canMoveToWorktree
-            ? 'Move into a new worktree'
-            : session.envMode === 'worktree'
-              ? 'Move into a new worktree (already in a worktree)'
-              : 'Move into a new worktree (agent is running)',
-          enabled: canMoveToWorktree,
-        },
+        // worktree 内外互斥的两个动作：在外可以搬进去，在内可以再开一条
+        ...(inWorktree
+          ? [
+              {
+                id: 'new-in-worktree',
+                label: `New thread in this worktree${
+                  session.associatedWorktreeBranch ? ` (${session.associatedWorktreeBranch})` : ''
+                }`,
+              },
+            ]
+          : [
+              {
+                id: 'move-worktree',
+                // 不 fork 对话、provider 无关：同一条 thread 挪进隔离 worktree 继续
+                label: canMoveToWorktree
+                  ? 'Move into a new worktree'
+                  : 'Move into a new worktree (agent is running)',
+                enabled: canMoveToWorktree,
+              },
+            ]),
         { id: 'sep', type: 'separator' },
         { id: 'pin', label: session.pinned ? 'Unpin' : 'Pin' },
         { id: 'sep2', type: 'separator' },
@@ -351,6 +363,18 @@ function SessionItem({
     if (!result.ok || !result.id) return;
     if (result.id === 'fork') {
       void forkSessionToPane(session.id);
+    } else if (result.id === 'new-in-worktree') {
+      if (session.worktreePath) {
+        createDraftSession(session.worktreePath, session.channelId || null, {
+          title: `New Chat - ${session.associatedWorktreeBranch || 'Worktree'}`,
+          projectCwd: session.projectCwd ?? null,
+          envMode: 'worktree',
+          worktreePath: session.worktreePath,
+          associatedWorktreePath: session.worktreePath,
+          associatedWorktreeBranch: session.associatedWorktreeBranch ?? null,
+          associatedWorktreeRef: session.associatedWorktreeRef ?? null,
+        });
+      }
     } else if (result.id === 'move-worktree') {
       void (async () => {
         const result = await window.electron.moveSessionToWorktree(session.id);
