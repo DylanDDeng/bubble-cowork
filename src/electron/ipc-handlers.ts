@@ -4146,7 +4146,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   ipcMainHandle('move-session-to-worktree', async (_event, sessionId: string) => {
     const row = sessions.getSession(sessionId);
     if (!row) return { ok: false, message: 'Session not found.' };
-    if (runnerHandles.has(sessionId) || row.status === 'running') {
+    // 只信 DB status：非 Claude 的 runner 句柄在 turn 结束后仍驻留（连接复用），
+    // runnerHandles.has() 不代表正在跑
+    if (row.status === 'running') {
       return { ok: false, message: 'Wait for the agent to finish before moving the thread.' };
     }
     if (row.env_mode === 'worktree' && row.worktree_path) {
@@ -4158,13 +4160,13 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   ipcMainHandle('apply-worktree-changes', async (_event, sessionId: string) => {
-    const result = await applyIsolatedWorkspace(sessionId, (id) => runnerHandles.has(id));
+    const result = await applyIsolatedWorkspace(sessionId);
     if (result.ok) broadcastSessionWorkspace(mainWindow, sessionId);
     return result;
   });
 
   ipcMainHandle('discard-worktree-changes', async (_event, sessionId: string) => {
-    const result = await discardIsolatedWorkspace(sessionId, (id) => runnerHandles.has(id));
+    const result = await discardIsolatedWorkspace(sessionId);
     if (result.ok) broadcastSessionWorkspace(mainWindow, sessionId);
     return result;
   });

@@ -40,8 +40,6 @@ async function main() {
   git(repo, ['add', '.']);
   git(repo, ['commit', '-m', 'init']);
 
-  const notRunning = () => false;
-
   // --- apply 路径 ---
   const session = sessions.createSession({
     title: 'isolated thread',
@@ -58,7 +56,7 @@ async function main() {
   console.log('[e2e] isolated copy assigned; project stays clean');
 
   fs.writeFileSync(path.join(row.worktree_path, 'agent-note.txt'), 'work\n');
-  const applied = await worktreeThreads.applyIsolatedWorkspace(session.id, notRunning);
+  const applied = await worktreeThreads.applyIsolatedWorkspace(session.id);
   assert(applied.ok, `apply failed: ${applied.message}`);
   assert(
     fs.readFileSync(path.join(repo, 'agent-note.txt'), 'utf8').includes('work'),
@@ -86,17 +84,32 @@ async function main() {
   assert(assigned2.ok, `second assign failed: ${assigned2.message}`);
   const row2 = sessions.getSession(session2.id);
   fs.writeFileSync(path.join(row2.worktree_path, 'scrap.txt'), 'scrap\n');
-  const discarded = await worktreeThreads.discardIsolatedWorkspace(session2.id, notRunning);
+  const discarded = await worktreeThreads.discardIsolatedWorkspace(session2.id);
   assert(discarded.ok, `discard failed: ${discarded.message}`);
   assert(!fs.existsSync(path.join(repo, 'scrap.txt')), 'discarded work leaked into the project');
   assert(git(repo, ['status', '--porcelain']).trim() === '', 'project should be untouched after discard');
   assert(!git(repo, ['worktree', 'list', '--porcelain']).includes('.worktrees'), 'discarded worktree not recycled');
   console.log('[e2e] discard: work gone, project untouched');
 
-  // --- running gate ---
-  const gated = await worktreeThreads.applyIsolatedWorkspace(session2.id, () => true);
-  assert(!gated.ok, 'apply should be refused for a non-worktree/running session');
-  console.log('[e2e] guards hold');
+  // --- running gate（以 DB status 为准：非 Claude 的 runner 句柄会驻留复用，
+  // 不能当"正在跑"的信号）---
+  const session3 = sessions.createSession({
+    title: 'running thread',
+    cwd: repo,
+    projectCwd: repo,
+    provider: 'claude',
+  });
+  const assigned3 = await worktreeThreads.assignIsolatedWorkspace(session3.id);
+  assert(assigned3.ok, `third assign failed: ${assigned3.message}`);
+  sessions.updateSessionStatus(session3.id, 'running');
+  const gatedApply = await worktreeThreads.applyIsolatedWorkspace(session3.id);
+  assert(!gatedApply.ok, 'apply must be refused while status=running');
+  const gatedDiscard = await worktreeThreads.discardIsolatedWorkspace(session3.id);
+  assert(!gatedDiscard.ok, 'discard must be refused while status=running');
+  sessions.updateSessionStatus(session3.id, 'idle');
+  const settledDiscard = await worktreeThreads.discardIsolatedWorkspace(session3.id);
+  assert(settledDiscard.ok, 'discard should work once the run has settled');
+  console.log('[e2e] guards hold (status-driven, handle residency ignored)');
 
   fs.rmSync(repo, { recursive: true, force: true });
   fs.rmSync(userData, { recursive: true, force: true });

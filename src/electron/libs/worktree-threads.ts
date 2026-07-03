@@ -72,12 +72,13 @@ export async function assignIsolatedWorkspace(sessionId: string): Promise<Isolat
 // "把改动带回项目"：worktree 里的工作 commit 到分支 → squash-merge 到主工作区
 // 暂存区（用户审查后自行 commit）→ 回收 worktree 与分支 → thread 回到项目本体。
 export async function applyIsolatedWorkspace(
-  sessionId: string,
-  isSessionRunning: (sessionId: string) => boolean
+  sessionId: string
 ): Promise<IsolatedWorkspaceActionResult> {
   const row = sessions.getSession(sessionId);
   if (!row) return { ok: false, message: 'Session not found.' };
-  if (isSessionRunning(sessionId) || row.status === 'running') {
+  // running 判定只信 DB status：非 Claude provider 的 runner 句柄在 turn 结束后
+  // 会留在内存里复用连接，不能当作"正在跑"的信号
+  if (row.status === 'running') {
     return { ok: false, message: 'Wait for the agent to finish before bringing changes back.' };
   }
   const projectCwd = row.project_cwd || null;
@@ -131,12 +132,11 @@ export async function applyIsolatedWorkspace(
 
 // "丢弃这次尝试"：worktree 与分支强制回收，thread 回到项目本体（对话保留）。
 export async function discardIsolatedWorkspace(
-  sessionId: string,
-  isSessionRunning: (sessionId: string) => boolean
+  sessionId: string
 ): Promise<IsolatedWorkspaceActionResult> {
   const row = sessions.getSession(sessionId);
   if (!row) return { ok: false, message: 'Session not found.' };
-  if (isSessionRunning(sessionId) || row.status === 'running') {
+  if (row.status === 'running') {
     return { ok: false, message: 'Stop the agent before removing the worktree.' };
   }
   const projectCwd = row.project_cwd || null;
