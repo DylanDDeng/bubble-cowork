@@ -907,6 +907,7 @@ function freshSessionViewFromInfo(info: import('../shared/types').SessionInfo): 
     channelId: normalizeWorkspaceChannelId(info.channelId),
     teamMode: normalizeSessionTeamMode(info.teamMode),
     teamId: info.teamId || null,
+    runGroupId: info.runGroupId || null,
     latestClaudeModelUsage: info.latestClaudeModelUsage,
     messages: [],
     hydrated: false,
@@ -1424,6 +1425,40 @@ export const useAppStore = create<Store>()(
     if (sessionId && get().sessions[sessionId]?.runtimeNotice) {
       scheduleRuntimeNoticeClear(sessionId, set);
     }
+  },
+
+  // Fan-out 提交返回处一次性触发（唯一触发点——runGroup.changed 广播只更新数据、
+  // 绝不动布局，避免重复到达的快照广播砸掉用户手调的布局）。
+  layoutRunGroupSessions: (sessionIds) => {
+    const ids = sessionIds.filter(Boolean).slice(0, 4);
+    if (ids.length === 0) return;
+    set((state) => {
+      let layout = state.workspaceLayout;
+      const leafOf = (sessionId: string) =>
+        tree.allLeaves(layout.root).find((leaf) => leaf.sessionId === sessionId)?.id ?? null;
+
+      layout = tree.placeSession(layout, tree.getActiveLeaf(layout).id, ids[0]);
+      if (ids[1]) {
+        const anchor = leafOf(ids[0]);
+        if (anchor) layout = tree.splitPane(layout, anchor, 'right', ids[1]);
+      }
+      if (ids[2]) {
+        const anchor = leafOf(ids[0]);
+        if (anchor) layout = tree.splitPane(layout, anchor, 'bottom', ids[2]);
+      }
+      if (ids[3]) {
+        const anchor = leafOf(ids[1]);
+        if (anchor) layout = tree.splitPane(layout, anchor, 'bottom', ids[3]);
+      }
+      const focusLeaf = leafOf(ids[0]);
+      if (focusLeaf) layout = tree.setActivePane(layout, focusLeaf);
+      return {
+        ...layoutPatch(layout),
+        activeWorkspace: 'chat',
+        showNewSession: false,
+      };
+    });
+    persistUiResumeStateSnapshot(get());
   },
 
   setActiveWorkspace: (activeWorkspace) =>
@@ -2928,6 +2963,7 @@ function handleSessionList(
       channelId,
       teamMode: normalizeSessionTeamMode(session.teamMode),
       teamId: session.teamId || null,
+      runGroupId: session.runGroupId || null,
       latestClaudeModelUsage: session.latestClaudeModelUsage,
       messages: existing?.messages || [],
       hydrated: existing?.hydrated || false,
@@ -3025,6 +3061,7 @@ function handleSessionStatus(
     channelId?: string;
     teamMode?: SessionInfo['teamMode'];
     teamId?: SessionInfo['teamId'];
+    runGroupId?: SessionInfo['runGroupId'];
   },
   set: SetState,
   get: () => Store
@@ -3059,6 +3096,7 @@ function handleSessionStatus(
     channelId,
     teamMode,
     teamId,
+    runGroupId,
   } = payload;
   const state = get();
   const session = state.sessions[sessionId];
@@ -3151,6 +3189,7 @@ function handleSessionStatus(
             teamId !== undefined
               ? teamId || null
               : session.teamId || null,
+          runGroupId: runGroupId !== undefined ? runGroupId || null : session.runGroupId ?? null,
           latestClaudeModelUsage: session.latestClaudeModelUsage,
           streaming:
             status === 'running'
@@ -3201,6 +3240,7 @@ function handleSessionStatus(
       channelId: normalizeWorkspaceChannelId(channelId),
       teamMode: teamMode !== undefined ? normalizeSessionTeamMode(teamMode) : 'channel_default',
       teamId: teamId || null,
+      runGroupId: runGroupId || null,
       latestClaudeModelUsage: undefined,
       messages: [],
       hydrated: true, // 新会话不需要 hydration

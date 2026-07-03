@@ -18,7 +18,7 @@ import grokLogo from '../assets/grok.svg';
 import { OpenCodeLogo } from './OpenCodeLogo';
 import { PiLogo } from './PiLogo';
 
-function AgentIcon({ provider }: { provider: AgentProvider }) {
+export function AgentIcon({ provider }: { provider: AgentProvider }) {
   if (provider === 'claude') {
     return <img src={claudeLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
   }

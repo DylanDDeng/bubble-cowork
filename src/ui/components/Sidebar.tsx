@@ -25,6 +25,7 @@ import type {
   SidebarSearchThread,
 } from './search/SidebarSearchPalette.logic';
 import { FolderTreeView } from './FolderTreeView';
+import { RunGroupList } from './RunGroupList';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { getMessageContentBlocks } from '../utils/message-content';
 
@@ -356,7 +357,8 @@ export function Sidebar() {
 
   const openThreadFromPalette = (sessionId: string) => {
     setShowSettings(false);
-    setChatLayoutMode('single');
+    // 不要 setChatLayoutMode('single')：那会把整棵平铺树坍缩成单 leaf。
+    // setActiveSession 会把会话装入当前聚焦 leaf，保留用户的分屏布局。
     setActiveSession(sessionId);
     setShowNewSession(false);
     setActiveWorkspace('chat');
@@ -457,6 +459,16 @@ export function Sidebar() {
 
               <div className="flex min-h-0 flex-1 flex-col">
                 <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 pt-3">
+                  <RunGroupList
+                    projectCwd={projectCwd}
+                    onOpenSession={(sessionId) => {
+                      setShowSettings(false);
+                      setActiveSession(sessionId);
+                      setShowNewSession(false);
+                      setActiveWorkspace('chat');
+                      setChatSidebarView('threads');
+                    }}
+                  />
                   <FolderTreeView
                     onSessionClick={(sessionId, options) => {
                       setShowSettings(false);

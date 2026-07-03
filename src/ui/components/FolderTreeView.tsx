@@ -89,7 +89,9 @@ export function FolderTreeView({
     let sessionList = Object.values(sessions).filter(
       (session) =>
         !session.hiddenFromThreads &&
-        session.scope !== 'dm'
+        session.scope !== 'dm' &&
+        // Fan-out 成员归组显示在 sidebar 的 RunGroupList 分区，不散落在项目树里
+        !session.runGroupId
     );
 
     if (sidebarSearchQuery.trim()) {

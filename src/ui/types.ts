@@ -266,6 +266,7 @@ export interface SessionView {
   channelId?: string;
   teamMode?: import('../shared/types').SessionTeamMode;
   teamId?: string | null;
+  runGroupId?: string | null;
   source?: import('../shared/types').SessionSource;
   readOnly?: boolean;
   isDraft?: boolean;
@@ -374,6 +375,8 @@ export interface AppActions {
   setConnected: (connected: boolean) => void;
   handleServerEvent: (event: import('../shared/types').ServerEvent) => void;
   setActiveSession: (sessionId: string | null) => void;
+  // Fan-out 成员的一次性平铺布局：首个装入聚焦 leaf，其余按右/下分裂（最多 4 个平铺）。
+  layoutRunGroupSessions: (sessionIds: string[]) => void;
   setActiveWorkspace: (workspace: ActiveWorkspace) => void;
   setChatSidebarView: (view: ChatSidebarView) => void;
   createWorkspaceChannel: (projectCwd: string, name: string) => string | null;
