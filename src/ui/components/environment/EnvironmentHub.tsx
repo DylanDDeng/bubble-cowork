@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import {
+  ArrowsSplit,
   BrandGithub,
   ChevronDown,
   Code2,
@@ -11,6 +12,7 @@ import {
   FolderClosed,
   Monitor,
   RefreshCw,
+  X,
 } from '../icons';
 import { SessionWorkspaceControl } from '../ChatPane';
 import type { EnvironmentEditorLauncher } from '../../../shared/types';
@@ -221,6 +223,89 @@ export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmen
   );
 }
 
+// worktree 收尾动作（对照参考 app 的"工作树"卡：动作平铺可见，不藏在下拉里）
+function WorktreeActions({
+  sessionId,
+  branch,
+  isRunning,
+  onDone,
+}: {
+  sessionId: string;
+  branch: string | null;
+  isRunning: boolean;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState<'apply' | 'discard' | null>(null);
+  const buttonClass =
+    'inline-flex h-7 min-w-0 flex-1 items-center justify-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-2 text-[11px] font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-45';
+
+  const squashMerge = async () => {
+    setBusy('apply');
+    try {
+      const result = await window.electron.applyWorktreeChanges(sessionId);
+      if (result.ok) {
+        toast.success('Squash-merged — changes are staged in your project for review.');
+        onDone();
+      } else {
+        toast.error(result.message || 'Squash-merge failed.');
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const discard = async () => {
+    if (
+      !window.confirm(
+        `Remove this worktree${branch ? ` and delete branch ${branch}` : ''}? All uncommitted changes in it are lost. The conversation stays.`
+      )
+    ) {
+      return;
+    }
+    setBusy('discard');
+    try {
+      const result = await window.electron.discardWorktreeChanges(sessionId);
+      if (result.ok) {
+        toast.success('Worktree removed — thread is back on the project.');
+        onDone();
+      } else {
+        toast.error(result.message || 'Could not remove the worktree.');
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-2 gap-1.5 px-2 pt-1.5">
+      <button
+        type="button"
+        disabled={isRunning || busy !== null}
+        onClick={() => void squashMerge()}
+        title={
+          isRunning
+            ? 'Wait for the agent to finish first'
+            : 'git merge --squash into your project — the result lands in the staging area for review'
+        }
+        className={buttonClass}
+      >
+        <ArrowsSplit className="h-3.5 w-3.5 shrink-0" />
+        <span className="truncate">{busy === 'apply' ? 'Merging…' : 'Squash-merge'}</span>
+      </button>
+      <button
+        type="button"
+        disabled={isRunning || busy !== null}
+        onClick={() => void discard()}
+        title="Remove the worktree and delete its branch"
+        className={buttonClass}
+      >
+        <X className="h-3.5 w-3.5 shrink-0" />
+        <span className="truncate">{busy === 'discard' ? 'Removing…' : 'Discard worktree'}</span>
+      </button>
+    </div>
+  );
+}
+
 export function EnvironmentHub({
   context,
   git,
@@ -344,6 +429,17 @@ export function EnvironmentHub({
                     <div className="truncate px-2 pt-1 text-[10px] text-[var(--text-muted)]" title={context.effectiveCwd}>
                       {getPathLeaf(context.effectiveCwd)} · {context.envMode}
                     </div>
+                  ) : null}
+                  {context.session &&
+                  context.sessionId &&
+                  context.session.envMode === 'worktree' &&
+                  context.session.worktreePath ? (
+                    <WorktreeActions
+                      sessionId={context.sessionId}
+                      branch={context.session.associatedWorktreeBranch || null}
+                      isRunning={context.session.status === 'running'}
+                      onDone={() => void git.refresh()}
+                    />
                   ) : null}
                 </section>
                 <section className="space-y-1 border-t border-[var(--border)] px-3 py-3">

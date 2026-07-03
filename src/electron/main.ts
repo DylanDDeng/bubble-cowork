@@ -7,7 +7,17 @@ import { registerBrowserIpc, disposeBrowserIpc } from './browser-ipc';
 import { browserManager } from './browserManager';
 import { isDev, getPreloadPath, getUIPath, DEV_SERVER_URL, ipcMainHandle } from './util';
 import { ensureShellEnvironment } from './libs/shell-environment';
+import { listRunningSessions } from './libs/session-store';
 import type { AppUpdateStatus } from '../shared/types';
+
+// close 确认用：数据库未初始化等异常一律按 0 处理，绝不阻塞关窗
+function countRunningSessionsSafe(): number {
+  try {
+    return listRunningSessions().length;
+  } catch {
+    return 0;
+  }
+}
 
 // 修复打包后的环境变量问题（macOS/Linux GUI 应用无法继承 shell 的环境变量）。
 // 细节见 src/electron/libs/shell-environment.ts：使用 interactive + login shell 抓 env
@@ -33,6 +43,23 @@ if (process.platform === 'darwin') {
 }
 
 function configureUserDataPath(): void {
+  // Explicit isolation for tests and fresh-user simulation. macOS resolves
+  // appData through system APIs that ignore $HOME, so an env override is the
+  // only reliable way to point a launch at a sandboxed data directory.
+  const override = process.env.AEGIS_USER_DATA_DIR?.trim();
+  if (override) {
+    const resolved = path.resolve(override);
+    try {
+      fs.mkdirSync(resolved, { recursive: true });
+    } catch (error) {
+      console.warn('[main] Failed to create AEGIS_USER_DATA_DIR, using default userData:', error);
+      return;
+    }
+    app.setPath('userData', resolved);
+    console.log('[main] userData overridden via AEGIS_USER_DATA_DIR:', resolved);
+    return;
+  }
+
   if (!isDev()) {
     return;
   }
@@ -607,6 +634,26 @@ function createWindow(): void {
       if (process.platform === 'darwin' && !isQuitting) {
         win.hide();
         return;
+      }
+
+      // Windows/Linux 上关窗即退出（window-all-closed → app.quit），会杀掉所有
+      // 后台 runner——决策点 11：首版仅 macOS 支持"关窗照跑"，非 macOS 在有
+      // 任务运行时弹确认，避免静默丢工作。
+      if (process.platform !== 'darwin' && !isQuitting) {
+        const runningCount = countRunningSessionsSafe();
+        if (runningCount > 0) {
+          const choice = await dialog.showMessageBox(win, {
+            type: 'warning',
+            buttons: ['Quit anyway', 'Keep running'],
+            defaultId: 1,
+            cancelId: 1,
+            message: `${runningCount} agent run${runningCount > 1 ? 's are' : ' is'} still in progress.`,
+            detail: 'Closing the window quits Aegis on this platform and stops all running agents.',
+          });
+          if (choice.response === 1) {
+            return;
+          }
+        }
       }
 
       allowCloseAfterProjectEditorFlush = true;

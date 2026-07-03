@@ -105,12 +105,24 @@ declare global {
     forkSession: (
       sessionId: string
     ) => Promise<{ ok: boolean; session?: SessionInfo; message?: string }>;
+    moveSessionToWorktree: (
+      sessionId: string
+    ) => Promise<{ ok: boolean; message?: string }>;
+    applyWorktreeChanges: (
+      sessionId: string
+    ) => Promise<{ ok: boolean; message?: string; conflict?: boolean }>;
+    discardWorktreeChanges: (sessionId: string) => Promise<{ ok: boolean; message?: string }>;
     getRecentCwds: (limit?: number) => Promise<string[]>;
     getAutomations: () => Promise<AutomationSnapshot>;
     saveAutomation: (input: UpsertAutomationInput) => Promise<AutomationDefinition>;
     deleteAutomation: (automationId: string) => Promise<{ ok: boolean }>;
     setAutomationEnabled: (automationId: string, enabled: boolean) => Promise<AutomationDefinition | null>;
     runAutomationNow: (automationId: string) => Promise<{ ok: boolean; sessionId?: string; message?: string }>;
+    getNotificationSettings: () => Promise<{ enabled: boolean; onlyWhenUnfocused: boolean }>;
+    setNotificationSettings: (next: {
+      enabled?: boolean;
+      onlyWhenUnfocused?: boolean;
+    }) => Promise<{ enabled: boolean; onlyWhenUnfocused: boolean }>;
     startTerminalSession: (sessionId: string, cwd: string, cols?: number, rows?: number, agentKind?: TerminalAgentKind) => Promise<StartTerminalSessionResult>;
     writeTerminalSession: (sessionId: string, data: string) => Promise<{ ok: boolean; message?: string }>;
     resizeTerminalSession: (sessionId: string, cols: number, rows: number) => Promise<{ ok: boolean; message?: string }>;
@@ -183,6 +195,9 @@ declare global {
     getSkillMarketDetail: (id: string) => Promise<SkillMarketDetail>;
     installSkillFromMarket: (id: string) => Promise<SkillMarketInstallResult>;
     expandClaudeSkillPrompt: (skillFilePath: string, skillName: string, userPrompt: string) => Promise<{ ok: boolean; prompt?: string; message?: string }>;
+    getAgentRuntimeDirectory: (
+      force?: boolean
+    ) => Promise<import('./shared/types').AgentRuntimeDirectoryReport>;
     getUserProfile: () => Promise<import('./shared/types').UserProfile>;
     saveUserProfile: (
       update: import('./shared/types').UserProfileUpdate

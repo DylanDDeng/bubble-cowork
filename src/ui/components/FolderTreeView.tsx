@@ -1,10 +1,12 @@
 import { useMemo, useState, type DragEvent } from 'react';
 import {
+  ArrowsSplit,
   FolderClosed,
   FolderOpen,
   Pin,
   Plus,
 } from './icons';
+import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { allLeaves } from '../store/layout-tree';
 import { sendEvent } from '../hooks/useIPC';
@@ -87,9 +89,7 @@ export function FolderTreeView({
 
   const { pinnedSessions, projectGroups } = useMemo(() => {
     let sessionList = Object.values(sessions).filter(
-      (session) =>
-        !session.hiddenFromThreads &&
-        session.scope !== 'dm'
+      (session) => !session.hiddenFromThreads && session.scope !== 'dm'
     );
 
     if (sidebarSearchQuery.trim()) {
@@ -108,7 +108,9 @@ export function FolderTreeView({
     const grouped = new Map<string, ProjectGroup>();
 
     for (const session of regularSessions) {
-      const fullPath = session.cwd?.trim() || null;
+      // 按项目根分组：worktree thread 的 cwd 指向 .worktrees/ 下的检出目录，
+      // 用 projectCwd 兜底才不会把它当成一个独立"项目"
+      const fullPath = (session.projectCwd || session.cwd)?.trim() || null;
       const key = fullPath || '__no_project__';
 
       if (!grouped.has(key)) {
@@ -146,6 +148,25 @@ export function FolderTreeView({
 
     return { pinnedSessions, projectGroups };
   }, [projectCwd, sessions, sidebarSearchQuery]);
+
+  const createDraftSession = useAppStore((s) => s.createDraftSession);
+
+  // 在既有 worktree 里开新对话：新草稿的 cwd 指向同一个隔离检出
+  const createDraftSessionInWorktree = (
+    worktreePath: string,
+    branch: string,
+    sample: SessionView | undefined
+  ) => {
+    createDraftSession(worktreePath, sample?.channelId || null, {
+      title: `New Chat - ${branch}`,
+      projectCwd: sample?.projectCwd ?? null,
+      envMode: 'worktree',
+      worktreePath,
+      associatedWorktreePath: worktreePath,
+      associatedWorktreeBranch: sample?.associatedWorktreeBranch ?? branch,
+      associatedWorktreeRef: sample?.associatedWorktreeRef ?? null,
+    });
+  };
 
   const isExpanded = (key: string) => !collapsedGroups.has(key);
 
@@ -248,28 +269,85 @@ export function FolderTreeView({
                     No threads yet
                   </div>
                 ) : (
-                  group.sessions.map((session) => {
-                    const isSessionActive =
-                      isChatWorkspaceActive && openSessionIds.has(session.id);
-
-                    return (
-                      <SessionItem
-                        key={session.id}
-                        session={session}
-                        isActive={isSessionActive}
-                        runtimeBadge={
-                          session.runtimeNotice
-                            ? session.runtimeNotice
-                            : !isSessionActive && session.status === 'running'
-                              ? 'running'
-                              : null
-                        }
-                        depth={1}
-                        onClick={() => onSessionClick(session.id)}
-                        onTogglePin={() => sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })}
-                      />
+                  (() => {
+                    // 项目 → worktree（分支）→ threads 的三层结构：worktree thread
+                    // 的 cwd 已指向隔离检出，挂在分支小节下如实呈现，而不是提为
+                    // 顶层"假项目"或混在项目本体的 thread 里。
+                    const regularSessions = group.sessions.filter(
+                      (session) => !(session.envMode === 'worktree' && session.worktreePath)
                     );
-                  })
+                    const worktreeGroups = new Map<string, SessionView[]>();
+                    for (const session of group.sessions) {
+                      if (session.envMode === 'worktree' && session.worktreePath) {
+                        const list = worktreeGroups.get(session.worktreePath) ?? [];
+                        list.push(session);
+                        worktreeGroups.set(session.worktreePath, list);
+                      }
+                    }
+                    const renderSession = (session: SessionView, depth: number) => {
+                      const isSessionActive =
+                        isChatWorkspaceActive && openSessionIds.has(session.id);
+                      return (
+                        <SessionItem
+                          key={session.id}
+                          session={session}
+                          isActive={isSessionActive}
+                          runtimeBadge={
+                            session.runtimeNotice
+                              ? session.runtimeNotice
+                              : !isSessionActive && session.status === 'running'
+                                ? 'running'
+                                : null
+                          }
+                          depth={depth}
+                          showWorktreeBadge={depth < 2}
+                          onClick={() => onSessionClick(session.id)}
+                          onTogglePin={() =>
+                            sendEvent({ type: 'session.togglePin', payload: { sessionId: session.id } })
+                          }
+                        />
+                      );
+                    };
+                    return (
+                      <>
+                        {regularSessions.map((session) => renderSession(session, 1))}
+                        {Array.from(worktreeGroups.entries()).map(([worktreePath, worktreeSessions]) => {
+                          const sample = worktreeSessions[0];
+                          const branch =
+                            worktreeSessions.find((item) => item.associatedWorktreeBranch)
+                              ?.associatedWorktreeBranch ||
+                            worktreePath.split('/').filter(Boolean).pop() ||
+                            'worktree';
+                          return (
+                            <div key={worktreePath}>
+                              <div
+                                className="group/worktree ml-4 flex h-6 min-w-0 items-center gap-1.5 px-2 text-[var(--text-muted)]"
+                                title={`${branch} · ${worktreePath}`}
+                              >
+                                <ArrowsSplit className="h-3 w-3 flex-shrink-0" />
+                                <span className="min-w-0 flex-1 truncate font-mono text-[11px]">
+                                  {branch}
+                                </span>
+                                <button
+                                  type="button"
+                                  className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md opacity-0 transition-all duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] focus:opacity-100 group-hover/worktree:opacity-100"
+                                  title={`New thread in ${branch}`}
+                                  aria-label={`New thread in worktree ${branch}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    createDraftSessionInWorktree(worktreePath, branch, sample);
+                                  }}
+                                >
+                                  <Plus className="h-3 w-3" strokeWidth={1.9} />
+                                </button>
+                              </div>
+                              {worktreeSessions.map((session) => renderSession(session, 2))}
+                            </div>
+                          );
+                        })}
+                      </>
+                    );
+                  })()
                 )}
               </div>
             )}
@@ -293,6 +371,7 @@ function SessionItem({
   depth,
   onClick,
   onTogglePin,
+  showWorktreeBadge = true,
 }: {
   session: SessionView;
   isActive: boolean;
@@ -300,16 +379,27 @@ function SessionItem({
   depth: number;
   onClick: () => void;
   onTogglePin: () => void;
+  /** worktree 子分组的分支头已表达归属时，行内徽标可省 */
+  showWorktreeBadge?: boolean;
 }) {
   const forkSessionToPane = useAppStore((s) => s.forkSessionToPane);
+  const createDraftSession = useAppStore((s) => s.createDraftSession);
+  const inWorktree = session.envMode === 'worktree' && Boolean(session.worktreePath);
   // Fork branches the provider-side conversation: Claude via the SDK's native
   // fork (bootstrapped from history if needed), Codex via app-server
   // `thread/fork`, OpenCode via the SDK's `session.fork`. Other providers have
   // no fork mechanism yet. The main process returns a friendly error for an
   // empty conversation.
-  const canFork =
-    !session.isDraft &&
-    (session.provider === 'claude' || session.provider === 'codex' || session.provider === 'opencode');
+  const providerSupportsFork =
+    session.provider === 'claude' || session.provider === 'codex' || session.provider === 'opencode';
+  const canFork = !session.isDraft && providerSupportsFork;
+  const canMoveToWorktree =
+    !session.isDraft && session.envMode !== 'worktree' && session.status !== 'running';
+  const forkLabel = canFork
+    ? 'Fork into a new pane'
+    : providerSupportsFork
+      ? 'Fork into a new pane (send a message first)'
+      : 'Fork into a new pane (not supported for this provider)';
 
   const handleContextMenu = async (event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -320,11 +410,29 @@ function SessionItem({
       items: [
         {
           id: 'fork',
-          label: canFork
-            ? 'Fork into a new pane'
-            : 'Fork into a new pane (not supported for this provider)',
+          label: forkLabel,
           enabled: canFork,
         },
+        // worktree 内外互斥的两个动作：在外可以搬进去，在内可以再开一条
+        ...(inWorktree
+          ? [
+              {
+                id: 'new-in-worktree',
+                label: `New thread in this worktree${
+                  session.associatedWorktreeBranch ? ` (${session.associatedWorktreeBranch})` : ''
+                }`,
+              },
+            ]
+          : [
+              {
+                id: 'move-worktree',
+                // 不 fork 对话、provider 无关：同一条 thread 挪进隔离 worktree 继续
+                label: canMoveToWorktree
+                  ? 'Move into a new worktree'
+                  : 'Move into a new worktree (agent is running)',
+                enabled: canMoveToWorktree,
+              },
+            ]),
         { id: 'sep', type: 'separator' },
         { id: 'pin', label: session.pinned ? 'Unpin' : 'Pin' },
         { id: 'sep2', type: 'separator' },
@@ -334,6 +442,27 @@ function SessionItem({
     if (!result.ok || !result.id) return;
     if (result.id === 'fork') {
       void forkSessionToPane(session.id);
+    } else if (result.id === 'new-in-worktree') {
+      if (session.worktreePath) {
+        createDraftSession(session.worktreePath, session.channelId || null, {
+          title: `New Chat - ${session.associatedWorktreeBranch || 'Worktree'}`,
+          projectCwd: session.projectCwd ?? null,
+          envMode: 'worktree',
+          worktreePath: session.worktreePath,
+          associatedWorktreePath: session.worktreePath,
+          associatedWorktreeBranch: session.associatedWorktreeBranch ?? null,
+          associatedWorktreeRef: session.associatedWorktreeRef ?? null,
+        });
+      }
+    } else if (result.id === 'move-worktree') {
+      void (async () => {
+        const result = await window.electron.moveSessionToWorktree(session.id);
+        if (result.ok) {
+          toast.success('Thread moved into a new worktree — changes stay on its own branch.');
+        } else {
+          toast.error(result.message || 'Could not move the thread into a worktree.');
+        }
+      })();
     } else if (result.id === 'pin') {
       onTogglePin();
     } else if (result.id === 'delete') {
@@ -381,6 +510,14 @@ function SessionItem({
 
       <div className="flex min-h-[22px] items-center gap-2">
         <span className="flex-1 truncate text-[13px] font-normal leading-[1.3]">{session.title}</span>
+        {showWorktreeBadge && session.envMode === 'worktree' && session.worktreePath ? (
+          <span
+            className="flex-shrink-0"
+            title={`Runs in a worktree${session.associatedWorktreeBranch ? ` · ${session.associatedWorktreeBranch}` : ''}`}
+          >
+            <ArrowsSplit className="h-3.5 w-3.5 text-[var(--text-muted)]" aria-label="Runs in a worktree" />
+          </span>
+        ) : null}
         <span className="flex-shrink-0 text-[12px] text-[var(--text-muted)]">
           {formatSidebarTime(session.updatedAt)}
         </span>

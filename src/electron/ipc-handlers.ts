@@ -10,11 +10,16 @@ import { basename, dirname, extname, resolve, relative, isAbsolute, join } from 
 import { v4 as uuidv4 } from 'uuid';
 import * as sessions from './libs/session-store';
 import { runCodexOneShot, runOpenCodeOneShot } from './libs/codex-runner';
-import { forkClaudeAgentSession, generateSessionTitle, runClaudeOneShot } from './libs/util';
+import {
+  forkClaudeAgentSession,
+  generateSessionTitle,
+  generateWorktreeBranchSlug,
+  runClaudeOneShot,
+} from './libs/util';
 import { ensureProviderService, runAgentLoop } from './libs/agent-loop';
 import { readProjectTree } from './libs/project-tree';
 import { normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
-import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfig, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
+import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfigWithCatalog, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
 import { getCodexMcpServers, saveCodexMcpServers } from './libs/codex-mcp-settings';
 import {
   getOpencodeMcpServers,
@@ -45,6 +50,7 @@ import {
   saveFontSelections,
 } from './libs/font-settings';
 import { getUserProfile, saveUserProfile } from './libs/user-profile';
+import { getAgentRuntimeDirectory } from './libs/agent-runtime-directory';
 import { getCodexModelConfig, saveCodexModelVisibility } from './libs/codex-settings';
 import { getCodexRuntimeStatus } from './libs/codex-runtime-status';
 import { getOpencodeModelConfig, saveOpencodeModelVisibility } from './libs/opencode-settings';
@@ -55,6 +61,20 @@ import { getPiModelConfig } from './libs/pi-settings';
 import { formatKimiRuntimeBlockingMessage, getKimiRuntimeStatus } from './libs/kimi-runtime-status';
 import { formatGrokRuntimeBlockingMessage, getGrokRuntimeStatus } from './libs/grok-runtime-status';
 import { AutomationScheduler } from './libs/automation-scheduler';
+import { recycleSessionWorktree } from './libs/worktree-hygiene';
+import {
+  applyIsolatedWorkspace,
+  assignIsolatedWorkspace,
+  discardIsolatedWorkspace,
+  provisionIsolatedWorkspace,
+  type IsolatedWorkspaceProvision,
+} from './libs/worktree-threads';
+import {
+  configureNotifications,
+  getNotificationSettings,
+  notifySessionDone,
+  setNotificationSettings,
+} from './libs/notifications';
 import {
   deletePromptLibraryItem,
   exportPromptLibraryFile,
@@ -102,11 +122,7 @@ import type {
   UserProfileUpdate,
   UpsertPromptLibraryItemInput,
   ProviderInputReference,
-  RoutedAgentPublicProfile,
-  RoutedAgentRuntimePayload,
-  RoutedAgentTurnPayload,
   SessionTeamMode,
-  TeamProfile,
   ProviderListPluginsInput,
   ProviderListSkillsInput,
   ProviderReadPluginInput,
@@ -3144,7 +3160,6 @@ const runnerHandles = new Map<
   }
 >();
 
-const activeRoutedAgentSequences = new Map<string, { cancelled: boolean }>();
 let automationScheduler: AutomationScheduler | null = null;
 
 // 会话状态映射（包含 pending permissions）
@@ -3180,6 +3195,27 @@ function broadcastAutomationChanged(mainWindow: BrowserWindow): void {
   broadcast(mainWindow, {
     type: 'automation.changed',
     payload: getAutomationSnapshot(),
+  });
+}
+
+// worktree ↔ local 切换后同步 renderer 的 workspace 字段（cwd/envMode/worktree*）
+function broadcastSessionWorkspace(mainWindow: BrowserWindow, sessionId: string): void {
+  const row = sessions.getSession(sessionId);
+  if (!row) return;
+  broadcast(mainWindow, {
+    type: 'session.status',
+    payload: {
+      sessionId,
+      status: (row.status || 'idle') as SessionStatus,
+      cwd: row.cwd || undefined,
+      projectCwd: row.project_cwd || row.cwd || null,
+      envMode: row.env_mode === 'worktree' ? 'worktree' : 'local',
+      worktreePath: row.worktree_path || null,
+      associatedWorktreePath: row.associated_worktree_path || null,
+      associatedWorktreeBranch: row.associated_worktree_branch || null,
+      associatedWorktreeRef: row.associated_worktree_ref || null,
+      hiddenFromThreads: row.hidden_from_threads === 1,
+    },
   });
 }
 
@@ -3882,13 +3918,53 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
   void feishuBridge.maybeAutoStart();
 
+  // 启动期清算必须先于任何 runner/scheduler 启动：app 崩溃/强退后残留的
+  // running session 没有任何 runner 句柄，不清算会永远卡在 running。
+  const sweptSessions = sessions.sweepOrphanRunningSessions();
+  if (sweptSessions > 0) {
+    console.log(`[Sessions] swept ${sweptSessions} orphan running session(s) on boot`);
+  }
+
+  configureNotifications({
+    isWindowFocused: () =>
+      !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused(),
+    onActivate: (target) => {
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.show();
+        mainWindow.focus();
+        broadcast(mainWindow, {
+          type: 'app.focusSession',
+          payload: { sessionId: target.sessionId },
+        });
+      }
+    },
+  });
+
+  // 全局 session 状态监听：session 完成/失败时发系统通知
+  sessions.setSessionStatusListener((row, previousStatus) => {
+    if (
+      previousStatus === 'running' &&
+      row.status !== 'running' &&
+      row.hidden_from_threads !== 1
+    ) {
+      notifySessionDone(row);
+    }
+  });
+
   automationScheduler?.stop();
   automationScheduler = new AutomationScheduler(
-    mainWindow,
     (payload) => handleSessionStart(mainWindow, payload),
     () => broadcastAutomationChanged(mainWindow)
   );
   automationScheduler.start();
+
+  ipcMainHandle('get-notification-settings', async () => getNotificationSettings());
+
+  ipcMainHandle(
+    'set-notification-settings',
+    async (_event, next: Partial<import('./libs/notifications').NotificationSettings>) =>
+      setNotificationSettings(next)
+  );
 
   // 处理客户端事件
   ipcMain.removeAllListeners('client-event');
@@ -3979,7 +4055,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   }
 
   // Fork a Claude conversation into a new session (branch the transcript).
-  ipcMainHandle('fork-session', async (_event, sourceSessionId: string) => {
+  async function forkSessionInternal(
+    sourceSessionId: string
+  ): Promise<{ ok: true; session: SessionInfo } | { ok: false; message: string }> {
     try {
       const source = sessions.getSession(sourceSessionId);
       if (!source) {
@@ -4062,6 +4140,48 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       const message = error instanceof Error ? error.message : String(error);
       return { ok: false as const, message };
     }
+  }
+
+  ipcMainHandle('fork-session', async (_event, sourceSessionId: string) => {
+    return forkSessionInternal(sourceSessionId);
+  });
+
+  // 把现有 thread 本身挪进新 worktree（不 fork 对话，provider 无关）：
+  // 同一个会话继续聊，只是 cwd 换成隔离检出。
+  ipcMainHandle('move-session-to-worktree', async (_event, sessionId: string) => {
+    const row = sessions.getSession(sessionId);
+    if (!row) return { ok: false, message: 'Session not found.' };
+    // 只信 DB status：非 Claude 的 runner 句柄在 turn 结束后仍驻留（连接复用），
+    // runnerHandles.has() 不代表正在跑
+    if (row.status === 'running') {
+      return { ok: false, message: 'Wait for the agent to finish before moving the thread.' };
+    }
+    if (row.env_mode === 'worktree' && row.worktree_path) {
+      return { ok: false, message: 'This thread is already in a worktree.' };
+    }
+    // 用该 thread 的 provider 给分支起英文名（标题/末条提示词做素材），失败退回本地命名
+    const llmSlug = await generateWorktreeBranchSlug({
+      prompt: row.title || row.last_prompt || 'worktree',
+      cwd: row.project_cwd || row.cwd || undefined,
+      provider: (row.provider || 'claude') as AgentProvider,
+      model: row.model || undefined,
+      compatibleProviderId: row.compatible_provider_id || undefined,
+    });
+    const result = await assignIsolatedWorkspace(sessionId, llmSlug);
+    if (result.ok) broadcastSessionWorkspace(mainWindow, sessionId);
+    return result;
+  });
+
+  ipcMainHandle('apply-worktree-changes', async (_event, sessionId: string) => {
+    const result = await applyIsolatedWorkspace(sessionId);
+    if (result.ok) broadcastSessionWorkspace(mainWindow, sessionId);
+    return result;
+  });
+
+  ipcMainHandle('discard-worktree-changes', async (_event, sessionId: string) => {
+    const result = await discardIsolatedWorkspace(sessionId);
+    if (result.ok) broadcastSessionWorkspace(mainWindow, sessionId);
+    return result;
   });
 
   // RPC: 获取最近工作目录
@@ -4174,9 +4294,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   );
 
-  // RPC: 获取 Claude 模型配置
+  // RPC: 获取 Claude 模型配置(官方目录优先,本地记录兜底)
   ipcMainHandle('get-claude-model-config', async () => {
-    return getClaudeModelConfig();
+    return getClaudeModelConfigWithCatalog();
   });
 
   // RPC: 获取 Claude-compatible provider 配置
@@ -4451,6 +4571,11 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('stop-feishu-bridge', async () => {
     return feishuBridge.stop();
+  });
+
+  // RPC: 本机 agent 运行时检测目录(onboarding / provider 状态)
+  ipcMainHandle('get-agent-runtime-directory', async (_event, force?: boolean) => {
+    return getAgentRuntimeDirectory(force === true);
   });
 
   // RPC: 用户资料(展示名/handle,用于 Usage 档案头)
@@ -6198,7 +6323,6 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     localPreviewServers,
     runnerHandles,
     sessionStates,
-    activeRoutedAgentSequences,
     broadcast,
     broadcastFolderChanged,
     ATTACHMENT_MIME_TYPES,
@@ -6297,10 +6421,6 @@ async function handleClientEvent(
     case 'session.setTeam':
       handleSessionSetTeam(mainWindow, event.payload);
       break;
-
-    case 'profiles.sync':
-      handleProfilesSync(mainWindow, event.payload);
-      break;
   }
 }
 
@@ -6381,935 +6501,6 @@ function handleSessionList(mainWindow: BrowserWindow): void {
     type: 'folder.list',
     payload: { folders },
   });
-
-  broadcastProfileSnapshots(mainWindow);
-}
-
-function broadcastProfileSnapshots(mainWindow: BrowserWindow): void {
-  const payload = sessions.getProfileSnapshots();
-  if (payload.agentProfiles.length === 0 && payload.teamProfiles.length === 0) {
-    return;
-  }
-  broadcast(mainWindow, {
-    type: 'profiles.list',
-    payload,
-  });
-}
-
-function normalizeRoutedAgentPublicProfile(value: unknown): RoutedAgentPublicProfile | undefined {
-  if (!value || typeof value !== 'object') {
-    return undefined;
-  }
-  const profile = value as Partial<RoutedAgentPublicProfile>;
-  const id = profile.id?.trim();
-  const name = profile.name?.trim();
-  if (!id || !name) {
-    return undefined;
-  }
-
-  return {
-    id,
-    name,
-    role: profile.role?.trim() || undefined,
-    description: profile.description?.trim() || undefined,
-    canDelegate: profile.canDelegate === true,
-  };
-}
-
-function normalizeRoutedAgentRuntimePayload(
-  turn: RoutedAgentRuntimePayload | null | undefined
-): RoutedAgentRuntimePayload | null {
-  const routedAgentId = turn?.routedAgentId?.trim();
-  if (!routedAgentId) {
-    return null;
-  }
-
-  const provider =
-    turn?.provider === 'codex' ||
-    turn?.provider === 'opencode' ||
-    turn?.provider === 'kimi' ||
-    turn?.provider === 'grok' ||
-    turn?.provider === 'pi' ||
-    turn?.provider === 'claude'
-      ? turn.provider
-      : 'claude';
-
-  return {
-    ...turn,
-    routedAgentId,
-    agent: normalizeRoutedAgentPublicProfile(turn?.agent),
-    instructions: turn?.instructions?.trim() || undefined,
-    provider,
-  };
-}
-
-function normalizeAvailableAgentTurns(
-  turns: RoutedAgentRuntimePayload[] | undefined
-): RoutedAgentRuntimePayload[] {
-  if (!Array.isArray(turns)) {
-    return [];
-  }
-
-  const uniqueTurns = new Map<string, RoutedAgentRuntimePayload>();
-  for (const turn of turns) {
-    const normalized = normalizeRoutedAgentRuntimePayload(turn);
-    if (!normalized || uniqueTurns.has(normalized.routedAgentId)) {
-      continue;
-    }
-    uniqueTurns.set(normalized.routedAgentId, normalized);
-  }
-  return Array.from(uniqueTurns.values());
-}
-
-function normalizeRoutedAgentTurns(
-  turns: RoutedAgentTurnPayload[] | undefined,
-  availableAgentTurns?: RoutedAgentRuntimePayload[],
-  forcedEffectivePrompt?: string
-): RoutedAgentTurnPayload[] {
-  if (!Array.isArray(turns)) {
-    return [];
-  }
-
-  const uniqueTurns = new Map<string, RoutedAgentTurnPayload>();
-  const normalizedAvailableAgentTurns = normalizeAvailableAgentTurns(availableAgentTurns);
-  const publicAgents =
-    normalizedAvailableAgentTurns
-      .map((turn) => turn.agent)
-      .filter((agent): agent is RoutedAgentPublicProfile => Boolean(agent));
-  for (const turn of turns) {
-    const normalized = normalizeRoutedAgentRuntimePayload(turn);
-    const routedAgentId = normalized?.routedAgentId;
-    const effectivePrompt = (forcedEffectivePrompt ?? turn?.effectivePrompt ?? '').trim();
-    if (!normalized || !routedAgentId || !effectivePrompt || uniqueTurns.has(routedAgentId)) {
-      continue;
-    }
-
-    uniqueTurns.set(routedAgentId, {
-      ...normalized,
-      effectivePrompt,
-      projectAgents:
-        Array.isArray(turn.projectAgents) && turn.projectAgents.length > 0
-          ? turn.projectAgents
-              .map(normalizeRoutedAgentPublicProfile)
-              .filter((agent): agent is RoutedAgentPublicProfile => Boolean(agent))
-          : publicAgents,
-      availableAgentTurns: normalizedAvailableAgentTurns,
-      delegationDepth: typeof turn.delegationDepth === 'number' ? turn.delegationDepth : 0,
-      delegationKind: turn.delegationKind || 'user',
-    });
-  }
-
-  return Array.from(uniqueTurns.values());
-}
-
-function applyRoutedAgentTurnRuntime(sessionId: string, turn: RoutedAgentTurnPayload) {
-  const provider = turn.provider || 'claude';
-  const selectedModel = normalizeModel(turn.model);
-  const selectedBetas = provider === 'claude' ? normalizeBetas(turn.betas) : undefined;
-  const selectedClaudeAccessMode =
-    provider === 'claude' ? normalizeClaudeAccessMode(turn.claudeAccessMode) : undefined;
-  const selectedClaudeExecutionMode =
-    provider === 'claude'
-      ? normalizeClaudeExecutionMode(turn.claudeExecutionMode, selectedClaudeAccessMode)
-      : undefined;
-  const selectedClaudeReasoningEffort =
-    provider === 'claude' ? normalizeClaudeReasoningEffort(turn.claudeReasoningEffort) : undefined;
-  const selectedCodexExecutionMode =
-    provider === 'codex' ? normalizeCodexExecutionMode(turn.codexExecutionMode) : undefined;
-  const selectedCodexPermissionMode =
-    provider === 'codex' ? normalizeCodexPermissionMode(turn.codexPermissionMode) : undefined;
-  const selectedCodexReasoningEffort =
-    provider === 'codex' ? normalizeCodexReasoningEffort(turn.codexReasoningEffort) : undefined;
-  const selectedCodexFastMode =
-    provider === 'codex' ? normalizeCodexFastMode(turn.codexFastMode) : undefined;
-  const selectedOpenCodePermissionMode =
-    provider === 'opencode' ? normalizeOpenCodePermissionMode(turn.opencodePermissionMode) : undefined;
-
-  sessions.updateSessionProvider(sessionId, provider);
-  sessions.updateSessionModel(sessionId, selectedModel || null);
-  sessions.updateSessionCompatibleProviderId(
-    sessionId,
-    provider === 'claude' ? turn.compatibleProviderId || null : null
-  );
-  sessions.updateSessionBetas(sessionId, provider === 'claude' ? selectedBetas || null : null);
-  if (provider === 'claude') {
-    sessions.updateSessionClaudeAccessMode(sessionId, selectedClaudeAccessMode || 'default');
-    sessions.updateSessionClaudeExecutionMode(sessionId, selectedClaudeExecutionMode || 'execute');
-    sessions.updateSessionClaudeReasoningEffort(sessionId, selectedClaudeReasoningEffort || 'high');
-  }
-  if (provider === 'codex') {
-    sessions.updateSessionCodexExecutionMode(sessionId, selectedCodexExecutionMode || 'execute');
-    sessions.updateSessionCodexPermissionMode(sessionId, selectedCodexPermissionMode || 'defaultPermissions');
-    sessions.updateSessionCodexReasoningEffort(sessionId, selectedCodexReasoningEffort || null);
-    sessions.updateSessionCodexFastMode(sessionId, selectedCodexFastMode === true);
-  }
-  if (provider === 'opencode') {
-    sessions.updateSessionOpenCodePermissionMode(
-      sessionId,
-      selectedOpenCodePermissionMode || 'defaultPermissions'
-    );
-  }
-
-  return {
-    provider,
-    selectedModel,
-    selectedBetas,
-    selectedClaudeAccessMode,
-    selectedClaudeExecutionMode,
-    selectedClaudeReasoningEffort,
-    selectedCodexExecutionMode,
-    selectedCodexPermissionMode,
-    selectedCodexReasoningEffort,
-    selectedCodexFastMode,
-    selectedOpenCodePermissionMode,
-  };
-}
-
-async function ensureRoutedAgentTurnRuntimeReady(
-  mainWindow: BrowserWindow,
-  sessionId: string,
-  provider: RoutedAgentTurnPayload['provider'],
-  model?: string
-): Promise<boolean> {
-  if (provider === 'claude') {
-    const runtimeStatus = await getClaudeRuntimeStatusCached(model || null);
-    if (!runtimeStatus.ready) {
-      sessions.updateSessionStatus(sessionId, 'error');
-      broadcast(mainWindow, {
-        type: 'session.status',
-        payload: { sessionId, status: 'error' },
-      });
-      broadcast(mainWindow, {
-        type: 'runner.error',
-        payload: {
-          message: formatClaudeRuntimeBlockingMessage(runtimeStatus),
-          sessionId,
-        },
-      });
-      return false;
-    }
-  } else if (provider === 'opencode') {
-    const runtimeStatus = await getOpencodeRuntimeStatus();
-    if (!runtimeStatus.ready) {
-      sessions.updateSessionStatus(sessionId, 'error');
-      broadcast(mainWindow, {
-        type: 'session.status',
-        payload: { sessionId, status: 'error' },
-      });
-      broadcast(mainWindow, {
-        type: 'runner.error',
-        payload: {
-          message: 'OpenCode SDK is not ready. Check Settings > Providers.',
-          sessionId,
-        },
-      });
-      return false;
-    }
-  } else if (provider === 'kimi') {
-    const runtimeStatus = await getKimiRuntimeStatus();
-    if (!runtimeStatus.ready) {
-      sessions.updateSessionStatus(sessionId, 'error');
-      broadcast(mainWindow, {
-        type: 'session.status',
-        payload: { sessionId, status: 'error' },
-      });
-      broadcast(mainWindow, {
-        type: 'runner.error',
-        payload: {
-          message: formatKimiRuntimeBlockingMessage(runtimeStatus),
-          sessionId,
-        },
-      });
-      return false;
-    }
-  } else if (provider === 'grok') {
-    const runtimeStatus = await getGrokRuntimeStatus();
-    if (!runtimeStatus.ready) {
-      sessions.updateSessionStatus(sessionId, 'error');
-      broadcast(mainWindow, {
-        type: 'session.status',
-        payload: { sessionId, status: 'error' },
-      });
-      broadcast(mainWindow, {
-        type: 'runner.error',
-        payload: {
-          message: formatGrokRuntimeBlockingMessage(runtimeStatus),
-          sessionId,
-        },
-      });
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function getAgentNameForContext(
-  agentId: string | null | undefined,
-  agents: RoutedAgentPublicProfile[]
-): string {
-  const normalizedId = agentId?.trim();
-  if (!normalizedId) {
-    return 'Assistant';
-  }
-  return agents.find((agent) => agent.id === normalizedId)?.name || normalizedId;
-}
-
-function streamMessageTextForContext(message: StreamMessage): string {
-  if (message.type === 'user_prompt') {
-    return message.prompt || '';
-  }
-  if (message.type === 'assistant' || message.type === 'user') {
-    return message.message.content
-      .map((block) => {
-        if (block.type === 'text') return block.text;
-        if (block.type === 'thinking') return block.thinking;
-        if (block.type === 'tool_use') return `[tool:${block.name}]`;
-        if (block.type === 'tool_result') return block.content;
-        return '';
-      })
-      .filter(Boolean)
-      .join('\n')
-      .trim();
-  }
-  return '';
-}
-
-function compactContextText(text: string, maxChars = 1400): string {
-  const normalized = text.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= maxChars) {
-    return normalized;
-  }
-  return `${normalized.slice(0, maxChars - 1).trimEnd()}…`;
-}
-
-function buildSharedChannelContextPrompt(params: {
-  prompt: string;
-  session: ReturnType<typeof sessions.getSession>;
-  turn: RoutedAgentTurnPayload;
-  history: StreamMessage[];
-  currentUserPrompt?: string;
-}): string {
-  const { prompt, session, turn, history, currentUserPrompt } = params;
-  if (!session || normalizeSessionScope(session.conversation_scope) === 'dm') {
-    return prompt;
-  }
-
-  const projectAgents = turn.projectAgents || [];
-  const agentList = projectAgents.length > 0
-    ? projectAgents
-        .map((agent) => {
-          const role = agent.role?.trim() || 'Agent';
-          const description = agent.description?.trim();
-          return `- ${agent.name} (${role})${description ? `: ${description}` : ''}`;
-        })
-        .join('\n')
-    : '- No project agent roster metadata was provided.';
-  const recentMessages = history
-    .filter((message) => message.type === 'user_prompt' || message.type === 'assistant')
-    .slice(-12)
-    .map((message) => {
-      const text = compactContextText(streamMessageTextForContext(message));
-      if (!text) {
-        return '';
-      }
-      if (message.type === 'user_prompt') {
-        return `[User] ${text}`;
-      }
-      return `[${getAgentNameForContext(message.agentId, projectAgents)}] ${text}`;
-    })
-    .filter(Boolean);
-
-  const currentPromptText = currentUserPrompt?.trim();
-  const historyAlreadyIncludesCurrentPrompt = Boolean(
-    currentPromptText &&
-      history.some((message) => message.type === 'user_prompt' && message.prompt.trim() === currentPromptText)
-  );
-  if (currentPromptText && !historyAlreadyIncludesCurrentPrompt) {
-    recentMessages.push(`[User] ${compactContextText(currentPromptText)}`);
-  }
-
-  const recipients = getAgentNameForContext(turn.routedAgentId, projectAgents);
-  const channel = normalizeWorkspaceChannelId(session.workspace_channel_id);
-  const contextBlock = [
-    'Shared project channel context (generated by Aegis; visible channel state, not private agent instructions):',
-    `Project directory: ${session.cwd || '(none)'}`,
-    `Channel: #${channel}`,
-    `Current responding agent: ${recipients}`,
-    '',
-    'Project agents:',
-    agentList,
-    '',
-    'Recent channel transcript:',
-    recentMessages.length > 0 ? recentMessages.join('\n') : '(no prior channel messages)',
-    '',
-    'Rules for this turn:',
-    '- Respond only as the current agent.',
-    '- You may address other project agents by name, but do not write their replies for them.',
-    '- Use the transcript as shared channel context even if your provider runtime has no native resume context.',
-  ].join('\n');
-
-  return `${prompt.trim()}\n\n${contextBlock}`;
-}
-
-function buildDelegationInstructions(turn: RoutedAgentTurnPayload): string {
-  const agent = turn.agent;
-  if (!agent?.canDelegate || (turn.delegationDepth || 0) > 0) {
-    return '';
-  }
-  const availableAgents = (turn.availableAgentTurns || [])
-    .map((candidate) => candidate.agent)
-    .filter((candidate): candidate is RoutedAgentPublicProfile => Boolean(candidate))
-    .filter((candidate) => candidate.id !== turn.routedAgentId);
-  if (availableAgents.length === 0) {
-    return '';
-  }
-
-  return [
-    '',
-    'Coordinator delegation protocol:',
-    'If another project agent should perform follow-up work, write one or more visible delegation lines at the end of your response:',
-    '@AgentName: Concrete task for that agent',
-    '@AnotherAgent: Concrete task for that agent',
-    'Aegis will route those @AgentName task lines to the named agents automatically.',
-    'Constraints: delegate to at most 3 agents, use only available project agents, include a concrete task, and do not delegate to yourself.',
-    'Available delegate targets:',
-    ...availableAgents.map((candidate) => `- ${candidate.name}${candidate.role ? ` (${candidate.role})` : ''}`),
-  ].join('\n');
-}
-
-function buildPromptForRuntimeAgent(
-  turn: RoutedAgentTurnPayload,
-  userPrompt: string,
-  contextLines: string[]
-): string {
-  const agent = turn.agent;
-  const lines = [
-    `You are ${agent?.name || 'this agent'}.`,
-    agent?.role ? `Role: ${agent.role}` : '',
-    agent?.description ? `Profile: ${agent.description}` : '',
-    turn.instructions ? `Instructions:\n${turn.instructions}` : '',
-    ...contextLines,
-    buildDelegationInstructions(turn),
-    `User message:\n${userPrompt}`,
-  ].filter(Boolean);
-
-  return lines.join('\n\n');
-}
-
-function normalizeAgentLookupValue(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/^@/, '')
-    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '');
-}
-
-function extractAssistantTextForAgent(
-  sessionId: string,
-  agentId: string
-): string {
-  const history = sessions.getSessionHistory(sessionId);
-  for (let index = history.length - 1; index >= 0; index -= 1) {
-    const message = history[index];
-    if (message?.type !== 'assistant' || message.agentId !== agentId) {
-      continue;
-    }
-    const text = streamMessageTextForContext(message).trim();
-    if (text) {
-      return text;
-    }
-  }
-  return '';
-}
-
-interface DelegationRequest {
-  agentQuery: string;
-  task: string;
-}
-
-const DELEGATION_TASK_INTENT_PATTERN =
-  /(?:任务|派给|交给|负责|请|麻烦|帮|做|创建|实现|修改|修复|检查|评审|过一遍|设计|开发|测试|验证|总结|整理|review|build|create|implement|fix|check|verify|write|design|test)/i;
-
-function normalizeDelegationTaskText(task: string): string {
-  return task
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .join('\n')
-    .trim()
-    .replace(/^(?:[:：\-—,，.。]\s*)+/, '')
-    .replace(
-      /^(?:任务\s*(?:派给|交给)你|交给你|派给你|请你|请|麻烦你|帮忙|你负责|负责)(?:[:：,，.。\s]+)?/i,
-      ''
-    )
-    .trim();
-}
-
-function extractMentionDelegationRequests(text: string): DelegationRequest[] {
-  const withoutCodeBlocks = text.replace(/```[\s\S]*?```/g, '');
-  const mentionMatches = Array.from(
-    withoutCodeBlocks.matchAll(/(^|[\s([{:：,，])@([a-zA-Z0-9_\-\u4e00-\u9fff]+)/g)
-  ).map((match) => {
-    const prefix = match[1] || '';
-    const mentionText = match[2] || '';
-    const mentionStart = (match.index || 0) + prefix.length;
-    return {
-      agentQuery: mentionText,
-      start: mentionStart,
-      end: mentionStart + mentionText.length + 1,
-    };
-  });
-
-  const requests: DelegationRequest[] = [];
-  for (let index = 0; index < mentionMatches.length; index += 1) {
-    const mention = mentionMatches[index];
-    const nextMention = mentionMatches[index + 1];
-    const rawTask = withoutCodeBlocks.slice(mention.end, nextMention?.start ?? withoutCodeBlocks.length);
-    const task = normalizeDelegationTaskText(rawTask);
-    if (!task) {
-      continue;
-    }
-
-    const hasTaskIntent = DELEGATION_TASK_INTENT_PATTERN.test(rawTask) || DELEGATION_TASK_INTENT_PATTERN.test(task);
-    if (!hasTaskIntent && task.length < 24) {
-      continue;
-    }
-
-    requests.push({
-      agentQuery: mention.agentQuery,
-      task,
-    });
-  }
-
-  return requests;
-}
-
-function extractDelegationRequests(text: string): DelegationRequest[] {
-  const blocks = Array.from(text.matchAll(/<delegate\b[^>]*>([\s\S]*?)<\/delegate>/gi))
-    .map((match) => match[1]?.trim() || '')
-    .filter(Boolean);
-  const requests: DelegationRequest[] = [];
-
-  for (const block of blocks) {
-    const structured = Array.from(
-      block.matchAll(/agent\s*:\s*([^\n]+)\n+task\s*:\s*([\s\S]*?)(?=\n+\s*agent\s*:|$)/gi)
-    );
-    for (const match of structured) {
-      const agentQuery = match[1]?.trim() || '';
-      const task = normalizeDelegationTaskText(match[2]?.trim() || '');
-      if (agentQuery && task) {
-        requests.push({ agentQuery, task });
-      }
-    }
-
-    if (structured.length > 0) {
-      continue;
-    }
-
-    for (const line of block.split('\n')) {
-      const match = line.match(/^\s*(?:[-*]\s*)?@?([^:：]+)[:：]\s*(.+)$/);
-      const agentQuery = match?.[1]?.trim() || '';
-      const task = normalizeDelegationTaskText(match?.[2]?.trim() || '');
-      if (agentQuery && task) {
-        requests.push({ agentQuery, task });
-      }
-    }
-  }
-
-  if (requests.length > 0) {
-    return requests.slice(0, 3);
-  }
-
-  return extractMentionDelegationRequests(text).slice(0, 3);
-}
-
-function findDelegationTarget(
-  request: DelegationRequest,
-  availableTurns: RoutedAgentRuntimePayload[],
-  sourceAgentId: string
-): RoutedAgentRuntimePayload | null {
-  const query = normalizeAgentLookupValue(request.agentQuery);
-  if (!query) {
-    return null;
-  }
-
-  return availableTurns.find((turn) => {
-    if (turn.routedAgentId === sourceAgentId) {
-      return false;
-    }
-    const agent = turn.agent;
-    const candidates = [
-      turn.routedAgentId,
-      agent?.id || '',
-      agent?.name || '',
-      agent?.role || '',
-      ...(agent?.name ? agent.name.split(/\s+/) : []),
-    ].map(normalizeAgentLookupValue);
-    return candidates.some((candidate) => candidate && (candidate === query || candidate.includes(query)));
-  }) || null;
-}
-
-function buildDelegatedAgentTurns(params: {
-  sessionId: string;
-  sourceTurn: RoutedAgentTurnPayload;
-  originalUserPrompt?: string;
-}): RoutedAgentTurnPayload[] {
-  const { sessionId, sourceTurn, originalUserPrompt } = params;
-  if (!sourceTurn.agent?.canDelegate || (sourceTurn.delegationDepth || 0) > 0) {
-    return [];
-  }
-
-  const coordinatorText = extractAssistantTextForAgent(sessionId, sourceTurn.routedAgentId);
-  const requests = extractDelegationRequests(coordinatorText);
-  if (requests.length === 0) {
-    return [];
-  }
-
-  const availableTurns = normalizeAvailableAgentTurns(sourceTurn.availableAgentTurns);
-  const projectAgents =
-    sourceTurn.projectAgents ||
-    availableTurns
-      .map((turn) => turn.agent)
-      .filter((agent): agent is RoutedAgentPublicProfile => Boolean(agent));
-  const delegatedTurns: RoutedAgentTurnPayload[] = [];
-  const usedAgentIds = new Set<string>();
-
-  for (const request of requests) {
-    const target = findDelegationTarget(request, availableTurns, sourceTurn.routedAgentId);
-    if (!target || usedAgentIds.has(target.routedAgentId)) {
-      continue;
-    }
-    usedAgentIds.add(target.routedAgentId);
-
-    const effectivePrompt = buildPromptForRuntimeAgent(
-      {
-        ...target,
-        effectivePrompt: '',
-        projectAgents,
-        availableAgentTurns: availableTurns,
-        delegationDepth: (sourceTurn.delegationDepth || 0) + 1,
-        delegationKind: 'delegated',
-      },
-      request.task,
-      [
-        `Delegated by: ${sourceTurn.agent?.name || sourceTurn.routedAgentId}`,
-        originalUserPrompt ? `Original user request:\n${originalUserPrompt}` : '',
-        `Delegated task:\n${request.task}`,
-      ].filter(Boolean)
-    );
-
-    delegatedTurns.push({
-      ...target,
-      effectivePrompt,
-      projectAgents,
-      availableAgentTurns: availableTurns,
-      delegationDepth: (sourceTurn.delegationDepth || 0) + 1,
-      delegationKind: 'delegated',
-    });
-  }
-
-  return delegatedTurns;
-}
-
-function buildCoordinatorSummaryTurn(
-  sourceTurn: RoutedAgentTurnPayload,
-  delegatedTurns: RoutedAgentTurnPayload[],
-  originalUserPrompt?: string
-): RoutedAgentTurnPayload {
-  const delegateNames = delegatedTurns
-    .map((turn) => turn.agent?.name || turn.routedAgentId)
-    .join(', ');
-  const effectivePrompt = buildPromptForRuntimeAgent(
-    {
-      ...sourceTurn,
-      delegationDepth: (sourceTurn.delegationDepth || 0) + 1,
-      delegationKind: 'summary',
-    },
-    'Summarize the delegated work for the user.',
-    [
-      `Delegated agents that have now responded: ${delegateNames}`,
-      originalUserPrompt ? `Original user request:\n${originalUserPrompt}` : '',
-      'Read the shared channel transcript, reconcile the delegated responses, and give the user a concise summary plus next steps.',
-      'Do not create another <delegate> block in this summary.',
-    ].filter(Boolean)
-  );
-
-  return {
-    ...sourceTurn,
-    effectivePrompt,
-    delegationDepth: (sourceTurn.delegationDepth || 0) + 1,
-    delegationKind: 'summary',
-  };
-}
-
-async function runRoutedAgentTurnSequence(
-  mainWindow: BrowserWindow,
-  sessionId: string,
-  turns: RoutedAgentTurnPayload[],
-  attachments?: Attachment[],
-  firstTurnHistory?: StreamMessage[],
-  currentUserPrompt?: string
-): Promise<void> {
-  const previousSequence = activeRoutedAgentSequences.get(sessionId);
-  if (previousSequence) {
-    previousSequence.cancelled = true;
-  }
-
-  const sequence = { cancelled: false };
-  activeRoutedAgentSequences.set(sessionId, sequence);
-
-  try {
-    for (const [index, turn] of turns.entries()) {
-      if (sequence.cancelled) {
-        return;
-      }
-
-      const status = await runRoutedAgentTurn(
-        mainWindow,
-        sessionId,
-        turn,
-        attachments,
-        sequence,
-        index === 0 ? firstTurnHistory : undefined,
-        currentUserPrompt
-      );
-      if (sequence.cancelled || status !== 'completed') {
-        return;
-      }
-
-      const delegatedTurns = buildDelegatedAgentTurns({
-        sessionId,
-        sourceTurn: turn,
-        originalUserPrompt: currentUserPrompt,
-      });
-      if (delegatedTurns.length === 0) {
-        continue;
-      }
-
-      for (const delegatedTurn of delegatedTurns) {
-        if (sequence.cancelled) {
-          return;
-        }
-        const delegatedStatus = await runRoutedAgentTurn(
-          mainWindow,
-          sessionId,
-          delegatedTurn,
-          attachments,
-          sequence,
-          undefined,
-          currentUserPrompt
-        );
-        if (sequence.cancelled || delegatedStatus !== 'completed') {
-          return;
-        }
-      }
-
-      if (sequence.cancelled) {
-        return;
-      }
-      const summaryStatus = await runRoutedAgentTurn(
-        mainWindow,
-        sessionId,
-        buildCoordinatorSummaryTurn(turn, delegatedTurns, currentUserPrompt),
-        attachments,
-        sequence,
-        undefined,
-        currentUserPrompt
-      );
-      if (sequence.cancelled || summaryStatus !== 'completed') {
-        return;
-      }
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    sessions.updateSessionStatus(sessionId, 'error');
-    broadcast(mainWindow, {
-      type: 'session.status',
-      payload: { sessionId, status: 'error' },
-    });
-    broadcast(mainWindow, {
-      type: 'runner.error',
-      payload: { message, sessionId },
-    });
-  } finally {
-    if (activeRoutedAgentSequences.get(sessionId) === sequence) {
-      activeRoutedAgentSequences.delete(sessionId);
-    }
-  }
-}
-
-async function runRoutedAgentTurn(
-  mainWindow: BrowserWindow,
-  sessionId: string,
-  turn: RoutedAgentTurnPayload,
-  attachments: Attachment[] | undefined,
-  sequence: { cancelled: boolean },
-  historyOverride?: StreamMessage[],
-  currentUserPrompt?: string
-): Promise<SessionStatus> {
-  const session = sessions.getSession(sessionId);
-  if (!session) {
-    broadcast(mainWindow, {
-      type: 'runner.error',
-      payload: { message: 'Unknown session', sessionId },
-    });
-    return 'error';
-  }
-
-  const runtime = applyRoutedAgentTurnRuntime(sessionId, turn);
-  if (!(await ensureRoutedAgentTurnRuntimeReady(mainWindow, sessionId, runtime.provider, runtime.selectedModel))) {
-    return 'error';
-  }
-  if (sequence.cancelled) {
-    return 'idle';
-  }
-  const agentRunId = createAgentRunId(turn.routedAgentId, turn.delegationKind || 'user');
-
-  const sourceHistory = historyOverride ?? sessions.getSessionHistory(sessionId);
-  const historyBeforeTurn =
-    runtime.provider === 'claude'
-      ? sanitizeStoredClaudeHistory(sessionId, sourceHistory).messages
-      : sourceHistory;
-  const effectivePromptWithContext = buildSharedChannelContextPrompt({
-    prompt: turn.effectivePrompt,
-    session,
-    turn,
-    history: historyBeforeTurn,
-    currentUserPrompt,
-  });
-  const runnerPrompt = augmentPromptForLiveWidgetProtocol(
-    await buildRunnerPromptWithMemory(runtime.provider, effectivePromptWithContext, session.cwd || undefined),
-    historyBeforeTurn
-  );
-
-  const existingEntry = runnerHandles.get(sessionId);
-  if (existingEntry) {
-    const turnDone = existingEntry.onTurnDone;
-    existingEntry.onTurnDone = undefined;
-    turnDone?.('idle');
-    existingEntry.handle.abort();
-    runnerHandles.delete(sessionId);
-  }
-
-  sessions.updateSessionStatus(sessionId, 'running');
-  broadcast(mainWindow, {
-    type: 'session.status',
-    payload: {
-      sessionId,
-      status: 'running',
-      scope: normalizeSessionScope(session.conversation_scope),
-      agentId: session.agent_id || null,
-      provider: runtime.provider,
-      model: runtime.selectedModel ?? '',
-      compatibleProviderId: runtime.provider === 'claude' ? turn.compatibleProviderId : undefined,
-      betas: runtime.selectedBetas,
-      claudeAccessMode:
-        runtime.provider === 'claude' ? runtime.selectedClaudeAccessMode : undefined,
-      claudeExecutionMode:
-        runtime.provider === 'claude' ? runtime.selectedClaudeExecutionMode : undefined,
-      claudeReasoningEffort:
-        runtime.provider === 'claude' ? runtime.selectedClaudeReasoningEffort : undefined,
-      codexExecutionMode:
-        runtime.provider === 'codex' ? (runtime.selectedCodexExecutionMode || 'execute') : undefined,
-      codexPermissionMode:
-        runtime.provider === 'codex'
-          ? (runtime.selectedCodexPermissionMode || 'defaultPermissions')
-          : undefined,
-      codexReasoningEffort:
-        runtime.provider === 'codex' ? runtime.selectedCodexReasoningEffort : undefined,
-      codexFastMode: runtime.provider === 'codex' ? runtime.selectedCodexFastMode : undefined,
-      opencodePermissionMode:
-        runtime.provider === 'opencode'
-          ? (runtime.selectedOpenCodePermissionMode || 'defaultPermissions')
-          : undefined,
-      hiddenFromThreads: session.hidden_from_threads === 1,
-    },
-  });
-
-  let startModel = runtime.selectedModel;
-  let resumeSessionId =
-    runtime.provider === 'claude'
-      ? sessions.getSession(sessionId)?.claude_session_id ?? undefined
-      : runtime.provider === 'codex'
-        ? sessions.getSession(sessionId)?.codex_session_id ?? undefined
-        : runtime.provider === 'opencode'
-          ? sessions.getSession(sessionId)?.opencode_session_id ?? undefined
-          : runtime.provider === 'kimi'
-            ? sessions.getSession(sessionId)?.kimi_session_id ?? undefined
-            : runtime.provider === 'grok'
-              ? sessions.getSession(sessionId)?.grok_session_id ?? undefined
-              : runtime.provider === 'pi'
-                ? sessions.getSession(sessionId)?.pi_session_id ?? undefined
-                : undefined;
-
-  if (runtime.provider === 'claude' && !resumeSessionId && historyBeforeTurn.length > 0) {
-    try {
-      const bootstrap = await bootstrapClaudeSessionFromHistory({
-        history: historyBeforeTurn,
-        cwd: session.cwd,
-        model: runtime.selectedModel,
-        compatibleProviderId: turn.compatibleProviderId,
-        betas: runtime.selectedBetas,
-        claudeReasoningEffort: runtime.selectedClaudeReasoningEffort,
-      });
-      resumeSessionId = bootstrap.sessionId;
-      startModel = normalizeModel(bootstrap.model || runtime.selectedModel || undefined);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      sessions.updateSessionStatus(sessionId, 'error');
-      broadcast(mainWindow, {
-        type: 'session.status',
-        payload: {
-          sessionId,
-          status: 'error',
-          provider: runtime.provider,
-          hiddenFromThreads: session.hidden_from_threads === 1,
-        },
-      });
-      broadcast(mainWindow, {
-        type: 'runner.error',
-        payload: {
-          message: `Failed to rebuild Claude conversation context: ${message}`,
-          sessionId,
-        },
-      });
-      return 'error';
-    }
-  }
-
-  return new Promise<SessionStatus>((resolveTurn) => {
-    startRunner(
-      mainWindow,
-      sessions.getSession(sessionId),
-      runnerPrompt,
-      resumeSessionId,
-      attachments,
-      runtime.provider,
-      startModel,
-      runtime.provider === 'claude' ? turn.compatibleProviderId : undefined,
-      runtime.selectedBetas,
-      runtime.selectedClaudeAccessMode,
-      runtime.selectedClaudeExecutionMode,
-      runtime.provider === 'claude' ? runtime.selectedClaudeReasoningEffort : undefined,
-      runtime.provider === 'codex' ? (runtime.selectedCodexExecutionMode || 'execute') : undefined,
-      runtime.provider === 'codex'
-        ? (runtime.selectedCodexPermissionMode || 'defaultPermissions')
-        : undefined,
-      runtime.provider === 'codex' ? runtime.selectedCodexReasoningEffort : undefined,
-      runtime.provider === 'codex' ? runtime.selectedCodexFastMode : undefined,
-      runtime.provider === 'opencode'
-        ? (runtime.selectedOpenCodePermissionMode || 'defaultPermissions')
-        : undefined,
-      runtime.provider === 'kimi' ? normalizeKimiPermissionMode(turn.kimiPermissionMode) : undefined,
-      undefined,
-      undefined,
-      runtime.provider === 'codex' ? turn.codexSkills : undefined,
-      runtime.provider === 'codex' ? turn.codexMentions : undefined,
-      turn.routedAgentId,
-      resolveTurn,
-      agentRunId
-    );
-  });
 }
 
 // 新建会话
@@ -7351,21 +6542,14 @@ async function handleSessionStart(
     grokPermissionMode,
     grokReasoningEffort,
     opencodePermissionMode,
-    routedAgentProfile,
-    routedAgentId,
-    routedAgentTurns,
-    availableAgentTurns,
     teamMode,
     teamId,
-    teamProfile,
-    teamAgentTurns,
     hiddenFromThreads,
     channelId,
+    createIsolatedWorkspace,
   } = payload;
   const sessionScope = normalizeSessionScope(scope);
   const sessionAgentId = sessionScope === 'dm' ? agentId?.trim() || null : null;
-  const turnAgentId = routedAgentId?.trim() || sessionAgentId || null;
-  const turnAgentProfile = normalizeRoutedAgentRuntimePayload(routedAgentProfile);
   const sessionCwd = cwd?.trim() || undefined;
   if (sessionScope !== 'dm' && !sessionCwd) {
     broadcast(mainWindow, {
@@ -7378,6 +6562,34 @@ async function handleSessionStart(
   const normalizedProjectCwd = projectCwd?.trim() || sessionCwd || null;
   const normalizedEnvMode = envMode === 'worktree' ? 'worktree' : 'local';
   const normalizedWorktreePath = worktreePath?.trim() || null;
+
+  // "在隔离副本中运行"：开跑前建好 worktree（session 的 cwd 会指向它），
+  // 建不出来（非 git 仓库等）直接明确报错，不静默降级到项目本体。
+  let isolated: IsolatedWorkspaceProvision | null = null;
+  if (createIsolatedWorkspace && sessionCwd) {
+    try {
+      // 先让选定的 provider 用英文概括任务当分支名（超时/失败静默退回本地 slug/哈希）
+      const llmSlug = await generateWorktreeBranchSlug({
+        prompt,
+        cwd: sessionCwd,
+        provider: chosenProvider,
+        model: normalizeModel(model) || undefined,
+        compatibleProviderId: chosenProvider === 'claude' ? compatibleProviderId : undefined,
+        betas: chosenProvider === 'claude' ? normalizeBetas(betas) : undefined,
+      });
+      isolated = await provisionIsolatedWorkspace(sessionCwd, llmSlug || prompt.slice(0, 80));
+    } catch (error) {
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message: `Could not create a worktree — this needs a git repository with at least one commit. ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        },
+      });
+      return null;
+    }
+  }
   const sourcePrompt = prompt.trim();
   const longPromptAttachment = await maybeConvertLongPromptToAttachment({
     cwd: sessionCwd,
@@ -7389,11 +6601,6 @@ async function handleSessionStart(
   const effectiveRunnerPrompt = longPromptAttachment.converted
     ? outgoingPrompt
     : (effectivePrompt ?? sourcePrompt).trim();
-  const normalizedRoutedAgentTurns = normalizeRoutedAgentTurns(
-    routedAgentTurns,
-    availableAgentTurns,
-    longPromptAttachment.converted ? outgoingPrompt : undefined
-  );
   const runnerPrompt = augmentPromptForLiveWidgetProtocol(
     await buildRunnerPromptWithMemory(chosenProvider, effectiveRunnerPrompt, sessionCwd),
   );
@@ -7412,7 +6619,7 @@ async function handleSessionStart(
   const normalizedTeamMode = normalizeSessionTeamMode(teamMode);
   const normalizedTeamId =
     normalizedTeamMode === 'team' || normalizedTeamMode === 'manual'
-      ? teamId?.trim() || teamProfile?.id || null
+      ? teamId?.trim() || null
       : null;
 
   // 运行时状态检查已移动到会话创建和状态广播之后，以便前端立即显示 spinning 效果
@@ -7432,12 +6639,16 @@ async function handleSessionStart(
   const session = sessions.createSession({
     title,
     cwd: sessionCwd,
-    projectCwd: normalizedProjectCwd,
-    envMode: normalizedEnvMode,
-    worktreePath: normalizedWorktreePath,
-    associatedWorktreePath: associatedWorktreePath?.trim() || normalizedWorktreePath,
-    associatedWorktreeBranch: associatedWorktreeBranch?.trim() || null,
-    associatedWorktreeRef: associatedWorktreeRef?.trim() || associatedWorktreeBranch?.trim() || null,
+    projectCwd: isolated ? isolated.repoRoot : normalizedProjectCwd,
+    envMode: isolated ? 'worktree' : normalizedEnvMode,
+    worktreePath: isolated ? isolated.worktreePath : normalizedWorktreePath,
+    associatedWorktreePath: isolated
+      ? isolated.worktreePath
+      : associatedWorktreePath?.trim() || normalizedWorktreePath,
+    associatedWorktreeBranch: isolated ? isolated.branch : associatedWorktreeBranch?.trim() || null,
+    associatedWorktreeRef: isolated
+      ? isolated.baseRef
+      : associatedWorktreeRef?.trim() || associatedWorktreeBranch?.trim() || null,
     scope: sessionScope,
     agentId: sessionAgentId,
     allowedTools,
@@ -7626,18 +6837,6 @@ async function handleSessionStart(
     });
   }
 
-  if (normalizedRoutedAgentTurns.length > 0) {
-    void runRoutedAgentTurnSequence(
-      mainWindow,
-      session.id,
-      normalizedRoutedAgentTurns,
-      outgoingAttachments,
-      [],
-      outgoingPrompt
-    );
-    return session.id;
-  }
-
   // 启动 Runner
   startRunner(
     mainWindow,
@@ -7662,7 +6861,7 @@ async function handleSessionStart(
     undefined,
     chosenProvider === 'codex' ? codexSkills : undefined,
     chosenProvider === 'codex' ? codexMentions : undefined,
-    turnAgentId,
+    sessionAgentId,
     automationRunId
       ? (status, failureMessage) => {
           const runStatus = status === 'completed' ? 'completed' : 'failed';
@@ -7705,14 +6904,8 @@ async function handleSessionContinue(
     grokPermissionMode,
     grokReasoningEffort,
     opencodePermissionMode,
-    routedAgentProfile,
-    routedAgentId,
-    routedAgentTurns,
-    availableAgentTurns,
     teamMode,
     teamId,
-    teamProfile,
-    teamAgentTurns,
   } = payload;
 
   const session = sessions.getSession(sessionId);
@@ -7734,49 +6927,8 @@ async function handleSessionContinue(
   let effectiveRunnerPrompt = longPromptAttachment.converted
     ? outgoingPrompt
     : (effectivePrompt ?? outgoingPrompt).trim();
-  const normalizedRoutedAgentTurns = normalizeRoutedAgentTurns(
-    routedAgentTurns,
-    availableAgentTurns,
-    longPromptAttachment.converted ? outgoingPrompt : undefined
-  );
 
   if (await maybeHandleLocalSlashCommand(mainWindow, session, outgoingPrompt, outgoingAttachments)) {
-    return true;
-  }
-
-  if (normalizedRoutedAgentTurns.length > 0) {
-    const historyBeforeFanout = sessions.getSessionHistory(sessionId);
-    const createdAt = Date.now();
-    sessions.updateSessionStatus(sessionId, 'running');
-    sessions.updateLastPrompt(sessionId, outgoingPrompt);
-    broadcast(mainWindow, {
-      type: 'session.status',
-      payload: {
-        sessionId,
-        status: 'running',
-        scope: normalizeSessionScope(session.conversation_scope),
-        agentId: session.agent_id || null,
-        hiddenFromThreads: session.hidden_from_threads === 1,
-      },
-    });
-    broadcast(mainWindow, {
-      type: 'stream.user_prompt',
-      payload: { sessionId, prompt: outgoingPrompt, attachments: outgoingAttachments, createdAt },
-    });
-    sessions.addMessage(sessionId, {
-      type: 'user_prompt',
-      prompt: outgoingPrompt,
-      attachments: outgoingAttachments,
-      createdAt,
-    });
-    void runRoutedAgentTurnSequence(
-      mainWindow,
-      sessionId,
-      normalizedRoutedAgentTurns,
-      outgoingAttachments,
-      historyBeforeFanout,
-      outgoingPrompt
-    );
     return true;
   }
 
@@ -7789,8 +6941,7 @@ async function handleSessionContinue(
   const existingEntry = runnerHandles.get(sessionId);
   const previousProvider = session.provider || 'claude';
   const nextProvider = provider || previousProvider;
-  const turnAgentId = routedAgentId?.trim() || session.agent_id || null;
-  const turnAgentProfile = normalizeRoutedAgentRuntimePayload(routedAgentProfile);
+  const sessionAgentId = session.agent_id || null;
   const nextModel = normalizeModel(model ?? session.model ?? undefined);
   const previousCompatibleProviderId = session.compatible_provider_id || undefined;
   const nextCompatibleProviderId =
@@ -7863,7 +7014,7 @@ async function handleSessionContinue(
     : normalizeSessionTeamMode(session.team_mode);
   const nextTeamId =
     nextTeamMode === 'team' || nextTeamMode === 'manual'
-      ? teamId?.trim() || teamProfile?.id || session.team_id || null
+      ? teamId?.trim() || session.team_id || null
       : null;
   const accessModeChanged =
     nextProvider === 'claude' &&
@@ -8085,8 +7236,8 @@ async function handleSessionContinue(
       existingEntry.handle.abort();
       runnerHandles.delete(sessionId);
     } else {
-      existingEntry.activeAgentId = turnAgentId;
-      existingEntry.activeAgentRunId = createAgentRunId(turnAgentId, 'continue');
+      existingEntry.activeAgentId = sessionAgentId;
+      existingEntry.activeAgentRunId = createAgentRunId(sessionAgentId, 'continue');
       const sendOptions =
         nextProvider === 'codex'
 	          ? {
@@ -8210,7 +7361,7 @@ async function handleSessionContinue(
     undefined,
     nextProvider === 'codex' ? codexSkills : undefined,
     nextProvider === 'codex' ? codexMentions : undefined,
-    turnAgentId
+    sessionAgentId
   );
   return true;
 }
@@ -8775,11 +7926,6 @@ function handleSessionHistory(mainWindow: BrowserWindow, sessionId: string): voi
 // 停止会话
 function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
   const session = sessions.getSession(sessionId);
-  const activeSequence = activeRoutedAgentSequences.get(sessionId);
-  if (activeSequence) {
-    activeSequence.cancelled = true;
-    activeRoutedAgentSequences.delete(sessionId);
-  }
   const entry = runnerHandles.get(sessionId);
   if (entry) {
     const turnDone = entry.onTurnDone;
@@ -8823,11 +7969,6 @@ function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void
   }
 
   // 先停止运行中的会话
-  const activeSequence = activeRoutedAgentSequences.get(sessionId);
-  if (activeSequence) {
-    activeSequence.cancelled = true;
-    activeRoutedAgentSequences.delete(sessionId);
-  }
   const entry = runnerHandles.get(sessionId);
   if (entry) {
     const turnDone = entry.onTurnDone;
@@ -8842,6 +7983,11 @@ function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void
 
   // 删除数据库记录
   sessions.deleteSession(sessionId);
+
+  // worktree 回收（clean 且无其它 session 引用才回收，dirty 保留）
+  if (session?.worktree_path) {
+    void recycleSessionWorktree(session);
+  }
 
   // 广播删除事件（幂等）
   broadcast(mainWindow, {
@@ -9160,21 +8306,6 @@ function handleSessionSetTeam(
     broadcast(mainWindow, {
       type: 'runner.error',
       payload: { message: `Failed to set session team: ${String(error)}` },
-    });
-  }
-}
-
-function handleProfilesSync(
-  mainWindow: BrowserWindow,
-  payload: import('../shared/types').ProfileSnapshotPayload
-): void {
-  try {
-    sessions.replaceProfileSnapshots(payload);
-    broadcastProfileSnapshots(mainWindow);
-  } catch (error) {
-    broadcast(mainWindow, {
-      type: 'runner.error',
-      payload: { message: `Failed to sync profile snapshots: ${String(error)}` },
     });
   }
 }

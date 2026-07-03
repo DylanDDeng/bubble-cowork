@@ -203,6 +203,85 @@ function generateSessionTitleLocally(prompt: string): string {
   return title.slice(0, 50);
 }
 
+// LLM 起分支名：让选定的 provider 用英文概括这次任务（kebab-case），
+// 中文提示词也能得到可读的分支第三级。失败/超时静默返回 null，
+// 调用方退回本地 slug/哈希——起名绝不能挡住任务启动。
+const BRANCH_SLUG_TIMEOUT_MS = 8_000;
+
+function sanitizeBranchSlug(text: string): string | null {
+  const slug = text
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .split('-')
+    .filter(Boolean)
+    .slice(0, 6)
+    .join('-')
+    .slice(0, 40)
+    .replace(/-+$/g, '');
+  return slug.length >= 3 ? slug : null;
+}
+
+export async function generateWorktreeBranchSlug(params: {
+  prompt: string;
+  cwd?: string;
+  provider?: AgentProvider;
+  model?: string;
+  compatibleProviderId?: ClaudeCompatibleProviderId;
+  betas?: string[];
+  claudeReasoningEffort?: ClaudeReasoningEffort;
+}): Promise<string | null> {
+  const provider = params.provider || 'claude';
+  const slugPrompt = `Summarize this task as a short English git branch name: 2-5 lowercase words joined by hyphens, no prefix, no quotes, letters and digits only.
+Task: "${params.prompt.slice(0, 500)}"
+Output only the branch name.`;
+
+  const call = async (): Promise<string> => {
+    if (provider === 'codex') {
+      const { runCodexOneShot } = await import('./codex-runner');
+      const result = await runCodexOneShot({
+        prompt: slugPrompt,
+        cwd: params.cwd,
+        model: params.model,
+        codexReasoningEffort: 'low',
+      });
+      return result.text;
+    }
+    if (provider === 'opencode') {
+      const { runOpenCodeOneShot } = await import('./codex-runner');
+      const result = await runOpenCodeOneShot({ prompt: slugPrompt, cwd: params.cwd, model: params.model });
+      return result.text;
+    }
+    // claude 及走 Claude 协议的 provider（kimi/grok/pi 无 one-shot 助手，用 claude 兜底；
+    // claude 不可用时 runClaudeOneShot 抛错 → 外层回退本地命名）
+    const result = await runClaudeOneShot({
+      prompt: slugPrompt,
+      cwd: params.cwd,
+      model: provider === 'claude' ? params.model : undefined,
+      compatibleProviderId: provider === 'claude' ? params.compatibleProviderId : undefined,
+      betas: provider === 'claude' ? params.betas : undefined,
+      claudeReasoningEffort: params.claudeReasoningEffort,
+    });
+    return result.text;
+  };
+
+  try {
+    const text = await Promise.race([
+      call(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('branch naming timed out')), BRANCH_SLUG_TIMEOUT_MS)
+      ),
+    ]);
+    // 模型可能带引号/前缀/多行，取最后一行再清洗
+    const lastLine = text.trim().split('\n').filter(Boolean).pop() || '';
+    return sanitizeBranchSlug(lastLine);
+  } catch (error) {
+    console.warn('[Worktree] branch naming fell back to local slug:', error);
+    return null;
+  }
+}
+
 export async function generateSessionTitle(
   prompt: string,
   cwd?: string,

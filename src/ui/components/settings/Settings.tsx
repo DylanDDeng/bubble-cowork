@@ -6,8 +6,9 @@ import { CompatibleProviderSettingsContent } from './CompatibleProviderSettings'
 import { McpSettingsContent } from './McpSettings';
 import { BridgeSettingsContent } from './BridgeSettings';
 import { ThemePackEditor } from './ThemePackEditor';
-import { SettingsGroup, SettingsRow } from './SettingsPrimitives';
+import { SettingsGroup, SettingsRow, SettingsToggle } from './SettingsPrimitives';
 import { primeUserProfileCache } from '../../hooks/useUserProfile';
+import { toast } from 'sonner';
 import type { AppUpdateStatus, ChromeTheme, Theme, ThemeFonts, ThemeState, ThemeVariant } from '../../types';
 import { resolveThemeMode, resolveThemePack } from '../../theme/themes';
 
@@ -292,6 +293,8 @@ function GeneralSettingsContent({
         </SettingsRow>
       </SettingsGroup>
 
+      <NotificationSettingsGroup />
+
       <div className="space-y-3">
         <ThemePackEditor
           variant="light"
@@ -484,3 +487,58 @@ function ThemeOption({
     </button>
   );
 }
+
+// 系统通知设置（agent 完成/失败时的 macOS 通知）
+function NotificationSettingsGroup() {
+  const [settings, setSettings] = useState<{ enabled: boolean; onlyWhenUnfocused: boolean } | null>(
+    null
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    window.electron
+      .getNotificationSettings()
+      .then((value) => {
+        if (!cancelled) setSettings(value);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const update = async (patch: { enabled?: boolean; onlyWhenUnfocused?: boolean }) => {
+    const next = await window.electron.setNotificationSettings(patch);
+    setSettings(next);
+  };
+
+  return (
+    <SettingsGroup title="Notifications">
+      <SettingsRow
+        variant="card"
+        label="System notifications"
+        description="Notify when an agent run finishes."
+      >
+        <SettingsToggle
+          checked={settings?.enabled ?? true}
+          disabled={settings === null}
+          onChange={(value) => void update({ enabled: value })}
+          ariaLabel="Enable system notifications"
+        />
+      </SettingsRow>
+      <SettingsRow
+        variant="card"
+        label="Only when in the background"
+        description="Skip notifications while the Aegis window is focused."
+      >
+        <SettingsToggle
+          checked={settings?.onlyWhenUnfocused ?? true}
+          disabled={settings === null || settings?.enabled === false}
+          onChange={(value) => void update({ onlyWhenUnfocused: value })}
+          ariaLabel="Only notify when unfocused"
+        />
+      </SettingsRow>
+    </SettingsGroup>
+  );
+}
+

@@ -1,6 +1,9 @@
-import type { BrowserWindow } from 'electron';
 import * as sessions from './session-store';
-import { DEFAULT_WORKSPACE_CHANNEL_ID, type AutomationDefinition, type SessionStartPayload } from '../../shared/types';
+import {
+  DEFAULT_WORKSPACE_CHANNEL_ID,
+  type AutomationDefinition,
+  type SessionStartPayload,
+} from '../../shared/types';
 
 type AutomationSessionStarter = (payload: SessionStartPayload) => Promise<string | null>;
 type AutomationChangeEmitter = () => void;
@@ -55,7 +58,6 @@ export class AutomationScheduler {
   private runningAutomationIds = new Set<string>();
 
   constructor(
-    private readonly mainWindow: BrowserWindow,
     private readonly startSession: AutomationSessionStarter,
     private readonly emitChanged: AutomationChangeEmitter,
     private readonly pollIntervalMs = DEFAULT_POLL_INTERVAL_MS
@@ -86,9 +88,7 @@ export class AutomationScheduler {
   }
 
   private async tick(): Promise<void> {
-    if (this.mainWindow.isDestroyed() || this.mainWindow.webContents.isDestroyed()) {
-      return;
-    }
+    // 调度不依赖窗口存活：broadcast 层自己会在窗口销毁时静默跳过。
     const due = sessions.listDueAutomations(Date.now(), MAX_DUE_PER_TICK);
     for (const automation of due) {
       if (this.runningAutomationIds.has(automation.id)) {

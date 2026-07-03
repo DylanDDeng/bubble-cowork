@@ -204,6 +204,18 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('fork-session', sessionId);
   },
 
+  moveSessionToWorktree: (sessionId: string) => {
+    return ipcRenderer.invoke('move-session-to-worktree', sessionId);
+  },
+
+  applyWorktreeChanges: (sessionId: string) => {
+    return ipcRenderer.invoke('apply-worktree-changes', sessionId);
+  },
+
+  discardWorktreeChanges: (sessionId: string) => {
+    return ipcRenderer.invoke('discard-worktree-changes', sessionId);
+  },
+
   // 获取最近工作目录
   getRecentCwds: (limit?: number) => {
     return ipcRenderer.invoke('get-recent-cwds', limit);
@@ -232,6 +244,17 @@ contextBridge.exposeInMainWorld('electron', {
     automationId: string
   ): Promise<{ ok: boolean; sessionId?: string; message?: string }> => {
     return ipcRenderer.invoke('run-automation-now', automationId);
+  },
+
+  getNotificationSettings: (): Promise<{ enabled: boolean; onlyWhenUnfocused: boolean }> => {
+    return ipcRenderer.invoke('get-notification-settings');
+  },
+
+  setNotificationSettings: (next: {
+    enabled?: boolean;
+    onlyWhenUnfocused?: boolean;
+  }): Promise<{ enabled: boolean; onlyWhenUnfocused: boolean }> => {
+    return ipcRenderer.invoke('set-notification-settings', next);
   },
 
   startTerminalSession: (
@@ -523,6 +546,11 @@ contextBridge.exposeInMainWorld('electron', {
   },
   stopFeishuBridge: () => {
     return ipcRenderer.invoke('stop-feishu-bridge');
+  },
+
+  // 本机 agent 运行时检测
+  getAgentRuntimeDirectory: (force?: boolean) => {
+    return ipcRenderer.invoke('get-agent-runtime-directory', force);
   },
 
   // 用户资料

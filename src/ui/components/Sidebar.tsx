@@ -356,7 +356,8 @@ export function Sidebar() {
 
   const openThreadFromPalette = (sessionId: string) => {
     setShowSettings(false);
-    setChatLayoutMode('single');
+    // 不要 setChatLayoutMode('single')：那会把整棵平铺树坍缩成单 leaf。
+    // setActiveSession 会把会话装入当前聚焦 leaf，保留用户的分屏布局。
     setActiveSession(sessionId);
     setShowNewSession(false);
     setActiveWorkspace('chat');

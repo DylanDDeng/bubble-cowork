@@ -44,15 +44,6 @@ function basenameOfPath(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-function normalizeAgentMentionHandle(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/^@+/, '')
-    .replace(/[^a-z0-9_-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
 function normalizeSlashDisplayKey(value: string): string {
   return value.replace(/^[/$]/, '').trim().toLowerCase();
 }
@@ -279,34 +270,6 @@ function createMentionNode(path: string, rawText: string): HTMLSpanElement {
   return chip;
 }
 
-function createAgentMentionNode(label: string, rawText: string): HTMLSpanElement {
-  const chip = document.createElement('span');
-  chip.dataset.segmentType = 'mention';
-  chip.dataset.rawText = rawText;
-  chip.dataset.mentionPath = rawText.replace(/^@/, '');
-  chip.contentEditable = 'false';
-  chip.spellcheck = false;
-  chip.title = label;
-  chip.className =
-    'mx-[1px] inline-flex max-w-[220px] select-none items-center gap-1 rounded-md border px-1.5 py-0.5 align-baseline text-[12px] leading-none';
-  chip.style.borderColor = 'var(--composer-chip-border)';
-  chip.style.backgroundColor = 'var(--composer-chip-bg)';
-  chip.style.color = 'var(--composer-chip-text)';
-
-  const icon = document.createElement('span');
-  icon.className =
-    'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-light)] text-[10px] font-semibold text-[var(--accent)]';
-  icon.textContent = '@';
-  icon.setAttribute('aria-hidden', 'true');
-
-  const text = document.createElement('span');
-  text.className = 'truncate font-mono text-[11px]';
-  text.textContent = rawText;
-
-  chip.append(icon, text);
-  return chip;
-}
-
 function createRepoNode(owner: string, repo: string, rawText: string): HTMLSpanElement {
   const chip = document.createElement('span');
   chip.dataset.segmentType = 'repo';
@@ -375,7 +338,6 @@ function renderSegments(
   root: HTMLDivElement,
   value: string,
   slashContext?: SlashTokenContext,
-  agentMentionLabels?: Record<string, string>,
   slashDisplayLabels?: Record<string, string>
 ): void {
   const segments: PromptSegment[] = splitPromptIntoComposerSegments(value, slashContext);
@@ -388,11 +350,6 @@ function renderSegments(
     }
 
     if (segment.type === 'mention') {
-      const agentLabel = agentMentionLabels?.[normalizeAgentMentionHandle(segment.path)];
-      if (agentLabel) {
-        root.append(createAgentMentionNode(agentLabel, segment.text));
-        continue;
-      }
       root.append(createMentionNode(segment.path, segment.text));
       continue;
     }
@@ -481,7 +438,6 @@ export const ComposerPromptEditor = forwardRef<
     className?: string;
     slashContext?: SlashTokenContext;
     slashDisplayLabels?: Record<string, string>;
-    agentMentionLabels?: Record<string, string>;
   }
 >(function ComposerPromptEditor(props, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -492,7 +448,6 @@ export const ComposerPromptEditor = forwardRef<
   const didAutoFocusRef = useRef(false);
   const lastRenderedSlashContextRef = useRef<SlashTokenContext | undefined>(undefined);
   const lastRenderedSlashDisplayLabelsRef = useRef<Record<string, string> | undefined>(undefined);
-  const lastRenderedAgentMentionLabelsRef = useRef<Record<string, string> | undefined>(undefined);
   const displayHasValue = useMemo(() => props.value.length > 0, [props.value]);
   const [fakeCaret, setFakeCaret] = useState({
     visible: false,
@@ -652,24 +607,19 @@ export const ComposerPromptEditor = forwardRef<
     const slashContextChanged = lastRenderedSlashContextRef.current !== props.slashContext;
     const slashDisplayLabelsChanged =
       lastRenderedSlashDisplayLabelsRef.current !== props.slashDisplayLabels;
-    const agentMentionLabelsChanged =
-      lastRenderedAgentMentionLabelsRef.current !== props.agentMentionLabels;
     if (
       serializeEditorValue(editorRef.current) !== props.value ||
       slashContextChanged ||
-      slashDisplayLabelsChanged ||
-      agentMentionLabelsChanged
+      slashDisplayLabelsChanged
     ) {
       renderSegments(
         editorRef.current,
         props.value,
         props.slashContext,
-        props.agentMentionLabels,
         props.slashDisplayLabels
       );
       lastRenderedSlashContextRef.current = props.slashContext;
       lastRenderedSlashDisplayLabelsRef.current = props.slashDisplayLabels;
-      lastRenderedAgentMentionLabelsRef.current = props.agentMentionLabels;
     }
 
     if (document.activeElement !== editorRef.current) {
@@ -683,7 +633,6 @@ export const ComposerPromptEditor = forwardRef<
       syncFakeCaret();
     });
   }, [
-    props.agentMentionLabels,
     props.cursorIndex,
     props.slashContext,
     props.slashDisplayLabels,

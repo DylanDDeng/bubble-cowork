@@ -101,8 +101,16 @@ assert.ok(
 const readiness = read('src/ui/hooks/useAgentReadiness.ts');
 assert.ok(
   readiness.includes("provider: 'pi'") &&
-    readiness.includes('Pi SDK is bundled with Aegis.'),
-  'Agent readiness must show Pi as a bundled SDK provider'
+    readiness.includes('getAgentRuntimeDirectory'),
+  'Agent readiness must include Pi via the unified runtime directory'
+);
+
+const runtimeDirectory = read('src/electron/libs/agent-runtime-directory.ts');
+assert.ok(
+  runtimeDirectory.includes("entry('pi', 'ready'") &&
+    runtimeDirectory.includes('bundled') &&
+    runtimeDirectory.includes('auth.json'),
+  'Runtime directory must treat Pi as bundled and check its credentials'
 );
 
 const logo = read('src/ui/components/PiLogo.tsx');

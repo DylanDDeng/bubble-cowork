@@ -81,7 +81,6 @@ const registerBlock = [
   '    localPreviewServers,',
   '    runnerHandles,',
   '    sessionStates,',
-  '    activeRoutedAgentSequences,',
   '    broadcast,',
   '    broadcastFolderChanged,',
   '    ATTACHMENT_MIME_TYPES,',

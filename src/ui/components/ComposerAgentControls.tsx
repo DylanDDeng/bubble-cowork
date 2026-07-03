@@ -1,4 +1,5 @@
 import { type FC, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
 import { Check, ChevronDown, ChevronRight, Copy, Search, Zap } from './icons';
 import type { AgentProvider } from '../types';
@@ -17,7 +18,7 @@ import grokLogo from '../assets/grok.svg';
 import { OpenCodeLogo } from './OpenCodeLogo';
 import { PiLogo } from './PiLogo';
 
-function AgentIcon({ provider }: { provider: AgentProvider }) {
+export function AgentIcon({ provider }: { provider: AgentProvider }) {
   if (provider === 'claude') {
     return <img src={claudeLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />;
   }
@@ -66,6 +67,15 @@ function readinessDotClass(state: AgentReadinessState): string {
 function readinessHint(entry: AgentReadinessEntry): string | null {
   if (entry.state === 'ready' || entry.state === 'checking') return null;
   return entry.summary;
+}
+
+// Selecting an agent that isn't ready is allowed (statuses can be stale), but
+// surface what setup is still needed instead of failing later on send.
+function notifySetupNeeded(entry: AgentReadinessEntry | undefined): void {
+  if (!entry || entry.state === 'ready' || entry.state === 'checking') return;
+  toast.warning(`${entry.label}: ${entry.summary}`, {
+    description: entry.command ? `Run: ${entry.command}` : entry.detail,
+  });
 }
 
 export function ComposerAgentPicker({
@@ -154,7 +164,10 @@ export function ComposerAgentPicker({
             return (
               <DropdownMenu.Item
                 key={provider.id}
-                onSelect={() => onChange(provider.id)}
+                onSelect={() => {
+                  notifySetupNeeded(readiness);
+                  onChange(provider.id);
+                }}
                 className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
               >
                 <AgentIcon provider={provider.id} />
@@ -836,6 +849,9 @@ export function ComposerAgentModelPicker({
   const currentReadiness = readinessByProvider.get(agentProvider);
 
   const handleAgentAndModelChange = (provider: AgentProvider, option?: ComposerModelOption) => {
+    if (provider !== agentProvider) {
+      notifySetupNeeded(readinessByProvider.get(provider));
+    }
     onAgentChange(provider);
     if (option) {
       onModelChange(option);

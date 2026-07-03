@@ -94,6 +94,7 @@ export function PromptInput({
     consumePromptLibraryInsert,
     pendingChatInjection,
     consumeChatInjection,
+    draftStartMode,
   } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -404,6 +405,8 @@ export function PromptInput({
           associatedWorktreeRef: activeSession.associatedWorktreeRef ?? null,
           scope: 'project',
           channelId,
+          createIsolatedWorkspace:
+            draftStartMode[activeSession.id] === 'worktree' || undefined,
           attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
           provider: runtimeProvider,
           model: selectedModel || undefined,
@@ -787,7 +790,6 @@ export function PromptInput({
             cursorIndex={cursorIndex}
             slashContext={capabilityMenu.slashContext}
             slashDisplayLabels={capabilityMenu.slashDisplayLabels}
-            agentMentionLabels={{}}
             onChange={(value, nextCursorIndex) => {
               void handlePromptChange(value, nextCursorIndex);
             }}

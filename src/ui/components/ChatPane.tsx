@@ -24,7 +24,6 @@ import { ComposerContextPills } from './ComposerContextPills';
 import { InSessionSearch } from './search/InSessionSearch';
 import { ComposerPendingPermissionPanel } from './ComposerPendingPermissionPanel';
 import { ErrorBoundary } from './ErrorBoundary';
-import { AgentAvatar } from './AgentAvatar';
 import { TurnChangesCard } from './TurnChangesCard';
 import { TurnDiffContext, type TurnDiffContextValue } from './TurnDiffContext';
 import { CodexActivePlanCard } from './CodexActivePlanCard';
@@ -122,6 +121,44 @@ export function SessionWorkspaceControl({
   const [branchesError, setBranchesError] = useState<string | null>(null);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [busyAction, setBusyAction] = useState<'local' | 'worktree' | 'branch' | null>(null);
+  // worktree 收尾动作（Environment 卡片 / Workspace 下拉里）："收下"或"扔掉"
+  const [worktreeActionBusy, setWorktreeActionBusy] = useState(false);
+
+  const handleSquashMerge = async () => {
+    setWorktreeActionBusy(true);
+    try {
+      const result = await window.electron.applyWorktreeChanges(session.id);
+      if (result.ok) {
+        toast.success('Squash-merged — changes are staged in your project for review.');
+      } else {
+        toast.error(result.message || 'Squash-merge failed.');
+      }
+    } finally {
+      setWorktreeActionBusy(false);
+    }
+  };
+
+  const handleDiscardWorktree = async () => {
+    const branch = session.associatedWorktreeBranch;
+    if (
+      !window.confirm(
+        `Remove this worktree${branch ? ` and delete branch ${branch}` : ''}? All uncommitted changes in it are lost. The conversation stays.`
+      )
+    ) {
+      return;
+    }
+    setWorktreeActionBusy(true);
+    try {
+      const result = await window.electron.discardWorktreeChanges(session.id);
+      if (result.ok) {
+        toast.success('Worktree removed — thread is back on the project.');
+      } else {
+        toast.error(result.message || 'Could not remove the worktree.');
+      }
+    } finally {
+      setWorktreeActionBusy(false);
+    }
+  };
   const [worktreeDialogOpen, setWorktreeDialogOpen] = useState(false);
   const [localDialogOpen, setLocalDialogOpen] = useState(false);
   const [branchDialog, setBranchDialog] = useState<{
@@ -475,6 +512,41 @@ export function SessionWorkspaceControl({
               <GitFork className="h-3.5 w-3.5 text-[var(--text-muted)]" />
               <span className="flex-1">New worktree</span>
             </DropdownMenu.Item>
+            {isWorktree ? (
+              <>
+                <div className="my-1 h-px bg-[var(--border)]" />
+                <div
+                  className="truncate px-2 py-1 font-mono text-[11px] text-[var(--text-muted)]"
+                  title={session.worktreePath || undefined}
+                >
+                  {session.associatedWorktreeBranch || 'worktree'}
+                </div>
+                <DropdownMenu.Item
+                  disabled={isRunning || worktreeActionBusy}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void handleSquashMerge();
+                  }}
+                  className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
+                  title="git merge --squash into your project — the result lands in the staging area for review"
+                >
+                  <GitBranch className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                  <span className="flex-1">Squash-merge into project</span>
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  disabled={isRunning || worktreeActionBusy}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void handleDiscardWorktree();
+                  }}
+                  className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)] data-[highlighted]:text-rose-500"
+                  title="Remove the worktree and delete its branch"
+                >
+                  <X className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                  <span className="flex-1">Discard worktree…</span>
+                </DropdownMenu.Item>
+              </>
+            ) : null}
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
@@ -870,7 +942,6 @@ export function ChatPane({
 }) {
   const {
     sessions,
-    agentProfiles,
     historyNavigationTarget,
     loadOlderSessionHistory,
     setHistoryNavigationTarget,
@@ -881,13 +952,11 @@ export function ChatPane({
     setShowSettings,
     createDraftSession,
     removeDraftSession,
+    draftStartMode,
+    setDraftStartMode,
   } = useAppStore();
   const session = sessionId ? sessions[sessionId] : null;
   const scrollPositionKey = sessionId ? getChatScrollPositionKey(paneId, sessionId) : null;
-  const directAgent =
-    session?.scope === 'dm' && session.agentId
-      ? agentProfiles[session.agentId] || null
-      : null;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const historyRequested = useRef(new Set<string>());
   const scrollUpdateStateRef = useRef<{ key: string; messageCount: number } | null>(null);
@@ -1389,7 +1458,6 @@ export function ChatPane({
   // (title + composer + starter suggestions), matching the first-entry screen.
   const showThreadStarter = Boolean(
     session &&
-      !directAgent &&
       session.scope !== 'dm' &&
       session.messages.length === 0 &&
       // Only treat an empty session as a fresh thread once we know it's actually
@@ -1495,24 +1563,9 @@ export function ChatPane({
         <>
           <div className="flex h-9 items-center justify-between bg-[var(--bg-primary)] px-3">
             <div className="flex min-w-0 items-center gap-2 text-[12px] text-[var(--text-secondary)]">
-              {directAgent ? (
-                <>
-                  <AgentAvatar profile={directAgent} size="sm" decorative />
-                  <span className="truncate font-medium text-[var(--text-primary)]">
-                    {directAgent.name.trim() || session.title || 'Agent thread'}
-                  </span>
-                  <span className="shrink-0 text-[var(--text-muted)]">·</span>
-                  <span className="truncate text-[var(--text-muted)]">
-                    {directAgent.role.trim() || 'Agent'} · No project context
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="truncate font-medium text-[var(--text-primary)]">
-                    {session.title || 'Chat'}
-                  </span>
-                </>
-              )}
+              <span className="truncate font-medium text-[var(--text-primary)]">
+                {session.title || 'Chat'}
+              </span>
             </div>
             <div className="flex items-center gap-1">
               {headerActions}
@@ -1553,6 +1606,10 @@ export function ChatPane({
                       recentOptions={threadStarterRecentOptions}
                       onSelectRecent={switchDraftFolder}
                       sessionId={sessionId}
+                      startMode={sessionId ? draftStartMode[sessionId] || 'local' : 'local'}
+                      onStartModeChange={(mode) => {
+                        if (sessionId) setDraftStartMode(sessionId, mode);
+                      }}
                     />
                   }
                 />

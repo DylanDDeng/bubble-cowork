@@ -430,7 +430,6 @@ export interface WorkspaceChannel {
   projectCwd: string;
   name: string;
   description?: string;
-  defaultTeamId?: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -613,8 +612,6 @@ export interface AutomationRuntimeConfig {
   compatibleProviderId?: ClaudeCompatibleProviderId | null;
   codexReasoningEffort?: CodexReasoningEffort | null;
   codexFastMode?: boolean;
-  teamMode?: SessionTeamMode;
-  teamId?: string | null;
 }
 
 export type AutomationRunStatus = 'running' | 'completed' | 'failed';
@@ -705,8 +702,7 @@ export type ClientEvent =
   | { type: 'folder.move'; payload: { oldPath: string; newPath: string } }
   | { type: 'session.setFolder'; payload: { sessionId: string; folderPath: string | null } }
   | { type: 'session.setChannel'; payload: { sessionId: string; channelId: string } }
-  | { type: 'session.setTeam'; payload: { sessionId: string; teamMode: SessionTeamMode; teamId?: string | null } }
-  | { type: 'profiles.sync'; payload: ProfileSnapshotPayload };
+  | { type: 'session.setTeam'; payload: { sessionId: string; teamMode: SessionTeamMode; teamId?: string | null } };
 
 export interface AppUpdateStatus {
   available: boolean;
@@ -766,7 +762,8 @@ export type ServerEvent =
   | { type: 'session.channelChanged'; payload: { sessionId: string; channelId: string } }
   | { type: 'session.teamChanged'; payload: { sessionId: string; teamMode: SessionTeamMode; teamId: string | null } }
   | { type: 'automation.changed'; payload: AutomationSnapshot }
-  | { type: 'profiles.list'; payload: ProfileSnapshotPayload };
+  // 系统通知点击后的回位事件（主进程 → 聚焦窗口后广播）
+  | { type: 'app.focusSession'; payload: { sessionId: string } };
 
 // Payload 类型
 export interface SessionStartPayload {
@@ -803,16 +800,12 @@ export interface SessionStartPayload {
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
-  routedAgentId?: string | null;
-  routedAgentProfile?: RoutedAgentRuntimePayload | null;
-  routedAgentTurns?: RoutedAgentTurnPayload[];
-  availableAgentTurns?: RoutedAgentRuntimePayload[];
   teamMode?: SessionTeamMode;
   teamId?: string | null;
-  teamProfile?: TeamProfile | null;
-  teamAgentTurns?: RoutedAgentRuntimePayload[];
   hiddenFromThreads?: boolean;
   channelId?: string;
+  // "在隔离副本中运行"：开跑前在项目里建一个 worktree，session 全程活在里面
+  createIsolatedWorkspace?: boolean;
 }
 
 export interface SessionContinuePayload {
@@ -837,14 +830,8 @@ export interface SessionContinuePayload {
   codexSkills?: ProviderInputReference[];
   codexMentions?: ProviderInputReference[];
   opencodePermissionMode?: OpenCodePermissionMode;
-  routedAgentId?: string | null;
-  routedAgentProfile?: RoutedAgentRuntimePayload | null;
-  routedAgentTurns?: RoutedAgentTurnPayload[];
-  availableAgentTurns?: RoutedAgentRuntimePayload[];
   teamMode?: SessionTeamMode;
   teamId?: string | null;
-  teamProfile?: TeamProfile | null;
-  teamAgentTurns?: RoutedAgentRuntimePayload[];
 }
 
 export type SessionScope = 'project' | 'dm';
@@ -1011,110 +998,7 @@ export interface GitSessionHandoffInput {
   includeChanges?: boolean;
 }
 
-export interface RoutedAgentPublicProfile {
-  id: string;
-  name: string;
-  role?: string;
-  description?: string;
-  canDelegate?: boolean;
-}
-
-export interface RoutedAgentRuntimePayload {
-  routedAgentId: string;
-  agent?: RoutedAgentPublicProfile;
-  instructions?: string;
-  provider: AgentProvider;
-  model?: string;
-  compatibleProviderId?: ClaudeCompatibleProviderId;
-  betas?: string[];
-  claudeAccessMode?: ClaudeAccessMode;
-  claudeExecutionMode?: ClaudeExecutionMode;
-  claudeReasoningEffort?: ClaudeReasoningEffort;
-  codexExecutionMode?: CodexExecutionMode;
-  codexPermissionMode?: CodexPermissionMode;
-  codexReasoningEffort?: CodexReasoningEffort;
-  codexFastMode?: boolean;
-  kimiPermissionMode?: KimiPermissionMode;
-  grokPermissionMode?: GrokPermissionMode;
-  grokReasoningEffort?: GrokReasoningEffort;
-  codexSkills?: ProviderInputReference[];
-  codexMentions?: ProviderInputReference[];
-  opencodePermissionMode?: OpenCodePermissionMode;
-}
-
-export interface RoutedAgentTurnPayload extends RoutedAgentRuntimePayload {
-  effectivePrompt: string;
-  projectAgents?: RoutedAgentPublicProfile[];
-  availableAgentTurns?: RoutedAgentRuntimePayload[];
-  delegationDepth?: number;
-  delegationKind?: 'user' | 'delegated' | 'summary';
-}
-
 export type SessionTeamMode = 'channel_default' | 'solo' | 'team' | 'manual';
-
-export interface TeamMemberProfile {
-  agentId: string;
-  role?: string;
-  enabled: boolean;
-  order: number;
-}
-
-export interface TeamProfile {
-  id: string;
-  name: string;
-  description?: string;
-  leaderAgentId: string | null;
-  instructions?: string;
-  members: TeamMemberProfile[];
-  createdAt: number;
-  updatedAt: number;
-}
-
-export type StoredAgentProfile = Record<string, unknown> & {
-  id: string;
-  createdAt?: number;
-  updatedAt?: number;
-};
-
-export interface ProfileSnapshotPayload {
-  agentProfiles: StoredAgentProfile[];
-  teamProfiles: TeamProfile[];
-}
-
-export interface DelegateCall {
-  id: string;
-  agentId: string;
-  task: string;
-  reason: string;
-  contextRefs?: string[];
-}
-
-export type DelegateErrorKind = 'timeout' | 'tool_denied' | 'api_error' | 'budget_exceeded';
-
-export interface DelegateArtifactRef {
-  type: 'diff' | 'file' | 'link' | 'log' | 'note';
-  id: string;
-  title: string;
-}
-
-export interface DelegateResult {
-  delegateCallId: string;
-  agentId: string;
-  status: 'ok' | 'blocked' | 'needs_user' | 'error';
-  summary: string;
-  errorKind?: DelegateErrorKind;
-  artifacts?: DelegateArtifactRef[];
-  rawRef: string;
-}
-
-export interface LeaderTurnPlan {
-  message?: string;
-  delegates?: DelegateCall[];
-  askUser?: { question: string };
-  noActionReason?: string;
-}
-
-export type DelegateActivityState = 'queued' | 'running' | 'completed' | 'error';
 
 export interface SessionInfo {
   id: string;
@@ -1294,10 +1178,6 @@ export type StreamMessageBase = {
   agentId?: string | null;
   agentRunId?: string | null;
   parentTurnId?: string | null;
-  delegateCallId?: string | null;
-  delegateRunId?: string | null;
-  delegateAgentId?: string | null;
-  delegateReason?: string | null;
 };
 
 export interface CompactMetadata {
@@ -1373,15 +1253,6 @@ export type StreamMessage =
       uuid: string;
       planMarkdown: string;
       turnId?: string;
-    })
-  | (StreamMessageBase & {
-      type: 'delegate_activity';
-      uuid: string;
-      session_id: string;
-      call: DelegateCall;
-      state: DelegateActivityState;
-      result?: DelegateResult;
-      raw?: string;
     })
   | (StreamMessageBase & { type: 'stream_event'; event: StreamEvent })
   | (StreamMessageBase & { type: 'mcp_status'; servers: McpServerStatus[] });
@@ -1468,6 +1339,27 @@ export interface ClaudeModelUsage {
 export interface LatestClaudeModelUsage {
   model: string;
   usage: ClaudeModelUsage;
+}
+
+export type AgentRuntimeState = 'ready' | 'login_required' | 'not_installed' | 'error';
+
+export interface AgentRuntimeEntry {
+  provider: AgentProvider;
+  title: string;
+  state: AgentRuntimeState;
+  version: string | null;
+  summary: string;
+  detail: string | null;
+  installCommand: string | null;
+  loginCommand: string | null;
+  docsUrl: string | null;
+  checkedAt: number;
+}
+
+export interface AgentRuntimeDirectoryReport {
+  entries: AgentRuntimeEntry[];
+  readyCount: number;
+  checkedAt: number;
 }
 
 export interface UserProfile {

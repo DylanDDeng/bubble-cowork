@@ -33,9 +33,6 @@ import type {
   SessionSource,
   SessionScope,
   SessionTeamMode,
-  ProfileSnapshotPayload,
-  StoredAgentProfile,
-  TeamProfile,
   SessionEnvironmentNote,
   SessionEnvironmentRecap,
   ThreadEnvironmentMode,
@@ -87,54 +84,10 @@ type MessagePersistenceRecord = {
   searchText: string;
   sortKey: number;
   parentTurnId: string | null;
-  delegateCallId: string | null;
-  delegateRunId: string | null;
   data: string;
   createdAt: number;
   artifact?: MessageArtifactPersistenceRecord;
 };
-
-export type BuiltinMemoryRolloutStatus =
-  | 'pending'
-  | 'processing'
-  | 'extracted'
-  | 'skipped'
-  | 'consolidated'
-  | 'failed';
-
-export interface BuiltinMemoryRolloutRow {
-  session_id: string;
-  agent_id: string;
-  status: BuiltinMemoryRolloutStatus;
-  model: string | null;
-  attempts: number;
-  last_error: string | null;
-  rollout_summary: string | null;
-  rollout_slug: string | null;
-  created_at: number;
-  updated_at: number;
-  claimed_at: number | null;
-  extracted_at: number | null;
-  consolidated_at: number | null;
-}
-
-export interface BuiltinMemoryCandidateInput {
-  text: string;
-  reason?: string | null;
-  confidence?: string | null;
-}
-
-export interface BuiltinMemoryCandidateRow {
-  id: string;
-  session_id: string;
-  agent_id: string;
-  text: string;
-  reason: string | null;
-  confidence: string | null;
-  dedupe_key: string;
-  created_at: number;
-  consolidated_at: number | null;
-}
 
 interface AutomationRow {
   id: string;
@@ -146,8 +99,6 @@ interface AutomationRow {
   compatible_provider_id: ClaudeCompatibleProviderId | null;
   codex_reasoning_effort: CodexReasoningEffort | null;
   codex_fast_mode: number | null;
-  team_mode: SessionTeamMode | null;
-  team_id: string | null;
   schedule_kind: AutomationSchedule['kind'];
   schedule_time_of_day: string | null;
   schedule_day_of_week: number | null;
@@ -376,8 +327,6 @@ function normalizeAutomationRuntime(runtime?: AutomationRuntimeConfig | null): A
         ? runtime?.codexReasoningEffort || null
         : null,
     codexFastMode: provider === 'codex' ? runtime?.codexFastMode === true : false,
-    teamMode: normalizeSessionTeamMode(runtime?.teamMode),
-    teamId: runtime?.teamId?.trim() || null,
   };
 }
 
@@ -535,46 +484,6 @@ export function initialize(): void {
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
 
-    CREATE TABLE IF NOT EXISTS builtin_memory_rollouts (
-      session_id TEXT PRIMARY KEY,
-      agent_id TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      model TEXT,
-      attempts INTEGER NOT NULL DEFAULT 0,
-      last_error TEXT,
-      rollout_summary TEXT,
-      rollout_slug TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      claimed_at INTEGER,
-      extracted_at INTEGER,
-      consolidated_at INTEGER,
-      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS builtin_memory_candidates (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      agent_id TEXT NOT NULL,
-      text TEXT NOT NULL,
-      reason TEXT,
-      confidence TEXT,
-      dedupe_key TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      consolidated_at INTEGER,
-      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS builtin_memory_consolidations (
-      id TEXT PRIMARY KEY,
-      agent_id TEXT NOT NULL,
-      status TEXT NOT NULL,
-      candidate_count INTEGER NOT NULL DEFAULT 0,
-      error TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS automations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -657,8 +566,21 @@ export function initialize(): void {
   ensureColumn('messages', 'search_text', 'TEXT');
   ensureColumn('messages', 'sort_key', 'INTEGER');
   ensureColumn('messages', 'parent_turn_id', 'TEXT');
-  ensureColumn('messages', 'delegate_call_id', 'TEXT');
-  ensureColumn('messages', 'delegate_run_id', 'TEXT');
+
+  // persona 脚手架清退：builtin_memory 管线从未启用，物理表一并清掉
+  getDb().exec(`
+    DROP TABLE IF EXISTS builtin_memory_rollouts;
+    DROP TABLE IF EXISTS builtin_memory_candidates;
+    DROP TABLE IF EXISTS builtin_memory_consolidations;
+  `);
+
+  // 自动扇出（run group）编排层已移除：这两张表只在本分支存在过，直接清掉。
+  // sessions.run_group_id / automations.fan_out_variants 残留列无害，随行读写忽略。
+  getDb().exec(`
+    DROP INDEX IF EXISTS idx_sessions_run_group;
+    DROP TABLE IF EXISTS run_groups;
+    DROP TABLE IF EXISTS custom_runtimes;
+  `);
 
   // 内置 Aegis runtime 已下线：清理残留的 aegis provider 会话与自动化
   try {
@@ -678,17 +600,12 @@ export function initialize(): void {
     CREATE INDEX IF NOT EXISTS idx_messages_sort_key ON messages(sort_key);
     CREATE INDEX IF NOT EXISTS idx_messages_message_type ON messages(message_type);
     CREATE INDEX IF NOT EXISTS idx_messages_parent_turn_id ON messages(parent_turn_id);
-    CREATE INDEX IF NOT EXISTS idx_messages_delegate_call_id ON messages(delegate_call_id);
     CREATE INDEX IF NOT EXISTS idx_agent_profiles_updated_at ON agent_profiles(updated_at);
     CREATE INDEX IF NOT EXISTS idx_team_profiles_updated_at ON team_profiles(updated_at);
     CREATE INDEX IF NOT EXISTS idx_artifacts_session_id ON artifacts(session_id);
     CREATE INDEX IF NOT EXISTS idx_derived_summaries_session_id ON derived_summaries(session_id);
     CREATE INDEX IF NOT EXISTS idx_session_environment_notes_updated ON session_environment_notes(updated_at);
     CREATE INDEX IF NOT EXISTS idx_search_index_session_id ON search_index(session_id);
-    CREATE INDEX IF NOT EXISTS idx_builtin_memory_rollouts_agent_status ON builtin_memory_rollouts(agent_id, status, updated_at);
-    CREATE INDEX IF NOT EXISTS idx_builtin_memory_candidates_agent_pending ON builtin_memory_candidates(agent_id, consolidated_at, created_at);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_builtin_memory_candidates_dedupe ON builtin_memory_candidates(agent_id, dedupe_key);
-    CREATE INDEX IF NOT EXISTS idx_builtin_memory_consolidations_agent ON builtin_memory_consolidations(agent_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_automations_next_run ON automations(enabled, next_run_at);
     CREATE INDEX IF NOT EXISTS idx_automations_project ON automations(project_cwd, updated_at);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_automation_created ON automation_runs(automation_id, created_at);
@@ -742,8 +659,6 @@ function purgeImportedClaudeCodeSessions(): void {
   const deleteSearchIndex = database.prepare('DELETE FROM search_index WHERE session_id = ?');
   const deleteDerivedSummaries = database.prepare('DELETE FROM derived_summaries WHERE session_id = ?');
   const deleteArtifacts = database.prepare('DELETE FROM artifacts WHERE session_id = ?');
-  const deleteMemoryCandidates = database.prepare('DELETE FROM builtin_memory_candidates WHERE session_id = ?');
-  const deleteMemoryRollouts = database.prepare('DELETE FROM builtin_memory_rollouts WHERE session_id = ?');
   const deleteMessages = database.prepare('DELETE FROM messages WHERE session_id = ?');
   const deleteSession = database.prepare('DELETE FROM sessions WHERE id = ?');
 
@@ -752,8 +667,6 @@ function purgeImportedClaudeCodeSessions(): void {
       deleteSearchIndex.run(sessionId);
       deleteDerivedSummaries.run(sessionId);
       deleteArtifacts.run(sessionId);
-      deleteMemoryCandidates.run(sessionId);
-      deleteMemoryRollouts.run(sessionId);
       deleteMessages.run(sessionId);
       deleteSession.run(sessionId);
     }
@@ -826,16 +739,6 @@ function extractSearchableMessageText(message: StreamMessage): string {
 
   if (message.type === 'result') {
     return message.subtype || '';
-  }
-
-  if (message.type === 'delegate_activity') {
-    return [
-      message.call.agentId,
-      message.call.reason,
-      message.call.task,
-      message.result?.summary,
-      message.raw,
-    ].filter(Boolean).join('\n');
   }
 
   return '';
@@ -994,8 +897,6 @@ function buildMessagePersistenceRecord(
     searchText: normalizeSearchText(extractSearchableMessageText(message)),
     sortKey: createdAt,
     parentTurnId: typeof message.parentTurnId === 'string' ? message.parentTurnId : null,
-    delegateCallId: typeof message.delegateCallId === 'string' ? message.delegateCallId : null,
-    delegateRunId: typeof message.delegateRunId === 'string' ? message.delegateRunId : null,
     data: externalized?.storedData || rawData,
     createdAt,
     artifact: externalized?.artifact,
@@ -1250,97 +1151,6 @@ function getDb(): Database.Database {
   return db;
 }
 
-type ProfileRow = {
-  id: string;
-  data: string;
-  created_at: number;
-  updated_at: number;
-};
-
-function normalizeStoredProfileRecord(value: unknown): StoredAgentProfile | null {
-  if (!value || typeof value !== 'object') return null;
-  const record = value as Record<string, unknown>;
-  const id = typeof record.id === 'string' ? record.id.trim() : '';
-  if (!id) return null;
-  return { ...record, id } as StoredAgentProfile;
-}
-
-function normalizeStoredTeamProfile(value: unknown): TeamProfile | null {
-  if (!value || typeof value !== 'object') return null;
-  const record = value as Partial<TeamProfile>;
-  const id = typeof record.id === 'string' ? record.id.trim() : '';
-  const name = typeof record.name === 'string' ? record.name : '';
-  if (!id || !name.trim()) return null;
-  return {
-    ...record,
-    id,
-    name,
-    leaderAgentId: typeof record.leaderAgentId === 'string' ? record.leaderAgentId : null,
-    members: Array.isArray(record.members) ? record.members : [],
-    createdAt: typeof record.createdAt === 'number' ? record.createdAt : Date.now(),
-    updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : Date.now(),
-  } as TeamProfile;
-}
-
-function parseStoredProfileRow<T>(row: ProfileRow, normalize: (value: unknown) => T | null): T | null {
-  try {
-    return normalize(JSON.parse(row.data));
-  } catch {
-    return null;
-  }
-}
-
-function replaceProfileTable<T extends { id: string; createdAt?: number; updatedAt?: number }>(
-  tableName: 'agent_profiles' | 'team_profiles',
-  profiles: T[]
-): void {
-  const now = Date.now();
-  const db = getDb();
-  const transaction = db.transaction((items: T[]) => {
-    db.prepare(`DELETE FROM ${tableName}`).run();
-    const stmt = db.prepare(`
-      INSERT INTO ${tableName} (id, data, created_at, updated_at)
-      VALUES (?, ?, ?, ?)
-    `);
-    for (const item of items) {
-      const id = item.id.trim();
-      if (!id) continue;
-      const createdAt = typeof item.createdAt === 'number' ? item.createdAt : now;
-      const updatedAt = typeof item.updatedAt === 'number' ? item.updatedAt : now;
-      stmt.run(id, JSON.stringify({ ...item, id, createdAt, updatedAt }), createdAt, updatedAt);
-    }
-  });
-  transaction(profiles);
-}
-
-export function replaceProfileSnapshots(payload: ProfileSnapshotPayload): void {
-  const agentProfiles = payload.agentProfiles
-    .map(normalizeStoredProfileRecord)
-    .filter((item): item is StoredAgentProfile => Boolean(item));
-  const teamProfiles = payload.teamProfiles
-    .map(normalizeStoredTeamProfile)
-    .filter((item): item is TeamProfile => Boolean(item));
-  replaceProfileTable('agent_profiles', agentProfiles);
-  replaceProfileTable('team_profiles', teamProfiles);
-}
-
-export function getProfileSnapshots(): ProfileSnapshotPayload {
-  const agentRows = getDb()
-    .prepare('SELECT id, data, created_at, updated_at FROM agent_profiles ORDER BY created_at ASC')
-    .all() as ProfileRow[];
-  const teamRows = getDb()
-    .prepare('SELECT id, data, created_at, updated_at FROM team_profiles ORDER BY created_at ASC')
-    .all() as ProfileRow[];
-  return {
-    agentProfiles: agentRows
-      .map((row) => parseStoredProfileRow(row, normalizeStoredProfileRecord))
-      .filter((item): item is StoredAgentProfile => Boolean(item)),
-    teamProfiles: teamRows
-      .map((row) => parseStoredProfileRow(row, normalizeStoredTeamProfile))
-      .filter((item): item is TeamProfile => Boolean(item)),
-  };
-}
-
 // 创建会话
 export function createSession(params: {
   title: string;
@@ -1467,8 +1277,6 @@ function automationRowToDefinition(row: AutomationRow): AutomationDefinition {
     compatibleProviderId: row.compatible_provider_id,
     codexReasoningEffort: row.codex_reasoning_effort,
     codexFastMode: row.codex_fast_mode === 1,
-    teamMode: row.team_mode || 'channel_default',
-    teamId: row.team_id,
   });
 
   return {
@@ -1561,8 +1369,6 @@ export function saveAutomation(input: UpsertAutomationInput): AutomationDefiniti
       compatible_provider_id,
       codex_reasoning_effort,
       codex_fast_mode,
-      team_mode,
-      team_id,
       schedule_kind,
       schedule_time_of_day,
       schedule_day_of_week,
@@ -1578,7 +1384,7 @@ export function saveAutomation(input: UpsertAutomationInput): AutomationDefiniti
       created_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       project_cwd = excluded.project_cwd,
@@ -1588,8 +1394,6 @@ export function saveAutomation(input: UpsertAutomationInput): AutomationDefiniti
       compatible_provider_id = excluded.compatible_provider_id,
       codex_reasoning_effort = excluded.codex_reasoning_effort,
       codex_fast_mode = excluded.codex_fast_mode,
-      team_mode = excluded.team_mode,
-      team_id = excluded.team_id,
       schedule_kind = excluded.schedule_kind,
       schedule_time_of_day = excluded.schedule_time_of_day,
       schedule_day_of_week = excluded.schedule_day_of_week,
@@ -1609,8 +1413,6 @@ export function saveAutomation(input: UpsertAutomationInput): AutomationDefiniti
     normalized.runtime.compatibleProviderId || null,
     normalized.runtime.codexReasoningEffort || null,
     normalized.runtime.codexFastMode ? 1 : 0,
-    normalizeSessionTeamMode(normalized.runtime.teamMode),
-    normalized.runtime.teamId || null,
     normalized.schedule.kind,
     normalized.schedule.timeOfDay || null,
     normalized.schedule.dayOfWeek ?? null,
@@ -1779,12 +1581,45 @@ export function getLatestClaudeModelUsageBySession(): Record<string, LatestClaud
 }
 
 // 更新会话状态
+// 状态变化监听（完成通知挂在这里）；由 ipc-handlers 注册一次。
+// 放在 store 层是为了兜住所有 status 写入路径（turn 完成 / stop / error / 删除前的 stop）。
+let sessionStatusListener:
+  | ((row: SessionRow, previousStatus: SessionStatus | null) => void)
+  | null = null;
+
+export function setSessionStatusListener(
+  listener: ((row: SessionRow, previousStatus: SessionStatus | null) => void) | null
+): void {
+  sessionStatusListener = listener;
+}
+
 export function updateSessionStatus(sessionId: string, status: SessionStatus): void {
+  const previous = sessionStatusListener
+    ? ((getSession(sessionId)?.status as SessionStatus | undefined) ?? null)
+    : null;
   const now = Date.now();
   const stmt = getDb().prepare(`
     UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?
   `);
   stmt.run(status, now, sessionId);
+  if (sessionStatusListener) {
+    const row = getSession(sessionId);
+    if (row) {
+      const listener = sessionStatusListener;
+      // 异步触发，避免在调用方的写事务/广播路径里重入
+      queueMicrotask(() => listener(row, previous));
+    }
+  }
+}
+
+// 启动期清算：app 崩溃/强退后残留的 running session 没有任何 runner 句柄，
+// 若不清算会永远卡在 running（阻塞 handoff/checkout 门禁）。
+// 必须在任何 runner 启动之前调用（boot 时 runnerHandles 必然为空）。
+export function sweepOrphanRunningSessions(): number {
+  const result = getDb()
+    .prepare("UPDATE sessions SET status = 'error', updated_at = ? WHERE status = 'running'")
+    .run(Date.now());
+  return result.changes;
 }
 
 // 更新 Claude Session ID
@@ -2199,16 +2034,14 @@ export function addMessage(sessionId: string, message: StreamMessage): void {
   const record = buildMessagePersistenceRecord(sessionId, sourceOrigin, message);
 
   const stmt = getDb().prepare(`
-    INSERT INTO messages (id, session_id, message_type, source_origin, search_text, sort_key, parent_turn_id, delegate_call_id, delegate_run_id, data, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, session_id, message_type, source_origin, search_text, sort_key, parent_turn_id, data, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       message_type = excluded.message_type,
       source_origin = excluded.source_origin,
       search_text = excluded.search_text,
       sort_key = excluded.sort_key,
       parent_turn_id = excluded.parent_turn_id,
-      delegate_call_id = excluded.delegate_call_id,
-      delegate_run_id = excluded.delegate_run_id,
       data = excluded.data,
       created_at = excluded.created_at
   `);
@@ -2229,8 +2062,6 @@ export function addMessage(sessionId: string, message: StreamMessage): void {
     record.searchText,
     record.sortKey,
     record.parentTurnId,
-    record.delegateCallId,
-    record.delegateRunId,
     record.data,
     record.createdAt
   );
@@ -2261,8 +2092,8 @@ export function replaceSessionHistory(sessionId: string, messages: StreamMessage
   const deleteArtifactsStmt = getDb().prepare('DELETE FROM artifacts WHERE session_id = ? AND kind = ?');
   const deleteSearchIndexStmt = getDb().prepare('DELETE FROM search_index WHERE session_id = ?');
   const insertStmt = getDb().prepare(`
-    INSERT INTO messages (id, session_id, message_type, source_origin, search_text, sort_key, parent_turn_id, delegate_call_id, delegate_run_id, data, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, session_id, message_type, source_origin, search_text, sort_key, parent_turn_id, data, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertSearchIndexStmt = getDb().prepare(`
     INSERT INTO search_index (message_id, session_id, source_origin, text, updated_at)
@@ -2286,8 +2117,6 @@ export function replaceSessionHistory(sessionId: string, messages: StreamMessage
         record.searchText,
         record.sortKey,
         record.parentTurnId,
-        record.delegateCallId,
-        record.delegateRunId,
         record.data,
         record.createdAt
       );
@@ -2364,258 +2193,6 @@ export function getSessionHistory(sessionId: string): StreamMessage[] {
       );
     }
   });
-}
-
-function normalizeBuiltinMemoryAgentId(agentId?: string | null): string {
-  return agentId?.trim() || 'default';
-}
-
-function buildBuiltinMemoryDedupeKey(text: string): string {
-  const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
-  return createHash('sha256').update(normalized).digest('hex');
-}
-
-export function enqueueBuiltinMemoryRollout(params: {
-  sessionId: string;
-  agentId?: string | null;
-  model?: string | null;
-}): void {
-  const now = Date.now();
-  const agentId = normalizeBuiltinMemoryAgentId(params.agentId);
-  getDb().prepare(`
-    INSERT INTO builtin_memory_rollouts (
-      session_id,
-      agent_id,
-      status,
-      model,
-      attempts,
-      last_error,
-      created_at,
-      updated_at
-    )
-    VALUES (?, ?, 'pending', ?, 0, NULL, ?, ?)
-    ON CONFLICT(session_id) DO UPDATE SET
-      agent_id = excluded.agent_id,
-      status = CASE
-        WHEN builtin_memory_rollouts.status = 'processing' THEN builtin_memory_rollouts.status
-        ELSE 'pending'
-      END,
-      model = excluded.model,
-      attempts = CASE
-        WHEN builtin_memory_rollouts.status = 'processing' THEN builtin_memory_rollouts.attempts
-        ELSE 0
-      END,
-      last_error = NULL,
-      updated_at = excluded.updated_at,
-      claimed_at = CASE
-        WHEN builtin_memory_rollouts.status = 'processing' THEN builtin_memory_rollouts.claimed_at
-        ELSE NULL
-      END,
-      extracted_at = CASE
-        WHEN builtin_memory_rollouts.status = 'processing' THEN builtin_memory_rollouts.extracted_at
-        ELSE NULL
-      END,
-      consolidated_at = NULL
-  `).run(
-    params.sessionId,
-    agentId,
-    params.model || null,
-    now,
-    now
-  );
-}
-
-export function beginBuiltinMemoryRollout(sessionId: string): BuiltinMemoryRolloutRow | null {
-  const now = Date.now();
-  const result = getDb().prepare(`
-    UPDATE builtin_memory_rollouts
-    SET
-      status = 'processing',
-      attempts = attempts + 1,
-      last_error = NULL,
-      claimed_at = ?,
-      updated_at = ?
-    WHERE session_id = ?
-      AND (
-        status = 'pending'
-        OR (status = 'failed' AND attempts < 3)
-      )
-  `).run(now, now, sessionId);
-
-  if (!result.changes) {
-    return null;
-  }
-
-  return getDb().prepare(`
-    SELECT *
-    FROM builtin_memory_rollouts
-    WHERE session_id = ?
-  `).get(sessionId) as BuiltinMemoryRolloutRow | null;
-}
-
-export function completeBuiltinMemoryExtraction(params: {
-  sessionId: string;
-  agentId?: string | null;
-  rolloutSummary?: string | null;
-  rolloutSlug?: string | null;
-  candidates: BuiltinMemoryCandidateInput[];
-}): void {
-  const now = Date.now();
-  const agentId = normalizeBuiltinMemoryAgentId(params.agentId);
-  const insertCandidate = getDb().prepare(`
-    INSERT OR IGNORE INTO builtin_memory_candidates (
-      id,
-      session_id,
-      agent_id,
-      text,
-      reason,
-      confidence,
-      dedupe_key,
-      created_at,
-      consolidated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
-  `);
-  const updateRollout = getDb().prepare(`
-    UPDATE builtin_memory_rollouts
-    SET
-      status = ?,
-      rollout_summary = ?,
-      rollout_slug = ?,
-      extracted_at = ?,
-      updated_at = ?
-    WHERE session_id = ?
-  `);
-
-  const transaction = getDb().transaction(() => {
-    for (const candidate of params.candidates) {
-      const text = candidate.text.trim();
-      if (!text) continue;
-      insertCandidate.run(
-        uuidv4(),
-        params.sessionId,
-        agentId,
-        text,
-        candidate.reason?.trim() || null,
-        candidate.confidence?.trim() || null,
-        buildBuiltinMemoryDedupeKey(text),
-        now
-      );
-    }
-
-    updateRollout.run(
-      params.candidates.length > 0 ? 'extracted' : 'skipped',
-      params.rolloutSummary?.trim() || null,
-      params.rolloutSlug?.trim() || null,
-      now,
-      now,
-      params.sessionId
-    );
-  });
-
-  transaction();
-}
-
-export function failBuiltinMemoryRollout(sessionId: string, error: string): void {
-  const now = Date.now();
-  getDb().prepare(`
-    UPDATE builtin_memory_rollouts
-    SET
-      status = 'failed',
-      last_error = ?,
-      updated_at = ?
-    WHERE session_id = ?
-  `).run(error.slice(0, 2000), now, sessionId);
-}
-
-export function listUnconsolidatedBuiltinMemoryCandidates(
-  agentId?: string | null,
-  limit = 24
-): BuiltinMemoryCandidateRow[] {
-  const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
-  return getDb().prepare(`
-    SELECT *
-    FROM builtin_memory_candidates
-    WHERE agent_id = ?
-      AND consolidated_at IS NULL
-    ORDER BY created_at ASC
-    LIMIT ?
-  `).all(normalizeBuiltinMemoryAgentId(agentId), safeLimit) as BuiltinMemoryCandidateRow[];
-}
-
-export function completeBuiltinMemoryConsolidation(params: {
-  agentId?: string | null;
-  candidateIds: string[];
-  sessionIds: string[];
-}): void {
-  const now = Date.now();
-  const candidateIds = Array.from(new Set(params.candidateIds.filter(Boolean)));
-  const sessionIds = Array.from(new Set(params.sessionIds.filter(Boolean)));
-  const agentId = normalizeBuiltinMemoryAgentId(params.agentId);
-  const insertConsolidation = getDb().prepare(`
-    INSERT INTO builtin_memory_consolidations (
-      id,
-      agent_id,
-      status,
-      candidate_count,
-      error,
-      created_at,
-      updated_at
-    )
-    VALUES (?, ?, 'completed', ?, NULL, ?, ?)
-  `);
-
-  const transaction = getDb().transaction(() => {
-    insertConsolidation.run(uuidv4(), agentId, candidateIds.length, now, now);
-
-    if (candidateIds.length > 0) {
-      const placeholders = candidateIds.map(() => '?').join(', ');
-      getDb().prepare(`
-        UPDATE builtin_memory_candidates
-        SET consolidated_at = ?
-        WHERE id IN (${placeholders})
-      `).run(now, ...candidateIds);
-    }
-
-    if (sessionIds.length > 0) {
-      const placeholders = sessionIds.map(() => '?').join(', ');
-      getDb().prepare(`
-        UPDATE builtin_memory_rollouts
-        SET
-          status = 'consolidated',
-          consolidated_at = ?,
-          updated_at = ?
-        WHERE session_id IN (${placeholders})
-      `).run(now, now, ...sessionIds);
-    }
-  });
-
-  transaction();
-}
-
-export function failBuiltinMemoryConsolidation(params: {
-  agentId?: string | null;
-  error: string;
-}): void {
-  const now = Date.now();
-  getDb().prepare(`
-    INSERT INTO builtin_memory_consolidations (
-      id,
-      agent_id,
-      status,
-      candidate_count,
-      error,
-      created_at,
-      updated_at
-    )
-    VALUES (?, ?, 'failed', 0, ?, ?, ?)
-  `).run(
-    uuidv4(),
-    normalizeBuiltinMemoryAgentId(params.agentId),
-    params.error.slice(0, 2000),
-    now,
-    now
-  );
 }
 
 export function addArtifact(params: {
