@@ -31,12 +31,6 @@ import type {
   WechatMarkdownHtmlGenerationInput,
   WechatMarkdownHtmlGenerationResult,
   WechatMarkdownHtmlGeneratorConfig,
-  RunGroupAdoptResult,
-  RunGroupInfo,
-  RunGroupStartInput,
-  RunGroupStartResult,
-  RunGroupSummary,
-  CustomRuntime,
 } from '../shared/types';
 import type {
   BrowserCapturePageResult,
@@ -238,58 +232,6 @@ contextBridge.exposeInMainWorld('electron', {
     automationId: string
   ): Promise<{ ok: boolean; sessionId?: string; message?: string }> => {
     return ipcRenderer.invoke('run-automation-now', automationId);
-  },
-
-  startRunGroup: (input: RunGroupStartInput): Promise<RunGroupStartResult> => {
-    return ipcRenderer.invoke('start-run-group', input);
-  },
-
-  cancelRunGroup: (groupId: string): Promise<{ ok: boolean; message?: string }> => {
-    return ipcRenderer.invoke('cancel-run-group', groupId);
-  },
-
-  listRunGroups: (projectCwd?: string): Promise<RunGroupInfo[]> => {
-    return ipcRenderer.invoke('list-run-groups', projectCwd);
-  },
-
-  getRunGroupSummary: (groupId: string): Promise<RunGroupSummary | null> => {
-    return ipcRenderer.invoke('run-group-summary', groupId);
-  },
-
-  getRunGroupMemberDiff: (groupId: string, memberIndex: number): Promise<string | null> => {
-    return ipcRenderer.invoke('run-group-member-diff', groupId, memberIndex);
-  },
-
-  adoptRunGroup: (groupId: string, memberIndex: number): Promise<RunGroupAdoptResult> => {
-    return ipcRenderer.invoke('adopt-run-group', groupId, memberIndex);
-  },
-
-  discardRunGroup: (groupId: string): Promise<{ ok: boolean; message?: string }> => {
-    return ipcRenderer.invoke('discard-run-group', groupId);
-  },
-
-  listReclaimableWorktrees: (projectCwd: string): Promise<string[]> => {
-    return ipcRenderer.invoke('list-reclaimable-worktrees', projectCwd);
-  },
-
-  reclaimWorktrees: (projectCwd: string): Promise<{ removed: number }> => {
-    return ipcRenderer.invoke('reclaim-worktrees', projectCwd);
-  },
-
-  listCustomRuntimes: (): Promise<CustomRuntime[]> => {
-    return ipcRenderer.invoke('list-custom-runtimes');
-  },
-
-  upsertCustomRuntime: (input: {
-    id?: string;
-    name: string;
-    command: string;
-  }): Promise<{ ok: boolean; runtime?: CustomRuntime; message?: string }> => {
-    return ipcRenderer.invoke('upsert-custom-runtime', input);
-  },
-
-  deleteCustomRuntime: (id: string): Promise<{ ok: boolean }> => {
-    return ipcRenderer.invoke('delete-custom-runtime', id);
   },
 
   getNotificationSettings: (): Promise<{ enabled: boolean; onlyWhenUnfocused: boolean }> => {

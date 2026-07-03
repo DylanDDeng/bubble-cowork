@@ -1,7 +1,6 @@
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { ChatPane } from './ChatPane';
-import { RunGroupTerminalPane } from './RunGroupTerminalPane';
 import {
   type LeafNode,
   type PaneNode,
@@ -119,24 +118,15 @@ const LeafPane = memo(function LeafPane({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {leaf.surface === 'terminal' && leaf.sessionId ? (
-        <RunGroupTerminalPane
-          threadId={leaf.sessionId}
-          isActive={isActive}
-          onActivate={() => setActivePaneById(leaf.id)}
-          onClose={canClose ? () => closePaneById(leaf.id) : undefined}
-        />
-      ) : (
-        <ChatPane
-          paneId={leaf.id}
-          sessionId={leaf.sessionId}
-          isActive={isActive}
-          onActivate={() => setActivePaneById(leaf.id)}
-          codexModelConfig={codexModelConfig}
-          onClose={canClose ? () => closePaneById(leaf.id) : undefined}
-          onWorkspaceGitChanged={onWorkspaceGitChanged}
-        />
-      )}
+      <ChatPane
+        paneId={leaf.id}
+        sessionId={leaf.sessionId}
+        isActive={isActive}
+        onActivate={() => setActivePaneById(leaf.id)}
+        codexModelConfig={codexModelConfig}
+        onClose={canClose ? () => closePaneById(leaf.id) : undefined}
+        onWorkspaceGitChanged={onWorkspaceGitChanged}
+      />
       {dropFill ? (
         <div className="pointer-events-none absolute inset-4 z-20 rounded-[var(--radius-2xl)] border-2 border-dashed border-[color-mix(in_srgb,var(--accent)_45%,transparent)] bg-[color-mix(in_srgb,var(--accent-light)_75%,transparent)]" />
       ) : null}

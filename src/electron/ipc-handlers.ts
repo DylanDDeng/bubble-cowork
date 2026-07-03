@@ -56,11 +56,10 @@ import { getPiModelConfig } from './libs/pi-settings';
 import { formatKimiRuntimeBlockingMessage, getKimiRuntimeStatus } from './libs/kimi-runtime-status';
 import { formatGrokRuntimeBlockingMessage, getGrokRuntimeStatus } from './libs/grok-runtime-status';
 import { AutomationScheduler } from './libs/automation-scheduler';
-import { RunGroupService } from './libs/run-group-service';
+import { recycleSessionWorktree } from './libs/worktree-hygiene';
 import {
   configureNotifications,
   getNotificationSettings,
-  notifyRunGroupSettled,
   notifySessionDone,
   setNotificationSettings,
 } from './libs/notifications';
@@ -130,8 +129,6 @@ import type {
   WechatMarkdownHtmlGenerationInput,
   WechatMarkdownHtmlGeneratorConfig,
   AgentProvider,
-  RunGroupInfo,
-  RunGroupStartInput,
 } from '../shared/types';
 import { getProviderService } from './libs/provider/service';
 import { disposeTerminalRuntime } from './libs/terminal-runtime';
@@ -3152,11 +3149,6 @@ const runnerHandles = new Map<
 >();
 
 let automationScheduler: AutomationScheduler | null = null;
-let runGroupService: RunGroupService | null = null;
-
-function broadcastRunGroupChanged(mainWindow: BrowserWindow, group: RunGroupInfo): void {
-  broadcast(mainWindow, { type: 'runGroup.changed', payload: { group } });
-}
 
 // 会话状态映射（包含 pending permissions）
 const sessionStates = new Map<string, SessionState>();
@@ -3893,14 +3885,12 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
   void feishuBridge.maybeAutoStart();
 
-  // 启动期清算必须先于任何 runner/scheduler 启动：清掉崩溃残留的 running session，
-  // 并把 running 状态的 run group 收敛到终态。
-  runGroupService = new RunGroupService(
-    (payload) => handleSessionStart(mainWindow, payload),
-    (sessionId) => handleSessionStop(mainWindow, sessionId),
-    (group) => broadcastRunGroupChanged(mainWindow, group)
-  );
-  runGroupService.reconcileOnBoot();
+  // 启动期清算必须先于任何 runner/scheduler 启动：app 崩溃/强退后残留的
+  // running session 没有任何 runner 句柄，不清算会永远卡在 running。
+  const sweptSessions = sessions.sweepOrphanRunningSessions();
+  if (sweptSessions > 0) {
+    console.log(`[Sessions] swept ${sweptSessions} orphan running session(s) on boot`);
+  }
 
   configureNotifications({
     isWindowFocused: () =>
@@ -3909,38 +3899,19 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       if (!mainWindow.isDestroyed()) {
         mainWindow.show();
         mainWindow.focus();
-        broadcast(
-          mainWindow,
-          target.kind === 'runGroup'
-            ? { type: 'app.openRunGroup', payload: { groupId: target.groupId } }
-            : { type: 'app.focusSession', payload: { sessionId: target.sessionId } }
-        );
+        broadcast(mainWindow, {
+          type: 'app.focusSession',
+          payload: { sessionId: target.sessionId },
+        });
       }
     },
   });
 
-  // group 全员到达终态：系统通知 + automation run 结算（fan-out automation）
-  runGroupService.onGroupSettled = (group) => {
-    notifyRunGroupSettled(group);
-    if (group.automationRunId) {
-      const failed = group.status === 'cancelled';
-      sessions.finishAutomationRun(
-        group.automationRunId,
-        failed ? 'failed' : 'completed',
-        failed ? 'All fan-out members failed.' : null
-      );
-      broadcastAutomationChanged(mainWindow);
-    }
-  };
-
-  // 全局 session 状态监听：run group 重算 + 单 session 完成通知（组成员不单独通知，
-  // 组级 settle 通知覆盖）
+  // 全局 session 状态监听：session 完成/失败时发系统通知
   sessions.setSessionStatusListener((row, previousStatus) => {
-    runGroupService?.handleSessionStatusChanged(row);
     if (
       previousStatus === 'running' &&
       row.status !== 'running' &&
-      !row.run_group_id &&
       row.hidden_from_threads !== 1
     ) {
       notifySessionDone(row);
@@ -3950,11 +3921,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   automationScheduler?.stop();
   automationScheduler = new AutomationScheduler(
     (payload) => handleSessionStart(mainWindow, payload),
-    () => broadcastAutomationChanged(mainWindow),
-    (input) =>
-      runGroupService
-        ? runGroupService.start(input)
-        : Promise.resolve({ ok: false, message: 'Run group service is not ready.' })
+    () => broadcastAutomationChanged(mainWindow)
   );
   automationScheduler.start();
 
@@ -3965,65 +3932,6 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     async (_event, next: Partial<import('./libs/notifications').NotificationSettings>) =>
       setNotificationSettings(next)
   );
-
-  ipcMainHandle('start-run-group', async (_event, input: RunGroupStartInput) => {
-    if (!runGroupService) return { ok: false, message: 'Run group service is not ready.' };
-    return runGroupService.start(input);
-  });
-
-  ipcMainHandle('cancel-run-group', async (_event, groupId: string) => {
-    if (!runGroupService) return { ok: false, message: 'Run group service is not ready.' };
-    return runGroupService.cancel(groupId);
-  });
-
-  ipcMainHandle('list-run-groups', async (_event, projectCwd?: string) => {
-    return sessions.listRunGroups(projectCwd || undefined);
-  });
-
-  ipcMainHandle('run-group-summary', async (_event, groupId: string) => {
-    return runGroupService ? runGroupService.summary(groupId) : null;
-  });
-
-  ipcMainHandle('run-group-member-diff', async (_event, groupId: string, memberIndex: number) => {
-    return runGroupService ? runGroupService.memberDiff(groupId, memberIndex) : null;
-  });
-
-  ipcMainHandle('adopt-run-group', async (_event, groupId: string, memberIndex: number) => {
-    if (!runGroupService) return { ok: false, message: 'Run group service is not ready.' };
-    return runGroupService.adopt(groupId, memberIndex);
-  });
-
-  ipcMainHandle('discard-run-group', async (_event, groupId: string) => {
-    if (!runGroupService) return { ok: false, message: 'Run group service is not ready.' };
-    return runGroupService.discard(groupId);
-  });
-
-  ipcMainHandle('list-reclaimable-worktrees', async (_event, projectCwd: string) => {
-    return runGroupService ? runGroupService.listReclaimableWorktrees(projectCwd) : [];
-  });
-
-  ipcMainHandle('reclaim-worktrees', async (_event, projectCwd: string) => {
-    if (!runGroupService) return { removed: 0 };
-    return runGroupService.reclaimWorktrees(projectCwd);
-  });
-
-  ipcMainHandle('list-custom-runtimes', async () => sessions.listCustomRuntimes());
-
-  ipcMainHandle(
-    'upsert-custom-runtime',
-    async (_event, input: { id?: string; name: string; command: string }) => {
-      try {
-        return { ok: true as const, runtime: sessions.upsertCustomRuntime(input) };
-      } catch (error) {
-        return { ok: false as const, message: error instanceof Error ? error.message : String(error) };
-      }
-    }
-  );
-
-  ipcMainHandle('delete-custom-runtime', async (_event, id: string) => {
-    sessions.deleteCustomRuntime(id);
-    return { ok: true };
-  });
 
   // 处理客户端事件
   ipcMain.removeAllListeners('client-event');
@@ -6491,7 +6399,6 @@ function buildSessionInfoFromRow(
     channelId: normalizeWorkspaceChannelId(row.workspace_channel_id),
     teamMode: normalizeSessionTeamMode(row.team_mode),
     teamId: row.team_id || null,
-    runGroupId: row.run_group_id || null,
     latestClaudeModelUsage,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -6562,7 +6469,6 @@ async function handleSessionStart(
     teamId,
     hiddenFromThreads,
     channelId,
-    runGroupId,
   } = payload;
   const sessionScope = normalizeSessionScope(scope);
   const sessionAgentId = sessionScope === 'dm' ? agentId?.trim() || null : null;
@@ -6656,7 +6562,6 @@ async function handleSessionStart(
     channelId: normalizeWorkspaceChannelId(channelId),
     teamMode: normalizedTeamMode,
     teamId: normalizedTeamId,
-    runGroupId: runGroupId || null,
   });
 
   // 更新状态为 running
@@ -6702,7 +6607,6 @@ async function handleSessionStart(
       channelId: normalizeWorkspaceChannelId(session.workspace_channel_id),
       teamMode: normalizeSessionTeamMode(session.team_mode),
       teamId: session.team_id || null,
-      runGroupId: session.run_group_id || null,
     },
   });
 
@@ -7970,9 +7874,9 @@ function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void
   // 删除数据库记录
   sessions.deleteSession(sessionId);
 
-  // worktree 回收 + run group 收尾（clean worktree 才回收，dirty 保留）
-  if (session && (session.worktree_path || session.run_group_id)) {
-    void runGroupService?.handleSessionDeleted(session);
+  // worktree 回收（clean 且无其它 session 引用才回收，dirty 保留）
+  if (session?.worktree_path) {
+    void recycleSessionWorktree(session);
   }
 
   // 广播删除事件（幂等）

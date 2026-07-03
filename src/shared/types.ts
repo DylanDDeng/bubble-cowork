@@ -612,8 +612,6 @@ export interface AutomationRuntimeConfig {
   compatibleProviderId?: ClaudeCompatibleProviderId | null;
   codexReasoningEffort?: CodexReasoningEffort | null;
   codexFastMode?: boolean;
-  // ≥2 时该 automation 触发 fan-out（run group），单 provider 字段仅作兜底
-  fanOutVariants?: RunGroupVariantInput[] | null;
 }
 
 export type AutomationRunStatus = 'running' | 'completed' | 'failed';
@@ -764,111 +762,8 @@ export type ServerEvent =
   | { type: 'session.channelChanged'; payload: { sessionId: string; channelId: string } }
   | { type: 'session.teamChanged'; payload: { sessionId: string; teamMode: SessionTeamMode; teamId: string | null } }
   | { type: 'automation.changed'; payload: AutomationSnapshot }
-  | { type: 'runGroup.changed'; payload: { group: RunGroupInfo } }
   // 系统通知点击后的回位事件（主进程 → 聚焦窗口后广播）
-  | { type: 'app.openRunGroup'; payload: { groupId: string } }
   | { type: 'app.focusSession'; payload: { sessionId: string } };
-
-// Run group（fan-out）类型
-export type RunGroupStatus = 'running' | 'settled' | 'adopted' | 'discarded' | 'cancelled';
-
-// 成员在拿到 session 之前的阶段由 group 侧持久化；有 session 后以 session.status 为准。
-// custom（终端）成员没有 session，phase 就是唯一真相（terminal exit 驱动 done/failed）。
-export type RunGroupMemberPhase = 'preparing' | 'running' | 'done' | 'failed';
-
-// 用户注册的任意 CLI agent（"if it runs in a terminal, it runs in Aegis"）。
-// command 里 {prompt} 会被替换为 "$AEGIS_PROMPT"（env 传值，argv 安全）、
-// {promptFile} 替换为 "$AEGIS_PROMPT_FILE"（长 prompt 落临时文件）。
-export interface CustomRuntime {
-  id: string;
-  name: string;
-  command: string;
-  createdAt: number;
-}
-
-// fan-out 成员的运行时引用：内建 provider 或 custom:<id>
-export type RunGroupRuntimeRef = AgentProvider | `custom:${string}`;
-
-export interface RunGroupVariantInput {
-  provider: RunGroupRuntimeRef;
-  model?: string;
-  compatibleProviderId?: ClaudeCompatibleProviderId;
-  claudeReasoningEffort?: ClaudeReasoningEffort;
-  codexReasoningEffort?: CodexReasoningEffort;
-  // full = provider 的 full-access 档（worktree 隔离前提）；safe = provider 默认权限
-  permissionPreset?: 'full' | 'safe';
-}
-
-export interface RunGroupMember extends RunGroupVariantInput {
-  index: number;
-  phase: RunGroupMemberPhase;
-  branch?: string | null;
-  worktreePath?: string | null;
-  sessionId?: string | null;
-  failReason?: string | null;
-  // custom 成员：PTY 终端的 threadId（renderer 用它附着 xterm 视图）
-  terminalThreadId?: string | null;
-  // custom 成员的显示名（runtime 可能事后被删，落库自带）
-  runtimeName?: string | null;
-}
-
-export interface RunGroupInfo {
-  id: string;
-  projectCwd: string;
-  prompt: string;
-  baseRef: string | null;
-  status: RunGroupStatus;
-  adoptedSessionId: string | null;
-  members: RunGroupMember[];
-  automationRunId: string | null;
-  createdAt: number;
-  settledAt: number | null;
-}
-
-export interface RunGroupStartInput {
-  projectCwd: string;
-  prompt: string;
-  variants: RunGroupVariantInput[];
-  attachments?: Attachment[];
-  channelId?: string;
-  // automation 触发的 fan-out：group settle 时结算对应的 automation run
-  automationRunId?: string;
-  title?: string;
-}
-
-export interface RunGroupStartResult {
-  ok: boolean;
-  message?: string;
-  groupId?: string;
-  memberSessionIds?: string[];
-  // 全量成员（含 custom 终端成员），renderer 据此布局 chat pane 与 terminal pane
-  members?: RunGroupMember[];
-}
-
-export interface RunGroupMemberSummary extends RunGroupMember {
-  sessionStatus: SessionStatus | null;
-  title: string | null;
-  startedAt: number | null;
-  updatedAt: number | null;
-  diffStat: {
-    filesChanged: number;
-    insertions: number;
-    deletions: number;
-    untracked: number;
-  } | null;
-  excerpt: string | null;
-}
-
-export interface RunGroupSummary {
-  group: RunGroupInfo;
-  members: RunGroupMemberSummary[];
-}
-
-export interface RunGroupAdoptResult {
-  ok: boolean;
-  conflict?: boolean;
-  message?: string;
-}
 
 // Payload 类型
 export interface SessionStartPayload {
@@ -909,7 +804,6 @@ export interface SessionStartPayload {
   teamId?: string | null;
   hiddenFromThreads?: boolean;
   channelId?: string;
-  runGroupId?: string | null;
 }
 
 export interface SessionContinuePayload {
@@ -1141,7 +1035,6 @@ export interface SessionInfo {
   channelId?: string;
   teamMode?: SessionTeamMode;
   teamId?: string | null;
-  runGroupId?: string | null;
   latestClaudeModelUsage?: LatestClaudeModelUsage;
   createdAt: number;
   updatedAt: number;
@@ -1184,7 +1077,6 @@ export interface SessionStatusPayload {
   channelId?: string;
   teamMode?: SessionTeamMode;
   teamId?: string | null;
-  runGroupId?: string | null;
 }
 
 export interface SessionHistoryPayload {

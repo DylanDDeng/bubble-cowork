@@ -7,7 +7,7 @@ import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import type { SessionRow, StreamMessage, SessionStatus } from '../types';
-import type { ArtifactRow, DerivedSummaryRow, RunGroupRow } from '../types';
+import type { ArtifactRow, DerivedSummaryRow } from '../types';
 import type {
   ChatSessionSearchResult,
   ClaudeAccessMode,
@@ -36,11 +36,6 @@ import type {
   SessionEnvironmentNote,
   SessionEnvironmentRecap,
   ThreadEnvironmentMode,
-  RunGroupInfo,
-  RunGroupMember,
-  RunGroupStatus,
-  RunGroupVariantInput,
-  CustomRuntime,
 } from '../../shared/types';
 
 let db: Database.Database | null = null;
@@ -104,7 +99,6 @@ interface AutomationRow {
   compatible_provider_id: ClaudeCompatibleProviderId | null;
   codex_reasoning_effort: CodexReasoningEffort | null;
   codex_fast_mode: number | null;
-  fan_out_variants: string | null;
   schedule_kind: AutomationSchedule['kind'];
   schedule_time_of_day: string | null;
   schedule_day_of_week: number | null;
@@ -333,26 +327,7 @@ function normalizeAutomationRuntime(runtime?: AutomationRuntimeConfig | null): A
         ? runtime?.codexReasoningEffort || null
         : null,
     codexFastMode: provider === 'codex' ? runtime?.codexFastMode === true : false,
-    fanOutVariants: normalizeFanOutVariants(runtime?.fanOutVariants),
   };
-}
-
-function normalizeFanOutVariants(
-  variants?: RunGroupVariantInput[] | null
-): RunGroupVariantInput[] | null {
-  if (!Array.isArray(variants)) return null;
-  const normalized = variants
-    .filter((variant) => variant && typeof variant.provider === 'string')
-    .map((variant) => ({
-      provider: normalizeAutomationProvider(variant.provider),
-      model: variant.model?.trim() || undefined,
-      compatibleProviderId: variant.compatibleProviderId || undefined,
-      claudeReasoningEffort: variant.claudeReasoningEffort || undefined,
-      codexReasoningEffort: variant.codexReasoningEffort || undefined,
-      permissionPreset: variant.permissionPreset === 'safe' ? ('safe' as const) : undefined,
-    }))
-    .slice(0, 6);
-  return normalized.length >= 2 ? normalized : null;
 }
 
 function normalizeAutomationInput(input: UpsertAutomationInput): {
@@ -549,25 +524,6 @@ export function initialize(): void {
       FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL
     );
-
-    CREATE TABLE IF NOT EXISTS run_groups (
-      id TEXT PRIMARY KEY,
-      project_cwd TEXT NOT NULL,
-      prompt TEXT NOT NULL,
-      base_ref TEXT,
-      variants TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'running',
-      adopted_session_id TEXT,
-      created_at INTEGER NOT NULL,
-      settled_at INTEGER
-    );
-
-    CREATE TABLE IF NOT EXISTS custom_runtimes (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      command TEXT NOT NULL,
-      created_at INTEGER NOT NULL
-    );
   `);
 
   ensureColumn('sessions', 'codex_session_id', 'TEXT');
@@ -605,26 +561,25 @@ export function initialize(): void {
   ensureColumn('sessions', 'associated_worktree_path', 'TEXT');
   ensureColumn('sessions', 'associated_worktree_branch', 'TEXT');
   ensureColumn('sessions', 'associated_worktree_ref', 'TEXT');
-  ensureColumn('sessions', 'run_group_id', 'TEXT');
-  ensureColumn('run_groups', 'automation_run_id', 'TEXT');
-  ensureColumn('automations', 'fan_out_variants', 'TEXT');
   ensureColumn('messages', 'message_type', 'TEXT');
   ensureColumn('messages', 'source_origin', 'TEXT');
   ensureColumn('messages', 'search_text', 'TEXT');
   ensureColumn('messages', 'sort_key', 'INTEGER');
   ensureColumn('messages', 'parent_turn_id', 'TEXT');
 
-  getDb().exec(`
-    CREATE INDEX IF NOT EXISTS idx_sessions_run_group ON sessions(run_group_id);
-    CREATE INDEX IF NOT EXISTS idx_run_groups_status ON run_groups(status);
-    CREATE INDEX IF NOT EXISTS idx_run_groups_project ON run_groups(project_cwd);
-  `);
-
   // persona 脚手架清退：builtin_memory 管线从未启用，物理表一并清掉
   getDb().exec(`
     DROP TABLE IF EXISTS builtin_memory_rollouts;
     DROP TABLE IF EXISTS builtin_memory_candidates;
     DROP TABLE IF EXISTS builtin_memory_consolidations;
+  `);
+
+  // 自动扇出（run group）编排层已移除：这两张表只在本分支存在过，直接清掉。
+  // sessions.run_group_id / automations.fan_out_variants 残留列无害，随行读写忽略。
+  getDb().exec(`
+    DROP INDEX IF EXISTS idx_sessions_run_group;
+    DROP TABLE IF EXISTS run_groups;
+    DROP TABLE IF EXISTS custom_runtimes;
   `);
 
   // 内置 Aegis runtime 已下线：清理残留的 aegis provider 会话与自动化
@@ -1226,7 +1181,6 @@ export function createSession(params: {
   channelId?: string;
   teamMode?: SessionTeamMode;
   teamId?: string | null;
-  runGroupId?: string | null;
 }): SessionRow {
   const now = Date.now();
   const id = uuidv4();
@@ -1266,10 +1220,6 @@ export function createSession(params: {
     now,
     now
   );
-
-  if (params.runGroupId?.trim()) {
-    getDb().prepare('UPDATE sessions SET run_group_id = ? WHERE id = ?').run(params.runGroupId.trim(), id);
-  }
 
   if ((params.provider || 'claude') === 'claude') {
     invalidateClaudeUsageReportCache();
@@ -1313,198 +1263,6 @@ export function listRunningSessions(): SessionRow[] {
   return stmt.all() as SessionRow[];
 }
 
-// ---- Run groups（fan-out）----
-
-function runGroupRowToInfo(row: RunGroupRow): RunGroupInfo {
-  let members: RunGroupMember[] = [];
-  try {
-    const parsed = JSON.parse(row.variants);
-    if (Array.isArray(parsed)) members = parsed as RunGroupMember[];
-  } catch {
-    // 损坏的 variants 以空成员呈现，group 仍可被 discard
-  }
-  return {
-    id: row.id,
-    projectCwd: row.project_cwd,
-    prompt: row.prompt,
-    baseRef: row.base_ref,
-    status: row.status,
-    adoptedSessionId: row.adopted_session_id,
-    members,
-    automationRunId: row.automation_run_id,
-    createdAt: row.created_at,
-    settledAt: row.settled_at,
-  };
-}
-
-export function createRunGroup(params: {
-  projectCwd: string;
-  prompt: string;
-  baseRef: string | null;
-  members: RunGroupMember[];
-  automationRunId?: string | null;
-}): RunGroupInfo {
-  const id = uuidv4();
-  const now = Date.now();
-  getDb()
-    .prepare(
-      `INSERT INTO run_groups (id, project_cwd, prompt, base_ref, variants, status, automation_run_id, created_at)
-       VALUES (?, ?, ?, ?, ?, 'running', ?, ?)`
-    )
-    .run(
-      id,
-      params.projectCwd,
-      params.prompt,
-      params.baseRef,
-      JSON.stringify(params.members),
-      params.automationRunId || null,
-      now
-    );
-  return getRunGroup(id)!;
-}
-
-export function getRunGroup(groupId: string): RunGroupInfo | null {
-  const row = getDb().prepare('SELECT * FROM run_groups WHERE id = ?').get(groupId) as
-    | RunGroupRow
-    | undefined;
-  return row ? runGroupRowToInfo(row) : null;
-}
-
-export function listRunGroups(projectCwd?: string): RunGroupInfo[] {
-  const rows = (
-    projectCwd
-      ? getDb()
-          .prepare('SELECT * FROM run_groups WHERE project_cwd = ? ORDER BY created_at DESC')
-          .all(projectCwd)
-      : getDb().prepare('SELECT * FROM run_groups ORDER BY created_at DESC').all()
-  ) as RunGroupRow[];
-  return rows.map(runGroupRowToInfo);
-}
-
-export function listActiveRunGroups(): RunGroupInfo[] {
-  const rows = getDb()
-    .prepare("SELECT * FROM run_groups WHERE status = 'running' ORDER BY created_at DESC")
-    .all() as RunGroupRow[];
-  return rows.map(runGroupRowToInfo);
-}
-
-export function updateRunGroupMembers(groupId: string, members: RunGroupMember[]): void {
-  getDb()
-    .prepare('UPDATE run_groups SET variants = ? WHERE id = ?')
-    .run(JSON.stringify(members), groupId);
-}
-
-export function setRunGroupStatus(groupId: string, status: RunGroupStatus, settledAt?: number | null): void {
-  if (settledAt !== undefined) {
-    getDb()
-      .prepare('UPDATE run_groups SET status = ?, settled_at = ? WHERE id = ?')
-      .run(status, settledAt, groupId);
-  } else {
-    getDb().prepare('UPDATE run_groups SET status = ? WHERE id = ?').run(status, groupId);
-  }
-}
-
-export function setRunGroupAdoptedSession(groupId: string, sessionId: string | null): void {
-  getDb()
-    .prepare('UPDATE run_groups SET adopted_session_id = ? WHERE id = ?')
-    .run(sessionId, groupId);
-}
-
-export function deleteRunGroup(groupId: string): void {
-  getDb().prepare("UPDATE sessions SET run_group_id = NULL WHERE run_group_id = ?").run(groupId);
-  getDb().prepare('DELETE FROM run_groups WHERE id = ?').run(groupId);
-}
-
-export function listSessionsByRunGroup(groupId: string): SessionRow[] {
-  return getDb()
-    .prepare('SELECT * FROM sessions WHERE run_group_id = ? ORDER BY created_at ASC')
-    .all(groupId) as SessionRow[];
-}
-
-// ---- Custom runtimes（任意 CLI agent）----
-
-export function listCustomRuntimes(): CustomRuntime[] {
-  const rows = getDb()
-    .prepare('SELECT * FROM custom_runtimes ORDER BY created_at ASC')
-    .all() as Array<{ id: string; name: string; command: string; created_at: number }>;
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    command: row.command,
-    createdAt: row.created_at,
-  }));
-}
-
-export function getCustomRuntime(id: string): CustomRuntime | null {
-  const row = getDb().prepare('SELECT * FROM custom_runtimes WHERE id = ?').get(id) as
-    | { id: string; name: string; command: string; created_at: number }
-    | undefined;
-  return row
-    ? { id: row.id, name: row.name, command: row.command, createdAt: row.created_at }
-    : null;
-}
-
-export function upsertCustomRuntime(input: {
-  id?: string;
-  name: string;
-  command: string;
-}): CustomRuntime {
-  const name = input.name.trim();
-  const command = input.command.trim();
-  if (!name) throw new Error('Runtime name is required.');
-  if (!command) throw new Error('Runtime command is required.');
-  const id = input.id?.trim() || uuidv4();
-  getDb()
-    .prepare(
-      `INSERT INTO custom_runtimes (id, name, command, created_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET name = excluded.name, command = excluded.command`
-    )
-    .run(id, name, command, Date.now());
-  return getCustomRuntime(id)!;
-}
-
-export function deleteCustomRuntime(id: string): void {
-  getDb().prepare('DELETE FROM custom_runtimes WHERE id = ?').run(id);
-}
-
-// 比较视图的成员摘要：末条 assistant 输出的截断文本（search_text 已在写入时抽取）。
-export function getLastAssistantExcerpt(sessionId: string, maxChars = 280): string | null {
-  const row = getDb()
-    .prepare(
-      `SELECT search_text FROM messages
-       WHERE session_id = ? AND message_type = 'assistant' AND search_text IS NOT NULL AND search_text != ''
-       ORDER BY created_at DESC LIMIT 1`
-    )
-    .get(sessionId) as { search_text: string } | undefined;
-  if (!row?.search_text) return null;
-  const collapsed = row.search_text.replace(/\s+/g, ' ').trim();
-  return collapsed.length > maxChars ? `${collapsed.slice(0, maxChars - 1)}…` : collapsed;
-}
-
-// 删除 session 后的 group 收尾：被采纳成员被删 → 置 NULL；最后一个成员被删 → 删 group 行。
-// 返回受影响的 groupId（若 group 仍存在），供调用方重算/广播。
-export function handleRunGroupSessionDeleted(groupId: string, sessionId: string): {
-  groupDeleted: boolean;
-} {
-  const group = getRunGroup(groupId);
-  if (!group) return { groupDeleted: false };
-  if (group.adoptedSessionId === sessionId) {
-    setRunGroupAdoptedSession(groupId, null);
-  }
-  const members = group.members.map((member) =>
-    member.sessionId === sessionId
-      ? { ...member, sessionId: null, phase: 'failed' as const, failReason: member.failReason || 'Session deleted' }
-      : member
-  );
-  updateRunGroupMembers(groupId, members);
-  const remaining = listSessionsByRunGroup(groupId);
-  if (remaining.length === 0) {
-    deleteRunGroup(groupId);
-    return { groupDeleted: true };
-  }
-  return { groupDeleted: false };
-}
-
 function automationRowToDefinition(row: AutomationRow): AutomationDefinition {
   const schedule = normalizeAutomationSchedule({
     kind: row.schedule_kind,
@@ -1513,22 +1271,12 @@ function automationRowToDefinition(row: AutomationRow): AutomationDefinition {
     intervalMinutes: row.schedule_interval_minutes,
     runAt: row.schedule_run_at,
   });
-  let storedVariants: RunGroupVariantInput[] | null = null;
-  if (row.fan_out_variants) {
-    try {
-      const parsed = JSON.parse(row.fan_out_variants);
-      if (Array.isArray(parsed)) storedVariants = parsed as RunGroupVariantInput[];
-    } catch {
-      storedVariants = null;
-    }
-  }
   const runtime = normalizeAutomationRuntime({
     provider: row.provider,
     model: row.model,
     compatibleProviderId: row.compatible_provider_id,
     codexReasoningEffort: row.codex_reasoning_effort,
     codexFastMode: row.codex_fast_mode === 1,
-    fanOutVariants: storedVariants,
   });
 
   return {
@@ -1621,7 +1369,6 @@ export function saveAutomation(input: UpsertAutomationInput): AutomationDefiniti
       compatible_provider_id,
       codex_reasoning_effort,
       codex_fast_mode,
-      fan_out_variants,
       schedule_kind,
       schedule_time_of_day,
       schedule_day_of_week,
@@ -1637,7 +1384,7 @@ export function saveAutomation(input: UpsertAutomationInput): AutomationDefiniti
       created_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       project_cwd = excluded.project_cwd,
@@ -1647,7 +1394,6 @@ export function saveAutomation(input: UpsertAutomationInput): AutomationDefiniti
       compatible_provider_id = excluded.compatible_provider_id,
       codex_reasoning_effort = excluded.codex_reasoning_effort,
       codex_fast_mode = excluded.codex_fast_mode,
-      fan_out_variants = excluded.fan_out_variants,
       schedule_kind = excluded.schedule_kind,
       schedule_time_of_day = excluded.schedule_time_of_day,
       schedule_day_of_week = excluded.schedule_day_of_week,
@@ -1667,7 +1413,6 @@ export function saveAutomation(input: UpsertAutomationInput): AutomationDefiniti
     normalized.runtime.compatibleProviderId || null,
     normalized.runtime.codexReasoningEffort || null,
     normalized.runtime.codexFastMode ? 1 : 0,
-    normalized.runtime.fanOutVariants ? JSON.stringify(normalized.runtime.fanOutVariants) : null,
     normalized.schedule.kind,
     normalized.schedule.timeOfDay || null,
     normalized.schedule.dayOfWeek ?? null,
@@ -1836,7 +1581,7 @@ export function getLatestClaudeModelUsageBySession(): Record<string, LatestClaud
 }
 
 // 更新会话状态
-// 状态变化监听（run group 重算 + 完成通知都挂在这里）；由 ipc-handlers 注册一次。
+// 状态变化监听（完成通知挂在这里）；由 ipc-handlers 注册一次。
 // 放在 store 层是为了兜住所有 status 写入路径（turn 完成 / stop / error / 删除前的 stop）。
 let sessionStatusListener:
   | ((row: SessionRow, previousStatus: SessionStatus | null) => void)
@@ -1868,7 +1613,7 @@ export function updateSessionStatus(sessionId: string, status: SessionStatus): v
 }
 
 // 启动期清算：app 崩溃/强退后残留的 running session 没有任何 runner 句柄，
-// 若不清算会永远卡在 running（阻塞 handoff/checkout 门禁，run group 永不 settle）。
+// 若不清算会永远卡在 running（阻塞 handoff/checkout 门禁）。
 // 必须在任何 runner 启动之前调用（boot 时 runnerHandles 必然为空）。
 export function sweepOrphanRunningSessions(): number {
   const result = getDb()

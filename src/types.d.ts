@@ -55,12 +55,6 @@ import type {
   WechatMarkdownHtmlGenerationInput,
   WechatMarkdownHtmlGenerationResult,
   WechatMarkdownHtmlGeneratorConfig,
-  RunGroupAdoptResult,
-  RunGroupInfo,
-  RunGroupStartInput,
-  RunGroupStartResult,
-  RunGroupSummary,
-  CustomRuntime,
 } from './shared/types';
 import type {
   BrowserCapturePageResult,
@@ -117,22 +111,6 @@ declare global {
     deleteAutomation: (automationId: string) => Promise<{ ok: boolean }>;
     setAutomationEnabled: (automationId: string, enabled: boolean) => Promise<AutomationDefinition | null>;
     runAutomationNow: (automationId: string) => Promise<{ ok: boolean; sessionId?: string; message?: string }>;
-    startRunGroup: (input: RunGroupStartInput) => Promise<RunGroupStartResult>;
-    cancelRunGroup: (groupId: string) => Promise<{ ok: boolean; message?: string }>;
-    listRunGroups: (projectCwd?: string) => Promise<RunGroupInfo[]>;
-    getRunGroupSummary: (groupId: string) => Promise<RunGroupSummary | null>;
-    getRunGroupMemberDiff: (groupId: string, memberIndex: number) => Promise<string | null>;
-    adoptRunGroup: (groupId: string, memberIndex: number) => Promise<RunGroupAdoptResult>;
-    discardRunGroup: (groupId: string) => Promise<{ ok: boolean; message?: string }>;
-    listReclaimableWorktrees: (projectCwd: string) => Promise<string[]>;
-    reclaimWorktrees: (projectCwd: string) => Promise<{ removed: number }>;
-    listCustomRuntimes: () => Promise<CustomRuntime[]>;
-    upsertCustomRuntime: (input: {
-      id?: string;
-      name: string;
-      command: string;
-    }) => Promise<{ ok: boolean; runtime?: CustomRuntime; message?: string }>;
-    deleteCustomRuntime: (id: string) => Promise<{ ok: boolean }>;
     getNotificationSettings: () => Promise<{ enabled: boolean; onlyWhenUnfocused: boolean }>;
     setNotificationSettings: (next: {
       enabled?: boolean;

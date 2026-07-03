@@ -1,7 +1,6 @@
 import { Notification, app } from 'electron';
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import type { RunGroupInfo } from '../../shared/types';
 import type { SessionRow } from '../types';
 
 export interface NotificationSettings {
@@ -10,9 +9,7 @@ export interface NotificationSettings {
   onlyWhenUnfocused: boolean;
 }
 
-export type NotificationActivateTarget =
-  | { kind: 'runGroup'; groupId: string }
-  | { kind: 'session'; sessionId: string };
+export type NotificationActivateTarget = { kind: 'session'; sessionId: string };
 
 const DEFAULT_SETTINGS: NotificationSettings = { enabled: true, onlyWhenUnfocused: true };
 
@@ -75,19 +72,6 @@ function show(title: string, body: string, target: NotificationActivateTarget): 
     // 通知失败绝不阻塞执行
     console.warn('[Notifications] failed to show notification:', error);
   }
-}
-
-export function notifyRunGroupSettled(group: RunGroupInfo): void {
-  const done = group.members.filter(
-    (member) => member.phase !== 'failed' && member.sessionId
-  ).length;
-  const total = group.members.length;
-  const failed = total - done;
-  const body =
-    failed > 0
-      ? `${done}/${total} agents finished (${failed} failed) — compare results`
-      : `${done}/${total} agents finished — compare results`;
-  show('Fan-out complete', body, { kind: 'runGroup', groupId: group.id });
 }
 
 export function notifySessionDone(row: SessionRow): void {

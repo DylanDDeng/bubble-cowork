@@ -27,12 +27,6 @@ import type {
   AutomationSnapshot,
   UpsertAutomationInput,
 } from '../types';
-import type { RunGroupVariantInput } from '../../shared/types';
-import {
-  ComposerFanOutPicker,
-  fanOutTotal,
-  type FanOutSelection,
-} from './ComposerFanOutPicker';
 
 type AutomationFormState = {
   id?: string;
@@ -41,8 +35,6 @@ type AutomationFormState = {
   prompt: string;
   provider: AgentProvider;
   model: string;
-  // fan-out 成员选择（≥2 时该 automation 走 run group，每成员一个隔离 worktree）
-  fanOut: FanOutSelection;
   scheduleKind: AutomationSchedule['kind'];
   timeOfDay: string;
   dayOfWeek: number;
@@ -50,23 +42,6 @@ type AutomationFormState = {
   runAtLocal: string;
   enabled: boolean;
 };
-
-function fanOutSelectionFromVariants(
-  variants?: RunGroupVariantInput[] | null
-): FanOutSelection {
-  const selection: FanOutSelection = {};
-  for (const variant of variants ?? []) {
-    selection[variant.provider] = (selection[variant.provider] || 0) + 1;
-  }
-  return selection;
-}
-
-function fanOutVariantsFromSelection(selection: FanOutSelection): RunGroupVariantInput[] | null {
-  const variants = (Object.entries(selection) as [AgentProvider, number][]).flatMap(
-    ([provider, count]) => Array.from({ length: count || 0 }, () => ({ provider }))
-  );
-  return variants.length >= 2 ? variants : null;
-}
 
 const PROVIDERS: Array<{ id: AgentProvider; label: string }> = [
   { id: 'claude', label: 'Claude Code' },
@@ -138,7 +113,6 @@ function createEmptyForm(projectCwd: string | null, model = ''): AutomationFormS
     prompt: '',
     provider: 'claude',
     model,
-    fanOut: {},
     scheduleKind: 'daily',
     timeOfDay: '09:00',
     dayOfWeek: 1,
@@ -156,7 +130,6 @@ function formFromAutomation(automation: AutomationDefinition): AutomationFormSta
     prompt: automation.prompt,
     provider: automation.runtime.provider,
     model: automation.runtime.model || '',
-    fanOut: fanOutSelectionFromVariants(automation.runtime.fanOutVariants),
     scheduleKind: automation.schedule.kind,
     timeOfDay: automation.schedule.timeOfDay || '09:00',
     dayOfWeek: automation.schedule.dayOfWeek ?? 1,
@@ -190,7 +163,6 @@ function inputFromForm(form: AutomationFormState): UpsertAutomationInput {
     runtime: {
       provider: form.provider,
       model: form.model.trim() || null,
-      fanOutVariants: fanOutVariantsFromSelection(form.fanOut),
     },
   };
 }
@@ -727,21 +699,6 @@ function AutomationDialog({
                 )}
               </Field>
             </div>
-
-            <Field label="Fan out (optional)">
-              <div className="flex items-center gap-3">
-                <ComposerFanOutPicker
-                  value={form.fanOut}
-                  onChange={(next) => setField('fanOut', next)}
-                  menuSide="bottom"
-                />
-                <span className="text-[12px] text-[var(--text-muted)]">
-                  {fanOutTotal(form.fanOut) >= 2
-                    ? `Each run fans out to ${fanOutTotal(form.fanOut)} agents in isolated worktrees; the runtime above is ignored.`
-                    : 'Pick 2+ agents to fan each run out across isolated worktrees.'}
-                </span>
-              </div>
-            </Field>
 
             <Field label="Schedule">
               <div className="flex flex-wrap gap-2">

@@ -237,7 +237,7 @@ export function placeSession(
   const root = mapLeaves(layout.root, (leaf) => {
     if (leaf.id === leafId) {
       // Placing content resets the leaf to a chat pane; terminal placements
-      // (fan-out custom members) call setPaneSurface('terminal') afterwards.
+      // call setPaneSurface('terminal') afterwards.
       return leaf.sessionId === sessionId && leaf.surface === 'chat'
         ? leaf
         : { ...leaf, sessionId, surface: 'chat' as const };

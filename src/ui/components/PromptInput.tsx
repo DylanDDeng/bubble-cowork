@@ -21,11 +21,6 @@ import { ClaudeContextIndicator } from './ClaudeContextIndicator';
 import { CodexContextIndicator } from './CodexContextIndicator';
 import { OpenCodeContextIndicator } from './OpenCodeContextIndicator';
 import { ComposerAgentModelPicker } from './ComposerAgentControls';
-import {
-  ComposerFanOutPicker,
-  fanOutTotal,
-  type FanOutSelection,
-} from './ComposerFanOutPicker';
 import { ClaudePermissionModePicker } from './ClaudePermissionModePicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { KimiPermissionModePicker } from './KimiPermissionModePicker';
@@ -33,8 +28,7 @@ import { OpenCodePermissionModePicker } from './OpenCodePermissionModePicker';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
-import { DEFAULT_WORKSPACE_CHANNEL_ID, type RunGroupRuntimeRef } from '../../shared/types';
-import type { RunGroupPaneEntry } from '../types';
+import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { buildCodexReferencePayload } from '../utils/codex-composer';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
@@ -100,11 +94,9 @@ export function PromptInput({
     consumePromptLibraryInsert,
     pendingChatInjection,
     consumeChatInjection,
-    layoutRunGroupPanes,
   } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [fanOutSelection, setFanOutSelection] = useState<FanOutSelection>({});
   const [cursorIndex, setCursorIndex] = useState(0);
   const editorRef = useRef<ComposerPromptEditorHandle | null>(null);
   const isComposingRef = useRef(false);
@@ -380,85 +372,6 @@ export function PromptInput({
     if (promptWithAttachment.reason === 'attachment_create_failed') {
       toast.error('Failed to convert the long message into an attachment. Sending inline instead.');
     }
-    // Fan-out：选择非空时走 run group（每成员一个隔离 worktree + session）。
-    // 选择为空 = 原有单 session 路径，完全不变。
-    if (fanOutTotal(fanOutSelection) > 0) {
-      const fanOutCwd = (activeSession.projectCwd ?? activeSession.cwd ?? '').trim();
-      if (!fanOutCwd) {
-        toast.error('Select a project folder before fanning out.');
-        return;
-      }
-      const variants = (Object.entries(fanOutSelection) as [RunGroupRuntimeRef, number][]).flatMap(
-        ([provider, count]) =>
-          Array.from({ length: count || 0 }, () => ({
-            provider,
-            // 当前 composer 里为该 provider 选好的 model/effort 随成员携带；
-            // 其它 provider（含 custom CLI）用各自默认
-            model: provider === runtimeProvider ? selectedModel || undefined : undefined,
-            compatibleProviderId:
-              provider === 'claude' && provider === runtimeProvider
-                ? agentSelection.compatibleProviderId || undefined
-                : undefined,
-            claudeReasoningEffort:
-              provider === 'claude' && provider === runtimeProvider
-                ? agentSelection.claudeReasoningEffort || undefined
-                : undefined,
-            codexReasoningEffort:
-              provider === 'codex' && provider === runtimeProvider
-                ? agentSelection.codexReasoningEffort || undefined
-                : undefined,
-          }))
-      );
-      const projectKey = fanOutCwd || '__no_project__';
-      const fanOutChannelId =
-        activeSession.channelId ||
-        activeChannelByProject[projectKey] ||
-        DEFAULT_WORKSPACE_CHANNEL_ID;
-      setPendingStart(true);
-      try {
-        const result = await window.electron.startRunGroup({
-          projectCwd: fanOutCwd,
-          prompt: outgoingPrompt,
-          variants,
-          attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
-          channelId: fanOutChannelId,
-        });
-        if (!result.ok) {
-          toast.error(result.message || 'Fan-out failed to start.');
-          return;
-        }
-        const startedMembers = (result.members ?? []).filter(
-          (member) => member.phase === 'running'
-        );
-        if (startedMembers.length < variants.length) {
-          toast.warning(
-            `${variants.length - startedMembers.length} of ${variants.length} agents failed to start.`
-          );
-        }
-        layoutRunGroupPanes(
-          startedMembers.flatMap((member): RunGroupPaneEntry[] => {
-            if (member.sessionId) return [{ kind: 'chat', sessionId: member.sessionId }];
-            if (member.terminalThreadId && member.worktreePath) {
-              return [
-                {
-                  kind: 'terminal',
-                  threadId: member.terminalThreadId,
-                  cwd: member.worktreePath,
-                  title: member.runtimeName || member.provider,
-                },
-              ];
-            }
-            return [];
-          })
-        );
-        setFanOutSelection({});
-        resetComposer();
-      } finally {
-        setPendingStart(false);
-      }
-      return;
-    }
-
     const codexReferences =
       runtimeProvider === 'codex'
         ? buildCodexReferencePayload(capabilityMenu.selectedSkill)
@@ -923,12 +836,6 @@ export function PromptInput({
                 onCodexFastModeChange={agentSelection.setCodexFastMode}
                 menuSide={menuSide}
               />
-              <ComposerFanOutPicker
-                value={fanOutSelection}
-                onChange={setFanOutSelection}
-                disabled={isBusy}
-                menuSide={menuSide}
-              />
               {agentSelection.provider === 'codex' && (
                 <CodexPermissionModePicker
                   value={agentSelection.codexPermissionMode}
@@ -1014,12 +921,8 @@ export function PromptInput({
                   modelSetupRequired
                 }
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-20 disabled:hover:scale-100"
-                title={
-                  fanOutTotal(fanOutSelection) > 0
-                    ? `Fan out (${fanOutTotal(fanOutSelection)})`
-                    : 'Send'
-                }
-                aria-label={fanOutTotal(fanOutSelection) > 0 ? 'Fan out' : 'Send'}
+                title="Send"
+                aria-label="Send"
               >
                   <ArrowUpIcon />
                 </button>

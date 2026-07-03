@@ -529,7 +529,6 @@ function freshSessionViewFromInfo(info: import('../shared/types').SessionInfo): 
     channelId: normalizeWorkspaceChannelId(info.channelId),
     teamMode: normalizeSessionTeamMode(info.teamMode),
     teamId: info.teamId || null,
-    runGroupId: info.runGroupId || null,
     latestClaudeModelUsage: info.latestClaudeModelUsage,
     messages: [],
     hydrated: false,
@@ -872,8 +871,6 @@ export const useAppStore = create<Store>()(
       claudeSkillsProjectRoot: undefined,
       // Settings 状态
       showSettings: false,
-      runGroupViewId: null,
-      runGroupTerminalPanes: {},
       activeSettingsTab: 'general' as SettingsTab,
       agentSetupOpen: false,
       agentSetupDismissedAt: null,
@@ -1003,10 +1000,6 @@ export const useAppStore = create<Store>()(
         break;
 
       // 系统通知点击回位
-      case 'app.openRunGroup':
-        set({ runGroupViewId: event.payload.groupId, showSettings: false });
-        break;
-
       case 'app.focusSession':
         get().setActiveSession(event.payload.sessionId);
         set({ showSettings: false });
@@ -1036,86 +1029,6 @@ export const useAppStore = create<Store>()(
     if (sessionId && get().sessions[sessionId]?.runtimeNotice) {
       scheduleRuntimeNoticeClear(sessionId, set);
     }
-  },
-
-  // Fan-out 提交返回处一次性触发（唯一触发点——runGroup.changed 广播只更新数据、
-  // 绝不动布局，避免重复到达的快照广播砸掉用户手调的布局）。
-  // chat 成员 leaf 放 sessionId；custom 成员 leaf 放 PTY threadId + surface 'terminal'。
-  layoutRunGroupPanes: (entries) => {
-    const items = entries.slice(0, 4);
-    if (items.length === 0) return;
-    const paneKey = (entry: (typeof items)[number]) =>
-      entry.kind === 'chat' ? entry.sessionId : entry.threadId;
-    set((state) => {
-      let layout = state.workspaceLayout;
-      const leafOf = (id: string) =>
-        tree.allLeaves(layout.root).find((leaf) => leaf.sessionId === id)?.id ?? null;
-      const applySurface = (entry: (typeof items)[number]) => {
-        const leafId = leafOf(paneKey(entry));
-        if (leafId) {
-          layout = tree.setPaneSurface(layout, leafId, entry.kind === 'terminal' ? 'terminal' : 'chat');
-        }
-      };
-
-      layout = tree.placeSession(layout, tree.getActiveLeaf(layout).id, paneKey(items[0]));
-      applySurface(items[0]);
-      if (items[1]) {
-        const anchor = leafOf(paneKey(items[0]));
-        if (anchor) layout = tree.splitPane(layout, anchor, 'right', paneKey(items[1]));
-        applySurface(items[1]);
-      }
-      if (items[2]) {
-        const anchor = leafOf(paneKey(items[0]));
-        if (anchor) layout = tree.splitPane(layout, anchor, 'bottom', paneKey(items[2]));
-        applySurface(items[2]);
-      }
-      if (items[3]) {
-        const anchor = leafOf(paneKey(items[1]));
-        if (anchor) layout = tree.splitPane(layout, anchor, 'bottom', paneKey(items[3]));
-        applySurface(items[3]);
-      }
-      const focusLeaf = leafOf(paneKey(items[0]));
-      if (focusLeaf) layout = tree.setActivePane(layout, focusLeaf);
-
-      const terminalPanes = { ...state.runGroupTerminalPanes };
-      for (const entry of items) {
-        if (entry.kind === 'terminal') {
-          terminalPanes[entry.threadId] = {
-            threadId: entry.threadId,
-            cwd: entry.cwd,
-            title: entry.title,
-          };
-        }
-      }
-      return {
-        ...layoutPatch(layout),
-        runGroupTerminalPanes: terminalPanes,
-        activeWorkspace: 'chat',
-        showNewSession: false,
-      };
-    });
-    persistUiResumeStateSnapshot(get());
-  },
-
-  openRunGroupTerminal: (entry) => {
-    set((state) => {
-      let layout = state.workspaceLayout;
-      const active = tree.getActiveLeaf(layout);
-      layout = tree.placeSession(layout, active.id, entry.threadId);
-      const leafId =
-        tree.allLeaves(layout.root).find((leaf) => leaf.sessionId === entry.threadId)?.id ?? null;
-      if (leafId) layout = tree.setPaneSurface(layout, leafId, 'terminal');
-      return {
-        ...layoutPatch(layout),
-        runGroupTerminalPanes: {
-          ...state.runGroupTerminalPanes,
-          [entry.threadId]: entry,
-        },
-        activeWorkspace: 'chat',
-        showNewSession: false,
-      };
-    });
-    persistUiResumeStateSnapshot(get());
   },
 
   setActiveWorkspace: (activeWorkspace) =>
@@ -1931,7 +1844,6 @@ export const useAppStore = create<Store>()(
   // Settings Actions
   setShowSettings: (show) => set({ showSettings: show }),
 
-  setRunGroupViewId: (groupId) => set({ runGroupViewId: groupId }),
   setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
   setAgentSetupOpen: (open) => set({ agentSetupOpen: open }),
   dismissAgentSetup: () =>
@@ -2269,7 +2181,6 @@ function handleSessionList(
       channelId,
       teamMode: normalizeSessionTeamMode(session.teamMode),
       teamId: session.teamId || null,
-      runGroupId: session.runGroupId || null,
       latestClaudeModelUsage: session.latestClaudeModelUsage,
       messages: existing?.messages || [],
       hydrated: existing?.hydrated || false,
@@ -2367,7 +2278,6 @@ function handleSessionStatus(
     channelId?: string;
     teamMode?: SessionInfo['teamMode'];
     teamId?: SessionInfo['teamId'];
-    runGroupId?: SessionInfo['runGroupId'];
   },
   set: SetState,
   get: () => Store
@@ -2402,7 +2312,6 @@ function handleSessionStatus(
     channelId,
     teamMode,
     teamId,
-    runGroupId,
   } = payload;
   const state = get();
   const session = state.sessions[sessionId];
@@ -2495,7 +2404,6 @@ function handleSessionStatus(
             teamId !== undefined
               ? teamId || null
               : session.teamId || null,
-          runGroupId: runGroupId !== undefined ? runGroupId || null : session.runGroupId ?? null,
           latestClaudeModelUsage: session.latestClaudeModelUsage,
           streaming:
             status === 'running'
@@ -2546,7 +2454,6 @@ function handleSessionStatus(
       channelId: normalizeWorkspaceChannelId(channelId),
       teamMode: teamMode !== undefined ? normalizeSessionTeamMode(teamMode) : 'channel_default',
       teamId: teamId || null,
-      runGroupId: runGroupId || null,
       latestClaudeModelUsage: undefined,
       messages: [],
       hydrated: true, // 新会话不需要 hydration
