@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { rendererStateStorage } from '../utils/renderer-state-storage';
 import { toast } from 'sonner';
 import * as tree from './layout-tree';
 import type { PaneId, SplitEdge, WorkspaceLayout } from './layout-tree';
@@ -1957,6 +1958,9 @@ export const useAppStore = create<Store>()(
     }),
     {
       name: 'cowork-app-storage',
+      // Origin-independent storage: localStorage is per-origin, and the dev
+      // server ↔ file:// fallback origin flip silently reset drafts/flags.
+      storage: createJSONStorage(() => rendererStateStorage),
       partialize: (state) => ({
         activeWorkspace: state.activeWorkspace,
         workspaceChannelsByProject: state.workspaceChannelsByProject,

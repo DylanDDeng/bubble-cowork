@@ -8,6 +8,7 @@ import piLogo from '../../assets/pi-logo-auto.svg';
 import { OpenCodeLogo } from '../OpenCodeLogo';
 import { Check, Copy, ExternalLink, Loader2, RefreshCw } from '../icons';
 import type { AgentProvider, AgentRuntimeDirectoryReport, AgentRuntimeEntry } from '../../../shared/types';
+import { rendererStateStorage } from '../../utils/renderer-state-storage';
 
 const ONBOARDING_DONE_KEY = 'aegis-onboarding-complete';
 
@@ -31,7 +32,7 @@ export function useAgentOnboardingGate(enabled: boolean): {
 } {
   const [visible, setVisible] = useState<boolean>(() => {
     try {
-      return !localStorage.getItem(ONBOARDING_DONE_KEY);
+      return !rendererStateStorage.getItem(ONBOARDING_DONE_KEY);
     } catch {
       return false;
     }
@@ -57,9 +58,9 @@ export function useAgentOnboardingGate(enabled: boolean): {
 
   const dismiss = useCallback(() => {
     try {
-      localStorage.setItem(ONBOARDING_DONE_KEY, String(Date.now()));
+      rendererStateStorage.setItem(ONBOARDING_DONE_KEY, String(Date.now()));
     } catch {
-      // localStorage unavailable — still dismiss for this run
+      // storage unavailable — still dismiss for this run
     }
     setVisible(false);
   }, []);

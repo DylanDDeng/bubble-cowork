@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { rendererStateStorage } from '../utils/renderer-state-storage';
 
 // Stores lightweight browser metadata per session (tabs list, recent history)
 // so the chrome can render immediately on session switch before the main
@@ -84,7 +85,7 @@ export const useBrowserStateStore = create<BrowserStateStore>()(
     }),
     {
       name: BROWSER_STATE_STORAGE_KEY,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => rendererStateStorage),
     }
   )
 );

@@ -376,6 +376,61 @@ function clearUiResumeState(): void {
   }
 }
 
+// Renderer key-value state persisted in userData instead of localStorage.
+// localStorage is scoped to the page origin, which flips between the dev
+// server (http://127.0.0.1:<port>) and the dist-react fallback (file://), so
+// anything kept there — onboarding flag, draft sessions — silently "resets"
+// whenever the origin changes. This store is origin-independent.
+let rendererStateCache: Record<string, string> | null = null;
+let rendererStateWriteTimer: NodeJS.Timeout | null = null;
+
+function getRendererStateFile(): string {
+  return path.join(app.getPath('userData'), 'renderer-state.json');
+}
+
+function loadRendererState(): Record<string, string> {
+  if (rendererStateCache) {
+    return rendererStateCache;
+  }
+  try {
+    const file = getRendererStateFile();
+    rendererStateCache = fs.existsSync(file)
+      ? (JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, string>)
+      : {};
+  } catch {
+    rendererStateCache = {};
+  }
+  return rendererStateCache;
+}
+
+function flushRendererState(): void {
+  if (rendererStateWriteTimer) {
+    clearTimeout(rendererStateWriteTimer);
+    rendererStateWriteTimer = null;
+  }
+  if (!rendererStateCache) {
+    return;
+  }
+  try {
+    const file = getRendererStateFile();
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(rendererStateCache));
+    fs.renameSync(tmp, file);
+  } catch {
+    // ignore — next write retries
+  }
+}
+
+function scheduleRendererStateWrite(): void {
+  if (rendererStateWriteTimer) {
+    return;
+  }
+  rendererStateWriteTimer = setTimeout(() => {
+    rendererStateWriteTimer = null;
+    flushRendererState();
+  }, 150);
+}
+
 function loadWindowState(): WindowState {
   try {
     const windowStateFile = getWindowStateFile();
@@ -934,6 +989,22 @@ app.whenReady().then(() => {
     saveUiResumeState(state);
     event.returnValue = { ok: true };
   });
+  // Origin-independent renderer state. The preload snapshots the full map
+  // synchronously at page load (mirrors how localStorage hydrates), then
+  // forwards writes here.
+  ipcMain.on('renderer-state:get-all-sync', (event) => {
+    event.returnValue = loadRendererState();
+  });
+  ipcMain.on('renderer-state:set', (_event, key: string, value: string) => {
+    if (typeof key !== 'string' || typeof value !== 'string') return;
+    loadRendererState()[key] = value;
+    scheduleRendererStateWrite();
+  });
+  ipcMain.on('renderer-state:remove', (_event, key: string) => {
+    if (typeof key !== 'string') return;
+    delete loadRendererState()[key];
+    scheduleRendererStateWrite();
+  });
   // Keep the pending editor draft mirrored in the main process. Normal edits
   // use async IPC; blur/unload paths use sync IPC before the renderer freezes.
   ipcMain.on('project-editor-draft-update', (_event, draft: PendingProjectEditorDraft | null) => {
@@ -991,6 +1062,7 @@ app.on('before-quit', () => {
   if (latestUiResumeState) {
     saveUiResumeState(latestUiResumeState);
   }
+  flushRendererState();
   devFileWatcher?.close();
   devFileWatcher = null;
   disposeBrowserIpc();
@@ -1001,6 +1073,7 @@ app.on('will-quit', () => {
   logDevLifecycle('app.will-quit');
   // Last fallback for quit paths that bypass before-quit.
   flushPendingProjectEditorDraftSync();
+  flushRendererState();
 });
 
 app.on('child-process-gone', (_event, details) => {

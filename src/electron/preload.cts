@@ -315,6 +315,34 @@ contextBridge.exposeInMainWorld('electron', {
     return Promise.resolve(ipcRenderer.sendSync('save-ui-resume-state-sync', state));
   },
 
+  // Origin-independent replacement for localStorage-backed app state. The map
+  // is snapshotted synchronously once per page load so reads behave exactly
+  // like localStorage; writes are forwarded to the main process, which owns
+  // the userData/renderer-state.json file.
+  rendererState: (() => {
+    let cache: Record<string, string> | null = null;
+    const load = (): Record<string, string> => {
+      if (!cache) {
+        cache = (ipcRenderer.sendSync('renderer-state:get-all-sync') as Record<string, string>) || {};
+      }
+      return cache;
+    };
+    return {
+      getItem: (key: string): string | null => {
+        const value = load()[key];
+        return value === undefined ? null : value;
+      },
+      setItem: (key: string, value: string): void => {
+        load()[key] = value;
+        ipcRenderer.send('renderer-state:set', key, value);
+      },
+      removeItem: (key: string): void => {
+        delete load()[key];
+        ipcRenderer.send('renderer-state:remove', key);
+      },
+    };
+  })(),
+
   // Mirror unsaved editor content to the main process during normal edits.
   updateProjectEditorDraft: (
     draft: { cwd: string; filePath: string; content: string } | null

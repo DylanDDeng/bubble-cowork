@@ -135,6 +135,11 @@ declare global {
     getUiResumeState: () => Promise<UiResumeState | null>;
     getUiResumeStateSync: () => UiResumeState | null;
     saveUiResumeState: (state: UiResumeState) => Promise<{ ok: boolean }>;
+    rendererState: {
+      getItem: (key: string) => string | null;
+      setItem: (key: string, value: string) => void;
+      removeItem: (key: string) => void;
+    };
     updateProjectEditorDraft: (
       draft: { cwd: string; filePath: string; content: string } | null
     ) => void;
