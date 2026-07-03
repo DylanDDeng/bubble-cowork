@@ -5,6 +5,7 @@ import {
   Pin,
   Plus,
 } from './icons';
+import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { allLeaves } from '../store/layout-tree';
 import { sendEvent } from '../hooks/useIPC';
@@ -311,6 +312,8 @@ function SessionItem({
   const providerSupportsFork =
     session.provider === 'claude' || session.provider === 'codex' || session.provider === 'opencode';
   const canFork = !session.isDraft && providerSupportsFork;
+  const canMoveToWorktree =
+    !session.isDraft && session.envMode !== 'worktree' && session.status !== 'running';
   const forkLabel = canFork
     ? 'Fork into a new pane'
     : providerSupportsFork
@@ -339,6 +342,16 @@ function SessionItem({
               : 'Fork into a new worktree (not supported for this provider)',
           enabled: canFork,
         },
+        {
+          id: 'move-worktree',
+          // 不 fork 对话、provider 无关：同一条 thread 挪进隔离 worktree 继续
+          label: canMoveToWorktree
+            ? 'Move into a new worktree'
+            : session.envMode === 'worktree'
+              ? 'Move into a new worktree (already in a worktree)'
+              : 'Move into a new worktree (agent is running)',
+          enabled: canMoveToWorktree,
+        },
         { id: 'sep', type: 'separator' },
         { id: 'pin', label: session.pinned ? 'Unpin' : 'Pin' },
         { id: 'sep2', type: 'separator' },
@@ -350,6 +363,15 @@ function SessionItem({
       void forkSessionToPane(session.id);
     } else if (result.id === 'fork-worktree') {
       void forkSessionToWorktreePane(session.id);
+    } else if (result.id === 'move-worktree') {
+      void (async () => {
+        const result = await window.electron.moveSessionToWorktree(session.id);
+        if (result.ok) {
+          toast.success('Thread moved into a new worktree — changes stay on its own branch.');
+        } else {
+          toast.error(result.message || 'Could not move the thread into a worktree.');
+        }
+      })();
     } else if (result.id === 'pin') {
       onTogglePin();
     } else if (result.id === 'delete') {

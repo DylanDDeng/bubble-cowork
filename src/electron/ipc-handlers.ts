@@ -4157,6 +4157,22 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     };
   });
 
+  // 把现有 thread 本身挪进新 worktree（不 fork 对话，provider 无关）：
+  // 同一个会话继续聊，只是 cwd 换成隔离检出。
+  ipcMainHandle('move-session-to-worktree', async (_event, sessionId: string) => {
+    const row = sessions.getSession(sessionId);
+    if (!row) return { ok: false, message: 'Session not found.' };
+    if (runnerHandles.has(sessionId) || row.status === 'running') {
+      return { ok: false, message: 'Wait for the agent to finish before moving the thread.' };
+    }
+    if (row.env_mode === 'worktree' && row.worktree_path) {
+      return { ok: false, message: 'This thread is already in a worktree.' };
+    }
+    const result = await assignIsolatedWorkspace(sessionId);
+    if (result.ok) broadcastSessionWorkspace(mainWindow, sessionId);
+    return result;
+  });
+
   ipcMainHandle('apply-worktree-changes', async (_event, sessionId: string) => {
     const result = await applyIsolatedWorkspace(sessionId, (id) => runnerHandles.has(id));
     if (result.ok) broadcastSessionWorkspace(mainWindow, sessionId);
