@@ -105,9 +105,6 @@ declare global {
     forkSession: (
       sessionId: string
     ) => Promise<{ ok: boolean; session?: SessionInfo; message?: string }>;
-    forkSessionToWorktree: (
-      sessionId: string
-    ) => Promise<{ ok: boolean; session?: SessionInfo; message?: string; warning?: string }>;
     moveSessionToWorktree: (
       sessionId: string
     ) => Promise<{ ok: boolean; message?: string }>;

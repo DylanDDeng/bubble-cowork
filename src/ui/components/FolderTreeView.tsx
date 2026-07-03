@@ -2,6 +2,7 @@ import { useMemo, useState, type DragEvent } from 'react';
 import {
   FolderClosed,
   FolderOpen,
+  GitFork,
   Pin,
   Plus,
 } from './icons';
@@ -303,7 +304,6 @@ function SessionItem({
   onTogglePin: () => void;
 }) {
   const forkSessionToPane = useAppStore((s) => s.forkSessionToPane);
-  const forkSessionToWorktreePane = useAppStore((s) => s.forkSessionToWorktreePane);
   // Fork branches the provider-side conversation: Claude via the SDK's native
   // fork (bootstrapped from history if needed), Codex via app-server
   // `thread/fork`, OpenCode via the SDK's `session.fork`. Other providers have
@@ -333,16 +333,6 @@ function SessionItem({
           enabled: canFork,
         },
         {
-          id: 'fork-worktree',
-          // 依赖对话 fork：Claude/Codex/OpenCode 有 fork API，Kimi/Grok/Pi 没有
-          label: canFork
-            ? 'Fork into a new worktree'
-            : providerSupportsFork
-              ? 'Fork into a new worktree (send a message first)'
-              : 'Fork into a new worktree (not supported for this provider)',
-          enabled: canFork,
-        },
-        {
           id: 'move-worktree',
           // 不 fork 对话、provider 无关：同一条 thread 挪进隔离 worktree 继续
           label: canMoveToWorktree
@@ -361,8 +351,6 @@ function SessionItem({
     if (!result.ok || !result.id) return;
     if (result.id === 'fork') {
       void forkSessionToPane(session.id);
-    } else if (result.id === 'fork-worktree') {
-      void forkSessionToWorktreePane(session.id);
     } else if (result.id === 'move-worktree') {
       void (async () => {
         const result = await window.electron.moveSessionToWorktree(session.id);
@@ -418,6 +406,14 @@ function SessionItem({
       </button>
 
       <div className="flex min-h-[22px] items-center gap-2">
+        {session.envMode === 'worktree' && session.worktreePath ? (
+          <span
+            className="flex-shrink-0"
+            title={`Runs in a worktree${session.associatedWorktreeBranch ? ` · ${session.associatedWorktreeBranch}` : ''}`}
+          >
+            <GitFork className="h-3.5 w-3.5 text-[var(--text-muted)]" aria-label="Runs in a worktree" />
+          </span>
+        ) : null}
         <span className="flex-1 truncate text-[13px] font-normal leading-[1.3]">{session.title}</span>
         <span className="flex-shrink-0 text-[12px] text-[var(--text-muted)]">
           {formatSidebarTime(session.updatedAt)}

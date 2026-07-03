@@ -4141,22 +4141,6 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return forkSessionInternal(sourceSessionId);
   });
 
-  // "派生到隔离副本"：fork 对话 + 新建隔离 worktree，一步完成。
-  // worktree 建不出来时降级为普通 fork（对话已存在），把原因带回给 UI。
-  ipcMainHandle('fork-session-to-worktree', async (_event, sourceSessionId: string) => {
-    const forked = await forkSessionInternal(sourceSessionId);
-    if (!forked.ok) return forked;
-    const assigned = await assignIsolatedWorkspace(forked.session.id);
-    if (!assigned.ok) {
-      return { ok: true as const, session: forked.session, warning: assigned.message };
-    }
-    const row = sessions.getSession(forked.session.id);
-    return {
-      ok: true as const,
-      session: row ? buildSessionInfoFromRow(row) : forked.session,
-    };
-  });
-
   // 把现有 thread 本身挪进新 worktree（不 fork 对话，provider 无关）：
   // 同一个会话继续聊，只是 cwd 换成隔离检出。
   ipcMainHandle('move-session-to-worktree', async (_event, sessionId: string) => {

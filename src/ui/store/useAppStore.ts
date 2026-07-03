@@ -1338,27 +1338,6 @@ export const useAppStore = create<Store>()(
     toast.success('Forked into a new pane');
   },
 
-  // "派生到隔离副本"：fork 对话 + 独立 worktree，改动不碰项目本体
-  forkSessionToWorktreePane: async (sessionId) => {
-    const result = await window.electron.forkSessionToWorktree(sessionId);
-    if (!result?.ok || !result.session) {
-      if (result?.message) toast.error(result.message);
-      return;
-    }
-    const view = freshSessionViewFromInfo(result.session);
-    set((state) => ({ sessions: { ...state.sessions, [view.id]: view } }));
-    const active = tree.getActiveLeaf(get().workspaceLayout);
-    if (active.sessionId === null) {
-      get().placeSessionInPane(active.id, view.id);
-    } else {
-      get().splitPaneAt(active.id, 'right', view.id);
-    }
-    if (result.warning) {
-      toast.warning(`Forked, but without a worktree: ${result.warning}`);
-    } else {
-      toast.success('Forked into a new worktree — changes stay on its own branch');
-    }
-  },
 
   openSplitChat: (paneId, sessionId) => {
     set((state) => {

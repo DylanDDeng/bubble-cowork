@@ -204,10 +204,6 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('fork-session', sessionId);
   },
 
-  forkSessionToWorktree: (sessionId: string) => {
-    return ipcRenderer.invoke('fork-session-to-worktree', sessionId);
-  },
-
   moveSessionToWorktree: (sessionId: string) => {
     return ipcRenderer.invoke('move-session-to-worktree', sessionId);
   },

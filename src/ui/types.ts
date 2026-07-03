@@ -366,8 +366,6 @@ export interface AppActions {
   ) => void;
   // Fork a session's conversation and open the fork in a new pane.
   forkSessionToPane: (sessionId: string) => Promise<void>;
-  // Fork a session's conversation into a fresh isolated worktree copy.
-  forkSessionToWorktreePane: (sessionId: string) => Promise<void>;
   setDraftStartMode: (sessionId: string, mode: 'local' | 'worktree') => void;
   setShowNewSession: (show: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
