@@ -101,85 +101,6 @@ function buildAegisWorktreeBranch(baseBranch: string): string {
   return `aegis/${sanitized || 'worktree'}-${suffix}`;
 }
 
-// worktree thread 的常驻横幅：分支名亮出来，动作用 git 的语言说清楚。
-function IsolatedCopyBanner({ session }: { session: SessionView }) {
-  const [busy, setBusy] = useState<'apply' | 'discard' | null>(null);
-  const isRunning = session.status === 'running';
-  const branch = session.associatedWorktreeBranch || null;
-
-  const apply = async () => {
-    setBusy('apply');
-    try {
-      const result = await window.electron.applyWorktreeChanges(session.id);
-      if (result.ok) {
-        toast.success('Squash-merged — changes are staged in your project for review.');
-      } else {
-        toast.error(result.message || 'Squash-merge failed.');
-      }
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const discard = async () => {
-    if (
-      !window.confirm(
-        `Remove this worktree${branch ? ` and delete branch ${branch}` : ''}? All uncommitted changes in it are lost. The conversation stays.`
-      )
-    ) {
-      return;
-    }
-    setBusy('discard');
-    try {
-      const result = await window.electron.discardWorktreeChanges(session.id);
-      if (result.ok) {
-        toast.success('Worktree removed — thread is back on the project.');
-      } else {
-        toast.error(result.message || 'Could not remove the worktree.');
-      }
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <div className="mx-8 mb-2 flex items-center gap-2.5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2">
-      <GitFork className="h-4 w-4 flex-shrink-0 text-[var(--accent)]" />
-      <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-secondary)]" title={session.worktreePath || undefined}>
-        Worktree{branch ? (
-          <>
-            {' · '}
-            <span className="font-mono text-[11px] text-[var(--text-primary)]">{branch}</span>
-          </>
-        ) : null}
-        {' — changes stay on this branch until merged'}
-      </span>
-      <button
-        type="button"
-        disabled={isRunning || busy !== null}
-        onClick={() => void apply()}
-        title={
-          isRunning
-            ? 'Wait for the agent to finish first'
-            : 'git merge --squash into your project — the result lands in the staging area for review'
-        }
-        className="flex-shrink-0 rounded-lg bg-[var(--text-primary)] px-2.5 py-1 text-[12px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        {busy === 'apply' ? 'Merging…' : 'Squash-merge'}
-      </button>
-      <button
-        type="button"
-        disabled={isRunning || busy !== null}
-        onClick={() => void discard()}
-        title="Remove the worktree and delete its branch"
-        className="flex-shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        {busy === 'discard' ? 'Removing…' : 'Discard'}
-      </button>
-    </div>
-  );
-}
-
 export function SessionWorkspaceControl({
   session,
   sessionId,
@@ -200,6 +121,44 @@ export function SessionWorkspaceControl({
   const [branchesError, setBranchesError] = useState<string | null>(null);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [busyAction, setBusyAction] = useState<'local' | 'worktree' | 'branch' | null>(null);
+  // worktree 收尾动作（Environment 卡片 / Workspace 下拉里）："收下"或"扔掉"
+  const [worktreeActionBusy, setWorktreeActionBusy] = useState(false);
+
+  const handleSquashMerge = async () => {
+    setWorktreeActionBusy(true);
+    try {
+      const result = await window.electron.applyWorktreeChanges(session.id);
+      if (result.ok) {
+        toast.success('Squash-merged — changes are staged in your project for review.');
+      } else {
+        toast.error(result.message || 'Squash-merge failed.');
+      }
+    } finally {
+      setWorktreeActionBusy(false);
+    }
+  };
+
+  const handleDiscardWorktree = async () => {
+    const branch = session.associatedWorktreeBranch;
+    if (
+      !window.confirm(
+        `Remove this worktree${branch ? ` and delete branch ${branch}` : ''}? All uncommitted changes in it are lost. The conversation stays.`
+      )
+    ) {
+      return;
+    }
+    setWorktreeActionBusy(true);
+    try {
+      const result = await window.electron.discardWorktreeChanges(session.id);
+      if (result.ok) {
+        toast.success('Worktree removed — thread is back on the project.');
+      } else {
+        toast.error(result.message || 'Could not remove the worktree.');
+      }
+    } finally {
+      setWorktreeActionBusy(false);
+    }
+  };
   const [worktreeDialogOpen, setWorktreeDialogOpen] = useState(false);
   const [localDialogOpen, setLocalDialogOpen] = useState(false);
   const [branchDialog, setBranchDialog] = useState<{
@@ -553,6 +512,41 @@ export function SessionWorkspaceControl({
               <GitFork className="h-3.5 w-3.5 text-[var(--text-muted)]" />
               <span className="flex-1">New worktree</span>
             </DropdownMenu.Item>
+            {isWorktree ? (
+              <>
+                <div className="my-1 h-px bg-[var(--border)]" />
+                <div
+                  className="truncate px-2 py-1 font-mono text-[11px] text-[var(--text-muted)]"
+                  title={session.worktreePath || undefined}
+                >
+                  {session.associatedWorktreeBranch || 'worktree'}
+                </div>
+                <DropdownMenu.Item
+                  disabled={isRunning || worktreeActionBusy}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void handleSquashMerge();
+                  }}
+                  className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
+                  title="git merge --squash into your project — the result lands in the staging area for review"
+                >
+                  <GitBranch className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                  <span className="flex-1">Squash-merge into project</span>
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  disabled={isRunning || worktreeActionBusy}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void handleDiscardWorktree();
+                  }}
+                  className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)] data-[highlighted]:text-rose-500"
+                  title="Remove the worktree and delete its branch"
+                >
+                  <X className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                  <span className="flex-1">Discard worktree…</span>
+                </DropdownMenu.Item>
+              </>
+            ) : null}
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
@@ -1838,10 +1832,6 @@ export function ChatPane({
               <div />
             </div>
           </div>
-
-          {session.envMode === 'worktree' && session.worktreePath ? (
-            <IsolatedCopyBanner session={session} />
-          ) : null}
 
           {session.readOnly ? null : (
             <div className="px-8 pb-4">
