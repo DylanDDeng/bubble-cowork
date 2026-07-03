@@ -766,7 +766,60 @@ export type ServerEvent =
   | { type: 'session.channelChanged'; payload: { sessionId: string; channelId: string } }
   | { type: 'session.teamChanged'; payload: { sessionId: string; teamMode: SessionTeamMode; teamId: string | null } }
   | { type: 'automation.changed'; payload: AutomationSnapshot }
+  | { type: 'runGroup.changed'; payload: { group: RunGroupInfo } }
   | { type: 'profiles.list'; payload: ProfileSnapshotPayload };
+
+// Run group（fan-out）类型
+export type RunGroupStatus = 'running' | 'settled' | 'adopted' | 'discarded' | 'cancelled';
+
+// 成员在拿到 session 之前的阶段由 group 侧持久化；有 session 后以 session.status 为准
+export type RunGroupMemberPhase = 'preparing' | 'running' | 'done' | 'failed';
+
+export interface RunGroupVariantInput {
+  provider: AgentProvider;
+  model?: string;
+  compatibleProviderId?: ClaudeCompatibleProviderId;
+  claudeReasoningEffort?: ClaudeReasoningEffort;
+  codexReasoningEffort?: CodexReasoningEffort;
+  // full = provider 的 full-access 档（worktree 隔离前提）；safe = provider 默认权限
+  permissionPreset?: 'full' | 'safe';
+}
+
+export interface RunGroupMember extends RunGroupVariantInput {
+  index: number;
+  phase: RunGroupMemberPhase;
+  branch?: string | null;
+  worktreePath?: string | null;
+  sessionId?: string | null;
+  failReason?: string | null;
+}
+
+export interface RunGroupInfo {
+  id: string;
+  projectCwd: string;
+  prompt: string;
+  baseRef: string | null;
+  status: RunGroupStatus;
+  adoptedSessionId: string | null;
+  members: RunGroupMember[];
+  createdAt: number;
+  settledAt: number | null;
+}
+
+export interface RunGroupStartInput {
+  projectCwd: string;
+  prompt: string;
+  variants: RunGroupVariantInput[];
+  attachments?: Attachment[];
+  channelId?: string;
+}
+
+export interface RunGroupStartResult {
+  ok: boolean;
+  message?: string;
+  groupId?: string;
+  memberSessionIds?: string[];
+}
 
 // Payload 类型
 export interface SessionStartPayload {
@@ -813,6 +866,7 @@ export interface SessionStartPayload {
   teamAgentTurns?: RoutedAgentRuntimePayload[];
   hiddenFromThreads?: boolean;
   channelId?: string;
+  runGroupId?: string | null;
 }
 
 export interface SessionContinuePayload {
@@ -1153,6 +1207,7 @@ export interface SessionInfo {
   channelId?: string;
   teamMode?: SessionTeamMode;
   teamId?: string | null;
+  runGroupId?: string | null;
   latestClaudeModelUsage?: LatestClaudeModelUsage;
   createdAt: number;
   updatedAt: number;
@@ -1195,6 +1250,7 @@ export interface SessionStatusPayload {
   channelId?: string;
   teamMode?: SessionTeamMode;
   teamId?: string | null;
+  runGroupId?: string | null;
 }
 
 export interface SessionHistoryPayload {

@@ -1,6 +1,6 @@
 import { execFile } from 'child_process';
-import { mkdirSync } from 'fs';
-import { dirname, join } from 'path';
+import { appendFileSync, mkdirSync, readFileSync } from 'fs';
+import { dirname, isAbsolute, join } from 'path';
 import { promisify } from 'util';
 import type { GitBranchInfo, GitWorktree } from '../../shared/types';
 
@@ -42,6 +42,40 @@ export async function getGitTopLevel(cwd: string): Promise<string> {
 export async function getCurrentBranch(cwd: string): Promise<string | null> {
   const { stdout } = await runGit(cwd, ['branch', '--show-current'], 5000);
   return stdout.trim() || null;
+}
+
+export async function getHeadCommit(cwd: string): Promise<string> {
+  const { stdout } = await runGit(cwd, ['rev-parse', 'HEAD'], 5000);
+  return stdout.trim();
+}
+
+// Aegis 把 worktree 建在 <repoRoot>/.worktrees/ 之内；不写排除规则的话，
+// 链接 worktree 会以 "?? .worktrees/" 永久出现在用户主工作区的 git status 里
+// （污染 changes 视图、误触 dirty 检查，stash -u 对它无效）。
+// 写 .git/info/exclude 而非用户的 .gitignore——排除规则属于本机工具，不该进版本库。
+export async function ensureWorktreesExcluded(cwd: string): Promise<void> {
+  const { stdout } = await runGit(cwd, ['rev-parse', '--git-common-dir'], 5000);
+  const rawDir = stdout.trim();
+  if (!rawDir) return;
+  const repoRoot = await getGitTopLevel(cwd);
+  const gitCommonDir = isAbsolute(rawDir) ? rawDir : join(repoRoot, rawDir);
+  const excludePath = join(gitCommonDir, 'info', 'exclude');
+  let existing = '';
+  try {
+    existing = readFileSync(excludePath, 'utf8');
+  } catch {
+    // 文件不存在则创建
+  }
+  const hasRule = existing
+    .split('\n')
+    .some((line) => {
+      const trimmed = line.trim();
+      return trimmed === '.worktrees/' || trimmed === '.worktrees' || trimmed === '/.worktrees/';
+    });
+  if (hasRule) return;
+  mkdirSync(dirname(excludePath), { recursive: true });
+  const prefix = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
+  appendFileSync(excludePath, `${prefix}# Aegis worktrees (auto-added)\n.worktrees/\n`, 'utf8');
 }
 
 export async function hasDirtyWorkingTree(cwd: string): Promise<boolean> {
@@ -256,6 +290,15 @@ export async function removeWorktree(input: {
   if (input.force) args.push('--force');
   args.push(input.path);
   await runGit(input.cwd, args, 120_000);
+}
+
+export async function deleteBranch(input: {
+  cwd: string;
+  branch: string;
+  force?: boolean;
+}): Promise<void> {
+  const args = ['branch', input.force ? '-D' : '-d', input.branch];
+  await runGit(input.cwd, args, 30_000);
 }
 
 export async function checkoutBranch(input: {

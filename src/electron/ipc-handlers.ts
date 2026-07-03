@@ -56,6 +56,7 @@ import { getPiModelConfig } from './libs/pi-settings';
 import { formatKimiRuntimeBlockingMessage, getKimiRuntimeStatus } from './libs/kimi-runtime-status';
 import { formatGrokRuntimeBlockingMessage, getGrokRuntimeStatus } from './libs/grok-runtime-status';
 import { AutomationScheduler } from './libs/automation-scheduler';
+import { RunGroupService } from './libs/run-group-service';
 import {
   deletePromptLibraryItem,
   exportPromptLibraryFile,
@@ -126,6 +127,8 @@ import type {
   WechatMarkdownHtmlGenerationInput,
   WechatMarkdownHtmlGeneratorConfig,
   AgentProvider,
+  RunGroupInfo,
+  RunGroupStartInput,
 } from '../shared/types';
 import { getProviderService } from './libs/provider/service';
 import { disposeTerminalRuntime } from './libs/terminal-runtime';
@@ -3147,6 +3150,11 @@ const runnerHandles = new Map<
 
 const activeRoutedAgentSequences = new Map<string, { cancelled: boolean }>();
 let automationScheduler: AutomationScheduler | null = null;
+let runGroupService: RunGroupService | null = null;
+
+function broadcastRunGroupChanged(mainWindow: BrowserWindow, group: RunGroupInfo): void {
+  broadcast(mainWindow, { type: 'runGroup.changed', payload: { group } });
+}
 
 // 会话状态映射（包含 pending permissions）
 const sessionStates = new Map<string, SessionState>();
@@ -3883,6 +3891,15 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
   void feishuBridge.maybeAutoStart();
 
+  // 启动期清算必须先于任何 runner/scheduler 启动：清掉崩溃残留的 running session，
+  // 并把 running 状态的 run group 收敛到终态。
+  runGroupService = new RunGroupService(
+    (payload) => handleSessionStart(mainWindow, payload),
+    (sessionId) => handleSessionStop(mainWindow, sessionId),
+    (group) => broadcastRunGroupChanged(mainWindow, group)
+  );
+  runGroupService.reconcileOnBoot();
+
   automationScheduler?.stop();
   automationScheduler = new AutomationScheduler(
     mainWindow,
@@ -3890,6 +3907,20 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     () => broadcastAutomationChanged(mainWindow)
   );
   automationScheduler.start();
+
+  ipcMainHandle('start-run-group', async (_event, input: RunGroupStartInput) => {
+    if (!runGroupService) return { ok: false, message: 'Run group service is not ready.' };
+    return runGroupService.start(input);
+  });
+
+  ipcMainHandle('cancel-run-group', async (_event, groupId: string) => {
+    if (!runGroupService) return { ok: false, message: 'Run group service is not ready.' };
+    return runGroupService.cancel(groupId);
+  });
+
+  ipcMainHandle('list-run-groups', async (_event, projectCwd?: string) => {
+    return sessions.listRunGroups(projectCwd || undefined);
+  });
 
   // 处理客户端事件
   ipcMain.removeAllListeners('client-event');
@@ -6362,6 +6393,7 @@ function buildSessionInfoFromRow(
     channelId: normalizeWorkspaceChannelId(row.workspace_channel_id),
     teamMode: normalizeSessionTeamMode(row.team_mode),
     teamId: row.team_id || null,
+    runGroupId: row.run_group_id || null,
     latestClaudeModelUsage,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -7367,6 +7399,7 @@ async function handleSessionStart(
     teamAgentTurns,
     hiddenFromThreads,
     channelId,
+    runGroupId,
   } = payload;
   const sessionScope = normalizeSessionScope(scope);
   const sessionAgentId = sessionScope === 'dm' ? agentId?.trim() || null : null;
@@ -7467,6 +7500,7 @@ async function handleSessionStart(
     channelId: normalizeWorkspaceChannelId(channelId),
     teamMode: normalizedTeamMode,
     teamId: normalizedTeamId,
+    runGroupId: runGroupId || null,
   });
 
   // 更新状态为 running
@@ -7512,6 +7546,7 @@ async function handleSessionStart(
       channelId: normalizeWorkspaceChannelId(session.workspace_channel_id),
       teamMode: normalizeSessionTeamMode(session.team_mode),
       teamId: session.team_id || null,
+      runGroupId: session.run_group_id || null,
     },
   });
 
@@ -8848,6 +8883,11 @@ function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void
 
   // 删除数据库记录
   sessions.deleteSession(sessionId);
+
+  // worktree 回收 + run group 收尾（clean worktree 才回收，dirty 保留）
+  if (session && (session.worktree_path || session.run_group_id)) {
+    void runGroupService?.handleSessionDeleted(session);
+  }
 
   // 广播删除事件（幂等）
   broadcast(mainWindow, {

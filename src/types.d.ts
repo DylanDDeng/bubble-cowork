@@ -55,6 +55,9 @@ import type {
   WechatMarkdownHtmlGenerationInput,
   WechatMarkdownHtmlGenerationResult,
   WechatMarkdownHtmlGeneratorConfig,
+  RunGroupInfo,
+  RunGroupStartInput,
+  RunGroupStartResult,
 } from './shared/types';
 import type {
   BrowserCapturePageResult,
@@ -111,6 +114,9 @@ declare global {
     deleteAutomation: (automationId: string) => Promise<{ ok: boolean }>;
     setAutomationEnabled: (automationId: string, enabled: boolean) => Promise<AutomationDefinition | null>;
     runAutomationNow: (automationId: string) => Promise<{ ok: boolean; sessionId?: string; message?: string }>;
+    startRunGroup: (input: RunGroupStartInput) => Promise<RunGroupStartResult>;
+    cancelRunGroup: (groupId: string) => Promise<{ ok: boolean; message?: string }>;
+    listRunGroups: (projectCwd?: string) => Promise<RunGroupInfo[]>;
     startTerminalSession: (sessionId: string, cwd: string, cols?: number, rows?: number, agentKind?: TerminalAgentKind) => Promise<StartTerminalSessionResult>;
     writeTerminalSession: (sessionId: string, data: string) => Promise<{ ok: boolean; message?: string }>;
     resizeTerminalSession: (sessionId: string, cols: number, rows: number) => Promise<{ ok: boolean; message?: string }>;

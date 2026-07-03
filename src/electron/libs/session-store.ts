@@ -7,7 +7,7 @@ import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import type { SessionRow, StreamMessage, SessionStatus } from '../types';
-import type { ArtifactRow, DerivedSummaryRow } from '../types';
+import type { ArtifactRow, DerivedSummaryRow, RunGroupRow } from '../types';
 import type {
   ChatSessionSearchResult,
   ClaudeAccessMode,
@@ -39,6 +39,9 @@ import type {
   SessionEnvironmentNote,
   SessionEnvironmentRecap,
   ThreadEnvironmentMode,
+  RunGroupInfo,
+  RunGroupMember,
+  RunGroupStatus,
 } from '../../shared/types';
 
 let db: Database.Database | null = null;
@@ -615,6 +618,18 @@ export function initialize(): void {
       FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL
     );
+
+    CREATE TABLE IF NOT EXISTS run_groups (
+      id TEXT PRIMARY KEY,
+      project_cwd TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      base_ref TEXT,
+      variants TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running',
+      adopted_session_id TEXT,
+      created_at INTEGER NOT NULL,
+      settled_at INTEGER
+    );
   `);
 
   ensureColumn('sessions', 'codex_session_id', 'TEXT');
@@ -652,6 +667,7 @@ export function initialize(): void {
   ensureColumn('sessions', 'associated_worktree_path', 'TEXT');
   ensureColumn('sessions', 'associated_worktree_branch', 'TEXT');
   ensureColumn('sessions', 'associated_worktree_ref', 'TEXT');
+  ensureColumn('sessions', 'run_group_id', 'TEXT');
   ensureColumn('messages', 'message_type', 'TEXT');
   ensureColumn('messages', 'source_origin', 'TEXT');
   ensureColumn('messages', 'search_text', 'TEXT');
@@ -659,6 +675,12 @@ export function initialize(): void {
   ensureColumn('messages', 'parent_turn_id', 'TEXT');
   ensureColumn('messages', 'delegate_call_id', 'TEXT');
   ensureColumn('messages', 'delegate_run_id', 'TEXT');
+
+  getDb().exec(`
+    CREATE INDEX IF NOT EXISTS idx_sessions_run_group ON sessions(run_group_id);
+    CREATE INDEX IF NOT EXISTS idx_run_groups_status ON run_groups(status);
+    CREATE INDEX IF NOT EXISTS idx_run_groups_project ON run_groups(project_cwd);
+  `);
 
   // 内置 Aegis runtime 已下线：清理残留的 aegis provider 会话与自动化
   try {
@@ -1371,6 +1393,7 @@ export function createSession(params: {
   channelId?: string;
   teamMode?: SessionTeamMode;
   teamId?: string | null;
+  runGroupId?: string | null;
 }): SessionRow {
   const now = Date.now();
   const id = uuidv4();
@@ -1410,6 +1433,10 @@ export function createSession(params: {
     now,
     now
   );
+
+  if (params.runGroupId?.trim()) {
+    getDb().prepare('UPDATE sessions SET run_group_id = ? WHERE id = ?').run(params.runGroupId.trim(), id);
+  }
 
   if ((params.provider || 'claude') === 'claude') {
     invalidateClaudeUsageReportCache();
@@ -1451,6 +1478,128 @@ export function listSessions(): SessionRow[] {
 export function listRunningSessions(): SessionRow[] {
   const stmt = getDb().prepare("SELECT * FROM sessions WHERE status = 'running' ORDER BY updated_at DESC");
   return stmt.all() as SessionRow[];
+}
+
+// ---- Run groups（fan-out）----
+
+function runGroupRowToInfo(row: RunGroupRow): RunGroupInfo {
+  let members: RunGroupMember[] = [];
+  try {
+    const parsed = JSON.parse(row.variants);
+    if (Array.isArray(parsed)) members = parsed as RunGroupMember[];
+  } catch {
+    // 损坏的 variants 以空成员呈现，group 仍可被 discard
+  }
+  return {
+    id: row.id,
+    projectCwd: row.project_cwd,
+    prompt: row.prompt,
+    baseRef: row.base_ref,
+    status: row.status,
+    adoptedSessionId: row.adopted_session_id,
+    members,
+    createdAt: row.created_at,
+    settledAt: row.settled_at,
+  };
+}
+
+export function createRunGroup(params: {
+  projectCwd: string;
+  prompt: string;
+  baseRef: string | null;
+  members: RunGroupMember[];
+}): RunGroupInfo {
+  const id = uuidv4();
+  const now = Date.now();
+  getDb()
+    .prepare(
+      `INSERT INTO run_groups (id, project_cwd, prompt, base_ref, variants, status, created_at)
+       VALUES (?, ?, ?, ?, ?, 'running', ?)`
+    )
+    .run(id, params.projectCwd, params.prompt, params.baseRef, JSON.stringify(params.members), now);
+  return getRunGroup(id)!;
+}
+
+export function getRunGroup(groupId: string): RunGroupInfo | null {
+  const row = getDb().prepare('SELECT * FROM run_groups WHERE id = ?').get(groupId) as
+    | RunGroupRow
+    | undefined;
+  return row ? runGroupRowToInfo(row) : null;
+}
+
+export function listRunGroups(projectCwd?: string): RunGroupInfo[] {
+  const rows = (
+    projectCwd
+      ? getDb()
+          .prepare('SELECT * FROM run_groups WHERE project_cwd = ? ORDER BY created_at DESC')
+          .all(projectCwd)
+      : getDb().prepare('SELECT * FROM run_groups ORDER BY created_at DESC').all()
+  ) as RunGroupRow[];
+  return rows.map(runGroupRowToInfo);
+}
+
+export function listActiveRunGroups(): RunGroupInfo[] {
+  const rows = getDb()
+    .prepare("SELECT * FROM run_groups WHERE status = 'running' ORDER BY created_at DESC")
+    .all() as RunGroupRow[];
+  return rows.map(runGroupRowToInfo);
+}
+
+export function updateRunGroupMembers(groupId: string, members: RunGroupMember[]): void {
+  getDb()
+    .prepare('UPDATE run_groups SET variants = ? WHERE id = ?')
+    .run(JSON.stringify(members), groupId);
+}
+
+export function setRunGroupStatus(groupId: string, status: RunGroupStatus, settledAt?: number | null): void {
+  if (settledAt !== undefined) {
+    getDb()
+      .prepare('UPDATE run_groups SET status = ?, settled_at = ? WHERE id = ?')
+      .run(status, settledAt, groupId);
+  } else {
+    getDb().prepare('UPDATE run_groups SET status = ? WHERE id = ?').run(status, groupId);
+  }
+}
+
+export function setRunGroupAdoptedSession(groupId: string, sessionId: string | null): void {
+  getDb()
+    .prepare('UPDATE run_groups SET adopted_session_id = ? WHERE id = ?')
+    .run(sessionId, groupId);
+}
+
+export function deleteRunGroup(groupId: string): void {
+  getDb().prepare("UPDATE sessions SET run_group_id = NULL WHERE run_group_id = ?").run(groupId);
+  getDb().prepare('DELETE FROM run_groups WHERE id = ?').run(groupId);
+}
+
+export function listSessionsByRunGroup(groupId: string): SessionRow[] {
+  return getDb()
+    .prepare('SELECT * FROM sessions WHERE run_group_id = ? ORDER BY created_at ASC')
+    .all(groupId) as SessionRow[];
+}
+
+// 删除 session 后的 group 收尾：被采纳成员被删 → 置 NULL；最后一个成员被删 → 删 group 行。
+// 返回受影响的 groupId（若 group 仍存在），供调用方重算/广播。
+export function handleRunGroupSessionDeleted(groupId: string, sessionId: string): {
+  groupDeleted: boolean;
+} {
+  const group = getRunGroup(groupId);
+  if (!group) return { groupDeleted: false };
+  if (group.adoptedSessionId === sessionId) {
+    setRunGroupAdoptedSession(groupId, null);
+  }
+  const members = group.members.map((member) =>
+    member.sessionId === sessionId
+      ? { ...member, sessionId: null, phase: 'failed' as const, failReason: member.failReason || 'Session deleted' }
+      : member
+  );
+  updateRunGroupMembers(groupId, members);
+  const remaining = listSessionsByRunGroup(groupId);
+  if (remaining.length === 0) {
+    deleteRunGroup(groupId);
+    return { groupDeleted: true };
+  }
+  return { groupDeleted: false };
 }
 
 function automationRowToDefinition(row: AutomationRow): AutomationDefinition {
@@ -1779,12 +1928,38 @@ export function getLatestClaudeModelUsageBySession(): Record<string, LatestClaud
 }
 
 // 更新会话状态
+// run group 成员 session 到达终态时需要重算 group 状态；由 run-group-service 注册。
+// 放在 store 层是为了兜住所有 status 写入路径（turn 完成 / stop / error / 删除前的 stop）。
+let sessionStatusListener: ((row: SessionRow) => void) | null = null;
+
+export function setSessionStatusListener(listener: ((row: SessionRow) => void) | null): void {
+  sessionStatusListener = listener;
+}
+
 export function updateSessionStatus(sessionId: string, status: SessionStatus): void {
   const now = Date.now();
   const stmt = getDb().prepare(`
     UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?
   `);
   stmt.run(status, now, sessionId);
+  if (sessionStatusListener) {
+    const row = getSession(sessionId);
+    if (row?.run_group_id) {
+      const listener = sessionStatusListener;
+      // 异步触发，避免在调用方的写事务/广播路径里重入
+      queueMicrotask(() => listener(row));
+    }
+  }
+}
+
+// 启动期清算：app 崩溃/强退后残留的 running session 没有任何 runner 句柄，
+// 若不清算会永远卡在 running（阻塞 handoff/checkout 门禁，run group 永不 settle）。
+// 必须在任何 runner 启动之前调用（boot 时 runnerHandles 必然为空）。
+export function sweepOrphanRunningSessions(): number {
+  const result = getDb()
+    .prepare("UPDATE sessions SET status = 'error', updated_at = ? WHERE status = 'running'")
+    .run(Date.now());
+  return result.changes;
 }
 
 // 更新 Claude Session ID

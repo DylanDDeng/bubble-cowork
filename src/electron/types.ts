@@ -63,8 +63,21 @@ export interface SessionRow {
   session_origin: import('../shared/types').SessionSource | null;
   external_file_path: string | null;
   external_file_mtime: number | null;
+  run_group_id: string | null;
   created_at: number;
   updated_at: number;
+}
+
+export interface RunGroupRow {
+  id: string;
+  project_cwd: string;
+  prompt: string;
+  base_ref: string | null;
+  variants: string; // JSON string of RunGroupMember[]
+  status: import('../shared/types').RunGroupStatus;
+  adopted_session_id: string | null;
+  created_at: number;
+  settled_at: number | null;
 }
 
 export interface MessageRow {

@@ -31,6 +31,9 @@ import type {
   WechatMarkdownHtmlGenerationInput,
   WechatMarkdownHtmlGenerationResult,
   WechatMarkdownHtmlGeneratorConfig,
+  RunGroupInfo,
+  RunGroupStartInput,
+  RunGroupStartResult,
 } from '../shared/types';
 import type {
   BrowserCapturePageResult,
@@ -232,6 +235,18 @@ contextBridge.exposeInMainWorld('electron', {
     automationId: string
   ): Promise<{ ok: boolean; sessionId?: string; message?: string }> => {
     return ipcRenderer.invoke('run-automation-now', automationId);
+  },
+
+  startRunGroup: (input: RunGroupStartInput): Promise<RunGroupStartResult> => {
+    return ipcRenderer.invoke('start-run-group', input);
+  },
+
+  cancelRunGroup: (groupId: string): Promise<{ ok: boolean; message?: string }> => {
+    return ipcRenderer.invoke('cancel-run-group', groupId);
+  },
+
+  listRunGroups: (projectCwd?: string): Promise<RunGroupInfo[]> => {
+    return ipcRenderer.invoke('list-run-groups', projectCwd);
   },
 
   startTerminalSession: (
