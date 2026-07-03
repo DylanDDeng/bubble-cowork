@@ -106,7 +106,9 @@ export function FolderTreeView({
     const grouped = new Map<string, ProjectGroup>();
 
     for (const session of regularSessions) {
-      const fullPath = session.cwd?.trim() || null;
+      // 按项目根分组：worktree thread 的 cwd 指向 .worktrees/ 下的检出目录，
+      // 用 projectCwd 兜底才不会把它当成一个独立"项目"
+      const fullPath = (session.projectCwd || session.cwd)?.trim() || null;
       const key = fullPath || '__no_project__';
 
       if (!grouped.has(key)) {

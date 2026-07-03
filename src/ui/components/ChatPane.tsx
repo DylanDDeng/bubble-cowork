@@ -958,6 +958,8 @@ export function ChatPane({
     setShowSettings,
     createDraftSession,
     removeDraftSession,
+    draftStartMode,
+    setDraftStartMode,
   } = useAppStore();
   const session = sessionId ? sessions[sessionId] : null;
   const scrollPositionKey = sessionId ? getChatScrollPositionKey(paneId, sessionId) : null;
@@ -1610,6 +1612,10 @@ export function ChatPane({
                       recentOptions={threadStarterRecentOptions}
                       onSelectRecent={switchDraftFolder}
                       sessionId={sessionId}
+                      startMode={sessionId ? draftStartMode[sessionId] || 'local' : 'local'}
+                      onStartModeChange={(mode) => {
+                        if (sessionId) setDraftStartMode(sessionId, mode);
+                      }}
                     />
                   }
                 />

@@ -305,6 +305,9 @@ export interface AppState {
   claudeSkillsProjectRoot?: string;
   // Settings 状态
   showSettings: boolean;
+  // 新 thread 的启动模式（composer 底部 pill）：worktree = 提交时先建隔离 worktree。
+  // 按 draft session id 记，默认 local。
+  draftStartMode: Record<string, 'local' | 'worktree'>;
   activeSettingsTab: SettingsTab;
   agentSetupOpen: boolean;
   agentSetupDismissedAt: number | null;
@@ -365,6 +368,7 @@ export interface AppActions {
   forkSessionToPane: (sessionId: string) => Promise<void>;
   // Fork a session's conversation into a fresh isolated worktree copy.
   forkSessionToWorktreePane: (sessionId: string) => Promise<void>;
+  setDraftStartMode: (sessionId: string, mode: 'local' | 'worktree') => void;
   setShowNewSession: (show: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSidebarWidth: (width: number) => void;

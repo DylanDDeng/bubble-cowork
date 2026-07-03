@@ -871,6 +871,7 @@ export const useAppStore = create<Store>()(
       claudeSkillsProjectRoot: undefined,
       // Settings 状态
       showSettings: false,
+      draftStartMode: {},
       activeSettingsTab: 'general' as SettingsTab,
       agentSetupOpen: false,
       agentSetupDismissedAt: null,
@@ -1865,6 +1866,9 @@ export const useAppStore = create<Store>()(
   setMcpServerStatus: (status) => set({ mcpServerStatus: status }),
   // Settings Actions
   setShowSettings: (show) => set({ showSettings: show }),
+
+  setDraftStartMode: (sessionId, mode) =>
+    set((state) => ({ draftStartMode: { ...state.draftStartMode, [sessionId]: mode } })),
 
   setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
   setAgentSetupOpen: (open) => set({ agentSetupOpen: open }),

@@ -64,6 +64,8 @@ export function NewSessionView() {
   } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  // 启动模式 pill：worktree = 提交时先建隔离 worktree
+  const [startMode, setStartMode] = useState<'local' | 'worktree'>('local');
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
   const [showCwdHint, setShowCwdHint] = useState(false);
   const [cursorIndex, setCursorIndex] = useState(0);
@@ -255,6 +257,7 @@ export function NewSessionView() {
         effectivePrompt: outgoingEffectivePrompt,
         cwd: dispatchCwd || undefined,
         channelId,
+        createIsolatedWorkspace: startMode === 'worktree' || undefined,
         attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
         provider: agentSelection.provider,
         model: agentSelection.model || undefined,
@@ -705,6 +708,8 @@ export function NewSessionView() {
                 }}
                 recentOptions={recentProjectOptions}
                 onSelectRecent={handleCwdChange}
+                startMode={startMode}
+                onStartModeChange={setStartMode}
               />
             </div>
       </NewThreadLanding>
