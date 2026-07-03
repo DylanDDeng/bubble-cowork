@@ -6558,7 +6558,7 @@ async function handleSessionStart(
       broadcast(mainWindow, {
         type: 'runner.error',
         payload: {
-          message: `Could not create an isolated copy — this needs a git repository with at least one commit. ${
+          message: `Could not create a worktree — this needs a git repository with at least one commit. ${
             error instanceof Error ? error.message : String(error)
           }`,
         },

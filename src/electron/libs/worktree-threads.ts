@@ -62,7 +62,7 @@ export async function assignIsolatedWorkspace(sessionId: string): Promise<Isolat
   } catch (error) {
     return {
       ok: false,
-      message: `Could not create an isolated copy — this needs a git repository with at least one commit. ${
+      message: `Could not create a worktree — this needs a git repository with at least one commit. ${
         error instanceof Error ? error.message : String(error)
       }`,
     };
@@ -84,13 +84,13 @@ export async function applyIsolatedWorkspace(
   const worktreePath = row.worktree_path;
   const branch = row.associated_worktree_branch;
   if (row.env_mode !== 'worktree' || !worktreePath || !branch || !projectCwd) {
-    return { ok: false, message: 'This thread is not running in an isolated copy.' };
+    return { ok: false, message: 'This thread is not running in a worktree.' };
   }
   if (await hasTrackedChanges(projectCwd)) {
     return {
       ok: false,
       message:
-        'Your project has uncommitted changes. Commit or stash them first so the isolated changes can be applied cleanly.',
+        'Your project has uncommitted changes. Commit or stash them first so the worktree changes can squash-merge cleanly.',
     };
   }
 
@@ -111,7 +111,7 @@ export async function applyIsolatedWorkspace(
       ok: false,
       conflict: merge.conflict,
       message: merge.conflict
-        ? 'The changes conflict with your project. Nothing was applied — resolve manually or discard the isolated copy.'
+        ? 'The changes conflict with your project. Nothing was applied — resolve manually or discard the worktree.'
         : merge.message,
     };
   }
@@ -137,13 +137,13 @@ export async function discardIsolatedWorkspace(
   const row = sessions.getSession(sessionId);
   if (!row) return { ok: false, message: 'Session not found.' };
   if (isSessionRunning(sessionId) || row.status === 'running') {
-    return { ok: false, message: 'Stop the agent before discarding the isolated copy.' };
+    return { ok: false, message: 'Stop the agent before removing the worktree.' };
   }
   const projectCwd = row.project_cwd || null;
   const worktreePath = row.worktree_path;
   const branch = row.associated_worktree_branch;
   if (row.env_mode !== 'worktree' || !worktreePath || !projectCwd) {
-    return { ok: false, message: 'This thread is not running in an isolated copy.' };
+    return { ok: false, message: 'This thread is not running in a worktree.' };
   }
   await removeWorktree({ cwd: projectCwd, path: worktreePath, force: true }).catch(() => undefined);
   if (branch) {

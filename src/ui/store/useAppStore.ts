@@ -1353,9 +1353,9 @@ export const useAppStore = create<Store>()(
       get().splitPaneAt(active.id, 'right', view.id);
     }
     if (result.warning) {
-      toast.warning(`Forked, but without isolation: ${result.warning}`);
+      toast.warning(`Forked, but without a worktree: ${result.warning}`);
     } else {
-      toast.success('Forked into an isolated copy — changes stay out of your project');
+      toast.success('Forked into a new worktree — changes stay on its own branch');
     }
   },
 

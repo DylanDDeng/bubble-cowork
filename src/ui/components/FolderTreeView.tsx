@@ -330,8 +330,8 @@ function SessionItem({
         {
           id: 'fork-worktree',
           label: canFork
-            ? 'Fork into an isolated copy'
-            : 'Fork into an isolated copy (send a message first)',
+            ? 'Fork into a new worktree'
+            : 'Fork into a new worktree (send a message first)',
           enabled: canFork,
         },
         { id: 'sep', type: 'separator' },

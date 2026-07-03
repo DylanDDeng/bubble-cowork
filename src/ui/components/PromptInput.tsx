@@ -8,7 +8,7 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from 'react';
-import { Plus, ShieldCheck, Square } from './icons';
+import { GitFork, Plus, Square } from './icons';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { sendEvent } from '../hooks/useIPC';
@@ -852,14 +852,14 @@ export function PromptInput({
                   }`}
                   title={
                     isolatedWorkspace
-                      ? 'Runs in an isolated copy — the agent will not touch your project files until you apply the changes'
-                      : 'Run in an isolated copy: the agent works on a safe copy of your project'
+                      ? 'Runs in a fresh git worktree — the agent works on its own branch; squash-merge back when done'
+                      : 'Run in a git worktree: an isolated checkout on its own branch, off your working tree'
                   }
-                  aria-label="Run in an isolated copy"
+                  aria-label="Run in a git worktree"
                   aria-pressed={isolatedWorkspace}
                 >
-                  <ShieldCheck className="h-4 w-4 flex-shrink-0" />
-                  {isolatedWorkspace ? <span className="font-medium">Isolated</span> : null}
+                  <GitFork className="h-4 w-4 flex-shrink-0" />
+                  {isolatedWorkspace ? <span className="font-medium">Worktree</span> : null}
                 </button>
               ) : null}
               {agentSelection.provider === 'codex' && (
