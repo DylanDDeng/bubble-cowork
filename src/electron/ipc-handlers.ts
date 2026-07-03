@@ -3988,9 +3988,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return runGroupService ? runGroupService.memberDiff(groupId, memberIndex) : null;
   });
 
-  ipcMainHandle('adopt-run-group', async (_event, groupId: string, sessionId: string) => {
+  ipcMainHandle('adopt-run-group', async (_event, groupId: string, memberIndex: number) => {
     if (!runGroupService) return { ok: false, message: 'Run group service is not ready.' };
-    return runGroupService.adopt(groupId, sessionId);
+    return runGroupService.adopt(groupId, memberIndex);
   });
 
   ipcMainHandle('discard-run-group', async (_event, groupId: string) => {
@@ -4005,6 +4005,24 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   ipcMainHandle('reclaim-worktrees', async (_event, projectCwd: string) => {
     if (!runGroupService) return { removed: 0 };
     return runGroupService.reclaimWorktrees(projectCwd);
+  });
+
+  ipcMainHandle('list-custom-runtimes', async () => sessions.listCustomRuntimes());
+
+  ipcMainHandle(
+    'upsert-custom-runtime',
+    async (_event, input: { id?: string; name: string; command: string }) => {
+      try {
+        return { ok: true as const, runtime: sessions.upsertCustomRuntime(input) };
+      } catch (error) {
+        return { ok: false as const, message: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  ipcMainHandle('delete-custom-runtime', async (_event, id: string) => {
+    sessions.deleteCustomRuntime(id);
+    return { ok: true };
   });
 
   // 处理客户端事件

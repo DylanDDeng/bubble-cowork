@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { RunGroupMemberSummary, RunGroupSummary } from '../../shared/types';
 import { useAppStore } from '../store/useAppStore';
-import { AgentIcon } from './ComposerAgentControls';
+import { isCustomMember, memberLabel, MemberIcon } from './RunGroupList';
 import { GitFork, X } from './icons';
 
 function formatDuration(startedAt: number | null, updatedAt: number | null): string | null {
@@ -14,6 +14,7 @@ function formatDuration(startedAt: number | null, updatedAt: number | null): str
 }
 
 function memberStatusLabel(member: RunGroupMemberSummary): string {
+  if (isCustomMember(member)) return member.phase;
   if (member.phase === 'failed' && !member.sessionId) return 'failed';
   switch (member.sessionStatus) {
     case 'running':
@@ -33,24 +34,27 @@ function MemberCard({
   member,
   adopting,
   onOpen,
+  onOpenTerminal,
   onAdopt,
 }: {
   summary: RunGroupSummary;
   member: RunGroupMemberSummary;
   adopting: boolean;
   onOpen: (sessionId: string) => void;
-  onAdopt: (sessionId: string) => void;
+  onOpenTerminal: (member: RunGroupMemberSummary) => void;
+  onAdopt: (memberIndex: number) => void;
 }) {
   const [diff, setDiff] = useState<string | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
   const [loadingDiff, setLoadingDiff] = useState(false);
 
+  const custom = isCustomMember(member);
   const status = memberStatusLabel(member);
   const duration = formatDuration(member.startedAt, member.updatedAt);
   const isDone = status === 'done';
   const canAdopt =
-    Boolean(member.sessionId && member.worktreePath) &&
-    member.sessionStatus !== 'running' &&
+    Boolean(member.worktreePath && member.branch) &&
+    status !== 'running' &&
     summary.group.status !== 'adopted' &&
     summary.group.status !== 'discarded';
 
@@ -74,10 +78,9 @@ function MemberCard({
   return (
     <div className="flex min-w-0 flex-col rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--bg-primary)] p-4">
       <div className="flex items-center gap-2">
-        <AgentIcon provider={member.provider} />
+        <MemberIcon member={member} />
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--text-primary)]">
-          {member.provider}
-          {member.model ? ` · ${member.model}` : ''}
+          {memberLabel(member)}
         </span>
         <span
           className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
@@ -133,6 +136,15 @@ function MemberCard({
             Open thread
           </button>
         ) : null}
+        {custom && member.terminalThreadId && member.worktreePath ? (
+          <button
+            type="button"
+            onClick={() => onOpenTerminal(member)}
+            className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+          >
+            Open terminal
+          </button>
+        ) : null}
         {member.worktreePath && summary.group.baseRef ? (
           <button
             type="button"
@@ -147,7 +159,7 @@ function MemberCard({
           <button
             type="button"
             disabled={adopting}
-            onClick={() => member.sessionId && onAdopt(member.sessionId)}
+            onClick={() => onAdopt(member.index)}
             className="rounded-lg bg-[var(--text-primary)] px-3 py-1 text-[12px] font-medium text-[var(--bg-primary)] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Adopt
@@ -178,6 +190,7 @@ export function RunGroupView() {
   const runGroupViewId = useAppStore((state) => state.runGroupViewId);
   const setRunGroupViewId = useAppStore((state) => state.setRunGroupViewId);
   const setActiveSession = useAppStore((state) => state.setActiveSession);
+  const openRunGroupTerminal = useAppStore((state) => state.openRunGroupTerminal);
   const [summary, setSummary] = useState<RunGroupSummary | null>(null);
   const [adopting, setAdopting] = useState(false);
 
@@ -208,11 +221,21 @@ export function RunGroupView() {
     setActiveSession(sessionId);
   };
 
-  const adopt = async (sessionId: string) => {
+  const openTerminal = (member: RunGroupMemberSummary) => {
+    if (!member.terminalThreadId || !member.worktreePath) return;
+    close();
+    openRunGroupTerminal({
+      threadId: member.terminalThreadId,
+      cwd: member.worktreePath,
+      title: memberLabel(member),
+    });
+  };
+
+  const adopt = async (memberIndex: number) => {
     if (!summary) return;
     setAdopting(true);
     try {
-      const result = await window.electron.adoptRunGroup(summary.group.id, sessionId);
+      const result = await window.electron.adoptRunGroup(summary.group.id, memberIndex);
       if (result.ok) {
         toast.success('Result adopted — changes are staged in your main workspace for review.');
         void refresh();
@@ -282,7 +305,8 @@ export function RunGroupView() {
               member={member}
               adopting={adopting}
               onOpen={openSession}
-              onAdopt={(sessionId) => void adopt(sessionId)}
+              onOpenTerminal={openTerminal}
+              onAdopt={(memberIndex) => void adopt(memberIndex)}
             />
           ))}
         </div>

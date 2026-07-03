@@ -8,6 +8,7 @@ import { BridgeSettingsContent } from './BridgeSettings';
 import { ThemePackEditor } from './ThemePackEditor';
 import { SettingsGroup, SettingsRow, SettingsToggle } from './SettingsPrimitives';
 import { primeUserProfileCache } from '../../hooks/useUserProfile';
+import { toast } from 'sonner';
 import type { AppUpdateStatus, ChromeTheme, Theme, ThemeFonts, ThemeState, ThemeVariant } from '../../types';
 import { resolveThemeMode, resolveThemePack } from '../../theme/themes';
 
@@ -294,6 +295,8 @@ function GeneralSettingsContent({
 
       <NotificationSettingsGroup />
 
+      <CustomRuntimeSettingsGroup />
+
       <div className="space-y-3">
         <ThemePackEditor
           variant="light"
@@ -537,6 +540,113 @@ function NotificationSettingsGroup() {
           ariaLabel="Only notify when unfocused"
         />
       </SettingsRow>
+    </SettingsGroup>
+  );
+}
+
+// 自定义 CLI agent 注册表（"if it runs in a terminal, it runs in Aegis"）。
+// command 里 {prompt}/{promptFile} 会被替换为 env 引用（argv 安全），
+// 成员在 fan-out 时于隔离 worktree 内经 PTY 执行，退出码即完成信号。
+function CustomRuntimeSettingsGroup() {
+  const [runtimes, setRuntimes] = useState<
+    Array<{ id: string; name: string; command: string; createdAt: number }>
+  >([]);
+  const [name, setName] = useState('');
+  const [command, setCommand] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const reload = () => {
+    void window.electron
+      .listCustomRuntimes()
+      .then(setRuntimes)
+      .catch(() => undefined);
+  };
+
+  useEffect(() => {
+    reload();
+  }, []);
+
+  const add = async () => {
+    if (!name.trim() || !command.trim()) return;
+    setSaving(true);
+    try {
+      const result = await window.electron.upsertCustomRuntime({ name, command });
+      if (!result.ok) {
+        toast.error(result.message || 'Failed to save the runtime.');
+        return;
+      }
+      setName('');
+      setCommand('');
+      reload();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (id: string) => {
+    await window.electron.deleteCustomRuntime(id);
+    reload();
+  };
+
+  return (
+    <SettingsGroup title="Custom CLI Agents">
+      <div className="space-y-3 px-4 py-3">
+        <p className="text-[12px] leading-5 text-[var(--text-muted)]">
+          Register any terminal-based coding agent to include it in fan-outs. It runs in an
+          isolated git worktree; results are compared via git diff. Use{' '}
+          <code className="rounded bg-[var(--bg-tertiary)] px-1">{'{prompt}'}</code> or{' '}
+          <code className="rounded bg-[var(--bg-tertiary)] px-1">{'{promptFile}'}</code> in the
+          command — e.g.{' '}
+          <code className="rounded bg-[var(--bg-tertiary)] px-1">
+            aider --message {'{prompt}'} --yes
+          </code>
+          .
+        </p>
+        {runtimes.map((runtime) => (
+          <div
+            key={runtime.id}
+            className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-medium text-[var(--text-primary)]">
+                {runtime.name}
+              </span>
+              <span className="block truncate font-mono text-[11px] text-[var(--text-muted)]">
+                {runtime.command}
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => void remove(runtime.id)}
+              className="flex-shrink-0 rounded-md px-2 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-rose-500"
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Name (e.g. Aider)"
+            className="h-9 w-[160px] rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-3 text-[13px] text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
+          />
+          <input
+            value={command}
+            onChange={(event) => setCommand(event.target.value)}
+            placeholder='Command (e.g. aider --message {prompt} --yes)'
+            className="h-9 min-w-[240px] flex-1 rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-3 font-mono text-[12px] text-[var(--text-primary)] outline-none focus:border-[var(--text-muted)]"
+          />
+          <button
+            type="button"
+            disabled={saving || !name.trim() || !command.trim()}
+            onClick={() => void add()}
+            className="h-9 rounded-md bg-[var(--text-primary)] px-3 text-[13px] font-medium text-[var(--bg-primary)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Add
+          </button>
+        </div>
+      </div>
     </SettingsGroup>
   );
 }

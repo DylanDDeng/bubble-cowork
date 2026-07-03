@@ -236,7 +236,11 @@ export function placeSession(
   if (!findLeaf(layout.root, leafId)) return layout;
   const root = mapLeaves(layout.root, (leaf) => {
     if (leaf.id === leafId) {
-      return leaf.sessionId === sessionId ? leaf : { ...leaf, sessionId };
+      // Placing content resets the leaf to a chat pane; terminal placements
+      // (fan-out custom members) call setPaneSurface('terminal') afterwards.
+      return leaf.sessionId === sessionId && leaf.surface === 'chat'
+        ? leaf
+        : { ...leaf, sessionId, surface: 'chat' as const };
     }
     if (sessionId !== null && leaf.sessionId === sessionId) {
       return { ...leaf, sessionId: null };
@@ -415,13 +419,17 @@ export function movePane(
   return next;
 }
 
-/** Null out any leaf holding a session that is no longer valid. Leaves stay. */
+/** Null out any leaf holding a session that is no longer valid. Leaves stay.
+ * Terminal leaves hold PTY thread ids, not chat session ids — the session
+ * reconcilers must not vacate them. */
 export function clearMissingSessions(
   layout: WorkspaceLayout,
   isValid: (sessionId: string) => boolean
 ): WorkspaceLayout {
   const root = mapLeaves(layout.root, (leaf) =>
-    leaf.sessionId !== null && !isValid(leaf.sessionId) ? { ...leaf, sessionId: null } : leaf
+    leaf.surface !== 'terminal' && leaf.sessionId !== null && !isValid(leaf.sessionId)
+      ? { ...leaf, sessionId: null }
+      : leaf
   );
   return { ...layout, root };
 }

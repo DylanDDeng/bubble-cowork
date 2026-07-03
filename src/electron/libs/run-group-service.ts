@@ -1,4 +1,8 @@
+import { writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import * as sessions from './session-store';
+import { subscribeTerminalEvents, terminalManager } from './terminal-runtime';
 import {
   assertGitRepo,
   commitAllChanges,
@@ -39,6 +43,14 @@ function promptExcerpt(prompt: string, max = 42): string {
   return collapsed.length > max ? `${collapsed.slice(0, max - 1)}…` : collapsed;
 }
 
+function isCustomRuntimeRef(ref: string): ref is `custom:${string}` {
+  return ref.startsWith('custom:');
+}
+
+// PTY 里 env 值有长度上限（MAX_TERMINAL_ENV_VALUE_LENGTH = 8192）；
+// 超长 prompt 完整落临时文件，env 里只放截断版
+const MAX_ENV_PROMPT_CHARS = 7500;
+
 // worktree 隔离下的 full-access 档：取值与 automation 的 headless 预设一致
 // （automation-scheduler.buildAutomationSessionPayload），codex 用 'auto'
 // （映射 workspace-write 沙箱，写权限收敛到 worktree）而非 danger-full-access。
@@ -65,7 +77,30 @@ export class RunGroupService {
     private readonly startSession: SessionStarter,
     private readonly stopSession: SessionStopper,
     private readonly emitChanged: RunGroupEmitter
-  ) {}
+  ) {
+    // custom（终端）成员的完成检测：PTY 退出码为准
+    subscribeTerminalEvents((event) => {
+      if (event.type !== 'exited') return;
+      const match = /^rg-(.+)-m(\d+)$/.exec(event.threadId);
+      if (!match) return;
+      const group = sessions.getRunGroup(match[1]);
+      if (!group) return;
+      const memberIndex = Number(match[2]);
+      const members = group.members;
+      const member = members.find((item) => item.index === memberIndex);
+      if (!member || member.terminalThreadId !== event.threadId || member.phase !== 'running') return;
+      if (event.exitCode === 0) {
+        member.phase = 'done';
+      } else {
+        member.phase = 'failed';
+        member.failReason = `Exited with code ${event.exitCode ?? 'unknown'}${
+          event.exitSignal ? ` (signal ${event.exitSignal})` : ''
+        }`;
+      }
+      sessions.updateRunGroupMembers(group.id, members);
+      this.recompute(group.id);
+    });
+  }
 
   // 由 ipc-handlers 的全局 session 状态监听器调用（成员 session 到达终态 → 重算 group）
   handleSessionStatusChanged(row: SessionRow): void {
@@ -80,6 +115,17 @@ export class RunGroupService {
       console.log(`[RunGroup] swept ${swept} orphan running session(s) on boot`);
     }
     for (const group of sessions.listActiveRunGroups()) {
+      // PTY 不跨重启存活：崩溃残留的 running 终端成员清算为 failed
+      let changed = false;
+      const members = group.members;
+      for (const member of members) {
+        if (member.terminalThreadId && member.phase === 'running') {
+          member.phase = 'failed';
+          member.failReason = 'Interrupted by app restart.';
+          changed = true;
+        }
+      }
+      if (changed) sessions.updateRunGroupMembers(group.id, members);
       this.recompute(group.id);
     }
   }
@@ -129,7 +175,10 @@ export class RunGroupService {
     // 还让"runtime 未 ready 时 handleSessionStart 返回 null 但 session 行已建"
     // 的落库行可以被确定性地认领。
     for (const member of members) {
-      const branch = `aegis/fan/${group.id.slice(0, 8)}/${member.index + 1}-${member.provider}`;
+      const branchSlug = isCustomRuntimeRef(member.provider)
+        ? 'custom'
+        : member.provider;
+      const branch = `aegis/fan/${group.id.slice(0, 8)}/${member.index + 1}-${branchSlug}`;
       try {
         const worktree = await createWorktree({ cwd: repoRoot, branch: baseRef, newBranch: branch });
         member.branch = worktree.branch;
@@ -137,6 +186,15 @@ export class RunGroupService {
       } catch (error) {
         member.phase = 'failed';
         member.failReason = `Worktree creation failed: ${error instanceof Error ? error.message : String(error)}`;
+        sessions.updateRunGroupMembers(group.id, members);
+        this.emit(group.id);
+        continue;
+      }
+
+      // Custom runtime 成员：PTY 里跑任意 CLI，无 chat session；
+      // 完成检测 = shell 退出码（构造器里的 terminal exit 订阅）
+      if (isCustomRuntimeRef(member.provider)) {
+        await this.launchCustomMember(group.id, member, prompt);
         sessions.updateRunGroupMembers(group.id, members);
         this.emit(group.id);
         continue;
@@ -199,24 +257,69 @@ export class RunGroupService {
     }
 
     this.recompute(group.id);
-    const memberSessionIds = members
+    const finalMembers = sessions.getRunGroup(group.id)?.members ?? members;
+    const memberSessionIds = finalMembers
       .filter((member) => member.phase === 'running' && member.sessionId)
       .map((member) => member.sessionId as string);
-    if (memberSessionIds.length === 0) {
-      return { ok: false, message: 'No fan-out member could start.', groupId: group.id };
+    const anyStarted = finalMembers.some((member) => member.phase === 'running');
+    if (!anyStarted) {
+      return { ok: false, message: 'No fan-out member could start.', groupId: group.id, members: finalMembers };
     }
-    return { ok: true, groupId: group.id, memberSessionIds };
+    return { ok: true, groupId: group.id, memberSessionIds, members: finalMembers };
+  }
+
+  // 在 worktree 里通过 PTY 启动一个 custom CLI agent。prompt 经 env 传值
+  // （argv 安全，不做字符串插值进命令）；超长 prompt 完整落临时文件。
+  private async launchCustomMember(
+    groupId: string,
+    member: RunGroupMember,
+    prompt: string
+  ): Promise<void> {
+    const runtimeId = member.provider.slice('custom:'.length);
+    const runtime = sessions.getCustomRuntime(runtimeId);
+    if (!runtime) {
+      member.phase = 'failed';
+      member.failReason = 'Custom runtime not found (was it deleted?).';
+      return;
+    }
+    member.runtimeName = runtime.name;
+    const threadId = `rg-${groupId}-m${member.index}`;
+    try {
+      const promptFile = join(tmpdir(), `aegis-prompt-${groupId.slice(0, 8)}-m${member.index}.md`);
+      writeFileSync(promptFile, prompt, 'utf8');
+      const opened = await terminalManager.open({
+        threadId,
+        cwd: member.worktreePath!,
+        agentKind: 'shell',
+        env: {
+          AEGIS_PROMPT:
+            prompt.length > MAX_ENV_PROMPT_CHARS ? prompt.slice(0, MAX_ENV_PROMPT_CHARS) : prompt,
+          AEGIS_PROMPT_FILE: promptFile,
+        },
+      });
+      if (!opened.ok) {
+        member.phase = 'failed';
+        member.failReason = opened.message || 'Failed to open a terminal for the runtime.';
+        return;
+      }
+      const command = runtime.command
+        .replaceAll('{prompt}', '"$AEGIS_PROMPT"')
+        .replaceAll('{promptFile}', '"$AEGIS_PROMPT_FILE"');
+      // exit $? 让 shell 随命令退出，退出码即完成信号
+      await terminalManager.write({ threadId, data: ` ${command}; exit $?\n` });
+      member.terminalThreadId = threadId;
+      member.phase = 'running';
+    } catch (error) {
+      member.phase = 'failed';
+      member.failReason = error instanceof Error ? error.message : String(error);
+      terminalManager.close({ threadId });
+    }
   }
 
   async cancel(groupId: string): Promise<{ ok: boolean; message?: string }> {
     const group = sessions.getRunGroup(groupId);
     if (!group) return { ok: false, message: 'Run group not found.' };
-    for (const member of group.members) {
-      if (member.sessionId) {
-        const row = sessions.getSession(member.sessionId);
-        if (row?.status === 'running') this.stopSession(member.sessionId);
-      }
-    }
+    this.stopGroupMembers(group);
     if (group.status === 'running' || group.status === 'settled') {
       sessions.setRunGroupStatus(groupId, 'cancelled', Date.now());
     }
@@ -240,6 +343,18 @@ export class RunGroupService {
       const { groupDeleted } = sessions.handleRunGroupSessionDeleted(row.run_group_id, row.id);
       if (!groupDeleted) {
         this.recompute(row.run_group_id);
+      }
+    }
+  }
+
+  private stopGroupMembers(group: RunGroupInfo): void {
+    for (const member of group.members) {
+      if (member.sessionId) {
+        const row = sessions.getSession(member.sessionId);
+        if (row?.status === 'running') this.stopSession(member.sessionId);
+      }
+      if (member.terminalThreadId && member.phase === 'running') {
+        terminalManager.close({ threadId: member.terminalThreadId });
       }
     }
   }
@@ -303,6 +418,12 @@ export class RunGroupService {
         anyActive = true;
         continue;
       }
+      // 终端（custom）成员：phase 由 PTY 退出码驱动，是唯一真相
+      if (member.terminalThreadId) {
+        if (member.phase === 'running') anyActive = true;
+        else if (member.phase === 'done') anySucceeded = true;
+        continue;
+      }
       if (member.sessionId) {
         const row = sessions.getSession(member.sessionId);
         if (row?.status === 'running') {
@@ -356,18 +477,22 @@ export class RunGroupService {
   // 采纳赢家：squash-merge 到主工作区暂存区（用户审查后自行 commit）。
   // 落败成员的 worktree 强制回收（采纳是"选这个、弃其余"的显式决定）；
   // 赢家分支保留（误采纳可从分支恢复），worktree 移除。
-  async adopt(groupId: string, sessionId: string): Promise<RunGroupAdoptResult> {
+  async adopt(groupId: string, memberIndex: number): Promise<RunGroupAdoptResult> {
     const group = sessions.getRunGroup(groupId);
     if (!group) return { ok: false, message: 'Run group not found.' };
     if (group.status === 'adopted') return { ok: false, message: 'This fan-out was already adopted.' };
-    const winner = group.members.find((member) => member.sessionId === sessionId);
-    if (!winner) return { ok: false, message: 'That session is not a member of this fan-out.' };
+    const winner = group.members.find((member) => member.index === memberIndex);
+    if (!winner) return { ok: false, message: 'That agent is not a member of this fan-out.' };
     if (!winner.worktreePath || !winner.branch) {
       return { ok: false, message: 'The winning agent has no worktree to adopt.' };
     }
-    const winnerRow = sessions.getSession(sessionId);
-    if (winnerRow?.status === 'running') {
-      return { ok: false, message: 'Stop the winning agent before adopting its result.' };
+    if (winner.sessionId) {
+      const winnerRow = sessions.getSession(winner.sessionId);
+      if (winnerRow?.status === 'running') {
+        return { ok: false, message: 'Stop the winning agent before adopting its result.' };
+      }
+    } else if (winner.terminalThreadId && winner.phase === 'running') {
+      return { ok: false, message: 'The winning agent is still running.' };
     }
     if (await hasTrackedChanges(group.projectCwd)) {
       return {
@@ -403,14 +528,14 @@ export class RunGroupService {
     }
 
     // 3. 状态落库
-    sessions.setRunGroupAdoptedSession(groupId, sessionId);
+    sessions.setRunGroupAdoptedSession(groupId, winner.sessionId ?? null);
     sessions.setRunGroupStatus(groupId, 'adopted', Date.now());
 
     // 4. 回收：赢家 worktree（改动已在分支 + 主工作区暂存区）+ 落败成员（强制）
     const members = sessions.getRunGroup(groupId)?.members ?? [];
     for (const member of members) {
       if (!member.worktreePath) continue;
-      const isWinner = member.sessionId === sessionId;
+      const isWinner = member.index === memberIndex;
       try {
         await removeWorktree({ cwd: group.projectCwd, path: member.worktreePath, force: true });
         member.worktreePath = null;
@@ -432,12 +557,7 @@ export class RunGroupService {
   async discard(groupId: string): Promise<{ ok: boolean; message?: string }> {
     const group = sessions.getRunGroup(groupId);
     if (!group) return { ok: false, message: 'Run group not found.' };
-    for (const member of group.members) {
-      if (member.sessionId) {
-        const row = sessions.getSession(member.sessionId);
-        if (row?.status === 'running') this.stopSession(member.sessionId);
-      }
-    }
+    this.stopGroupMembers(group);
     const members = sessions.getRunGroup(groupId)?.members ?? [];
     for (const member of members) {
       if (!member.worktreePath) continue;

@@ -1,18 +1,20 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
-import { GitFork, Minus, Plus } from './icons';
+import { GitFork, Minus, Plus, SquareTerminal } from './icons';
 import type { AgentProvider } from '../types';
+import type { CustomRuntime, RunGroupRuntimeRef } from '../../shared/types';
 import { PROVIDERS } from '../utils/provider';
 import { AgentIcon } from './ComposerAgentControls';
 import { useAgentReadiness, type AgentReadinessEntry } from '../hooks/useAgentReadiness';
 
-export type FanOutSelection = Partial<Record<AgentProvider, number>>;
+// key 是内建 provider 或 custom:<id>
+export type FanOutSelection = Partial<Record<string, number>>;
 
 export const MAX_FAN_OUT_MEMBERS = 6;
 const MAX_PER_PROVIDER = 3;
 
 export function fanOutTotal(selection: FanOutSelection): number {
-  return Object.values(selection).reduce((sum, count) => sum + (count || 0), 0);
+  return Object.values(selection).reduce<number>((sum, count) => sum + (count || 0), 0);
 }
 
 // 加法控件：不改动现有单选 agent picker 的任何路径。选择为空 = 常规提交路径。
@@ -34,10 +36,24 @@ export function ComposerFanOutPicker({
     entries.forEach((entry) => map.set(entry.provider, entry));
     return map;
   }, [entries]);
+  const [customRuntimes, setCustomRuntimes] = useState<CustomRuntime[]>([]);
+
+  useEffect(() => {
+    let disposed = false;
+    void window.electron
+      .listCustomRuntimes()
+      .then((list) => {
+        if (!disposed) setCustomRuntimes(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   const total = fanOutTotal(value);
 
-  const setCount = (provider: AgentProvider, count: number) => {
+  const setCount = (provider: RunGroupRuntimeRef, count: number) => {
     const clamped = Math.max(0, Math.min(MAX_PER_PROVIDER, count));
     const next: FanOutSelection = { ...value };
     if (clamped === 0) {
@@ -140,6 +156,64 @@ export function ComposerFanOutPicker({
               </div>
             );
           })}
+          {customRuntimes.length > 0 ? (
+            <>
+              <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
+              <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
+                Custom CLI agents
+              </div>
+              {customRuntimes.map((runtime) => {
+                const key: RunGroupRuntimeRef = `custom:${runtime.id}`;
+                const count = value[key] || 0;
+                return (
+                  <div
+                    key={runtime.id}
+                    className="flex items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 transition-colors hover:bg-[var(--bg-tertiary)]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setCount(key, count > 0 ? 0 : 1)}
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none"
+                    >
+                      <SquareTerminal className="h-4 w-4 flex-shrink-0 text-[var(--text-muted)]" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[12px] font-medium text-[var(--text-primary)]">
+                          {runtime.name}
+                        </span>
+                        <span className="block truncate text-[11px] text-[var(--text-muted)]">
+                          {runtime.command}
+                        </span>
+                      </span>
+                    </button>
+                    {count > 0 ? (
+                      <span className="flex flex-shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setCount(key, count - 1)}
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                          aria-label={`Fewer ${runtime.name} agents`}
+                        >
+                          <Minus className="h-3.5 w-3.5" />
+                        </button>
+                        <span className="w-4 text-center text-[12px] font-medium text-[var(--text-primary)]">
+                          {count}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setCount(key, count + 1)}
+                          disabled={count >= MAX_PER_PROVIDER || total >= MAX_FAN_OUT_MEMBERS}
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label={`More ${runtime.name} agents`}
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </button>
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </>
+          ) : null}
           {total > 0 ? (
             <>
               <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />

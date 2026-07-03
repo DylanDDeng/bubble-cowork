@@ -188,6 +188,11 @@ export type ReviewDiffSelectionInput = Omit<ReviewDiffSelection, 'requestedAt'> 
   requestedAt?: number;
 };
 
+// Fan-out 布局条目：chat 成员是 session，custom 成员是 PTY 终端
+export type RunGroupPaneEntry =
+  | { kind: 'chat'; sessionId: string }
+  | { kind: 'terminal'; threadId: string; cwd: string; title?: string };
+
 // UI 会话视图状态
 export interface SessionView {
   id: string;
@@ -308,6 +313,8 @@ export interface AppState {
   showSettings: boolean;
   // 打开中的 fan-out 比较视图（overlay）；null = 关闭
   runGroupViewId: string | null;
+  // custom（终端）成员的 pane 附着信息：key = PTY threadId（terminal leaf 的 sessionId）
+  runGroupTerminalPanes: Record<string, { threadId: string; cwd: string; title?: string }>;
   activeSettingsTab: SettingsTab;
   agentSetupOpen: boolean;
   agentSetupDismissedAt: number | null;
@@ -330,7 +337,10 @@ export interface AppActions {
   handleServerEvent: (event: import('../shared/types').ServerEvent) => void;
   setActiveSession: (sessionId: string | null) => void;
   // Fan-out 成员的一次性平铺布局：首个装入聚焦 leaf，其余按右/下分裂（最多 4 个平铺）。
-  layoutRunGroupSessions: (sessionIds: string[]) => void;
+  // chat 成员放 session；custom 成员放 terminal leaf（sessionId = PTY threadId）。
+  layoutRunGroupPanes: (entries: RunGroupPaneEntry[]) => void;
+  // 单独打开一个 custom 成员的终端 pane（从 Fan-outs 列表/比较视图进入）
+  openRunGroupTerminal: (entry: { threadId: string; cwd: string; title?: string }) => void;
   setRunGroupViewId: (groupId: string | null) => void;
   setActiveWorkspace: (workspace: ActiveWorkspace) => void;
   setChatSidebarView: (view: ChatSidebarView) => void;

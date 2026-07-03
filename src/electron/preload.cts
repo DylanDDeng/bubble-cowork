@@ -36,6 +36,7 @@ import type {
   RunGroupStartInput,
   RunGroupStartResult,
   RunGroupSummary,
+  CustomRuntime,
 } from '../shared/types';
 import type {
   BrowserCapturePageResult,
@@ -259,8 +260,8 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('run-group-member-diff', groupId, memberIndex);
   },
 
-  adoptRunGroup: (groupId: string, sessionId: string): Promise<RunGroupAdoptResult> => {
-    return ipcRenderer.invoke('adopt-run-group', groupId, sessionId);
+  adoptRunGroup: (groupId: string, memberIndex: number): Promise<RunGroupAdoptResult> => {
+    return ipcRenderer.invoke('adopt-run-group', groupId, memberIndex);
   },
 
   discardRunGroup: (groupId: string): Promise<{ ok: boolean; message?: string }> => {
@@ -273,6 +274,22 @@ contextBridge.exposeInMainWorld('electron', {
 
   reclaimWorktrees: (projectCwd: string): Promise<{ removed: number }> => {
     return ipcRenderer.invoke('reclaim-worktrees', projectCwd);
+  },
+
+  listCustomRuntimes: (): Promise<CustomRuntime[]> => {
+    return ipcRenderer.invoke('list-custom-runtimes');
+  },
+
+  upsertCustomRuntime: (input: {
+    id?: string;
+    name: string;
+    command: string;
+  }): Promise<{ ok: boolean; runtime?: CustomRuntime; message?: string }> => {
+    return ipcRenderer.invoke('upsert-custom-runtime', input);
+  },
+
+  deleteCustomRuntime: (id: string): Promise<{ ok: boolean }> => {
+    return ipcRenderer.invoke('delete-custom-runtime', id);
   },
 
   getNotificationSettings: (): Promise<{ enabled: boolean; onlyWhenUnfocused: boolean }> => {

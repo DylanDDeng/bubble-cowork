@@ -40,6 +40,7 @@ import type {
   RunGroupMember,
   RunGroupStatus,
   RunGroupVariantInput,
+  CustomRuntime,
 } from '../../shared/types';
 
 let db: Database.Database | null = null;
@@ -559,6 +560,13 @@ export function initialize(): void {
       adopted_session_id TEXT,
       created_at INTEGER NOT NULL,
       settled_at INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS custom_runtimes (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      command TEXT NOT NULL,
+      created_at INTEGER NOT NULL
     );
   `);
 
@@ -1411,6 +1419,52 @@ export function listSessionsByRunGroup(groupId: string): SessionRow[] {
   return getDb()
     .prepare('SELECT * FROM sessions WHERE run_group_id = ? ORDER BY created_at ASC')
     .all(groupId) as SessionRow[];
+}
+
+// ---- Custom runtimes（任意 CLI agent）----
+
+export function listCustomRuntimes(): CustomRuntime[] {
+  const rows = getDb()
+    .prepare('SELECT * FROM custom_runtimes ORDER BY created_at ASC')
+    .all() as Array<{ id: string; name: string; command: string; created_at: number }>;
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    command: row.command,
+    createdAt: row.created_at,
+  }));
+}
+
+export function getCustomRuntime(id: string): CustomRuntime | null {
+  const row = getDb().prepare('SELECT * FROM custom_runtimes WHERE id = ?').get(id) as
+    | { id: string; name: string; command: string; created_at: number }
+    | undefined;
+  return row
+    ? { id: row.id, name: row.name, command: row.command, createdAt: row.created_at }
+    : null;
+}
+
+export function upsertCustomRuntime(input: {
+  id?: string;
+  name: string;
+  command: string;
+}): CustomRuntime {
+  const name = input.name.trim();
+  const command = input.command.trim();
+  if (!name) throw new Error('Runtime name is required.');
+  if (!command) throw new Error('Runtime command is required.');
+  const id = input.id?.trim() || uuidv4();
+  getDb()
+    .prepare(
+      `INSERT INTO custom_runtimes (id, name, command, created_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name, command = excluded.command`
+    )
+    .run(id, name, command, Date.now());
+  return getCustomRuntime(id)!;
+}
+
+export function deleteCustomRuntime(id: string): void {
+  getDb().prepare('DELETE FROM custom_runtimes WHERE id = ?').run(id);
 }
 
 // 比较视图的成员摘要：末条 assistant 输出的截断文本（search_text 已在写入时抽取）。

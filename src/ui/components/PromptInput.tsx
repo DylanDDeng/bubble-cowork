@@ -33,7 +33,8 @@ import { OpenCodePermissionModePicker } from './OpenCodePermissionModePicker';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
-import { DEFAULT_WORKSPACE_CHANNEL_ID, type AgentProvider } from '../../shared/types';
+import { DEFAULT_WORKSPACE_CHANNEL_ID, type RunGroupRuntimeRef } from '../../shared/types';
+import type { RunGroupPaneEntry } from '../types';
 import { buildCodexReferencePayload } from '../utils/codex-composer';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
@@ -99,7 +100,7 @@ export function PromptInput({
     consumePromptLibraryInsert,
     pendingChatInjection,
     consumeChatInjection,
-    layoutRunGroupSessions,
+    layoutRunGroupPanes,
   } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -387,12 +388,12 @@ export function PromptInput({
         toast.error('Select a project folder before fanning out.');
         return;
       }
-      const variants = (Object.entries(fanOutSelection) as [AgentProvider, number][]).flatMap(
+      const variants = (Object.entries(fanOutSelection) as [RunGroupRuntimeRef, number][]).flatMap(
         ([provider, count]) =>
           Array.from({ length: count || 0 }, () => ({
             provider,
             // 当前 composer 里为该 provider 选好的 model/effort 随成员携带；
-            // 其它 provider 用各自默认
+            // 其它 provider（含 custom CLI）用各自默认
             model: provider === runtimeProvider ? selectedModel || undefined : undefined,
             compatibleProviderId:
               provider === 'claude' && provider === runtimeProvider
@@ -426,13 +427,30 @@ export function PromptInput({
           toast.error(result.message || 'Fan-out failed to start.');
           return;
         }
-        const memberSessionIds = result.memberSessionIds ?? [];
-        if (memberSessionIds.length < variants.length) {
+        const startedMembers = (result.members ?? []).filter(
+          (member) => member.phase === 'running'
+        );
+        if (startedMembers.length < variants.length) {
           toast.warning(
-            `${variants.length - memberSessionIds.length} of ${variants.length} agents failed to start.`
+            `${variants.length - startedMembers.length} of ${variants.length} agents failed to start.`
           );
         }
-        layoutRunGroupSessions(memberSessionIds);
+        layoutRunGroupPanes(
+          startedMembers.flatMap((member): RunGroupPaneEntry[] => {
+            if (member.sessionId) return [{ kind: 'chat', sessionId: member.sessionId }];
+            if (member.terminalThreadId && member.worktreePath) {
+              return [
+                {
+                  kind: 'terminal',
+                  threadId: member.terminalThreadId,
+                  cwd: member.worktreePath,
+                  title: member.runtimeName || member.provider,
+                },
+              ];
+            }
+            return [];
+          })
+        );
         setFanOutSelection({});
         resetComposer();
       } finally {

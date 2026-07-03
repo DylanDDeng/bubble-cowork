@@ -1,8 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { RunGroupInfo, RunGroupMember } from '../../shared/types';
+import type { AgentProvider, RunGroupInfo, RunGroupMember } from '../../shared/types';
 import { useAppStore } from '../store/useAppStore';
 import { AgentIcon } from './ComposerAgentControls';
-import { ChevronDown, ChevronRight, GitFork, X } from './icons';
+import { ChevronDown, ChevronRight, GitFork, SquareTerminal, X } from './icons';
+
+export function isCustomMember(member: RunGroupMember): boolean {
+  return member.provider.startsWith('custom:');
+}
+
+export function memberLabel(member: RunGroupMember): string {
+  if (isCustomMember(member)) return member.runtimeName || 'Custom CLI';
+  return member.model ? `${member.provider} · ${member.model}` : member.provider;
+}
+
+export function MemberIcon({ member }: { member: RunGroupMember }) {
+  if (isCustomMember(member)) {
+    return <SquareTerminal className="h-4 w-4 flex-shrink-0 text-[var(--text-muted)]" />;
+  }
+  return <AgentIcon provider={member.provider as AgentProvider} />;
+}
 
 function memberStatusDotClass(status: string | null): string {
   switch (status) {
@@ -47,24 +63,47 @@ function MemberRow({
   const session = useAppStore((state) =>
     member.sessionId ? state.sessions[member.sessionId] : undefined
   );
-  const status = member.phase === 'failed' && !session ? 'error' : session?.status ?? null;
+  const openRunGroupTerminal = useAppStore((state) => state.openRunGroupTerminal);
+  const custom = isCustomMember(member);
+  const status = custom
+    ? member.phase === 'running'
+      ? 'running'
+      : member.phase === 'failed'
+        ? 'error'
+        : member.phase === 'done'
+          ? 'idle'
+          : null
+    : member.phase === 'failed' && !session
+      ? 'error'
+      : (session?.status ?? null);
+  const openable = custom ? Boolean(member.terminalThreadId && member.worktreePath) : Boolean(member.sessionId);
+  const handleOpen = () => {
+    if (custom) {
+      if (member.terminalThreadId && member.worktreePath) {
+        openRunGroupTerminal({
+          threadId: member.terminalThreadId,
+          cwd: member.worktreePath,
+          title: memberLabel(member),
+        });
+      }
+      return;
+    }
+    if (member.sessionId) onOpen(member.sessionId);
+  };
   return (
     <button
       type="button"
-      disabled={!member.sessionId}
-      onClick={() => member.sessionId && onOpen(member.sessionId)}
+      disabled={!openable}
+      onClick={handleOpen}
       className={`flex h-7 w-full min-w-0 items-center gap-2 rounded-md pl-7 pr-2 text-left transition-colors duration-150 disabled:cursor-not-allowed ${
         active
           ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
           : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
       }`}
-      title={member.failReason || member.branch || member.provider}
+      title={member.failReason || member.branch || memberLabel(member)}
     >
-      <AgentIcon provider={member.provider} />
-      <span className="min-w-0 flex-1 truncate text-[12px]">
-        {member.provider}
-        {member.model ? ` · ${member.model}` : ''}
-      </span>
+      <MemberIcon member={member} />
+      <span className="min-w-0 flex-1 truncate text-[12px]">{memberLabel(member)}</span>
       <span
         className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${memberStatusDotClass(status)}`}
         aria-hidden="true"

@@ -772,11 +772,25 @@ export type ServerEvent =
 // Run group（fan-out）类型
 export type RunGroupStatus = 'running' | 'settled' | 'adopted' | 'discarded' | 'cancelled';
 
-// 成员在拿到 session 之前的阶段由 group 侧持久化；有 session 后以 session.status 为准
+// 成员在拿到 session 之前的阶段由 group 侧持久化；有 session 后以 session.status 为准。
+// custom（终端）成员没有 session，phase 就是唯一真相（terminal exit 驱动 done/failed）。
 export type RunGroupMemberPhase = 'preparing' | 'running' | 'done' | 'failed';
 
+// 用户注册的任意 CLI agent（"if it runs in a terminal, it runs in Aegis"）。
+// command 里 {prompt} 会被替换为 "$AEGIS_PROMPT"（env 传值，argv 安全）、
+// {promptFile} 替换为 "$AEGIS_PROMPT_FILE"（长 prompt 落临时文件）。
+export interface CustomRuntime {
+  id: string;
+  name: string;
+  command: string;
+  createdAt: number;
+}
+
+// fan-out 成员的运行时引用：内建 provider 或 custom:<id>
+export type RunGroupRuntimeRef = AgentProvider | `custom:${string}`;
+
 export interface RunGroupVariantInput {
-  provider: AgentProvider;
+  provider: RunGroupRuntimeRef;
   model?: string;
   compatibleProviderId?: ClaudeCompatibleProviderId;
   claudeReasoningEffort?: ClaudeReasoningEffort;
@@ -792,6 +806,10 @@ export interface RunGroupMember extends RunGroupVariantInput {
   worktreePath?: string | null;
   sessionId?: string | null;
   failReason?: string | null;
+  // custom 成员：PTY 终端的 threadId（renderer 用它附着 xterm 视图）
+  terminalThreadId?: string | null;
+  // custom 成员的显示名（runtime 可能事后被删，落库自带）
+  runtimeName?: string | null;
 }
 
 export interface RunGroupInfo {
@@ -823,6 +841,8 @@ export interface RunGroupStartResult {
   message?: string;
   groupId?: string;
   memberSessionIds?: string[];
+  // 全量成员（含 custom 终端成员），renderer 据此布局 chat pane 与 terminal pane
+  members?: RunGroupMember[];
 }
 
 export interface RunGroupMemberSummary extends RunGroupMember {
