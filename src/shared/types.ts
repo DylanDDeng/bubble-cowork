@@ -615,6 +615,8 @@ export interface AutomationRuntimeConfig {
   codexFastMode?: boolean;
   teamMode?: SessionTeamMode;
   teamId?: string | null;
+  // ≥2 时该 automation 触发 fan-out（run group），单 provider 字段仅作兜底
+  fanOutVariants?: RunGroupVariantInput[] | null;
 }
 
 export type AutomationRunStatus = 'running' | 'completed' | 'failed';
@@ -767,6 +769,9 @@ export type ServerEvent =
   | { type: 'session.teamChanged'; payload: { sessionId: string; teamMode: SessionTeamMode; teamId: string | null } }
   | { type: 'automation.changed'; payload: AutomationSnapshot }
   | { type: 'runGroup.changed'; payload: { group: RunGroupInfo } }
+  // 系统通知点击后的回位事件（主进程 → 聚焦窗口后广播）
+  | { type: 'app.openRunGroup'; payload: { groupId: string } }
+  | { type: 'app.focusSession'; payload: { sessionId: string } }
   | { type: 'profiles.list'; payload: ProfileSnapshotPayload };
 
 // Run group（fan-out）类型
@@ -802,6 +807,7 @@ export interface RunGroupInfo {
   status: RunGroupStatus;
   adoptedSessionId: string | null;
   members: RunGroupMember[];
+  automationRunId: string | null;
   createdAt: number;
   settledAt: number | null;
 }
@@ -812,6 +818,9 @@ export interface RunGroupStartInput {
   variants: RunGroupVariantInput[];
   attachments?: Attachment[];
   channelId?: string;
+  // automation 触发的 fan-out：group settle 时结算对应的 automation run
+  automationRunId?: string;
+  title?: string;
 }
 
 export interface RunGroupStartResult {

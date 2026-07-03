@@ -125,6 +125,11 @@ declare global {
     discardRunGroup: (groupId: string) => Promise<{ ok: boolean; message?: string }>;
     listReclaimableWorktrees: (projectCwd: string) => Promise<string[]>;
     reclaimWorktrees: (projectCwd: string) => Promise<{ removed: number }>;
+    getNotificationSettings: () => Promise<{ enabled: boolean; onlyWhenUnfocused: boolean }>;
+    setNotificationSettings: (next: {
+      enabled?: boolean;
+      onlyWhenUnfocused?: boolean;
+    }) => Promise<{ enabled: boolean; onlyWhenUnfocused: boolean }>;
     startTerminalSession: (sessionId: string, cwd: string, cols?: number, rows?: number, agentKind?: TerminalAgentKind) => Promise<StartTerminalSessionResult>;
     writeTerminalSession: (sessionId: string, data: string) => Promise<{ ok: boolean; message?: string }>;
     resizeTerminalSession: (sessionId: string, cols: number, rows: number) => Promise<{ ok: boolean; message?: string }>;

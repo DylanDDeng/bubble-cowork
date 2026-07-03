@@ -42,6 +42,7 @@ import type {
   RunGroupInfo,
   RunGroupMember,
   RunGroupStatus,
+  RunGroupVariantInput,
 } from '../../shared/types';
 
 let db: Database.Database | null = null;
@@ -151,6 +152,7 @@ interface AutomationRow {
   codex_fast_mode: number | null;
   team_mode: SessionTeamMode | null;
   team_id: string | null;
+  fan_out_variants: string | null;
   schedule_kind: AutomationSchedule['kind'];
   schedule_time_of_day: string | null;
   schedule_day_of_week: number | null;
@@ -381,7 +383,26 @@ function normalizeAutomationRuntime(runtime?: AutomationRuntimeConfig | null): A
     codexFastMode: provider === 'codex' ? runtime?.codexFastMode === true : false,
     teamMode: normalizeSessionTeamMode(runtime?.teamMode),
     teamId: runtime?.teamId?.trim() || null,
+    fanOutVariants: normalizeFanOutVariants(runtime?.fanOutVariants),
   };
+}
+
+function normalizeFanOutVariants(
+  variants?: RunGroupVariantInput[] | null
+): RunGroupVariantInput[] | null {
+  if (!Array.isArray(variants)) return null;
+  const normalized = variants
+    .filter((variant) => variant && typeof variant.provider === 'string')
+    .map((variant) => ({
+      provider: normalizeAutomationProvider(variant.provider),
+      model: variant.model?.trim() || undefined,
+      compatibleProviderId: variant.compatibleProviderId || undefined,
+      claudeReasoningEffort: variant.claudeReasoningEffort || undefined,
+      codexReasoningEffort: variant.codexReasoningEffort || undefined,
+      permissionPreset: variant.permissionPreset === 'safe' ? ('safe' as const) : undefined,
+    }))
+    .slice(0, 6);
+  return normalized.length >= 2 ? normalized : null;
 }
 
 function normalizeAutomationInput(input: UpsertAutomationInput): {
@@ -668,6 +689,8 @@ export function initialize(): void {
   ensureColumn('sessions', 'associated_worktree_branch', 'TEXT');
   ensureColumn('sessions', 'associated_worktree_ref', 'TEXT');
   ensureColumn('sessions', 'run_group_id', 'TEXT');
+  ensureColumn('run_groups', 'automation_run_id', 'TEXT');
+  ensureColumn('automations', 'fan_out_variants', 'TEXT');
   ensureColumn('messages', 'message_type', 'TEXT');
   ensureColumn('messages', 'source_origin', 'TEXT');
   ensureColumn('messages', 'search_text', 'TEXT');
@@ -1498,6 +1521,7 @@ function runGroupRowToInfo(row: RunGroupRow): RunGroupInfo {
     status: row.status,
     adoptedSessionId: row.adopted_session_id,
     members,
+    automationRunId: row.automation_run_id,
     createdAt: row.created_at,
     settledAt: row.settled_at,
   };
@@ -1508,15 +1532,24 @@ export function createRunGroup(params: {
   prompt: string;
   baseRef: string | null;
   members: RunGroupMember[];
+  automationRunId?: string | null;
 }): RunGroupInfo {
   const id = uuidv4();
   const now = Date.now();
   getDb()
     .prepare(
-      `INSERT INTO run_groups (id, project_cwd, prompt, base_ref, variants, status, created_at)
-       VALUES (?, ?, ?, ?, ?, 'running', ?)`
+      `INSERT INTO run_groups (id, project_cwd, prompt, base_ref, variants, status, automation_run_id, created_at)
+       VALUES (?, ?, ?, ?, ?, 'running', ?, ?)`
     )
-    .run(id, params.projectCwd, params.prompt, params.baseRef, JSON.stringify(params.members), now);
+    .run(
+      id,
+      params.projectCwd,
+      params.prompt,
+      params.baseRef,
+      JSON.stringify(params.members),
+      params.automationRunId || null,
+      now
+    );
   return getRunGroup(id)!;
 }
 
@@ -1624,6 +1657,15 @@ function automationRowToDefinition(row: AutomationRow): AutomationDefinition {
     intervalMinutes: row.schedule_interval_minutes,
     runAt: row.schedule_run_at,
   });
+  let storedVariants: RunGroupVariantInput[] | null = null;
+  if (row.fan_out_variants) {
+    try {
+      const parsed = JSON.parse(row.fan_out_variants);
+      if (Array.isArray(parsed)) storedVariants = parsed as RunGroupVariantInput[];
+    } catch {
+      storedVariants = null;
+    }
+  }
   const runtime = normalizeAutomationRuntime({
     provider: row.provider,
     model: row.model,
@@ -1632,6 +1674,7 @@ function automationRowToDefinition(row: AutomationRow): AutomationDefinition {
     codexFastMode: row.codex_fast_mode === 1,
     teamMode: row.team_mode || 'channel_default',
     teamId: row.team_id,
+    fanOutVariants: storedVariants,
   });
 
   return {
@@ -1726,6 +1769,7 @@ export function saveAutomation(input: UpsertAutomationInput): AutomationDefiniti
       codex_fast_mode,
       team_mode,
       team_id,
+      fan_out_variants,
       schedule_kind,
       schedule_time_of_day,
       schedule_day_of_week,
@@ -1741,7 +1785,7 @@ export function saveAutomation(input: UpsertAutomationInput): AutomationDefiniti
       created_at,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       project_cwd = excluded.project_cwd,
@@ -1753,6 +1797,7 @@ export function saveAutomation(input: UpsertAutomationInput): AutomationDefiniti
       codex_fast_mode = excluded.codex_fast_mode,
       team_mode = excluded.team_mode,
       team_id = excluded.team_id,
+      fan_out_variants = excluded.fan_out_variants,
       schedule_kind = excluded.schedule_kind,
       schedule_time_of_day = excluded.schedule_time_of_day,
       schedule_day_of_week = excluded.schedule_day_of_week,
@@ -1774,6 +1819,7 @@ export function saveAutomation(input: UpsertAutomationInput): AutomationDefiniti
     normalized.runtime.codexFastMode ? 1 : 0,
     normalizeSessionTeamMode(normalized.runtime.teamMode),
     normalized.runtime.teamId || null,
+    normalized.runtime.fanOutVariants ? JSON.stringify(normalized.runtime.fanOutVariants) : null,
     normalized.schedule.kind,
     normalized.schedule.timeOfDay || null,
     normalized.schedule.dayOfWeek ?? null,
@@ -1942,15 +1988,22 @@ export function getLatestClaudeModelUsageBySession(): Record<string, LatestClaud
 }
 
 // 更新会话状态
-// run group 成员 session 到达终态时需要重算 group 状态；由 run-group-service 注册。
+// 状态变化监听（run group 重算 + 完成通知都挂在这里）；由 ipc-handlers 注册一次。
 // 放在 store 层是为了兜住所有 status 写入路径（turn 完成 / stop / error / 删除前的 stop）。
-let sessionStatusListener: ((row: SessionRow) => void) | null = null;
+let sessionStatusListener:
+  | ((row: SessionRow, previousStatus: SessionStatus | null) => void)
+  | null = null;
 
-export function setSessionStatusListener(listener: ((row: SessionRow) => void) | null): void {
+export function setSessionStatusListener(
+  listener: ((row: SessionRow, previousStatus: SessionStatus | null) => void) | null
+): void {
   sessionStatusListener = listener;
 }
 
 export function updateSessionStatus(sessionId: string, status: SessionStatus): void {
+  const previous = sessionStatusListener
+    ? ((getSession(sessionId)?.status as SessionStatus | undefined) ?? null)
+    : null;
   const now = Date.now();
   const stmt = getDb().prepare(`
     UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?
@@ -1958,10 +2011,10 @@ export function updateSessionStatus(sessionId: string, status: SessionStatus): v
   stmt.run(status, now, sessionId);
   if (sessionStatusListener) {
     const row = getSession(sessionId);
-    if (row?.run_group_id) {
+    if (row) {
       const listener = sessionStatusListener;
       // 异步触发，避免在调用方的写事务/广播路径里重入
-      queueMicrotask(() => listener(row));
+      queueMicrotask(() => listener(row, previous));
     }
   }
 }

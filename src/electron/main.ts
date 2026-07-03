@@ -7,7 +7,17 @@ import { registerBrowserIpc, disposeBrowserIpc } from './browser-ipc';
 import { browserManager } from './browserManager';
 import { isDev, getPreloadPath, getUIPath, DEV_SERVER_URL, ipcMainHandle } from './util';
 import { ensureShellEnvironment } from './libs/shell-environment';
+import { listRunningSessions } from './libs/session-store';
 import type { AppUpdateStatus } from '../shared/types';
+
+// close 确认用：数据库未初始化等异常一律按 0 处理，绝不阻塞关窗
+function countRunningSessionsSafe(): number {
+  try {
+    return listRunningSessions().length;
+  } catch {
+    return 0;
+  }
+}
 
 // 修复打包后的环境变量问题（macOS/Linux GUI 应用无法继承 shell 的环境变量）。
 // 细节见 src/electron/libs/shell-environment.ts：使用 interactive + login shell 抓 env
@@ -624,6 +634,26 @@ function createWindow(): void {
       if (process.platform === 'darwin' && !isQuitting) {
         win.hide();
         return;
+      }
+
+      // Windows/Linux 上关窗即退出（window-all-closed → app.quit），会杀掉所有
+      // 后台 runner——决策点 11：首版仅 macOS 支持"关窗照跑"，非 macOS 在有
+      // 任务运行时弹确认，避免静默丢工作。
+      if (process.platform !== 'darwin' && !isQuitting) {
+        const runningCount = countRunningSessionsSafe();
+        if (runningCount > 0) {
+          const choice = await dialog.showMessageBox(win, {
+            type: 'warning',
+            buttons: ['Quit anyway', 'Keep running'],
+            defaultId: 1,
+            cancelId: 1,
+            message: `${runningCount} agent run${runningCount > 1 ? 's are' : ' is'} still in progress.`,
+            detail: 'Closing the window quits Aegis on this platform and stops all running agents.',
+          });
+          if (choice.response === 1) {
+            return;
+          }
+        }
       }
 
       allowCloseAfterProjectEditorFlush = true;

@@ -58,6 +58,13 @@ import { formatGrokRuntimeBlockingMessage, getGrokRuntimeStatus } from './libs/g
 import { AutomationScheduler } from './libs/automation-scheduler';
 import { RunGroupService } from './libs/run-group-service';
 import {
+  configureNotifications,
+  getNotificationSettings,
+  notifyRunGroupSettled,
+  notifySessionDone,
+  setNotificationSettings,
+} from './libs/notifications';
+import {
   deletePromptLibraryItem,
   exportPromptLibraryFile,
   importPromptLibraryFile,
@@ -3900,13 +3907,69 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   );
   runGroupService.reconcileOnBoot();
 
+  configureNotifications({
+    isWindowFocused: () =>
+      !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused(),
+    onActivate: (target) => {
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.show();
+        mainWindow.focus();
+        broadcast(
+          mainWindow,
+          target.kind === 'runGroup'
+            ? { type: 'app.openRunGroup', payload: { groupId: target.groupId } }
+            : { type: 'app.focusSession', payload: { sessionId: target.sessionId } }
+        );
+      }
+    },
+  });
+
+  // group 全员到达终态：系统通知 + automation run 结算（fan-out automation）
+  runGroupService.onGroupSettled = (group) => {
+    notifyRunGroupSettled(group);
+    if (group.automationRunId) {
+      const failed = group.status === 'cancelled';
+      sessions.finishAutomationRun(
+        group.automationRunId,
+        failed ? 'failed' : 'completed',
+        failed ? 'All fan-out members failed.' : null
+      );
+      broadcastAutomationChanged(mainWindow);
+    }
+  };
+
+  // 全局 session 状态监听：run group 重算 + 单 session 完成通知（组成员不单独通知，
+  // 组级 settle 通知覆盖）
+  sessions.setSessionStatusListener((row, previousStatus) => {
+    runGroupService?.handleSessionStatusChanged(row);
+    if (
+      previousStatus === 'running' &&
+      row.status !== 'running' &&
+      !row.run_group_id &&
+      row.hidden_from_threads !== 1
+    ) {
+      notifySessionDone(row);
+    }
+  });
+
   automationScheduler?.stop();
   automationScheduler = new AutomationScheduler(
-    mainWindow,
     (payload) => handleSessionStart(mainWindow, payload),
-    () => broadcastAutomationChanged(mainWindow)
+    () => broadcastAutomationChanged(mainWindow),
+    (input) =>
+      runGroupService
+        ? runGroupService.start(input)
+        : Promise.resolve({ ok: false, message: 'Run group service is not ready.' })
   );
   automationScheduler.start();
+
+  ipcMainHandle('get-notification-settings', async () => getNotificationSettings());
+
+  ipcMainHandle(
+    'set-notification-settings',
+    async (_event, next: Partial<import('./libs/notifications').NotificationSettings>) =>
+      setNotificationSettings(next)
+  );
 
   ipcMainHandle('start-run-group', async (_event, input: RunGroupStartInput) => {
     if (!runGroupService) return { ok: false, message: 'Run group service is not ready.' };

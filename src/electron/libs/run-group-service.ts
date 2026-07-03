@@ -65,10 +65,11 @@ export class RunGroupService {
     private readonly startSession: SessionStarter,
     private readonly stopSession: SessionStopper,
     private readonly emitChanged: RunGroupEmitter
-  ) {
-    sessions.setSessionStatusListener((row) => {
-      if (row.run_group_id) this.recompute(row.run_group_id);
-    });
+  ) {}
+
+  // 由 ipc-handlers 的全局 session 状态监听器调用（成员 session 到达终态 → 重算 group）
+  handleSessionStatusChanged(row: SessionRow): void {
+    if (row.run_group_id) this.recompute(row.run_group_id);
   }
 
   // 启动期调用（必须先于任何 runner 启动）：清算崩溃残留的 running session，
@@ -114,7 +115,13 @@ export class RunGroupService {
       sessionId: null,
       failReason: null,
     }));
-    const group = sessions.createRunGroup({ projectCwd: repoRoot, prompt, baseRef, members });
+    const group = sessions.createRunGroup({
+      projectCwd: repoRoot,
+      prompt,
+      baseRef,
+      members,
+      automationRunId: input.automationRunId || null,
+    });
     this.emit(group.id);
 
     // 成员串行启动：worktree 创建串行是防御 git 并发边界的最简做法；
@@ -142,7 +149,9 @@ export class RunGroupService {
       let startError: string | null = null;
       try {
         sessionId = await this.startSession({
-          title: `⑂ ${member.provider} — ${promptExcerpt(prompt)}`,
+          title: input.title
+            ? `⑂ ${member.provider} — ${input.title}`
+            : `⑂ ${member.provider} — ${promptExcerpt(prompt)}`,
           prompt,
           cwd: member.worktreePath,
           projectCwd: repoRoot,

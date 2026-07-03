@@ -275,6 +275,17 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('reclaim-worktrees', projectCwd);
   },
 
+  getNotificationSettings: (): Promise<{ enabled: boolean; onlyWhenUnfocused: boolean }> => {
+    return ipcRenderer.invoke('get-notification-settings');
+  },
+
+  setNotificationSettings: (next: {
+    enabled?: boolean;
+    onlyWhenUnfocused?: boolean;
+  }): Promise<{ enabled: boolean; onlyWhenUnfocused: boolean }> => {
+    return ipcRenderer.invoke('set-notification-settings', next);
+  },
+
   startTerminalSession: (
     sessionId: string,
     cwd: string,

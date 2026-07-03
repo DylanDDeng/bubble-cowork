@@ -76,6 +76,7 @@ export interface RunGroupRow {
   variants: string; // JSON string of RunGroupMember[]
   status: import('../shared/types').RunGroupStatus;
   adopted_session_id: string | null;
+  automation_run_id: string | null;
   created_at: number;
   settled_at: number | null;
 }

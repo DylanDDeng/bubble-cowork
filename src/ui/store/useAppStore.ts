@@ -1401,6 +1401,16 @@ export const useAppStore = create<Store>()(
       case 'session.teamChanged':
         handleSessionTeamChanged(event.payload, set, get);
         break;
+
+      // 系统通知点击回位
+      case 'app.openRunGroup':
+        set({ runGroupViewId: event.payload.groupId, showSettings: false });
+        break;
+
+      case 'app.focusSession':
+        get().setActiveSession(event.payload.sessionId);
+        set({ showSettings: false });
+        break;
     }
   },
 
