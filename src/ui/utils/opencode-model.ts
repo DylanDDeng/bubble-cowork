@@ -1,10 +1,11 @@
+import { rendererStateStorage } from './renderer-state-storage';
 import type { OpenCodeModelConfig } from '../types';
 
 const STORAGE_KEY = 'cowork.preferredOpencodeModel';
 
 export function loadPreferredOpencodeModel(): string | null {
   if (typeof window === 'undefined') return null;
-  const raw = window.localStorage.getItem(STORAGE_KEY);
+  const raw = rendererStateStorage.getItem(STORAGE_KEY);
   if (!raw) return null;
   const trimmed = raw.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -13,10 +14,10 @@ export function loadPreferredOpencodeModel(): string | null {
 export function savePreferredOpencodeModel(model: string | null): void {
   if (typeof window === 'undefined') return;
   if (!model) {
-    window.localStorage.removeItem(STORAGE_KEY);
+    rendererStateStorage.removeItem(STORAGE_KEY);
     return;
   }
-  window.localStorage.setItem(STORAGE_KEY, model);
+  rendererStateStorage.setItem(STORAGE_KEY, model);
 }
 
 export function formatOpencodeModelLabel(model: string): string {

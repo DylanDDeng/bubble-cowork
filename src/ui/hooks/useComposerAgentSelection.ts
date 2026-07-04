@@ -1,3 +1,4 @@
+import { rendererStateStorage } from '../utils/renderer-state-storage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentProvider, ClaudeCompatibleProviderId, SettingsTab } from '../types';
 import { useClaudeModelConfig } from './useClaudeModelConfig';
@@ -88,47 +89,47 @@ export interface ComposerModelSetupState {
 
 function loadPreferredKimiModel(): string | null {
   if (typeof window === 'undefined') return null;
-  const raw = window.localStorage.getItem(KIMI_MODEL_STORAGE_KEY);
+  const raw = rendererStateStorage.getItem(KIMI_MODEL_STORAGE_KEY);
   return raw?.trim() || null;
 }
 
 function savePreferredKimiModel(model: string | null): void {
   if (typeof window === 'undefined') return;
   if (!model) {
-    window.localStorage.removeItem(KIMI_MODEL_STORAGE_KEY);
+    rendererStateStorage.removeItem(KIMI_MODEL_STORAGE_KEY);
     return;
   }
-  window.localStorage.setItem(KIMI_MODEL_STORAGE_KEY, model);
+  rendererStateStorage.setItem(KIMI_MODEL_STORAGE_KEY, model);
 }
 
 function loadPreferredGrokModel(): string | null {
   if (typeof window === 'undefined') return null;
-  const raw = window.localStorage.getItem(GROK_MODEL_STORAGE_KEY);
+  const raw = rendererStateStorage.getItem(GROK_MODEL_STORAGE_KEY);
   return raw?.trim() || null;
 }
 
 function savePreferredGrokModel(model: string | null): void {
   if (typeof window === 'undefined') return;
   if (!model) {
-    window.localStorage.removeItem(GROK_MODEL_STORAGE_KEY);
+    rendererStateStorage.removeItem(GROK_MODEL_STORAGE_KEY);
     return;
   }
-  window.localStorage.setItem(GROK_MODEL_STORAGE_KEY, model);
+  rendererStateStorage.setItem(GROK_MODEL_STORAGE_KEY, model);
 }
 
 function loadPreferredPiModel(): string | null {
   if (typeof window === 'undefined') return null;
-  const raw = window.localStorage.getItem(PI_MODEL_STORAGE_KEY);
+  const raw = rendererStateStorage.getItem(PI_MODEL_STORAGE_KEY);
   return raw?.trim() || null;
 }
 
 function savePreferredPiModel(model: string | null): void {
   if (typeof window === 'undefined') return;
   if (!model) {
-    window.localStorage.removeItem(PI_MODEL_STORAGE_KEY);
+    rendererStateStorage.removeItem(PI_MODEL_STORAGE_KEY);
     return;
   }
-  window.localStorage.setItem(PI_MODEL_STORAGE_KEY, model);
+  rendererStateStorage.setItem(PI_MODEL_STORAGE_KEY, model);
 }
 
 function resolveCompatibleProviderForModel(

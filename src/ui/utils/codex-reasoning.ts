@@ -1,3 +1,4 @@
+import { rendererStateStorage } from './renderer-state-storage';
 import type { CodexModelConfig, CodexReasoningEffort, CodexReasoningLevelOption } from '../types';
 
 const STORAGE_KEY = 'cowork.preferredCodexReasoningEfforts';
@@ -22,7 +23,7 @@ function loadStoredPreferences(): Record<string, CodexReasoningEffort> {
   }
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = rendererStateStorage.getItem(STORAGE_KEY);
     if (!raw) {
       return {};
     }
@@ -43,7 +44,7 @@ function saveStoredPreferences(preferences: Record<string, CodexReasoningEffort>
     return;
   }
 
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
+  rendererStateStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
 }
 
 export function loadPreferredCodexReasoningEffort(model: string | null): CodexReasoningEffort | null {

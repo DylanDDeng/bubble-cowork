@@ -1,3 +1,4 @@
+import { rendererStateStorage } from './renderer-state-storage';
 import type { ClaudeReasoningEffort, ClaudeReasoningLevelOption } from '../types';
 
 const STORAGE_KEY = 'cowork.preferredClaudeReasoningEfforts';
@@ -23,7 +24,7 @@ function loadStoredPreferences(): Record<string, ClaudeReasoningEffort> {
   }
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = rendererStateStorage.getItem(STORAGE_KEY);
     if (!raw) {
       return {};
     }
@@ -44,7 +45,7 @@ function saveStoredPreferences(preferences: Record<string, ClaudeReasoningEffort
     return;
   }
 
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
+  rendererStateStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
 }
 
 export function loadPreferredClaudeReasoningEffort(model: string | null): ClaudeReasoningEffort | null {

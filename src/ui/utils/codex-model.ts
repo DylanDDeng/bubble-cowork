@@ -1,10 +1,11 @@
+import { rendererStateStorage } from './renderer-state-storage';
 import type { CodexModelConfig } from '../types';
 
 const STORAGE_KEY = 'cowork.preferredCodexModel';
 
 export function loadPreferredCodexModel(): string | null {
   if (typeof window === 'undefined') return null;
-  const raw = window.localStorage.getItem(STORAGE_KEY);
+  const raw = rendererStateStorage.getItem(STORAGE_KEY);
   if (!raw) return null;
   const trimmed = raw.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -13,10 +14,10 @@ export function loadPreferredCodexModel(): string | null {
 export function savePreferredCodexModel(model: string | null): void {
   if (typeof window === 'undefined') return;
   if (!model) {
-    window.localStorage.removeItem(STORAGE_KEY);
+    rendererStateStorage.removeItem(STORAGE_KEY);
     return;
   }
-  window.localStorage.setItem(STORAGE_KEY, model);
+  rendererStateStorage.setItem(STORAGE_KEY, model);
 }
 
 export function formatCodexModelLabel(model: string): string {

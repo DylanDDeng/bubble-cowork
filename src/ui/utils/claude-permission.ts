@@ -1,3 +1,4 @@
+import { rendererStateStorage } from './renderer-state-storage';
 import type { ClaudePermissionMode } from '../types';
 
 const STORAGE_KEY = 'cowork.preferredClaudePermissionMode';
@@ -19,10 +20,10 @@ export function normalizeClaudePermissionMode(value: unknown): ClaudePermissionM
 
 export function loadPreferredClaudePermissionMode(): ClaudePermissionMode {
   if (typeof window === 'undefined') return 'default';
-  return normalizeClaudePermissionMode(window.localStorage.getItem(STORAGE_KEY));
+  return normalizeClaudePermissionMode(rendererStateStorage.getItem(STORAGE_KEY));
 }
 
 export function savePreferredClaudePermissionMode(mode: ClaudePermissionMode): void {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(STORAGE_KEY, normalizeClaudePermissionMode(mode));
+  rendererStateStorage.setItem(STORAGE_KEY, normalizeClaudePermissionMode(mode));
 }

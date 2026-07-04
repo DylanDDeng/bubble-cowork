@@ -1,3 +1,4 @@
+import { rendererStateStorage } from './renderer-state-storage';
 import type { ClaudeCompatibleProviderId, ClaudeModelConfig } from '../types';
 
 const STORAGE_KEY = 'cowork.preferredClaudeModel';
@@ -36,7 +37,7 @@ function parseClaudeModelFamily(
 
 export function loadPreferredClaudeModel(): string | null {
   if (typeof window === 'undefined') return null;
-  const raw = window.localStorage.getItem(STORAGE_KEY);
+  const raw = rendererStateStorage.getItem(STORAGE_KEY);
   if (!raw) return null;
   return canonicalizeClaudeModel(raw);
 }
@@ -44,15 +45,15 @@ export function loadPreferredClaudeModel(): string | null {
 export function savePreferredClaudeModel(model: string | null): void {
   if (typeof window === 'undefined') return;
   if (!model) {
-    window.localStorage.removeItem(STORAGE_KEY);
+    rendererStateStorage.removeItem(STORAGE_KEY);
     return;
   }
-  window.localStorage.setItem(STORAGE_KEY, canonicalizeClaudeModel(model) || model);
+  rendererStateStorage.setItem(STORAGE_KEY, canonicalizeClaudeModel(model) || model);
 }
 
 export function loadPreferredClaudeCompatibleProviderId(): ClaudeCompatibleProviderId | null {
   if (typeof window === 'undefined') return null;
-  const raw = window.localStorage.getItem(COMPATIBLE_PROVIDER_STORAGE_KEY);
+  const raw = rendererStateStorage.getItem(COMPATIBLE_PROVIDER_STORAGE_KEY);
   if (
     raw === 'minimaxCn' ||
     raw === 'minimax' ||
@@ -71,20 +72,20 @@ export function savePreferredClaudeCompatibleProviderId(
 ): void {
   if (typeof window === 'undefined') return;
   if (!providerId) {
-    window.localStorage.removeItem(COMPATIBLE_PROVIDER_STORAGE_KEY);
+    rendererStateStorage.removeItem(COMPATIBLE_PROVIDER_STORAGE_KEY);
     return;
   }
-  window.localStorage.setItem(COMPATIBLE_PROVIDER_STORAGE_KEY, providerId);
+  rendererStateStorage.setItem(COMPATIBLE_PROVIDER_STORAGE_KEY, providerId);
 }
 
 export function loadPreferredClaudeContext1m(): boolean {
   if (typeof window === 'undefined') return false;
-  return window.localStorage.getItem(CONTEXT_1M_STORAGE_KEY) === 'true';
+  return rendererStateStorage.getItem(CONTEXT_1M_STORAGE_KEY) === 'true';
 }
 
 export function savePreferredClaudeContext1m(enabled: boolean): void {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(CONTEXT_1M_STORAGE_KEY, enabled ? 'true' : 'false');
+  rendererStateStorage.setItem(CONTEXT_1M_STORAGE_KEY, enabled ? 'true' : 'false');
 }
 
 export function supportsClaude1mContext(model?: string | null): boolean {

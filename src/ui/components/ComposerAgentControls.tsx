@@ -877,11 +877,16 @@ export function ComposerAgentModelPicker({
           title={
             currentReadiness && currentReadiness.state !== 'ready'
               ? `${agentLabel(agentProvider)} — ${currentReadiness.summary}`
-              : `${agentLabel(agentProvider)} / ${modelLabel}${effortSuffix}`
+              : `${agentLabel(agentProvider)} / ${modelLabel}${effortSuffix}${
+                  agentProvider === 'codex' && codexFastMode ? ' – Fast mode' : ''
+                }`
           }
           aria-label="Select agent and model"
         >
           <AgentIcon provider={agentProvider} />
+          {agentProvider === 'codex' && codexFastMode ? (
+            <Zap className="h-3 w-3 flex-shrink-0 text-[var(--accent)]" aria-hidden="true" />
+          ) : null}
           <span className="min-w-0 truncate">{modelLabel}{effortSuffix}</span>
           {currentReadiness && currentReadiness.state !== 'ready' && currentReadiness.state !== 'checking' ? (
             <span

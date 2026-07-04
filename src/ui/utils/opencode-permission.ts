@@ -1,3 +1,4 @@
+import { rendererStateStorage } from './renderer-state-storage';
 import type { OpenCodePermissionMode } from '../types';
 
 const STORAGE_KEY = 'cowork.preferredOpencodePermissionMode';
@@ -18,10 +19,10 @@ function normalizeOpenCodePermissionMode(
 
 export function loadPreferredOpencodePermissionMode(): OpenCodePermissionMode {
   if (typeof window === 'undefined') return 'defaultPermissions';
-  return normalizeOpenCodePermissionMode(window.localStorage.getItem(STORAGE_KEY));
+  return normalizeOpenCodePermissionMode(rendererStateStorage.getItem(STORAGE_KEY));
 }
 
 export function savePreferredOpencodePermissionMode(mode: OpenCodePermissionMode): void {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(STORAGE_KEY, mode);
+  rendererStateStorage.setItem(STORAGE_KEY, mode);
 }

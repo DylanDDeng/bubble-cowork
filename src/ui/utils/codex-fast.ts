@@ -1,3 +1,4 @@
+import { rendererStateStorage } from './renderer-state-storage';
 import type { CodexModelConfig } from '../types';
 
 const STORAGE_KEY = 'cowork.preferredCodexFastModeByModel';
@@ -16,7 +17,7 @@ function loadPreferences(): Record<string, boolean> {
   }
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = rendererStateStorage.getItem(STORAGE_KEY);
     if (!raw) {
       return {};
     }
@@ -35,7 +36,7 @@ function savePreferences(preferences: Record<string, boolean>): void {
     return;
   }
 
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
+  rendererStateStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
 }
 
 export function loadPreferredCodexFastMode(config: CodexModelConfig, model: string | null): boolean {
