@@ -104,7 +104,14 @@ export function isClaudeUsageModelMatch(
 ): boolean {
   const preferred = normalizeClaudeUsageModelKey(preferredModel);
   if (!preferred) return true;
-  return normalizeClaudeUsageModelKey(reportedModel) === preferred;
+  const reported = normalizeClaudeUsageModelKey(reportedModel);
+  if (reported === preferred) return true;
+  // Bare family aliases (sonnet/opus/haiku) mean "latest of this family", but
+  // usage reports concrete ids (claude-opus-4-8), so match on the family.
+  if (preferred === 'sonnet' || preferred === 'opus' || preferred === 'haiku') {
+    return reported.startsWith(`claude-${preferred}-`);
+  }
+  return false;
 }
 
 export function buildClaudeContextSnapshot(

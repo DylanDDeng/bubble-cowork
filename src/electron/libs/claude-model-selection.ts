@@ -1,6 +1,13 @@
 const CLAUDE_CONTEXT_1M_BETA = 'context-1m-2025-08-07';
 
-const CLAUDE_CODE_RUNTIME_ALIASES: Record<string, string> = {
+const CLAUDE_FAMILY_ALIASES = new Set(['sonnet', 'opus', 'haiku']);
+
+// Older Aegis builds pinned "latest" picks to the then-newest concrete model
+// id, which went stale the moment a newer model shipped (a stored
+// claude-opus-4-7 kept masquerading as "latest" after 4-8 released). Stored
+// ids from that era are mapped back to their family alias so they keep
+// tracking latest. Legacy migration only — never add new models here.
+const LEGACY_PINNED_LATEST_MODELS: Record<string, string> = {
   'claude-sonnet-4-6': 'sonnet',
   'claude-opus-4-7': 'opus',
   'claude-haiku-4-5': 'haiku',
@@ -19,29 +26,25 @@ export function normalizeClaudeRequestedModel(model?: string | null): string | u
   const trimmed = model.trim();
   if (!trimmed.length) return undefined;
 
-  const lower = trimmed.toLowerCase();
-  const normalizedWithout1m = stripContext1mSuffix(lower);
-
-  switch (normalizedWithout1m) {
-    case 'sonnet':
-    case 'claude-sonnet-4-6':
-      return 'claude-sonnet-4-6';
-    case 'opus':
-    case 'claude-opus-4-7':
-      return 'claude-opus-4-7';
-    case 'claude-opus-4-6':
-      return 'claude-opus-4-6';
-    case 'haiku':
-    case 'claude-haiku-4-5':
-      return 'claude-haiku-4-5';
-    default:
-      return trimmed;
+  // Bare family aliases stay aliases: the Claude runtime resolves them to the
+  // newest model server-side, so pinning them to a concrete version here would
+  // require a hand-maintained table that inevitably goes stale.
+  const bareAlias = stripContext1mSuffix(trimmed.toLowerCase());
+  if (CLAUDE_FAMILY_ALIASES.has(bareAlias)) {
+    return bareAlias;
   }
+  return trimmed;
+}
+
+export function isClaudeFamilyAlias(model?: string | null): boolean {
+  if (typeof model !== 'string') return false;
+  return CLAUDE_FAMILY_ALIASES.has(stripContext1mSuffix(model.trim().toLowerCase()));
 }
 
 export function supportsClaude1mContext(model?: string | null): boolean {
   const normalized = normalizeClaudeRequestedModel(model);
   if (!normalized) return false;
+  if (normalized === 'sonnet' || normalized === 'opus') return true;
   // Family-based (any sonnet/opus generation), mirroring the frontend rule in
   // src/ui/utils/claude-model.ts so new model versions are supported without a code change.
   return /^claude-(sonnet|opus)-\d+/i.test(normalized);
@@ -56,14 +59,16 @@ export function toClaudeCodeRuntimeModel(
     return undefined;
   }
 
-  const runtimeAlias = CLAUDE_CODE_RUNTIME_ALIASES[normalized];
+  const runtimeAlias = CLAUDE_FAMILY_ALIASES.has(normalized)
+    ? normalized
+    : LEGACY_PINNED_LATEST_MODELS[normalized];
   if (!runtimeAlias) {
     return normalized;
   }
 
   const wants1m =
     hasContext1mSuffix(model) || Boolean(betas?.includes(CLAUDE_CONTEXT_1M_BETA));
-  return wants1m && supportsClaude1mContext(normalized) ? `${runtimeAlias}[1m]` : runtimeAlias;
+  return wants1m && supportsClaude1mContext(runtimeAlias) ? `${runtimeAlias}[1m]` : runtimeAlias;
 }
 
 export function reconcileClaudeDisplayModel(

@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import type { ClaudeRuntimeSource, ClaudeRuntimeStatus } from '../../shared/types';
 import { getClaudeEnv, hasClaudeCodeOAuthAccount, sanitizeOfficialClaudeEnv } from './claude-settings';
-import { normalizeClaudeRequestedModel } from './claude-model-selection';
+import { isClaudeFamilyAlias, normalizeClaudeRequestedModel } from './claude-model-selection';
 import {
   getClaudeCodeRuntime,
   isClaudeCodeNativeExecutable,
@@ -31,7 +31,8 @@ function requiresAnthropicAuthForModel(model?: string | null): boolean {
   if (!normalized) {
     return true;
   }
-  return normalized.startsWith('claude-');
+  // Bare family aliases (sonnet/opus/haiku) are official Anthropic models too.
+  return normalized.startsWith('claude-') || isClaudeFamilyAlias(normalized);
 }
 
 function resolveRuntimeSource(cliPath?: string): ClaudeRuntimeSource {
