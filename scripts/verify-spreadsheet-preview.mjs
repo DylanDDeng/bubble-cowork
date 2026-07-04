@@ -99,6 +99,164 @@ if (xlsxRun.status !== 0) {
 }
 assert.ok(xlsxRun.stdout.includes('xlsx roundtrip passed'), 'xlsx roundtrip must run');
 
+// ── Sanitizer: openpyxl-style workbooks that crash a straight exceljs load ──
+
+const sanitizeTest = `
+import assert from 'node:assert/strict';
+import ExcelJS from 'exceljs';
+import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
+import { sanitizeXlsxForPreview } from ${JSON.stringify(
+  path.join(root, 'src/ui/utils/xlsx-preview.ts')
+)};
+
+// Build a normal workbook, then poison it the way openpyxl does: an
+// unprefixed-namespace drawing part wired through an absolute-target rel.
+const wb = new ExcelJS.Workbook();
+const sheet = wb.addWorksheet('Data');
+sheet.addRow(['a', 'b']);
+sheet.addRow([1, 2]);
+const buffer = new Uint8Array(await wb.xlsx.writeBuffer());
+
+const entries = unzipSync(buffer);
+entries['xl/drawings/drawing1.xml'] = strToU8(
+  '<wsDr xmlns="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"><twoCellAnchor/></wsDr>'
+);
+entries['xl/worksheets/_rels/sheet1.xml.rels'] = strToU8(
+  '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+    '<Relationship Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="/xl/drawings/drawing1.xml" Id="rId9" /></Relationships>'
+);
+entries['xl/worksheets/sheet1.xml'] = strToU8(
+  strFromU8(entries['xl/worksheets/sheet1.xml']).replace(
+    '</worksheet>',
+    '<drawing xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId9" /></worksheet>'
+  )
+);
+const poisoned = zipSync(entries);
+
+let direct = 'loaded';
+try {
+  await new ExcelJS.Workbook().xlsx.load(poisoned.buffer);
+} catch {
+  direct = 'crashed';
+}
+assert.equal(direct, 'crashed', 'the poisoned workbook must reproduce the exceljs crash');
+
+const wb2 = new ExcelJS.Workbook();
+await wb2.xlsx.load(sanitizeXlsxForPreview(poisoned).buffer);
+assert.equal(wb2.worksheets[0].name, 'Data');
+assert.equal(wb2.worksheets[0].rowCount, 2);
+
+console.log('xlsx sanitize passed');
+`;
+
+const sanitizeRun = spawnSync(
+  process.execPath,
+  ['--experimental-strip-types', '--no-warnings', '--input-type=module', '-e', sanitizeTest],
+  { cwd: root, encoding: 'utf8' }
+);
+if (sanitizeRun.status !== 0) {
+  console.error(sanitizeRun.stdout);
+  console.error(sanitizeRun.stderr);
+  process.exit(1);
+}
+assert.ok(sanitizeRun.stdout.includes('xlsx sanitize passed'), 'xlsx sanitize must run');
+
+const spreadsheetComponent = read('src/ui/components/SpreadsheetPreview.tsx');
+assert.ok(
+  spreadsheetComponent.includes('sanitizeXlsxForPreview'),
+  'XlsxPreview must retry a failed load with the sanitized workbook'
+);
+assert.ok(
+  spreadsheetComponent.includes('RichSheetGrid') &&
+    spreadsheetComponent.includes('extractXlsxCharts') &&
+    spreadsheetComponent.includes('ZOOM_LEVELS'),
+  'XlsxPreview must render the rich grid, charts and zoom control'
+);
+
+// ── Rich extraction: styles, number formats, merges, chart resolution ───────
+
+const richTest = `
+import assert from 'node:assert/strict';
+import ExcelJS from 'exceljs';
+import {
+  formatCellDisplay,
+  workbookToRichSheets,
+  createWorkbookRangeResolver,
+} from ${JSON.stringify(path.join(root, 'src/ui/utils/xlsx-preview.ts'))};
+import { parseRangeRef, resolveXlsxChart } from ${JSON.stringify(
+  path.join(root, 'src/ui/utils/xlsx-charts.ts')
+)};
+
+// Number formats
+assert.equal(formatCellDisplay(0.4785, '0.0%'), '47.9%');
+assert.equal(formatCellDisplay(1234567.891, '#,##0.00'), '1,234,567.89');
+assert.equal(formatCellDisplay(-31.02, '¥#,##0.0;(¥#,##0.0)'), '(¥31.0)');
+assert.equal(formatCellDisplay(59.5, 'General'), '59.5');
+
+// Styled workbook roundtrip
+const wb = new ExcelJS.Workbook();
+const sheet = wb.addWorksheet('Styled');
+sheet.getCell('A1').value = 'Head';
+sheet.getCell('A1').font = { bold: true, color: { argb: 'FFFFFFFF' } };
+sheet.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF244062' } };
+sheet.mergeCells('A1:B1');
+sheet.getCell('A2').value = 0.5;
+sheet.getCell('A2').numFmt = '0.0%';
+const loaded = new ExcelJS.Workbook();
+await loaded.xlsx.load(await wb.xlsx.writeBuffer());
+const rich = workbookToRichSheets(loaded)[0];
+const head = rich.rows[0][0];
+assert.equal(head.text, 'Head');
+assert.equal(head.bold, true);
+assert.equal(head.bg, '#244062');
+assert.equal(head.colSpan, 2);
+assert.equal(rich.rows[0][1].skip, true);
+assert.equal(rich.rows[1][0].text, '50.0%');
+
+// Range parsing + chart resolution against live cells (caches lie: openpyxl
+// caches zeros, so resolved values must win over the cached ones).
+const ref = parseRangeRef("'My Sheet'!\$B\$2:\$D\$2");
+assert.deepEqual(ref, { sheet: 'My Sheet', startCol: 2, startRow: 2, endCol: 4, endRow: 2 });
+const dataWb = new ExcelJS.Workbook();
+const dataSheet = dataWb.addWorksheet('Data');
+dataSheet.getRow(2).getCell(2).value = 10;
+dataSheet.getRow(2).getCell(3).value = { formula: 'B2*2', result: 20 };
+dataSheet.getRow(2).getCell(4).value = 30;
+const resolver = createWorkbookRangeResolver(dataWb);
+const resolved = resolveXlsxChart(
+  {
+    type: 'bar',
+    title: 't',
+    categories: ['a', 'b', 'c'],
+    categoriesRef: null,
+    series: [
+      {
+        name: 's1',
+        color: null,
+        values: [0, 0, 0],
+        valuesRef: { sheet: 'Data', startCol: 2, startRow: 2, endCol: 4, endRow: 2 },
+      },
+    ],
+  },
+  resolver
+);
+assert.deepEqual(resolved.series[0].values, [10, 20, 30]);
+
+console.log('rich extraction passed');
+`;
+
+const richRun = spawnSync(
+  process.execPath,
+  ['--experimental-strip-types', '--no-warnings', '--input-type=module', '-e', richTest],
+  { cwd: root, encoding: 'utf8' }
+);
+if (richRun.status !== 0) {
+  console.error(richRun.stdout);
+  console.error(richRun.stderr);
+  process.exit(1);
+}
+assert.ok(richRun.stdout.includes('rich extraction passed'), 'rich extraction test must run');
+
 // ── Main-process wiring ─────────────────────────────────────────────────────
 
 const ipc = read('src/electron/ipc-handlers.ts');
