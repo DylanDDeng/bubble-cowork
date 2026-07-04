@@ -2572,12 +2572,22 @@ type CodexPriceEntry = {
 
 const CODEX_PRICE_TABLE: Array<{ pattern: RegExp; price: CodexPriceEntry }> = [
   {
+    // Base rate; long-context requests (>272K input) bill at 2x/1.5x, which
+    // this estimator cannot see per request, so estimates skew low there.
+    pattern: /^gpt-5\.5(?:$|-)/i,
+    price: { inputUsdPerMillion: 5, outputUsdPerMillion: 30, cachedInputUsdPerMillion: 0.5 },
+  },
+  {
     pattern: /^gpt-5\.4-mini(?:$|-)/i,
     price: { inputUsdPerMillion: 0.75, outputUsdPerMillion: 4.5, cachedInputUsdPerMillion: 0.075 },
   },
   {
     pattern: /^gpt-5\.4(?:$|-)/i,
     price: { inputUsdPerMillion: 2.5, outputUsdPerMillion: 15, cachedInputUsdPerMillion: 0.25 },
+  },
+  {
+    pattern: /^gpt-5\.3(?:-codex)?(?:$|-)/i,
+    price: { inputUsdPerMillion: 1.75, outputUsdPerMillion: 14, cachedInputUsdPerMillion: 0.175 },
   },
   {
     pattern: /^gpt-5\.2(?:-codex)?(?:$|-)/i,
