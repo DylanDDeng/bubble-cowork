@@ -2615,12 +2615,27 @@ function estimateCodexUsageCost(model: string, usage: CodexTokenUsage): number {
   );
 }
 
-function getCodexStateDbPath(): string {
-  return join(homedir(), '.codex', 'state_5.sqlite');
+// Codex can run against more than one CODEX_HOME on this machine: launchers
+// like orca export their own runtime home, while standalone runs use
+// ~/.codex. Sessions (rollouts + state db) land in whichever home the
+// spawning environment had, so usage reporting must scan all of them or
+// whole days silently read as zero.
+function getCodexHomeDirs(): string[] {
+  const homes = new Set<string>();
+  const envHome = process.env.CODEX_HOME?.trim();
+  if (envHome) {
+    homes.add(envHome);
+  }
+  homes.add(join(homedir(), '.codex'));
+  return Array.from(homes);
 }
 
-function getCodexSessionsRootPath(): string {
-  return join(homedir(), '.codex', 'sessions');
+function getCodexStateDbPaths(): string[] {
+  return getCodexHomeDirs().map((home) => join(home, 'state_5.sqlite'));
+}
+
+function getCodexSessionsRootPaths(): string[] {
+  return getCodexHomeDirs().map((home) => join(home, 'sessions'));
 }
 
 function getOpencodeDbPath(): string {
@@ -2667,12 +2682,7 @@ function readOpencodeAssistantUsageRows(
 
 function buildCodexRolloutPathIndex(): Map<string, string> {
   const result = new Map<string, string>();
-  const rootPath = getCodexSessionsRootPath();
-  if (!existsSync(rootPath)) {
-    return result;
-  }
-
-  const queue = [rootPath];
+  const queue = getCodexSessionsRootPaths().filter((rootPath) => existsSync(rootPath));
   while (queue.length > 0) {
     const currentPath = queue.pop();
     if (!currentPath) {
@@ -2729,30 +2739,38 @@ function findCodexRolloutPathById(id: string): string | null {
 
 function readCodexThreadsById(ids: string[]): Map<string, CodexThreadRow> {
   const result = new Map<string, CodexThreadRow>();
-  const stateDbPath = getCodexStateDbPath();
-  if (!existsSync(stateDbPath) || ids.length === 0) {
+  if (ids.length === 0) {
     return result;
   }
 
-  let stateDb: Database.Database | null = null;
-  try {
-    stateDb = new Database(stateDbPath, { readonly: true, fileMustExist: true });
-    const stmt = stateDb.prepare(`
-      SELECT id, rollout_path, model, tokens_used
-      FROM threads
-      WHERE id = ?
-    `);
-
-    for (const id of ids) {
-      const row = stmt.get(id) as CodexThreadRow | undefined;
-      if (row) {
-        result.set(id, row);
-      }
+  for (const stateDbPath of getCodexStateDbPaths()) {
+    if (!existsSync(stateDbPath)) {
+      continue;
     }
-  } catch {
-    return result;
-  } finally {
-    stateDb?.close();
+
+    let stateDb: Database.Database | null = null;
+    try {
+      stateDb = new Database(stateDbPath, { readonly: true, fileMustExist: true });
+      const stmt = stateDb.prepare(`
+        SELECT id, rollout_path, model, tokens_used
+        FROM threads
+        WHERE id = ?
+      `);
+
+      for (const id of ids) {
+        if (result.has(id)) {
+          continue;
+        }
+        const row = stmt.get(id) as CodexThreadRow | undefined;
+        if (row) {
+          result.set(id, row);
+        }
+      }
+    } catch {
+      // Skip unreadable state dbs; the remaining homes still contribute.
+    } finally {
+      stateDb?.close();
+    }
   }
 
   return result;
