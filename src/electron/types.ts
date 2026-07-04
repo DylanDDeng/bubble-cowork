@@ -140,8 +140,25 @@ export interface RunnerOptions {
   ) => void;
 }
 
+export interface RewindFilesResult {
+  canRewind: boolean;
+  error?: string;
+  filesChanged?: string[];
+  insertions?: number;
+  deletions?: number;
+}
+
 export interface RunnerHandle {
   abort: () => void;
+  /**
+   * Rewind checkpointed files to their state at a specific SDK user message.
+   * Only available while the underlying SDK query is alive (Claude runner with
+   * file checkpointing enabled); absent on other providers.
+   */
+  rewindFiles?: (
+    userMessageId: string,
+    options?: { dryRun?: boolean }
+  ) => Promise<RewindFilesResult>;
   send: (
     prompt: string,
     attachments?: import('../shared/types').Attachment[],

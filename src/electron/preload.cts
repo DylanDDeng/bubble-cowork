@@ -204,6 +204,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('fork-session', sessionId);
   },
 
+  claudeRewind: (input: unknown) => {
+    return ipcRenderer.invoke('claude-rewind', input);
+  },
+
   moveSessionToWorktree: (sessionId: string) => {
     return ipcRenderer.invoke('move-session-to-worktree', sessionId);
   },

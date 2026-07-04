@@ -141,6 +141,9 @@ import type {
   WechatMarkdownHtmlGenerationInput,
   WechatMarkdownHtmlGeneratorConfig,
   AgentProvider,
+  ClaudeRewindInput,
+  ClaudeRewindFilesOutcome,
+  ClaudeRewindResult,
 } from '../shared/types';
 import { getProviderService } from './libs/provider/service';
 import { disposeTerminalRuntime } from './libs/terminal-runtime';
@@ -4161,6 +4164,155 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('fork-session', async (_event, sourceSessionId: string) => {
     return forkSessionInternal(sourceSessionId);
+  });
+
+  // Claude rewind: restore files (SDK checkpoint) and/or truncate the
+  // conversation back to the state before a given user message ran.
+  ipcMainHandle('claude-rewind', async (_event, input: ClaudeRewindInput): Promise<ClaudeRewindResult> => {
+    const { sessionId, anchorMessageId, scope, dryRun } = input || ({} as ClaudeRewindInput);
+    const session = sessions.getSession(sessionId);
+    if (!session) {
+      return { ok: false, message: 'Session not found.', filesAvailable: false };
+    }
+    if (session.provider !== 'claude') {
+      return { ok: false, message: 'Rewind is only available for Claude sessions.', filesAvailable: false };
+    }
+    if (!anchorMessageId) {
+      return { ok: false, message: 'Missing rewind anchor.', filesAvailable: false };
+    }
+
+    const entry = runnerHandles.get(sessionId);
+    const rewindFilesFn = entry?.provider === 'claude' ? entry.handle.rewindFiles : undefined;
+    const filesAvailable = typeof rewindFilesFn === 'function';
+
+    const runFilesRewind = async (isDryRun: boolean): Promise<ClaudeRewindFilesOutcome> => {
+      try {
+        return await rewindFilesFn!(anchorMessageId, { dryRun: isDryRun });
+      } catch (error) {
+        return { canRewind: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    };
+
+    if (dryRun) {
+      return {
+        ok: true,
+        filesAvailable,
+        files: filesAvailable ? await runFilesRewind(true) : null,
+      };
+    }
+
+    let filesOutcome: ClaudeRewindFilesOutcome | null = null;
+    if (scope === 'files' || scope === 'both') {
+      if (!filesAvailable) {
+        if (scope === 'files') {
+          return {
+            ok: false,
+            message: 'File rewind needs a live Claude runtime. Send any message in this session first, then retry.',
+            filesAvailable,
+          };
+        }
+      } else {
+        filesOutcome = await runFilesRewind(false);
+        if (!filesOutcome.canRewind && scope === 'files') {
+          return {
+            ok: false,
+            message: filesOutcome.error || 'Files could not be rewound to this checkpoint.',
+            filesAvailable,
+            files: filesOutcome,
+          };
+        }
+      }
+    }
+
+    let removedPrompt: string | null = null;
+    if (scope === 'conversation' || scope === 'both') {
+      const history = sanitizeStoredClaudeHistory(sessionId, sessions.getSessionHistory(sessionId)).messages;
+      const anchorIndex = history.findIndex(
+        (message) => (message as { uuid?: string }).uuid === anchorMessageId
+      );
+      if (anchorIndex === -1) {
+        return {
+          ok: false,
+          message: 'The rewind anchor was not found in this session history.',
+          filesAvailable,
+          files: filesOutcome,
+        };
+      }
+
+      // The checkpoint semantics are "before this user message ran": drop the
+      // SDK user message, everything after it, and the synthesized user_prompt
+      // that immediately precedes it (so its text can go back to the composer).
+      let cutIndex = anchorIndex;
+      for (let index = anchorIndex - 1; index >= 0; index -= 1) {
+        const type = history[index]?.type;
+        if (type === 'user_prompt') {
+          cutIndex = index;
+          break;
+        }
+        if (type === 'assistant' || type === 'result' || type === 'user') {
+          break;
+        }
+      }
+      const cutMessage = history[cutIndex];
+      if (cutMessage?.type === 'user_prompt') {
+        removedPrompt = cutMessage.prompt;
+      }
+      const preservedHistory = history.slice(0, cutIndex);
+
+      if (entry) {
+        entry.handle.abort();
+        runnerHandles.delete(sessionId);
+      }
+
+      let lastPrompt = '';
+      for (let index = preservedHistory.length - 1; index >= 0; index -= 1) {
+        const message = preservedHistory[index];
+        if (message?.type === 'user_prompt') {
+          lastPrompt = message.prompt;
+          break;
+        }
+      }
+
+      sessions.replaceSessionHistory(sessionId, preservedHistory);
+      sessions.updateSessionStatus(sessionId, 'completed');
+      sessions.updateLastPrompt(sessionId, lastPrompt);
+      sessions.setClaudeSessionId(sessionId, null);
+
+      broadcast(mainWindow, {
+        type: 'session.history',
+        payload: { sessionId, status: 'completed', messages: preservedHistory },
+      });
+      broadcast(mainWindow, {
+        type: 'session.status',
+        payload: {
+          sessionId,
+          status: 'completed',
+          provider: 'claude',
+          hiddenFromThreads: session.hidden_from_threads === 1,
+        },
+      });
+
+      if (preservedHistory.length > 0) {
+        try {
+          const bootstrap = await bootstrapClaudeSessionFromHistory({
+            history: preservedHistory,
+            cwd: session.cwd,
+            model: normalizeModel(session.model ?? undefined),
+            compatibleProviderId: session.compatible_provider_id ?? undefined,
+            betas: parseStoredBetas(session.betas),
+            claudeReasoningEffort: normalizeClaudeReasoningEffort(session.claude_reasoning_effort),
+          });
+          sessions.setClaudeSessionId(sessionId, bootstrap.sessionId || null);
+        } catch (error) {
+          // History is already truncated; without a bootstrap the next prompt
+          // simply starts a fresh CLI session over the truncated visible
+          // history instead of resuming, so this is safe to only log.
+          console.warn('[claude-rewind] context rebuild failed:', error);
+        }
+      }
+    }
+
+    return { ok: true, filesAvailable, files: filesOutcome, removedPrompt };
   });
 
   // 把现有 thread 本身挪进新 worktree（不 fork 对话，provider 无关）：

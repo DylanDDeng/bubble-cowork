@@ -27,6 +27,7 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { TurnChangesCard } from './TurnChangesCard';
 import { TurnDiffContext, type TurnDiffContextValue } from './TurnDiffContext';
 import { CodexActivePlanCard } from './CodexActivePlanCard';
+import { ClaudeRewindDialog, type ClaudeRewindTarget } from './ClaudeRewindDialog';
 import {
   buildTurnChangeContext,
   type TurnChangeSummary,
@@ -1061,6 +1062,56 @@ export function ChatPane({
     }
     return -1;
   }, [session?.messages]);
+
+  // ── Claude rewind ──────────────────────────────────────────────────────────
+  const [rewindTarget, setRewindTarget] = useState<ClaudeRewindTarget | null>(null);
+
+  // The checkpoint anchor is the SDK user message (uuid-bearing) that follows
+  // the display-only user_prompt; older histories may not have one persisted.
+  const resolveRewindTarget = useCallback(
+    (userPromptIndex: number): ClaudeRewindTarget | null => {
+      if (!sessionId || !session || session.provider !== 'claude') return null;
+      const promptMessage = session.messages[userPromptIndex];
+      if (promptMessage?.type !== 'user_prompt') return null;
+      for (let index = userPromptIndex + 1; index < session.messages.length; index += 1) {
+        const message = session.messages[index];
+        if (!message) continue;
+        if (message.type === 'user_prompt') break;
+        if (message.type !== 'user') continue;
+        const uuid = (message as { uuid?: unknown }).uuid;
+        if (typeof uuid !== 'string' || !uuid) continue;
+        const blocks = Array.isArray(message.message?.content) ? message.message.content : [];
+        if (!blocks.some((block) => block?.type === 'text')) continue;
+        return {
+          sessionId,
+          anchorMessageId: uuid,
+          promptPreview: promptMessage.prompt || '',
+        };
+      }
+      return null;
+    },
+    [session, sessionId]
+  );
+
+  // `/rewind` in the composer opens the dialog for the latest user message.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string }>).detail;
+      if (!detail || detail.sessionId !== sessionId) return;
+      if (!session || session.status === 'running') return;
+      for (let index = session.messages.length - 1; index >= 0; index -= 1) {
+        if (session.messages[index]?.type !== 'user_prompt') continue;
+        const target = resolveRewindTarget(index);
+        if (target) {
+          setRewindTarget(target);
+          return;
+        }
+      }
+      toast.error('No rewindable message found in this session.');
+    };
+    window.addEventListener('aegis-claude-rewind-open', handler);
+    return () => window.removeEventListener('aegis-claude-rewind-open', handler);
+  }, [resolveRewindTarget, session, sessionId]);
   const activeTurnStartedAt = useMemo(() => {
     if (!session || lastUserPromptIndex < 0) {
       return undefined;
@@ -1723,6 +1774,13 @@ export function ChatPane({
                               ? {
                                   canEditAndRetry: item.originalIndex === lastUserPromptIndex,
                                   isSessionRunning: session.status === 'running',
+                                  onRewind:
+                                    session.provider === 'claude' && resolveRewindTarget(item.originalIndex)
+                                      ? () => {
+                                          const target = resolveRewindTarget(item.originalIndex);
+                                          if (target) setRewindTarget(target);
+                                        }
+                                      : undefined,
                                   onResend: (prompt: string, attachments) => {
                                     if (!sessionId) return;
                                     if (!prompt.trim() && (!attachments || attachments.length === 0)) return;
@@ -1863,6 +1921,19 @@ export function ChatPane({
           </>
           )}
 
+          <ClaudeRewindDialog
+            target={rewindTarget}
+            onClose={() => setRewindTarget(null)}
+            onRewound={(removedPrompt) => {
+              if (removedPrompt && sessionId) {
+                window.dispatchEvent(
+                  new CustomEvent('aegis-composer-set-prompt', {
+                    detail: { sessionId, text: removedPrompt },
+                  })
+                );
+              }
+            }}
+          />
         </>
       )}
     </div>

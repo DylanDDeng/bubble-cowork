@@ -371,7 +371,15 @@ export function useComposerCapabilityMenu({
 
   // Hide the picker once a skill/command has been selected; the chip already
   // represents the leading capability token.
-  const hasSlashQuery = enabled && composerTrigger !== null && !selectedSkillState && !selectedCommandState;
+  // Keep the menu visible while the cursor is still inside a slash token even
+  // when the text already equals a command name: the composer has no inline
+  // "selected command" visual, so suppressing the menu there reads as a match
+  // failure ("/rewind" typed in full showed nothing at all).
+  const hasSlashQuery =
+    enabled &&
+    composerTrigger !== null &&
+    !selectedSkillState &&
+    (!selectedCommandState || composerTrigger.kind === 'slash-command');
 
   const selectSkill = (skill: ClaudeSkillSummary) => {
     const next = replaceComposerTriggerOrLeadingToken({
@@ -392,6 +400,8 @@ export function useComposerCapabilityMenu({
         fallbackPrefix: '/',
         name: suggestion.command.name,
       });
+      // Two-step flow by design: confirming a suggestion only writes the
+      // command into the composer; a second Enter dispatches it from there.
       if (shouldAutoSubmitSlashCommand(suggestion.command) && onAutoSubmitCommand) {
         onAutoSubmitCommand(next.prompt.trim());
         return;

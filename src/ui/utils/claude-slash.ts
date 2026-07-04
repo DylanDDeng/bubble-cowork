@@ -84,6 +84,10 @@ const DEFAULT_COMMAND_DEFINITIONS: Record<
     title: '/review',
     description: 'Review the current changes',
   },
+  rewind: {
+    title: '/rewind',
+    description: 'Rewind the conversation and/or files to an earlier checkpoint',
+  },
   status: {
     title: '/status',
     description: 'Show Claude Code account and session status',
@@ -193,16 +197,38 @@ export function buildClaudeSlashCommands(
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
+// Commands handled by the Aegis UI itself (never dispatched to the model).
+// The Claude runtime does not report these in available_commands_update, so
+// they are merged into every Claude session's suggestion list locally.
+const LOCAL_CLAUDE_UI_COMMANDS: ClaudeSlashCommand[] = [
+  {
+    name: 'rewind',
+    title: '/rewind',
+    description: 'Rewind the conversation and/or files to an earlier checkpoint',
+    source: 'default',
+  },
+];
+
+function withLocalClaudeUiCommands(commands: ClaudeSlashCommand[]): ClaudeSlashCommand[] {
+  const existing = new Set(commands.map((command) => command.name));
+  const merged = [
+    ...commands,
+    ...LOCAL_CLAUDE_UI_COMMANDS.filter((command) => !existing.has(command.name)),
+  ];
+  return merged.sort((left, right) => left.name.localeCompare(right.name));
+}
+
 export function buildProviderSlashCommands(
   provider: AgentProvider,
   sessionCommands?: ClaudeSlashCommand[]
 ): ClaudeSlashCommand[] {
   if (sessionCommands && sessionCommands.length > 0) {
-    return buildClaudeSlashCommands(sessionCommands);
+    const commands = buildClaudeSlashCommands(sessionCommands);
+    return provider === 'claude' ? withLocalClaudeUiCommands(commands) : commands;
   }
 
   if (provider === 'claude') {
-    return buildClaudeSlashCommands();
+    return withLocalClaudeUiCommands(buildClaudeSlashCommands());
   }
 
   if (provider === 'opencode') {
@@ -228,7 +254,11 @@ export function parseSelectedSlashCommandPrompt(
     return null;
   }
 
-  const command = commands.find((item) => item.name === token.name);
+  // Case-insensitive: "/Rewind" must resolve to the same command as
+  // "/rewind", otherwise the composer stays in search mode for one casing
+  // and switches to the selected-command chip for the other.
+  const tokenName = token.name.toLowerCase();
+  const command = commands.find((item) => item.name.toLowerCase() === tokenName);
   if (!command) {
     return null;
   }

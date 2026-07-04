@@ -292,6 +292,21 @@ export function PromptInput({
     consumeChatInjection(injection.nonce);
   }, [consumeChatInjection, pendingChatInjection, targetSessionId]);
 
+  // After a conversation rewind, the rewound-away prompt is offered back to
+  // the composer (matching Claude Code's /rewind behavior). Never clobber
+  // text the user has already typed.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string; text?: string }>).detail;
+      if (!detail?.text || detail.sessionId !== targetSessionId) return;
+      setPrompt((current) => (current.trim() ? current : detail.text!));
+      setCursorIndex(detail.text.length);
+      window.requestAnimationFrame(() => editorRef.current?.focus());
+    };
+    window.addEventListener('aegis-composer-set-prompt', handler);
+    return () => window.removeEventListener('aegis-composer-set-prompt', handler);
+  }, [targetSessionId]);
+
   const buildDispatchPrompt = async (): Promise<string | null> => {
     const selectedSkillPrompt =
       capabilityMenu.selectedSkill && runtimeProvider === 'codex'
@@ -352,6 +367,22 @@ export function PromptInput({
     }
     if (!activeSession) {
       setShowNewSession(true);
+      return;
+    }
+
+    // `/rewind` is a local UI command (checkpoint restore), not a prompt for
+    // the model: open the rewind dialog instead of dispatching a turn.
+    if (
+      runtimeProvider === 'claude' &&
+      prompt.trim().toLowerCase() === '/rewind' &&
+      attachments.length === 0 &&
+      activeSession.id
+    ) {
+      setPrompt('');
+      setCursorIndex(0);
+      window.dispatchEvent(
+        new CustomEvent('aegis-claude-rewind-open', { detail: { sessionId: activeSession.id } })
+      );
       return;
     }
 

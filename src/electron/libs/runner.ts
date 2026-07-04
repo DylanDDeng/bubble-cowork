@@ -467,6 +467,11 @@ async function buildUserMessage(
 
   return {
     type: 'user',
+    // Mint the message uuid host-side: the CLI adopts it as the transcript id,
+    // which is the anchor /rewind (Query.rewindFiles + history truncation)
+    // needs. Streaming-input prompts are never echoed back by the SDK, so
+    // without this the host would have no way to reference the message.
+    uuid: uuidv4() as SDKUserMessage['uuid'],
     session_id: sessionId,
     parent_tool_use_id: null,
     message: { role: 'user', content },
@@ -550,6 +555,16 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           return;
         }
         inputQueue.push(message);
+
+        // The SDK does not echo streaming-input user prompts back on the
+        // message stream, so emit the echo ourselves. Persisting it (keyed by
+        // the minted uuid) is what lets /rewind anchor to this prompt later —
+        // resume replays emit the same shape, so downstream handling is shared.
+        onMessage?.({
+          type: 'user',
+          uuid: message.uuid as string,
+          message: { content: [{ type: 'text', text: trimmed }] },
+        } as StreamMessage);
 
         // Record the actual user prompt text here. Claude "user" stream events can
         // also represent tool results, so the stream alone is not a reliable source
@@ -643,6 +658,9 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           resume: resumeSessionId,
           abortController,
           includePartialMessages: true,
+          // Snapshot files before edits so /rewind can restore them to their
+          // state at any user message via RunnerHandle.rewindFiles.
+          enableFileCheckpointing: true,
           ...thinkingOptions.queryOptions,
           betas: betas as Array<'context-1m-2025-08-07'> | undefined,
           permissionMode: currentPermissionMode,
@@ -1050,6 +1068,12 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
     },
     send: (text, promptAttachments, requestedModel) =>
       enqueuePrompt(text, promptAttachments, requestedModel),
+    rewindFiles: async (userMessageId, options) => {
+      if (!activeQuery) {
+        return { canRewind: false, error: 'Session is not active.' };
+      }
+      return activeQuery.rewindFiles(userMessageId, { dryRun: options?.dryRun });
+    },
   };
 }
 

@@ -105,6 +105,9 @@ declare global {
     forkSession: (
       sessionId: string
     ) => Promise<{ ok: boolean; session?: SessionInfo; message?: string }>;
+    claudeRewind: (
+      input: import('./shared/types').ClaudeRewindInput
+    ) => Promise<import('./shared/types').ClaudeRewindResult>;
     moveSessionToWorktree: (
       sessionId: string
     ) => Promise<{ ok: boolean; message?: string }>;

@@ -808,6 +808,37 @@ export interface SessionStartPayload {
   createIsolatedWorkspace?: boolean;
 }
 
+// ── Claude rewind (conversation/files checkpoint restore) ───────────────────
+
+export type ClaudeRewindScope = 'conversation' | 'files' | 'both';
+
+export interface ClaudeRewindInput {
+  sessionId: string;
+  /** UUID of the SDK user message that anchors the checkpoint. */
+  anchorMessageId: string;
+  scope: ClaudeRewindScope;
+  /** Preview only: report what a files rewind would change without executing. */
+  dryRun?: boolean;
+}
+
+export interface ClaudeRewindFilesOutcome {
+  canRewind: boolean;
+  error?: string;
+  filesChanged?: string[];
+  insertions?: number;
+  deletions?: number;
+}
+
+export interface ClaudeRewindResult {
+  ok: boolean;
+  message?: string;
+  /** Whether a live query exists so files can be rewound at all. */
+  filesAvailable: boolean;
+  files?: ClaudeRewindFilesOutcome | null;
+  /** Prompt text of the rewound-away user message, for composer restore. */
+  removedPrompt?: string | null;
+}
+
 export interface SessionContinuePayload {
   sessionId: string;
   prompt: string;

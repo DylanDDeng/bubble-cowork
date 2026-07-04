@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronRight, Copy, Check, Pencil, Plug, RotateCcw, Terminal } from './icons';
+import { ChevronRight, Copy, Check, History, Pencil, Plug, RotateCcw, Terminal } from './icons';
 import { cn } from '@/ui/lib/utils';
 import { useAppStore } from '../store/useAppStore';
 import { AttachmentChips } from './AttachmentChips';
@@ -245,6 +245,8 @@ function UserPromptCard({
     canEditAndRetry: boolean;
     isSessionRunning: boolean;
     onResend: (prompt: string, attachments?: Attachment[]) => void;
+    /** Claude only: rewind conversation/files back to before this message. */
+    onRewind?: () => void;
   };
   sessionId?: string | null;
 }) {
@@ -480,6 +482,16 @@ function UserPromptCard({
             </div>
           ) : (
             <div className="flex items-center gap-2">
+              {actions?.onRewind ? (
+                <IconButton
+                  onClick={() => actions.onRewind?.()}
+                  title={actions.isSessionRunning ? 'Stop the session to rewind' : 'Rewind to before this message'}
+                  ariaLabel="Rewind to before this message"
+                  disabled={actions.isSessionRunning}
+                >
+                  <History className="w-3.5 h-3.5" />
+                </IconButton>
+              ) : null}
               <IconButton
                 onClick={handleRetry}
                 title={retryTitle}
