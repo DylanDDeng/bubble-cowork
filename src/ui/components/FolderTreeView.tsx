@@ -3,9 +3,18 @@ import {
   ArrowsSplit,
   FolderClosed,
   FolderOpen,
+  MoreHorizontal,
   Pin,
   Plus,
+  Trash2,
 } from './icons';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { allLeaves } from '../store/layout-tree';
@@ -70,6 +79,7 @@ export function FolderTreeView({
     activeWorkspace,
     workspaceLayout,
     sidebarSearchQuery,
+    setProjectCwd,
   } = useAppStore();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
   const isChatWorkspaceActive = activeWorkspace === 'chat';
@@ -168,6 +178,40 @@ export function FolderTreeView({
     });
   };
 
+  // 项目本身不是持久实体（由 session 分组推导），"移除项目"= 删除组内全部
+  // thread；外部只读会话（claude_remote）删不掉，保留并提示
+  const removeProjectGroup = (group: ProjectGroup) => {
+    const deletable = group.sessions.filter((session) => session.source !== 'claude_remote');
+    const remoteCount = group.sessions.length - deletable.length;
+
+    if (deletable.length > 0) {
+      const details = [
+        deletable.length === 1
+          ? 'This permanently deletes its 1 conversation.'
+          : `This permanently deletes all ${deletable.length} conversations in it.`,
+      ];
+      if (deletable.some((session) => session.status === 'running')) {
+        details.push('Running tasks will be stopped.');
+      }
+      if (remoteCount > 0) {
+        details.push(
+          `${remoteCount} external Claude ${remoteCount === 1 ? 'session is' : 'sessions are'} read-only and will stay.`
+        );
+      }
+      if (!window.confirm(`Remove "${group.label}" from the list? ${details.join(' ')}`)) {
+        return;
+      }
+      for (const session of deletable) {
+        sendEvent({ type: 'session.delete', payload: { sessionId: session.id } });
+      }
+    }
+
+    // 选中的项目会被强制显示为空分组，清掉选中态它才会真正消失
+    if (group.fullPath && projectCwd?.trim() === group.fullPath) {
+      setProjectCwd(null);
+    }
+  };
+
   const isExpanded = (key: string) => !collapsedGroups.has(key);
 
   const toggleGroupExpanded = (key: string) => {
@@ -260,6 +304,41 @@ export function FolderTreeView({
                   <Plus className="h-3.5 w-3.5" strokeWidth={1.9} />
                 </button>
               )}
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-0 transition-all duration-150 hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] focus:opacity-100 group-hover/project:opacity-100 data-[popup-open]:bg-[var(--sidebar-item-hover)] data-[popup-open]:text-[var(--text-primary)] data-[popup-open]:opacity-100"
+                    title={`Options for ${group.label}`}
+                    aria-label={`Options for ${group.label}`}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" sideOffset={4} className="min-w-[180px]">
+                  {group.fullPath && (
+                    <>
+                      <DropdownMenuItem
+                        className="gap-2 cursor-pointer"
+                        onSelect={() => void window.electron.revealPath(group.fullPath!)}
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" />
+                        <span>Show in Finder</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
+                  <DropdownMenuItem
+                    className="gap-2 cursor-pointer text-[var(--error)]"
+                    onSelect={() => removeProjectGroup(group)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Remove</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
             {expanded && (
