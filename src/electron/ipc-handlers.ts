@@ -505,6 +505,23 @@ type ProjectFilePreview =
       dataBase64: string;
     }
   | {
+      kind: 'csv';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      mtimeMs: number;
+      text: string;
+    }
+  | {
+      kind: 'xlsx';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      dataBase64: string;
+    }
+  | {
       kind: 'binary' | 'unsupported';
       path: string;
       name: string;
@@ -5023,6 +5040,29 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         }
       }
 
+      if (ext === '.csv' || ext === '.tsv') {
+        try {
+          const text = await fsPromises.readFile(validation.targetReal, 'utf8');
+          return {
+            kind: 'csv',
+            path: validation.targetReal,
+            name,
+            ext,
+            size: stat.size,
+            mtimeMs: stat.mtimeMs,
+            text,
+          };
+        } catch (error) {
+          return {
+            kind: 'error',
+            path: validation.targetReal,
+            name,
+            ext,
+            message: `Failed to read file: ${String(error)}`,
+          };
+        }
+      }
+
       if (ext === '.ppt' || ext === '.pptx' || ext === '.key') {
         try {
           const buffer = await fsPromises.readFile(validation.targetReal);
@@ -5045,8 +5085,31 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         }
       }
 
-      // Binary files (open only)
-      if (ext === '.docx') {
+      if (ext === '.xlsx') {
+        try {
+          const buffer = await fsPromises.readFile(validation.targetReal);
+          return {
+            kind: 'xlsx',
+            path: validation.targetReal,
+            name,
+            ext,
+            size: stat.size,
+            dataBase64: buffer.toString('base64'),
+          };
+        } catch (error) {
+          return {
+            kind: 'error',
+            path: validation.targetReal,
+            name,
+            ext,
+            message: `Failed to read workbook: ${String(error)}`,
+          };
+        }
+      }
+
+      // Binary files (open only). Legacy .xls is a binary format exceljs
+      // cannot parse; route it to the system viewer instead of 'unsupported'.
+      if (ext === '.docx' || ext === '.xls') {
         return { kind: 'binary', path: validation.targetReal, name, ext, size: stat.size };
       }
 

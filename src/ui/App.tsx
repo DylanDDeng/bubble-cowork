@@ -41,6 +41,7 @@ import { SkillMarketSettingsContent } from './components/settings/SkillMarketSet
 import {
   ProjectTreePanel,
 } from './components/ProjectTreePanel';
+import { FileTypeIcon } from './components/FileTypeIcon';
 import { AegisDiffPanel } from './components/AegisDiffPanel';
 import { BrowserPanel } from './components/browser/BrowserPanel';
 import { TerminalDrawer } from './components/TerminalDrawer';
@@ -1337,55 +1338,77 @@ function RightUtilityTabStrip({
 
   return (
     <div
-      className="drag-region relative z-[120] flex h-10 shrink-0 items-center gap-1 overflow-visible border-b border-[var(--border)] bg-[var(--bg-primary)] px-2"
+      className="drag-region relative z-[120] flex h-10 shrink-0 items-center gap-1 overflow-visible bg-[var(--bg-primary)] px-2"
       // In fullscreen with the sidebar collapsed the strip becomes the topmost
       // bar at the window's left edge, so it must clear the traffic lights.
       style={windowControlsInset ? { paddingLeft: 'var(--app-window-controls-inset-left)' } : undefined}
     >
-      <div className="no-drag flex min-w-0 max-w-full translate-y-1 items-end gap-1 overflow-x-auto">
-	        {tabs.map((tab) => {
+      <div className="no-drag flex min-w-0 max-w-full items-center overflow-x-auto">
+	        {tabs.map((tab, index) => {
 	          const Icon = getUtilityTabIcon(tab.kind);
           const active = activeTab === tab.id;
+          const prevTab = tabs[index - 1];
+          const showDivider = index > 0 && !active && prevTab?.id !== activeTab;
+          // File tabs are labeled with the open file's name; show its type icon
+          // (like a real editor tab) instead of the generic folder.
+          const useFileIcon = tab.kind === 'files' && tab.label.includes('.');
           return (
-            <div
-              key={tab.id}
-              className={`group flex h-8 max-w-[190px] min-w-[116px] items-center rounded-t-[7px] border border-b-0 text-xs transition-colors ${
-                active
-                  ? 'border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-[0_-1px_0_var(--bg-primary),0_1px_0_var(--bg-primary)]'
-                  : 'border-transparent bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
-              }`}
-            >
-              <button
-                type="button"
-                data-utility-tab={tab.id}
-                data-utility-tab-kind={tab.kind}
-                onClick={() => onSelectTab(tab.id)}
-                className="flex min-w-0 flex-1 items-center gap-1.5 px-2 text-left"
-                title={tab.label}
+            <div key={tab.id} className="flex flex-shrink-0 items-center">
+              <span
+                className={`mx-0.5 h-4 w-px flex-shrink-0 bg-[var(--border)] ${
+                  showDivider ? '' : 'opacity-0'
+                }`}
+                aria-hidden="true"
+              />
+              <div
+                className={`group flex h-8 max-w-[190px] items-center rounded-[9px] text-xs transition-colors ${
+                  active
+                    ? 'bg-[var(--sidebar-item-active)] font-medium text-[var(--text-primary)]'
+                    : 'bg-transparent text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+                }`}
               >
-                <Icon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate">{tab.label}</span>
-              </button>
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onCloseTab(tab.id);
-                }}
-                className="mr-1 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-[4px] text-[var(--text-muted)] opacity-70 transition-opacity hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] group-hover:opacity-100"
-                aria-label={`Close ${tab.label}`}
-                title={`Close ${tab.label}`}
-              >
-                <X className="h-3 w-3" aria-hidden="true" />
-              </button>
+                <button
+                  type="button"
+                  data-utility-tab={tab.id}
+                  data-utility-tab-kind={tab.kind}
+                  onClick={() => onSelectTab(tab.id)}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 pl-2.5 pr-1 text-left"
+                  title={tab.label}
+                >
+                  {useFileIcon ? (
+                    <FileTypeIcon
+                      name={tab.label}
+                      className="h-3.5 w-3.5 flex-shrink-0"
+                      fallbackClassName="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]"
+                    />
+                  ) : (
+                    <Icon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate">{tab.label}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onCloseTab(tab.id);
+                  }}
+                  className={`mr-1.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-[4px] text-[var(--text-muted)] transition-opacity hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] ${
+                    active ? 'opacity-70' : 'opacity-0 group-hover:opacity-70'
+                  }`}
+                  aria-label={`Close ${tab.label}`}
+                  title={`Close ${tab.label}`}
+                >
+                  <X className="h-3 w-3" aria-hidden="true" />
+                </button>
+              </div>
             </div>
           );
         })}
         <button
           type="button"
           onClick={handleOpenMenu}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-t-[7px] border border-b-0 border-transparent bg-transparent text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+          className="ml-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
           aria-label="Open another panel"
         >
           <Plus className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1393,7 +1416,7 @@ function RightUtilityTabStrip({
       </div>
       <div className="min-w-4 flex-1 self-stretch" aria-hidden="true" />
 
-      <div className="no-drag ml-1 flex h-full shrink-0 translate-y-1 items-center">
+      <div className="no-drag ml-1 flex h-full shrink-0 items-center">
         <PanelLauncher activePanel={activePanel} onToggle={onTogglePanel} />
       </div>
     </div>

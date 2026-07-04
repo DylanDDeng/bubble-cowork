@@ -8,6 +8,7 @@ import { HighlightedCode } from './HighlightedCode';
 import TextFileReader from './TextFileReader';
 import { FileTypeIcon } from './FileTypeIcon';
 import { ProjectMarkdownEditor, type ProjectMarkdownEditorBridge } from './ProjectMarkdownEditor';
+import { CsvPreview, XlsxPreview } from './SpreadsheetPreview';
 import { ProjectMdxPreview, ProjectMdxProperties, parseMdxDocument } from './ProjectMdxPreview';
 import { ProjectTextEditor, type ProjectTextEditorHandle } from './ProjectTextEditor';
 import { IconButton } from './ui/icon-button';
@@ -98,6 +99,23 @@ type ProjectFilePreview =
     }
   | {
       kind: 'pptx';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      dataBase64: string;
+    }
+  | {
+      kind: 'csv';
+      path: string;
+      name: string;
+      ext: string;
+      size: number;
+      mtimeMs: number;
+      text: string;
+    }
+  | {
+      kind: 'xlsx';
       path: string;
       name: string;
       ext: string;
@@ -633,6 +651,20 @@ export function ProjectTreePanel({
       ? normalizedSharedPanelWidth
       : panelWidth;
   const useEmbeddedFilesGrid = embedded && activeTab === 'files';
+  // Embedded files view: the tree rail can be tucked away from the preview
+  // header's Files button. With no file selected the rail is the only surface,
+  // so the collapsed state is ignored until a preview exists.
+  const [filesRailCollapsed, setFilesRailCollapsed] = useState(
+    () => window.localStorage.getItem('cowork.projectFilesRailCollapsed') === '1'
+  );
+  const toggleFilesRail = useCallback(() => {
+    setFilesRailCollapsed((current) => {
+      const next = !current;
+      window.localStorage.setItem('cowork.projectFilesRailCollapsed', next ? '1' : '0');
+      return next;
+    });
+  }, []);
+  const filesRailHidden = useEmbeddedFilesGrid && filesRailCollapsed && !!selectedFilePath;
   const projectRailWidth = Math.min(maxRailWidth, Math.max(minRailWidth, panelWidth));
   const projectPreviewViewportWidth = Math.max(
     minPreviewWidth,
@@ -2553,6 +2585,9 @@ export function ProjectTreePanel({
     !previewLoading &&
     selectedPreview?.kind === 'markdown' &&
     viewMode === 'view';
+  const isSpreadsheetPreviewSurface =
+    !previewLoading &&
+    (selectedPreview?.kind === 'csv' || selectedPreview?.kind === 'xlsx');
   const isMdxCodePreviewSurface =
     isMdxFilePreview &&
     viewMode === 'code';
@@ -2635,8 +2670,10 @@ export function ProjectTreePanel({
             ? useEmbeddedFilesGrid
               ? {
                   display: collapsed ? 'none' : 'grid',
-                  gridTemplateColumns: `minmax(0, 1fr) ${projectRailWidth}px`,
-                  gridTemplateRows: 'auto minmax(0, 1fr)',
+                  gridTemplateColumns: `minmax(0, 1fr) ${filesRailHidden ? 0 : projectRailWidth}px`,
+                  // Row 1: full-width preview header (breadcrumb + rail toggle),
+                  // row 2: tree mini-header, row 3: tree; preview spans rows 2-3.
+                  gridTemplateRows: 'auto auto minmax(0, 1fr)',
                 }
               : undefined
             : isFullscreen
@@ -2674,14 +2711,14 @@ export function ProjectTreePanel({
         {useEmbeddedFilesGrid && !selectedFilePath ? (
           <div
             className="flex min-h-0 min-w-0 flex-col items-center justify-center border-r border-[var(--tree-item-border)] bg-[var(--bg-primary)] px-8 text-center"
-            style={{ gridColumn: 1, gridRow: '1 / span 2' }}
+            style={{ gridColumn: 1, gridRow: '2 / span 2' }}
           >
             <FolderOpen className="mb-3 h-8 w-8 text-[var(--text-muted)]" aria-hidden="true" />
             <div className="text-sm font-medium text-[var(--text-primary)]">Open file</div>
             <div className="mt-1 text-xs text-[var(--text-muted)]">Select a file from the workspace tree</div>
           </div>
         ) : null}
-        {useEmbeddedFilesGrid ? (
+        {useEmbeddedFilesGrid && !filesRailHidden ? (
           <div
             className="group absolute bottom-0 top-0 z-10 w-3 -translate-x-1/2 cursor-col-resize no-drag"
             style={{ left: `calc(100% - ${projectRailWidth}px)` }}
@@ -2692,7 +2729,11 @@ export function ProjectTreePanel({
         ) : null}
         <div
           className="pl-4 pr-2 pt-2 pb-2"
-          style={useEmbeddedFilesGrid ? { gridColumn: 2, gridRow: 1 } : undefined}
+          style={
+            useEmbeddedFilesGrid
+              ? { gridColumn: 2, gridRow: 2, display: filesRailHidden ? 'none' : undefined }
+              : undefined
+          }
         >
           <div className="flex items-center justify-between gap-2">
             <div
@@ -2733,7 +2774,11 @@ export function ProjectTreePanel({
 
         <div
           className="flex-1 min-h-0 flex"
-          style={useEmbeddedFilesGrid ? { gridColumn: 2, gridRow: 2, minHeight: 0 } : undefined}
+          style={
+            useEmbeddedFilesGrid
+              ? { gridColumn: 2, gridRow: 3, minHeight: 0, display: filesRailHidden ? 'none' : undefined }
+              : undefined
+          }
         >
           <div
             className={`flex-1 overflow-auto px-2.5 pb-3 transition-colors duration-150 ${
@@ -2885,16 +2930,66 @@ export function ProjectTreePanel({
           </div>
         </div>
 
+        {useEmbeddedFilesGrid &&
+        showFilePreviewSurface &&
+        !showProjectFileTabs &&
+        !isEditableMarkdownPreview &&
+        selectedFilePath ? (
+          // Full-width header row: breadcrumb on the left, rail toggle at the
+          // window's right edge, with a divider line running across both the
+          // preview and the tree columns (reference-app layout).
+          <div
+            className="drag-region flex items-center justify-between gap-2 border-b border-[var(--tree-item-border)] bg-[var(--bg-primary)] py-1.5 pl-3 pr-2"
+            style={{ gridColumn: '1 / span 2', gridRow: 1 }}
+          >
+            <PreviewBreadcrumb
+              cwd={selectedFileCwd || cwd}
+              filePath={selectedFilePath}
+              fileName={
+                selectedPreview?.name ||
+                selectedFilePath.split('/').pop() ||
+                selectedFilePath
+              }
+            />
+            <div className="no-drag flex flex-shrink-0 items-center gap-1">
+              {(selectedPreview?.kind === 'html' || isMdxFilePreview) && (
+                <ViewModeToggle
+                  value={viewMode}
+                  onChange={setViewMode}
+                  options={
+                    isMdxFilePreview
+                      ? [
+                          { value: 'code', label: 'Source', title: 'Edit source' },
+                          { value: 'view', label: 'Preview', title: 'Preview MDX' },
+                          { value: 'split', label: 'Split', title: 'Source and preview' },
+                        ]
+                      : undefined
+                  }
+                />
+              )}
+              <span className="mx-0.5 h-4 w-px bg-[var(--border)]" aria-hidden="true" />
+              <IconButton
+                onClick={toggleFilesRail}
+                tooltip={filesRailCollapsed ? 'Show file tree' : 'Hide file tree'}
+                label={filesRailCollapsed ? 'Show file tree' : 'Hide file tree'}
+              >
+                <FolderClosed className="w-4 h-4" />
+              </IconButton>
+            </div>
+          </div>
+        ) : null}
         {showFilePreviewSurface && (
           <div
             className={
               useEmbeddedFilesGrid
-                ? 'relative z-0 min-h-0 min-w-0 border-r border-[var(--tree-item-border)] bg-[var(--bg-primary)]'
+                ? `relative z-0 min-h-0 min-w-0 bg-[var(--bg-primary)] ${
+                    filesRailHidden ? '' : 'border-r border-[var(--tree-item-border)]'
+                  }`
                 : 'absolute inset-y-0 z-20 border-l border-[var(--tree-item-border)] bg-[var(--bg-primary)] shadow-[-12px_0_32px_rgba(0,0,0,0.08)]'
             }
             style={
               useEmbeddedFilesGrid
-                ? { gridColumn: 1, gridRow: '1 / span 2' }
+                ? { gridColumn: 1, gridRow: '2 / span 2' }
                 : isFullscreen
                 ? { left: 0, right: 0, top: topInset, bottom: 0, width: 'auto' }
                 : { right: 'calc(100% - 1px)', top: topInset, bottom: 0, width: previewPanelWidth }
@@ -2912,49 +3007,61 @@ export function ProjectTreePanel({
             <div className={`h-full min-w-0 flex flex-col ${showProjectFileTabs || isEditableMarkdownPreview ? '' : 'px-3 py-3'}`}>
               {showProjectFileTabs && (
                 <div
-                  className={`aegis-project-file-tabs${isFullscreen && !embedded ? ' window-controls-inset' : ''} drag-region flex h-11 flex-shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-primary)] pl-2 pr-2`}
+                  className={`aegis-project-file-tabs${isFullscreen && !embedded ? ' window-controls-inset' : ''} drag-region flex h-11 flex-shrink-0 items-center gap-2 bg-[var(--bg-primary)] pl-2 pr-2`}
                 >
-	                  <div className="no-drag flex min-w-0 max-w-full items-end overflow-x-auto">
-	                    {openFileTabs.map((tab) => {
+	                  <div className="no-drag flex min-w-0 max-w-full items-center overflow-x-auto py-1.5">
+	                    {openFileTabs.map((tab, index) => {
 	                      const activeTab = tab.id === activeFileTabId;
+	                      const prevTab = openFileTabs[index - 1];
+	                      const showDivider =
+	                        index > 0 && !activeTab && prevTab?.id !== activeFileTabId;
 	                      return (
-	                        <button
-	                          key={tab.id}
-                          type="button"
-                          onClick={() => void activateProjectFileTab(tab)}
-                          className={`group flex h-9 max-w-[190px] min-w-[112px] items-center gap-1.5 rounded-t-[7px] border border-b-0 px-2.5 text-left text-xs transition-colors ${
-                            activeTab
-                              ? 'border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-[0_-1px_0_var(--bg-primary),0_1px_0_var(--bg-primary)]'
-                              : 'border-transparent bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
-                          }`}
-                          title={tab.filePath}
-	                        >
-	                          <FileTypeIcon name={tab.name} className="h-3.5 w-3.5 flex-shrink-0" fallbackClassName="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-secondary)]" />
-	                          <span className="min-w-0 flex-1 truncate">{tab.name}</span>
+	                        <div key={tab.id} className="flex flex-shrink-0 items-center">
 	                          <span
-                            role="button"
-                            tabIndex={0}
-                            aria-label={`Close ${tab.name}`}
-                            className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-[4px] text-[var(--text-muted)] opacity-70 transition-opacity hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] group-hover:opacity-100"
-                            onClick={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              void closeProjectFileTab(tab.id);
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter' || event.key === ' ') {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                void closeProjectFileTab(tab.id);
-                              }
-                            }}
-                          >
-                            <X className="h-3 w-3" aria-hidden="true" />
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
+	                            className={`mx-0.5 h-4 w-px flex-shrink-0 bg-[var(--border)] ${
+	                              showDivider ? '' : 'opacity-0'
+	                            }`}
+	                            aria-hidden="true"
+	                          />
+	                          <button
+	                            type="button"
+	                            onClick={() => void activateProjectFileTab(tab)}
+	                            className={`group flex h-8 max-w-[190px] items-center gap-1.5 rounded-[9px] px-2.5 text-left text-xs transition-colors ${
+	                              activeTab
+	                                ? 'bg-[var(--sidebar-item-active)] font-medium text-[var(--text-primary)]'
+	                                : 'bg-transparent text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+	                            }`}
+	                            title={tab.filePath}
+	                          >
+	                            <FileTypeIcon name={tab.name} className="h-3.5 w-3.5 flex-shrink-0" fallbackClassName="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-secondary)]" />
+	                            <span className="min-w-0 flex-1 truncate">{tab.name}</span>
+	                            <span
+	                              role="button"
+	                              tabIndex={0}
+	                              aria-label={`Close ${tab.name}`}
+	                              className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-[4px] text-[var(--text-muted)] transition-opacity hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] ${
+	                                activeTab ? 'opacity-70' : 'opacity-0 group-hover:opacity-70'
+	                              }`}
+	                              onClick={(event) => {
+	                                event.preventDefault();
+	                                event.stopPropagation();
+	                                void closeProjectFileTab(tab.id);
+	                              }}
+	                              onKeyDown={(event) => {
+	                                if (event.key === 'Enter' || event.key === ' ') {
+	                                  event.preventDefault();
+	                                  event.stopPropagation();
+	                                  void closeProjectFileTab(tab.id);
+	                                }
+	                              }}
+	                            >
+	                              <X className="h-3 w-3" aria-hidden="true" />
+	                            </span>
+	                          </button>
+	                        </div>
+	                      );
+	                    })}
+	                  </div>
                   <div className="min-w-4 flex-1 self-stretch" aria-hidden="true" />
 
                   <div className="no-drag flex flex-shrink-0 items-center gap-1">
@@ -3019,7 +3126,7 @@ export function ProjectTreePanel({
                       </DropdownMenu>
                     )}
 
-                    {onToggleFullscreen && (
+                    {!useEmbeddedFilesGrid && onToggleFullscreen && (
                       <IconButton
                         onClick={onToggleFullscreen}
                         tooltip={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
@@ -3032,30 +3139,39 @@ export function ProjectTreePanel({
                         )}
                       </IconButton>
                     )}
-                    <IconButton
-                      onClick={() => void closeAllProjectFileTabs()}
-                      tooltip="Close all tabs"
-                      label="Close all tabs"
-                    >
-                      <X className="w-4 h-4" />
-                    </IconButton>
+                    {!useEmbeddedFilesGrid && (
+                      <IconButton
+                        onClick={() => void closeAllProjectFileTabs()}
+                        tooltip="Close all tabs"
+                        label="Close all tabs"
+                      >
+                        <X className="w-4 h-4" />
+                      </IconButton>
+                    )}
+                    {useEmbeddedFilesGrid && (
+                      <IconButton
+                        onClick={toggleFilesRail}
+                        tooltip={filesRailCollapsed ? 'Show file tree' : 'Hide file tree'}
+                        label={filesRailCollapsed ? 'Show file tree' : 'Hide file tree'}
+                      >
+                        <FolderClosed className="w-4 h-4" />
+                      </IconButton>
+                    )}
                   </div>
                 </div>
               )}
 
-              {!showProjectFileTabs && !isEditableMarkdownPreview ? (
+              {!useEmbeddedFilesGrid && !showProjectFileTabs && !isEditableMarkdownPreview ? (
                 <div className="drag-region flex items-center justify-between gap-2 pb-2">
-                  <div className="min-w-0">
-                    <div className="text-xs text-[var(--text-muted)]">Preview</div>
-                    <div
-                      className="text-sm font-medium text-[var(--text-primary)] truncate"
-                      title={selectedFilePath}
-                    >
-                      {selectedPreview?.name ||
-                        selectedFilePath.split('/').pop() ||
-                        selectedFilePath}
-                    </div>
-                  </div>
+                  <PreviewBreadcrumb
+                    cwd={selectedFileCwd || cwd}
+                    filePath={selectedFilePath}
+                    fileName={
+                      selectedPreview?.name ||
+                      selectedFilePath.split('/').pop() ||
+                      selectedFilePath
+                    }
+                  />
 
                   <div className="flex items-center gap-1 flex-shrink-0 no-drag">
                     {(selectedPreview?.kind === 'html' || isMdxFilePreview) && (
@@ -3074,7 +3190,7 @@ export function ProjectTreePanel({
                       />
 	                    )}
 
-	                    {onToggleFullscreen && (
+                    {onToggleFullscreen && (
                       <IconButton
                         onClick={onToggleFullscreen}
                         tooltip={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
@@ -3114,6 +3230,8 @@ export function ProjectTreePanel({
                   isMarkdownCodePreviewSurface
                     ? 'bg-[var(--bg-primary)] p-0'
                     : isMdxFilePreview
+                    ? 'bg-[var(--bg-primary)] p-0'
+                    : isSpreadsheetPreviewSurface
                     ? 'bg-[var(--bg-primary)] p-0'
                     : isCodePreviewSurface
                     ? 'rounded-lg border border-[var(--border)] bg-[var(--code-block-bg)] p-0'
@@ -3166,6 +3284,17 @@ export function ProjectTreePanel({
 	                    slideIndex={pptxSlideIndex}
 	                    onSlideIndexChange={setPptxSlideIndex}
 	                    viewportWidth={useEmbeddedFilesGrid ? projectPreviewViewportWidth : previewPanelWidth}
+	                  />
+	                )}
+
+	                {!previewLoading && selectedPreview?.kind === 'csv' && (
+	                  <CsvPreview text={selectedPreview.text} ext={selectedPreview.ext} />
+	                )}
+
+	                {!previewLoading && selectedPreview?.kind === 'xlsx' && (
+	                  <XlsxPreview
+	                    dataBase64={selectedPreview.dataBase64}
+	                    path={selectedPreview.path}
 	                  />
 	                )}
 
@@ -3305,6 +3434,47 @@ export function ProjectTreePanel({
 
       </div>
     </>
+  );
+}
+
+// Slim path bar above the preview (`folder › file.csv`), replacing the old
+// stacked "Preview" label + filename block.
+function PreviewBreadcrumb({
+  cwd,
+  filePath,
+  fileName,
+}: {
+  cwd: string | null;
+  filePath: string;
+  fileName: string;
+}) {
+  const segments = useMemo(() => {
+    if (!cwd) return [];
+    const root = normalizeProjectPath(cwd);
+    const target = normalizeProjectPath(filePath);
+    const rootPrefix = root.endsWith('/') ? root : `${root}/`;
+    if (!target.startsWith(rootPrefix)) return [basenameOfPath(root)];
+    const dirs = target
+      .slice(rootPrefix.length)
+      .split('/')
+      .filter(Boolean)
+      .slice(0, -1);
+    return [basenameOfPath(root), ...dirs];
+  }, [cwd, filePath]);
+
+  return (
+    <div
+      className="flex min-w-0 items-center gap-1 text-[13px] leading-[22px]"
+      title={filePath}
+    >
+      {segments.map((segment, index) => (
+        <span key={`${segment}:${index}`} className="flex min-w-0 flex-shrink items-center gap-1">
+          <span className="truncate text-[var(--text-muted)]">{segment}</span>
+          <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)] opacity-70" />
+        </span>
+      ))}
+      <span className="truncate font-medium text-[var(--text-primary)]">{fileName}</span>
+    </div>
   );
 }
 
