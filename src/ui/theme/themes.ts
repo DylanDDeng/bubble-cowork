@@ -735,6 +735,9 @@ function buildThemeVariables(
   const skillChipText = variant === 'light'
     ? pack.theme.accent
     : mixHex(pack.theme.accent, '#ffffff', 0.18);
+  const linkChipText = variant === 'light'
+    ? pack.theme.accent
+    : mixHex(pack.theme.accent, '#ffffff', 0.18);
 
   return {
     '--bg-primary': surfaceUnder,
@@ -857,6 +860,7 @@ function buildThemeVariables(
     '--composer-mention-chip-bg': mentionChipBackground,
     '--composer-mention-chip-border': mentionChipBorder,
     '--composer-mention-chip-text': pack.theme.accent,
+    '--composer-link-chip-text': linkChipText,
     '--font-sans': uiFont,
     '--font-mono': monoFont,
     '--font-serif': BASE_DISPLAY_FONT,

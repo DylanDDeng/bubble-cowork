@@ -1,5 +1,5 @@
 import { splitPromptIntoProjectFileSegments } from './project-file-mentions';
-import { splitTextIntoGitHubRepoSegments } from './github-repo-links';
+import { splitTextIntoKnownSiteLinkSegments } from './known-site-links';
 import { parseComposerCapabilityToken } from './composer-capability-token';
 
 export type SlashSegmentKind = 'skill' | 'command' | 'plugin';
@@ -22,7 +22,7 @@ export interface SlashTokenContext {
 export type PromptSegment =
   | { type: 'text'; text: string }
   | { type: 'mention'; path: string; text: string; start: number; end: number }
-  | { type: 'repo'; owner: string; repo: string; url: string; text: string; start: number; end: number }
+  | { type: 'link'; site: string; label: string; url: string; text: string; start: number; end: number }
   | {
       type: 'slash';
       kind: SlashSegmentKind;
@@ -110,7 +110,7 @@ function appendProjectFileSegments(
   let cursor = 0;
   for (const segment of splitPromptIntoProjectFileSegments(text)) {
     if (segment.type === 'text') {
-      for (const part of splitTextIntoGitHubRepoSegments(segment.text, offset + cursor)) {
+      for (const part of splitTextIntoKnownSiteLinkSegments(segment.text, offset + cursor)) {
         target.push(part);
       }
       cursor += segment.text.length;
