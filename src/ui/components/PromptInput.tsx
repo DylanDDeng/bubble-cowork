@@ -40,6 +40,7 @@ import {
 import {
   buildClaudeContextSnapshot,
   getLatestClaudeContextSnapshot,
+  getLatestClaudeTurnUsage,
   getLatestCodexContextSnapshot,
   getLatestOpenCodeContextSnapshot,
   getContextLevelColorVar,
@@ -145,7 +146,11 @@ export function PromptInput({
     }
     const latestUsage = activeSession.latestClaudeModelUsage;
     return latestUsage && isClaudeUsageModelMatch(latestUsage.model, claudeContextModel)
-      ? buildClaudeContextSnapshot(latestUsage.model, latestUsage.usage)
+      ? buildClaudeContextSnapshot(
+          latestUsage.model,
+          latestUsage.usage,
+          getLatestClaudeTurnUsage(activeSession.messages, latestUsage.model)
+        )
       : null;
   }, [
     claudeContextModel,

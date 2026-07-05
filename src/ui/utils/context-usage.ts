@@ -114,16 +114,83 @@ export function isClaudeUsageModelMatch(
   return false;
 }
 
+// Per-API-call usage as reported on assistant messages. Unlike the cumulative
+// `modelUsage` totals on result messages (whose cache reads re-count the whole
+// context every turn), input + cache read + cache write of the latest call IS
+// the current context occupancy — the number auto-compaction thresholds act on.
+export type ClaudeTurnUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  contextTokens: number;
+};
+
+export function getLatestClaudeTurnUsage(
+  messages: StreamMessage[],
+  preferredModel?: string | null
+): ClaudeTurnUsage | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.type !== 'assistant') {
+      continue;
+    }
+
+    const raw = message.message as unknown as {
+      model?: string;
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_read_input_tokens?: number;
+        cache_creation_input_tokens?: number;
+      };
+    };
+    const usage = raw?.usage;
+    if (!usage) {
+      continue;
+    }
+    if (preferredModel && raw.model && !isClaudeUsageModelMatch(raw.model, preferredModel)) {
+      continue;
+    }
+
+    const inputTokens = usage.input_tokens || 0;
+    const cacheReadTokens = usage.cache_read_input_tokens || 0;
+    const cacheCreationTokens = usage.cache_creation_input_tokens || 0;
+    const contextTokens = inputTokens + cacheReadTokens + cacheCreationTokens;
+    if (contextTokens <= 0) {
+      continue;
+    }
+
+    return {
+      inputTokens,
+      outputTokens: usage.output_tokens || 0,
+      cacheReadTokens,
+      cacheCreationTokens,
+      contextTokens,
+    };
+  }
+
+  return null;
+}
+
 export function buildClaudeContextSnapshot(
   model: string,
-  usage: ClaudeModelUsage
+  usage: ClaudeModelUsage,
+  turnUsage?: ClaudeTurnUsage | null
 ): ClaudeContextSnapshot {
-  const cacheReadTokens = usage.cacheReadInputTokens || 0;
-  const cacheCreationTokens = usage.cacheCreationInputTokens || 0;
-  const outputTokens = usage.outputTokens || 0;
-  const inputTokens = usage.inputTokens || 0;
   const total = usage.contextWindow || 0;
-  const used = inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens;
+  // Prefer the latest call's usage: `usage` (modelUsage) accumulates across the
+  // session, so summing it says how much the session consumed, not how full the
+  // context is. Without a turn snapshot fall back to the cumulative sum.
+  const inputTokens = turnUsage ? turnUsage.inputTokens : usage.inputTokens || 0;
+  const outputTokens = turnUsage ? turnUsage.outputTokens : usage.outputTokens || 0;
+  const cacheReadTokens = turnUsage ? turnUsage.cacheReadTokens : usage.cacheReadInputTokens || 0;
+  const cacheCreationTokens = turnUsage
+    ? turnUsage.cacheCreationTokens
+    : usage.cacheCreationInputTokens || 0;
+  const used = turnUsage
+    ? turnUsage.contextTokens
+    : inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens;
 
   return {
     model,
@@ -156,7 +223,7 @@ export function getLatestClaudeContextSnapshot(
     }
 
     const [model, usage] = selected;
-    return buildClaudeContextSnapshot(model, usage);
+    return buildClaudeContextSnapshot(model, usage, getLatestClaudeTurnUsage(messages, model));
   }
 
   return null;

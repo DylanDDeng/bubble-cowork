@@ -32,11 +32,20 @@ adapter.events.on('event', (event) => {
 const notify = (method, params) => manager.handleNotification({ method, params });
 
 // 1. Token usage arrives first — the compaction card reports this as preTokens.
+// `total` is cumulative across the thread (can exceed the window many times
+// over); `last` is the actual current context, and must win when present.
 notify('thread/tokenUsage/updated', {
   threadId: 'prov-1',
   tokenUsage: {
     modelContextWindow: 272000,
     total: {
+      inputTokens: 1250000,
+      cachedInputTokens: 900000,
+      outputTokens: 48000,
+      reasoningOutputTokens: 9000,
+      totalTokens: 1298000,
+    },
+    last: {
       inputTokens: 250000,
       cachedInputTokens: 200000,
       outputTokens: 8000,
@@ -45,6 +54,15 @@ notify('thread/tokenUsage/updated', {
     },
   },
 });
+
+const usageMessages = () =>
+  messages.filter((m) => m.type === 'system' && m.subtype === 'token_usage');
+assert.equal(usageMessages().length, 1, 'token usage must surface as one system message');
+assert.equal(
+  usageMessages()[0].usage.totalTokens,
+  258000,
+  'token usage must report the current context (last), not the cumulative thread total'
+);
 
 // 2. Compaction completes: new-style item AND deprecated notification fire for
 // the same compaction. Exactly one compact_boundary must come out.
@@ -75,5 +93,27 @@ assert.equal(boundaries().length, 2, 'a later compaction must emit a new boundar
 // 4. Unknown provider thread ids must not emit anything.
 notify('thread/compacted', { threadId: 'prov-unknown', turnId: 'turn_3' });
 assert.equal(boundaries().length, 2, 'unknown threads must be ignored');
+
+// 5. Older codex builds may omit `last` — fall back to `total` rather than
+// dropping the update entirely.
+notify('thread/tokenUsage/updated', {
+  threadId: 'prov-1',
+  tokenUsage: {
+    modelContextWindow: 272000,
+    total: {
+      inputTokens: 100000,
+      cachedInputTokens: 60000,
+      outputTokens: 4000,
+      reasoningOutputTokens: 1000,
+      totalTokens: 104000,
+    },
+  },
+});
+assert.equal(usageMessages().length, 2, 'total-only token usage must still surface');
+assert.equal(
+  usageMessages()[1].usage.totalTokens,
+  104000,
+  'without `last`, token usage must fall back to `total`'
+);
 
 console.log('verify-codex-compaction: OK');

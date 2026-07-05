@@ -1179,17 +1179,21 @@ export class CodexAppServerManager extends EventEmitter {
         const providerThreadId = this.readString(params, 'threadId');
         const threadId = this.findThreadByProviderThreadId(providerThreadId);
         const tokenUsage = this.readObject(params, 'tokenUsage');
-        const total = this.readObject(tokenUsage, 'total');
+        // `total` accumulates the whole thread (cache re-reads included) and
+        // quickly exceeds the window; `last` is the current context occupancy,
+        // which is what the ring/banner and compaction preTokens need.
+        const current =
+          this.readObject(tokenUsage, 'last') ?? this.readObject(tokenUsage, 'total');
         const contextWindow = this.readNumber(tokenUsage, 'modelContextWindow') || 0;
-        if (threadId && total && contextWindow > 0) {
+        if (threadId && current && contextWindow > 0) {
           this.emit('token_usage_updated', {
             threadId,
             usage: {
-              inputTokens: this.readNumber(total, 'inputTokens') || 0,
-              cachedInputTokens: this.readNumber(total, 'cachedInputTokens') || 0,
-              outputTokens: this.readNumber(total, 'outputTokens') || 0,
-              reasoningOutputTokens: this.readNumber(total, 'reasoningOutputTokens') || 0,
-              totalTokens: this.readNumber(total, 'totalTokens') || 0,
+              inputTokens: this.readNumber(current, 'inputTokens') || 0,
+              cachedInputTokens: this.readNumber(current, 'cachedInputTokens') || 0,
+              outputTokens: this.readNumber(current, 'outputTokens') || 0,
+              reasoningOutputTokens: this.readNumber(current, 'reasoningOutputTokens') || 0,
+              totalTokens: this.readNumber(current, 'totalTokens') || 0,
               contextWindow,
             },
           });
