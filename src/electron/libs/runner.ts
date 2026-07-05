@@ -546,7 +546,12 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           const nextRuntimeModel = compatibleProviderMatched
             ? currentRuntimeModel
             : toClaudeCodeRuntimeModel(normalizedModel, betas);
-          await activeQuery.setModel(nextRuntimeModel);
+          // Only touch the live query when the RESOLVED runtime model actually
+          // changes — a display-model spelling (e.g. the reconciled name the
+          // init handler stores) must not trigger a spurious switch on reuse.
+          if (nextRuntimeModel !== currentRuntimeModel) {
+            await activeQuery.setModel(nextRuntimeModel);
+          }
           currentModel = normalizedModel;
           currentRuntimeModel = nextRuntimeModel;
         }
