@@ -296,7 +296,61 @@ function StageDetails({
         <StageFilesDetail stage={stage} onOpenDiff={onOpenDiff} />
       ) : null}
       {stage.commands.length > 0 ? <StageCommandsDetail commands={stage.commands} /> : null}
-      {showErrorFallback ? <StageErrorFallback entries={stage.entries} /> : null}
+      {showErrorFallback ? (
+        <StageErrorFallback entries={stage.entries} />
+      ) : stage.status === 'error' ? (
+        <StageFailureNotes entries={stage.entries} />
+      ) : null}
+    </div>
+  );
+}
+
+// Command failures already show their output in StageCommandsDetail, so the
+// failure notes only cover the remaining failed entries (e.g. a rejected Edit).
+function StageFailureNotes({ entries }: { entries: WorkstreamEntry[] }) {
+  const failed = entries.filter(isFailedNonCommandEntry);
+  if (failed.length === 0) return null;
+
+  return (
+    <div className="space-y-1">
+      {failed.map((entry) => (
+        <FailureNote key={entry.id} entry={entry} />
+      ))}
+    </div>
+  );
+}
+
+function isFailedNonCommandEntry(entry: WorkstreamEntry): boolean {
+  if ('kind' in entry && entry.kind === 'command_execution') return false;
+  if (entry.type === 'error') return true;
+  if (entry.type === 'approval') return entry.state === 'denied';
+  if (entry.type === 'tool' || entry.type === 'task' || entry.type === 'memory') {
+    return entry.status === 'error';
+  }
+  return false;
+}
+
+function getEntryFailureText(entry: WorkstreamEntry): string {
+  if (entry.type === 'tool' || entry.type === 'task' || entry.type === 'memory') {
+    const output = getToolResultOutputContent(entry.result).trim();
+    if (output) return output;
+  }
+  return (entry.detail || '').trim();
+}
+
+function FailureNote({ entry }: { entry: WorkstreamEntry }) {
+  const text = getEntryFailureText(entry);
+  return (
+    <div className="overflow-hidden rounded-sm border border-[var(--border)]/45 bg-[var(--bg-secondary)]/30">
+      <div
+        className={`flex items-center gap-1.5 px-2 py-1 text-[11px] text-[var(--error)] ${
+          text ? 'border-b border-[var(--border)]/45' : ''
+        }`}
+      >
+        <CircleX className="h-3 w-3 flex-shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{entry.summary}</span>
+      </div>
+      {text ? <TailClampedOutput text={text} toneClass="text-[var(--error)]" /> : null}
     </div>
   );
 }
@@ -417,17 +471,62 @@ function StageCommandsDetail({ commands }: { commands: WorkstreamStageCommand[] 
           <pre className="whitespace-pre-wrap break-words px-2 py-1 font-mono text-[11px] leading-5 text-[var(--text-secondary)]">
             $ {command.command}
           </pre>
-          <pre
-            className={`border-t border-[var(--border)]/35 px-2 py-1 font-mono text-[11px] leading-5 ${
-              command.status === 'error' ? 'text-[var(--error)]' : 'text-[var(--text-muted)]'
-            } whitespace-pre-wrap break-words`}
-          >
-            {command.output.trim()
-              ? truncateWithNotice(command.output.trim(), MAX_TRACE_TEXT_CHARS)
-              : command.outputSummary}
-          </pre>
+          <CommandOutputPreview command={command} />
         </div>
       ))}
+    </div>
+  );
+}
+
+const OUTPUT_PREVIEW_LINES = 8;
+
+function TailClampedOutput({ text, toneClass }: { text: string; toneClass: string }) {
+  const [showFull, setShowFull] = useState(false);
+  const lines = text.split('\n');
+  const hiddenLines = lines.length - OUTPUT_PREVIEW_LINES;
+  const displayText =
+    showFull || hiddenLines <= 0
+      ? truncateWithNotice(text, MAX_TRACE_TEXT_CHARS)
+      : lines.slice(-OUTPUT_PREVIEW_LINES).join('\n');
+
+  return (
+    <>
+      {hiddenLines > 0 ? (
+        <button
+          type="button"
+          onClick={() => setShowFull((value) => !value)}
+          className="flex w-full items-center px-2 py-0.5 text-left text-[11px] text-[var(--text-muted)]/70 transition-colors hover:text-[var(--text-secondary)]"
+        >
+          {showFull ? 'Show fewer lines' : `Show ${hiddenLines} earlier lines`}
+        </button>
+      ) : null}
+      <pre
+        className={`whitespace-pre-wrap break-words px-2 py-1 font-mono text-[11px] leading-5 ${toneClass}`}
+      >
+        {displayText}
+      </pre>
+    </>
+  );
+}
+
+function CommandOutputPreview({ command }: { command: WorkstreamStageCommand }) {
+  const trimmed = command.output.trim();
+  const toneClass =
+    command.status === 'error' ? 'text-[var(--error)]' : 'text-[var(--text-muted)]';
+
+  if (!trimmed) {
+    return (
+      <pre
+        className={`whitespace-pre-wrap break-words border-t border-[var(--border)]/35 px-2 py-1 font-mono text-[11px] leading-5 ${toneClass}`}
+      >
+        {command.outputSummary}
+      </pre>
+    );
+  }
+
+  return (
+    <div className="border-t border-[var(--border)]/35">
+      <TailClampedOutput text={trimmed} toneClass={toneClass} />
     </div>
   );
 }
