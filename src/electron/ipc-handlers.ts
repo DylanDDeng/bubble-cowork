@@ -53,6 +53,7 @@ import { getUserProfile, saveUserProfile } from './libs/user-profile';
 import { getAgentRuntimeDirectory } from './libs/agent-runtime-directory';
 import { getCodexModelConfig, saveCodexModelVisibility } from './libs/codex-settings';
 import { getCodexRuntimeStatus } from './libs/codex-runtime-status';
+import { getClaudePlanUsage } from './libs/claude-plan-usage';
 import { getOpencodeModelConfig, saveOpencodeModelVisibility } from './libs/opencode-settings';
 import { getOpencodeRuntimeStatus } from './libs/opencode-runtime-status';
 import { getKimiModelConfig } from './libs/kimi-settings';
@@ -4603,6 +4604,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       throw new Error('Codex rate limits are not available from this runtime.');
     }
     return rateLimits;
+  });
+
+  ipcMainHandle('get-claude-plan-usage', async () => {
+    return getClaudePlanUsage();
   });
 
   ipcMainHandle('codex-get-composer-capabilities', async () => {

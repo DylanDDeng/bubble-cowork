@@ -447,6 +447,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-codex-rate-limits');
   },
 
+  getClaudePlanUsage: () => {
+    return ipcRenderer.invoke('get-claude-plan-usage');
+  },
+
   getAgentUsageReport: (provider: string, days?: ClaudeUsageRangeDays) => {
     return ipcRenderer.invoke('get-agent-usage-report', provider, days);
   },

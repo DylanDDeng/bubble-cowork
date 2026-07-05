@@ -10,6 +10,8 @@ import zhipuLogo from '../../assets/zhipu-color.svg';
 import { OpenCodeLogo } from '../OpenCodeLogo';
 import type {
   AgentProvider,
+  ClaudePlanUsageReport,
+  ClaudePlanUsageWindow,
   ClaudeUsageDailyPoint,
   ClaudeUsageReport,
   CodexRateLimitReport,
@@ -60,6 +62,9 @@ export function ClaudeUsageSettingsContent() {
   const [codexRateLimits, setCodexRateLimits] = useState<CodexRateLimitReport | null>(null);
   const [codexRateLimitsLoading, setCodexRateLimitsLoading] = useState(true);
   const [codexRateLimitsError, setCodexRateLimitsError] = useState<string | null>(null);
+  const [claudePlanUsage, setClaudePlanUsage] = useState<ClaudePlanUsageReport | null>(null);
+  const [claudePlanUsageLoading, setClaudePlanUsageLoading] = useState(true);
+  const [claudePlanUsageError, setClaudePlanUsageError] = useState<string | null>(null);
   const userProfile = useUserProfile();
 
   useEffect(() => {
@@ -135,6 +140,48 @@ export function ClaudeUsageSettingsContent() {
     };
   }, []);
 
+  useEffect(() => {
+    // The Claude probe spawns a short-lived CLI session, so only poll while
+    // the Claude provider is in view (main process caches between ticks).
+    if (activeProvider !== 'claude') {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadPlanUsage = async () => {
+      setClaudePlanUsageLoading(true);
+      setClaudePlanUsageError(null);
+
+      try {
+        const report = await window.electron.getClaudePlanUsage();
+        if (cancelled) {
+          return;
+        }
+        setClaudePlanUsage(report);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setClaudePlanUsageError(normalizeUsageLoadError(error, 'get-claude-plan-usage'));
+      } finally {
+        if (!cancelled) {
+          setClaudePlanUsageLoading(false);
+        }
+      }
+    };
+
+    void loadPlanUsage();
+    const refreshTimer = window.setInterval(() => {
+      void loadPlanUsage();
+    }, 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(refreshTimer);
+    };
+  }, [activeProvider]);
+
   const providers = useMemo<UsageProviderCard[]>(
     () =>
       USAGE_PROVIDERS.map((provider) => ({
@@ -176,6 +223,14 @@ export function ClaudeUsageSettingsContent() {
           </div>
         </>
       )}
+
+      {activeProviderCard.id === 'claude' ? (
+        <ClaudePlanUsagePanel
+          report={claudePlanUsage}
+          loading={claudePlanUsageLoading}
+          error={claudePlanUsageError}
+        />
+      ) : null}
 
       {activeProviderCard.id === 'codex' ? (
         <CodexRateLimitsPanel
@@ -750,6 +805,152 @@ function MetricTile({
 }
 
 /* ---------- Codex limits ---------- */
+
+function ClaudePlanUsagePanel({
+  report,
+  loading,
+  error,
+}: {
+  report: ClaudePlanUsageReport | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  return (
+    <SettingsGroup title="Claude plan limits">
+      {renderClaudePlanUsageState(report, loading, error) || (
+        <div>
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <img src={claudeLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                <span className="truncate text-[13px] font-medium text-[var(--text-primary)]">
+                  Claude Code
+                </span>
+              </div>
+              <div className="mt-0.5 text-[11.5px] text-[var(--text-muted)]">
+                Updated {formatLocalTime(report!.fetchedAt)}
+              </div>
+            </div>
+            {report!.subscriptionType ? (
+              <span className="rounded-[6px] border border-[var(--border)] px-2 py-1 text-[11.5px] font-medium text-[var(--text-secondary)]">
+                {`Claude ${formatPlanName(report!.subscriptionType)}`}
+              </span>
+            ) : null}
+          </div>
+
+          <div className="grid grid-cols-1 gap-px border-t border-[var(--border)] bg-[var(--border)] sm:grid-cols-2 xl:grid-cols-4">
+            <CodexRateLimitWindowTile
+              title="5-hour remaining"
+              window={claudePlanWindowToTile(report!.fiveHour, 300)}
+            />
+            <CodexRateLimitWindowTile
+              title="Weekly remaining"
+              window={claudePlanWindowToTile(report!.sevenDay, 10_080)}
+            />
+            {report!.sevenDayOpus ? (
+              <CodexRateLimitWindowTile
+                title="Opus weekly remaining"
+                window={claudePlanWindowToTile(report!.sevenDayOpus, 10_080)}
+              />
+            ) : null}
+            {report!.sevenDaySonnet ? (
+              <CodexRateLimitWindowTile
+                title="Sonnet weekly remaining"
+                window={claudePlanWindowToTile(report!.sevenDaySonnet, 10_080)}
+              />
+            ) : null}
+            {report!.modelScoped.map((entry) => (
+              <CodexRateLimitWindowTile
+                key={entry.displayName}
+                title={`${entry.displayName} weekly remaining`}
+                window={claudePlanWindowToTile(entry, 10_080)}
+              />
+            ))}
+            {report!.extraUsage?.isEnabled ? (
+              <MetricTile
+                title="Extra usage"
+                value={
+                  report!.extraUsage.utilization === null
+                    ? '—'
+                    : `${Math.round(report!.extraUsage.utilization)}%`
+                }
+                subtitle={formatClaudeExtraUsage(report!.extraUsage)}
+              />
+            ) : null}
+          </div>
+        </div>
+      )}
+    </SettingsGroup>
+  );
+}
+
+function renderClaudePlanUsageState(
+  report: ClaudePlanUsageReport | null,
+  loading: boolean,
+  error: string | null
+) {
+  if (loading && !report) {
+    return <InlineEmpty label="Loading Claude plan usage…" />;
+  }
+
+  if (error && !report) {
+    return (
+      <div className="px-4 py-4 text-[12px] text-[var(--error)]">
+        <span className="font-medium">Unable to load Claude plan usage.</span> {error}
+      </div>
+    );
+  }
+
+  if (!report) {
+    return <InlineEmpty label="No Claude plan usage data available." />;
+  }
+
+  if (!report.rateLimitsAvailable) {
+    return (
+      <InlineEmpty label="Plan limits do not apply to this account (API key or third-party provider session)." />
+    );
+  }
+
+  return null;
+}
+
+function claudePlanWindowToTile(
+  window: ClaudePlanUsageWindow | null,
+  windowDurationMins: number
+): CodexRateLimitWindow | null {
+  if (!window || window.utilization === null) {
+    return null;
+  }
+  return {
+    usedPercent: window.utilization,
+    remainingPercent: 100 - window.utilization,
+    windowDurationMins,
+    resetsAt: window.resetsAt,
+  };
+}
+
+function formatClaudeExtraUsage(extra: NonNullable<ClaudePlanUsageReport['extraUsage']>): string {
+  const currency = extra.currency || 'USD';
+  if (extra.usedCredits !== null && extra.monthlyLimit !== null) {
+    return `${formatClaudeCredits(extra.usedCredits, currency)} of ${formatClaudeCredits(extra.monthlyLimit, currency)} used`;
+  }
+  if (extra.monthlyLimit !== null) {
+    return `Monthly limit ${formatClaudeCredits(extra.monthlyLimit, currency)}`;
+  }
+  return 'Extra usage enabled';
+}
+
+function formatClaudeCredits(value: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    return `${value.toFixed(2)} ${currency}`;
+  }
+}
 
 function CodexRateLimitsPanel({
   report,

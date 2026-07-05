@@ -1478,6 +1478,41 @@ export interface CodexRateLimitReport {
   rateLimitsByLimitId: Record<string, CodexRateLimitSnapshot>;
 }
 
+export interface ClaudePlanUsageWindow {
+  /** Percentage of the window used, 0-100. */
+  utilization: number | null;
+  /** Epoch ms when the window resets. */
+  resetsAt: number | null;
+}
+
+export interface ClaudePlanModelWindow extends ClaudePlanUsageWindow {
+  /** Server-supplied label for the model bucket (e.g. "Opus"). */
+  displayName: string;
+}
+
+export interface ClaudePlanExtraUsage {
+  isEnabled: boolean;
+  monthlyLimit: number | null;
+  usedCredits: number | null;
+  utilization: number | null;
+  currency: string | null;
+}
+
+export interface ClaudePlanUsageReport {
+  source: 'claude-agent-sdk';
+  fetchedAt: number;
+  /** claude.ai subscription type ('pro', 'max', ...) or null for API key / 3P sessions. */
+  subscriptionType: string | null;
+  /** False when plan rate limits do not apply (API key, Bedrock, Vertex, ...). */
+  rateLimitsAvailable: boolean;
+  fiveHour: ClaudePlanUsageWindow | null;
+  sevenDay: ClaudePlanUsageWindow | null;
+  sevenDayOpus: ClaudePlanUsageWindow | null;
+  sevenDaySonnet: ClaudePlanUsageWindow | null;
+  modelScoped: ClaudePlanModelWindow[];
+  extraUsage: ClaudePlanExtraUsage | null;
+}
+
 export interface ChatMessageSearchMatch {
   snippet: string;
   messageType: 'user_prompt' | 'assistant' | 'user';

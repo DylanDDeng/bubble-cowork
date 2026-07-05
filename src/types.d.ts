@@ -171,6 +171,7 @@ declare global {
     getClaudeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getCodexUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getCodexRateLimits: () => Promise<CodexRateLimitReport>;
+    getClaudePlanUsage: () => Promise<import('./shared/types').ClaudePlanUsageReport>;
     getOpencodeUsageReport: (days?: ClaudeUsageRangeDays) => Promise<ClaudeUsageReport>;
     getAgentUsageReport: (
       provider: import('./shared/types').AgentProvider,
