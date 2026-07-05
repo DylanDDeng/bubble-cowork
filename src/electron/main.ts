@@ -588,6 +588,22 @@ function createWindow(): void {
     mainWindow.maximize();
   }
 
+  // Links from the renderer (target=_blank / window.open) must never spawn a
+  // bare Electron popup — hand them to the system default browser instead.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) {
+      void shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    // Keep the SPA shell in place; dragged/中键 links go to the system browser.
+    if (/^https?:/i.test(url) && !(isDev() && url.startsWith(DEV_SERVER_URL))) {
+      event.preventDefault();
+      void shell.openExternal(url);
+    }
+  });
+
   // 设置 IPC 处理器
   setupIPCHandlers(mainWindow);
   registerBrowserIpc(mainWindow);
