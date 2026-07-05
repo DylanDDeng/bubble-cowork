@@ -21,6 +21,9 @@ import { ClaudeContextIndicator } from './ClaudeContextIndicator';
 import { CodexContextIndicator } from './CodexContextIndicator';
 import { OpenCodeContextIndicator } from './OpenCodeContextIndicator';
 import { ComposerAgentModelPicker } from './ComposerAgentControls';
+import * as Dialog from './ui/dialog';
+import { PROVIDERS } from '../utils/provider';
+import type { AgentProvider } from '../types';
 import { ClaudePermissionModePicker } from './ClaudePermissionModePicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { KimiPermissionModePicker } from './KimiPermissionModePicker';
@@ -93,6 +96,7 @@ export function PromptInput({
     pendingChatInjection,
     consumeChatInjection,
     draftStartMode,
+    handoffSessionToProvider,
   } = useAppStore();
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -116,6 +120,46 @@ export function PromptInput({
   });
   const runtimeProvider = agentSelection.provider;
   const selectedModel = agentSelection.model;
+
+  // Sessions are locked to their agent once a conversation exists — switching
+  // goes through an explicit handoff that carries the transcript to a new
+  // session for the target provider (synara-style thread handoff).
+  const [handoffTarget, setHandoffTarget] = useState<AgentProvider | null>(null);
+  const [handoffBusy, setHandoffBusy] = useState(false);
+  const sessionProviderLocked = Boolean(
+    activeSession &&
+      !activeSession.isDraft &&
+      !activeSession.readOnly &&
+      activeSession.provider &&
+      (activeSession.messages.length > 0 || activeSession.hydrated === false)
+  );
+  const handleAgentChange = useCallback(
+    (nextProvider: AgentProvider) => {
+      if (sessionProviderLocked && activeSession?.provider && nextProvider !== activeSession.provider) {
+        setHandoffTarget(nextProvider);
+        return;
+      }
+      agentSelection.selectAgent(nextProvider);
+    },
+    [activeSession?.provider, agentSelection, sessionProviderLocked]
+  );
+  const confirmHandoff = useCallback(async () => {
+    if (!activeSession || !handoffTarget || handoffBusy) {
+      return;
+    }
+    setHandoffBusy(true);
+    try {
+      await handoffSessionToProvider(activeSession.id, handoffTarget);
+      setHandoffTarget(null);
+    } finally {
+      setHandoffBusy(false);
+    }
+  }, [activeSession, handoffBusy, handoffSessionToProvider, handoffTarget]);
+  const providerLabel = useCallback(
+    (provider: AgentProvider | null | undefined) =>
+      PROVIDERS.find((entry) => entry.id === provider)?.label || provider || 'the agent',
+    []
+  );
   const selectedModelLabel = agentSelection.selectedModelLabel;
   const modelSetupRequired = Boolean(agentSelection.modelSetup);
   const isClaudeContextVisible = runtimeProvider === 'claude' && activeSession?.provider === 'claude';
@@ -715,6 +759,57 @@ export function PromptInput({
   return (
     <div className="bg-transparent">
       <div className="mx-auto max-w-4xl">
+        {activeSession?.handoffSourceProvider ? (
+          <div className="mb-2 flex items-center gap-2 px-1 text-[11.5px] text-[var(--text-muted)]">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" aria-hidden="true" />
+            <span className="min-w-0 truncate">
+              Handoff from {providerLabel(activeSession.handoffSourceProvider)}
+            </span>
+          </div>
+        ) : null}
+        <Dialog.Root
+          open={handoffTarget !== null}
+          onOpenChange={(open) => {
+            if (!open && !handoffBusy) {
+              setHandoffTarget(null);
+            }
+          }}
+        >
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 z-[110] bg-black/50" />
+            <Dialog.Content className="fixed top-1/2 left-1/2 z-[120] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-6 shadow-xl">
+              <Dialog.Title className="mb-3 text-lg font-semibold">
+                Hand off to {providerLabel(handoffTarget)}?
+              </Dialog.Title>
+              <Dialog.Description className="mb-5 text-sm leading-relaxed text-[var(--text-secondary)]">
+                This conversation is locked to {providerLabel(activeSession?.provider)}. Handing off
+                creates a new session for {providerLabel(handoffTarget)} that carries the
+                conversation over — your next message will include the context so the new agent can
+                continue the work.
+              </Dialog.Description>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={handoffBusy}
+                  onClick={() => setHandoffTarget(null)}
+                  className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={handoffBusy}
+                  onClick={() => {
+                    void confirmHandoff();
+                  }}
+                  className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {handoffBusy ? 'Handing off…' : 'Hand off'}
+                </button>
+              </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
         <div className={composerOuterClass}>
           {projectFileMentions.hasMentionQuery ? (
             <div className="absolute inset-x-0 bottom-full z-40">
@@ -802,7 +897,7 @@ export function PromptInput({
                 modelValue={selectedModel}
                 allAgentModelOptions={agentSelection.allAgentModelOptions}
                 disabled={isBusy}
-                onAgentChange={agentSelection.selectAgent}
+                onAgentChange={handleAgentChange}
                 onModelChange={agentSelection.selectModel}
                 codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
                 claudeReasoningEffort={agentSelection.claudeReasoningEffort ?? undefined}

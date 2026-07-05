@@ -530,6 +530,7 @@ function freshSessionViewFromInfo(info: import('../shared/types').SessionInfo): 
     channelId: normalizeWorkspaceChannelId(info.channelId),
     teamMode: normalizeSessionTeamMode(info.teamMode),
     teamId: info.teamId || null,
+    handoffSourceProvider: info.handoffSourceProvider || null,
     latestClaudeModelUsage: info.latestClaudeModelUsage,
     messages: [],
     hydrated: false,
@@ -1337,6 +1338,20 @@ export const useAppStore = create<Store>()(
       get().splitPaneAt(active.id, 'right', view.id);
     }
     toast.success('Forked into a new pane');
+  },
+
+  handoffSessionToProvider: async (sessionId, targetProvider) => {
+    const result = await window.electron.sessionHandoff({ sessionId, targetProvider });
+    if (!result?.ok || !result.session) {
+      if (result?.message) toast.error(result.message);
+      return;
+    }
+    const view = freshSessionViewFromInfo(result.session);
+    set((state) => ({ sessions: { ...state.sessions, [view.id]: view } }));
+    // Handoff continues the same work — take over the focused pane.
+    const active = tree.getActiveLeaf(get().workspaceLayout);
+    get().placeSessionInPane(active.id, view.id);
+    toast.success('Handed off to a new session — context carries over on your next message.');
   },
 
 

@@ -1068,6 +1068,8 @@ export interface SessionInfo {
   channelId?: string;
   teamMode?: SessionTeamMode;
   teamId?: string | null;
+  /** Set when this session was created by handing off from another agent. */
+  handoffSourceProvider?: AgentProvider | null;
   latestClaudeModelUsage?: LatestClaudeModelUsage;
   createdAt: number;
   updatedAt: number;

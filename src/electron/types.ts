@@ -51,6 +51,8 @@ export interface SessionRow {
   associated_worktree_path: string | null;
   associated_worktree_branch: string | null;
   associated_worktree_ref: string | null;
+  handoff_source_provider: string | null;
+  handoff_pending: number | null;
   allowed_tools: string | null;
   last_prompt: string | null;
   todo_state: string | null;

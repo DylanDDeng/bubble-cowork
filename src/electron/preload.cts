@@ -200,6 +200,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('generate-session-title', prompt);
   },
 
+  sessionHandoff: (payload: { sessionId: string; targetProvider: string }) => {
+    return ipcRenderer.invoke('session-handoff', payload);
+  },
+
   forkSession: (sessionId: string) => {
     return ipcRenderer.invoke('fork-session', sessionId);
   },
