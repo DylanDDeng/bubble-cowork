@@ -791,7 +791,7 @@ function MetricTile({
 }) {
   return (
     <div className="bg-[var(--bg-primary)] px-4 py-3">
-      <div className="text-[11.5px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">
+      <div className="truncate text-[11.5px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]" title={title}>
         {title}
       </div>
       <div className="mt-1 text-[20px] font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
@@ -838,49 +838,99 @@ function ClaudePlanUsagePanel({
             ) : null}
           </div>
 
-          <div className="grid grid-cols-1 gap-px border-t border-[var(--border)] bg-[var(--border)] sm:grid-cols-2 xl:grid-cols-4">
-            <CodexRateLimitWindowTile
-              title="5-hour remaining"
-              window={claudePlanWindowToTile(report!.fiveHour, 300)}
-            />
-            <CodexRateLimitWindowTile
-              title="Weekly remaining"
-              window={claudePlanWindowToTile(report!.sevenDay, 10_080)}
-            />
-            {report!.sevenDayOpus ? (
-              <CodexRateLimitWindowTile
-                title="Opus weekly remaining"
-                window={claudePlanWindowToTile(report!.sevenDayOpus, 10_080)}
-              />
-            ) : null}
-            {report!.sevenDaySonnet ? (
-              <CodexRateLimitWindowTile
-                title="Sonnet weekly remaining"
-                window={claudePlanWindowToTile(report!.sevenDaySonnet, 10_080)}
-              />
-            ) : null}
-            {report!.modelScoped.map((entry) => (
-              <CodexRateLimitWindowTile
-                key={entry.displayName}
-                title={`${entry.displayName} weekly remaining`}
-                window={claudePlanWindowToTile(entry, 10_080)}
-              />
-            ))}
-            {report!.extraUsage?.isEnabled ? (
-              <MetricTile
-                title="Extra usage"
-                value={
-                  report!.extraUsage.utilization === null
-                    ? '—'
-                    : `${Math.round(report!.extraUsage.utilization)}%`
-                }
-                subtitle={formatClaudeExtraUsage(report!.extraUsage)}
-              />
-            ) : null}
-          </div>
+          <ClaudePlanTileGrid report={report!} />
         </div>
       )}
     </SettingsGroup>
+  );
+}
+
+function ClaudePlanTileGrid({ report }: { report: ClaudePlanUsageReport }) {
+  const tiles: ReactNode[] = [
+    <CodexRateLimitWindowTile
+      key="five-hour"
+      title="5-hour remaining"
+      window={claudePlanWindowToTile(report.fiveHour, 300)}
+    />,
+    <CodexRateLimitWindowTile
+      key="weekly"
+      title="Weekly remaining"
+      window={claudePlanWindowToTile(report.sevenDay, 10_080)}
+    />,
+  ];
+  if (report.sevenDayOpus) {
+    tiles.push(
+      <CodexRateLimitWindowTile
+        key="opus-weekly"
+        title="Opus weekly remaining"
+        window={claudePlanWindowToTile(report.sevenDayOpus, 10_080)}
+      />
+    );
+  }
+  if (report.sevenDaySonnet) {
+    tiles.push(
+      <CodexRateLimitWindowTile
+        key="sonnet-weekly"
+        title="Sonnet weekly remaining"
+        window={claudePlanWindowToTile(report.sevenDaySonnet, 10_080)}
+      />
+    );
+  }
+  for (const entry of report.modelScoped) {
+    tiles.push(
+      <CodexRateLimitWindowTile
+        key={`model-${entry.displayName}`}
+        title={`${entry.displayName} weekly remaining`}
+        window={claudePlanWindowToTile(entry, 10_080)}
+      />
+    );
+  }
+  if (report.extraUsage?.isEnabled) {
+    tiles.push(
+      <MetricTile
+        key="extra-usage"
+        title="Extra usage"
+        value={
+          report.extraUsage.utilization === null
+            ? '—'
+            : `${Math.round(report.extraUsage.utilization)}%`
+        }
+        subtitle={formatClaudeExtraUsage(report.extraUsage)}
+      />
+    );
+  }
+
+  // Up to four tiles the grid splits into exactly as many equal columns as
+  // there are tiles, so every cell is occupied. Beyond four it falls back to
+  // the 2/4-column layout; unoccupied cells would show the gray divider
+  // background (the hairlines come from the container bg through gap-px), so
+  // the incomplete rows get same-background fillers per breakpoint.
+  const columnsClass =
+    tiles.length <= 1
+      ? ''
+      : tiles.length === 2
+        ? 'sm:grid-cols-2'
+        : tiles.length === 3
+          ? 'sm:grid-cols-3'
+          : 'sm:grid-cols-2 xl:grid-cols-4';
+  if (tiles.length > 4) {
+    const smFillers = tiles.length % 2;
+    const xlFillers = (4 - (tiles.length % 4)) % 4;
+    for (let index = 0; index < xlFillers; index += 1) {
+      tiles.push(
+        <div
+          key={`filler-${index}`}
+          className={`hidden bg-[var(--bg-primary)] ${index < smFillers ? 'sm:block' : 'xl:block'}`}
+          aria-hidden="true"
+        />
+      );
+    }
+  }
+
+  return (
+    <div className={`grid grid-cols-1 gap-px border-t border-[var(--border)] bg-[var(--border)] ${columnsClass}`}>
+      {tiles}
+    </div>
   );
 }
 
@@ -1056,7 +1106,7 @@ function CodexRateLimitWindowTile({
 
   return (
     <div className="bg-[var(--bg-primary)] px-4 py-3">
-      <div className="text-[11.5px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]">
+      <div className="truncate text-[11.5px] font-medium uppercase tracking-[0.08em] text-[var(--text-muted)]" title={title}>
         {title}
       </div>
       <div className="mt-1 text-[20px] font-semibold text-[var(--text-primary)]">
