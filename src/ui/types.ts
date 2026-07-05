@@ -231,6 +231,7 @@ export interface SessionView {
   source?: import('../shared/types').SessionSource;
   readOnly?: boolean;
   isDraft?: boolean;
+  handoffSourceProvider?: AgentProvider | null;
   latestClaudeModelUsage?: import('../shared/types').LatestClaudeModelUsage;
   messages: import('../shared/types').StreamMessage[];
   hydrated: boolean;
@@ -372,6 +373,7 @@ export interface AppActions {
   ) => void;
   // Fork a session's conversation and open the fork in a new pane.
   forkSessionToPane: (sessionId: string) => Promise<void>;
+  handoffSessionToProvider: (sessionId: string, targetProvider: AgentProvider) => Promise<void>;
   setDraftStartMode: (sessionId: string, mode: 'local' | 'worktree') => void;
   setShowNewSession: (show: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;

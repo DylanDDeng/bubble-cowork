@@ -561,6 +561,8 @@ export function initialize(): void {
   ensureColumn('sessions', 'associated_worktree_path', 'TEXT');
   ensureColumn('sessions', 'associated_worktree_branch', 'TEXT');
   ensureColumn('sessions', 'associated_worktree_ref', 'TEXT');
+  ensureColumn('sessions', 'handoff_source_provider', 'TEXT');
+  ensureColumn('sessions', 'handoff_pending', 'INTEGER DEFAULT 0');
   ensureColumn('messages', 'message_type', 'TEXT');
   ensureColumn('messages', 'source_origin', 'TEXT');
   ensureColumn('messages', 'search_text', 'TEXT');
@@ -1620,6 +1622,24 @@ export function sweepOrphanRunningSessions(): number {
     .prepare("UPDATE sessions SET status = 'error', updated_at = ? WHERE status = 'running'")
     .run(Date.now());
   return result.changes;
+}
+
+// Mark a session as created via provider handoff; pending means the first
+// prompt still needs the imported-transcript context injected.
+export function setSessionHandoff(sessionId: string, sourceProvider: string): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET handoff_source_provider = ?, handoff_pending = 1, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(sourceProvider, now, sessionId);
+}
+
+export function clearSessionHandoffPending(sessionId: string): void {
+  const now = Date.now();
+  const stmt = getDb().prepare(`
+    UPDATE sessions SET handoff_pending = 0, updated_at = ? WHERE id = ?
+  `);
+  stmt.run(now, sessionId);
 }
 
 // 更新 Claude Session ID

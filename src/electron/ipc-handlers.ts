@@ -1881,6 +1881,84 @@ function buildHistoryTranscript(history: StreamMessage[]): string {
   return entries.join('\n\n').trim();
 }
 
+// Provider-handoff bootstrap (ported from synara's thread handoff): the first
+// prompt of a handoff session carries the imported transcript — recent turns
+// nearly verbatim, earlier turns as one-line bullets — inside a char budget.
+const HANDOFF_RECENT_MESSAGE_COUNT = 6;
+const HANDOFF_EARLIER_MESSAGE_CHAR_LIMIT = 320;
+const HANDOFF_RECENT_MESSAGE_CHAR_LIMIT = 2_400;
+const HANDOFF_CONTEXT_MAX_CHARS = 24_000;
+
+function truncateHandoffText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
+}
+
+function collectHandoffTranscriptEntries(
+  history: StreamMessage[]
+): Array<{ role: 'User' | 'Assistant'; text: string }> {
+  const entries: Array<{ role: 'User' | 'Assistant'; text: string }> = [];
+  for (const message of history) {
+    if (message.type === 'user_prompt') {
+      const prompt = message.prompt.trim();
+      if (prompt) {
+        entries.push({ role: 'User', text: prompt });
+      }
+      continue;
+    }
+    const assistantText = extractAssistantText(message);
+    if (assistantText && !isLocalUtilityAssistantText(assistantText)) {
+      entries.push({ role: 'Assistant', text: assistantText });
+    }
+  }
+  return entries;
+}
+
+function buildHandoffContextText(params: {
+  history: StreamMessage[];
+  title: string;
+  sourceProvider: string;
+  maxChars?: number;
+}): string | null {
+  const entries = collectHandoffTranscriptEntries(params.history);
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const earlier = entries.slice(0, -HANDOFF_RECENT_MESSAGE_COUNT);
+  const recent = entries.slice(-HANDOFF_RECENT_MESSAGE_COUNT);
+  const sections: string[] = [
+    `This conversation was handed off from ${params.sourceProvider}. Continue the work with full awareness of the context below.`,
+    `Original conversation title: ${params.title}`,
+  ];
+
+  if (earlier.length > 0) {
+    sections.push(
+      'Earlier conversation summary:\n' +
+        earlier
+          .map(
+            (entry) =>
+              `- ${entry.role}: ${truncateHandoffText(entry.text.replace(/\s+/g, ' ').trim(), HANDOFF_EARLIER_MESSAGE_CHAR_LIMIT)}`
+          )
+          .join('\n')
+    );
+  }
+
+  sections.push(
+    'Most recent messages:\n' +
+      recent
+        .map(
+          (entry) => `${entry.role}:\n${truncateHandoffText(entry.text.trim(), HANDOFF_RECENT_MESSAGE_CHAR_LIMIT)}`
+        )
+        .join('\n\n')
+  );
+
+  const joined = sections.join('\n\n').trim();
+  return truncateHandoffText(joined, Math.max(0, params.maxChars ?? HANDOFF_CONTEXT_MAX_CHARS));
+}
+
 function buildLatestEditSummaryPrompt(history: StreamMessage[]): string {
   const transcript = buildHistoryTranscript(history);
   const lines = [
@@ -4166,6 +4244,69 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   ipcMainHandle('fork-session', async (_event, sourceSessionId: string) => {
     return forkSessionInternal(sourceSessionId);
   });
+
+  // Provider handoff: sessions are locked to one agent; switching creates a
+  // new session for the target provider that imports the transcript and
+  // injects it as context on the first prompt (synara-style thread handoff).
+  ipcMainHandle(
+    'session-handoff',
+    async (
+      _event,
+      payload: { sessionId: string; targetProvider: AgentProvider }
+    ): Promise<{ ok: true; session: SessionInfo } | { ok: false; message: string }> => {
+      try {
+        const source = sessions.getSession(payload?.sessionId || '');
+        if (!source) {
+          return { ok: false as const, message: 'Session not found.' };
+        }
+        const sourceProvider = (source.provider || 'claude') as AgentProvider;
+        const targetProvider = payload?.targetProvider;
+        if (!targetProvider || targetProvider === sourceProvider) {
+          return { ok: false as const, message: 'Pick a different agent to hand off to.' };
+        }
+        const history = sessions.getSessionHistory(source.id);
+        if (collectHandoffTranscriptEntries(history).length === 0) {
+          return {
+            ok: false as const,
+            message: 'Send a message first — there is no conversation to hand off yet.',
+          };
+        }
+
+        const handoff = sessions.createSession({
+          title: source.title,
+          cwd: source.cwd || undefined,
+          projectCwd: source.project_cwd ?? source.cwd ?? null,
+          envMode: source.env_mode === 'worktree' ? 'worktree' : 'local',
+          worktreePath: source.worktree_path ?? null,
+          associatedWorktreePath: source.associated_worktree_path ?? null,
+          associatedWorktreeBranch: source.associated_worktree_branch ?? null,
+          associatedWorktreeRef: source.associated_worktree_ref ?? null,
+          provider: targetProvider,
+          scope: normalizeSessionScope(source.conversation_scope),
+          agentId: source.agent_id || null,
+          channelId: normalizeWorkspaceChannelId(source.workspace_channel_id),
+          teamMode: normalizeSessionTeamMode(source.team_mode),
+          teamId: source.team_id || null,
+        });
+
+        // Copy the transcript so the handoff pane shows the conversation; the
+        // pending flag makes the first prompt carry it as <handoff_context>.
+        sessions.copySessionHistory(source.id, handoff.id);
+        sessions.setSessionHandoff(handoff.id, sourceProvider);
+
+        const row = sessions.getSession(handoff.id);
+        if (!row) {
+          return { ok: false as const, message: 'Failed to read the handoff session.' };
+        }
+        return { ok: true as const, session: buildSessionInfoFromRow(row) };
+      } catch (error) {
+        return {
+          ok: false as const,
+          message: error instanceof Error ? error.message : 'Failed to create the handoff session.',
+        };
+      }
+    }
+  );
 
   // Claude rewind: restore files (SDK checkpoint) and/or truncate the
   // conversation back to the state before a given user message ran.
@@ -6696,6 +6837,7 @@ function buildSessionInfoFromRow(
     channelId: normalizeWorkspaceChannelId(row.workspace_channel_id),
     teamMode: normalizeSessionTeamMode(row.team_mode),
     teamId: row.team_id || null,
+    handoffSourceProvider: (row.handoff_source_provider as AgentProvider | null) || null,
     latestClaudeModelUsage,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -7218,6 +7360,22 @@ async function handleSessionContinue(
   if (planImplementationPrompt) {
     effectiveRunnerPrompt = planImplementationPrompt;
   }
+  // First prompt of a provider-handoff session: inject the imported transcript
+  // so the new agent starts with the prior conversation's context.
+  const handoffContextText =
+    session.handoff_pending === 1
+      ? buildHandoffContextText({
+          history: historyBeforeContinue,
+          title: session.title,
+          sourceProvider: session.handoff_source_provider || previousProvider,
+        })
+      : null;
+  if (handoffContextText) {
+    effectiveRunnerPrompt = `<handoff_context>\n${handoffContextText}\n</handoff_context>\n\n<latest_user_message>\n${effectiveRunnerPrompt}\n</latest_user_message>`;
+  }
+  if (session.handoff_pending === 1) {
+    sessions.clearSessionHandoffPending(sessionId);
+  }
   const runnerPrompt = augmentPromptForLiveWidgetProtocol(
     await buildRunnerPromptWithMemory(nextProvider, effectiveRunnerPrompt, session.cwd || undefined),
     historyBeforeContinue
@@ -7522,6 +7680,9 @@ async function handleSessionContinue(
     nextProvider === 'claude' &&
     !providerChanged &&
     !nextResumeSessionId &&
+    // A pending handoff carries the transcript inside the prompt itself; the
+    // copied history must not also be replayed into a bootstrap session.
+    !handoffContextText &&
     historyBeforeContinue.length > 0
   ) {
     try {

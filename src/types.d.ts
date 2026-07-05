@@ -105,6 +105,10 @@ declare global {
     forkSession: (
       sessionId: string
     ) => Promise<{ ok: boolean; session?: SessionInfo; message?: string }>;
+    sessionHandoff: (payload: {
+      sessionId: string;
+      targetProvider: import('./shared/types').AgentProvider;
+    }) => Promise<{ ok: boolean; session?: SessionInfo; message?: string }>;
     claudeRewind: (
       input: import('./shared/types').ClaudeRewindInput
     ) => Promise<import('./shared/types').ClaudeRewindResult>;
