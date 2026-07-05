@@ -43,10 +43,7 @@ import {
   getLatestClaudeTurnUsage,
   getLatestCodexContextSnapshot,
   getLatestOpenCodeContextSnapshot,
-  getContextLevelColorVar,
-  getContextUsageLevel,
   isClaudeUsageModelMatch,
-  CONTEXT_CRITICAL_PERCENT,
 } from '../utils/context-usage';
 
 function isImeComposingEvent(
@@ -172,48 +169,6 @@ export function PromptInput({
         : null,
     [activeSession?.messages, isPiContextVisible, piContextModel]
   );
-  const contextWarning = useMemo(() => {
-    // Claude and Codex auto-compact near the limit; OpenCode/Pi do not, so the copy differs.
-    let percent = 0;
-    let total = 0;
-    let autoCompacts = false;
-    if (claudeContextSnapshot) {
-      percent = claudeContextSnapshot.percent;
-      total = claudeContextSnapshot.total || 0;
-      autoCompacts = true;
-    } else if (codexContextSnapshot) {
-      percent = codexContextSnapshot.percent;
-      total = codexContextSnapshot.total || 0;
-      autoCompacts = true;
-    } else if (openCodeContextSnapshot) {
-      percent = openCodeContextSnapshot.percent;
-      total = openCodeContextSnapshot.total || 0;
-      autoCompacts = false;
-    } else if (piContextSnapshot) {
-      percent = piContextSnapshot.percent;
-      total = piContextSnapshot.total || 0;
-      autoCompacts = false;
-    } else {
-      return null;
-    }
-    if (total <= 0) {
-      return null;
-    }
-    const level = getContextUsageLevel(percent);
-    if (level === 'safe') {
-      return null;
-    }
-    const color = getContextLevelColorVar(level);
-    const message = autoCompacts
-      ? percent >= CONTEXT_CRITICAL_PERCENT
-        ? `上下文已用 ${percent}% · 较早的对话即将被自动压缩为摘要`
-        : `上下文已用 ${percent}% · 接近上限，稍后会自动压缩较早的对话`
-      : percent >= CONTEXT_CRITICAL_PERCENT
-        ? `上下文已用 ${percent}% · 已接近上下文窗口上限`
-        : `上下文已用 ${percent}% · 接近上下文窗口上限`;
-    return { color, message };
-  }, [claudeContextSnapshot, codexContextSnapshot, openCodeContextSnapshot, piContextSnapshot]);
-
   const isRunning = activeSession?.status === 'running';
   const isBusy = isRunning || pendingStart || approvalPending;
 
@@ -760,23 +715,6 @@ export function PromptInput({
   return (
     <div className="bg-transparent">
       <div className="mx-auto max-w-4xl">
-        {contextWarning ? (
-          <div
-            className="mb-2 flex items-center gap-2 rounded-[12px] px-3 py-1.5 text-[12px] leading-4"
-            style={{
-              color: contextWarning.color,
-              backgroundColor: `color-mix(in srgb, ${contextWarning.color} 10%, transparent)`,
-              border: `1px solid color-mix(in srgb, ${contextWarning.color} 28%, transparent)`,
-            }}
-            role="status"
-          >
-            <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full"
-              style={{ backgroundColor: contextWarning.color }}
-            />
-            <span className="min-w-0 truncate">{contextWarning.message}</span>
-          </div>
-        ) : null}
         <div className={composerOuterClass}>
           {projectFileMentions.hasMentionQuery ? (
             <div className="absolute inset-x-0 bottom-full z-40">
