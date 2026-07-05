@@ -192,7 +192,11 @@ function runTerminalResize(
     return;
   }
   if (wasAtBottom) {
-    entry.terminal.scrollToBottom();
+    try {
+      entry.terminal.scrollToBottom();
+    } catch {
+      // ignore render-state races during attach/teardown
+    }
   }
   if (dispatchBackend) {
     queueBackendResize(entry, entry.terminal.cols, entry.terminal.rows);
@@ -411,10 +415,16 @@ function openBackend(entry: TerminalRuntimeEntry): void {
         return;
       }
 
-      replaySnapshotHistory(entry, result.snapshot);
-      entry.terminal.write('\x1b[?1004l');
-      flushDeferredWrites(entry);
-      runTerminalResize(entry, { clearTextureAtlas: true, refresh: true });
+      try {
+        replaySnapshotHistory(entry, result.snapshot);
+        entry.terminal.write('\x1b[?1004l');
+        flushDeferredWrites(entry);
+        runTerminalResize(entry, { clearTextureAtlas: true, refresh: true });
+      } catch (error) {
+        // xterm render-state races (e.g. reading dimensions mid-teardown) are
+        // recoverable; keep them off the user-facing status toast.
+        console.warn('[terminal] post-open render sync failed:', error);
+      }
 
       const command = result.launchCommand || entry.initialCommand;
       if (entry.initialNotice) {

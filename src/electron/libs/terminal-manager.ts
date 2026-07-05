@@ -309,7 +309,66 @@ function inferCliKindFromCommand(command: string): ManagedTerminalAgentKind | 'o
   return null;
 }
 
-function checkSubprocessActivity(pid: number): SubprocessActivity {
+type ProcessTreeSnapshot = Map<number, Array<{ pid: number; command: string }>>;
+
+/**
+ * One `ps` call capturing every process's parent and command, so a poll tick
+ * can walk all session trees in memory. The previous per-session approach
+ * spawned `pgrep` recursively per child plus `ps` per descendant — dozens of
+ * blocking subprocess spawns per second with a busy CLI tree.
+ */
+function readProcessTreeSnapshot(): Promise<ProcessTreeSnapshot | null> {
+  if (process.platform === 'win32') return Promise.resolve(null);
+  return new Promise((resolve) => {
+    execFile(
+      'ps',
+      ['-axo', 'pid=,ppid=,comm='],
+      { encoding: 'utf8', timeout: 1500, maxBuffer: 8 * 1024 * 1024 },
+      (error, stdout) => {
+        resolve(error ? null : parseProcessTreeSnapshot(stdout));
+      }
+    );
+  });
+}
+
+function parseProcessTreeSnapshot(output: string): ProcessTreeSnapshot {
+  const childrenByPpid: ProcessTreeSnapshot = new Map();
+  for (const line of output.split('\n')) {
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    const ppid = Number(match[2]);
+    if (!Number.isInteger(pid) || !Number.isInteger(ppid) || pid <= 0) continue;
+    let siblings = childrenByPpid.get(ppid);
+    if (!siblings) {
+      siblings = [];
+      childrenByPpid.set(ppid, siblings);
+    }
+    siblings.push({ pid, command: match[3].trim() });
+  }
+  return childrenByPpid;
+}
+
+function collectDescendantsFromSnapshot(
+  snapshot: ProcessTreeSnapshot,
+  rootPid: number
+): Array<{ pid: number; command: string }> {
+  const result: Array<{ pid: number; command: string }> = [];
+  const seen = new Set<number>();
+  const stack = [rootPid];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    for (const child of snapshot.get(current) || []) {
+      if (seen.has(child.pid) || seen.size > POSIX_TREE_WALK_MAX_VISITED) continue;
+      seen.add(child.pid);
+      result.push(child);
+      stack.push(child.pid);
+    }
+  }
+  return result;
+}
+
+function checkSubprocessActivity(pid: number, snapshot?: ProcessTreeSnapshot | null): SubprocessActivity {
   if (process.platform === 'win32') {
     try {
       execFileSync(
@@ -336,6 +395,21 @@ function checkSubprocessActivity(pid: number): SubprocessActivity {
         hasNonProviderSubprocess: false,
       };
     }
+  }
+
+  if (snapshot) {
+    const descendants = collectDescendantsFromSnapshot(snapshot, pid);
+    let cliKind: ManagedTerminalAgentKind | 'opencode' | null = null;
+    for (const child of descendants) {
+      cliKind = inferCliKindFromCommand(child.command);
+      if (cliKind) break;
+    }
+    return {
+      cliKind,
+      hasRunningSubprocess: descendants.length > 0,
+      hasProviderDescendant: Boolean(cliKind),
+      hasNonProviderSubprocess: descendants.length > 0 && !cliKind,
+    };
   }
 
   const descendants = collectDescendantPids(pid);
@@ -394,6 +468,7 @@ function legacyOpenInput(input: TerminalStartInput): TerminalOpenInput {
 export class TerminalManager {
   private readonly sessions = new Map<string, TerminalSessionState>();
   private subprocessPollTimer: ReturnType<typeof setInterval> | null = null;
+  private subprocessPollInFlight = false;
   private inactivityCounter = 0;
 
   constructor(private readonly emitEvent: (payload: TerminalEvent) => void) {}
@@ -835,10 +910,33 @@ export class TerminalManager {
   }
 
   private pollSubprocessActivity(): void {
+    if (this.subprocessPollInFlight) return;
+    let hasRunning = false;
+    for (const session of this.sessions.values()) {
+      if (session.status === 'running') {
+        hasRunning = true;
+        break;
+      }
+    }
+    if (!hasRunning) return;
+
+    this.subprocessPollInFlight = true;
+    // One async ps snapshot shared across all sessions this tick; null falls
+    // back to the per-pid pgrep walk.
+    void readProcessTreeSnapshot()
+      .then((snapshot) => {
+        this.applySubprocessActivity(snapshot);
+      })
+      .finally(() => {
+        this.subprocessPollInFlight = false;
+      });
+  }
+
+  private applySubprocessActivity(snapshot: ProcessTreeSnapshot | null): void {
     const now = Date.now();
     for (const session of this.sessions.values()) {
       if (session.status !== 'running') continue;
-      const activity = checkSubprocessActivity(session.process.pid);
+      const activity = checkSubprocessActivity(session.process.pid, snapshot);
       const cliKind = activity.cliKind || session.cliKind;
       const providerBusy = Boolean(cliKind) && isProviderSessionBusy(session, now);
       const hasRunningSubprocess = activity.hasRunningSubprocess || providerBusy;
