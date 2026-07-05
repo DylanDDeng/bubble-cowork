@@ -937,7 +937,13 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         // 转换 SDK 消息为内部格式并发送
         const streamMessage = convertSDKMessage(message as SDKMessage);
         if (streamMessage) {
-          if (streamMessage.type === 'stream_event') {
+          // Subagent (Task) activity streams interleaved with the top-level
+          // turn. Keep the thinking-duration bookkeeping scoped to the main
+          // agent: subagent stream events share content-block indices with the
+          // parent and would otherwise corrupt the per-index timers.
+          const isSubagentMessage = Boolean(streamMessage.parentToolUseId);
+
+          if (streamMessage.type === 'stream_event' && !isSubagentMessage) {
             const event = streamMessage.event;
             if (
               event.type === 'content_block_delta' &&
@@ -968,7 +974,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
             }
           }
 
-          if (streamMessage.type === 'assistant' && streamMessage.message?.content) {
+          if (streamMessage.type === 'assistant' && !isSubagentMessage && streamMessage.message?.content) {
             // Annotate thinking blocks in-place with the measured duration.
             // Partial assistant messages may arrive before the block's stop
             // event; in that case durationMs stays undefined and a later
@@ -1003,6 +1009,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           if (
             ENABLE_AEGIS_MEMORY_FOR_NATIVE_PROVIDERS &&
             streamMessage.type === 'assistant' &&
+            !isSubagentMessage &&
             streamMessage.message?.content
           ) {
             const textParts = (streamMessage.message.content as ContentBlock[])
@@ -1113,6 +1120,7 @@ function convertSDKMessage(message: SDKMessage): StreamMessage | null {
       return {
         type: 'assistant',
         uuid: message.uuid || uuidv4(),
+        parentToolUseId: getParentToolUseId(message),
         message: (message.message || { content: [] }) as any,
       };
 
@@ -1120,6 +1128,7 @@ function convertSDKMessage(message: SDKMessage): StreamMessage | null {
       return {
         type: 'user',
         uuid: message.uuid || uuidv4(),
+        parentToolUseId: getParentToolUseId(message),
         message: (message.message || { content: [] }) as any,
       };
 
@@ -1166,6 +1175,7 @@ function convertSDKMessage(message: SDKMessage): StreamMessage | null {
 
       return {
         type: 'stream_event',
+        parentToolUseId: getParentToolUseId(message),
         event,
       };
     }
@@ -1173,4 +1183,12 @@ function convertSDKMessage(message: SDKMessage): StreamMessage | null {
     default:
       return null;
   }
+}
+
+// Subagent messages (emitted while a Task tool call runs) carry the parent
+// Task's tool_use id. The UI uses this to nest them under the Task row and to
+// keep subagent deltas out of the top-level streaming buffer.
+function getParentToolUseId(message: SDKMessage): string | null {
+  const raw = (message as { parent_tool_use_id?: unknown }).parent_tool_use_id;
+  return typeof raw === 'string' && raw.length > 0 ? raw : null;
 }

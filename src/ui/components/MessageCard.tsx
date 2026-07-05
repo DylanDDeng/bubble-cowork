@@ -58,6 +58,8 @@ interface MessageCardProps {
   sessionId?: string | null;
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
+  /** Subagent messages keyed by Task tool_use id — nests them under Task rows. */
+  subagentMessagesByParent?: Map<string, StreamMessage[]>;
   assistantPresentation?: 'answer' | 'progress';
   hideAssistantCopyBar?: boolean;
   userPromptActions?: {
@@ -72,6 +74,7 @@ export function MessageCard({
   sessionId,
   toolStatusMap,
   toolResultsMap,
+  subagentMessagesByParent,
   assistantPresentation = 'answer',
   hideAssistantCopyBar = false,
   userPromptActions,
@@ -103,6 +106,7 @@ export function MessageCard({
           message={message}
           toolStatusMap={toolStatusMap}
           toolResultsMap={toolResultsMap}
+          subagentMessagesByParent={subagentMessagesByParent}
           presentation={assistantPresentation}
           hideCopyBar={hideAssistantCopyBar}
         />
@@ -648,12 +652,14 @@ function AssistantCard({
   message,
   toolStatusMap,
   toolResultsMap,
+  subagentMessagesByParent,
   presentation,
   hideCopyBar,
 }: {
   message: AssistantMessage;
   toolStatusMap: Map<string, ToolStatus>;
   toolResultsMap: Map<string, ToolResultBlock>;
+  subagentMessagesByParent?: Map<string, StreamMessage[]>;
   presentation: 'answer' | 'progress';
   hideCopyBar?: boolean;
 }) {
@@ -717,6 +723,7 @@ function AssistantCard({
           toolStatusMap={toolStatusMap}
           toolResultsMap={toolResultsMap}
           isSessionRunning={isStreaming}
+          subagentMessagesByParent={subagentMessagesByParent}
         />
       ) : null}
       {textBlocks.map((block, idx) => (

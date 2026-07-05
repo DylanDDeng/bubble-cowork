@@ -111,8 +111,10 @@ function classifyStageKind(entry: WorkstreamEntry): WorkstreamStageKind | null {
   }
   if (entry.type === 'thinking' || entry.type === 'note') return null;
 
-  if (entry.status === 'error') return 'error';
+  // Task entries stay in the task stage even on failure — the subagent lane
+  // renders the error state in place, keeping parallel runs visually grouped.
   if (entry.type === 'task' || entry.kind === 'subagent') return 'task';
+  if (entry.status === 'error') return 'error';
   if (entry.type === 'memory' || entry.kind === 'memory') return 'memory';
 
   switch (entry.kind) {

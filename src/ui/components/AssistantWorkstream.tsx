@@ -8,6 +8,7 @@ import {
   LoaderCircle,
   ShieldAlert,
   SquareTerminal,
+  Workflow,
 } from './icons';
 import {
   type ToolResultBlock,
@@ -156,9 +157,13 @@ function CompactGroup({
 
   return (
     <div className="my-2 space-y-px">
-      {visibleStages.map((stage) => (
-        <StageRow key={stage.id} stage={stage} onOpenDiff={onOpenDiff} />
-      ))}
+      {visibleStages.map((stage) =>
+        stage.kind === 'task' ? (
+          <SubagentStage key={stage.id} stage={stage} />
+        ) : (
+          <StageRow key={stage.id} stage={stage} onOpenDiff={onOpenDiff} />
+        )
+      )}
       {showOverflow ? (
         <button
           type="button"
@@ -558,6 +563,238 @@ function hasRawEntryDetail(entry: WorkstreamEntry): boolean {
   return Boolean(entry.detail);
 }
 
+// ── Subagent stage (Task tool calls) ────────────────────────────────────────
+// A single Task renders as a standalone lane row; parallel Tasks merge into a
+// board card with one lane per subagent — live status dot, agent chip, and an
+// expandable nested trace of the subagent's own activity.
+
+type TaskEntry = Extract<WorkstreamEntry, { type: 'task' }>;
+
+function isTaskEntry(entry: WorkstreamEntry): entry is TaskEntry {
+  return entry.type === 'task';
+}
+
+function SubagentStage({ stage }: { stage: WorkstreamStage }) {
+  const taskEntries = stage.entries.filter(isTaskEntry);
+  if (taskEntries.length === 0) return null;
+  if (taskEntries.length === 1) {
+    return <SubagentLane entry={taskEntries[0]} standalone />;
+  }
+  return <SubagentBoard entries={taskEntries} />;
+}
+
+function SubagentBoard({ entries }: { entries: TaskEntry[] }) {
+  const running = entries.filter((entry) => entry.status === 'pending').length;
+  const failed = entries.filter((entry) => entry.status === 'error').length;
+  const done = entries.length - running - failed;
+  const metaParts: string[] = [];
+  if (done > 0) metaParts.push(`${done} done`);
+  if (running > 0) metaParts.push(`${running} running`);
+  if (failed > 0) metaParts.push(`${failed} failed`);
+
+  return (
+    <div className="my-1 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)]/40">
+      <div className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--subagent-bg)] px-2.5 py-1.5">
+        <Workflow className="h-3.5 w-3.5 flex-shrink-0 text-[var(--subagent)]" />
+        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--text-primary)]">
+          {entries.length} subagents in parallel
+        </span>
+        <span className="flex-shrink-0 font-mono text-[10.5px] text-[var(--text-muted)]">
+          {metaParts.join(' · ')}
+        </span>
+      </div>
+      <div className="divide-y divide-[var(--border)]/60">
+        {entries.map((entry) => (
+          <SubagentLane key={entry.id} entry={entry} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SubagentLane({
+  entry,
+  standalone = false,
+}: {
+  entry: TaskEntry;
+  standalone?: boolean;
+}) {
+  const trace = entry.subagent;
+  const hasTrace = Boolean(trace && trace.entries.length > 0);
+  const canExpand = hasTrace || hasEntryDetail(entry);
+  // null = follow the automatic default: open while the subagent is running so
+  // its live activity is visible, closed once it settles. A user toggle pins
+  // the choice for the rest of the mount.
+  const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
+  const autoExpanded = entry.status === 'pending' && hasTrace;
+  const expanded = (userExpanded ?? autoExpanded) && canExpand;
+
+  const isPending = entry.status === 'pending';
+  const isError = entry.status === 'error';
+  const description = trace?.description || getTaskDescription(entry) || entry.summary;
+
+  return (
+    <div className={standalone ? 'group' : undefined}>
+      <button
+        type="button"
+        onClick={() => canExpand && setUserExpanded((value) => !(value ?? autoExpanded))}
+        disabled={!canExpand}
+        title={safeTitle(description)}
+        className={`flex w-full items-center gap-2 text-left text-[12px] leading-5 transition-colors disabled:opacity-100 ${
+          canExpand ? '' : 'cursor-default'
+        } ${standalone ? 'py-0.5' : 'px-2.5 py-1'}`}
+      >
+        <SubagentStatusDot status={entry.status} />
+        <span className="flex-shrink-0 rounded bg-[var(--subagent-bg)] px-1.5 font-mono text-[10.5px] leading-4 text-[var(--subagent)]">
+          {trace?.agentType || 'subagent'}
+        </span>
+        <span
+          className={`min-w-0 flex-1 truncate ${
+            isError
+              ? 'text-[var(--error)]'
+              : isPending
+                ? 'text-[var(--text-secondary)]'
+                : 'text-[var(--text-muted)]/70'
+          }`}
+        >
+          {description}
+        </span>
+        <SubagentLaneStats entry={entry} />
+        {canExpand ? (
+          <ChevronRight
+            className={`h-3 w-3 flex-shrink-0 text-[var(--text-muted)]/45 transition-transform ${
+              expanded ? 'rotate-90' : ''
+            }`}
+          />
+        ) : null}
+      </button>
+      {expanded ? <SubagentLaneDetail entry={entry} standalone={standalone} /> : null}
+    </div>
+  );
+}
+
+function SubagentStatusDot({ status }: { status: TaskEntry['status'] }) {
+  const toneClass =
+    status === 'pending'
+      ? 'bg-[var(--warning)] animate-pulse'
+      : status === 'error'
+        ? 'bg-[var(--error)]'
+        : 'bg-[var(--success)]';
+  return <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${toneClass}`} />;
+}
+
+function SubagentLaneStats({ entry }: { entry: TaskEntry }) {
+  const trace = entry.subagent;
+  const parts: string[] = [];
+  if (trace && trace.toolCount > 0) {
+    parts.push(`${trace.toolCount} ${trace.toolCount === 1 ? 'tool' : 'tools'}`);
+  }
+
+  if (entry.status === 'pending') {
+    return (
+      <span className="flex-shrink-0 font-mono text-[10.5px] text-[var(--text-muted)]/80">
+        {parts.length > 0 ? `${parts.join(' · ')} · ` : ''}
+        <LiveElapsed startedAt={trace?.startedAt} />
+      </span>
+    );
+  }
+
+  if (entry.status === 'error') {
+    parts.push('failed');
+  } else if (typeof trace?.durationMs === 'number') {
+    parts.push(formatElapsed(trace.durationMs));
+  }
+  if (parts.length === 0) return null;
+  return (
+    <span className="flex-shrink-0 font-mono text-[10.5px] text-[var(--text-muted)]/80">
+      {parts.join(' · ')}
+    </span>
+  );
+}
+
+function LiveElapsed({ startedAt }: { startedAt: number | undefined }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (typeof startedAt !== 'number') return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+
+  if (typeof startedAt !== 'number') {
+    return <>running</>;
+  }
+  return <>{formatElapsed(Math.max(0, now - startedAt))}</>;
+}
+
+function SubagentLaneDetail({
+  entry,
+  standalone,
+}: {
+  entry: TaskEntry;
+  standalone: boolean;
+}) {
+  const trace = entry.subagent;
+  const hasTrace = Boolean(trace && trace.entries.length > 0);
+
+  return (
+    <div
+      className={`${standalone ? 'ml-1' : 'mx-2.5'} mb-1.5 border-l border-[var(--subagent-border)] pl-3`}
+    >
+      {hasTrace ? (
+        <>
+          <div className="space-y-px py-0.5">
+            {trace!.entries.map((child) => (
+              <EntryRow key={child.id} entry={child} />
+            ))}
+          </div>
+          <SubagentResultSection entry={entry} />
+        </>
+      ) : (
+        <ToolEntryDetail entry={entry} />
+      )}
+    </div>
+  );
+}
+
+function SubagentResultSection({ entry }: { entry: TaskEntry }) {
+  const [show, setShow] = useState(false);
+  const output = getToolResultOutputContent(entry.result);
+  if (!output) return null;
+
+  return (
+    <div className="my-1 text-[12px]">
+      <CollapsibleSection
+        label="Result"
+        expanded={show}
+        onToggle={() => setShow((value) => !value)}
+        isError={entry.result?.is_error}
+      >
+        <pre
+          className={`whitespace-pre-wrap break-words text-[12px] leading-5 ${
+            entry.result?.is_error ? 'text-[var(--error)]' : 'text-[var(--text-secondary)]'
+          }`}
+        >
+          {truncateWithNotice(output, MAX_TRACE_TEXT_CHARS)}
+        </pre>
+      </CollapsibleSection>
+    </div>
+  );
+}
+
+function getTaskDescription(entry: TaskEntry): string | null {
+  const input = isRecord(entry.block.input) ? entry.block.input : {};
+  const description = input.description;
+  if (typeof description === 'string' && description.trim()) {
+    return description;
+  }
+  const prompt = input.prompt;
+  if (typeof prompt === 'string' && prompt.trim()) {
+    return prompt.trim();
+  }
+  return null;
+}
+
 // ── Entry row dispatcher ────────────────────────────────────────────────────
 
 function EntryRow({ entry, showChangeHint = true }: { entry: WorkstreamEntry; showChangeHint?: boolean }) {
@@ -581,13 +818,16 @@ function StreamingNoteRow({
 }: {
   entry: Extract<WorkstreamEntry, { type: 'note' }>;
 }) {
+  const isStreaming = entry.state === 'streaming';
   return (
     <div
       className="flex items-baseline gap-1.5 py-0.5 text-[12px] leading-5 text-[var(--text-muted)]/55"
       title={safeTitle(entry.detail)}
     >
       <span className="min-w-0 flex-1 truncate">{entry.summary}</span>
-      <span className="inline-flex h-1 w-1 flex-shrink-0 rounded-full bg-[var(--text-muted)]/45 animate-pulse" />
+      {isStreaming ? (
+        <span className="inline-flex h-1 w-1 flex-shrink-0 rounded-full bg-[var(--text-muted)]/45 animate-pulse" />
+      ) : null}
     </div>
   );
 }
