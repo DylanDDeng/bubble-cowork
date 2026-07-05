@@ -94,6 +94,20 @@ Aegis turns a local project folder into an AI operating surface. Instead of trea
 
 * better-sqlite3
 
+## Installation
+
+Download the latest build for your platform from [GitHub Releases](https://github.com/DylanDDeng/bubble-cowork/releases).
+
+### macOS: "app is damaged" warning
+
+Release builds are not code-signed, so after installing macOS Gatekeeper may report the app as damaged and refuse to open it. Remove the quarantine attribute once and it will open normally:
+
+```bash
+xattr -cr /Applications/Aegis.app
+```
+
+This is required again after each update, since every downloaded copy is re-quarantined.
+
 ## Getting Started
 
 ```bash
