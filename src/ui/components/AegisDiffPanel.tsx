@@ -33,6 +33,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -219,52 +220,56 @@ export function AegisDiffPanel({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-[300px]">
-              <DropdownMenuLabel>Workspace</DropdownMenuLabel>
-              {WORKSPACE_DIFF_SCOPES.map((entry) => {
-                const active = isWorkspaceSelection(data.selection, entry.scope);
-                return (
-                  <DropdownMenuItem key={entry.scope} onSelect={() => openWorkspaceScope(entry.scope)}>
-                    <span className="mr-2 flex h-4 w-4 items-center justify-center text-[var(--accent)]">
-                      {active ? <Check className="h-3.5 w-3.5" /> : null}
-                    </span>
-                    <GitBranch className="mr-2 h-4 w-4 text-[var(--text-muted)]" />
-                    <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-                    {active ? (
-                      <span className="ml-3 inline-flex items-center gap-2 text-xs text-[var(--text-muted)]">
-                        <span>{fileCountLabel(data.summary.totalFiles)}</span>
-                        <DiffStatLabel additions={data.summary.addedLines} deletions={data.summary.removedLines} />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Workspace</DropdownMenuLabel>
+                {WORKSPACE_DIFF_SCOPES.map((entry) => {
+                  const active = isWorkspaceSelection(data.selection, entry.scope);
+                  return (
+                    <DropdownMenuItem key={entry.scope} onSelect={() => openWorkspaceScope(entry.scope)}>
+                      <span className="mr-2 flex h-4 w-4 items-center justify-center text-[var(--accent)]">
+                        {active ? <Check className="h-3.5 w-3.5" /> : null}
                       </span>
-                    ) : null}
-                  </DropdownMenuItem>
-                );
-              })}
+                      <GitBranch className="mr-2 h-4 w-4 text-[var(--text-muted)]" />
+                      <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+                      {active ? (
+                        <span className="ml-3 inline-flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                          <span>{fileCountLabel(data.summary.totalFiles)}</span>
+                          <DiffStatLabel additions={data.summary.addedLines} deletions={data.summary.removedLines} />
+                        </span>
+                      ) : null}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel>Turns</DropdownMenuLabel>
-              {data.turns.length === 0 ? (
-                <DropdownMenuItem disabled>
-                  <span className="mr-2 h-4 w-4" />
-                  <FileDiffIcon className="mr-2 h-4 w-4 text-[var(--text-muted)]" />
-                  <span className="text-[var(--text-muted)]">No captured turns</span>
-                </DropdownMenuItem>
-              ) : null}
-              {data.turns.map((entry) => {
-                const active = isTurnSelection(data.selection, entry.key);
-                return (
-                  <DropdownMenuItem key={entry.key} onSelect={() => openTurn(entry.key)}>
-                    <span className="mr-2 flex h-4 w-4 items-center justify-center text-[var(--accent)]">
-                      {active ? <Check className="h-3.5 w-3.5" /> : null}
-                    </span>
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Turns</DropdownMenuLabel>
+                {data.turns.length === 0 ? (
+                  <DropdownMenuItem disabled>
+                    <span className="mr-2 h-4 w-4" />
                     <FileDiffIcon className="mr-2 h-4 w-4 text-[var(--text-muted)]" />
-                    <span className="min-w-0 flex-1 truncate">
-                      {entry.current ? `Current turn (${entry.label})` : entry.label}
-                    </span>
-                    <span className="ml-3 inline-flex items-center gap-2 text-xs text-[var(--text-muted)]">
-                      <span>{fileCountLabel(entry.summary.totalFiles)}</span>
-                      <DiffStatLabel additions={entry.summary.totalAdded} deletions={entry.summary.totalRemoved} />
-                    </span>
+                    <span className="text-[var(--text-muted)]">No captured turns</span>
                   </DropdownMenuItem>
-                );
-              })}
+                ) : null}
+                {data.turns.map((entry) => {
+                  const active = isTurnSelection(data.selection, entry.key);
+                  return (
+                    <DropdownMenuItem key={entry.key} onSelect={() => openTurn(entry.key)}>
+                      <span className="mr-2 flex h-4 w-4 items-center justify-center text-[var(--accent)]">
+                        {active ? <Check className="h-3.5 w-3.5" /> : null}
+                      </span>
+                      <FileDiffIcon className="mr-2 h-4 w-4 text-[var(--text-muted)]" />
+                      <span className="min-w-0 flex-1 truncate">
+                        {entry.current ? `Current turn (${entry.label})` : entry.label}
+                      </span>
+                      <span className="ml-3 inline-flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                        <span>{fileCountLabel(entry.summary.totalFiles)}</span>
+                        <DiffStatLabel additions={entry.summary.totalAdded} deletions={entry.summary.totalRemoved} />
+                      </span>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
 
