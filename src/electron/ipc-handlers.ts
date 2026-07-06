@@ -8370,8 +8370,18 @@ function startRunner(
         }
 
         const explicitFailureMessage = localFailureMessage || slashFailureMessage;
-        const status: SessionStatus =
+        // This turn's terminal outcome…
+        const turnStatus: SessionStatus =
           explicitFailureMessage || message.subtype !== 'success' ? 'error' : 'completed';
+        // …but with another prompt still queued on this runner the session is
+        // NOT done: a terminal DB status here would open the git/workspace
+        // gates (which trust DB status alone) under a running agent. The last
+        // queued result settles the session status.
+        const hasQueuedTurns =
+          provider === 'claude' &&
+          entryForPrompt?.handle === handle &&
+          (entryForPrompt.inFlightTurns ?? 1) > 1;
+        const status: SessionStatus = hasQueuedTurns ? 'running' : turnStatus;
         sessions.updateSessionStatus(session.id, status);
 
         broadcast(mainWindow, {
@@ -8443,16 +8453,22 @@ function startRunner(
         if (currentEntry?.handle === handle) {
           const turnDone = currentEntry.onTurnDone;
           currentEntry.onTurnDone = undefined;
-          turnDone?.(status, explicitFailureMessage || undefined);
+          // onTurnDone consumers (automation runs) want the turn's own
+          // terminal outcome, not the still-running session status.
+          turnDone?.(turnStatus, explicitFailureMessage || undefined);
           if (provider === 'claude') {
             // Keep the runner alive for follow-up turns (streaming-input
             // reuse) — unless its live context is stale/poisoned (doomed) or
             // it is a one-shot auto-approving automation runner.
             currentEntry.inFlightTurns = Math.max(0, (currentEntry.inFlightTurns ?? 1) - 1);
-            if (currentEntry.doomed || currentEntry.autoApprove) {
+            const drained = (currentEntry.inFlightTurns ?? 0) === 0;
+            if (drained && (currentEntry.doomed || currentEntry.autoApprove)) {
+              // Retire only once every queued turn has produced its result:
+              // aborting earlier would drop a queued prompt that is already
+              // persisted and counted, leaving the session without an ending.
               currentEntry.handle.abort();
               runnerHandles.delete(session.id);
-            } else if ((currentEntry.inFlightTurns ?? 0) === 0) {
+            } else if (drained) {
               currentEntry.lastTurnEndedAt = Date.now();
               sweepIdleClaudeRunners();
             }

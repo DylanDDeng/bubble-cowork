@@ -189,23 +189,32 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
     ) => {
       if (abortController.signal.aborted) return;
 
-      service
-        .sendTurn({
-          threadId,
-          prompt,
-          attachments,
-          model,
-          codexExecutionMode: sendOptions?.codexExecutionMode ?? options.codexExecutionMode,
-          codexPermissionMode: sendOptions?.codexPermissionMode ?? options.codexPermissionMode,
-          codexReasoningEffort: sendOptions?.codexReasoningEffort ?? options.codexReasoningEffort,
-          codexFastMode: sendOptions?.codexFastMode ?? options.codexFastMode,
-          kimiPermissionMode: sendOptions?.kimiPermissionMode ?? options.kimiPermissionMode,
-          grokPermissionMode: sendOptions?.grokPermissionMode ?? options.grokPermissionMode,
-          grokReasoningEffort: sendOptions?.grokReasoningEffort ?? options.grokReasoningEffort,
-          opencodePermissionMode:
-            sendOptions?.opencodePermissionMode ?? options.opencodePermissionMode,
-          codexSkills,
-          codexMentions,
+      // Dispatch strictly after the session start settles: a replacement
+      // runner's startSession is itself queued behind the previous stop, so
+      // a rapid follow-up send could otherwise hit a session that is not
+      // registered yet (or still stopping). Chaining off startPromise keeps
+      // sends ordered (then-callbacks run in attach order).
+      startPromise
+        .catch(() => undefined) // a start failure was already reported above
+        .then(() => {
+          if (abortController.signal.aborted) return;
+          return service.sendTurn({
+            threadId,
+            prompt,
+            attachments,
+            model,
+            codexExecutionMode: sendOptions?.codexExecutionMode ?? options.codexExecutionMode,
+            codexPermissionMode: sendOptions?.codexPermissionMode ?? options.codexPermissionMode,
+            codexReasoningEffort: sendOptions?.codexReasoningEffort ?? options.codexReasoningEffort,
+            codexFastMode: sendOptions?.codexFastMode ?? options.codexFastMode,
+            kimiPermissionMode: sendOptions?.kimiPermissionMode ?? options.kimiPermissionMode,
+            grokPermissionMode: sendOptions?.grokPermissionMode ?? options.grokPermissionMode,
+            grokReasoningEffort: sendOptions?.grokReasoningEffort ?? options.grokReasoningEffort,
+            opencodePermissionMode:
+              sendOptions?.opencodePermissionMode ?? options.opencodePermissionMode,
+            codexSkills,
+            codexMentions,
+          });
         })
         .catch((error) => {
           if (!abortController.signal.aborted) {
