@@ -17,7 +17,13 @@ export type WorkstreamStageKind =
   | 'todo'
   | 'other';
 
-export type WorkstreamStageStatus = 'pending' | 'success' | 'error' | 'waiting' | 'mixed';
+export type WorkstreamStageStatus =
+  | 'pending'
+  | 'success'
+  | 'error'
+  | 'waiting'
+  | 'interrupted'
+  | 'mixed';
 
 export interface WorkstreamStageFile {
   id: string;
@@ -151,6 +157,7 @@ function entryStatus(entry: WorkstreamEntry): WorkstreamStageStatus {
   }
   if (entry.status === 'error') return 'error';
   if (entry.status === 'pending') return 'pending';
+  if (entry.status === 'interrupted') return 'interrupted';
   return 'success';
 }
 
@@ -159,6 +166,7 @@ function aggregateStatus(entries: WorkstreamEntry[]): WorkstreamStageStatus {
   if (statuses.includes('error')) return 'error';
   if (statuses.includes('waiting')) return 'waiting';
   if (statuses.includes('pending')) return 'pending';
+  if (statuses.includes('interrupted')) return 'interrupted';
   return statuses.every((status) => status === 'success') ? 'success' : 'mixed';
 }
 

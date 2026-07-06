@@ -315,17 +315,29 @@ assert.equal(
     'board status reflects 2 running / 0 done'
   );
 
-  // Once the session stops, interrupted tools fall back to settled so stale
-  // spinners do not linger in finished transcripts.
+  // Once the session stops, unresolved tools freeze as 'interrupted': no
+  // stale spinners, and no misleading green check for canceled work either.
   const interruptedModel = createBatchWorkstreamModel({
     messages: [mainAssistant],
     toolStatusMap: buildToolMaps([]).toolStatusMap,
     toolResultsMap: new Map<string, ToolResultBlock>(),
     isSessionRunning: false,
+    subagentMessagesByParent: byParent,
   });
   for (const entry of interruptedModel.entries) {
     if (entry.type === 'task') {
-      assert.equal(entry.status, 'success', 'interrupted Tasks settle when the session stops');
+      assert.equal(entry.status, 'interrupted', 'stopped Tasks read as interrupted, not done');
+      if (entry.subagent) {
+        for (const child of entry.subagent.entries) {
+          if (child.type === 'tool' || child.type === 'task' || child.type === 'memory') {
+            assert.notEqual(
+              child.status,
+              'pending',
+              'a stopped Task must not leave spinning children'
+            );
+          }
+        }
+      }
     }
   }
 }

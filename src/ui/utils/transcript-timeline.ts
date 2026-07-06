@@ -231,9 +231,51 @@ function hasTurnResult(turnItems: TranscriptTimelineItem[]): boolean {
   return turnItems.some((item) => item.type === 'message' && item.message.type === 'result');
 }
 
+/**
+ * Whether the turn carries a tool call that never received its tool_result —
+ * the signature of a turn stopped (or aborted) while work was in flight, as
+ * opposed to e.g. a local utility reply that simply has no `result` record.
+ */
+function turnHasUnresolvedToolUse(
+  turnItems: TranscriptTimelineItem[],
+  resolvedToolUseIds: ReadonlySet<string>
+): boolean {
+  for (const item of turnItems) {
+    const groups =
+      item.type === 'work'
+        ? [item.group]
+        : item.inlineWorkGroup
+          ? [item.inlineWorkGroup]
+          : [];
+    for (const group of groups) {
+      for (const message of group.messages) {
+        for (const block of getMessageContentBlocks(message)) {
+          const normalized = normalizeToolUseBlock(block);
+          if (normalized && !resolvedToolUseIds.has(normalized.id)) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
+interface CollapseTurnOptions {
+  activeTurnStartIndex?: number;
+  sessionRunning?: boolean;
+  /**
+   * True for the transcript's final turn. Only that turn can be the one a
+   * stop press just interrupted, and only it freezes in place.
+   */
+  trailingTurn?: boolean;
+  /** tool_use ids that received a tool_result anywhere in the transcript. */
+  resolvedToolUseIds?: ReadonlySet<string>;
+}
+
 function collapseTurnWorkBeforeAnswer(
   turnItems: TranscriptTimelineItem[],
-  options: { activeTurnStartIndex?: number; sessionRunning?: boolean }
+  options: CollapseTurnOptions
 ): TranscriptTimelineItem[] {
   const answerSourceIndex = (() => {
     for (let index = turnItems.length - 1; index >= 0; index -= 1) {
@@ -245,7 +287,24 @@ function collapseTurnWorkBeforeAnswer(
     return -1;
   })();
   const activeRunningTurn = isActiveRunningTurn(turnItems, options);
-  const hasTerminalAnswer = answerSourceIndex >= 0 && (!activeRunningTurn || hasTurnResult(turnItems));
+  // Every provider ends a completed turn with a terminal `result` message
+  // (the stop flow deliberately suppresses it for user-stopped turns). A
+  // trailing turn that has no result, still carries an unresolved tool call,
+  // and belongs to a session that is no longer running was interrupted:
+  // freeze it exactly as it rendered mid-run — keep the trace expanded,
+  // don't promote mid-turn narration to a terminal answer — so nothing the
+  // user was watching vanishes when they press stop. The unresolved-tool
+  // requirement keeps result-less utility replies (e.g. local /usage
+  // summaries) rendering as normal answers.
+  const interruptedTurn =
+    options.trailingTurn === true &&
+    options.sessionRunning !== true &&
+    !hasTurnResult(turnItems) &&
+    turnHasUnresolvedToolUse(turnItems, options.resolvedToolUseIds ?? new Set());
+  const hasTerminalAnswer =
+    answerSourceIndex >= 0 &&
+    !interruptedTurn &&
+    (!activeRunningTurn || hasTurnResult(turnItems));
 
   const workGroups: TimelineWorkGroup[] = [];
   const visibleItems: TranscriptTimelineItem[] = [];
@@ -292,14 +351,18 @@ function collapseTurnWorkBeforeAnswer(
     return visibleItems;
   }
 
+  const activeWork = isActiveWorkGroup(combinedWorkGroup, options) && !hasTerminalAnswer;
   const workItem: TranscriptTimelineItem = {
     type: 'work',
     group: combinedWorkGroup,
-    active: isActiveWorkGroup(combinedWorkGroup, options) && !hasTerminalAnswer,
-    defaultExpanded: isActiveWorkGroup(combinedWorkGroup, options) && !hasTerminalAnswer,
+    active: activeWork,
+    // An interrupted turn keeps its trace open: it froze mid-run, and
+    // collapsing it on the stop press would make the work the user was
+    // watching vanish into the disclosure toggle.
+    defaultExpanded: activeWork || interruptedTurn,
     disclosureResetKey: [
       combinedWorkGroup.id,
-      hasTerminalAnswer ? 'answered' : 'working',
+      interruptedTurn ? 'interrupted' : hasTerminalAnswer ? 'answered' : 'working',
       combinedWorkGroup.messages.length,
       combinedWorkGroup.originalIndices.join(','),
     ].join(':'),
@@ -316,16 +379,21 @@ function collapseTurnWorkBeforeAnswer(
 
 function collapseWorkBeforeTerminalAnswers(
   items: TranscriptTimelineItem[],
-  options: { activeTurnStartIndex?: number; sessionRunning?: boolean }
+  options: CollapseTurnOptions
 ): TranscriptTimelineItem[] {
-  const result: TranscriptTimelineItem[] = [];
+  // Chunk the items so the trailing turn is known before any turn renders:
+  // only the final turn can be the one a stop press interrupted.
+  type Chunk =
+    | { kind: 'passthrough'; item: TranscriptTimelineItem }
+    | { kind: 'turn'; items: TranscriptTimelineItem[] };
+  const chunks: Chunk[] = [];
   let currentTurnItems: TranscriptTimelineItem[] = [];
 
   const flushTurn = () => {
     if (currentTurnItems.length === 0) {
       return;
     }
-    result.push(...collapseTurnWorkBeforeAnswer(currentTurnItems, options));
+    chunks.push({ kind: 'turn', items: currentTurnItems });
     currentTurnItems = [];
   };
 
@@ -337,7 +405,7 @@ function collapseWorkBeforeTerminalAnswers(
       flushTurn();
       currentRunBoundaryKey = null;
       hasAssistantRunBoundary = false;
-      result.push(item);
+      chunks.push({ kind: 'passthrough', item });
       continue;
     }
 
@@ -358,7 +426,45 @@ function collapseWorkBeforeTerminalAnswers(
   }
 
   flushTurn();
+
+  let lastTurnChunkIndex = -1;
+  for (let index = chunks.length - 1; index >= 0; index -= 1) {
+    if (chunks[index].kind === 'turn') {
+      lastTurnChunkIndex = index;
+      break;
+    }
+  }
+
+  const result: TranscriptTimelineItem[] = [];
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index];
+    if (chunk.kind === 'passthrough') {
+      result.push(chunk.item);
+      continue;
+    }
+    result.push(
+      ...collapseTurnWorkBeforeAnswer(chunk.items, {
+        ...options,
+        trailingTurn: index === lastTurnChunkIndex,
+      })
+    );
+  }
   return result;
+}
+
+function collectResolvedToolUseIds(messages: StreamMessage[]): Set<string> {
+  const resolved = new Set<string>();
+  for (const message of messages) {
+    if (message.type !== 'user') continue;
+    for (const block of getMessageContentBlocks(message)) {
+      if (!isAnyToolResultBlockType(block.type)) continue;
+      const toolUseId = (block as { tool_use_id?: unknown }).tool_use_id;
+      if (typeof toolUseId === 'string' && toolUseId) {
+        resolved.add(toolUseId);
+      }
+    }
+  }
+  return resolved;
 }
 
 export function deriveTranscriptTimelineItems(
@@ -478,5 +584,8 @@ export function deriveTranscriptTimelineItems(
 
   flushPendingWork();
   markAssistantMessagePresentation(items);
-  return collapseWorkBeforeTerminalAnswers(items, options);
+  return collapseWorkBeforeTerminalAnswers(items, {
+    ...options,
+    resolvedToolUseIds: collectResolvedToolUseIds(messages),
+  });
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
   ChevronRight,
+  CircleDashed,
   CircleX,
   FileDiff,
   FolderSearch,
@@ -267,6 +268,9 @@ function StageStatusGlyph({
   }
   if (stage.status === 'waiting') {
     return <ShieldAlert className="h-3 w-3 flex-shrink-0 text-amber-600" />;
+  }
+  if (stage.status === 'interrupted') {
+    return <CircleDashed className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]/60" />;
   }
   if (!canExpand) {
     return stage.status === 'success' ? (
@@ -553,6 +557,7 @@ function formatCommandStatus(status: WorkstreamStageCommand['status']): string {
   if (status === 'pending') return 'Running';
   if (status === 'error') return 'Error';
   if (status === 'waiting') return 'Waiting';
+  if (status === 'interrupted') return 'Stopped';
   return 'Success';
 }
 
@@ -596,11 +601,13 @@ function SubagentStage({ stage }: { stage: WorkstreamStage }) {
 function SubagentBoard({ entries }: { entries: TaskEntry[] }) {
   const running = entries.filter((entry) => entry.status === 'pending').length;
   const failed = entries.filter((entry) => entry.status === 'error').length;
-  const done = entries.length - running - failed;
+  const stopped = entries.filter((entry) => entry.status === 'interrupted').length;
+  const done = entries.length - running - failed - stopped;
   const metaParts: string[] = [];
   if (done > 0) metaParts.push(`${done} done`);
   if (running > 0) metaParts.push(`${running} running`);
   if (failed > 0) metaParts.push(`${failed} failed`);
+  if (stopped > 0) metaParts.push(`${stopped} stopped`);
 
   return (
     <div className="my-1 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)]/40">
@@ -689,7 +696,9 @@ function SubagentStatusDot({ status }: { status: TaskEntry['status'] }) {
       ? 'bg-[var(--warning)] animate-pulse'
       : status === 'error'
         ? 'bg-[var(--error)]'
-        : 'bg-[var(--success)]';
+        : status === 'interrupted'
+          ? 'bg-[var(--text-muted)]/50'
+          : 'bg-[var(--success)]';
   return <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${toneClass}`} />;
 }
 
@@ -711,6 +720,8 @@ function SubagentLaneStats({ entry }: { entry: TaskEntry }) {
 
   if (entry.status === 'error') {
     parts.push('failed');
+  } else if (entry.status === 'interrupted') {
+    parts.push('stopped');
   } else if (typeof trace?.durationMs === 'number') {
     parts.push(formatElapsed(trace.durationMs));
   }
@@ -974,6 +985,9 @@ function RightStatusGlyph({
   }
   if (entry.status === 'error') {
     return <CircleX className="h-3 w-3 flex-shrink-0 text-[var(--error)]" />;
+  }
+  if (entry.status === 'interrupted') {
+    return <CircleDashed className="h-3 w-3 flex-shrink-0 text-[var(--text-muted)]/60" />;
   }
   if (!canExpand) return null;
   return (

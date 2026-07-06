@@ -425,9 +425,10 @@ function isAssistantStreamMessage(
 
 function buildSubagentTrace(
   block: ToolUseBlock,
-  taskFinished: boolean,
+  parentStatus: ToolStatus,
   context: SubagentTraceContext
 ): SubagentTrace | undefined {
+  const taskFinished = parentStatus === 'success' || parentStatus === 'error';
   const input = isRecord(block.input) ? block.input : {};
   const agentType = getString(input.subagent_type);
   const description =
@@ -443,6 +444,14 @@ function buildSubagentTrace(
     return undefined;
   }
 
+  // Unresolved child tools inherit the Task's fate: still pending while it
+  // runs, settled as success once it finished, frozen as interrupted when the
+  // Task itself was interrupted (a stopped turn must not leave spinners).
+  const unresolvedChildStatus: ToolStatus = taskFinished
+    ? 'success'
+    : parentStatus === 'interrupted'
+      ? 'interrupted'
+      : 'pending';
   const entries =
     context.depth < MAX_SUBAGENT_TRACE_DEPTH
       ? extractTraceEntries(assistantMessages)
@@ -452,7 +461,7 @@ function buildSubagentTrace(
               entry,
               context.toolStatusMap,
               context.toolResultsMap,
-              taskFinished ? 'success' : 'pending',
+              unresolvedChildStatus,
               { ...context, depth: context.depth + 1 }
             )
           )
@@ -545,7 +554,7 @@ function createEntryFromTrace(
       block,
       result,
       subagent: subagentContext
-        ? buildSubagentTrace(block, status === 'success' || status === 'error', subagentContext)
+        ? buildSubagentTrace(block, status, subagentContext)
         : undefined,
       sourceMessageUuid: entry.messageUuid,
     };
@@ -777,9 +786,10 @@ export function createBatchWorkstreamModel(params: {
   // While the session runs, every unresolved tool is genuinely in flight —
   // parallel Task fan-outs leave several tools without results at once, so
   // they must all stay pending (not just the last one). Once the session
-  // stops, unresolved tools were interrupted; fall back to success so stale
-  // spinners don't linger in finished transcripts.
-  const unresolvedFallbackStatus: ToolStatus = params.isSessionRunning ? 'pending' : 'success';
+  // stops, an unresolved tool never got to finish (the user stopped the turn,
+  // or it was aborted): freeze it as 'interrupted' — no spinner, but no
+  // misleading green check for work that was canceled either.
+  const unresolvedFallbackStatus: ToolStatus = params.isSessionRunning ? 'pending' : 'interrupted';
   const subagentContext: SubagentTraceContext | undefined = params.subagentMessagesByParent
     ? {
         messagesByParent: params.subagentMessagesByParent,

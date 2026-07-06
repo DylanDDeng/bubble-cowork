@@ -474,7 +474,10 @@ export interface ChatInjectionRequest {
 }
 
 // 工具状态映射（用于显示 pending/success/error）
-export type ToolStatus = 'pending' | 'success' | 'error';
+// 'interrupted': the tool never resolved and its turn is over — the user
+// stopped the turn (or it was aborted) while the tool was in flight. Derived
+// in the workstream model, never stored in tool status maps.
+export type ToolStatus = 'pending' | 'success' | 'error' | 'interrupted';
 
 // 搜索匹配结果
 export interface SearchMatch {
