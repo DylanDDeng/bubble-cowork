@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   classifyResultForStop,
+  isStoppedTurnDrainMessage,
   markTurnStopped,
   onlyStoppedTurnsInFlight,
   resolveStopFallbackAction,
@@ -213,5 +214,47 @@ assert.equal(onlyStoppedTurnsInFlight(state(2, 1)), false);
   stopped -= 1;
   assert.equal(resolveStopFallbackAction(state(inFlight - 1, stopped), 3), 'stand-down');
 }
+
+// ── isStoppedTurnDrainMessage (post-interrupt drain vs follow-up echo) ───────
+// While stopped turns still owe a result, the serial stream can only carry
+// the interrupted turn's drain plus host-minted artifacts. Turn work is
+// suppressed; the follow-up's prompt echo and session records survive.
+
+assert.equal(
+  isStoppedTurnDrainMessage({ type: 'assistant', message: { content: [{ type: 'text' }] } }),
+  true,
+  'truncated assistant output drains from the stopped turn'
+);
+assert.equal(
+  isStoppedTurnDrainMessage({ type: 'stream_event' }),
+  true,
+  'partial stream events drain from the stopped turn'
+);
+assert.equal(
+  isStoppedTurnDrainMessage({
+    type: 'user',
+    message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'x' }] },
+  }),
+  true,
+  'tool results returning into the stopped turn are drain'
+);
+assert.equal(
+  isStoppedTurnDrainMessage({
+    type: 'user',
+    message: { content: [{ type: 'text', text: 'corrected prompt' }] },
+  }),
+  false,
+  "the follow-up's host-minted prompt echo must survive (it anchors /rewind)"
+);
+assert.equal(
+  isStoppedTurnDrainMessage({ type: 'system' }),
+  false,
+  'session-level system records are not turn drain'
+);
+assert.equal(
+  isStoppedTurnDrainMessage({ type: 'result' }),
+  false,
+  'results are classified by classifyResultForStop, not the drain rule'
+);
 
 console.log('claude-stop-reconcile.test: all assertions passed');

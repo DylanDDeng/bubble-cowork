@@ -121,3 +121,38 @@ export function classifyResultForStop(state: StopStateSnapshot): StopResultClass
 export function shouldDropRunnerErrorSilently(state: StopStateSnapshot): boolean {
   return state.inFlightTurns === 0 || onlyStoppedTurnsInFlight(state);
 }
+
+/**
+ * Which stream messages belong to a stopped turn's drain — content the SDK
+ * still delivers between `interrupt()` and the interrupted turn's terminal
+ * `result` (truncated assistant output, tool results, partial stream
+ * events). While stopped turns still owe a result, this drain must stay out
+ * of the transcript: the user canceled that work (a hard-aborted turn never
+ * recorded it either), and once a follow-up prompt is persisted the drain
+ * would be filed under — and attributed to — the wrong turn.
+ *
+ * Attribution rests on the serial-stream contract: no follow-up turn output
+ * can appear before the stopped turn's result lands, so everything
+ * turn-shaped in that window is the stopped turn's. The only non-drain
+ * messages in the window are host-minted user prompt echoes (plain text —
+ * never tool_result blocks), which anchor /rewind for the follow-up, and
+ * session-level system records; both must be kept.
+ */
+export function isStoppedTurnDrainMessage(message: {
+  type: string;
+  message?: { content?: unknown };
+}): boolean {
+  if (message.type === 'assistant' || message.type === 'stream_event') {
+    return true;
+  }
+  if (message.type === 'user') {
+    // SDK 'user' messages carry tool results back into the turn; the host's
+    // own follow-up prompt echo is plain text and must survive.
+    const content = message.message?.content;
+    return (
+      Array.isArray(content) &&
+      content.some((block) => (block as { type?: string } | null)?.type === 'tool_result')
+    );
+  }
+  return false;
+}

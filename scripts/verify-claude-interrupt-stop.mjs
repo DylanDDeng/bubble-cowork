@@ -69,7 +69,7 @@ assert.equal(
   'onError may only silent-drop per shouldDropRunnerErrorSilently — a follow-up turn must surface errors'
 );
 assert.equal(
-  ipcSource.includes('classifyResultForStop(stopStateOf(entryForStop))'),
+  ipcSource.includes('classifyResultForStop(stopStateForMessage)'),
   true,
   'result attribution must go through classifyResultForStop'
 );
@@ -103,12 +103,47 @@ assert.match(
   'doomed/automation retire at result must wait for zero in-flight turns'
 );
 
-// A user-stopped turn's terminal result stays out of the transcript: with a
-// follow-up prompt already persisted it would land under the wrong turn.
+// A user-stopped turn's terminal result AND its post-interrupt drain
+// (assistant output, tool results, stream events) stay out of the
+// transcript: with a follow-up prompt already persisted they would land
+// under — and be attributed to — the wrong turn.
 assert.match(
   ipcSource,
-  /sanitizedStreamMessage\.message && !stopClassification\.stoppedByUser/,
-  'stopped-turn results must be kept out of the persisted transcript'
+  /sanitizedStreamMessage\.message &&\s*!stopClassification\.stoppedByUser &&\s*!isStoppedTurnDrain/,
+  'stopped-turn results and drain must be kept out of the persisted transcript'
+);
+assert.equal(
+  ipcSource.includes('isStoppedTurnDrainMessage(message)'),
+  true,
+  'drain suppression must use the policy module message-shape rule'
+);
+assert.match(
+  ipcSource,
+  /stopStateForMessage\.stoppedTurns > 0 &&\s*isStoppedTurnDrainMessage\(message\)/,
+  'drain suppression must only apply while stopped turns still owe a result'
+);
+
+// A second stop can mark a QUEUED turn; interrupt() only reaches the active
+// one, so when a stopped turn settles with more still marked, the interrupt
+// must be re-issued for the newly active turn (with the fallback re-armed).
+assert.match(
+  ipcSource,
+  /entryToReinterrupt\.handle\s*\n?\s*\.interrupt!\(\)\s*\n?\s*\.catch\(\(\) => resolveStopFallback\(mainWindow, session\.id, entryToReinterrupt\)\)/,
+  'settling a stopped turn with more stopped turns pending must re-issue interrupt()'
+);
+
+// Soft stop must settle pending permissions as a clean DENY (the runner and
+// its queued follow-up stay alive); rejection is only for the hard-abort
+// path where the process dies anyway.
+assert.match(
+  ipcSource,
+  /if \(softStopped\) \{\s*pending\.resolve\(\{ behavior: 'deny'/,
+  'soft stop must resolve pending permissions as deny, not reject them'
+);
+assert.match(
+  ipcSource,
+  /\} else \{\s*pending\.reject\(new Error\('Session aborted'\)\)/,
+  'hard stop keeps the rejection path for pending permissions'
 );
 assert.equal(
   ipcSource.includes('entry.stoppedTurns = markTurnStopped(stopStateOf(entry))'),

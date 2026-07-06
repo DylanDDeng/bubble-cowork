@@ -91,6 +91,7 @@ import { formatClaudeRuntimeBlockingMessage, getClaudeRuntimeStatus, getClaudeRu
 import { selectClaudeRunnersToReap, type ClaudeRunnerSnapshot } from './libs/claude-runner-pool';
 import {
   classifyResultForStop,
+  isStoppedTurnDrainMessage,
   markTurnStopped,
   resolveStopFallbackAction,
   shouldDropRunnerErrorSilently,
@@ -8281,12 +8282,29 @@ function startRunner(
       // produced one, and with a follow-up prompt already persisted it would
       // be recorded under the wrong turn.
       const entryForStop = runnerHandles.get(session.id);
+      const stopStateForMessage =
+        entryForStop?.handle === handle ? stopStateOf(entryForStop) : null;
       const stopClassification =
-        message.type === 'result' && entryForStop?.handle === handle
-          ? classifyResultForStop(stopStateOf(entryForStop))
+        message.type === 'result' && stopStateForMessage
+          ? classifyResultForStop(stopStateForMessage)
           : { stoppedByUser: false, suppressStatusBroadcast: false };
+      // The SDK keeps draining the interrupted turn (truncated assistant
+      // output, tool results, stream events) between interrupt() and its
+      // result. That drain is canceled work and — after a follow-up dispatch
+      // — would be persisted and attributed under the follow-up's turn, so
+      // it stays out of the transcript too. Serial-stream contract: nothing
+      // from a follow-up turn can arrive before the stopped result lands;
+      // the follow-up's own prompt echo is exempted by shape.
+      const isStoppedTurnDrain =
+        stopStateForMessage !== null &&
+        stopStateForMessage.stoppedTurns > 0 &&
+        isStoppedTurnDrainMessage(message);
 
-      if (sanitizedStreamMessage.message && !stopClassification.stoppedByUser) {
+      if (
+        sanitizedStreamMessage.message &&
+        !stopClassification.stoppedByUser &&
+        !isStoppedTurnDrain
+      ) {
         const activeEntry = runnerHandles.get(session.id);
         const turnAgentId =
           activeEntry?.activeAgentId ||
@@ -8452,6 +8470,23 @@ function startRunner(
               if (!currentEntry.stoppedTurns) {
                 clearStopFallbackTimer(currentEntry);
                 currentEntry.stopFallbackAttempts = undefined;
+              } else if (typeof currentEntry.handle.interrupt === 'function') {
+                // Another user-stopped turn was queued behind the one that
+                // just settled and is becoming active now. interrupt() only
+                // ever cancels the ACTIVE turn, so the stop press that marked
+                // it could not reach it — re-issue the interrupt for it here,
+                // and re-arm the fallback in case even that goes unanswered.
+                const entryToReinterrupt = currentEntry;
+                entryToReinterrupt.handle
+                  .interrupt!()
+                  .catch(() => resolveStopFallback(mainWindow, session.id, entryToReinterrupt));
+                clearStopFallbackTimer(entryToReinterrupt);
+                entryToReinterrupt.stopFallbackAttempts = undefined;
+                entryToReinterrupt.stopFallbackTimer = setTimeout(
+                  () => resolveStopFallback(mainWindow, session.id, entryToReinterrupt),
+                  STOP_INTERRUPT_FALLBACK_MS
+                );
+                entryToReinterrupt.stopFallbackTimer.unref?.();
               }
             }
             // Keep the runner alive for follow-up turns (streaming-input
@@ -8787,6 +8822,7 @@ const STOP_INTERRUPT_FALLBACK_MS = 8_000;
 function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
   const session = sessions.getSession(sessionId);
   const entry = runnerHandles.get(sessionId);
+  let softStopped = false;
   if (entry) {
     const turnDone = entry.onTurnDone;
     entry.onTurnDone = undefined;
@@ -8798,6 +8834,7 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
     // A stopped handle may finish tearing down only after it has been
     // replaced; remember it so its late onError noise stays silent.
     userStoppedRunnerHandles.add(entry.handle);
+    softStopped = canSoftInterrupt;
     if (canSoftInterrupt) {
       // Soft stop: interrupt the in-flight turn but keep the runner (and its
       // warm context) alive so the next send skips the cold respawn. The
@@ -8823,11 +8860,21 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
     }
   }
 
-  // 拒绝所有 pending permissions
+  // Settle all pending permissions. On the soft-stop path the runner stays
+  // alive, so the awaited promise must RESOLVE as a clean deny: the SDK's
+  // canUseTool consumes it and answers the CLI's permission control request,
+  // and interrupt() then ends the turn without an error. A rejection would
+  // instead surface through the SDK as an error control response — teardown
+  // noise the warm runner (and any queued follow-up) must not eat. Rejection
+  // stays only on the hard-abort path, where the process dies anyway.
   const state = sessionStates.get(sessionId);
   if (state) {
-    for (const [, { reject }] of state.pendingPermissions) {
-      reject(new Error('Session aborted'));
+    for (const [, pending] of state.pendingPermissions) {
+      if (softStopped) {
+        pending.resolve({ behavior: 'deny', message: 'The user stopped this turn.' });
+      } else {
+        pending.reject(new Error('Session aborted'));
+      }
     }
     state.pendingPermissions.clear();
   }
