@@ -125,6 +125,13 @@ export const nativeRuntime: AgentRuntime = {
         }
         handle.send(prompt, attachments, model);
       },
+      // Capability passthrough: soft stop (interrupt + pending-prompt
+      // cancellation) and /rewind probe the handle for these optional
+      // methods — dropping them here would silently disable those features
+      // whenever the native runtime wrapper is active.
+      interrupt: handle.interrupt,
+      cancelPendingPrompts: handle.cancelPendingPrompts,
+      rewindFiles: handle.rewindFiles,
     };
   },
 };

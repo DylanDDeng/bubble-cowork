@@ -92,7 +92,7 @@ import { selectClaudeRunnersToReap, type ClaudeRunnerSnapshot } from './libs/cla
 import {
   classifyResultForStop,
   isStoppedTurnDrainMessage,
-  markTurnStopped,
+  markTurnsStopped,
   resolveStopFallbackAction,
   shouldDropRunnerErrorSilently,
   type StopStateSnapshot,
@@ -8303,20 +8303,33 @@ function startRunner(
       const entryForStop = runnerHandles.get(session.id);
       const stopStateForMessage =
         entryForStop?.handle === handle ? stopStateOf(entryForStop) : null;
+      // A stopped runner can be REPLACED before its interrupted result
+      // arrives (stop, then a resend the reuse guard rejects — model or
+      // provider change). The map then points at the replacement, so the old
+      // handle's stopped result must be classified by the handle itself, or
+      // its expected non-success result would persist and clobber the new
+      // run's status.
+      const isStaleStoppedHandle =
+        entryForStop?.handle !== handle && userStoppedRunnerHandles.has(handle);
       const stopClassification =
-        message.type === 'result' && stopStateForMessage
-          ? classifyResultForStop(stopStateForMessage)
+        message.type === 'result'
+          ? isStaleStoppedHandle
+            ? { stoppedByUser: true, suppressStatusBroadcast: true }
+            : stopStateForMessage
+              ? classifyResultForStop(stopStateForMessage)
+              : { stoppedByUser: false, suppressStatusBroadcast: false }
           : { stoppedByUser: false, suppressStatusBroadcast: false };
       // The SDK keeps draining the interrupted turn (truncated assistant
       // output, tool results, stream events) between interrupt() and its
       // result. That drain is canceled work and — after a follow-up dispatch
       // — would be persisted and attributed under the follow-up's turn, so
-      // it stays out of the transcript too. Serial-stream contract: nothing
-      // from a follow-up turn can arrive before the stopped result lands;
-      // the follow-up's own prompt echo is exempted by shape.
+      // it stays out of the transcript too (a replaced stopped handle's
+      // drain is equally dead). Serial-stream contract: nothing from a
+      // follow-up turn can arrive before the stopped result lands; the
+      // follow-up's own prompt echo is exempted by shape.
       const isStoppedTurnDrain =
-        stopStateForMessage !== null &&
-        stopStateForMessage.stoppedTurns > 0 &&
+        ((stopStateForMessage !== null && stopStateForMessage.stoppedTurns > 0) ||
+          isStaleStoppedHandle) &&
         isStoppedTurnDrainMessage(message);
 
       if (
@@ -8861,23 +8874,41 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
     userStoppedRunnerHandles.add(entry.handle);
     softStopped = canSoftInterrupt;
     if (canSoftInterrupt) {
-      // Soft stop: interrupt the in-flight turn but keep the runner (and its
-      // warm context) alive so the next send skips the cold respawn. The
-      // interrupted turn still emits a result; the stopped-turn count makes
-      // the result handler report 'idle' instead of an error. Failures to
-      // reconcile go through resolveStopFallback, which never silently
-      // destroys a runner that carries a live follow-up turn.
-      entry.stoppedTurns = markTurnStopped(stopStateOf(entry));
-      entry.stopFallbackAttempts = undefined;
-      entry.handle.interrupt!().catch(() => resolveStopFallback(mainWindow, sessionId, entry));
-      if (entry.stopFallbackTimer) {
-        clearTimeout(entry.stopFallbackTimer);
+      // A prompt still being prepared (async attachment reads) must never
+      // start a turn after the stop: drop it before it reaches the input
+      // queue and remove it from the turn accounting — a cancelled prompt
+      // never produces a result the reconcile bookkeeping could wait for.
+      const cancelledPrompts = entry.handle.cancelPendingPrompts?.() ?? 0;
+      if (cancelledPrompts > 0) {
+        entry.inFlightTurns = Math.max(0, (entry.inFlightTurns ?? 0) - cancelledPrompts);
       }
-      entry.stopFallbackTimer = setTimeout(
-        () => resolveStopFallback(mainWindow, sessionId, entry),
-        STOP_INTERRUPT_FALLBACK_MS
-      );
-      entry.stopFallbackTimer.unref?.();
+      if ((entry.inFlightTurns ?? 0) === 0) {
+        // Everything the stop caught was still being prepared — nothing
+        // reached the CLI, so there is no turn to interrupt and no result
+        // to await. The runner stays warm and idle for the next send.
+        clearStopFallbackTimer(entry);
+        entry.stoppedTurns = undefined;
+        entry.stopFallbackAttempts = undefined;
+        entry.lastTurnEndedAt = Date.now();
+      } else {
+        // Soft stop: interrupt the in-flight turn but keep the runner (and
+        // its warm context) alive so the next send skips the cold respawn.
+        // The interrupted turn still emits a result; the stopped-turn count
+        // makes the result handler report 'idle' instead of an error.
+        // Failures to reconcile go through resolveStopFallback, which never
+        // silently destroys a runner that carries a live follow-up turn.
+        entry.stoppedTurns = markTurnsStopped(stopStateOf(entry));
+        entry.stopFallbackAttempts = undefined;
+        entry.handle.interrupt!().catch(() => resolveStopFallback(mainWindow, sessionId, entry));
+        if (entry.stopFallbackTimer) {
+          clearTimeout(entry.stopFallbackTimer);
+        }
+        entry.stopFallbackTimer = setTimeout(
+          () => resolveStopFallback(mainWindow, sessionId, entry),
+          STOP_INTERRUPT_FALLBACK_MS
+        );
+        entry.stopFallbackTimer.unref?.();
+      }
     } else {
       clearStopFallbackTimer(entry);
       entry.handle.abort();

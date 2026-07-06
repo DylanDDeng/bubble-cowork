@@ -119,8 +119,8 @@ assert.equal(
 );
 assert.match(
   ipcSource,
-  /stopStateForMessage\.stoppedTurns > 0 &&\s*isStoppedTurnDrainMessage\(message\)/,
-  'drain suppression must only apply while stopped turns still owe a result'
+  /stopStateForMessage\.stoppedTurns > 0\) \|\|\s*isStaleStoppedHandle\) &&\s*isStoppedTurnDrainMessage\(message\)/,
+  'drain suppression must apply while stopped turns owe a result or the handle is stale-stopped'
 );
 
 // A second stop can mark a QUEUED turn; interrupt() only reaches the active
@@ -146,9 +146,70 @@ assert.match(
   'hard stop keeps the rejection path for pending permissions'
 );
 assert.equal(
-  ipcSource.includes('entry.stoppedTurns = markTurnStopped(stopStateOf(entry))'),
+  ipcSource.includes('entry.stoppedTurns = markTurnsStopped(stopStateOf(entry))'),
   true,
-  'stop must mark turns via markTurnStopped (capped by in-flight turns)'
+  'stop must mark turns via markTurnsStopped (everything in flight, capped)'
+);
+
+// A prompt still being prepared when stop lands must be cancelled before it
+// reaches the input queue, and removed from the turn accounting (it never
+// produces a result); with nothing left in flight, the runner stays warm
+// with no interrupt and no fallback armed.
+assert.equal(
+  runnerSource.includes('cancelPendingPrompts: () => {'),
+  true,
+  'the Claude runner must expose cancelPendingPrompts'
+);
+assert.match(
+  runnerSource,
+  /seq <= cancelledPromptSeq/,
+  'enqueues must re-check the cancellation mark around their awaits'
+);
+assert.match(
+  ipcSource,
+  /const cancelledPrompts = entry\.handle\.cancelPendingPrompts\?\.\(\) \?\? 0/,
+  'soft stop must cancel prompts still being prepared'
+);
+assert.match(
+  ipcSource,
+  /\(entry\.inFlightTurns \?\? 0\) - cancelledPrompts/,
+  'cancelled prompts must be removed from the in-flight accounting'
+);
+
+// A replaced stopped runner's late result/drain must still classify as
+// user-stopped (by handle, not by the map) so it cannot persist or clobber
+// the replacement run's status.
+assert.equal(
+  ipcSource.includes('const isStaleStoppedHandle ='),
+  true,
+  'stopped results from replaced handles must be classified stale-stopped'
+);
+assert.match(
+  ipcSource,
+  /isStaleStoppedHandle\s*\?\s*\{ stoppedByUser: true, suppressStatusBroadcast: true \}/,
+  'stale stopped-handle results are suppressed entirely'
+);
+
+// The native runtime wrapper must forward the optional soft-stop (and
+// rewind) capabilities, or stop degrades to a hard abort in that runtime.
+const nativeRuntimeSource = fs.readFileSync(
+  path.join(root, 'src', 'electron', 'libs', 'runtime', 'native-runtime.ts'),
+  'utf8'
+);
+assert.equal(
+  nativeRuntimeSource.includes('interrupt: handle.interrupt'),
+  true,
+  'native runtime must forward interrupt'
+);
+assert.equal(
+  nativeRuntimeSource.includes('cancelPendingPrompts: handle.cancelPendingPrompts'),
+  true,
+  'native runtime must forward cancelPendingPrompts'
+);
+assert.equal(
+  nativeRuntimeSource.includes('rewindFiles: handle.rewindFiles'),
+  true,
+  'native runtime must forward rewindFiles'
 );
 
 // The interrupted turn's result must read as idle, never as a failure, and a

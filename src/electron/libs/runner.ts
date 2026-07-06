@@ -525,6 +525,15 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
     onClaudeExecutionModeChange?.(executionModeForClaudePermissionMode(nextMode), nextMode);
   };
 
+  // Prompt sequencing for stop cancellation: preparing a prompt is async
+  // (image attachments are read from disk), so the user can press stop while
+  // a send is still ahead of the input queue. cancelPendingPrompts() marks
+  // every enqueue issued so far as cancelled; the enqueue re-checks the mark
+  // around its awaits so a cancelled prompt is never pushed to the CLI.
+  let promptSeq = 0;
+  let settledPromptSeq = 0;
+  let cancelledPromptSeq = 0;
+
   const enqueuePrompt = (text: string, promptAttachments?: Attachment[], requestedModel?: string) => {
     const trimmed = text.trim();
     const hasAttachments = (promptAttachments?.filter((a) => a && a.path).length || 0) > 0;
@@ -537,9 +546,10 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         ? requestedModel.trim()
         : undefined;
 
+    const seq = ++promptSeq;
     enqueueChain = enqueueChain
       .then(async () => {
-        if (abortController.signal.aborted) {
+        if (abortController.signal.aborted || seq <= cancelledPromptSeq) {
           return;
         }
         if (activeQuery && normalizedModel !== currentModel) {
@@ -556,7 +566,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           currentRuntimeModel = nextRuntimeModel;
         }
         const message = await buildUserMessage(trimmed, currentSessionId, promptAttachments);
-        if (abortController.signal.aborted) {
+        if (abortController.signal.aborted || seq <= cancelledPromptSeq) {
           return;
         }
         inputQueue.push(message);
@@ -587,6 +597,11 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       .catch((error) => {
         const err = error instanceof Error ? error : new Error(String(error));
         onError?.(err);
+      })
+      .finally(() => {
+        // The enqueue settled (pushed, cancelled, aborted, or failed) — it is
+        // no longer "pending" for cancelPendingPrompts accounting.
+        settledPromptSeq = seq;
       });
   };
 
@@ -1092,6 +1107,14 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         throw new Error('Session is not active.');
       }
       await activeQuery.interrupt();
+    },
+    cancelPendingPrompts: () => {
+      // Everything issued so far that has not settled will be dropped before
+      // it reaches the input queue; report how many so the caller can remove
+      // them from its turn accounting (they will never produce a result).
+      const pending = promptSeq - Math.max(settledPromptSeq, cancelledPromptSeq);
+      cancelledPromptSeq = promptSeq;
+      return Math.max(0, pending);
     },
     rewindFiles: async (userMessageId, options) => {
       if (!activeQuery) {

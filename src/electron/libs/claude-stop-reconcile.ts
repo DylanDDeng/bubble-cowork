@@ -39,13 +39,18 @@ export function onlyStoppedTurnsInFlight(state: StopStateSnapshot): boolean {
 }
 
 /**
- * Stop marks the oldest live turn as interrupted. The count is capped by the
- * turns actually in flight so repeated stop presses can never mark more
- * results as "stopped" than will ever arrive (which would misattribute a
- * later live turn's result).
+ * A stop press stops EVERYTHING the runner carries — the active turn (SDK
+ * interrupt), turns already queued behind it (re-interrupted as each stopped
+ * result settles), and prompts still being prepared (cancelled before they
+ * reach the input queue and removed from the in-flight count first, so they
+ * never show up here). Mark every remaining in-flight turn stopped so each
+ * pending result maps to idle and the fallback knows nothing live remains.
+ * Capped by the turns actually in flight so stop presses can never mark
+ * more results as "stopped" than will ever arrive (which would misattribute
+ * a later live turn's result), and never below what earlier presses marked.
  */
-export function markTurnStopped(state: StopStateSnapshot): number {
-  return Math.min(state.stoppedTurns + 1, Math.max(state.inFlightTurns, 1));
+export function markTurnsStopped(state: StopStateSnapshot): number {
+  return Math.max(state.inFlightTurns, state.stoppedTurns, 1);
 }
 
 export type StopFallbackAction = 'hard-abort' | 'stand-down' | 're-arm' | 'reclaim-and-surface';
@@ -95,9 +100,12 @@ export interface StopResultClassification {
    */
   stoppedByUser: boolean;
   /**
-   * A newer turn is still in flight after this result; persisting or
-   * broadcasting the stopped turn's status would clobber the live turn's
-   * `running` state.
+   * A stopped turn's result must never write or broadcast session status.
+   * The stop itself already reported 'idle' synchronously, so the write is
+   * redundant at best — and anything that changed the status since (a
+   * follow-up now running, a follow-up send that FAILED before dispatch and
+   * set 'error', a provider switch) would be silently overwritten by a stale
+   * idle from a turn the user already discarded.
    */
   suppressStatusBroadcast: boolean;
 }
@@ -107,7 +115,7 @@ export function classifyResultForStop(state: StopStateSnapshot): StopResultClass
   const stoppedByUser = state.stoppedTurns > 0;
   return {
     stoppedByUser,
-    suppressStatusBroadcast: stoppedByUser && state.inFlightTurns - 1 > 0,
+    suppressStatusBroadcast: stoppedByUser,
   };
 }
 
