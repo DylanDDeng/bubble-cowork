@@ -3421,6 +3421,34 @@ function retireSessionRunner(sessionId: string): void {
 }
 
 /**
+ * Retire every kept-alive runner (any provider, any session) anchored at or
+ * inside `dirPath`. Used when a directory runners spawned in is deleted —
+ * worktree apply/discard force-remove the checkout even when sibling sessions
+ * still point at it — so a live process would otherwise linger on a dead cwd.
+ */
+function retireRunnersUnderPath(dirPath: string): void {
+  let root: string;
+  try {
+    root = resolve(dirPath);
+  } catch {
+    return;
+  }
+  for (const [sessionId, entry] of Array.from(runnerHandles.entries())) {
+    if (!entry.cwd) continue;
+    let entryCwd: string;
+    try {
+      entryCwd = resolve(entry.cwd);
+    } catch {
+      continue;
+    }
+    const rel = relative(root, entryCwd);
+    if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) {
+      retireSessionRunner(sessionId);
+    }
+  }
+}
+
+/**
  * The working directory a runner for this session would spawn with — the
  * same fallback startRunner applies for DM sessions. Reuse decisions compare
  * against this so a session whose workspace moved never reuses a live runner
@@ -4658,14 +4686,31 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   ipcMainHandle('apply-worktree-changes', async (_event, sessionId: string) => {
+    // Capture before the apply: on success the row's worktree fields are
+    // cleared and the directory is force-removed.
+    const worktreePath = sessions.getSession(sessionId)?.worktree_path || null;
     const result = await applyIsolatedWorkspace(sessionId);
-    if (result.ok) broadcastSessionWorkspace(mainWindow, sessionId);
+    if (result.ok) {
+      // The worktree directory is gone and the session moved back to the
+      // project folder — retire its kept-alive runner plus any other runner
+      // anchored inside the removed checkout.
+      retireSessionRunner(sessionId);
+      if (worktreePath) retireRunnersUnderPath(worktreePath);
+      broadcastSessionWorkspace(mainWindow, sessionId);
+    }
     return result;
   });
 
   ipcMainHandle('discard-worktree-changes', async (_event, sessionId: string) => {
+    const worktreePath = sessions.getSession(sessionId)?.worktree_path || null;
     const result = await discardIsolatedWorkspace(sessionId);
-    if (result.ok) broadcastSessionWorkspace(mainWindow, sessionId);
+    if (result.ok) {
+      // Same as apply: the checkout was force-removed; no live runner may
+      // keep the dead cwd.
+      retireSessionRunner(sessionId);
+      if (worktreePath) retireRunnersUnderPath(worktreePath);
+      broadcastSessionWorkspace(mainWindow, sessionId);
+    }
     return result;
   });
 
@@ -8296,6 +8341,13 @@ function startRunner(
 
         if (slashFailureMessage) {
           const activeEntry = runnerHandles.get(session.id);
+          // The live CLI fixed its command/skill list at init and this turn
+          // proved the list is stale (e.g. a user/project skill added after
+          // spawn). Doom the runner so the retry respawns with a fresh scan —
+          // keeping it would fail every retry the same way until the reaper.
+          if (activeEntry?.handle === handle) {
+            activeEntry.doomed = true;
+          }
           const assistantMessage = withAgentAttribution(
             buildLocalAssistantMessage(slashFailureMessage),
             activeEntry?.activeAgentId || activeAgentId || session.agent_id || null,
