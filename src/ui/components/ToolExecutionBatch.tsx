@@ -27,6 +27,8 @@ interface ToolExecutionBatchProps {
    * WorkingFooter. */
   isLastBatch?: boolean;
   startedAt?: number;
+  /** Subagent messages keyed by Task tool_use id — nests them under Task rows. */
+  subagentMessagesByParent?: Map<string, StreamMessage[]>;
   liveTrace?: {
     partialText?: string;
     partialThinking?: string;
@@ -45,6 +47,7 @@ export function ToolExecutionBatch({
   isSessionRunning,
   isLastBatch = false,
   startedAt,
+  subagentMessagesByParent,
   liveTrace,
   expanded,
   defaultExpanded,
@@ -60,9 +63,10 @@ export function ToolExecutionBatch({
         toolResultsMap,
         isSessionRunning: batchIsRunning,
         startedAt: batchIsRunning ? startedAt : undefined,
+        subagentMessagesByParent,
         liveTrace: batchIsRunning ? liveTrace : undefined,
       }),
-    [messages, toolResultsMap, toolStatusMap, batchIsRunning, startedAt, liveTrace]
+    [messages, toolResultsMap, toolStatusMap, batchIsRunning, startedAt, subagentMessagesByParent, liveTrace]
   );
 
   const disclosureResetKey = resetKey ?? messages.map((message) => message.uuid).join(':');
