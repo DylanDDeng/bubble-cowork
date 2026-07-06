@@ -35,6 +35,11 @@
   --warning: #d97706;
   --border: rgba(0, 0, 0, 0.06);
 
+  /* Subagent (Task tool) accent — purple family, distinct from --accent */
+  --subagent: #7C3AED;
+  --subagent-bg: rgba(124, 58, 237, 0.09);
+  --subagent-border: rgba(124, 58, 237, 0.3);
+
   /* Tool status colors */
   --tool-pending: #d97706;
   --tool-running: #4F46E5;
@@ -146,6 +151,11 @@
   --error: #f87171;
   --warning: #fbbf24;
   --border: rgba(255, 255, 255, 0.06);
+
+  /* Subagent (Task tool) accent — purple family, distinct from --accent */
+  --subagent: #B06DFF;
+  --subagent-bg: rgba(176, 109, 255, 0.14);
+  --subagent-border: rgba(176, 109, 255, 0.38);
 
   /* Tool status colors */
   --tool-pending: #fbbf24;

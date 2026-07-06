@@ -36,6 +36,11 @@ export function InSessionSearch() {
     const matches: SearchMatch[] = [];
 
     currentSession.messages.forEach((message, index) => {
+      // Subagent (Task) messages render nested inside their Task row, not as
+      // top-level [data-message-index] nodes — matching them would navigate
+      // to a DOM anchor that never exists.
+      if (message.parentToolUseId) return;
+
       let text = '';
 
       if (message.type === 'user_prompt') {

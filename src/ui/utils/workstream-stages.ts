@@ -111,8 +111,10 @@ function classifyStageKind(entry: WorkstreamEntry): WorkstreamStageKind | null {
   }
   if (entry.type === 'thinking' || entry.type === 'note') return null;
 
-  if (entry.status === 'error') return 'error';
+  // Task entries stay in the task stage even on failure — the subagent lane
+  // renders the error state in place, keeping parallel runs visually grouped.
   if (entry.type === 'task' || entry.kind === 'subagent') return 'task';
+  if (entry.status === 'error') return 'error';
   if (entry.type === 'memory' || entry.kind === 'memory') return 'memory';
 
   switch (entry.kind) {
@@ -434,12 +436,28 @@ function makeStage(
   };
 }
 
+function getTaskParallelKey(entry: WorkstreamEntry): string | null {
+  if (entry.type !== 'task') return null;
+  return entry.sourceMessageUuid || null;
+}
+
 function shouldMergeStageEntries(
   currentKind: WorkstreamStageKind | null,
-  nextKind: WorkstreamStageKind
+  nextKind: WorkstreamStageKind,
+  lastEntry: WorkstreamEntry | null,
+  nextEntry: WorkstreamEntry
 ): boolean {
   if (!currentKind || currentKind !== nextKind) return false;
-  return nextKind !== 'approval' && nextKind !== 'error' && nextKind !== 'other';
+  if (nextKind === 'approval' || nextKind === 'error' || nextKind === 'other') return false;
+  if (nextKind === 'task') {
+    // Only Tasks fanned out by the same assistant message actually ran in
+    // parallel. Sequential Tasks (each launched after the previous resolved)
+    // get their own stage so the board never mislabels them as a parallel run.
+    const lastKey = lastEntry ? getTaskParallelKey(lastEntry) : null;
+    const nextKey = getTaskParallelKey(nextEntry);
+    return Boolean(lastKey && nextKey && lastKey === nextKey);
+  }
+  return true;
 }
 
 export function summarizeWorkstreamEntries(
@@ -460,7 +478,8 @@ export function summarizeWorkstreamEntries(
   for (const entry of entries) {
     const nextKind = classifyStageKind(entry);
     if (!nextKind) continue;
-    if (!shouldMergeStageEntries(bufferKind, nextKind)) {
+    const lastEntry = buffer.length > 0 ? buffer[buffer.length - 1] : null;
+    if (!shouldMergeStageEntries(bufferKind, nextKind, lastEntry, entry)) {
       flush();
       bufferKind = nextKind;
     }
