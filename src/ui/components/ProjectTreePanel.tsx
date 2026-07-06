@@ -2600,6 +2600,9 @@ export function ProjectTreePanel({
                   // Row 1: full-width preview header (breadcrumb + rail toggle),
                   // row 2: tree mini-header, row 3: tree; preview spans rows 2-3.
                   gridTemplateRows: 'auto auto minmax(0, 1fr)',
+                  // Chromium interpolates grid tracks, so the rail slides
+                  // open/closed instead of popping.
+                  transition: 'grid-template-columns 280ms cubic-bezier(0.22, 1, 0.36, 1)',
                 }
               : undefined
             : isFullscreen
@@ -2657,7 +2660,15 @@ export function ProjectTreePanel({
           className="pl-4 pr-2 pt-2 pb-2"
           style={
             useEmbeddedFilesGrid
-              ? { gridColumn: 2, gridRow: 2, display: filesRailHidden ? 'none' : undefined }
+              ? {
+                  gridColumn: 2,
+                  gridRow: 2,
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  opacity: filesRailHidden ? 0 : 1,
+                  pointerEvents: filesRailHidden ? 'none' : undefined,
+                  transition: 'opacity 200ms ease',
+                }
               : undefined
           }
         >
@@ -2702,7 +2713,16 @@ export function ProjectTreePanel({
           className="flex-1 min-h-0 flex"
           style={
             useEmbeddedFilesGrid
-              ? { gridColumn: 2, gridRow: 3, minHeight: 0, display: filesRailHidden ? 'none' : undefined }
+              ? {
+                  gridColumn: 2,
+                  gridRow: 3,
+                  minHeight: 0,
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  opacity: filesRailHidden ? 0 : 1,
+                  pointerEvents: filesRailHidden ? 'none' : undefined,
+                  transition: 'opacity 200ms ease',
+                }
               : undefined
           }
         >
@@ -3444,11 +3464,11 @@ function OpenWithButton({
   const menuApps = apps.slice(0, OPEN_WITH_MAX_APPS);
 
   return (
-    <div className="inline-flex items-stretch overflow-hidden rounded-md border border-[var(--border)] bg-[var(--bg-primary)]">
+    <div className="inline-flex items-stretch overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-primary)]">
       <button
         type="button"
         onClick={() => void openWith(defaultApp.appPath)}
-        className="inline-flex h-7 items-center gap-1.5 pl-1.5 pr-2 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+        className="inline-flex h-7 items-center gap-1.5 pl-1.5 pr-2 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
         title={`Open with ${defaultApp.name}`}
         aria-label={`Open with ${defaultApp.name}`}
       >
@@ -3464,40 +3484,40 @@ function OpenWithButton({
         )}
         <span>打开</span>
       </button>
-      <span className="my-1 w-px bg-[var(--border)]" aria-hidden="true" />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="inline-flex h-7 items-center px-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+            className="inline-flex h-7 items-center px-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
             title="Open with…"
             aria-label="Open with…"
           >
             <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" sideOffset={6} className="min-w-[13rem]">
+        <DropdownMenuContent align="end" sideOffset={6} className="min-w-[10.5rem] p-1">
           {menuApps.map((appItem) => (
             <DropdownMenuItem
               key={appItem.appPath}
               onSelect={() => void openWith(appItem.appPath)}
+              className="rounded-md px-2 py-1.5 text-[13px]"
             >
               {appItem.iconDataUrl ? (
                 <img
                   src={appItem.iconDataUrl}
                   alt=""
-                  className="mr-2 h-4 w-4 flex-shrink-0"
+                  className="mr-2.5 h-4 w-4 flex-shrink-0"
                   aria-hidden="true"
                 />
               ) : (
-                <span className="mr-2 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                <span className="mr-2.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
               )}
               <span className="truncate">{appItem.name}</span>
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={revealFolder}>
-            <FolderClosed className="mr-2 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+          <DropdownMenuItem onSelect={revealFolder} className="rounded-md px-2 py-1.5 text-[13px]">
+            <FolderClosed className="mr-2.5 h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" aria-hidden="true" />
             <span>打开所在文件夹</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
