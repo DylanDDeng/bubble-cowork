@@ -1073,6 +1073,12 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
     },
     send: (text, promptAttachments, requestedModel) =>
       enqueuePrompt(text, promptAttachments, requestedModel),
+    interrupt: async () => {
+      if (!activeQuery) {
+        throw new Error('Session is not active.');
+      }
+      await activeQuery.interrupt();
+    },
     rewindFiles: async (userMessageId, options) => {
       if (!activeQuery) {
         return { canRewind: false, error: 'Session is not active.' };

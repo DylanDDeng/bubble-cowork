@@ -3270,6 +3270,13 @@ const runnerHandles = new Map<
     autoApprove?: boolean;
     /** Latest dispatched prompt — feeds the slash-command failure check across reuse. */
     latestPrompt?: string;
+    /**
+     * The user pressed stop while this turn ran; its result must report
+     * 'idle' (not error) and must not trigger failure detection.
+     */
+    stoppedByUser?: boolean;
+    /** Hard-abort fallback in case an interrupted turn's result never lands. */
+    stopFallbackTimer?: NodeJS.Timeout;
   }
 >();
 
@@ -8115,8 +8122,12 @@ function startRunner(
         const entryForPrompt = runnerHandles.get(session.id);
         const turnPrompt =
           (entryForPrompt?.handle === handle && entryForPrompt.latestPrompt) || prompt;
+        // A user-interrupted turn ends with a non-success result by design;
+        // it must read as 'idle', not as a failure.
+        const stoppedByUser =
+          entryForPrompt?.handle === handle && entryForPrompt.stoppedByUser === true;
         const slashFailureMessage =
-          provider === 'claude'
+          provider === 'claude' && !stoppedByUser
             ? detectSilentSlashCommandFailure(
                 turnPrompt,
                 initMessage,
@@ -8141,11 +8152,21 @@ function startRunner(
         }
 
         const explicitFailureMessage = localFailureMessage || slashFailureMessage;
-        const status: SessionStatus =
-          explicitFailureMessage || message.subtype !== 'success' ? 'error' : 'completed';
-        sessions.updateSessionStatus(session.id, status);
+        const status: SessionStatus = stoppedByUser
+          ? 'idle'
+          : explicitFailureMessage || message.subtype !== 'success'
+            ? 'error'
+            : 'completed';
+        // When the user stopped this turn but immediately dispatched another
+        // one into the same runner, the late result of the stopped turn must
+        // not flip the (running) session status back to idle.
+        const suppressStatusBroadcast =
+          stoppedByUser && ((entryForPrompt?.inFlightTurns ?? 1) - 1) > 0;
+        if (!suppressStatusBroadcast) {
+          sessions.updateSessionStatus(session.id, status);
+        }
 
-        broadcast(mainWindow, {
+        if (!suppressStatusBroadcast) broadcast(mainWindow, {
           type: 'session.status',
           payload: {
             sessionId: session.id,
@@ -8216,6 +8237,15 @@ function startRunner(
           currentEntry.onTurnDone = undefined;
           turnDone?.(status, explicitFailureMessage || undefined);
           if (provider === 'claude') {
+            // The interrupted turn's result has landed — the soft stop is
+            // complete and the hard-abort fallback is no longer needed.
+            if (currentEntry.stoppedByUser) {
+              currentEntry.stoppedByUser = undefined;
+              if (currentEntry.stopFallbackTimer) {
+                clearTimeout(currentEntry.stopFallbackTimer);
+                currentEntry.stopFallbackTimer = undefined;
+              }
+            }
             // Keep the runner alive for follow-up turns (streaming-input
             // reuse) — unless its live context is stale/poisoned (doomed) or
             // it is a one-shot auto-approving automation runner.
@@ -8241,14 +8271,20 @@ function startRunner(
       console.error('Runner error:', error);
 
       // An idle (between-turns) Claude runner dying — OOM, external kill —
-      // must not flip a completed session to error with a toast. Drop the
-      // entry silently; the next send simply respawns.
+      // must not flip a completed session to error with a toast, and a turn
+      // the user just stopped must not surface its teardown as a failure.
+      // Drop the entry silently; the next send simply respawns.
       const mappedEntry = runnerHandles.get(session.id);
       if (
         provider === 'claude' &&
         mappedEntry?.handle === handle &&
-        (mappedEntry.inFlightTurns ?? 0) === 0
+        ((mappedEntry.inFlightTurns ?? 0) === 0 || mappedEntry.stoppedByUser === true)
       ) {
+        if (mappedEntry.stopFallbackTimer) {
+          clearTimeout(mappedEntry.stopFallbackTimer);
+          mappedEntry.stopFallbackTimer = undefined;
+        }
+        mappedEntry.handle.abort();
         runnerHandles.delete(session.id);
         return;
       }
@@ -8459,6 +8495,19 @@ function handleSessionHistory(mainWindow: BrowserWindow, sessionId: string): voi
 }
 
 // 停止会话
+function hardStopClaudeRunner(sessionId: string, entry: NonNullable<ReturnType<typeof runnerHandles.get>>): void {
+  if (runnerHandles.get(sessionId) !== entry) return;
+  if (entry.stopFallbackTimer) {
+    clearTimeout(entry.stopFallbackTimer);
+    entry.stopFallbackTimer = undefined;
+  }
+  entry.handle.abort();
+  runnerHandles.delete(sessionId);
+}
+
+/** How long to wait for an interrupted turn's result before hard-aborting. */
+const STOP_INTERRUPT_FALLBACK_MS = 8_000;
+
 function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
   const session = sessions.getSession(sessionId);
   const entry = runnerHandles.get(sessionId);
@@ -8466,8 +8515,31 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
     const turnDone = entry.onTurnDone;
     entry.onTurnDone = undefined;
     turnDone?.('idle');
-    entry.handle.abort();
-    runnerHandles.delete(sessionId);
+    const canSoftInterrupt =
+      entry.provider === 'claude' &&
+      typeof entry.handle.interrupt === 'function' &&
+      (entry.inFlightTurns ?? 0) > 0;
+    if (canSoftInterrupt) {
+      // Soft stop: interrupt the in-flight turn but keep the runner (and its
+      // warm context) alive so the next send skips the cold respawn. The
+      // interrupted turn still emits a result; stoppedByUser makes the result
+      // handler report 'idle' instead of an error.
+      entry.stoppedByUser = true;
+      entry.handle.interrupt!().catch(() => hardStopClaudeRunner(sessionId, entry));
+      if (entry.stopFallbackTimer) {
+        clearTimeout(entry.stopFallbackTimer);
+      }
+      entry.stopFallbackTimer = setTimeout(() => {
+        const current = runnerHandles.get(sessionId);
+        if (current === entry && current.stoppedByUser) {
+          hardStopClaudeRunner(sessionId, current);
+        }
+      }, STOP_INTERRUPT_FALLBACK_MS);
+      entry.stopFallbackTimer.unref?.();
+    } else {
+      entry.handle.abort();
+      runnerHandles.delete(sessionId);
+    }
   }
 
   // 拒绝所有 pending permissions

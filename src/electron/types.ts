@@ -153,6 +153,13 @@ export interface RewindFilesResult {
 export interface RunnerHandle {
   abort: () => void;
   /**
+   * Softly interrupt the in-flight turn while keeping the underlying process
+   * and its context alive, so the next send reuses the warm session instead
+   * of paying a cold respawn. Only the Claude runner provides this (SDK
+   * streaming-input mode); absent on other providers.
+   */
+  interrupt?: () => Promise<void>;
+  /**
    * Rewind checkpointed files to their state at a specific SDK user message.
    * Only available while the underlying SDK query is alive (Claude runner with
    * file checkpointing enabled); absent on other providers.
