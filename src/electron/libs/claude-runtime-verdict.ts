@@ -239,18 +239,30 @@ export function createClaudeRuntimeStatusCache(options: {
 
   let cachedProbe: ClaudeRuntimeProbe | null = null;
   let inFlight: Promise<ClaudeRuntimeProbe> | null = null;
+  let inFlightGeneration = 0;
+  // Bumped by invalidate(): a probe spawned before the invalidation captured
+  // pre-change facts (auth, env), so it must neither repopulate the cache
+  // when it resolves nor be joined by post-invalidation callers.
+  let generation = 0;
 
   // Concurrent callers share one probe (no double subprocess spawn).
   const refresh = (): Promise<ClaudeRuntimeProbe> => {
-    if (!inFlight) {
-      inFlight = probe()
+    if (!inFlight || inFlightGeneration !== generation) {
+      const startedGeneration = generation;
+      const probePromise = probe()
         .then((result) => {
-          cachedProbe = result;
+          if (generation === startedGeneration) {
+            cachedProbe = result;
+          }
           return result;
         })
         .finally(() => {
-          inFlight = null;
+          if (inFlight === probePromise) {
+            inFlight = null;
+          }
         });
+      inFlight = probePromise;
+      inFlightGeneration = startedGeneration;
     }
     return inFlight;
   };
@@ -278,6 +290,7 @@ export function createClaudeRuntimeStatusCache(options: {
       return deriveClaudeRuntimeStatus(await refresh(), model ?? null);
     },
     invalidate(): void {
+      generation += 1;
       cachedProbe = null;
     },
     async prefetch(): Promise<void> {
