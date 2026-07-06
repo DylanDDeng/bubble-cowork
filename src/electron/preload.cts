@@ -708,6 +708,16 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('reveal-path', filePath);
   },
 
+  // 列出可以打开该文件的本地应用（"打开方式"，仅 macOS）
+  listOpenWithApps: (cwd: string, filePath: string) => {
+    return ipcRenderer.invoke('list-open-with-apps', cwd, filePath);
+  },
+
+  // 用指定应用打开文件
+  openFileWithApp: (cwd: string, filePath: string, appPath: string) => {
+    return ipcRenderer.invoke('open-file-with-app', cwd, filePath, appPath);
+  },
+
   // 获取项目文件树
   getProjectTree: (cwd: string) => {
     return ipcRenderer.invoke('get-project-tree', cwd);

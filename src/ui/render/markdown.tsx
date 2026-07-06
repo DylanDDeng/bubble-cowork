@@ -25,7 +25,6 @@ import { ErrorBoundary } from '../components/ErrorBoundary';
 import { FileTypeIcon } from '../components/FileTypeIcon';
 import { HighlightedCode } from '../components/HighlightedCode';
 import { useAppStore } from '../store/useAppStore';
-import { isHtmlFilePath, openHtmlFileInBrowserTab } from '../utils/html-preview';
 
 interface MDContentProps {
   content: string;
@@ -298,26 +297,10 @@ function useProjectFileNavigation() {
   const openProjectFile = (projectFile: ProjectFileLink) => {
     if (!cwd) return;
 
-    if (isHtmlFilePath(projectFile.path)) {
-      if (!activeSessionId) {
-        toast.error('No active session for browser preview.');
-        return;
-      }
-
-      openHtmlFileInBrowserTab({
-        cwd,
-        filePath: projectFile.path,
-        sessionId: activeSessionId,
-      })
-        .then(() => {
-          openRightUtilityTab('browser');
-        })
-        .catch((error) => {
-          toast.error(`Failed to open in browser panel: ${error}`);
-        });
-      return;
-    }
-
+    // HTML chips open in the file panel showing source, like every other
+    // file; the panel's open handler resolves partial paths via
+    // resolveProjectTreeFile, and the rendered page is reachable from the
+    // preview header's Open-with dropdown (browsers are in that list).
     openRightUtilityTab('files');
 
     window.setTimeout(() => {

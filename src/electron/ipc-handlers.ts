@@ -3685,6 +3685,144 @@ const execFileAsync = promisify(execFile);
 const GIT_PATCH_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
 const GIT_PATCH_MAX_CHARS = 8 * 1024 * 1024;
 
+// ── "Open with" (macOS Launch Services) ─────────────────────────────────────
+
+interface OpenWithApp {
+  name: string;
+  appPath: string;
+  iconDataUrl: string | null;
+}
+
+// App icons are stable per bundle path; cache the data URLs so repeated
+// dropdown opens don't re-decode .icns files.
+const openWithIconCache = new Map<string, string | null>();
+
+// Query Launch Services for every app that can open `targetPath`, default
+// first. URLsForApplicationsToOpenURL requires macOS 12+; on older systems the
+// JXA throws and the caller degrades to an empty list. The path is passed via
+// argv ($.NSProcessInfo arguments), never interpolated into the script.
+async function queryLaunchServicesApps(targetPath: string): Promise<string[]> {
+  const script = `
+    ObjC.import('AppKit');
+    function run(argv) {
+      const path = argv[0];
+      const url = $.NSURL.fileURLWithPath(path);
+      const ws = $.NSWorkspace.sharedWorkspace;
+      const ordered = [];
+      const seen = {};
+      const push = (p) => { if (p && !seen[p]) { seen[p] = true; ordered.push(p); } };
+      const def = ws.URLForApplicationToOpenURL(url);
+      if (def && !def.isNil()) push(def.path.js);
+      const arr = ws.URLsForApplicationsToOpenURL(url);
+      if (arr && !arr.isNil()) {
+        for (let i = 0; i < arr.count; i++) push(arr.objectAtIndex(i).path.js);
+      }
+      return JSON.stringify(ordered);
+    }
+  `;
+  const { stdout } = await execFileAsync(
+    'osascript',
+    ['-l', 'JavaScript', '-e', script, targetPath],
+    { timeout: 5000, maxBuffer: 1024 * 1024 }
+  );
+  const parsed = JSON.parse(stdout.trim() || '[]');
+  return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === 'string' && !!p) : [];
+}
+
+// Electron's app.getFileIcon resolves icons by file EXTENSION, so on macOS
+// every .app bundle yields the same generic icon. Render the real per-app
+// icons through NSWorkspace.iconForFile instead — one osascript call extracts
+// the whole batch as 32pt PNGs (covers .icns and Assets.car apps alike).
+async function extractAppIconDataUrls(appPaths: string[]): Promise<void> {
+  const pending = appPaths.filter((appPath) => !openWithIconCache.has(appPath));
+  if (pending.length === 0) return;
+
+  const script = `
+    ObjC.import('AppKit');
+    function run(argv) {
+      const outDir = argv[0];
+      const written = [];
+      for (let i = 1; i < argv.length; i++) {
+        let out = null;
+        try {
+          const img = $.NSWorkspace.sharedWorkspace.iconForFile(argv[i]);
+          const small = $.NSImage.alloc.initWithSize($.NSMakeSize(32, 32));
+          small.lockFocus;
+          img.drawInRectFromRectOperationFraction(
+            $.NSMakeRect(0, 0, 32, 32), $.NSZeroRect, $.NSCompositingOperationSourceOver, 1.0);
+          small.unlockFocus;
+          const rep = $.NSBitmapImageRep.imageRepWithData(small.TIFFRepresentation);
+          const png = rep.representationUsingTypeProperties(4 /* PNG */, $.NSDictionary.dictionary);
+          const file = outDir + '/' + (i - 1) + '.png';
+          if (png && !png.isNil() && png.writeToFileAtomically(file, true)) out = file;
+        } catch (e) { out = null; }
+        written.push(out);
+      }
+      return JSON.stringify(written);
+    }
+  `;
+
+  let outDir: string | null = null;
+  let files: (string | null)[] = [];
+  try {
+    outDir = await fsPromises.mkdtemp(join(tmpdir(), 'aegis-open-with-'));
+    const { stdout } = await execFileAsync(
+      'osascript',
+      ['-l', 'JavaScript', '-e', script, outDir, ...pending],
+      { timeout: 10000, maxBuffer: 1024 * 1024 }
+    );
+    const parsed = JSON.parse(stdout.trim() || '[]');
+    files = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    files = [];
+  }
+
+  try {
+    await Promise.all(
+      pending.map(async (appPath, i) => {
+        let dataUrl: string | null = null;
+        const file = typeof files[i] === 'string' ? files[i] : null;
+        if (file) {
+          try {
+            const png = await fsPromises.readFile(file);
+            dataUrl = `data:image/png;base64,${png.toString('base64')}`;
+          } catch {
+            dataUrl = null;
+          }
+        }
+        if (!dataUrl) {
+          // Fallback: .icns extraction via sips (misses Assets.car-only apps).
+          dataUrl = (await getNativeIconDataUrl(appPath)) ?? null;
+        }
+        openWithIconCache.set(appPath, dataUrl);
+      })
+    );
+  } finally {
+    if (outDir) {
+      void fsPromises.rm(outDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+}
+
+function appDisplayNameFromPath(appPath: string): string {
+  const base = basename(appPath);
+  return base.toLowerCase().endsWith('.app') ? base.slice(0, -'.app'.length) : base;
+}
+
+// The dropdown shows at most a handful of apps; don't extract icons for the
+// long tail Launch Services returns.
+const OPEN_WITH_APP_LIMIT = 8;
+
+async function listOpenWithApps(targetPath: string): Promise<OpenWithApp[]> {
+  const appPaths = (await queryLaunchServicesApps(targetPath)).slice(0, OPEN_WITH_APP_LIMIT);
+  await extractAppIconDataUrls(appPaths);
+  return appPaths.map((appPath) => ({
+    name: appDisplayNameFromPath(appPath),
+    appPath,
+    iconDataUrl: openWithIconCache.get(appPath) ?? null,
+  }));
+}
+
 function parseGitNumstat(stdout: string): { insertions: number; deletions: number } {
   let insertions = 0;
   let deletions = 0;
@@ -5796,6 +5934,64 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       return { ok: false, message: String(error) };
     }
   });
+
+  // RPC: 列出可以打开该文件的本地应用（"打开方式"）。仅 macOS 支持。
+  ipcMainHandle(
+    'list-open-with-apps',
+    async (
+      _event,
+      cwd: string,
+      filePath: string
+    ): Promise<{ ok: boolean; apps?: OpenWithApp[]; message?: string }> => {
+      if (process.platform !== 'darwin') {
+        // Feature is macOS-only (Launch Services). Renderer hides the button
+        // when the list comes back empty.
+        return { ok: true, apps: [] };
+      }
+      const validation = await validateProjectFilePath(cwd, filePath);
+      if (!validation.ok) {
+        return { ok: false, message: validation.message };
+      }
+      try {
+        const apps = await listOpenWithApps(validation.targetReal);
+        return { ok: true, apps };
+      } catch (error) {
+        // Launch Services / osascript failures degrade to an empty list, not
+        // an error toast — the feature simply hides.
+        return { ok: true, apps: [] };
+      }
+    }
+  );
+
+  // RPC: 用指定应用打开文件（"打开方式 › 某个 App"）。
+  ipcMainHandle(
+    'open-file-with-app',
+    async (
+      _event,
+      cwd: string,
+      filePath: string,
+      appPath: string
+    ): Promise<{ ok: boolean; message?: string }> => {
+      if (process.platform !== 'darwin') {
+        return { ok: false, message: 'Open-with is only supported on macOS.' };
+      }
+      const validation = await validateProjectFilePath(cwd, filePath);
+      if (!validation.ok) {
+        return { ok: false, message: validation.message };
+      }
+      if (typeof appPath !== 'string' || !appPath.toLowerCase().endsWith('.app')) {
+        return { ok: false, message: 'Invalid application path.' };
+      }
+      try {
+        // Pass path + app via argv, never string interpolation, so spaces and
+        // shell metacharacters in the file/app path can't break out.
+        await execFileAsync('open', ['-a', appPath, validation.targetReal]);
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, message: String(error) };
+      }
+    }
+  );
 
   // RPC: 订阅项目文件树更新
   ipcMainHandle('watch-project-tree', async (_event, cwd: string) => {

@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { MDContent } from '../render/markdown';
 import { HighlightedCode } from './HighlightedCode';
+import { resolveProjectTreeFile } from '../utils/resolve-tree-file';
 import TextFileReader from './TextFileReader';
 import { FileTypeIcon } from './FileTypeIcon';
 import { ProjectMarkdownEditor, type ProjectMarkdownEditorBridge } from './ProjectMarkdownEditor';
@@ -20,18 +21,12 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import {
-  isHtmlFilePath,
-  openUrlInBrowserSession,
-  resolveHtmlPreviewUrl,
-} from '../utils/html-preview';
-import { getBrowserUtilitySessionId } from '../utils/browser-utility';
-import {
   copyMarkdownAsWechatAiHtml,
   copyMarkdownAsWechatHtml,
   type WeChatAiThemeId,
   type WeChatStaticThemeId,
 } from '../lib/wechatMarkdown';
-import type { ProjectTreeNode, ProjectUtilityPanelKind, ProjectUtilityPanelTarget } from '../types';
+import type { ProjectTreeNode, ProjectUtilityPanelKind } from '../types';
 
 type ProjectPanelTab = 'files';
 type ViewMode = 'view' | 'code' | 'split';
@@ -597,8 +592,6 @@ export function ProjectTreePanel({
     projectTree,
     projectTreeCwd,
     setProjectTree,
-    setBrowserPanelOpen,
-    setProjectTreeCollapsed,
   } = useAppStore();
   const [loading, setLoading] = useState(false);
   const [projectTreeError, setProjectTreeError] = useState<string | null>(null);
@@ -1209,84 +1202,6 @@ export function ProjectTreePanel({
 
     const name = fileName || filePath.split('/').filter(Boolean).pop() || filePath;
 
-    if (isHtmlFilePath(filePath)) {
-      const requestId = (previewRequestIdRef.current += 1);
-      expandParentsForPath(filePath);
-      setSelectedFilePath(null);
-      setSelectedFileCwd(null);
-      setPreviewLoading(false);
-      setSelectedPreview(null);
-      setMdxRevealTarget(null);
-      setDraftTextSynced('');
-      setSaveStateSynced('idle');
-      setSaveErrorSynced(null);
-      setPptxSlideIndex(0);
-
-      if (!activeSessionId) {
-        toast.error('No active session for browser preview.');
-        return;
-      }
-
-      try {
-        const url = await resolveHtmlPreviewUrl({ cwd, filePath });
-        if (previewRequestIdRef.current !== requestId) return;
-
-        if (onOpenUtilityTab) {
-          // Re-activate the browser tab that already shows this file instead
-          // of opening a duplicate.
-          const browserTargets = useAppStore
-            .getState()
-            .rightUtilityTabs.filter(
-              (target) => target === 'browser' || target.startsWith('browser:')
-            );
-          for (const target of browserTargets) {
-            const targetState = await window.electron.browser.getState({
-              sessionId: getBrowserUtilitySessionId(activeSessionId, target),
-            });
-            if (previewRequestIdRef.current !== requestId) return;
-            if (targetState.tabs.some((tab) => tab.url === url)) {
-              useAppStore.getState().setActiveRightUtilityTab(target);
-              return;
-            }
-          }
-
-          // The base browser session hosts the first preview; every further
-          // file gets its own browser tab so previews never replace each other.
-          const baseState = await window.electron.browser.getState({
-            sessionId: activeSessionId,
-          });
-          if (previewRequestIdRef.current !== requestId) return;
-          if (baseState.tabs.length === 0) {
-            await openUrlInBrowserSession({ sessionId: activeSessionId, url });
-            if (previewRequestIdRef.current !== requestId) return;
-            onOpenUtilityTab('browser');
-          } else {
-            // Seed the new browser session with the file URL before its panel
-            // exists: once the tab is activated, the mounting BrowserPanel's
-            // open(DEFAULT_HOME_URL) finds a populated session and leaves it
-            // alone. Activating first instead would race the mount load and
-            // intermittently lose the file URL to about:blank.
-            const target: ProjectUtilityPanelTarget = `browser:${crypto.randomUUID()}`;
-            await openUrlInBrowserSession({
-              sessionId: getBrowserUtilitySessionId(activeSessionId, target),
-              url,
-            });
-            if (previewRequestIdRef.current !== requestId) return;
-            useAppStore.getState().setActiveRightUtilityTab(target);
-          }
-        } else {
-          await openUrlInBrowserSession({ sessionId: activeSessionId, url });
-          if (previewRequestIdRef.current !== requestId) return;
-          setBrowserPanelOpen(true);
-          setProjectTreeCollapsed(true);
-        }
-      } catch (error) {
-        if (previewRequestIdRef.current !== requestId) return;
-        toast.error(`Failed to open in browser panel: ${error}`);
-      }
-      return;
-    }
-
     const cachedTab = openFileTabsRef.current.find((tab) =>
       tab.id === getProjectFileTabId(cwd, filePath)
     );
@@ -1335,6 +1250,13 @@ export function ProjectTreePanel({
         }
         return;
       }
+      // HTML opens to its SOURCE by default; the rendered page is reachable
+      // via the header Open-with dropdown (browsers are in that list) or the
+      // in-panel Source/Preview toggle.
+      if (preview.kind === 'html') {
+        setViewMode('code');
+        return;
+      }
       if ((preview.kind === 'text' || preview.kind === 'markdown') && preview.editable) {
         const nextViewMode = preview.kind === 'text' ? 'code' : 'view';
         setViewMode(nextViewMode);
@@ -1365,8 +1287,6 @@ export function ProjectTreePanel({
     refreshFileTabFromDisk,
     selectedFilePath,
     onOpenUtilityTab,
-    setBrowserPanelOpen,
-    setProjectTreeCollapsed,
     setDraftTextSynced,
     setSaveStateSynced,
   ]);
@@ -1927,12 +1847,18 @@ export function ProjectTreePanel({
         return;
       }
       if (detail.cwd && cwd && detail.cwd !== cwd) return;
-      void selectFilePath(detail.path, undefined, false);
+      // Chat messages reference files by bare name or partial path; resolve
+      // against the loaded tree so "workstream-stages.ts" opens
+      // src/ui/utils/workstream-stages.ts instead of "File not found".
+      const resolved = visibleTree
+        ? resolveProjectTreeFile(visibleTree, detail.path)
+        : null;
+      void selectFilePath(resolved ?? detail.path, undefined, false);
     };
 
     window.addEventListener('aegis:open-project-file', handleOpenProjectFile);
     return () => window.removeEventListener('aegis:open-project-file', handleOpenProjectFile);
-  }, [cwd, selectExternalFilePath, selectFilePath]);
+  }, [cwd, selectExternalFilePath, selectFilePath, visibleTree]);
 
   const handleCopyPath = async (path: string) => {
     try {
@@ -2570,7 +2496,7 @@ export function ProjectTreePanel({
     !!selectedPreview &&
     (
       (selectedPreview.kind === 'markdown' && viewMode === 'code') ||
-      (selectedPreview.kind === 'html' && viewMode === 'code') ||
+      selectedPreview.kind === 'html' ||
       (selectedPreview.kind === 'text' && !selectedPreview.editable && selectedPreview.ext !== '.mdx')
     );
   const isMdxFilePreview =
@@ -2952,7 +2878,8 @@ export function ProjectTreePanel({
               }
             />
             <div className="no-drag flex flex-shrink-0 items-center gap-1">
-              {(selectedPreview?.kind === 'html' || isMdxFilePreview) && (
+              <OpenWithButton cwd={selectedFileCwd || cwd} filePath={selectedFilePath} />
+              {isMdxFilePreview && (
                 <ViewModeToggle
                   value={viewMode}
                   onChange={setViewMode}
@@ -3065,7 +2992,10 @@ export function ProjectTreePanel({
                   <div className="min-w-4 flex-1 self-stretch" aria-hidden="true" />
 
                   <div className="no-drag flex flex-shrink-0 items-center gap-1">
-                    {(selectedPreview?.kind === 'html' || isMdxFilePreview) && (
+                    {selectedFilePath ? (
+                      <OpenWithButton cwd={selectedFileCwd || cwd} filePath={selectedFilePath} />
+                    ) : null}
+                    {isMdxFilePreview && (
                       <ViewModeToggle
                         value={viewMode}
                         onChange={setViewMode}
@@ -3174,7 +3104,8 @@ export function ProjectTreePanel({
                   />
 
                   <div className="flex items-center gap-1 flex-shrink-0 no-drag">
-                    {(selectedPreview?.kind === 'html' || isMdxFilePreview) && (
+                    <OpenWithButton cwd={selectedFileCwd || cwd} filePath={selectedFilePath} />
+                    {isMdxFilePreview && (
                       <ViewModeToggle
                         value={viewMode}
                         onChange={setViewMode}
@@ -3234,7 +3165,7 @@ export function ProjectTreePanel({
                     : isSpreadsheetPreviewSurface
                     ? 'bg-[var(--bg-primary)] p-0'
                     : isCodePreviewSurface
-                    ? 'rounded-lg border border-[var(--border)] bg-[var(--code-block-bg)] p-0'
+                    ? 'bg-[var(--bg-primary)] p-0'
                     : isMarkdownPreviewSurface
                       ? 'bg-[var(--bg-primary)] p-0'
                     : 'rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] p-3'
@@ -3323,20 +3254,11 @@ export function ProjectTreePanel({
                 )}
 
                 {!previewLoading && selectedPreview?.kind === 'html' && (
-                  viewMode === 'code' ? (
-                    <HighlightedCode
-                      code={selectedPreview.text}
-                      language="html"
-                      className="min-h-full rounded-none"
-                    />
-                  ) : (
-                    <iframe
-                      title={selectedPreview.name}
-                      sandbox="allow-scripts"
-                      srcDoc={selectedPreview.text}
-                      className="w-full h-full min-h-[320px] rounded-md border border-[var(--border)] bg-[var(--preview-surface)]"
-                    />
-                  )
+                  <HighlightedCode
+                    code={selectedPreview.text}
+                    language="html"
+                    className="file-preview-code min-h-full rounded-none"
+                  />
                 )}
 
                 {!previewLoading && selectedPreview?.kind === 'text' && (
@@ -3419,7 +3341,7 @@ export function ProjectTreePanel({
                       <HighlightedCode
                         code={selectedPreview.text}
                         fileName={selectedPreview.name}
-                        className="min-h-full rounded-none"
+                        className="file-preview-code min-h-full rounded-none"
                       />
                     )}
                     {saveState === 'error' && saveError && (
@@ -3434,6 +3356,153 @@ export function ProjectTreePanel({
 
       </div>
     </>
+  );
+}
+
+interface OpenWithApp {
+  name: string;
+  appPath: string;
+  iconDataUrl: string | null;
+}
+
+/** Dropdown shows at most this many apps (default first) — no scrolling list. */
+const OPEN_WITH_MAX_APPS = 5;
+
+// Session-lived cache of Launch Services results so re-selecting a file (or
+// re-rendering the header) doesn't re-spawn osascript. Keyed per file.
+const openWithAppsCache = new Map<string, OpenWithApp[]>();
+
+// Header "打开 ∨" split-button. The primary side shows the DEFAULT app's icon
+// and opens the file with it; the chevron opens a short menu — the top apps
+// that can open the file (Launch Services order, capped) plus
+// "打开所在文件夹". The app list (and thus the default-app icon) is fetched
+// eagerly when the file is selected. On non-macOS, or when Launch Services
+// fails or knows no app, the list settles empty and the control hides.
+function OpenWithButton({
+  cwd,
+  filePath,
+}: {
+  cwd: string | null;
+  filePath: string;
+}) {
+  const [apps, setApps] = useState<OpenWithApp[] | null>(null);
+  const requestKeyRef = useRef<string>('');
+
+  useEffect(() => {
+    if (!cwd || !filePath) {
+      setApps(null);
+      return;
+    }
+    const key = `${cwd} ${filePath}`;
+    requestKeyRef.current = key;
+
+    const cached = openWithAppsCache.get(key);
+    if (cached) {
+      setApps(cached);
+      return;
+    }
+
+    setApps(null);
+    const lister = window.electron.listOpenWithApps;
+    if (typeof lister !== 'function') {
+      setApps([]);
+      return;
+    }
+    lister(cwd, filePath)
+      .then((res) => {
+        const list = res && res.ok && Array.isArray(res.apps) ? res.apps : [];
+        if (openWithAppsCache.size > 100) openWithAppsCache.clear();
+        openWithAppsCache.set(key, list);
+        // Ignore a response for a file that is no longer selected.
+        if (requestKeyRef.current !== key) return;
+        setApps(list);
+      })
+      .catch(() => {
+        if (requestKeyRef.current === key) setApps([]);
+      });
+  }, [cwd, filePath]);
+
+  const openWith = useCallback(
+    async (appPath: string) => {
+      if (!cwd) return;
+      const opener = window.electron.openFileWithApp;
+      if (typeof opener !== 'function') return;
+      const res = await opener(cwd, filePath, appPath);
+      if (res && !res.ok) toast.error(res.message || 'Failed to open the file.');
+    },
+    [cwd, filePath]
+  );
+
+  const revealFolder = useCallback(() => {
+    void window.electron.revealPath?.(filePath);
+  }, [filePath]);
+
+  // Hidden until the list resolves; hidden for good when it settles empty.
+  if (!cwd || !apps || apps.length === 0) return null;
+
+  const defaultApp = apps[0];
+  const menuApps = apps.slice(0, OPEN_WITH_MAX_APPS);
+
+  return (
+    <div className="inline-flex items-stretch overflow-hidden rounded-md border border-[var(--border)] bg-[var(--bg-primary)]">
+      <button
+        type="button"
+        onClick={() => void openWith(defaultApp.appPath)}
+        className="inline-flex h-7 items-center gap-1.5 pl-1.5 pr-2 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+        title={`Open with ${defaultApp.name}`}
+        aria-label={`Open with ${defaultApp.name}`}
+      >
+        {defaultApp.iconDataUrl ? (
+          <img
+            src={defaultApp.iconDataUrl}
+            alt=""
+            className="h-4 w-4 flex-shrink-0"
+            aria-hidden="true"
+          />
+        ) : (
+          <FolderOpen className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+        )}
+        <span>打开</span>
+      </button>
+      <span className="my-1 w-px bg-[var(--border)]" aria-hidden="true" />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex h-7 items-center px-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+            title="Open with…"
+            aria-label="Open with…"
+          >
+            <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" sideOffset={6} className="min-w-[13rem]">
+          {menuApps.map((appItem) => (
+            <DropdownMenuItem
+              key={appItem.appPath}
+              onSelect={() => void openWith(appItem.appPath)}
+            >
+              {appItem.iconDataUrl ? (
+                <img
+                  src={appItem.iconDataUrl}
+                  alt=""
+                  className="mr-2 h-4 w-4 flex-shrink-0"
+                  aria-hidden="true"
+                />
+              ) : (
+                <span className="mr-2 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+              )}
+              <span className="truncate">{appItem.name}</span>
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={revealFolder}>
+            <FolderClosed className="mr-2 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+            <span>打开所在文件夹</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 

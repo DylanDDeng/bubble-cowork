@@ -856,6 +856,17 @@ button.md-inline-file-code:hover {
   background: var(--preview-surface);
 }
 
+/* File-panel code preview: code sits directly on the panel surface —
+   no gray slab, no gutter divider (matches the plain-editor look). */
+.highlighted-code-block.file-preview-code {
+  background: var(--bg-primary);
+}
+
+.highlighted-code-block.file-preview-code .highlighted-code-gutter {
+  border-right: none;
+  background: transparent;
+}
+
 .highlighted-code-scroll {
   overflow-x: auto;
   overflow-y: hidden;

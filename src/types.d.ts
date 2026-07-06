@@ -246,6 +246,15 @@ declare global {
     previewArtifactPath: (cwd: string, filePath: string, options?: { openInBrowser?: boolean }) => Promise<{ ok: boolean; url?: string; message?: string }>;
     openPath: (filePath: string) => Promise<{ ok: boolean; message?: string }>;
     revealPath: (filePath: string) => Promise<{ ok: boolean; message?: string }>;
+    listOpenWithApps: (
+      cwd: string,
+      filePath: string
+    ) => Promise<{ ok: boolean; apps?: Array<{ name: string; appPath: string; iconDataUrl: string | null }>; message?: string }>;
+    openFileWithApp: (
+      cwd: string,
+      filePath: string,
+      appPath: string
+    ) => Promise<{ ok: boolean; message?: string }>;
     getProjectTree: (cwd: string) => Promise<ProjectTreeNode | null>;
     watchProjectTree: (cwd: string) => Promise<boolean>;
     unwatchProjectTree: (cwd: string) => Promise<boolean>;
