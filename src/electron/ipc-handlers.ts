@@ -90,6 +90,15 @@ import { getMemoryWorkspace, saveMemoryDocument } from './libs/memory-store';
 import { formatClaudeRuntimeBlockingMessage, getClaudeRuntimeStatus, getClaudeRuntimeStatusCached, invalidateClaudeRuntimeCache } from './libs/claude-runtime-status';
 import { selectClaudeRunnersToReap, type ClaudeRunnerSnapshot } from './libs/claude-runner-pool';
 import {
+  classifyResultForStop,
+  isStoppedTurnDrainMessage,
+  markTurnsStopped,
+  resolveStopFallbackAction,
+  shouldAutoDenyPermission,
+  shouldDropRunnerErrorSilently,
+  type StopStateSnapshot,
+} from './libs/claude-stop-reconcile';
+import {
   getSkillMarketDetail,
   getSkillMarketHot,
   installSkillFromMarket,
@@ -3290,15 +3299,58 @@ const runnerHandles = new Map<
      * Prompts dispatched into this runner whose `result` has not arrived yet
      * (FIFO — results come back in dispatch order on the single CLI stream).
      * Feeds the slash-command failure check for the turn each result closes;
-     * a single shared slot would misattribute queued prompts.
+     * a single shared slot would misattribute queued prompts. Kept aligned
+     * with inFlightTurns: every result shifts one entry (stopped and
+     * suppressed results included), and prompts cancelled before dispatch
+     * are trimmed from the tail alongside their in-flight count.
      */
     pendingTurnPrompts?: string[];
+    /**
+     * User-stopped (interrupted) turns whose `result` has not landed yet.
+     * Their results must report 'idle' (not error), must not trigger failure
+     * detection, and — with a follow-up turn in flight — must not clobber the
+     * live turn's status. Always ≤ inFlightTurns; see claude-stop-reconcile.
+     */
+    stoppedTurns?: number;
+    /** Hard-abort fallback in case an interrupted turn's result never lands. */
+    stopFallbackTimer?: NodeJS.Timeout;
+    /** How many times the fallback fired for the current unreconciled stop. */
+    stopFallbackAttempts?: number;
     /** Working directory the runner was spawned with — reuse must match it. */
     cwd?: string | null;
   }
 >();
 
 let automationScheduler: AutomationScheduler | null = null;
+
+type RunnerEntry = NonNullable<ReturnType<typeof runnerHandles.get>>;
+
+/**
+ * Handles the user pressed stop on. A stopped runner can be replaced before
+ * its stream finishes tearing down (e.g. a follow-up that cannot reuse it);
+ * the replaced handle's late onError is then teardown noise that must never
+ * mark the session — now owned by a different runner — as failed.
+ */
+const userStoppedRunnerHandles = new WeakSet<object>();
+
+/** The entry's stop bookkeeping as the pure reconcile policy consumes it. */
+function stopStateOf(entry: RunnerEntry): StopStateSnapshot {
+  return {
+    inFlightTurns: entry.inFlightTurns ?? 0,
+    stoppedTurns: entry.stoppedTurns ?? 0,
+  };
+}
+
+/**
+ * Drop the soft-stop hard-abort fallback. Must run whenever an entry is
+ * aborted/deleted through any path so no stale timer outlives its runner.
+ */
+function clearStopFallbackTimer(entry: RunnerEntry): void {
+  if (entry.stopFallbackTimer) {
+    clearTimeout(entry.stopFallbackTimer);
+    entry.stopFallbackTimer = undefined;
+  }
+}
 
 // 会话状态映射（包含 pending permissions）
 const sessionStates = new Map<string, SessionState>();
@@ -3385,6 +3437,7 @@ function retireSessionRunner(sessionId: string): void {
     entry.doomed = true;
     return;
   }
+  clearStopFallbackTimer(entry);
   entry.handle.abort();
   runnerHandles.delete(sessionId);
 }
@@ -7896,6 +7949,7 @@ async function handleSessionContinue(
           sanitizedHistoryResult.hadInvalidThinking
         ))
     ) {
+      clearStopFallbackTimer(existingEntry);
       existingEntry.handle.abort();
       runnerHandles.delete(sessionId);
     } else if (runnerHandles.get(sessionId)?.handle !== existingEntry.handle) {
@@ -7945,6 +7999,7 @@ async function handleSessionContinue(
   }
 
   if (existingEntry && providerChanged) {
+    clearStopFallbackTimer(existingEntry);
     existingEntry.handle.abort();
     runnerHandles.delete(sessionId);
   }
@@ -8129,6 +8184,7 @@ function startRunner(
   // the same thread.
   const staleEntry = runnerHandles.get(session.id);
   if (staleEntry) {
+    clearStopFallbackTimer(staleEntry);
     staleEntry.handle.abort();
     runnerHandles.delete(session.id);
   }
@@ -8155,6 +8211,15 @@ function startRunner(
     codexMentions: provider === 'codex' ? codexMentions : undefined,
     opencodePermissionMode,
     onMessage: (message) => {
+      // A runner the user stopped that has since been retired or replaced is
+      // dead to this session: NOTHING it emits may touch session state again
+      // — not its drain, not its interrupted result, and especially not a
+      // late `system init`, which would overwrite the replacement runner's
+      // session id/model and broadcast stale status over the new run.
+      if (userStoppedRunnerHandles.has(handle) && runnerHandles.get(session.id)?.handle !== handle) {
+        return;
+      }
+
       // 提取并保存 claude session id
       if (message.type === 'system' && message.subtype === 'init') {
         initMessage = message;
@@ -8287,7 +8352,41 @@ function startRunner(
         }
       }
 
-      if (sanitizedStreamMessage.message) {
+      // A user-interrupted turn ends with a non-success result by design; it
+      // must read as 'idle', not as a failure. Results land oldest-turn
+      // first, so the arriving result is a stopped turn's iff stopped turns
+      // are still owed a result (see claude-stop-reconcile.ts). Classified
+      // BEFORE the generic persist path: a stopped turn's terminal result
+      // stays out of the transcript entirely — a hard-aborted turn never
+      // produced one, and with a follow-up prompt already persisted it would
+      // be recorded under the wrong turn.
+      // Messages from a REPLACED stopped runner never get here — the guard
+      // at the top of onMessage drops the whole stale handle — so the stop
+      // classification only needs the live entry's counters.
+      const entryForStop = runnerHandles.get(session.id);
+      const stopStateForMessage =
+        entryForStop?.handle === handle ? stopStateOf(entryForStop) : null;
+      const stopClassification =
+        message.type === 'result' && stopStateForMessage
+          ? classifyResultForStop(stopStateForMessage)
+          : { stoppedByUser: false, suppressStatusBroadcast: false };
+      // The SDK keeps draining the interrupted turn (truncated assistant
+      // output, tool results, stream events) between interrupt() and its
+      // result. That drain is canceled work and — after a follow-up dispatch
+      // — would be persisted and attributed under the follow-up's turn, so
+      // it stays out of the transcript too. Serial-stream contract: nothing
+      // from a follow-up turn can arrive before the stopped result lands;
+      // the follow-up's own prompt echo is exempted by shape.
+      const isStoppedTurnDrain =
+        stopStateForMessage !== null &&
+        stopStateForMessage.stoppedTurns > 0 &&
+        isStoppedTurnDrainMessage(message);
+
+      if (
+        sanitizedStreamMessage.message &&
+        !stopClassification.stoppedByUser &&
+        !isStoppedTurnDrain
+      ) {
         const activeEntry = runnerHandles.get(session.id);
         const turnAgentId =
           activeEntry?.activeAgentId ||
@@ -8334,11 +8433,15 @@ function startRunner(
         // the runner was created with. A queued second prompt must never be
         // checked against the first turn's result.
         const entryForPrompt = runnerHandles.get(session.id);
+        // Shift exactly once per result — stopped and suppressed results
+        // included — or the FIFO skews against inFlightTurns. A stale
+        // handle's result must NOT shift the replacement entry's queue.
         const queuedTurnPrompt =
           entryForPrompt?.handle === handle ? entryForPrompt.pendingTurnPrompts?.shift() : undefined;
         const turnPrompt = queuedTurnPrompt || prompt;
+        const stoppedByUser = stopClassification.stoppedByUser;
         const slashFailureMessage =
-          provider === 'claude'
+          provider === 'claude' && !stoppedByUser
             ? detectSilentSlashCommandFailure(
                 turnPrompt,
                 initMessage,
@@ -8381,10 +8484,20 @@ function startRunner(
           provider === 'claude' &&
           entryForPrompt?.handle === handle &&
           (entryForPrompt.inFlightTurns ?? 1) > 1;
-        const status: SessionStatus = hasQueuedTurns ? 'running' : turnStatus;
-        sessions.updateSessionStatus(session.id, status);
+        const liveStatus: SessionStatus = hasQueuedTurns ? 'running' : turnStatus;
+        const status: SessionStatus = stoppedByUser ? 'idle' : liveStatus;
+        // A user-stopped turn's result writes and broadcasts NO status at
+        // all: the stop already reported 'idle' synchronously, and anything
+        // written since (a follow-up now running under the queued-turn hold,
+        // a failed pre-dispatch send that set 'error') must not be
+        // overwritten by this late result. Live results follow the
+        // queued-turn rule above.
+        const suppressStatusBroadcast = stopClassification.suppressStatusBroadcast;
+        if (!suppressStatusBroadcast) {
+          sessions.updateSessionStatus(session.id, status);
+        }
 
-        broadcast(mainWindow, {
+        if (!suppressStatusBroadcast) broadcast(mainWindow, {
           type: 'session.status',
           payload: {
             sessionId: session.id,
@@ -8457,15 +8570,49 @@ function startRunner(
           // terminal outcome, not the still-running session status.
           turnDone?.(turnStatus, explicitFailureMessage || undefined);
           if (provider === 'claude') {
+            // The interrupted turn's result has landed — settle one stopped
+            // turn; the hard-abort fallback stands down once none remain.
+            if ((currentEntry.stoppedTurns ?? 0) > 0) {
+              currentEntry.stoppedTurns = (currentEntry.stoppedTurns ?? 1) - 1 || undefined;
+              if (!currentEntry.stoppedTurns) {
+                clearStopFallbackTimer(currentEntry);
+                currentEntry.stopFallbackAttempts = undefined;
+              } else if (typeof currentEntry.handle.interrupt === 'function') {
+                // Another user-stopped turn was queued behind the one that
+                // just settled and is becoming active now. interrupt() only
+                // ever cancels the ACTIVE turn, so the stop press that marked
+                // it could not reach it — re-issue the interrupt for it here,
+                // and re-arm the fallback in case even that goes unanswered.
+                const entryToReinterrupt = currentEntry;
+                entryToReinterrupt.handle
+                  .interrupt!()
+                  .catch(() => resolveStopFallback(mainWindow, session.id, entryToReinterrupt));
+                clearStopFallbackTimer(entryToReinterrupt);
+                entryToReinterrupt.stopFallbackAttempts = undefined;
+                entryToReinterrupt.stopFallbackTimer = setTimeout(
+                  () => resolveStopFallback(mainWindow, session.id, entryToReinterrupt),
+                  STOP_INTERRUPT_FALLBACK_MS
+                );
+                entryToReinterrupt.stopFallbackTimer.unref?.();
+              }
+            }
             // Keep the runner alive for follow-up turns (streaming-input
             // reuse) — unless its live context is stale/poisoned (doomed) or
-            // it is a one-shot auto-approving automation runner.
+            // it is a one-shot auto-approving automation runner. A doomed
+            // runner is only retired once NO turns remain in flight: a
+            // stopped turn's result can land while a live follow-up is still
+            // running here, and aborting then would kill that follow-up. The
+            // reuse guard already refuses to dispatch new turns into a
+            // doomed entry, so deferring loses nothing.
             currentEntry.inFlightTurns = Math.max(0, (currentEntry.inFlightTurns ?? 1) - 1);
             const drained = (currentEntry.inFlightTurns ?? 0) === 0;
             if (drained && (currentEntry.doomed || currentEntry.autoApprove)) {
               // Retire only once every queued turn has produced its result:
               // aborting earlier would drop a queued prompt that is already
-              // persisted and counted, leaving the session without an ending.
+              // persisted and counted, leaving the session without an ending
+              // — or kill a live follow-up whose status update a stopped
+              // result just suppressed.
+              clearStopFallbackTimer(currentEntry);
               currentEntry.handle.abort();
               runnerHandles.delete(session.id);
             } else if (drained) {
@@ -8486,15 +8633,29 @@ function startRunner(
       console.error('Runner error:', error);
 
       // An idle (between-turns) Claude runner dying — OOM, external kill —
-      // must not flip a completed session to error with a toast. Drop the
-      // entry silently; the next send simply respawns.
+      // must not flip a completed session to error with a toast, and a turn
+      // the user just stopped must not surface its teardown as a failure.
+      // Drop the entry silently; the next send simply respawns. This silent
+      // drop is only allowed while nothing live is lost: with a follow-up
+      // turn dispatched after the stop, the error must surface normally or
+      // that turn would vanish with the session stuck on 'running'.
       const mappedEntry = runnerHandles.get(session.id);
       if (
         provider === 'claude' &&
         mappedEntry?.handle === handle &&
-        (mappedEntry.inFlightTurns ?? 0) === 0
+        shouldDropRunnerErrorSilently(stopStateOf(mappedEntry))
       ) {
+        clearStopFallbackTimer(mappedEntry);
+        mappedEntry.handle.abort();
         runnerHandles.delete(session.id);
+        return;
+      }
+
+      // A stale handle (this runner was already retired or replaced) that the
+      // user had stopped: its late teardown noise must not mark the session —
+      // now owned by a different runner, or by none — as failed. There is
+      // nothing to clean up here; the replacement entry is not ours to touch.
+      if (mappedEntry?.handle !== handle && userStoppedRunnerHandles.has(handle)) {
         return;
       }
 
@@ -8520,6 +8681,7 @@ function startRunner(
         const turnDone = currentEntry?.onTurnDone;
         if (currentEntry) {
           currentEntry.onTurnDone = undefined;
+          clearStopFallbackTimer(currentEntry);
         }
         turnDone?.('error', message);
         runnerHandles.delete(session.id);
@@ -8598,6 +8760,21 @@ function startRunner(
               : undefined,
           scope: 'session',
         };
+      }
+      // A permission request arriving AFTER the user stopped the turn it
+      // belongs to must never surface a modal. Requests can only come from
+      // the executing (oldest in-flight) turn, and while stopped turns still
+      // owe results that turn is user-stopped and draining toward its
+      // interrupt — deny with the same answer the stop path gives requests
+      // that were already pending. A request from a stopped handle that has
+      // since been replaced is equally dead.
+      const permissionEntry = runnerHandles.get(session.id);
+      if (
+        (permissionEntry?.handle === handle &&
+          shouldAutoDenyPermission(stopStateOf(permissionEntry))) ||
+        (permissionEntry?.handle !== handle && userStoppedRunnerHandles.has(handle))
+      ) {
+        return { behavior: 'deny', message: 'The user stopped this turn.' };
       }
       // 广播权限请求
       broadcast(mainWindow, {
@@ -8697,22 +8874,155 @@ function handleSessionHistory(mainWindow: BrowserWindow, sessionId: string): voi
 }
 
 // 停止会话
+function hardStopClaudeRunner(sessionId: string, entry: RunnerEntry): void {
+  if (runnerHandles.get(sessionId) !== entry) return;
+  clearStopFallbackTimer(entry);
+  entry.handle.abort();
+  runnerHandles.delete(sessionId);
+}
+
+/**
+ * A soft stop failed to reconcile — `interrupt()` rejected, or the
+ * interrupted turn's result never landed within the fallback window. Only
+ * hard-abort silently when every in-flight turn is a stopped one; a follow-up
+ * turn the user dispatched after the stop shares this runner and must never
+ * be killed quietly. While a follow-up is live the fallback re-arms (keeping
+ * the stop attribution so a slow interrupted result still maps to idle), and
+ * once the escalation budget is spent — the serial stream is wedged and the
+ * queued follow-up can never complete — it reclaims the runner and SURFACES
+ * the failure so the session never sticks on 'running' with no way out.
+ */
+function resolveStopFallback(mainWindow: BrowserWindow, sessionId: string, entry: RunnerEntry): void {
+  if (runnerHandles.get(sessionId) !== entry) return;
+  const attempt = (entry.stopFallbackAttempts ?? 0) + 1;
+  entry.stopFallbackAttempts = attempt;
+  const action = resolveStopFallbackAction(stopStateOf(entry), attempt);
+  switch (action) {
+    case 'stand-down':
+      clearStopFallbackTimer(entry);
+      entry.stopFallbackAttempts = undefined;
+      return;
+    case 'hard-abort':
+      // Nothing live on this runner: the stop already reported 'idle'.
+      hardStopClaudeRunner(sessionId, entry);
+      return;
+    case 're-arm':
+      clearStopFallbackTimer(entry);
+      entry.stopFallbackTimer = setTimeout(
+        () => resolveStopFallback(mainWindow, sessionId, entry),
+        STOP_INTERRUPT_FALLBACK_MS
+      );
+      entry.stopFallbackTimer.unref?.();
+      return;
+    case 'reclaim-and-surface': {
+      hardStopClaudeRunner(sessionId, entry);
+      const session = sessions.getSession(sessionId);
+      sessions.updateSessionStatus(sessionId, 'error');
+      broadcast(mainWindow, {
+        type: 'session.status',
+        payload: {
+          sessionId,
+          status: 'error',
+          scope: normalizeSessionScope(session?.conversation_scope),
+          agentId: session?.agent_id || null,
+          hiddenFromThreads: session?.hidden_from_threads === 1,
+        },
+      });
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message:
+            'The stopped turn never finished shutting down, so the runner was closed before your queued message could run. Please send it again.',
+          sessionId,
+        },
+      });
+      return;
+    }
+  }
+}
+
+/** How long to wait for an interrupted turn's result before hard-aborting. */
+const STOP_INTERRUPT_FALLBACK_MS = 8_000;
+
 function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
   const session = sessions.getSession(sessionId);
   const entry = runnerHandles.get(sessionId);
+  let softStopped = false;
   if (entry) {
     const turnDone = entry.onTurnDone;
     entry.onTurnDone = undefined;
     turnDone?.('idle');
-    entry.handle.abort();
-    runnerHandles.delete(sessionId);
+    const canSoftInterrupt =
+      entry.provider === 'claude' &&
+      typeof entry.handle.interrupt === 'function' &&
+      (entry.inFlightTurns ?? 0) > 0;
+    // A stopped handle may finish tearing down only after it has been
+    // replaced; remember it so its late onError noise stays silent.
+    userStoppedRunnerHandles.add(entry.handle);
+    softStopped = canSoftInterrupt;
+    if (canSoftInterrupt) {
+      // A prompt still being prepared (async attachment reads) must never
+      // start a turn after the stop: drop it before it reaches the input
+      // queue and remove it from the turn accounting — a cancelled prompt
+      // never produces a result the reconcile bookkeeping could wait for.
+      // The prompt FIFO is trimmed in lockstep: cancelled prompts are the
+      // most recent dispatches (the tail), and leaving them would skew the
+      // per-result shift against inFlightTurns, misattributing every later
+      // turn's slash-failure prompt.
+      const cancelledPrompts = entry.handle.cancelPendingPrompts?.() ?? 0;
+      if (cancelledPrompts > 0) {
+        entry.inFlightTurns = Math.max(0, (entry.inFlightTurns ?? 0) - cancelledPrompts);
+        entry.pendingTurnPrompts?.splice(-cancelledPrompts);
+      }
+      if ((entry.inFlightTurns ?? 0) === 0) {
+        // Everything the stop caught was still being prepared — nothing
+        // reached the CLI, so there is no turn to interrupt and no result
+        // to await. The runner stays warm and idle for the next send.
+        clearStopFallbackTimer(entry);
+        entry.stoppedTurns = undefined;
+        entry.stopFallbackAttempts = undefined;
+        entry.lastTurnEndedAt = Date.now();
+      } else {
+        // Soft stop: interrupt the in-flight turn but keep the runner (and
+        // its warm context) alive so the next send skips the cold respawn.
+        // The interrupted turn still emits a result; the stopped-turn count
+        // makes the result handler report 'idle' instead of an error.
+        // Failures to reconcile go through resolveStopFallback, which never
+        // silently destroys a runner that carries a live follow-up turn.
+        entry.stoppedTurns = markTurnsStopped(stopStateOf(entry));
+        entry.stopFallbackAttempts = undefined;
+        entry.handle.interrupt!().catch(() => resolveStopFallback(mainWindow, sessionId, entry));
+        if (entry.stopFallbackTimer) {
+          clearTimeout(entry.stopFallbackTimer);
+        }
+        entry.stopFallbackTimer = setTimeout(
+          () => resolveStopFallback(mainWindow, sessionId, entry),
+          STOP_INTERRUPT_FALLBACK_MS
+        );
+        entry.stopFallbackTimer.unref?.();
+      }
+    } else {
+      clearStopFallbackTimer(entry);
+      entry.handle.abort();
+      runnerHandles.delete(sessionId);
+    }
   }
 
-  // 拒绝所有 pending permissions
+  // Settle all pending permissions. On the soft-stop path the runner stays
+  // alive, so the awaited promise must RESOLVE as a clean deny: the SDK's
+  // canUseTool consumes it and answers the CLI's permission control request,
+  // and interrupt() then ends the turn without an error. A rejection would
+  // instead surface through the SDK as an error control response — teardown
+  // noise the warm runner (and any queued follow-up) must not eat. Rejection
+  // stays only on the hard-abort path, where the process dies anyway.
   const state = sessionStates.get(sessionId);
   if (state) {
-    for (const [, { reject }] of state.pendingPermissions) {
-      reject(new Error('Session aborted'));
+    for (const [, pending] of state.pendingPermissions) {
+      if (softStopped) {
+        pending.resolve({ behavior: 'deny', message: 'The user stopped this turn.' });
+      } else {
+        pending.reject(new Error('Session aborted'));
+      }
     }
     state.pendingPermissions.clear();
   }
@@ -8747,6 +9057,7 @@ function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void
     const turnDone = entry.onTurnDone;
     entry.onTurnDone = undefined;
     turnDone?.('idle');
+    clearStopFallbackTimer(entry);
     entry.handle.abort();
     runnerHandles.delete(sessionId);
   }

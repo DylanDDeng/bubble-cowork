@@ -22,6 +22,7 @@ import {
   toClaudeCodeRuntimeModel,
 } from './claude-model-selection';
 import { getRequiredClaudeCodeRuntime } from './claude-runtime';
+import { createPromptCancellation } from './claude-prompt-cancellation';
 import { createAegisMemoryMcpServer, buildMemoryContext, MEMORY_SYSTEM_PROMPT } from './memory-mcp';
 import { shouldExtractMemory, hasMemoryWritesInTurn, extractMemories } from './memory-extractor';
 import {
@@ -525,6 +526,19 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
     onClaudeExecutionModeChange?.(executionModeForClaudePermissionMode(nextMode), nextMode);
   };
 
+  // Prompt sequencing for stop cancellation: preparing a prompt is async
+  // (image attachments are read from disk), so the user can press stop while
+  // a send is still ahead of the input queue. cancelPendingPrompts() marks
+  // every enqueue issued so far as cancelled; the enqueue re-checks the mark
+  // after each await so a cancelled prompt is never pushed to the CLI, and
+  // the long prepare step races against cancellation so the serial chain
+  // settles immediately — a follow-up send must never wait on the very work
+  // the user just stopped. The model round-trip is deliberately NOT raced:
+  // it is a fast control request whose effect lands on the CLI either way,
+  // so bookkeeping must record it, and a wedged CLI blocks the resend
+  // regardless (the stop fallback reclaims that runner).
+  const promptCancellation = createPromptCancellation();
+
   const enqueuePrompt = (text: string, promptAttachments?: Attachment[], requestedModel?: string) => {
     const trimmed = text.trim();
     const hasAttachments = (promptAttachments?.filter((a) => a && a.path).length || 0) > 0;
@@ -537,9 +551,10 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         ? requestedModel.trim()
         : undefined;
 
+    const seq = promptCancellation.issueSeq();
     enqueueChain = enqueueChain
       .then(async () => {
-        if (abortController.signal.aborted) {
+        if (abortController.signal.aborted || promptCancellation.isCancelled(seq)) {
           return;
         }
         if (activeQuery && normalizedModel !== currentModel) {
@@ -552,11 +567,28 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           if (nextRuntimeModel !== currentRuntimeModel) {
             await activeQuery.setModel(nextRuntimeModel);
           }
+          // Recorded even if this prompt was cancelled mid-flight: the CLI's
+          // model DID change, and a follow-up send comparing against stale
+          // bookkeeping would skip a needed switch back.
           currentModel = normalizedModel;
           currentRuntimeModel = nextRuntimeModel;
         }
-        const message = await buildUserMessage(trimmed, currentSessionId, promptAttachments);
-        if (abortController.signal.aborted) {
+        // A stop can land during the (deliberately unraced) model round-trip
+        // above. Cancellation minted a FRESH signal, so a build started now
+        // could no longer be released by the race — bail before starting the
+        // attachment prep at all, or the abandoned work would block the
+        // serial chain and delay the user's immediate resend.
+        if (abortController.signal.aborted || promptCancellation.isCancelled(seq)) {
+          return;
+        }
+        const message = await promptCancellation.race(
+          buildUserMessage(trimmed, currentSessionId, promptAttachments)
+        );
+        if (
+          message === null ||
+          abortController.signal.aborted ||
+          promptCancellation.isCancelled(seq)
+        ) {
           return;
         }
         inputQueue.push(message);
@@ -587,6 +619,11 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       .catch((error) => {
         const err = error instanceof Error ? error : new Error(String(error));
         onError?.(err);
+      })
+      .finally(() => {
+        // The enqueue settled (pushed, cancelled, aborted, or failed) — it is
+        // no longer "pending" for cancelPendingPrompts accounting.
+        promptCancellation.settle(seq);
       });
   };
 
@@ -1087,6 +1124,21 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
     },
     send: (text, promptAttachments, requestedModel) =>
       enqueuePrompt(text, promptAttachments, requestedModel),
+    interrupt: async () => {
+      if (!activeQuery) {
+        throw new Error('Session is not active.');
+      }
+      await activeQuery.interrupt();
+    },
+    cancelPendingPrompts: () => {
+      // Everything issued so far that has not settled is dropped before it
+      // reaches the input queue, in-flight prepares are released so the
+      // serial enqueue chain settles immediately (a follow-up send must not
+      // wait on the cancelled work), and the count is reported so the caller
+      // can remove the prompts from its turn accounting — they never produce
+      // a result.
+      return promptCancellation.cancelPending();
+    },
     rewindFiles: async (userMessageId, options) => {
       if (!activeQuery) {
         return { canRewind: false, error: 'Session is not active.' };
