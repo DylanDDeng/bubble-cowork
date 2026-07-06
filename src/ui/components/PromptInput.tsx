@@ -22,6 +22,7 @@ import {
   collectPromptHistory,
   isCursorOnFirstLine,
   isCursorOnLastLine,
+  remapPromptHistoryNav,
   stepPromptHistory,
   type PromptHistoryNav,
   type PromptHistoryStep,
@@ -142,6 +143,25 @@ export function PromptInput({
       historyAppliedTextRef.current = null;
     }
   }, [prompt]);
+
+  // Scrolling the chat pane up lazily PREPENDS older messages (and a rewind
+  // can drop entries), shifting promptHistory under an active browse. Re-anchor
+  // the stored index to the recalled entry so the next step lands on the right
+  // neighbor instead of a drifted position.
+  useEffect(() => {
+    if (historyNavRef.current.index === null) {
+      return;
+    }
+    const remapped = remapPromptHistoryNav(
+      promptHistory,
+      historyNavRef.current,
+      historyAppliedTextRef.current
+    );
+    historyNavRef.current = remapped;
+    if (remapped.index === null) {
+      historyAppliedTextRef.current = null;
+    }
+  }, [promptHistory]);
 
   const applyPromptHistoryStep = (step: PromptHistoryStep) => {
     historyNavRef.current = step.nav;

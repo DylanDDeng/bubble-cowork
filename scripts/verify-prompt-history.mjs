@@ -49,6 +49,11 @@ assert.equal(
   true,
   'history-applied text must be exempt from long-prompt auto-attachment conversion'
 );
+assert.equal(
+  promptInput.includes('remapPromptHistoryNav('),
+  true,
+  'an active browse must re-anchor its index when history changes (lazy prepend/rewind)'
+);
 
 // Arrow-key priority: while a browse is ACTIVE, history owns the arrows even
 // if the recalled text re-opened the @-mention or slash menu; when idle, the

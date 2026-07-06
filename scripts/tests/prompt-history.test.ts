@@ -4,6 +4,7 @@ import {
   collectPromptHistory,
   isCursorOnFirstLine,
   isCursorOnLastLine,
+  remapPromptHistoryNav,
   stepPromptHistory,
   type PromptHistoryNav,
 } from '../../src/ui/utils/prompt-history';
@@ -103,6 +104,78 @@ const HISTORY = ['one', 'two', 'three'];
   assert.ok(restored);
   assert.equal(restored.text, '');
   assert.equal(restored.nav.index, null);
+}
+
+// ── remapPromptHistoryNav ────────────────────────────────────────────────────
+
+{
+  // Not browsing → untouched.
+  assert.deepEqual(
+    remapPromptHistoryNav(HISTORY, EMPTY_PROMPT_HISTORY_NAV, null),
+    EMPTY_PROMPT_HISTORY_NAV
+  );
+
+  // Entry still at the stored index → nav returned as-is.
+  const stable: PromptHistoryNav = { index: 1, draft: 'my draft' };
+  assert.equal(remapPromptHistoryNav(HISTORY, stable, 'two'), stable);
+
+  // Older prompts get PREPENDED while browsing (lazy history loading):
+  // [one,two,three] → [old1,old2,one,two,three] shifts the entry from 1 to 3.
+  const grown = ['old1', 'old2', ...HISTORY];
+  assert.deepEqual(remapPromptHistoryNav(grown, stable, 'two'), {
+    index: 3,
+    draft: 'my draft',
+  });
+
+  // Duplicate entries: the occurrence nearest to the old index wins.
+  const withDupes = ['echo', 'a', 'b', 'echo', 'c'];
+  assert.deepEqual(
+    remapPromptHistoryNav(withDupes, { index: 4, draft: null }, 'echo'),
+    { index: 3, draft: null }
+  );
+
+  // Recalled entry vanished (e.g. rewind dropped it) → exit navigation.
+  assert.deepEqual(
+    remapPromptHistoryNav(HISTORY, { index: 1, draft: 'my draft' }, 'gone'),
+    EMPTY_PROMPT_HISTORY_NAV
+  );
+
+  // Browsing without a recalled entry is inconsistent → exit navigation.
+  assert.deepEqual(
+    remapPromptHistoryNav(HISTORY, { index: 1, draft: 'my draft' }, null),
+    EMPTY_PROMPT_HISTORY_NAV
+  );
+}
+
+// ── Out-of-bounds safety when history shrinks mid-browse ────────────────────
+
+{
+  // A stale index past the end never reads out of bounds on ArrowUp...
+  const stale: PromptHistoryNav = { index: 7, draft: 'my draft' };
+  const prev = stepPromptHistory(HISTORY, stale, 'prev', 'whatever');
+  assert.ok(prev);
+  assert.equal(prev.text, 'two'); // bounded to the last entry, then stepped back
+  assert.deepEqual(prev.nav, { index: 1, draft: 'my draft' });
+
+  // ...nor on ArrowDown, which restores the draft and exits.
+  const next = stepPromptHistory(HISTORY, stale, 'next', 'whatever');
+  assert.ok(next);
+  assert.equal(next.text, 'my draft');
+  assert.equal(next.nav.index, null);
+
+  // A stale index over a single-entry history applies that entry (not clamped:
+  // the text changes and must be rendered).
+  const single = stepPromptHistory(['only'], stale, 'prev', 'whatever');
+  assert.ok(single);
+  assert.equal(single.text, 'only');
+  assert.equal(single.nav.index, 0);
+  assert.equal(single.clamped ?? false, false);
+
+  // Every entry disappeared mid-browse → ArrowDown restores the draft.
+  const emptied = stepPromptHistory([], stale, 'next', 'whatever');
+  assert.ok(emptied);
+  assert.equal(emptied.text, 'my draft');
+  assert.equal(emptied.nav.index, null);
 }
 
 console.log('prompt-history.test.ts passed');

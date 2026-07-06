@@ -48,6 +48,42 @@ export function isCursorOnLastLine(text: string, cursorIndex: number): boolean {
   return !text.slice(Math.max(0, cursorIndex)).includes('\n');
 }
 
+/**
+ * Re-anchor an active browse after the underlying history changed — older
+ * messages are lazily prepended while the chat pane scrolls up, and a rewind
+ * can drop entries — so a stored numeric index would drift onto the wrong
+ * entry. The recalled entry is matched by text; when the text repeats, the
+ * occurrence nearest to the old index wins. Navigation exits only when the
+ * recalled entry no longer exists at all.
+ */
+export function remapPromptHistoryNav(
+  history: string[],
+  nav: PromptHistoryNav,
+  recalledText: string | null
+): PromptHistoryNav {
+  if (nav.index === null) {
+    return nav;
+  }
+  if (recalledText === null) {
+    // Browsing without a recalled entry is inconsistent state; exit safely.
+    return EMPTY_PROMPT_HISTORY_NAV;
+  }
+  if (history[nav.index] === recalledText) {
+    return nav;
+  }
+
+  let nearest = -1;
+  for (let index = 0; index < history.length; index += 1) {
+    if (history[index] !== recalledText) {
+      continue;
+    }
+    if (nearest === -1 || Math.abs(index - nav.index) < Math.abs(nearest - nav.index)) {
+      nearest = index;
+    }
+  }
+  return nearest === -1 ? EMPTY_PROMPT_HISTORY_NAV : { ...nav, index: nearest };
+}
+
 export interface PromptHistoryStep {
   nav: PromptHistoryNav;
   text: string;
@@ -80,20 +116,33 @@ export function stepPromptHistory(
       const index = history.length - 1;
       return { nav: { index, draft: currentText }, text: history[index] };
     }
-    if (nav.index > 0) {
-      const index = nav.index - 1;
+    // The stored index may briefly be stale if history changed since the last
+    // remap — never index out of bounds.
+    const boundedIndex = Math.min(nav.index, history.length - 1);
+    if (boundedIndex > 0) {
+      const index = boundedIndex - 1;
       return { nav: { ...nav, index }, text: history[index] };
     }
     // Already at the oldest entry — swallow the key but change nothing, so
-    // the caret doesn't jump while browsing.
-    return { nav, text: history[nav.index], clamped: true };
+    // the caret doesn't jump while browsing. (Not clamped when the index was
+    // out of bounds: the text does change then and must be applied.)
+    return {
+      nav: { ...nav, index: boundedIndex },
+      text: history[boundedIndex],
+      clamped: nav.index === boundedIndex,
+    };
   }
 
   if (nav.index === null) {
     return null;
   }
-  if (nav.index < history.length - 1) {
-    const index = nav.index + 1;
+  if (history.length === 0) {
+    // Every entry disappeared mid-browse: restore the draft and exit.
+    return { nav: { index: null, draft: null }, text: nav.draft ?? '' };
+  }
+  const boundedIndex = Math.min(nav.index, history.length - 1);
+  if (boundedIndex < history.length - 1) {
+    const index = boundedIndex + 1;
     return { nav: { ...nav, index }, text: history[index] };
   }
   // Past the newest entry: restore the stashed draft and exit history mode.
