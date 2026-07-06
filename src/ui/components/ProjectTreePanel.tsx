@@ -2563,6 +2563,51 @@ export function ProjectTreePanel({
     ? visibleTree.name || basenameOfPath(visibleTree.path)
     : cwd ? basenameOfPath(cwd) : 'Project';
 
+  const wechatThemeMenu = canCopyWechat ? (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-2 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+          title="WeChat Theme"
+          aria-label="WeChat Theme"
+        >
+          <span>WeChat Theme</span>
+          <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" sideOffset={6}>
+        <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('bubblebrain')}>
+          <span>BubbleBrain</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('lapis')}>
+          <span>Lapis</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={wechatAiGeneratingTheme !== null}
+          onSelect={() => void handleCopyAiWechatHtml('black-red-imprint', 'Black Red Imprint')}
+        >
+          <span>
+            {wechatAiGeneratingTheme === 'black-red-imprint'
+              ? 'Black Red Imprint generating...'
+              : 'Black Red Imprint (AI)'}
+          </span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={wechatAiGeneratingTheme !== null}
+          onSelect={() => void handleCopyAiWechatHtml('black-orange-imprint', 'Black Orange Imprint')}
+        >
+          <span>
+            {wechatAiGeneratingTheme === 'black-orange-imprint'
+              ? 'Black Orange Imprint generating...'
+              : 'Black Orange Imprint (AI)'}
+          </span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : null;
+
   return (
     <>
       {isPanelResizing && (
@@ -2876,14 +2921,13 @@ export function ProjectTreePanel({
           </div>
         </div>
 
-        {useEmbeddedFilesGrid &&
-        showFilePreviewSurface &&
-        !showProjectFileTabs &&
-        !isEditableMarkdownPreview &&
-        selectedFilePath ? (
+        {useEmbeddedFilesGrid && showFilePreviewSurface && selectedFilePath ? (
           // Full-width header row: breadcrumb on the left, rail toggle at the
           // window's right edge, with a divider line running across both the
-          // preview and the tree columns (reference-app layout).
+          // preview and the tree columns (reference-app layout). The utility
+          // panel's own tab already names the open file, so editable
+          // markdown/text previews get this breadcrumb too instead of a
+          // second tab strip.
           <div
             className="drag-region flex items-center justify-between gap-2 border-b border-[var(--tree-item-border)] bg-[var(--bg-primary)] py-1.5 pl-3 pr-2"
             style={{ gridColumn: '1 / span 2', gridRow: 1 }}
@@ -2914,6 +2958,7 @@ export function ProjectTreePanel({
                   }
                 />
               )}
+              {wechatThemeMenu}
               <span className="mx-0.5 h-4 w-px bg-[var(--border)]" aria-hidden="true" />
               <IconButton
                 onClick={toggleFilesRail}
@@ -2952,7 +2997,7 @@ export function ProjectTreePanel({
             )}
 
             <div className={`h-full min-w-0 flex flex-col ${showProjectFileTabs || isEditableMarkdownPreview ? '' : 'px-3 py-3'}`}>
-              {showProjectFileTabs && (
+              {!useEmbeddedFilesGrid && showProjectFileTabs && (
                 <div
                   className={`aegis-project-file-tabs${isFullscreen && !embedded ? ' window-controls-inset' : ''} drag-region flex h-11 flex-shrink-0 items-center gap-2 bg-[var(--bg-primary)] pl-2 pr-2`}
                 >
@@ -3031,50 +3076,7 @@ export function ProjectTreePanel({
                       />
 	                    )}
 
-	                    {canCopyWechat && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-2 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                            title="WeChat Theme"
-                            aria-label="WeChat Theme"
-                          >
-                            <span>WeChat Theme</span>
-                            <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" sideOffset={6}>
-                          <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('bubblebrain')}>
-                            <span>BubbleBrain</span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('lapis')}>
-                            <span>Lapis</span>
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            disabled={wechatAiGeneratingTheme !== null}
-                            onSelect={() => void handleCopyAiWechatHtml('black-red-imprint', 'Black Red Imprint')}
-                          >
-                            <span>
-                              {wechatAiGeneratingTheme === 'black-red-imprint'
-                                ? 'Black Red Imprint generating...'
-                                : 'Black Red Imprint (AI)'}
-                            </span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            disabled={wechatAiGeneratingTheme !== null}
-                            onSelect={() => void handleCopyAiWechatHtml('black-orange-imprint', 'Black Orange Imprint')}
-                          >
-                            <span>
-                              {wechatAiGeneratingTheme === 'black-orange-imprint'
-                                ? 'Black Orange Imprint generating...'
-                                : 'Black Orange Imprint (AI)'}
-                            </span>
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
+	                    {wechatThemeMenu}
 
                     {!useEmbeddedFilesGrid && onToggleFullscreen && (
                       <IconButton
