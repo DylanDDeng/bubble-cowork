@@ -116,6 +116,21 @@ assert.equal(
   'each result must pop its own turn prompt from the FIFO'
 );
 
+// Queued-turn session semantics: a result that leaves turns in flight must
+// not write a terminal DB status (the git/workspace gates trust DB status),
+// and a doomed/one-shot runner is only retired once the queue is drained —
+// aborting earlier would drop a persisted queued prompt without a result.
+assert.equal(
+  ipcSource.includes("hasQueuedTurns ? 'running' : turnStatus"),
+  true,
+  'a result with queued turns must keep the session status running'
+);
+assert.equal(
+  ipcSource.includes('drained && (currentEntry.doomed || currentEntry.autoApprove)'),
+  true,
+  'doomed/automation runners must drain queued turns before retiring'
+);
+
 // A silent slash-command failure proves the live CLI's init-time skill list
 // is stale; the runner must be doomed so the retry respawns with a rescan.
 assert.equal(
@@ -150,6 +165,17 @@ assert.equal(
   true,
   'agent loop must serialize startSession behind a pending stop for the same thread'
 );
+// …and sends must queue behind the (possibly delayed) start: a follow-up
+// send on a replacement runner must never hit an unregistered session.
+{
+  const sendAt = agentLoopSource.indexOf('send: (');
+  const sendBody = sendAt >= 0 ? agentLoopSource.slice(sendAt) : '';
+  assert.equal(
+    sendBody.includes('startPromise'),
+    true,
+    'provider-service send must chain sendTurn behind startPromise'
+  );
+}
 
 // The reuse branch must re-fetch the live entry right before dispatch and
 // count the turn before send.

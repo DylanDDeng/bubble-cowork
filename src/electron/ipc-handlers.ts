@@ -8473,14 +8473,25 @@ function startRunner(
         }
 
         const explicitFailureMessage = localFailureMessage || slashFailureMessage;
-        const status: SessionStatus = stoppedByUser
-          ? 'idle'
-          : explicitFailureMessage || message.subtype !== 'success'
-            ? 'error'
-            : 'completed';
-        // When the user stopped this turn but immediately dispatched another
-        // one into the same runner, the late result of the stopped turn must
-        // not flip the (running) session status back to idle.
+        // This turn's terminal outcome…
+        const turnStatus: SessionStatus =
+          explicitFailureMessage || message.subtype !== 'success' ? 'error' : 'completed';
+        // …but with another prompt still queued on this runner the session is
+        // NOT done: a terminal DB status here would open the git/workspace
+        // gates (which trust DB status alone) under a running agent. The last
+        // queued result settles the session status.
+        const hasQueuedTurns =
+          provider === 'claude' &&
+          entryForPrompt?.handle === handle &&
+          (entryForPrompt.inFlightTurns ?? 1) > 1;
+        const liveStatus: SessionStatus = hasQueuedTurns ? 'running' : turnStatus;
+        const status: SessionStatus = stoppedByUser ? 'idle' : liveStatus;
+        // A user-stopped turn's result writes and broadcasts NO status at
+        // all: the stop already reported 'idle' synchronously, and anything
+        // written since (a follow-up now running under the queued-turn hold,
+        // a failed pre-dispatch send that set 'error') must not be
+        // overwritten by this late result. Live results follow the
+        // queued-turn rule above.
         const suppressStatusBroadcast = stopClassification.suppressStatusBroadcast;
         if (!suppressStatusBroadcast) {
           sessions.updateSessionStatus(session.id, status);
@@ -8555,7 +8566,9 @@ function startRunner(
         if (currentEntry?.handle === handle) {
           const turnDone = currentEntry.onTurnDone;
           currentEntry.onTurnDone = undefined;
-          turnDone?.(status, explicitFailureMessage || undefined);
+          // onTurnDone consumers (automation runs) want the turn's own
+          // terminal outcome, not the still-running session status.
+          turnDone?.(turnStatus, explicitFailureMessage || undefined);
           if (provider === 'claude') {
             // The interrupted turn's result has landed — settle one stopped
             // turn; the hard-abort fallback stands down once none remain.
@@ -8592,14 +8605,17 @@ function startRunner(
             // reuse guard already refuses to dispatch new turns into a
             // doomed entry, so deferring loses nothing.
             currentEntry.inFlightTurns = Math.max(0, (currentEntry.inFlightTurns ?? 1) - 1);
-            if (
-              (currentEntry.doomed || currentEntry.autoApprove) &&
-              (currentEntry.inFlightTurns ?? 0) === 0
-            ) {
+            const drained = (currentEntry.inFlightTurns ?? 0) === 0;
+            if (drained && (currentEntry.doomed || currentEntry.autoApprove)) {
+              // Retire only once every queued turn has produced its result:
+              // aborting earlier would drop a queued prompt that is already
+              // persisted and counted, leaving the session without an ending
+              // — or kill a live follow-up whose status update a stopped
+              // result just suppressed.
               clearStopFallbackTimer(currentEntry);
               currentEntry.handle.abort();
               runnerHandles.delete(session.id);
-            } else if ((currentEntry.inFlightTurns ?? 0) === 0) {
+            } else if (drained) {
               currentEntry.lastTurnEndedAt = Date.now();
               sweepIdleClaudeRunners();
             }

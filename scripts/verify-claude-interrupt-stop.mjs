@@ -99,8 +99,8 @@ assert.equal(
 // remain in flight — a stopped turn's result must not abort a live follow-up.
 assert.match(
   ipcSource,
-  /\(currentEntry\.doomed \|\| currentEntry\.autoApprove\) &&\s*\(currentEntry\.inFlightTurns \?\? 0\) === 0/,
-  'doomed/automation retire at result must wait for zero in-flight turns'
+  /drained && \(currentEntry\.doomed \|\| currentEntry\.autoApprove\)/,
+  'doomed/automation retire at result must wait until the runner drained'
 );
 
 // A user-stopped turn's terminal result AND its post-interrupt drain
