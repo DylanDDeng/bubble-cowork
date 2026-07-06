@@ -21,9 +21,24 @@ import {
   type SlashTokenContext,
 } from '../utils/composer-segments';
 
+export interface ComposerCaretInfo {
+  /** Caret offset in plain-text coordinates (0 when unavailable). */
+  index: number;
+  /** False while a non-collapsed selection is active. */
+  collapsed: boolean;
+  /**
+   * Whether the caret sits on the first *visual* row of the soft-wrapped
+   * editor content. Null when caret layout rects are unavailable (e.g. in
+   * jsdom) — callers should fall back to newline-based line checks.
+   */
+  onFirstVisualLine: boolean | null;
+}
+
 export interface ComposerPromptEditorHandle {
   focus: () => void;
   setCursorIndex: (index: number) => void;
+  /** Current caret position and visual-line placement. */
+  getCaretInfo: () => ComposerCaretInfo;
 }
 
 export interface ComposerPasteContext {
@@ -155,6 +170,95 @@ function getCursorIndex(root: HTMLDivElement): number {
   }
 
   return offset;
+}
+
+interface CaretAnchor {
+  left: number;
+  top: number;
+  height: number;
+}
+
+/**
+ * Layout anchor for a collapsed range. A collapsed range whose container is an
+ * element (the caret sits between an atomic chip and nothing) reports a zero
+ * rect; anchor to the adjacent node instead: right edge of the node before it,
+ * else left edge of the node after it. Null when no usable rect exists (e.g.
+ * jsdom, or a fully empty editor).
+ */
+function getCollapsedCaretAnchor(range: Range): CaretAnchor | null {
+  const rangeRect = range.getBoundingClientRect();
+  if (rangeRect.width > 0 || rangeRect.height > 0) {
+    return { left: rangeRect.left, top: rangeRect.top, height: rangeRect.height };
+  }
+
+  if (range.startContainer instanceof HTMLElement) {
+    const rectOfNode = (node: Node): DOMRect => {
+      if (node instanceof HTMLElement) {
+        return node.getBoundingClientRect();
+      }
+      const nodeRange = document.createRange();
+      nodeRange.selectNodeContents(node);
+      return nodeRange.getBoundingClientRect();
+    };
+    const before = range.startContainer.childNodes[range.startOffset - 1];
+    const after = range.startContainer.childNodes[range.startOffset];
+    if (before) {
+      const rect = rectOfNode(before);
+      if (rect.width > 0 || rect.height > 0) {
+        return { left: rect.right, top: rect.top, height: rect.height };
+      }
+    }
+    if (after) {
+      const rect = rectOfNode(after);
+      if (rect.width > 0 || rect.height > 0) {
+        return { left: rect.left, top: rect.top, height: rect.height };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Whether the collapsed caret sits on the first *visual* row of the editor.
+ * The editor soft-wraps (whitespace-pre-wrap), so a single logical line can
+ * span several rows — newline scanning cannot answer this. Null when caret
+ * layout rects are unavailable.
+ */
+function isCaretOnFirstVisualLine(root: HTMLDivElement): boolean | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) {
+    return null;
+  }
+  const range = selection.getRangeAt(0);
+  if (!root.contains(range.startContainer)) {
+    return null;
+  }
+
+  const anchor = getCollapsedCaretAnchor(range);
+  const contents = document.createRange();
+  contents.selectNodeContents(root);
+  const lineRects = Array.from(contents.getClientRects()).filter(
+    (rect) => rect.width > 0 || rect.height > 0
+  );
+  if (lineRects.length === 0) {
+    // No laid-out content: an empty editor is a single visual line, but when
+    // rects are unavailable altogether (jsdom) report unknown instead.
+    return getSerializedLength(root) === 0 && anchor ? true : null;
+  }
+  if (!anchor) {
+    return null;
+  }
+
+  let firstTop = Infinity;
+  for (const rect of lineRects) {
+    firstTop = Math.min(firstTop, rect.top);
+  }
+
+  // Rects on the same visual row share (near-)identical tops; half a caret
+  // height comfortably separates rows while absorbing sub-pixel jitter.
+  const tolerance = Math.max(4, anchor.height / 2);
+  return anchor.top - firstTop < tolerance;
 }
 
 function setCursorIndex(root: HTMLDivElement, index: number): void {
@@ -491,45 +595,13 @@ export const ComposerPromptEditor = forwardRef<
     const editorStyles = window.getComputedStyle(editor);
     const containerRect = container.getBoundingClientRect();
     const editorRect = editor.getBoundingClientRect();
-    const rangeRect = range.getBoundingClientRect();
     const lineHeight = Number.parseFloat(editorStyles.lineHeight);
     const fontSize = Number.parseFloat(editorStyles.fontSize);
     const paddingLeft = Number.parseFloat(editorStyles.paddingLeft);
     const paddingTop = Number.parseFloat(editorStyles.paddingTop);
     const fallbackHeight = Number.isFinite(lineHeight) ? lineHeight : fontSize * 1.35;
-    const hasRangeRect = rangeRect.width > 0 || rangeRect.height > 0;
 
-    // A collapsed range whose container is an element (the caret sits between
-    // an atomic chip and nothing) reports a zero rect. Anchor the caret to the
-    // adjacent node instead: right edge of the node before it, else left edge
-    // of the node after it.
-    let caretAnchor: { left: number; top: number; height: number } | null = hasRangeRect
-      ? { left: rangeRect.left, top: rangeRect.top, height: rangeRect.height }
-      : null;
-    if (!caretAnchor && range.startContainer instanceof HTMLElement) {
-      const rectOfNode = (node: Node): DOMRect => {
-        if (node instanceof HTMLElement) {
-          return node.getBoundingClientRect();
-        }
-        const nodeRange = document.createRange();
-        nodeRange.selectNodeContents(node);
-        return nodeRange.getBoundingClientRect();
-      };
-      const before = range.startContainer.childNodes[range.startOffset - 1];
-      const after = range.startContainer.childNodes[range.startOffset];
-      if (before) {
-        const rect = rectOfNode(before);
-        if (rect.width > 0 || rect.height > 0) {
-          caretAnchor = { left: rect.right, top: rect.top, height: rect.height };
-        }
-      }
-      if (!caretAnchor && after) {
-        const rect = rectOfNode(after);
-        if (rect.width > 0 || rect.height > 0) {
-          caretAnchor = { left: rect.left, top: rect.top, height: rect.height };
-        }
-      }
-    }
+    const caretAnchor = getCollapsedCaretAnchor(range);
 
     const x = caretAnchor
       ? caretAnchor.left - containerRect.left
@@ -580,6 +652,18 @@ export const ComposerPromptEditor = forwardRef<
           setCursorIndex(editorRef.current, index);
           syncFakeCaretNow();
         }
+      },
+      getCaretInfo: (): ComposerCaretInfo => {
+        const root = editorRef.current;
+        if (!root) {
+          return { index: 0, collapsed: true, onFirstVisualLine: null };
+        }
+        const collapsed = window.getSelection()?.isCollapsed ?? true;
+        return {
+          index: getCursorIndex(root),
+          collapsed,
+          onFirstVisualLine: collapsed ? isCaretOnFirstVisualLine(root) : null,
+        };
       },
     }),
     [syncFakeCaretNow]

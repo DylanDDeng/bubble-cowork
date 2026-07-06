@@ -1,0 +1,156 @@
+#!/usr/bin/env node
+
+import { spawnSync } from 'node:child_process';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const root = process.cwd();
+
+// ── Wiring assertions ────────────────────────────────────────────────────────
+
+const promptInput = fs.readFileSync(
+  path.join(root, 'src', 'ui', 'components', 'PromptInput.tsx'),
+  'utf8'
+);
+assert.equal(
+  /stepPromptHistory\(\s*promptHistory,\s*historyNavRef\.current/.test(promptInput),
+  true,
+  'PromptInput must navigate prompt history on arrow keys'
+);
+assert.equal(
+  promptInput.includes('caret.onFirstVisualLine ?? isCursorOnFirstLine(prompt, caret.index)'),
+  true,
+  'entering a browse must gate ArrowUp on the first VISUAL line (soft wrap aware), with a newline fallback'
+);
+assert.equal(
+  promptInput.includes('onLastVisualLine') || promptInput.includes('isCursorOnLastLine'),
+  false,
+  'while a browse is active the arrows must step regardless of caret line — no last-line gate'
+);
+assert.equal(
+  promptInput.includes('e.shiftKey || e.altKey || e.metaKey || e.ctrlKey'),
+  true,
+  'modified arrow keys must never trigger history navigation'
+);
+assert.equal(
+  promptInput.includes('!caret.collapsed'),
+  true,
+  'history navigation must require a collapsed selection'
+);
+assert.equal(
+  promptInput.includes('step.clamped'),
+  true,
+  'a clamped step at the oldest entry must not re-apply text or move the caret'
+);
+assert.equal(
+  promptInput.includes('value === historyAppliedTextRef.current'),
+  true,
+  'history-applied text must be exempt from long-prompt auto-attachment conversion'
+);
+assert.equal(
+  promptInput.includes('remapPromptHistoryNav('),
+  true,
+  'an active browse must re-anchor its index when history changes (lazy prepend/rewind)'
+);
+assert.equal(
+  promptInput.includes('exitHistoryBrowse(nav)'),
+  true,
+  'when remapping exits the browse (entry vanished) the stashed draft must be restored'
+);
+assert.equal(
+  promptInput.includes('const draft = nav.draft'),
+  true,
+  'exiting a browse must put the stashed draft back into the composer'
+);
+assert.equal(
+  promptInput.includes('setAttachments(step.attachments)'),
+  true,
+  'steps must apply attachment changes: cleared on entry, restored on exit — a recalled entry must never send the old draft attachments'
+);
+assert.equal(
+  promptInput.includes('setAttachments(nav.draftAttachments ?? [])'),
+  true,
+  'non-key exits (remap vanish, session switch) must restore the stashed draft attachments'
+);
+
+// Arrow-key priority: while a browse is ACTIVE, history owns the arrows even
+// if the recalled text re-opened the @-mention or slash menu; when idle, the
+// menus keep priority and history only sees keys they did not consume.
+const activeHistoryIndex = promptInput.indexOf('historyBrowseActive && handleHistoryArrowKey(e)');
+const mentionIndex = promptInput.indexOf('projectFileMentions.moveSelection(-1)');
+const slashIndex = promptInput.indexOf('capabilityMenu.moveSelection(-1)');
+const idleHistoryIndex = promptInput.indexOf('!historyBrowseActive && handleHistoryArrowKey(e)');
+assert.equal(
+  activeHistoryIndex > -1 && mentionIndex > -1 && activeHistoryIndex < mentionIndex,
+  true,
+  'an active history browse must consume arrows before the mention/slash menus'
+);
+assert.equal(
+  slashIndex > -1 && idleHistoryIndex > slashIndex,
+  true,
+  'when idle, menus must take priority over entering history'
+);
+
+const editor = fs.readFileSync(
+  path.join(root, 'src', 'ui', 'components', 'ComposerPromptEditor.tsx'),
+  'utf8'
+);
+assert.equal(
+  editor.includes('getCaretInfo'),
+  true,
+  'the composer editor must expose caret info (index, collapsed, visual line)'
+);
+assert.equal(
+  editor.includes('isCaretOnFirstVisualLine'),
+  true,
+  'the composer editor must detect the first visual line from caret rects'
+);
+
+// ── Compile + run the unit test ──────────────────────────────────────────────
+
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-prompt-history-'));
+const tscBin = path.join(
+  root,
+  'node_modules',
+  '.bin',
+  process.platform === 'win32' ? 'tsc.cmd' : 'tsc'
+);
+
+const compile = spawnSync(
+  tscBin,
+  [
+    '--target',
+    'ES2022',
+    '--module',
+    'CommonJS',
+    '--moduleResolution',
+    'Node',
+    '--jsx',
+    'react-jsx',
+    '--skipLibCheck',
+    '--esModuleInterop',
+    '--strict',
+    '--noEmitOnError',
+    'true',
+    '--outDir',
+    tmpDir,
+    'scripts/tests/prompt-history.test.ts',
+  ],
+  { cwd: root, stdio: 'inherit' }
+);
+
+if (compile.status !== 0) {
+  process.exit(compile.status ?? 1);
+}
+
+const testPath = path.join(tmpDir, 'scripts', 'tests', 'prompt-history.test.js');
+const run = spawnSync(process.execPath, [testPath], { cwd: root, stdio: 'inherit' });
+fs.rmSync(tmpDir, { recursive: true, force: true });
+
+if (run.status !== 0) {
+  process.exit(run.status ?? 1);
+}
+
+console.log('prompt-history: wiring checks passed');
