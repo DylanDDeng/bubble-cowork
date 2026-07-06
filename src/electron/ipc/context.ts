@@ -41,6 +41,12 @@ export interface IPCHandlerContext {
   // --- 工具函数（set in factory） ---
   broadcast: (type: string, payload: any) => void
   broadcastFolderChanged: () => void
+  /**
+   * Claude Code 技能集变更（例如从市场安装技能）后调用：存活的 Claude runner
+   * 在 spawn 时就固定了技能清单，必须清退（忙碌的标记 doomed），下一轮才能
+   * 看到新技能。
+   */
+  onClaudeSkillsChanged?: () => void
 
   // --- 常量 ---
   ATTACHMENT_MIME_TYPES: Set<string>

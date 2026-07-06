@@ -1,16 +1,24 @@
 import { execFile } from 'child_process';
 import type { ClaudeRuntimeSource, ClaudeRuntimeStatus } from '../../shared/types';
+import {
+  createClaudeRuntimeStatusCache,
+  deriveClaudeRuntimeStatus,
+  type ClaudeRuntimeProbe,
+} from './claude-runtime-verdict';
+
+export {
+  createClaudeRuntimeStatusCache,
+  deriveClaudeRuntimeStatus,
+  formatClaudeRuntimeBlockingMessage,
+  type ClaudeRuntimeProbe,
+  type ClaudeRuntimeStatusCache,
+} from './claude-runtime-verdict';
 import { getClaudeEnv, hasClaudeCodeOAuthAccount, sanitizeOfficialClaudeEnv } from './claude-settings';
-import { isClaudeFamilyAlias, normalizeClaudeRequestedModel } from './claude-model-selection';
 import {
   getClaudeCodeRuntime,
   isClaudeCodeNativeExecutable,
   type ClaudeCodeRuntime,
 } from './claude-runtime';
-
-const INSTALL_COMMAND = 'npm install -g @anthropic-ai/claude-code';
-const LOGIN_COMMAND = 'claude auth login';
-const SETUP_TOKEN_COMMAND = 'claude setup-token';
 
 type ClaudeAuthStatusPayload = {
   loggedIn?: boolean;
@@ -26,35 +34,11 @@ type CommandResult = {
   errorMessage: string | null;
 };
 
-function requiresAnthropicAuthForModel(model?: string | null): boolean {
-  const normalized = normalizeClaudeRequestedModel(model);
-  if (!normalized) {
-    return true;
-  }
-  // Bare family aliases (sonnet/opus/haiku) are official Anthropic models too.
-  return normalized.startsWith('claude-') || isClaudeFamilyAlias(normalized);
-}
-
-function resolveRuntimeSource(cliPath?: string): ClaudeRuntimeSource {
+function resolveRuntimeSource(cliPath?: string | null): ClaudeRuntimeSource {
   if (!cliPath) {
     return 'unknown';
   }
   return 'global';
-}
-
-function buildClaudeRuntimeEnv(
-  runtimeEnv: Record<string, string | undefined>,
-  requestedModel?: string | null
-): NodeJS.ProcessEnv {
-  const baseEnv: NodeJS.ProcessEnv = {
-    ...process.env,
-    ...getClaudeEnv(),
-    ...runtimeEnv,
-  };
-
-  return requiresAnthropicAuthForModel(requestedModel)
-    ? sanitizeOfficialClaudeEnv(baseEnv)
-    : baseEnv;
 }
 
 function extractJsonObject(text: string): Record<string, unknown> | null {
@@ -82,15 +66,6 @@ function parseClaudeVersion(output: string): string | null {
   return match?.[1] || line || null;
 }
 
-function describeRuntimeLocation(source: ClaudeRuntimeSource): string {
-  switch (source) {
-    case 'global':
-      return 'the user Claude Code runtime';
-    default:
-      return 'the Claude runtime';
-  }
-}
-
 function execClaudeRuntimeCommand(
   runtime: ClaudeCodeRuntime,
   args: string[],
@@ -116,7 +91,7 @@ function execClaudeRuntimeCommand(
     : runtime.pathToClaudeCodeExecutable
       ? [...runtime.executableArgs, runtime.pathToClaudeCodeExecutable, ...args]
       : [...runtime.executableArgs, ...args];
-  const commandEnv = env || buildClaudeRuntimeEnv(runtime.env);
+  const commandEnv = env || { ...process.env, ...getClaudeEnv(), ...runtime.env };
 
   return new Promise((resolve) => {
     execFile(
@@ -149,213 +124,91 @@ function execClaudeRuntimeCommand(
   });
 }
 
-function buildInstallRequiredStatus(
-  runtime: ClaudeCodeRuntime,
-  requestedModel: string | null,
-  requiresAnthropicAuth: boolean
-): ClaudeRuntimeStatus {
-  const runtimePath = runtime.pathToClaudeCodeExecutable || runtime.executable || null;
-  return {
-    kind: 'install_required',
-    ready: false,
-    runtimeInstalled: false,
-    runtimeSource: resolveRuntimeSource(runtimePath || undefined),
-    requiresAnthropicAuth,
-    authSatisfied: false,
-    hasApiKey: Boolean(process.env.ANTHROPIC_API_KEY),
-    loggedIn: false,
-    authMethod: null,
-    apiProvider: null,
-    cliPath: runtimePath,
-    cliVersion: null,
-    requestedModel,
-    summary: 'Claude Code is not installed.',
-    detail:
-      'Aegis uses the Claude Code installed on this machine. Install Claude Code, make sure `claude` is available on PATH, then restart Aegis.',
-    installCommand: INSTALL_COMMAND,
-    loginCommand: LOGIN_COMMAND,
-    setupTokenCommand: SETUP_TOKEN_COMMAND,
-    checkedAt: Date.now(),
-  };
-}
-
-export async function getClaudeRuntimeStatus(model?: string | null): Promise<ClaudeRuntimeStatus> {
+/**
+ * Run the expensive, model-independent runtime probe: locate the CLI and ask
+ * it for version + auth state. The auth subprocess runs under the sanitized
+ * official env — auth only gates official Anthropic models, and those always
+ * use the sanitized env at runtime. Env-derived facts are captured for both
+ * env variants so `deriveClaudeRuntimeStatus` can stay a pure function.
+ */
+export async function probeClaudeRuntime(): Promise<ClaudeRuntimeProbe> {
   const runtime = getClaudeCodeRuntime();
-  const requestedModel = normalizeClaudeRequestedModel(model) || model?.trim() || null;
-  const requiresAnthropicAuth = requiresAnthropicAuthForModel(requestedModel);
-  const runtimeCommandEnv = buildClaudeRuntimeEnv(runtime.env, requestedModel);
   const hasClaudeCodeAccount = hasClaudeCodeOAuthAccount();
-  const hasApiKey = Boolean(runtimeCommandEnv.ANTHROPIC_API_KEY);
+  const rawEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...getClaudeEnv(),
+    ...runtime.env,
+  };
+  const sanitizedEnv = sanitizeOfficialClaudeEnv(rawEnv);
   const runtimePath = runtime.pathToClaudeCodeExecutable || runtime.executable || null;
+  const checkedAt = Date.now();
 
   if (!runtimePath) {
-    return buildInstallRequiredStatus(runtime, requestedModel, requiresAnthropicAuth);
+    return {
+      runtimePath: null,
+      runtimeSource: 'unknown',
+      cliVersion: null,
+      loggedIn: false,
+      payloadAuthMethod: null,
+      apiProvider: null,
+      hasApiKeySanitized: Boolean(sanitizedEnv.ANTHROPIC_API_KEY),
+      hasApiKeyUnsanitized: Boolean(rawEnv.ANTHROPIC_API_KEY),
+      hasClaudeCodeAccount,
+      authProbeResponsive: false,
+      authProbeErrorMessage: null,
+      checkedAt,
+    };
   }
 
-  const runtimeSource = resolveRuntimeSource(runtimePath);
-  const runtimeLabel = describeRuntimeLocation(runtimeSource);
   const [versionResult, authResult] = await Promise.all([
-    execClaudeRuntimeCommand(runtime, ['--version'], 4000, runtimeCommandEnv),
-    execClaudeRuntimeCommand(runtime, ['auth', 'status'], 5000, runtimeCommandEnv),
+    execClaudeRuntimeCommand(runtime, ['--version'], 4000, sanitizedEnv),
+    execClaudeRuntimeCommand(runtime, ['auth', 'status'], 5000, sanitizedEnv),
   ]);
 
   const cliVersion = parseClaudeVersion(versionResult.stdout || versionResult.combined);
   const authPayload = extractJsonObject(authResult.combined) as ClaudeAuthStatusPayload | null;
-  const loggedIn = authPayload?.loggedIn === true || hasClaudeCodeAccount;
-  const authMethod =
-    hasApiKey && !loggedIn
-      ? 'api_key'
-      : hasClaudeCodeAccount
-        ? 'claude_code'
-      : typeof authPayload?.authMethod === 'string' && authPayload.authMethod.trim()
-        ? authPayload.authMethod.trim()
-        : null;
-  const apiProvider =
-    typeof authPayload?.apiProvider === 'string' && authPayload.apiProvider.trim()
-      ? authPayload.apiProvider.trim()
-      : null;
-  const authSatisfied = !requiresAnthropicAuth || loggedIn || hasApiKey;
-
-  if (authSatisfied) {
-    const detail = !requiresAnthropicAuth
-      ? `Using ${requestedModel || 'a compatible provider model'} through ${runtimeLabel}. Anthropic login is not required for this model.`
-      : authMethod === 'api_key'
-        ? `Claude sessions can start with ${runtimeLabel} using an API key.`
-        : `Claude sessions can start with ${runtimeLabel}${cliVersion ? ` (v${cliVersion})` : ''}.`;
-
-    return {
-      kind: 'ready',
-      ready: true,
-      runtimeInstalled: true,
-      runtimeSource,
-      requiresAnthropicAuth,
-      authSatisfied: true,
-      hasApiKey,
-      loggedIn,
-      authMethod,
-      apiProvider,
-      cliPath: runtimePath,
-      cliVersion,
-      requestedModel,
-      summary: 'Claude Code is ready.',
-      detail,
-      installCommand: INSTALL_COMMAND,
-      loginCommand: LOGIN_COMMAND,
-      setupTokenCommand: SETUP_TOKEN_COMMAND,
-      checkedAt: Date.now(),
-    };
-  }
-
-  if (authPayload || authResult.code === 0 || authResult.code === 1) {
-    return {
-      kind: 'login_required',
-      ready: false,
-      runtimeInstalled: true,
-      runtimeSource,
-      requiresAnthropicAuth,
-      authSatisfied: false,
-      hasApiKey,
-      loggedIn,
-      authMethod,
-      apiProvider,
-      cliPath: runtimePath,
-      cliVersion,
-      requestedModel,
-      summary: 'Claude Code needs authentication.',
-      detail:
-        'Sign in with Claude Code or configure ANTHROPIC_API_KEY before using Anthropic Claude models in Aegis.',
-      installCommand: INSTALL_COMMAND,
-      loginCommand: LOGIN_COMMAND,
-      setupTokenCommand: SETUP_TOKEN_COMMAND,
-      checkedAt: Date.now(),
-    };
-  }
 
   return {
-    kind: 'error',
-    ready: false,
-    runtimeInstalled: true,
-    runtimeSource,
-    requiresAnthropicAuth,
-    authSatisfied: false,
-    hasApiKey,
-    loggedIn,
-    authMethod,
-    apiProvider,
-    cliPath: runtimePath,
+    runtimePath,
+    runtimeSource: resolveRuntimeSource(runtimePath),
     cliVersion,
-    requestedModel,
-    summary: 'Claude runtime check failed.',
-    detail:
-      authResult.errorMessage ||
-      'Aegis could not verify Claude authentication status. Run "claude auth status" in a terminal and verify the runtime is healthy.',
-    installCommand: INSTALL_COMMAND,
-    loginCommand: LOGIN_COMMAND,
-    setupTokenCommand: SETUP_TOKEN_COMMAND,
-    checkedAt: Date.now(),
+    loggedIn: authPayload?.loggedIn === true || hasClaudeCodeAccount,
+    payloadAuthMethod:
+      typeof authPayload?.authMethod === 'string' && authPayload.authMethod.trim()
+        ? authPayload.authMethod.trim()
+        : null,
+    apiProvider:
+      typeof authPayload?.apiProvider === 'string' && authPayload.apiProvider.trim()
+        ? authPayload.apiProvider.trim()
+        : null,
+    hasApiKeySanitized: Boolean(sanitizedEnv.ANTHROPIC_API_KEY),
+    hasApiKeyUnsanitized: Boolean(rawEnv.ANTHROPIC_API_KEY),
+    hasClaudeCodeAccount,
+    authProbeResponsive: Boolean(authPayload) || authResult.code === 0 || authResult.code === 1,
+    authProbeErrorMessage: authResult.errorMessage,
+    checkedAt,
   };
 }
 
-export function formatClaudeRuntimeBlockingMessage(status: ClaudeRuntimeStatus): string {
-  if (status.kind === 'install_required') {
-    return `${status.summary} ${status.detail} Suggested command: ${status.installCommand || INSTALL_COMMAND}`;
-  }
-
-  if (status.kind === 'login_required') {
-    return `${status.summary} ${status.detail} Suggested command: ${status.loginCommand || LOGIN_COMMAND}`;
-  }
-
-  if (status.kind === 'error') {
-    return `${status.summary} ${status.detail}`;
-  }
-
-  return status.summary;
+export async function getClaudeRuntimeStatus(model?: string | null): Promise<ClaudeRuntimeStatus> {
+  return deriveClaudeRuntimeStatus(await probeClaudeRuntime(), model ?? null);
 }
 
-// ────────────────────────────────────────
-// 缓存机制：启动时预检查，避免每次发消息都等待 1-5 秒
-// ────────────────────────────────────────
-
-interface CachedEntry {
-  status: ClaudeRuntimeStatus
-  model: string | null
-  cachedAt: number
-}
-
-let cachedStatus: CachedEntry | null = null
-
-/** 缓存有效期：5 分钟（单位：毫秒） */
-const CACHE_TTL_MS = 5 * 60 * 1000
+const defaultCache = createClaudeRuntimeStatusCache({ probe: probeClaudeRuntime });
 
 /**
  * 清除缓存。当用户修改 Claude 设置（CLI 路径、模型、API Key 等）时调用。
  */
 export function invalidateClaudeRuntimeCache(): void {
-  cachedStatus = null
+  defaultCache.invalidate();
 }
 
 /**
- * 获取 Claude 运行时状态（带缓存）。
- * 如果缓存有效且模型匹配，直接返回缓存结果；否则重新检查并更新缓存。
- *
- * @param model - 可选的模型名称，用于区分不同模型的缓存
+ * 获取 Claude 运行时状态（带缓存）。探测结果与模型无关，按模型的裁决为纯同步
+ * 计算；稳态下每次发送的检查成本约为 0ms。
  */
-export async function getClaudeRuntimeStatusCached(model?: string | null): Promise<ClaudeRuntimeStatus> {
-  const targetModel = model ?? null
-
-  // 缓存有效：模型匹配且未过期
-  if (
-    cachedStatus &&
-    cachedStatus.model === targetModel &&
-    Date.now() - cachedStatus.cachedAt < CACHE_TTL_MS
-  ) {
-    return cachedStatus.status
-  }
-
-  // 缓存无效：重新检查
-  const status = await getClaudeRuntimeStatus(targetModel)
-  cachedStatus = { status, model: targetModel, cachedAt: Date.now() }
-  return status
+export function getClaudeRuntimeStatusCached(model?: string | null): Promise<ClaudeRuntimeStatus> {
+  return defaultCache.get(model);
 }
 
 /**
@@ -363,9 +216,5 @@ export async function getClaudeRuntimeStatusCached(model?: string | null): Promi
  * 如果检查失败，会在下次 getClaudeRuntimeStatusCached 调用时重试。
  */
 export async function prefetchClaudeRuntimeStatus(): Promise<void> {
-  try {
-    await getClaudeRuntimeStatusCached()
-  } catch {
-    // 静默失败，下次 getClaudeRuntimeStatusCached 调用会重试
-  }
+  await defaultCache.prefetch();
 }

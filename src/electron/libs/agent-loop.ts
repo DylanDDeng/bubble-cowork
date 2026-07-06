@@ -46,6 +46,11 @@ export function runAgentLoop(options: RunnerOptions): RunnerHandle {
   return runtime.run(options);
 }
 
+// In-flight stopSession promises keyed by threadId. Adapter sessions share
+// that key, so a replacement loop must not start until the previous loop's
+// stop has settled — otherwise the async stop can kill the new session.
+const pendingSessionStops = new Map<string, Promise<void>>();
+
 function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
   ensureProviderService();
   const service = getProviderService();
@@ -107,25 +112,39 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
     }
   }
 
-  // Start the session
-  const startPromise = service.startSession({
-    provider,
-    threadId,
-    cwd: options.session.cwd || process.cwd(),
-    prompt: options.prompt,
-    attachments: options.attachments,
-    model: options.model,
-    resumeSessionId: options.resumeSessionId,
-    codexExecutionMode: options.codexExecutionMode,
-    codexPermissionMode: options.codexPermissionMode,
-    codexReasoningEffort: options.codexReasoningEffort,
-    codexFastMode: options.codexFastMode,
-    kimiPermissionMode: options.kimiPermissionMode,
-    grokPermissionMode: options.grokPermissionMode,
-    grokReasoningEffort: options.grokReasoningEffort,
-    opencodePermissionMode: options.opencodePermissionMode,
-    codexSkills: options.codexSkills,
-    codexMentions: options.codexMentions,
+  // Start the session — AFTER any pending stop for this thread has settled.
+  // Adapter sessions are keyed by threadId alone, so a stale handle's
+  // fire-and-forget stopSession landing after this start would tear down the
+  // replacement session instead of the retired one.
+  const priorStop = pendingSessionStops.get(threadId);
+  const startPromise = (priorStop
+    ? priorStop.catch(() => undefined)
+    : Promise.resolve()
+  ).then(() => {
+    // Aborted while queued behind the prior stop: starting now would create
+    // an ownerless session (this loop's own stop already ran and no-opped).
+    if (abortController.signal.aborted) {
+      return undefined;
+    }
+    return service.startSession({
+      provider,
+      threadId,
+      cwd: options.session.cwd || process.cwd(),
+      prompt: options.prompt,
+      attachments: options.attachments,
+      model: options.model,
+      resumeSessionId: options.resumeSessionId,
+      codexExecutionMode: options.codexExecutionMode,
+      codexPermissionMode: options.codexPermissionMode,
+      codexReasoningEffort: options.codexReasoningEffort,
+      codexFastMode: options.codexFastMode,
+      kimiPermissionMode: options.kimiPermissionMode,
+      grokPermissionMode: options.grokPermissionMode,
+      grokReasoningEffort: options.grokReasoningEffort,
+      opencodePermissionMode: options.opencodePermissionMode,
+      codexSkills: options.codexSkills,
+      codexMentions: options.codexMentions,
+    });
   });
 
   // Wait for session start in background
@@ -138,8 +157,16 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
   return {
     abort: () => {
       abortController.abort();
-      service.stopSession(threadId).catch((error) => {
+      const stopPromise = service.stopSession(threadId).catch((error) => {
         console.error('[ProviderService] Failed to stop session:', error);
+      });
+      // Publish the stop so a replacement loop for the same thread starts
+      // strictly after it — see the startSession serialization above.
+      pendingSessionStops.set(threadId, stopPromise);
+      void stopPromise.finally(() => {
+        if (pendingSessionStops.get(threadId) === stopPromise) {
+          pendingSessionStops.delete(threadId);
+        }
       });
       service.events.off('event', handleEvent);
     },
@@ -162,23 +189,32 @@ function runProviderServiceAgent(options: RunnerOptions): RunnerHandle {
     ) => {
       if (abortController.signal.aborted) return;
 
-      service
-        .sendTurn({
-          threadId,
-          prompt,
-          attachments,
-          model,
-          codexExecutionMode: sendOptions?.codexExecutionMode ?? options.codexExecutionMode,
-          codexPermissionMode: sendOptions?.codexPermissionMode ?? options.codexPermissionMode,
-          codexReasoningEffort: sendOptions?.codexReasoningEffort ?? options.codexReasoningEffort,
-          codexFastMode: sendOptions?.codexFastMode ?? options.codexFastMode,
-          kimiPermissionMode: sendOptions?.kimiPermissionMode ?? options.kimiPermissionMode,
-          grokPermissionMode: sendOptions?.grokPermissionMode ?? options.grokPermissionMode,
-          grokReasoningEffort: sendOptions?.grokReasoningEffort ?? options.grokReasoningEffort,
-          opencodePermissionMode:
-            sendOptions?.opencodePermissionMode ?? options.opencodePermissionMode,
-          codexSkills,
-          codexMentions,
+      // Dispatch strictly after the session start settles: a replacement
+      // runner's startSession is itself queued behind the previous stop, so
+      // a rapid follow-up send could otherwise hit a session that is not
+      // registered yet (or still stopping). Chaining off startPromise keeps
+      // sends ordered (then-callbacks run in attach order).
+      startPromise
+        .catch(() => undefined) // a start failure was already reported above
+        .then(() => {
+          if (abortController.signal.aborted) return;
+          return service.sendTurn({
+            threadId,
+            prompt,
+            attachments,
+            model,
+            codexExecutionMode: sendOptions?.codexExecutionMode ?? options.codexExecutionMode,
+            codexPermissionMode: sendOptions?.codexPermissionMode ?? options.codexPermissionMode,
+            codexReasoningEffort: sendOptions?.codexReasoningEffort ?? options.codexReasoningEffort,
+            codexFastMode: sendOptions?.codexFastMode ?? options.codexFastMode,
+            kimiPermissionMode: sendOptions?.kimiPermissionMode ?? options.kimiPermissionMode,
+            grokPermissionMode: sendOptions?.grokPermissionMode ?? options.grokPermissionMode,
+            grokReasoningEffort: sendOptions?.grokReasoningEffort ?? options.grokReasoningEffort,
+            opencodePermissionMode:
+              sendOptions?.opencodePermissionMode ?? options.opencodePermissionMode,
+            codexSkills,
+            codexMentions,
+          });
         })
         .catch((error) => {
           if (!abortController.signal.aborted) {

@@ -88,6 +88,7 @@ import { loadFeishuBridgeConfig, saveFeishuBridgeConfig } from './libs/feishu-br
 import { feishuBridge } from './libs/feishu-bridge';
 import { getMemoryWorkspace, saveMemoryDocument } from './libs/memory-store';
 import { formatClaudeRuntimeBlockingMessage, getClaudeRuntimeStatus, getClaudeRuntimeStatusCached, invalidateClaudeRuntimeCache } from './libs/claude-runtime-status';
+import { selectClaudeRunnersToReap, type ClaudeRunnerSnapshot } from './libs/claude-runner-pool';
 import {
   getSkillMarketDetail,
   getSkillMarketHot,
@@ -2392,7 +2393,10 @@ async function handleEditLatestPrompt(
   }
 
   const existingEntry = runnerHandles.get(sessionId);
-  if (existingEntry && session.status === 'running') {
+  if (existingEntry) {
+    // Abort even when idle: a kept-alive Claude runner still holds the
+    // pre-edit context, and startRunner overwriting the map entry would
+    // otherwise orphan its CLI process.
     existingEntry.handle.abort();
     runnerHandles.delete(sessionId);
   }
@@ -2619,7 +2623,10 @@ async function handleEditLatestOpenCodePrompt(
   }
 
   const existingEntry = runnerHandles.get(sessionId);
-  if (existingEntry && session.status === 'running') {
+  if (existingEntry) {
+    // Abort even when idle: the kept-alive service session still holds the
+    // pre-edit thread, and the replacement start would otherwise race the
+    // stale handle's stop under the same threadId.
     existingEntry.handle.abort();
     runnerHandles.delete(sessionId);
   }
@@ -2822,7 +2829,10 @@ async function handleEditLatestCodexPrompt(
   }
 
   const existingEntry = runnerHandles.get(sessionId);
-  if (existingEntry && session.status === 'running') {
+  if (existingEntry) {
+    // Abort even when idle: the kept-alive service session still holds the
+    // pre-edit thread, and the replacement start would otherwise race the
+    // stale handle's stop under the same threadId.
     existingEntry.handle.abort();
     runnerHandles.delete(sessionId);
   }
@@ -3268,6 +3278,23 @@ const runnerHandles = new Map<
     activeAgentId?: string | null;
     activeAgentRunId?: string | null;
     onTurnDone?: (status: SessionStatus, message?: string) => void;
+    /** Turns dispatched into this runner that have not yet produced a `result`. */
+    inFlightTurns?: number;
+    /** Wall-clock time of the latest `result` — the idle anchor for the reaper. */
+    lastTurnEndedAt?: number;
+    /** Live context is stale or poisoned; abort at the next `result` instead of reusing. */
+    doomed?: boolean;
+    /** Automation runners auto-approve permissions; never reuse them for human turns. */
+    autoApprove?: boolean;
+    /**
+     * Prompts dispatched into this runner whose `result` has not arrived yet
+     * (FIFO — results come back in dispatch order on the single CLI stream).
+     * Feeds the slash-command failure check for the turn each result closes;
+     * a single shared slot would misattribute queued prompts.
+     */
+    pendingTurnPrompts?: string[];
+    /** Working directory the runner was spawned with — reuse must match it. */
+    cwd?: string | null;
   }
 >();
 
@@ -3275,6 +3302,150 @@ let automationScheduler: AutomationScheduler | null = null;
 
 // 会话状态映射（包含 pending permissions）
 const sessionStates = new Map<string, SessionState>();
+
+// ── Claude runner pool ───────────────────────────────────────────────────────
+// Claude runners stay alive between turns (streaming-input reuse) so follow-up
+// messages skip the CLI cold start + resume replay. Idle runners are reaped on
+// a timer per the policy in claude-runner-pool.ts.
+
+const CLAUDE_RUNNER_REAP_INTERVAL_MS = 60_000;
+let claudeRunnerReapTimer: NodeJS.Timeout | null = null;
+
+function snapshotClaudeRunners(): ClaudeRunnerSnapshot[] {
+  const snapshots: ClaudeRunnerSnapshot[] = [];
+  for (const [sessionId, entry] of runnerHandles) {
+    if (entry.provider !== 'claude') continue;
+    snapshots.push({
+      sessionId,
+      inFlightTurns: entry.inFlightTurns ?? 0,
+      lastTurnEndedAt: entry.lastTurnEndedAt,
+      hasPendingPermissions:
+        (sessionStates.get(sessionId)?.pendingPermissions.size ?? 0) > 0,
+    });
+  }
+  return snapshots;
+}
+
+function sweepIdleClaudeRunners(): void {
+  const victims = selectClaudeRunnersToReap(snapshotClaudeRunners(), Date.now());
+  for (const sessionId of victims) {
+    const entry = runnerHandles.get(sessionId);
+    // Re-check liveness: a turn may have been dispatched since the snapshot.
+    if (!entry || entry.provider !== 'claude' || (entry.inFlightTurns ?? 0) > 0) continue;
+    entry.handle.abort();
+    runnerHandles.delete(sessionId);
+  }
+}
+
+function ensureClaudeRunnerReaper(): void {
+  if (claudeRunnerReapTimer) return;
+  claudeRunnerReapTimer = setInterval(sweepIdleClaudeRunners, CLAUDE_RUNNER_REAP_INTERVAL_MS);
+  claudeRunnerReapTimer.unref?.();
+}
+
+function stopClaudeRunnerReaper(): void {
+  if (claudeRunnerReapTimer) {
+    clearInterval(claudeRunnerReapTimer);
+    claudeRunnerReapTimer = null;
+  }
+}
+
+/**
+ * Config/workspace changes invalidate the environment a live runner captured
+ * at spawn (API keys, compatible-provider endpoints, MCP servers, cwd). Idle
+ * runners are killed immediately; busy ones are doomed and reaped at their
+ * next `result` so they can never serve another turn with stale state.
+ */
+function flushClaudeRunners(sessionId?: string): void {
+  for (const [id, entry] of runnerHandles) {
+    if (entry.provider !== 'claude') continue;
+    if (sessionId && id !== sessionId) continue;
+    if ((entry.inFlightTurns ?? 0) > 0) {
+      entry.doomed = true;
+    } else {
+      entry.handle.abort();
+      runnerHandles.delete(id);
+    }
+  }
+}
+
+/**
+ * Retire a session's kept-alive runner regardless of provider. Every provider
+ * keeps its handle between turns (connection reuse) and every live session is
+ * bound to the cwd it started with, so a workspace change (handoff, worktree
+ * move) must drop the handle for ALL providers — flushing only Claude would
+ * let a Codex/OpenCode/Kimi/Grok/Pi runner serve the next turn against the
+ * old checkout. Callers gate on DB status, so the handle is idle; a Claude
+ * runner with an in-flight turn (defensive) is doomed like flushClaudeRunners.
+ */
+function retireSessionRunner(sessionId: string): void {
+  const entry = runnerHandles.get(sessionId);
+  if (!entry) return;
+  if (entry.provider === 'claude' && (entry.inFlightTurns ?? 0) > 0) {
+    entry.doomed = true;
+    return;
+  }
+  entry.handle.abort();
+  runnerHandles.delete(sessionId);
+}
+
+function isPathAtOrUnder(child: string, root: string): boolean {
+  try {
+    const rel = relative(resolve(root), resolve(child));
+    return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Retire every kept-alive runner (any provider, any session) anchored at or
+ * inside `dirPath`. Used when a directory runners spawned in is deleted —
+ * worktree apply/discard force-remove the checkout even when sibling sessions
+ * still point at it — so a live process would otherwise linger on a dead cwd.
+ * Runners of RUNNING sessions are never touched: aborting one mid-turn would
+ * strand the session as 'running' with no terminal event. Callers block on
+ * running siblings up front; this guard covers races.
+ */
+function retireRunnersUnderPath(dirPath: string): void {
+  for (const [sessionId, entry] of Array.from(runnerHandles.entries())) {
+    if (!entry.cwd || !isPathAtOrUnder(entry.cwd, dirPath)) continue;
+    if (sessions.getSession(sessionId)?.status === 'running') continue;
+    retireSessionRunner(sessionId);
+  }
+}
+
+/**
+ * A RUNNING session (other than `excludedSessionId`) whose checkout sits at
+ * or under `dirPath`, or null. Deleting a directory under a running agent
+ * corrupts its turn — callers must block the operation instead.
+ */
+function findRunningSessionUnderPath(
+  dirPath: string,
+  excludedSessionId?: string | null
+): NonNullable<ReturnType<typeof sessions.getSession>> | null {
+  for (const row of sessions.listRunningSessions()) {
+    if (excludedSessionId && row.id === excludedSessionId) continue;
+    const rowCwd = row.worktree_path || row.cwd;
+    if (rowCwd && isPathAtOrUnder(rowCwd, dirPath)) return row;
+  }
+  return null;
+}
+
+/**
+ * The working directory a runner for this session would spawn with — the
+ * same fallback startRunner applies for DM sessions. Reuse decisions compare
+ * against this so a session whose workspace moved never reuses a live runner
+ * bound to the old checkout.
+ */
+function effectiveRunnerCwd(
+  session: NonNullable<ReturnType<typeof sessions.getSession>>
+): string | null {
+  if (session.conversation_scope === 'dm' && !session.cwd) {
+    return getDirectMessageRuntimeCwd();
+  }
+  return session.cwd || null;
+}
 
 // 获取或创建会话状态
 function getSessionState(sessionId: string): SessionState {
@@ -4483,6 +4654,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     if (row.env_mode === 'worktree' && row.worktree_path) {
       return { ok: false, message: 'This thread is already in a worktree.' };
     }
+    // Moving the thread changes its cwd; retire any kept-alive runner (any
+    // provider) that captured the old directory at spawn.
+    retireSessionRunner(sessionId);
     // 用该 thread 的 provider 给分支起英文名（标题/末条提示词做素材），失败退回本地命名
     const llmSlug = await generateWorktreeBranchSlug({
       prompt: row.title || row.last_prompt || 'worktree',
@@ -4497,14 +4671,53 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   ipcMainHandle('apply-worktree-changes', async (_event, sessionId: string) => {
+    // Capture before the apply: on success the row's worktree fields are
+    // cleared and the directory is force-removed.
+    const row = sessions.getSession(sessionId);
+    const worktreePath = row?.worktree_path || null;
+    const projectCwd = row?.project_cwd || null;
+    // The worktree is force-removed without a reference check — a sibling
+    // session running inside it would lose its checkout mid-turn.
+    const runningSibling = worktreePath ? findRunningSessionUnderPath(worktreePath, sessionId) : null;
+    if (runningSibling) {
+      return {
+        ok: false,
+        message: `Another running session is using this worktree: ${runningSibling.title || runningSibling.id}. Wait for it to finish first.`,
+      };
+    }
     const result = await applyIsolatedWorkspace(sessionId);
-    if (result.ok) broadcastSessionWorkspace(mainWindow, sessionId);
+    if (result.ok) {
+      // The worktree directory is gone and the session moved back to the
+      // project folder — retire its kept-alive runner plus any other runner
+      // anchored inside the removed checkout.
+      retireSessionRunner(sessionId);
+      if (worktreePath) retireRunnersUnderPath(worktreePath);
+      // The squash-merge also rewrote files in the project checkout; idle
+      // runners anchored there hold stale context, same as a branch switch.
+      if (projectCwd) await flushRunnersSharingGitRoot(projectCwd);
+      broadcastSessionWorkspace(mainWindow, sessionId);
+    }
     return result;
   });
 
   ipcMainHandle('discard-worktree-changes', async (_event, sessionId: string) => {
+    const worktreePath = sessions.getSession(sessionId)?.worktree_path || null;
+    const runningSibling = worktreePath ? findRunningSessionUnderPath(worktreePath, sessionId) : null;
+    if (runningSibling) {
+      return {
+        ok: false,
+        message: `Another running session is using this worktree: ${runningSibling.title || runningSibling.id}. Wait for it to finish first.`,
+      };
+    }
     const result = await discardIsolatedWorkspace(sessionId);
-    if (result.ok) broadcastSessionWorkspace(mainWindow, sessionId);
+    if (result.ok) {
+      // Same as apply: the checkout was force-removed; no live runner may
+      // keep the dead cwd. (No project-root flush here — discard does not
+      // touch the project checkout's contents.)
+      retireSessionRunner(sessionId);
+      if (worktreePath) retireRunnersUnderPath(worktreePath);
+      broadcastSessionWorkspace(mainWindow, sessionId);
+    }
     return result;
   });
 
@@ -4632,6 +4845,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   ipcMainHandle('save-claude-compatible-provider-config', async (_, config: ClaudeCompatibleProvidersConfig) => {
     saveCompatibleProviderConfig(config);
     invalidateClaudeRuntimeCache(); // 配置变更后清除缓存，下次发消息时重新检查
+    // Live runners captured the previous provider env (keys, base URLs) at
+    // spawn — retire them so the next turn picks up the new config.
+    flushClaudeRunners();
     return loadCompatibleProviderConfig();
   });
 
@@ -4849,7 +5065,15 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   ipcMainHandle('install-skill-from-market', async (_event, id: string) => {
-    return installSkillFromMarket(id);
+    const result = await installSkillFromMarket(id);
+    if (result.ok) {
+      // A live Claude runner fixed its skill list at spawn; retire kept-alive
+      // runners (doom busy ones) so `/<new-skill>` works on the next turn.
+      // (The ipc/skill-market module registration shadows this handler and
+      // does the same via ctx.onClaudeSkillsChanged — keep them in sync.)
+      flushClaudeRunners();
+    }
+    return result;
   });
 
   ipcMainHandle(
@@ -6021,19 +6245,12 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return input;
   };
 
-  const getRunningSessionRows = (): Array<NonNullable<ReturnType<typeof sessions.getSession>>> => {
-    const byId = new Map<string, NonNullable<ReturnType<typeof sessions.getSession>>>();
-    for (const row of sessions.listRunningSessions()) {
-      byId.set(row.id, row);
-    }
-    for (const sessionId of runnerHandles.keys()) {
-      const row = sessions.getSession(sessionId);
-      if (row) {
-        byId.set(row.id, row);
-      }
-    }
-    return Array.from(byId.values());
-  };
+  // Busy means the DB says 'running'. Runner-handle presence is NOT a busy
+  // signal: handles persist between turns for connection reuse (all providers,
+  // including Claude), so keying gates on the map would block git/workspace
+  // actions from perfectly idle sessions.
+  const getRunningSessionRows = (): Array<NonNullable<ReturnType<typeof sessions.getSession>>> =>
+    sessions.listRunningSessions();
 
   const findRunningSessionSharingGitRoot = async (
     cwd: string,
@@ -6060,12 +6277,38 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return null;
   };
 
+  // A branch mutation rewrites the files under every session cwd sharing the
+  // git root. Kept-alive runners (any provider) hold live context and file
+  // state from the pre-mutation checkout — retire them so the next turn
+  // spawns fresh against the new checkout. The mutation gate already ensured
+  // none of these sessions is running.
+  const flushRunnersSharingGitRoot = async (cwd: string): Promise<void> => {
+    let targetRoot: string;
+    try {
+      targetRoot = resolve(await getGitTopLevel(cwd));
+    } catch {
+      return;
+    }
+    for (const sessionId of Array.from(runnerHandles.keys())) {
+      const row = sessions.getSession(sessionId);
+      const rowCwd = row?.cwd || row?.project_cwd;
+      if (!rowCwd) continue;
+      try {
+        if (resolve(await getGitTopLevel(rowCwd)) === targetRoot) {
+          retireSessionRunner(sessionId);
+        }
+      } catch {
+        continue;
+      }
+    }
+  };
+
   const getGitBranchMutationBlockMessage = async (
     cwd: string,
     sessionId?: string | null
   ): Promise<string | null> => {
     const session = sessionId ? sessions.getSession(sessionId) : null;
-    if (session && (runnerHandles.has(session.id) || session.status === 'running')) {
+    if (session && session.status === 'running') {
       return 'Stop the current task before switching branches.';
     }
 
@@ -6104,6 +6347,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       if (blockMessage) {
         return { ok: false, message: blockMessage };
       }
+      await flushRunnersSharingGitRoot(cwd);
 
       const output = await checkoutBranch({ cwd, branch });
       return { ok: true, output };
@@ -6123,6 +6367,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       if (blockMessage) {
         return { ok: false, message: blockMessage };
       }
+      await flushRunnersSharingGitRoot(cwd);
 
       const output = await createBranch({ cwd, branch });
       return { ok: true, output };
@@ -6175,9 +6420,13 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
         });
       };
       try {
-        if (runnerHandles.has(input.sessionId) || session.status === 'running') {
+        if (session.status === 'running') {
           return { ok: false, message: 'Stop the current task before switching workspaces.' };
         }
+        // The handoff changes this session's workspace (cwd). A kept-alive
+        // runner (any provider) captured the old cwd at spawn and must not
+        // serve another turn against the wrong checkout.
+        retireSessionRunner(input.sessionId);
 
         if (input.targetMode === 'local') {
           const sourceCwd = session.worktree_path || session.cwd || projectCwd;
@@ -6216,6 +6465,11 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
               if (blockingSession) {
                 throw new Error(`Another running session is using the local workspace: ${blockingSession.title || blockingSession.id}.`);
               }
+              // The stash-apply and/or branch checkout below rewrite files in
+              // the project checkout; idle kept-alive runners of OTHER
+              // sessions anchored there must not serve another turn against
+              // the mutated files — same invariant as git-checkout-branch.
+              await flushRunnersSharingGitRoot(projectCwd);
             }
             sourceStash = includeChanges && sourceIsWorktree
               ? await stashWorkingTree({
@@ -6701,6 +6955,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     broadcastFolderChanged,
     ATTACHMENT_MIME_TYPES,
     LOCAL_PREVIEW_MIME_TYPES,
+    // Skill installs change what a Claude CLI process loaded at spawn;
+    // kept-alive runners must be retired so the next turn sees the new skill.
+    onClaudeSkillsChanged: () => flushClaudeRunners(),
   }
   registerTerminal(ipcCtx)
   registerFeishu(ipcCtx)
@@ -7607,8 +7864,16 @@ async function handleSessionContinue(
     }
   }
 
+  // Every live runner is bound to the cwd it spawned with. If the session's
+  // workspace moved since (handoff, worktree move, external mutation), the
+  // handle must never be reused — for any provider — or the next turn would
+  // execute against the old checkout.
+  const runnerCwdChanged =
+    existingEntry !== undefined && (existingEntry.cwd ?? null) !== effectiveRunnerCwd(session);
+
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
     if (
+      runnerCwdChanged ||
       ((nextProvider === 'codex' || nextProvider === 'opencode' || nextProvider === 'kimi' || nextProvider === 'grok' || nextProvider === 'pi') && modelChanged) ||
       (nextProvider === 'codex' && codexPermissionModeChanged) ||
       (nextProvider === 'codex' && codexReasoningEffortChanged) ||
@@ -7621,14 +7886,30 @@ async function handleSessionContinue(
           betasChanged ||
           accessModeChanged ||
           executionModeChanged ||
-          claudeReasoningEffortChanged
+          claudeReasoningEffortChanged ||
+          // Never reuse a runner whose live context is stale/poisoned, an
+          // auto-approving automation runner for a human turn, or a live
+          // context that still contains invalid thinking blocks the stored
+          // history was sanitized against.
+          existingEntry.doomed === true ||
+          existingEntry.autoApprove === true ||
+          sanitizedHistoryResult.hadInvalidThinking
         ))
     ) {
       existingEntry.handle.abort();
       runnerHandles.delete(sessionId);
+    } else if (runnerHandles.get(sessionId)?.handle !== existingEntry.handle) {
+      // A reaper tick or config flush retired the entry while the awaits
+      // above ran — fall through to a fresh spawn.
     } else {
       existingEntry.activeAgentId = sessionAgentId;
       existingEntry.activeAgentRunId = createAgentRunId(sessionAgentId, 'continue');
+      if (nextProvider === 'claude') {
+        // Count the dispatched turn BEFORE send so the reaper can never see
+        // this entry as idle between dispatch and the first stream message.
+        existingEntry.inFlightTurns = (existingEntry.inFlightTurns ?? 0) + 1;
+        (existingEntry.pendingTurnPrompts ??= []).push(runnerPrompt);
+      }
       const sendOptions =
         nextProvider === 'codex'
 	          ? {
@@ -7840,6 +8121,18 @@ function startRunner(
   let sawTurnOutput = false;
   let localFailureMessage: string | null = null;
 
+  // Never orphan a previous runner: overwriting the map entry would leave its
+  // CLI process alive with no owner able to abort it. Abort BEFORE creating
+  // the replacement — provider-service aborts stop by threadId (the session
+  // id), so a stop issued after the new session started could kill it. The
+  // agent loop additionally serializes its start behind any pending stop for
+  // the same thread.
+  const staleEntry = runnerHandles.get(session.id);
+  if (staleEntry) {
+    staleEntry.handle.abort();
+    runnerHandles.delete(session.id);
+  }
+
   const handle = runAgentLoop({
     prompt,
     attachments,
@@ -7985,6 +8278,13 @@ function startRunner(
           : { message, removedInvalidThinking: false };
       if (provider === 'claude' && sanitizedStreamMessage.removedInvalidThinking) {
         sessions.setClaudeSessionId(session.id, null);
+        // The live CLI context still contains the invalid thinking block this
+        // workaround strips; reusing the runner would replay the same API
+        // failure. Doom it so the result handler retires it.
+        const poisonedEntry = runnerHandles.get(session.id);
+        if (poisonedEntry?.handle === handle) {
+          poisonedEntry.doomed = true;
+        }
       }
 
       if (sanitizedStreamMessage.message) {
@@ -8029,10 +8329,18 @@ function startRunner(
 
       // 检查是否为 result 消息，更新状态
       if (message.type === 'result') {
+        // A reused runner serves many prompts; pop the one this turn ran
+        // from the FIFO (results arrive in dispatch order), not the prompt
+        // the runner was created with. A queued second prompt must never be
+        // checked against the first turn's result.
+        const entryForPrompt = runnerHandles.get(session.id);
+        const queuedTurnPrompt =
+          entryForPrompt?.handle === handle ? entryForPrompt.pendingTurnPrompts?.shift() : undefined;
+        const turnPrompt = queuedTurnPrompt || prompt;
         const slashFailureMessage =
           provider === 'claude'
             ? detectSilentSlashCommandFailure(
-                prompt,
+                turnPrompt,
                 initMessage,
                 message,
                 sawTurnOutput,
@@ -8042,6 +8350,13 @@ function startRunner(
 
         if (slashFailureMessage) {
           const activeEntry = runnerHandles.get(session.id);
+          // The live CLI fixed its command/skill list at init and this turn
+          // proved the list is stale (e.g. a user/project skill added after
+          // spawn). Doom the runner so the retry respawns with a fresh scan —
+          // keeping it would fail every retry the same way until the reaper.
+          if (activeEntry?.handle === handle) {
+            activeEntry.doomed = true;
+          }
           const assistantMessage = withAgentAttribution(
             buildLocalAssistantMessage(slashFailureMessage),
             activeEntry?.activeAgentId || activeAgentId || session.agent_id || null,
@@ -8055,8 +8370,18 @@ function startRunner(
         }
 
         const explicitFailureMessage = localFailureMessage || slashFailureMessage;
-        const status: SessionStatus =
+        // This turn's terminal outcome…
+        const turnStatus: SessionStatus =
           explicitFailureMessage || message.subtype !== 'success' ? 'error' : 'completed';
+        // …but with another prompt still queued on this runner the session is
+        // NOT done: a terminal DB status here would open the git/workspace
+        // gates (which trust DB status alone) under a running agent. The last
+        // queued result settles the session status.
+        const hasQueuedTurns =
+          provider === 'claude' &&
+          entryForPrompt?.handle === handle &&
+          (entryForPrompt.inFlightTurns ?? 1) > 1;
+        const status: SessionStatus = hasQueuedTurns ? 'running' : turnStatus;
         sessions.updateSessionStatus(session.id, status);
 
         broadcast(mainWindow, {
@@ -8128,16 +8453,50 @@ function startRunner(
         if (currentEntry?.handle === handle) {
           const turnDone = currentEntry.onTurnDone;
           currentEntry.onTurnDone = undefined;
-          turnDone?.(status, explicitFailureMessage || undefined);
+          // onTurnDone consumers (automation runs) want the turn's own
+          // terminal outcome, not the still-running session status.
+          turnDone?.(turnStatus, explicitFailureMessage || undefined);
           if (provider === 'claude') {
-            runnerHandles.delete(session.id);
+            // Keep the runner alive for follow-up turns (streaming-input
+            // reuse) — unless its live context is stale/poisoned (doomed) or
+            // it is a one-shot auto-approving automation runner.
+            currentEntry.inFlightTurns = Math.max(0, (currentEntry.inFlightTurns ?? 1) - 1);
+            const drained = (currentEntry.inFlightTurns ?? 0) === 0;
+            if (drained && (currentEntry.doomed || currentEntry.autoApprove)) {
+              // Retire only once every queued turn has produced its result:
+              // aborting earlier would drop a queued prompt that is already
+              // persisted and counted, leaving the session without an ending.
+              currentEntry.handle.abort();
+              runnerHandles.delete(session.id);
+            } else if (drained) {
+              currentEntry.lastTurnEndedAt = Date.now();
+              sweepIdleClaudeRunners();
+            }
           }
         }
+        // Reset per-turn detection state: the runner survives into the next
+        // turn and turn-1 leftovers would otherwise misclassify it (a sticky
+        // localFailureMessage marks every later turn as failed).
+        localFailureMessage = null;
+        sawTurnOutput = false;
       }
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : String(error);
       console.error('Runner error:', error);
+
+      // An idle (between-turns) Claude runner dying — OOM, external kill —
+      // must not flip a completed session to error with a toast. Drop the
+      // entry silently; the next send simply respawns.
+      const mappedEntry = runnerHandles.get(session.id);
+      if (
+        provider === 'claude' &&
+        mappedEntry?.handle === handle &&
+        (mappedEntry.inFlightTurns ?? 0) === 0
+      ) {
+        runnerHandles.delete(session.id);
+        return;
+      }
 
       sessions.updateSessionStatus(session.id, 'error');
       broadcast(mainWindow, {
@@ -8284,7 +8643,15 @@ function startRunner(
     activeAgentId: normalizedActiveAgentId,
     activeAgentRunId: normalizedActiveAgentRunId,
     onTurnDone,
+    inFlightTurns: 1,
+    pendingTurnPrompts: [prompt],
+    autoApprove: autoApprovePermissions || undefined,
+    cwd: runnerSession.cwd || null,
   });
+
+  if (provider === 'claude') {
+    ensureClaudeRunnerReaper();
+  }
 }
 
 // 获取会话历史
@@ -8464,16 +8831,26 @@ function handleMcpSaveConfig(
   }
 ): void {
   // 保存 Claude 全局配置
+  let claudeMcpChanged = false;
   if (payload.globalServers !== undefined) {
     saveMcpServers(payload.globalServers);
+    claudeMcpChanged = true;
   } else if (payload.servers !== undefined) {
     // 向后兼容
     saveMcpServers(payload.servers);
+    claudeMcpChanged = true;
   }
 
   // 保存 Claude 项目级配置
   if (payload.projectPath && payload.projectServers !== undefined) {
     saveProjectMcpServers(payload.projectPath, payload.projectServers);
+    claudeMcpChanged = true;
+  }
+
+  if (claudeMcpChanged) {
+    // Live runners spawned their MCP children from the previous config;
+    // retire them so the next turn connects to the updated servers.
+    flushClaudeRunners();
   }
 
   // 保存 Codex 全局配置（写入 ~/.codex/config.toml）
@@ -8730,6 +9107,7 @@ export function cleanup(): void {
   ipcMain.removeAllListeners('client-event');
   automationScheduler?.stop();
   automationScheduler = null;
+  stopClaudeRunnerReaper();
   disposeTerminalTransportServer();
   disposeTerminalRuntime();
   // 停止所有运行中的 runner
