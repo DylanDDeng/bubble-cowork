@@ -21,7 +21,6 @@ import {
   EMPTY_PROMPT_HISTORY_NAV,
   collectPromptHistory,
   isCursorOnFirstLine,
-  isCursorOnLastLine,
   remapPromptHistoryNav,
   stepPromptHistory,
   type PromptHistoryNav,
@@ -126,12 +125,26 @@ export function PromptInput({
     [activeSession?.messages]
   );
 
-  // Switching sessions or editing the recalled text exits history mode; the
-  // draft only survives an unbroken ArrowUp/ArrowDown browse.
-  useEffect(() => {
+  // Ends an active browse and restores the stashed draft into the composer,
+  // mirroring the ArrowDown exit — the recalled prompt must never strand in
+  // the composer with the draft unrecoverable. Focus is intentionally not
+  // forced: these exits are not always key-driven.
+  const exitHistoryBrowse = useCallback((nav: PromptHistoryNav) => {
     historyNavRef.current = EMPTY_PROMPT_HISTORY_NAV;
     historyAppliedTextRef.current = null;
-  }, [targetSessionId]);
+    if (nav.index === null) {
+      return;
+    }
+    const draft = nav.draft ?? '';
+    setPrompt(draft);
+    setCursorIndex(draft.length);
+  }, []);
+
+  // Switching sessions exits history mode (restoring the stashed draft);
+  // editing the recalled text exits too, keeping the edit.
+  useEffect(() => {
+    exitHistoryBrowse(historyNavRef.current);
+  }, [exitHistoryBrowse, targetSessionId]);
 
   useEffect(() => {
     if (
@@ -147,21 +160,20 @@ export function PromptInput({
   // Scrolling the chat pane up lazily PREPENDS older messages (and a rewind
   // can drop entries), shifting promptHistory under an active browse. Re-anchor
   // the stored index to the recalled entry so the next step lands on the right
-  // neighbor instead of a drifted position.
+  // neighbor instead of a drifted position; when the recalled entry vanished
+  // entirely the browse exits and the draft comes back.
   useEffect(() => {
-    if (historyNavRef.current.index === null) {
+    const nav = historyNavRef.current;
+    if (nav.index === null) {
       return;
     }
-    const remapped = remapPromptHistoryNav(
-      promptHistory,
-      historyNavRef.current,
-      historyAppliedTextRef.current
-    );
-    historyNavRef.current = remapped;
+    const remapped = remapPromptHistoryNav(promptHistory, nav, historyAppliedTextRef.current);
     if (remapped.index === null) {
-      historyAppliedTextRef.current = null;
+      exitHistoryBrowse(nav);
+      return;
     }
-  }, [promptHistory]);
+    historyNavRef.current = remapped;
+  }, [exitHistoryBrowse, promptHistory]);
 
   const applyPromptHistoryStep = (step: PromptHistoryStep) => {
     historyNavRef.current = step.nav;
@@ -763,10 +775,12 @@ export function PromptInput({
     return true;
   }, [activeSession?.cwd, attachments, prompt]);
 
-  // ArrowUp on the first visual line browses back through this session's sent
-  // prompts; ArrowDown on the last visual line steps forward and finally
-  // restores the draft. Anywhere else the arrows keep moving the caret
-  // normally. Returns true when the key was consumed.
+  // ArrowUp on the first visual line ENTERS history browsing; while a browse
+  // is active the arrows always step (terminal-style) — recalled multiline
+  // prompts leave the caret on their last line and must not require walking
+  // it back up before browsing can continue. Editing the recalled text exits
+  // the browse and returns the arrows to normal caret movement. Returns true
+  // when the key was consumed.
   const handleHistoryArrowKey = (e: ReactKeyboardEvent): boolean => {
     if (
       (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') ||
@@ -782,31 +796,27 @@ export function PromptInput({
       return false;
     }
 
-    if (e.key === 'ArrowUp') {
-      // The editor soft-wraps, so a long logical line spans several visual
-      // rows; only the top one enters history. Rect information can be
-      // unavailable (e.g. in tests) — fall back to newline scanning.
+    const browsing = historyNavRef.current.index !== null;
+    if (!browsing) {
+      if (e.key === 'ArrowDown') {
+        return false;
+      }
+      // Entering requires the caret on the first visual row: the editor
+      // soft-wraps, so a long logical line spans several rows and the lower
+      // ones keep native caret movement. Rect information can be unavailable
+      // (e.g. in tests) — fall back to newline scanning.
       const onFirstLine = caret.onFirstVisualLine ?? isCursorOnFirstLine(prompt, caret.index);
       if (!onFirstLine) {
         return false;
       }
-      const step = stepPromptHistory(promptHistory, historyNavRef.current, 'prev', prompt);
-      if (!step) {
-        return false;
-      }
-      e.preventDefault();
-      applyPromptHistoryStep(step);
-      return true;
     }
 
-    if (historyNavRef.current.index === null) {
-      return false;
-    }
-    const onLastLine = caret.onLastVisualLine ?? isCursorOnLastLine(prompt, caret.index);
-    if (!onLastLine) {
-      return false;
-    }
-    const step = stepPromptHistory(promptHistory, historyNavRef.current, 'next', prompt);
+    const step = stepPromptHistory(
+      promptHistory,
+      historyNavRef.current,
+      e.key === 'ArrowUp' ? 'prev' : 'next',
+      prompt
+    );
     if (!step) {
       return false;
     }

@@ -27,12 +27,11 @@ export interface ComposerCaretInfo {
   /** False while a non-collapsed selection is active. */
   collapsed: boolean;
   /**
-   * Whether the caret sits on the first/last *visual* row of the soft-wrapped
+   * Whether the caret sits on the first *visual* row of the soft-wrapped
    * editor content. Null when caret layout rects are unavailable (e.g. in
    * jsdom) — callers should fall back to newline-based line checks.
    */
   onFirstVisualLine: boolean | null;
-  onLastVisualLine: boolean | null;
 }
 
 export interface ComposerPromptEditorHandle {
@@ -221,12 +220,12 @@ function getCollapsedCaretAnchor(range: Range): CaretAnchor | null {
 }
 
 /**
- * Whether the collapsed caret sits on the first/last *visual* row of the
- * editor. The editor soft-wraps (whitespace-pre-wrap), so a single logical
- * line can span several rows — newline scanning cannot answer this. Null when
- * caret layout rects are unavailable.
+ * Whether the collapsed caret sits on the first *visual* row of the editor.
+ * The editor soft-wraps (whitespace-pre-wrap), so a single logical line can
+ * span several rows — newline scanning cannot answer this. Null when caret
+ * layout rects are unavailable.
  */
-function getCaretVisualLine(root: HTMLDivElement): { first: boolean; last: boolean } | null {
+function isCaretOnFirstVisualLine(root: HTMLDivElement): boolean | null {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) {
     return null;
@@ -245,26 +244,21 @@ function getCaretVisualLine(root: HTMLDivElement): { first: boolean; last: boole
   if (lineRects.length === 0) {
     // No laid-out content: an empty editor is a single visual line, but when
     // rects are unavailable altogether (jsdom) report unknown instead.
-    return getSerializedLength(root) === 0 && anchor ? { first: true, last: true } : null;
+    return getSerializedLength(root) === 0 && anchor ? true : null;
   }
   if (!anchor) {
     return null;
   }
 
   let firstTop = Infinity;
-  let lastBottom = -Infinity;
   for (const rect of lineRects) {
     firstTop = Math.min(firstTop, rect.top);
-    lastBottom = Math.max(lastBottom, rect.bottom);
   }
 
   // Rects on the same visual row share (near-)identical tops; half a caret
   // height comfortably separates rows while absorbing sub-pixel jitter.
   const tolerance = Math.max(4, anchor.height / 2);
-  return {
-    first: anchor.top - firstTop < tolerance,
-    last: lastBottom - (anchor.top + anchor.height) < tolerance,
-  };
+  return anchor.top - firstTop < tolerance;
 }
 
 function setCursorIndex(root: HTMLDivElement, index: number): void {
@@ -662,15 +656,13 @@ export const ComposerPromptEditor = forwardRef<
       getCaretInfo: (): ComposerCaretInfo => {
         const root = editorRef.current;
         if (!root) {
-          return { index: 0, collapsed: true, onFirstVisualLine: null, onLastVisualLine: null };
+          return { index: 0, collapsed: true, onFirstVisualLine: null };
         }
         const collapsed = window.getSelection()?.isCollapsed ?? true;
-        const visual = collapsed ? getCaretVisualLine(root) : null;
         return {
           index: getCursorIndex(root),
           collapsed,
-          onFirstVisualLine: visual ? visual.first : null,
-          onLastVisualLine: visual ? visual.last : null,
+          onFirstVisualLine: collapsed ? isCaretOnFirstVisualLine(root) : null,
         };
       },
     }),

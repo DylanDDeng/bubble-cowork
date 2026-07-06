@@ -15,19 +15,19 @@ const promptInput = fs.readFileSync(
   'utf8'
 );
 assert.equal(
-  promptInput.includes('stepPromptHistory(promptHistory, historyNavRef.current'),
+  /stepPromptHistory\(\s*promptHistory,\s*historyNavRef\.current/.test(promptInput),
   true,
   'PromptInput must navigate prompt history on arrow keys'
 );
 assert.equal(
   promptInput.includes('caret.onFirstVisualLine ?? isCursorOnFirstLine(prompt, caret.index)'),
   true,
-  'ArrowUp must gate on the first VISUAL line (soft wrap aware), with a newline fallback'
+  'entering a browse must gate ArrowUp on the first VISUAL line (soft wrap aware), with a newline fallback'
 );
 assert.equal(
-  promptInput.includes('caret.onLastVisualLine ?? isCursorOnLastLine(prompt, caret.index)'),
-  true,
-  'ArrowDown must gate on the last VISUAL line (soft wrap aware), with a newline fallback'
+  promptInput.includes('onLastVisualLine') || promptInput.includes('isCursorOnLastLine'),
+  false,
+  'while a browse is active the arrows must step regardless of caret line — no last-line gate'
 );
 assert.equal(
   promptInput.includes('e.shiftKey || e.altKey || e.metaKey || e.ctrlKey'),
@@ -53,6 +53,16 @@ assert.equal(
   promptInput.includes('remapPromptHistoryNav('),
   true,
   'an active browse must re-anchor its index when history changes (lazy prepend/rewind)'
+);
+assert.equal(
+  promptInput.includes('exitHistoryBrowse(nav)'),
+  true,
+  'when remapping exits the browse (entry vanished) the stashed draft must be restored'
+);
+assert.equal(
+  promptInput.includes('const draft = nav.draft'),
+  true,
+  'exiting a browse must put the stashed draft back into the composer'
 );
 
 // Arrow-key priority: while a browse is ACTIVE, history owns the arrows even
@@ -83,9 +93,9 @@ assert.equal(
   'the composer editor must expose caret info (index, collapsed, visual line)'
 );
 assert.equal(
-  editor.includes('getCaretVisualLine'),
+  editor.includes('isCaretOnFirstVisualLine'),
   true,
-  'the composer editor must detect first/last visual line from caret rects'
+  'the composer editor must detect the first visual line from caret rects'
 );
 
 // ── Compile + run the unit test ──────────────────────────────────────────────

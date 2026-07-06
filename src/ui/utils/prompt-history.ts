@@ -4,9 +4,9 @@ import type { StreamMessage } from '../types';
  * ArrowUp/ArrowDown prompt-history navigation state for the composer.
  *
  * `index === null` means not navigating. While navigating, `draft` holds the
- * text that was in the composer before the first ArrowUp so stepping past the
- * newest entry restores it, and `anchorId` holds the recalled entry's stable
- * id so the browse survives the history array shifting underneath it.
+ * text that was in the composer before the first ArrowUp so exiting the
+ * browse restores it, and `anchorId` holds the recalled entry's stable id so
+ * the browse survives the history array shifting underneath it.
  */
 export interface PromptHistoryNav {
   index: number | null;
@@ -23,13 +23,18 @@ export const EMPTY_PROMPT_HISTORY_NAV: PromptHistoryNav = {
 export interface PromptHistoryEntry {
   text: string;
   /**
-   * Stable identity of the source message — its createdAt timestamp (user
-   * prompts carry no uuid; loads from storage backfill createdAt). For a
-   * collapsed duplicate run this is the LAST message's id, which stays stable
-   * when older messages get prepended in front of the run. Null for
-   * degenerate/legacy messages without a timestamp.
+   * Stable ids (createdAt timestamps — user prompts carry no uuid; loads from
+   * storage backfill createdAt) of every source message collapsed into this
+   * entry, oldest → newest. Anchoring matches against ALL of them, so a run
+   * extended by a re-send still contains the previously stored anchor. Empty
+   * for degenerate/legacy messages without a timestamp.
    */
-  id: string | null;
+  ids: string[];
+}
+
+/** The id a fresh step anchors to: the entry's newest source message. */
+function entryAnchorId(entry: PromptHistoryEntry): string | null {
+  return entry.ids.length > 0 ? entry.ids[entry.ids.length - 1] : null;
 }
 
 /**
@@ -46,30 +51,25 @@ export function collectPromptHistory(messages: StreamMessage[]): PromptHistoryEn
     const id = typeof message.createdAt === 'number' ? String(message.createdAt) : null;
     const last = history[history.length - 1];
     if (last?.text === text) {
-      // Extend the collapsed run: keep it anchored to its last message.
-      last.id = id ?? last.id;
+      // Extend the collapsed run with this message's id.
+      if (id !== null) {
+        last.ids.push(id);
+      }
       continue;
     }
-    history.push({ text, id });
+    history.push({ text, ids: id === null ? [] : [id] });
   }
   return history;
 }
 
 /**
- * ArrowUp may only enter/step history when the caret sits on the first line.
- * Newline-based fallback for when visual (soft-wrap) caret geometry is
- * unavailable — the editor's rect-based check takes precedence.
+ * ArrowUp may only ENTER history when the caret sits on the first line (once
+ * a browse is active the arrows always step). Newline-based fallback for when
+ * visual (soft-wrap) caret geometry is unavailable — the editor's rect-based
+ * check takes precedence.
  */
 export function isCursorOnFirstLine(text: string, cursorIndex: number): boolean {
   return !text.slice(0, Math.max(0, cursorIndex)).includes('\n');
-}
-
-/**
- * ArrowDown may only step forward when the caret sits on the last line.
- * Newline-based fallback, same as {@link isCursorOnFirstLine}.
- */
-export function isCursorOnLastLine(text: string, cursorIndex: number): boolean {
-  return !text.slice(Math.max(0, cursorIndex)).includes('\n');
 }
 
 /** Index of the matching entry nearest to `target`, or -1 when none match. */
@@ -94,11 +94,13 @@ function nearestMatchIndex(
  * Re-anchor an active browse after the underlying history changed — older
  * messages are lazily prepended while the chat pane scrolls up, and a rewind
  * can drop entries — so a stored numeric index would drift onto the wrong
- * entry. The recalled entry is matched by its stable id; matching by text is
- * only a fallback for id-less legacy entries (text can repeat, e.g. when a
- * prepended older prompt duplicates the recalled one, so text alone could
- * re-anchor onto the wrong duplicate). Navigation exits only when the
- * recalled entry no longer exists at all.
+ * entry.
+ *
+ * Anchored entries remap STRICTLY by id: prompt text can repeat, so when the
+ * anchored message is gone the browse exits (the caller restores the draft)
+ * instead of guessing among same-text duplicates from other turns. A run
+ * extended by a re-send keeps matching because entries carry every collapsed
+ * message id. Matching by text exists only for id-less legacy entries.
  */
 export function remapPromptHistoryNav(
   history: PromptHistoryEntry[],
@@ -109,28 +111,23 @@ export function remapPromptHistoryNav(
     return nav;
   }
 
-  const anchored = history[nav.index];
-  if (nav.anchorId !== null) {
+  const anchorId = nav.anchorId;
+  if (anchorId !== null) {
     // Fast path: the anchored entry hasn't moved.
-    if (anchored?.id === nav.anchorId) {
+    if (history[nav.index]?.ids.includes(anchorId)) {
       return nav;
     }
-    const byId = nearestMatchIndex(history, nav.index, (entry) => entry.id === nav.anchorId);
-    if (byId !== -1) {
-      return { ...nav, index: byId };
-    }
+    const byId = nearestMatchIndex(history, nav.index, (entry) => entry.ids.includes(anchorId));
+    return byId === -1 ? EMPTY_PROMPT_HISTORY_NAV : { ...nav, index: byId };
   }
 
-  // Fallback for id-less entries, or when a duplicate run's last-message id
-  // changed (a re-send extended the run): match the recalled text nearest to
-  // the old position.
   if (recalledText !== null) {
-    if (nav.anchorId === null && anchored?.text === recalledText) {
+    if (history[nav.index]?.text === recalledText) {
       return nav;
     }
     const byText = nearestMatchIndex(history, nav.index, (entry) => entry.text === recalledText);
     if (byText !== -1) {
-      return { ...nav, index: byText, anchorId: history[byText].id };
+      return { ...nav, index: byText, anchorId: entryAnchorId(history[byText]) };
     }
   }
 
@@ -147,17 +144,21 @@ export interface PromptHistoryStep {
   clamped?: boolean;
 }
 
-function stepTo(history: PromptHistoryEntry[], nav: PromptHistoryNav, index: number): PromptHistoryStep {
+function stepTo(
+  history: PromptHistoryEntry[],
+  nav: PromptHistoryNav,
+  index: number
+): PromptHistoryStep {
   return {
-    nav: { ...nav, index, anchorId: history[index].id },
+    nav: { ...nav, index, anchorId: entryAnchorId(history[index]) },
     text: history[index].text,
   };
 }
 
 /**
  * Step through history. Returns null when the key should NOT be consumed
- * (no history, not navigating on ArrowDown, or already at the oldest entry) —
- * the caller lets the caret move normally in that case.
+ * (no history, or not navigating on ArrowDown) — the caller lets the caret
+ * move normally in that case.
  *
  * 'prev' (ArrowUp) stashes the current composer text as the draft on entry;
  * 'next' (ArrowDown) past the newest entry restores that draft and exits.
