@@ -1827,6 +1827,13 @@ function sanitizeClaudeHistory(messages: StreamMessage[]): {
   const nextMessages: StreamMessage[] = [];
 
   for (const message of messages) {
+    // Subagent (Task) messages never enter rebuilt transcripts, so their
+    // unsigned thinking is harmless — keep it intact for the nested traces
+    // and don't let it trigger a history rewrite or session-id reset.
+    if (message.parentToolUseId) {
+      nextMessages.push(message);
+      continue;
+    }
     const sanitized = sanitizeClaudeAssistantMessage(message);
     if (sanitized.removedInvalidThinking) {
       hadInvalidThinking = true;
@@ -7969,14 +7976,14 @@ function startRunner(
       }
 
       const sanitizedStreamMessage =
-        provider === 'claude' ? sanitizeClaudeAssistantMessage(message) : { message, removedInvalidThinking: false };
-      if (
-        provider === 'claude' &&
-        sanitizedStreamMessage.removedInvalidThinking &&
-        // Subagent thinking never enters the main session transcript, so it
-        // cannot poison a resume — don't discard the session id for it.
-        !message.parentToolUseId
-      ) {
+        // Subagent (Task) messages are excluded from every rebuilt transcript,
+        // so unsigned thinking in them cannot poison a resume. Skip
+        // sanitization entirely to keep that thinking visible in the nested
+        // Task traces instead of stripping it (or the whole message).
+        provider === 'claude' && !message.parentToolUseId
+          ? sanitizeClaudeAssistantMessage(message)
+          : { message, removedInvalidThinking: false };
+      if (provider === 'claude' && sanitizedStreamMessage.removedInvalidThinking) {
         sessions.setClaudeSessionId(session.id, null);
       }
 

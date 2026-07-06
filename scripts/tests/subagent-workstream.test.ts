@@ -9,6 +9,10 @@ import {
 } from '../../src/ui/utils/workstream';
 import { summarizeWorkstreamEntries } from '../../src/ui/utils/workstream-stages';
 import { hasRunningToolInMessages } from '../../src/ui/utils/turn-utils';
+import {
+  endIndexAfterTopLevelCount,
+  startIndexForTopLevelCount,
+} from '../../src/electron/libs/history/page-boundaries';
 import type { StreamMessage } from '../../src/shared/types';
 import type { ToolStatus } from '../../src/ui/types';
 
@@ -505,6 +509,50 @@ assert.equal(
   for (const entry of legacyTasks) {
     assert.equal(entry.subagent, undefined, 'no trace is attached without parent data');
   }
+}
+
+// ── History pages budget only top-level rows ─────────────────────────────────
+// Hidden subagent messages ride along with their slice instead of consuming
+// the page limit, so a chatty Task can't push the visible prompt/Task row out
+// of a reopened session's first page.
+
+{
+  const topLevel = { parentToolUseId: null };
+  const parented = { parentToolUseId: 'task-1' };
+  // [prompt, task assistant, 6 subagent internals, task result]
+  const rows = [topLevel, topLevel, ...Array.from({ length: 6 }, () => parented), topLevel];
+
+  assert.equal(
+    startIndexForTopLevelCount(rows, rows.length, 2),
+    1,
+    'a 2-message page starts at the Task-launching message, children ride along'
+  );
+  assert.equal(
+    startIndexForTopLevelCount(rows, rows.length, 100),
+    0,
+    'a large budget returns the whole history even when children outnumber it'
+  );
+  assert.equal(
+    startIndexForTopLevelCount(rows, 1, 1),
+    0,
+    'loadBefore from the Task message pages back to the prompt'
+  );
+  assert.equal(
+    endIndexAfterTopLevelCount(rows, 2, 0),
+    8,
+    "an anchor's trailing subagent children ride along with it"
+  );
+  assert.equal(
+    endIndexAfterTopLevelCount(rows, 2, 1),
+    rows.length,
+    'one top-level message after the anchor reaches the end of history'
+  );
+
+  // The regression this guards: with 6 hidden rows and a raw budget of 4,
+  // index-based slicing would have started inside the subagent internals and
+  // dropped both visible rows before the result.
+  const start = startIndexForTopLevelCount(rows, rows.length, 3);
+  assert.equal(start, 0, 'three top-level rows span the whole fixture');
 }
 
 console.log('subagent-workstream.test.ts passed');

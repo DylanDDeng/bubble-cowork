@@ -52,6 +52,38 @@ assert.equal(
   true,
   'subagent narration must not trip local failure detection'
 );
+assert.equal(
+  ipcSourceForGuards.includes("provider === 'claude' && !message.parentToolUseId"),
+  true,
+  'live-stream sanitization must bypass subagent messages so their thinking survives in nested traces'
+);
+assert.equal(
+  /if \(message\.parentToolUseId\) \{\s*\n\s*nextMessages\.push\(message\);/.test(ipcSourceForGuards),
+  true,
+  'stored-history sanitization must pass subagent messages through untouched'
+);
+
+// Hidden subagent rows must not consume the history page budget.
+const historySource = fs.readFileSync(
+  path.join(root, 'src', 'electron', 'libs', 'history', 'sources', 'AegisDbHistorySource.ts'),
+  'utf8'
+);
+assert.equal(
+  historySource.includes('startIndexForTopLevelCount'),
+  true,
+  'history pages must budget top-level messages only, letting subagent rows ride along'
+);
+
+// In-session search must not match messages that never render inline.
+const searchSource = fs.readFileSync(
+  path.join(root, 'src', 'ui', 'components', 'search', 'InSessionSearch.tsx'),
+  'utf8'
+);
+assert.equal(
+  searchSource.includes('if (message.parentToolUseId) return;'),
+  true,
+  'in-session search must skip subagent messages that have no [data-message-index] anchor'
+);
 
 // Subagent stream deltas must never touch the top-level streaming buffer.
 const storeSource = fs.readFileSync(
