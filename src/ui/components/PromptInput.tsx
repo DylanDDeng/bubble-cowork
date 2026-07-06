@@ -24,6 +24,7 @@ import {
   isCursorOnLastLine,
   stepPromptHistory,
   type PromptHistoryNav,
+  type PromptHistoryStep,
 } from '../utils/prompt-history';
 import { ClaudeContextIndicator } from './ClaudeContextIndicator';
 import { CodexContextIndicator } from './CodexContextIndicator';
@@ -142,10 +143,16 @@ export function PromptInput({
     }
   }, [prompt]);
 
-  const applyPromptHistoryStep = (step: { nav: PromptHistoryNav; text: string }) => {
+  const applyPromptHistoryStep = (step: PromptHistoryStep) => {
     historyNavRef.current = step.nav;
     historyAppliedTextRef.current = step.nav.index === null ? null : step.text;
+    if (step.clamped) {
+      // Hit the oldest entry: the key is swallowed but nothing changed, so
+      // leave the text and caret exactly where they are.
+      return;
+    }
     setPrompt(step.text);
+    setCursorIndex(step.text.length);
     window.requestAnimationFrame(() => {
       editorRef.current?.focus();
       editorRef.current?.setCursorIndex(step.text.length);
@@ -375,6 +382,15 @@ export function PromptInput({
     nextCursorIndex: number
   ): Promise<boolean> => {
     if (isComposingRef.current) {
+      setPrompt(value);
+      setCursorIndex(nextCursorIndex);
+      return false;
+    }
+
+    // Text recalled from prompt history is exempt from long-prompt conversion:
+    // silently swapping a recalled prompt for an attachment would wipe the
+    // composer and drop the stashed draft.
+    if (historyAppliedTextRef.current !== null && value === historyAppliedTextRef.current) {
       setPrompt(value);
       setCursorIndex(nextCursorIndex);
       return false;
@@ -727,8 +743,69 @@ export function PromptInput({
     return true;
   }, [activeSession?.cwd, attachments, prompt]);
 
+  // ArrowUp on the first visual line browses back through this session's sent
+  // prompts; ArrowDown on the last visual line steps forward and finally
+  // restores the draft. Anywhere else the arrows keep moving the caret
+  // normally. Returns true when the key was consumed.
+  const handleHistoryArrowKey = (e: ReactKeyboardEvent): boolean => {
+    if (
+      (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') ||
+      e.shiftKey || e.altKey || e.metaKey || e.ctrlKey
+    ) {
+      return false;
+    }
+
+    const caret = editorRef.current?.getCaretInfo();
+    if (!caret || !caret.collapsed) {
+      // With a non-collapsed selection the arrows keep their native
+      // collapse/extend behavior instead of replacing the composer content.
+      return false;
+    }
+
+    if (e.key === 'ArrowUp') {
+      // The editor soft-wraps, so a long logical line spans several visual
+      // rows; only the top one enters history. Rect information can be
+      // unavailable (e.g. in tests) — fall back to newline scanning.
+      const onFirstLine = caret.onFirstVisualLine ?? isCursorOnFirstLine(prompt, caret.index);
+      if (!onFirstLine) {
+        return false;
+      }
+      const step = stepPromptHistory(promptHistory, historyNavRef.current, 'prev', prompt);
+      if (!step) {
+        return false;
+      }
+      e.preventDefault();
+      applyPromptHistoryStep(step);
+      return true;
+    }
+
+    if (historyNavRef.current.index === null) {
+      return false;
+    }
+    const onLastLine = caret.onLastVisualLine ?? isCursorOnLastLine(prompt, caret.index);
+    if (!onLastLine) {
+      return false;
+    }
+    const step = stepPromptHistory(promptHistory, historyNavRef.current, 'next', prompt);
+    if (!step) {
+      return false;
+    }
+    e.preventDefault();
+    applyPromptHistoryStep(step);
+    return true;
+  };
+
   const handleKeyDown = (e: ReactKeyboardEvent) => {
     if (isImeComposingEvent(e, isComposingRef)) {
+      return;
+    }
+
+    // While a history browse is active it owns the arrow keys even when the
+    // recalled text re-opened the @-mention or slash menu — a recalled
+    // "/rewind" must not trap ArrowUp/ArrowDown in the menu. When idle, the
+    // menus keep priority and history only sees keys they did not consume.
+    const historyBrowseActive = historyNavRef.current.index !== null;
+    if (historyBrowseActive && handleHistoryArrowKey(e)) {
       return;
     }
 
@@ -782,31 +859,8 @@ export function PromptInput({
       }
     }
 
-    // ArrowUp on the first line browses back through this session's sent
-    // prompts; ArrowDown on the last line steps forward and finally restores
-    // the draft. Anywhere else the arrows keep moving the caret normally.
-    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
-      const cursor = editorRef.current?.getCursorIndex() ?? 0;
-      if (e.key === 'ArrowUp' && isCursorOnFirstLine(prompt, cursor)) {
-        const step = stepPromptHistory(promptHistory, historyNavRef.current, 'prev', prompt);
-        if (step) {
-          e.preventDefault();
-          applyPromptHistoryStep(step);
-          return;
-        }
-      }
-      if (
-        e.key === 'ArrowDown' &&
-        historyNavRef.current.index !== null &&
-        isCursorOnLastLine(prompt, cursor)
-      ) {
-        const step = stepPromptHistory(promptHistory, historyNavRef.current, 'next', prompt);
-        if (step) {
-          e.preventDefault();
-          applyPromptHistoryStep(step);
-          return;
-        }
-      }
+    if (!historyBrowseActive && handleHistoryArrowKey(e)) {
+      return;
     }
 
     if (e.key === 'Enter' && !e.shiftKey) {

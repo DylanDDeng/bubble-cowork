@@ -57,6 +57,7 @@ const HISTORY = ['one', 'two', 'three'];
   assert.ok(first);
   assert.equal(first.text, 'three');
   assert.deepEqual(first.nav, { index: 2, draft: 'my draft' });
+  assert.equal(first.clamped ?? false, false);
 
   // Stepping back walks toward the oldest entry, draft preserved.
   const second = stepPromptHistory(HISTORY, first.nav, 'prev', first.text);
@@ -68,18 +69,22 @@ const HISTORY = ['one', 'two', 'three'];
   assert.ok(third);
   assert.equal(third.text, 'one');
   assert.equal(third.nav.index, 0);
+  assert.equal(third.clamped ?? false, false);
 
-  // At the oldest entry the key is swallowed but nothing changes (no wrap).
+  // At the oldest entry the key is swallowed but nothing changes (no wrap);
+  // the clamped flag tells the caller to skip re-applying text/caret.
   const clamped = stepPromptHistory(HISTORY, third.nav, 'prev', third.text);
   assert.ok(clamped);
   assert.equal(clamped.text, 'one');
   assert.equal(clamped.nav.index, 0);
   assert.equal(clamped.nav.draft, 'my draft');
+  assert.equal(clamped.clamped, true);
 
   // Forward again...
   const forward = stepPromptHistory(HISTORY, clamped.nav, 'next', clamped.text);
   assert.ok(forward);
   assert.equal(forward.text, 'two');
+  assert.equal(forward.clamped ?? false, false);
 
   // ...and past the newest entry the draft comes back and navigation ends.
   const toNewest = stepPromptHistory(HISTORY, forward.nav, 'next', forward.text);

@@ -31,12 +31,19 @@ export function collectPromptHistory(messages: StreamMessage[]): string[] {
   return history;
 }
 
-/** ArrowUp may only enter/step history when the caret sits on the first line. */
+/**
+ * ArrowUp may only enter/step history when the caret sits on the first line.
+ * Newline-based fallback for when visual (soft-wrap) caret geometry is
+ * unavailable — the editor's rect-based check takes precedence.
+ */
 export function isCursorOnFirstLine(text: string, cursorIndex: number): boolean {
   return !text.slice(0, Math.max(0, cursorIndex)).includes('\n');
 }
 
-/** ArrowDown may only step forward when the caret sits on the last line. */
+/**
+ * ArrowDown may only step forward when the caret sits on the last line.
+ * Newline-based fallback, same as {@link isCursorOnFirstLine}.
+ */
 export function isCursorOnLastLine(text: string, cursorIndex: number): boolean {
   return !text.slice(Math.max(0, cursorIndex)).includes('\n');
 }
@@ -44,6 +51,11 @@ export function isCursorOnLastLine(text: string, cursorIndex: number): boolean {
 export interface PromptHistoryStep {
   nav: PromptHistoryNav;
   text: string;
+  /**
+   * True when the browse hit the oldest entry and nothing changed: the caller
+   * should swallow the key but must not re-apply the text or move the caret.
+   */
+  clamped?: boolean;
 }
 
 /**
@@ -73,8 +85,8 @@ export function stepPromptHistory(
       return { nav: { ...nav, index }, text: history[index] };
     }
     // Already at the oldest entry — swallow the key but change nothing, so
-    // the caret doesn't jump to the text start while browsing.
-    return { nav, text: history[nav.index] };
+    // the caret doesn't jump while browsing.
+    return { nav, text: history[nav.index], clamped: true };
   }
 
   if (nav.index === null) {
