@@ -22,6 +22,7 @@ import {
   toClaudeCodeRuntimeModel,
 } from './claude-model-selection';
 import { getRequiredClaudeCodeRuntime } from './claude-runtime';
+import { createPromptCancellation } from './claude-prompt-cancellation';
 import { createAegisMemoryMcpServer, buildMemoryContext, MEMORY_SYSTEM_PROMPT } from './memory-mcp';
 import { shouldExtractMemory, hasMemoryWritesInTurn, extractMemories } from './memory-extractor';
 import {
@@ -529,10 +530,14 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
   // (image attachments are read from disk), so the user can press stop while
   // a send is still ahead of the input queue. cancelPendingPrompts() marks
   // every enqueue issued so far as cancelled; the enqueue re-checks the mark
-  // around its awaits so a cancelled prompt is never pushed to the CLI.
-  let promptSeq = 0;
-  let settledPromptSeq = 0;
-  let cancelledPromptSeq = 0;
+  // after each await so a cancelled prompt is never pushed to the CLI, and
+  // the long prepare step races against cancellation so the serial chain
+  // settles immediately — a follow-up send must never wait on the very work
+  // the user just stopped. The model round-trip is deliberately NOT raced:
+  // it is a fast control request whose effect lands on the CLI either way,
+  // so bookkeeping must record it, and a wedged CLI blocks the resend
+  // regardless (the stop fallback reclaims that runner).
+  const promptCancellation = createPromptCancellation();
 
   const enqueuePrompt = (text: string, promptAttachments?: Attachment[], requestedModel?: string) => {
     const trimmed = text.trim();
@@ -546,10 +551,10 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         ? requestedModel.trim()
         : undefined;
 
-    const seq = ++promptSeq;
+    const seq = promptCancellation.issueSeq();
     enqueueChain = enqueueChain
       .then(async () => {
-        if (abortController.signal.aborted || seq <= cancelledPromptSeq) {
+        if (abortController.signal.aborted || promptCancellation.isCancelled(seq)) {
           return;
         }
         if (activeQuery && normalizedModel !== currentModel) {
@@ -562,11 +567,20 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           if (nextRuntimeModel !== currentRuntimeModel) {
             await activeQuery.setModel(nextRuntimeModel);
           }
+          // Recorded even if this prompt was cancelled mid-flight: the CLI's
+          // model DID change, and a follow-up send comparing against stale
+          // bookkeeping would skip a needed switch back.
           currentModel = normalizedModel;
           currentRuntimeModel = nextRuntimeModel;
         }
-        const message = await buildUserMessage(trimmed, currentSessionId, promptAttachments);
-        if (abortController.signal.aborted || seq <= cancelledPromptSeq) {
+        const message = await promptCancellation.race(
+          buildUserMessage(trimmed, currentSessionId, promptAttachments)
+        );
+        if (
+          message === null ||
+          abortController.signal.aborted ||
+          promptCancellation.isCancelled(seq)
+        ) {
           return;
         }
         inputQueue.push(message);
@@ -601,7 +615,7 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       .finally(() => {
         // The enqueue settled (pushed, cancelled, aborted, or failed) — it is
         // no longer "pending" for cancelPendingPrompts accounting.
-        settledPromptSeq = seq;
+        promptCancellation.settle(seq);
       });
   };
 
@@ -1109,12 +1123,13 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
       await activeQuery.interrupt();
     },
     cancelPendingPrompts: () => {
-      // Everything issued so far that has not settled will be dropped before
-      // it reaches the input queue; report how many so the caller can remove
-      // them from its turn accounting (they will never produce a result).
-      const pending = promptSeq - Math.max(settledPromptSeq, cancelledPromptSeq);
-      cancelledPromptSeq = promptSeq;
-      return Math.max(0, pending);
+      // Everything issued so far that has not settled is dropped before it
+      // reaches the input queue, in-flight prepares are released so the
+      // serial enqueue chain settles immediately (a follow-up send must not
+      // wait on the cancelled work), and the count is reported so the caller
+      // can remove the prompts from its turn accounting — they never produce
+      // a result.
+      return promptCancellation.cancelPending();
     },
     rewindFiles: async (userMessageId, options) => {
       if (!activeQuery) {

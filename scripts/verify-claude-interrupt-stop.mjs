@@ -154,16 +154,33 @@ assert.equal(
 // A prompt still being prepared when stop lands must be cancelled before it
 // reaches the input queue, and removed from the turn accounting (it never
 // produces a result); with nothing left in flight, the runner stays warm
-// with no interrupt and no fallback armed.
+// with no interrupt and no fallback armed. The cancellation must also
+// RELEASE the serial enqueue chain (race against the long prepare step) so
+// a follow-up send never queues behind — or waits on — the cancelled work.
 assert.equal(
   runnerSource.includes('cancelPendingPrompts: () => {'),
   true,
   'the Claude runner must expose cancelPendingPrompts'
 );
+assert.equal(
+  runnerSource.includes('createPromptCancellation()'),
+  true,
+  'the runner must use the unit-tested prompt-cancellation primitive'
+);
 assert.match(
   runnerSource,
-  /seq <= cancelledPromptSeq/,
+  /promptCancellation\.isCancelled\(seq\)/,
   'enqueues must re-check the cancellation mark around their awaits'
+);
+assert.match(
+  runnerSource,
+  /await promptCancellation\.race\(\s*buildUserMessage\(/,
+  'the long prepare step must race cancellation so the chain settles immediately'
+);
+assert.match(
+  runnerSource,
+  /promptCancellation\.settle\(seq\)/,
+  'every enqueue link must settle its sequence number'
 );
 assert.match(
   ipcSource,
@@ -274,6 +291,7 @@ const compile = spawnSync(
     '--outDir',
     tmpDir,
     'scripts/tests/claude-stop-reconcile.test.ts',
+    'scripts/tests/claude-prompt-cancellation.test.ts',
   ],
   { cwd: root, stdio: 'inherit' }
 );
@@ -282,11 +300,17 @@ if (compile.status !== 0) {
   process.exit(compile.status ?? 1);
 }
 
-const testPath = path.join(tmpDir, 'scripts', 'tests', 'claude-stop-reconcile.test.js');
-const run = spawnSync(process.execPath, [testPath], { cwd: root, stdio: 'inherit' });
-fs.rmSync(tmpDir, { recursive: true, force: true });
-if (run.status !== 0) {
-  process.exit(run.status ?? 1);
+for (const testFile of [
+  'claude-stop-reconcile.test.js',
+  'claude-prompt-cancellation.test.js',
+]) {
+  const testPath = path.join(tmpDir, 'scripts', 'tests', testFile);
+  const run = spawnSync(process.execPath, [testPath], { cwd: root, stdio: 'inherit' });
+  if (run.status !== 0) {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    process.exit(run.status ?? 1);
+  }
 }
+fs.rmSync(tmpDir, { recursive: true, force: true });
 
 console.log('claude-interrupt-stop: wiring checks passed');
