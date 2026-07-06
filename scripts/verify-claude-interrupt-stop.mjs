@@ -192,6 +192,11 @@ assert.match(
   /\(entry\.inFlightTurns \?\? 0\) - cancelledPrompts/,
   'cancelled prompts must be removed from the in-flight accounting'
 );
+assert.match(
+  ipcSource,
+  /entry\.pendingTurnPrompts\?\.splice\(-cancelledPrompts\)/,
+  'cancelled prompts must be trimmed from the prompt FIFO tail in lockstep'
+);
 
 // A replaced stopped runner's late result/drain must still classify as
 // user-stopped (by handle, not by the map) so it cannot persist or clobber
