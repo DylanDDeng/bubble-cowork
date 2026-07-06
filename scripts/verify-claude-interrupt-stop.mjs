@@ -177,10 +177,25 @@ assert.match(
   /await promptCancellation\.race\(\s*buildUserMessage\(/,
   'the long prepare step must race cancellation so the chain settles immediately'
 );
+// The model round-trip is raced too: after a zero-turn stop the warm runner
+// has NO fallback armed, so a cancelled enqueue wedged on setModel would
+// otherwise block every follow-up send with no recovery. The switch's late
+// completion still records the model bookkeeping (epoch-guarded so a newer
+// link's switch wins) and its late rejection is swallowed as abandoned work.
 assert.match(
   runnerSource,
-  /await activeQuery\.setModel\(nextRuntimeModel\);[\s\S]{0,900}?promptCancellation\.isCancelled\(seq\)[\s\S]{0,300}?await promptCancellation\.race\(\s*buildUserMessage\(/,
-  'a stop during the model round-trip must bail before starting attachment prep'
+  /const modelSwitch = activeQuery\.setModel\(nextRuntimeModel\);\s*const switched = await promptCancellation\.race\(/,
+  'the setModel round-trip must race cancellation so a wedged switch cannot block the chain'
+);
+assert.match(
+  runnerSource,
+  /if \(switched === null\) \{[\s\S]{0,700}?void modelSwitch\.then\([\s\S]{0,400}?modelSwitchEpoch === switchEpoch/,
+  'a cancelled switch must record its late completion under the epoch guard'
+);
+assert.match(
+  runnerSource,
+  /promptCancellation\.isCancelled\(seq\)[\s\S]{0,400}?await promptCancellation\.race\(\s*buildUserMessage\(/,
+  'the link must re-check cancellation before starting attachment prep'
 );
 assert.match(
   runnerSource,

@@ -531,13 +531,16 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
   // a send is still ahead of the input queue. cancelPendingPrompts() marks
   // every enqueue issued so far as cancelled; the enqueue re-checks the mark
   // after each await so a cancelled prompt is never pushed to the CLI, and
-  // the long prepare step races against cancellation so the serial chain
-  // settles immediately — a follow-up send must never wait on the very work
-  // the user just stopped. The model round-trip is deliberately NOT raced:
-  // it is a fast control request whose effect lands on the CLI either way,
-  // so bookkeeping must record it, and a wedged CLI blocks the resend
-  // regardless (the stop fallback reclaims that runner).
+  // every long step (attachment prep AND the setModel round-trip) races
+  // against cancellation so the serial chain settles immediately — a
+  // follow-up send must never wait on the very work the user just stopped,
+  // and after a zero-turn stop the warm runner has no fallback armed to
+  // reclaim a chain wedged on an abandoned control request. The model
+  // switch's effect lands on the CLI either way, so its bookkeeping is
+  // recorded even when the prompt that issued it was cancelled (epoch-
+  // guarded so a newer link's switch always wins).
   const promptCancellation = createPromptCancellation();
+  let modelSwitchEpoch = 0;
 
   const enqueuePrompt = (text: string, promptAttachments?: Attachment[], requestedModel?: string) => {
     const trimmed = text.trim();
@@ -565,19 +568,46 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           // changes — a display-model spelling (e.g. the reconciled name the
           // init handler stores) must not trigger a spurious switch on reuse.
           if (nextRuntimeModel !== currentRuntimeModel) {
-            await activeQuery.setModel(nextRuntimeModel);
+            // Raced against cancellation: a stop that cancels this prompt
+            // must never leave the serial chain parked behind a wedged
+            // control request — after a zero-turn stop the runner stays warm
+            // with no fallback armed, so nothing else would ever release a
+            // follow-up send queued behind it. The switch itself still lands
+            // on the CLI either way, so the bookkeeping must record it even
+            // when this prompt was cancelled mid round-trip: a follow-up
+            // comparing against stale state would skip a needed switch back.
+            const switchEpoch = ++modelSwitchEpoch;
+            const modelSwitch = activeQuery.setModel(nextRuntimeModel);
+            const switched = await promptCancellation.race(
+              modelSwitch.then(() => true as const)
+            );
+            if (switched === null) {
+              // Cancelled mid round-trip: record the switch when (if) it
+              // lands — unless a newer link has claimed the model since, in
+              // which case that link's switch is the CLI's final state and
+              // its bookkeeping must stand. A late rejection is abandoned
+              // work and must not surface as this session's runner error.
+              void modelSwitch.then(
+                () => {
+                  if (modelSwitchEpoch === switchEpoch) {
+                    currentModel = normalizedModel;
+                    currentRuntimeModel = nextRuntimeModel;
+                  }
+                },
+                () => {}
+              );
+              return;
+            }
           }
-          // Recorded even if this prompt was cancelled mid-flight: the CLI's
-          // model DID change, and a follow-up send comparing against stale
-          // bookkeeping would skip a needed switch back.
           currentModel = normalizedModel;
           currentRuntimeModel = nextRuntimeModel;
         }
-        // A stop can land during the (deliberately unraced) model round-trip
-        // above. Cancellation minted a FRESH signal, so a build started now
-        // could no longer be released by the race — bail before starting the
-        // attachment prep at all, or the abandoned work would block the
-        // serial chain and delay the user's immediate resend.
+        // Cancellation can land in the same tick the model round-trip
+        // resolves (the work may win the race even though the stop already
+        // marked this prompt). Re-check before starting the attachment prep:
+        // cancelPendingPrompts minted a FRESH signal, so a build started now
+        // could no longer be released by the race — the abandoned work would
+        // block the serial chain and delay the user's immediate resend.
         if (abortController.signal.aborted || promptCancellation.isCancelled(seq)) {
           return;
         }
