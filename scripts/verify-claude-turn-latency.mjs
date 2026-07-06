@@ -76,6 +76,27 @@ assert.equal(
   'branch checkout/create must flush runners sharing the git root'
 );
 
+// Worktree apply/discard force-remove the checkout directory; the session's
+// runner AND any runner anchored inside the removed path must be retired.
+assert.equal(
+  ipcSource.includes('function retireRunnersUnderPath'),
+  true,
+  'path-scoped retire missing'
+);
+assert.equal(
+  (ipcSource.match(/retireRunnersUnderPath\(/g) || []).length >= 3,
+  true,
+  'apply-worktree-changes and discard-worktree-changes must retire runners under the removed worktree'
+);
+
+// A silent slash-command failure proves the live CLI's init-time skill list
+// is stale; the runner must be doomed so the retry respawns with a rescan.
+assert.equal(
+  ipcSource.includes('activeEntry.doomed = true'),
+  true,
+  'slash-command failure must doom the kept-alive runner'
+);
+
 // Reuse must be cwd-guarded: a live runner is bound to its spawn cwd.
 assert.equal(
   ipcSource.includes('cwd: runnerSession.cwd || null'),
