@@ -17,6 +17,15 @@ import { AttachmentChips } from './AttachmentChips';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
+import {
+  EMPTY_PROMPT_HISTORY_NAV,
+  collectPromptHistory,
+  isCursorOnFirstLine,
+  remapPromptHistoryNav,
+  stepPromptHistory,
+  type PromptHistoryNav,
+  type PromptHistoryStep,
+} from '../utils/prompt-history';
 import { ClaudeContextIndicator } from './ClaudeContextIndicator';
 import { CodexContextIndicator } from './CodexContextIndicator';
 import { OpenCodeContextIndicator } from './OpenCodeContextIndicator';
@@ -99,12 +108,99 @@ export function PromptInput({
     handoffSessionToProvider,
   } = useAppStore();
   const [prompt, setPrompt] = useState('');
+  // ArrowUp/ArrowDown history navigation. historyNavRef tracks the browsing
+  // position + stashed draft; historyAppliedTextRef remembers the last text WE
+  // put in the composer, so any user edit detectably exits history mode.
+  const historyNavRef = useRef<PromptHistoryNav>(EMPTY_PROMPT_HISTORY_NAV);
+  const historyAppliedTextRef = useRef<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [cursorIndex, setCursorIndex] = useState(0);
   const editorRef = useRef<ComposerPromptEditorHandle | null>(null);
   const isComposingRef = useRef(false);
   const targetSessionId = sessionId ?? activeSessionId;
   const activeSession = targetSessionId ? sessions[targetSessionId] : null;
+
+  const promptHistory = useMemo(
+    () => collectPromptHistory(activeSession?.messages ?? []),
+    [activeSession?.messages]
+  );
+
+  // Ends an active browse and restores the stashed draft (text AND
+  // attachments) into the composer, mirroring the ArrowDown exit — the
+  // recalled prompt must never strand in the composer with the draft
+  // unrecoverable. Focus is intentionally not forced: these exits are not
+  // always key-driven.
+  const exitHistoryBrowse = useCallback((nav: PromptHistoryNav) => {
+    historyNavRef.current = EMPTY_PROMPT_HISTORY_NAV;
+    historyAppliedTextRef.current = null;
+    if (nav.index === null) {
+      return;
+    }
+    const draft = nav.draft ?? '';
+    setPrompt(draft);
+    setCursorIndex(draft.length);
+    setAttachments(nav.draftAttachments ?? []);
+  }, []);
+
+  // Switching sessions exits history mode (restoring the stashed draft);
+  // editing the recalled text exits too, keeping the edit.
+  useEffect(() => {
+    exitHistoryBrowse(historyNavRef.current);
+  }, [exitHistoryBrowse, targetSessionId]);
+
+  useEffect(() => {
+    if (
+      historyNavRef.current.index !== null &&
+      historyAppliedTextRef.current !== null &&
+      prompt !== historyAppliedTextRef.current
+    ) {
+      // Editing the recalled text turns it into a new message that
+      // deliberately inherits nothing from the old draft (terminal
+      // semantics): the stashed text AND attachments are discarded, matching
+      // what sending the recalled entry does.
+      historyNavRef.current = EMPTY_PROMPT_HISTORY_NAV;
+      historyAppliedTextRef.current = null;
+    }
+  }, [prompt]);
+
+  // Scrolling the chat pane up lazily PREPENDS older messages (and a rewind
+  // can drop entries), shifting promptHistory under an active browse. Re-anchor
+  // the stored index to the recalled entry so the next step lands on the right
+  // neighbor instead of a drifted position; when the recalled entry vanished
+  // entirely the browse exits and the draft comes back.
+  useEffect(() => {
+    const nav = historyNavRef.current;
+    if (nav.index === null) {
+      return;
+    }
+    const remapped = remapPromptHistoryNav(promptHistory, nav, historyAppliedTextRef.current);
+    if (remapped.index === null) {
+      exitHistoryBrowse(nav);
+      return;
+    }
+    historyNavRef.current = remapped;
+  }, [exitHistoryBrowse, promptHistory]);
+
+  const applyPromptHistoryStep = (step: PromptHistoryStep) => {
+    historyNavRef.current = step.nav;
+    historyAppliedTextRef.current = step.nav.index === null ? null : step.text;
+    if (step.clamped) {
+      // Hit the oldest entry: the key is swallowed but nothing changed, so
+      // leave the text and caret exactly where they are.
+      return;
+    }
+    setPrompt(step.text);
+    setCursorIndex(step.text.length);
+    if (step.attachments) {
+      // Cleared on entry (recalled entries are text-only, so a send never
+      // attaches the old draft's files) and restored with the draft on exit.
+      setAttachments(step.attachments);
+    }
+    window.requestAnimationFrame(() => {
+      editorRef.current?.focus();
+      editorRef.current?.setCursorIndex(step.text.length);
+    });
+  };
 
   const agentSelection = useComposerAgentSelection({
     selectionKey: activeSession?.id || targetSessionId || '__composer__',
@@ -329,6 +425,15 @@ export function PromptInput({
     nextCursorIndex: number
   ): Promise<boolean> => {
     if (isComposingRef.current) {
+      setPrompt(value);
+      setCursorIndex(nextCursorIndex);
+      return false;
+    }
+
+    // Text recalled from prompt history is exempt from long-prompt conversion:
+    // silently swapping a recalled prompt for an attachment would wipe the
+    // composer and drop the stashed draft.
+    if (historyAppliedTextRef.current !== null && value === historyAppliedTextRef.current) {
       setPrompt(value);
       setCursorIndex(nextCursorIndex);
       return false;
@@ -681,8 +786,68 @@ export function PromptInput({
     return true;
   }, [activeSession?.cwd, attachments, prompt]);
 
+  // ArrowUp on the first visual line ENTERS history browsing; while a browse
+  // is active the arrows always step (terminal-style) — recalled multiline
+  // prompts leave the caret on their last line and must not require walking
+  // it back up before browsing can continue. Editing the recalled text exits
+  // the browse and returns the arrows to normal caret movement. Returns true
+  // when the key was consumed.
+  const handleHistoryArrowKey = (e: ReactKeyboardEvent): boolean => {
+    if (
+      (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') ||
+      e.shiftKey || e.altKey || e.metaKey || e.ctrlKey
+    ) {
+      return false;
+    }
+
+    const caret = editorRef.current?.getCaretInfo();
+    if (!caret || !caret.collapsed) {
+      // With a non-collapsed selection the arrows keep their native
+      // collapse/extend behavior instead of replacing the composer content.
+      return false;
+    }
+
+    const browsing = historyNavRef.current.index !== null;
+    if (!browsing) {
+      if (e.key === 'ArrowDown') {
+        return false;
+      }
+      // Entering requires the caret on the first visual row: the editor
+      // soft-wraps, so a long logical line spans several rows and the lower
+      // ones keep native caret movement. Rect information can be unavailable
+      // (e.g. in tests) — fall back to newline scanning.
+      const onFirstLine = caret.onFirstVisualLine ?? isCursorOnFirstLine(prompt, caret.index);
+      if (!onFirstLine) {
+        return false;
+      }
+    }
+
+    const step = stepPromptHistory(
+      promptHistory,
+      historyNavRef.current,
+      e.key === 'ArrowUp' ? 'prev' : 'next',
+      prompt,
+      attachments
+    );
+    if (!step) {
+      return false;
+    }
+    e.preventDefault();
+    applyPromptHistoryStep(step);
+    return true;
+  };
+
   const handleKeyDown = (e: ReactKeyboardEvent) => {
     if (isImeComposingEvent(e, isComposingRef)) {
+      return;
+    }
+
+    // While a history browse is active it owns the arrow keys even when the
+    // recalled text re-opened the @-mention or slash menu — a recalled
+    // "/rewind" must not trap ArrowUp/ArrowDown in the menu. When idle, the
+    // menus keep priority and history only sees keys they did not consume.
+    const historyBrowseActive = historyNavRef.current.index !== null;
+    if (historyBrowseActive && handleHistoryArrowKey(e)) {
       return;
     }
 
@@ -734,6 +899,10 @@ export function PromptInput({
         window.requestAnimationFrame(() => editorRef.current?.focus());
         return;
       }
+    }
+
+    if (!historyBrowseActive && handleHistoryArrowKey(e)) {
+      return;
     }
 
     if (e.key === 'Enter' && !e.shiftKey) {
