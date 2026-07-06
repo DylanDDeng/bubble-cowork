@@ -34,11 +34,29 @@ assert.equal(
 assert.equal(ipcSource.includes('function sweepIdleClaudeRunners'), true, 'idle reaper missing');
 assert.equal(ipcSource.includes('function flushClaudeRunners'), true, 'config flush missing');
 assert.equal(
-  (ipcSource.match(/flushClaudeRunners\(/g) || []).length >= 3,
+  (ipcSource.match(/flushClaudeRunners\(/g) || []).length >= 4,
   true,
-  'flushClaudeRunners must cover provider config and MCP config'
+  'flushClaudeRunners must cover provider config, MCP config, and skill installs'
 );
 assert.equal(ipcSource.includes('stopClaudeRunnerReaper();'), true, 'cleanup must stop the reaper');
+
+// Skill installs change what a Claude CLI process loaded at spawn — both the
+// module registration (which shadows the inline handler) and the inline
+// handler must retire kept-alive runners on a successful install.
+assert.equal(
+  ipcSource.includes('onClaudeSkillsChanged: () => flushClaudeRunners()'),
+  true,
+  'ipcCtx must wire skill-change flushes for the skill-market module'
+);
+const skillMarketIpcSource = fs.readFileSync(
+  path.join(root, 'src', 'electron', 'ipc', 'skill-market.ts'),
+  'utf8'
+);
+assert.equal(
+  skillMarketIpcSource.includes('ctx.onClaudeSkillsChanged?.()'),
+  true,
+  'skill install must retire kept-alive Claude runners'
+);
 
 // Workspace changes must retire the session runner for EVERY provider —
 // non-Claude handles persist between turns too and are bound to their spawn

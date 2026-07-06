@@ -14,7 +14,7 @@ import {
 } from '../libs/skill-market'
 import { expandClaudeSkillPrompt } from '../libs/claude-skills'
 
-export function register(_ctx: IPCHandlerContext): void {
+export function register(ctx: IPCHandlerContext): void {
   ipcMainHandle('get-skill-market-hot', async (_event, limit?: number) => {
     return getSkillMarketHot(limit);
   });
@@ -28,7 +28,13 @@ export function register(_ctx: IPCHandlerContext): void {
   });
 
   ipcMainHandle('install-skill-from-market', async (_event, id: string) => {
-    return installSkillFromMarket(id);
+    const result = await installSkillFromMarket(id);
+    if (result.ok) {
+      // A live Claude runner fixed its skill list at spawn; retire kept-alive
+      // runners (doom busy ones) so `/<new-skill>` works on the next turn.
+      ctx.onClaudeSkillsChanged?.();
+    }
+    return result;
   });
 
   ipcMainHandle(
