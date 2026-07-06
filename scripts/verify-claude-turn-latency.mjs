@@ -68,12 +68,13 @@ assert.equal(
   'retireSessionRunner must cover worktree move, workspace handoff, and git-root flush'
 );
 
-// Branch mutations rewrite the checkout under every session sharing the git
-// root; kept-alive runners must be flushed before checkout/create-branch.
+// Checkout-mutating paths (branch checkout/create, handoff stash+branch
+// switch, worktree apply squash-merge) rewrite files under every session
+// sharing the git root; kept-alive runners must be flushed around each.
 assert.equal(
-  (ipcSource.match(/await flushRunnersSharingGitRoot\(/g) || []).length >= 2,
+  (ipcSource.match(/await flushRunnersSharingGitRoot\(/g) || []).length >= 4,
   true,
-  'branch checkout/create must flush runners sharing the git root'
+  'checkout/create-branch, handoff local mutation, and worktree apply must flush runners sharing the git root'
 );
 
 // Worktree apply/discard force-remove the checkout directory; the session's
@@ -87,6 +88,32 @@ assert.equal(
   (ipcSource.match(/retireRunnersUnderPath\(/g) || []).length >= 3,
   true,
   'apply-worktree-changes and discard-worktree-changes must retire runners under the removed worktree'
+);
+
+// ...but never a runner whose session is mid-turn: apply/discard block on
+// running siblings up front and the path-scoped retire skips running rows.
+assert.equal(
+  (ipcSource.match(/findRunningSessionUnderPath\(/g) || []).length >= 3,
+  true,
+  'apply/discard must block when a running sibling session sits under the worktree'
+);
+assert.equal(
+  ipcSource.includes("if (sessions.getSession(sessionId)?.status === 'running') continue;"),
+  true,
+  'retireRunnersUnderPath must never abort a running session'
+);
+
+// Turn prompts are a per-turn FIFO: a queued second prompt must never be
+// checked against the first turn's result.
+assert.equal(
+  ipcSource.includes('(existingEntry.pendingTurnPrompts ??= []).push(runnerPrompt)'),
+  true,
+  'continue reuse must enqueue the dispatched prompt'
+);
+assert.equal(
+  ipcSource.includes('entryForPrompt.pendingTurnPrompts?.shift()'),
+  true,
+  'each result must pop its own turn prompt from the FIFO'
 );
 
 // A silent slash-command failure proves the live CLI's init-time skill list

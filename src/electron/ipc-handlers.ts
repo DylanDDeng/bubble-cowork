@@ -3286,8 +3286,13 @@ const runnerHandles = new Map<
     doomed?: boolean;
     /** Automation runners auto-approve permissions; never reuse them for human turns. */
     autoApprove?: boolean;
-    /** Latest dispatched prompt — feeds the slash-command failure check across reuse. */
-    latestPrompt?: string;
+    /**
+     * Prompts dispatched into this runner whose `result` has not arrived yet
+     * (FIFO — results come back in dispatch order on the single CLI stream).
+     * Feeds the slash-command failure check for the turn each result closes;
+     * a single shared slot would misattribute queued prompts.
+     */
+    pendingTurnPrompts?: string[];
     /** Working directory the runner was spawned with — reuse must match it. */
     cwd?: string | null;
   }
@@ -3384,32 +3389,47 @@ function retireSessionRunner(sessionId: string): void {
   runnerHandles.delete(sessionId);
 }
 
+function isPathAtOrUnder(child: string, root: string): boolean {
+  try {
+    const rel = relative(resolve(root), resolve(child));
+    return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Retire every kept-alive runner (any provider, any session) anchored at or
  * inside `dirPath`. Used when a directory runners spawned in is deleted —
  * worktree apply/discard force-remove the checkout even when sibling sessions
  * still point at it — so a live process would otherwise linger on a dead cwd.
+ * Runners of RUNNING sessions are never touched: aborting one mid-turn would
+ * strand the session as 'running' with no terminal event. Callers block on
+ * running siblings up front; this guard covers races.
  */
 function retireRunnersUnderPath(dirPath: string): void {
-  let root: string;
-  try {
-    root = resolve(dirPath);
-  } catch {
-    return;
-  }
   for (const [sessionId, entry] of Array.from(runnerHandles.entries())) {
-    if (!entry.cwd) continue;
-    let entryCwd: string;
-    try {
-      entryCwd = resolve(entry.cwd);
-    } catch {
-      continue;
-    }
-    const rel = relative(root, entryCwd);
-    if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) {
-      retireSessionRunner(sessionId);
-    }
+    if (!entry.cwd || !isPathAtOrUnder(entry.cwd, dirPath)) continue;
+    if (sessions.getSession(sessionId)?.status === 'running') continue;
+    retireSessionRunner(sessionId);
   }
+}
+
+/**
+ * A RUNNING session (other than `excludedSessionId`) whose checkout sits at
+ * or under `dirPath`, or null. Deleting a directory under a running agent
+ * corrupts its turn — callers must block the operation instead.
+ */
+function findRunningSessionUnderPath(
+  dirPath: string,
+  excludedSessionId?: string | null
+): NonNullable<ReturnType<typeof sessions.getSession>> | null {
+  for (const row of sessions.listRunningSessions()) {
+    if (excludedSessionId && row.id === excludedSessionId) continue;
+    const rowCwd = row.worktree_path || row.cwd;
+    if (rowCwd && isPathAtOrUnder(rowCwd, dirPath)) return row;
+  }
+  return null;
 }
 
 /**
@@ -4653,7 +4673,18 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   ipcMainHandle('apply-worktree-changes', async (_event, sessionId: string) => {
     // Capture before the apply: on success the row's worktree fields are
     // cleared and the directory is force-removed.
-    const worktreePath = sessions.getSession(sessionId)?.worktree_path || null;
+    const row = sessions.getSession(sessionId);
+    const worktreePath = row?.worktree_path || null;
+    const projectCwd = row?.project_cwd || null;
+    // The worktree is force-removed without a reference check — a sibling
+    // session running inside it would lose its checkout mid-turn.
+    const runningSibling = worktreePath ? findRunningSessionUnderPath(worktreePath, sessionId) : null;
+    if (runningSibling) {
+      return {
+        ok: false,
+        message: `Another running session is using this worktree: ${runningSibling.title || runningSibling.id}. Wait for it to finish first.`,
+      };
+    }
     const result = await applyIsolatedWorkspace(sessionId);
     if (result.ok) {
       // The worktree directory is gone and the session moved back to the
@@ -4661,6 +4692,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       // anchored inside the removed checkout.
       retireSessionRunner(sessionId);
       if (worktreePath) retireRunnersUnderPath(worktreePath);
+      // The squash-merge also rewrote files in the project checkout; idle
+      // runners anchored there hold stale context, same as a branch switch.
+      if (projectCwd) await flushRunnersSharingGitRoot(projectCwd);
       broadcastSessionWorkspace(mainWindow, sessionId);
     }
     return result;
@@ -4668,10 +4702,18 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('discard-worktree-changes', async (_event, sessionId: string) => {
     const worktreePath = sessions.getSession(sessionId)?.worktree_path || null;
+    const runningSibling = worktreePath ? findRunningSessionUnderPath(worktreePath, sessionId) : null;
+    if (runningSibling) {
+      return {
+        ok: false,
+        message: `Another running session is using this worktree: ${runningSibling.title || runningSibling.id}. Wait for it to finish first.`,
+      };
+    }
     const result = await discardIsolatedWorkspace(sessionId);
     if (result.ok) {
       // Same as apply: the checkout was force-removed; no live runner may
-      // keep the dead cwd.
+      // keep the dead cwd. (No project-root flush here — discard does not
+      // touch the project checkout's contents.)
       retireSessionRunner(sessionId);
       if (worktreePath) retireRunnersUnderPath(worktreePath);
       broadcastSessionWorkspace(mainWindow, sessionId);
@@ -6423,6 +6465,11 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
               if (blockingSession) {
                 throw new Error(`Another running session is using the local workspace: ${blockingSession.title || blockingSession.id}.`);
               }
+              // The stash-apply and/or branch checkout below rewrite files in
+              // the project checkout; idle kept-alive runners of OTHER
+              // sessions anchored there must not serve another turn against
+              // the mutated files — same invariant as git-checkout-branch.
+              await flushRunnersSharingGitRoot(projectCwd);
             }
             sourceStash = includeChanges && sourceIsWorktree
               ? await stashWorkingTree({
@@ -7861,7 +7908,7 @@ async function handleSessionContinue(
         // Count the dispatched turn BEFORE send so the reaper can never see
         // this entry as idle between dispatch and the first stream message.
         existingEntry.inFlightTurns = (existingEntry.inFlightTurns ?? 0) + 1;
-        existingEntry.latestPrompt = runnerPrompt;
+        (existingEntry.pendingTurnPrompts ??= []).push(runnerPrompt);
       }
       const sendOptions =
         nextProvider === 'codex'
@@ -8282,11 +8329,14 @@ function startRunner(
 
       // 检查是否为 result 消息，更新状态
       if (message.type === 'result') {
-        // A reused runner serves many prompts; check the one this turn ran,
-        // not the prompt the runner was created with.
+        // A reused runner serves many prompts; pop the one this turn ran
+        // from the FIFO (results arrive in dispatch order), not the prompt
+        // the runner was created with. A queued second prompt must never be
+        // checked against the first turn's result.
         const entryForPrompt = runnerHandles.get(session.id);
-        const turnPrompt =
-          (entryForPrompt?.handle === handle && entryForPrompt.latestPrompt) || prompt;
+        const queuedTurnPrompt =
+          entryForPrompt?.handle === handle ? entryForPrompt.pendingTurnPrompts?.shift() : undefined;
+        const turnPrompt = queuedTurnPrompt || prompt;
         const slashFailureMessage =
           provider === 'claude'
             ? detectSilentSlashCommandFailure(
@@ -8578,7 +8628,7 @@ function startRunner(
     activeAgentRunId: normalizedActiveAgentRunId,
     onTurnDone,
     inFlightTurns: 1,
-    latestPrompt: prompt,
+    pendingTurnPrompts: [prompt],
     autoApprove: autoApprovePermissions || undefined,
     cwd: runnerSession.cwd || null,
   });
