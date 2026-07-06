@@ -658,6 +658,13 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           resume: resumeSessionId,
           abortController,
           includePartialMessages: true,
+          // Without this the SDK only forwards subagent tool_use/tool_result
+          // blocks; text and thinking stay inside the subagent. The nested
+          // Task traces / parallel board render the full subagent transcript,
+          // so ask for it explicitly. SDK limitation: once a Task backgrounds
+          // itself, the CLI stops forwarding its messages entirely — traces
+          // for backgrounded subagents freeze at that point.
+          forwardSubagentText: true,
           // Snapshot files before edits so /rewind can restore them to their
           // state at any user message via RunnerHandle.rewindFiles.
           enableFileCheckpointing: true,

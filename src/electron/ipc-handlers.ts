@@ -1864,6 +1864,9 @@ function buildHistoryTranscript(history: StreamMessage[]): string {
   const entries: string[] = [];
 
   for (const message of history) {
+    // Subagent (Task) messages are internal to their Task; labeling them
+    // [assistant] would corrupt rebuilt/continuation context.
+    if (message.parentToolUseId) continue;
     if (message.type === 'user_prompt') {
       const prompt = message.prompt.trim();
       if (prompt) {
@@ -1901,6 +1904,7 @@ function collectHandoffTranscriptEntries(
 ): Array<{ role: 'User' | 'Assistant'; text: string }> {
   const entries: Array<{ role: 'User' | 'Assistant'; text: string }> = [];
   for (const message of history) {
+    if (message.parentToolUseId) continue;
     if (message.type === 'user_prompt') {
       const prompt = message.prompt.trim();
       if (prompt) {
@@ -2258,6 +2262,7 @@ function buildRecentConversationContext(history: StreamMessage[]): string {
 
   for (let index = history.length - 1; index >= 0 && recentEntries.length < 4; index -= 1) {
     const message = history[index];
+    if (message.parentToolUseId) continue;
     if (message.type === 'user_prompt') {
       const prompt = message.prompt.trim();
       if (prompt && !prompt.startsWith('/')) {
@@ -3982,6 +3987,7 @@ function extractEnvironmentRecapText(message: StreamMessage): string {
 function buildEnvironmentRecap(sessionId: string): string {
   const history = sessions.getSessionHistory(sessionId);
   const snippets = history
+    .filter((message) => !message.parentToolUseId)
     .map(extractEnvironmentRecapText)
     .map((text) => text.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
@@ -7964,7 +7970,13 @@ function startRunner(
 
       const sanitizedStreamMessage =
         provider === 'claude' ? sanitizeClaudeAssistantMessage(message) : { message, removedInvalidThinking: false };
-      if (provider === 'claude' && sanitizedStreamMessage.removedInvalidThinking) {
+      if (
+        provider === 'claude' &&
+        sanitizedStreamMessage.removedInvalidThinking &&
+        // Subagent thinking never enters the main session transcript, so it
+        // cannot poison a resume — don't discard the session id for it.
+        !message.parentToolUseId
+      ) {
         sessions.setClaudeSessionId(session.id, null);
       }
 
@@ -7984,8 +7996,12 @@ function startRunner(
           turnAgentId,
           turnAgentRunId
         );
-        localFailureMessage =
-          localFailureMessage || detectLocalRunnerFailureMessage(extractAssistantText(attributedMessage));
+        // A subagent hitting an API error surfaces through its Task result;
+        // its narration must not mark the whole session as failed.
+        if (!attributedMessage.parentToolUseId) {
+          localFailureMessage =
+            localFailureMessage || detectLocalRunnerFailureMessage(extractAssistantText(attributedMessage));
+        }
         const shouldPersistMessage = shouldPersistProviderMessage(attributedMessage);
         if (shouldPersistMessage) {
           // 保存消息
@@ -7997,7 +8013,9 @@ function startRunner(
           type: 'stream.message',
           payload: { sessionId: session.id, message: attributedMessage },
         });
-        if (shouldPersistMessage) {
+        // Subagent internals are persisted for the nested traces but must
+        // never surface as top-level replies in bridged chats.
+        if (shouldPersistMessage && !attributedMessage.parentToolUseId) {
           void feishuBridge.handleSessionMessage(session.id, attributedMessage);
         }
       }

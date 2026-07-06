@@ -20,6 +20,38 @@ assert.equal(
   true,
   'runner.ts must forward parent_tool_use_id on assistant, user, and stream_event messages'
 );
+assert.equal(
+  runnerSource.includes('forwardSubagentText: true'),
+  true,
+  'the SDK forwards subagent text/thinking only when forwardSubagentText is set — without it the nested traces show tool rows only'
+);
+
+// Backend consumers that treat assistant messages as top-level replies must
+// skip subagent-attributed messages.
+const ipcSourceForGuards = fs.readFileSync(
+  path.join(root, 'src', 'electron', 'ipc-handlers.ts'),
+  'utf8'
+);
+assert.equal(
+  ipcSourceForGuards.includes('shouldPersistMessage && !attributedMessage.parentToolUseId'),
+  true,
+  'the feishu bridge must not receive subagent internal messages'
+);
+assert.equal(
+  (ipcSourceForGuards.match(/if \(message\.parentToolUseId\) continue;/g) || []).length >= 3,
+  true,
+  'history transcript builders must skip subagent messages'
+);
+assert.equal(
+  ipcSourceForGuards.includes('.filter((message) => !message.parentToolUseId)'),
+  true,
+  'the environment recap must skip subagent messages'
+);
+assert.equal(
+  ipcSourceForGuards.includes('if (!attributedMessage.parentToolUseId) {'),
+  true,
+  'subagent narration must not trip local failure detection'
+);
 
 // Subagent stream deltas must never touch the top-level streaming buffer.
 const storeSource = fs.readFileSync(
