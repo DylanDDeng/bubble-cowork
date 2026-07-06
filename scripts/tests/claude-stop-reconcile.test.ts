@@ -1,0 +1,173 @@
+import assert from 'node:assert/strict';
+import {
+  classifyResultForStop,
+  markTurnStopped,
+  onlyStoppedTurnsInFlight,
+  resolveStopFallbackAction,
+  shouldDropRunnerErrorSilently,
+  type StopStateSnapshot,
+} from '../../src/electron/libs/claude-stop-reconcile';
+
+function state(inFlightTurns: number, stoppedTurns: number): StopStateSnapshot {
+  return { inFlightTurns, stoppedTurns };
+}
+
+// ── markTurnStopped ──────────────────────────────────────────────────────────
+
+// A stop marks the (single) in-flight turn.
+assert.equal(markTurnStopped(state(1, 0)), 1, 'first stop marks the running turn');
+
+// Stop pressed again during the same turn must not over-count: a later live
+// turn's result would otherwise be misattributed as stopped.
+assert.equal(markTurnStopped(state(1, 1)), 1, 'double-press on one turn stays capped');
+
+// Stop-then-send-then-stop: both in-flight turns are now stopped.
+assert.equal(markTurnStopped(state(2, 1)), 2, 'second stop marks the follow-up too');
+
+// ── classifyResultForStop (result attribution, oldest turn first) ────────────
+
+// No stop pending: a result is a live turn's — full status handling.
+{
+  const c = classifyResultForStop(state(1, 0));
+  assert.equal(c.stoppedByUser, false, 'live result is not user-stopped');
+  assert.equal(c.suppressStatusBroadcast, false, 'live result broadcasts its status');
+}
+
+// Plain stop, no follow-up: the interrupted result maps to idle and its idle
+// status is broadcast (nothing newer to clobber).
+{
+  const c = classifyResultForStop(state(1, 1));
+  assert.equal(c.stoppedByUser, true, 'stopped result maps to idle');
+  assert.equal(c.suppressStatusBroadcast, false, 'no newer turn — idle broadcasts');
+}
+
+// Stop then immediate follow-up send: the stopped turn's late result must not
+// flip the running session back to idle.
+{
+  const c = classifyResultForStop(state(2, 1));
+  assert.equal(c.stoppedByUser, true, 'stopped result still maps to idle');
+  assert.equal(c.suppressStatusBroadcast, true, 'follow-up in flight — suppress');
+}
+
+// ── resolveStopFallbackAction (P1: fallback must never kill a follow-up) ─────
+
+assert.equal(
+  resolveStopFallbackAction(state(1, 1)),
+  'hard-abort',
+  'only the stopped turn in flight — a wedged interrupt is resolved by abort'
+);
+assert.equal(
+  resolveStopFallbackAction(state(2, 1)),
+  'stand-down',
+  'a live follow-up shares the runner — the fallback must not destroy it'
+);
+assert.equal(
+  resolveStopFallbackAction(state(1, 0)),
+  'stand-down',
+  'stop already reconciled — nothing left for the fallback to do'
+);
+assert.equal(
+  resolveStopFallbackAction(state(0, 0)),
+  'stand-down',
+  'idle runner — the fallback never fires destructively'
+);
+// Escape hatch: the user stopped the follow-up too, so everything in flight
+// is stopped and a renewed fallback may hard-abort the wedged runner.
+assert.equal(
+  resolveStopFallbackAction(state(2, 2)),
+  'hard-abort',
+  'every in-flight turn stopped — hard abort recovers the wedged runner'
+);
+
+// ── shouldDropRunnerErrorSilently (P1: onError must not eat a follow-up) ─────
+
+assert.equal(
+  shouldDropRunnerErrorSilently(state(0, 0)),
+  true,
+  'idle between-turns crash stays silent'
+);
+assert.equal(
+  shouldDropRunnerErrorSilently(state(1, 1)),
+  true,
+  'teardown noise from a just-stopped turn stays silent'
+);
+assert.equal(
+  shouldDropRunnerErrorSilently(state(2, 1)),
+  false,
+  'follow-up in flight — the error must surface with a status update'
+);
+assert.equal(
+  shouldDropRunnerErrorSilently(state(1, 0)),
+  false,
+  'live turn erroring is a real failure'
+);
+
+// ── onlyStoppedTurnsInFlight sanity ──────────────────────────────────────────
+
+assert.equal(onlyStoppedTurnsInFlight(state(0, 0)), false);
+assert.equal(onlyStoppedTurnsInFlight(state(1, 1)), true);
+assert.equal(onlyStoppedTurnsInFlight(state(2, 1)), false);
+
+// ── Scenario walk: stop → send correction → both results land ────────────────
+// Mirrors the ipc-handlers bookkeeping: dispatch increments inFlightTurns,
+// stop marks a turn stopped, each result settles one stopped turn (if any)
+// and decrements inFlightTurns.
+{
+  let inFlight = 1; // turn A streaming
+  let stopped = 0;
+
+  // User presses stop.
+  stopped = markTurnStopped(state(inFlight, stopped));
+  assert.equal(stopped, 1);
+
+  // User immediately sends a correction into the same runner.
+  inFlight += 1;
+
+  // Fallback timer fires before turn A's result lands: must stand down.
+  assert.equal(resolveStopFallbackAction(state(inFlight, stopped)), 'stand-down');
+  // A teardown error now must surface, not vanish.
+  assert.equal(shouldDropRunnerErrorSilently(state(inFlight, stopped)), false);
+
+  // Turn A's (interrupted) result lands: idle, suppressed, settles the stop.
+  const first = classifyResultForStop(state(inFlight, stopped));
+  assert.equal(first.stoppedByUser, true);
+  assert.equal(first.suppressStatusBroadcast, true);
+  stopped -= 1;
+  inFlight -= 1;
+
+  // Turn B's result lands: normal full handling — the correction's status
+  // must not be mapped to idle or suppressed.
+  const second = classifyResultForStop(state(inFlight, stopped));
+  assert.equal(second.stoppedByUser, false);
+  assert.equal(second.suppressStatusBroadcast, false);
+  inFlight -= 1;
+
+  // Runner is cleanly idle afterwards — no leaked turn pins it forever.
+  assert.equal(inFlight, 0);
+  assert.equal(stopped, 0);
+}
+
+// ── Scenario walk: stop → send → stop again (user stops the correction too) ──
+{
+  let inFlight = 1;
+  let stopped = markTurnStopped(state(1, 0)); // stop turn A
+  inFlight += 1; // send turn B
+  stopped = markTurnStopped(state(inFlight, stopped)); // stop turn B
+  assert.equal(stopped, 2);
+
+  // Everything in flight is stopped: a wedged runner may now be hard-aborted.
+  assert.equal(resolveStopFallbackAction(state(inFlight, stopped)), 'hard-abort');
+
+  // If instead both results land, each maps to idle and only the last one
+  // broadcasts (nothing newer remains).
+  const first = classifyResultForStop(state(inFlight, stopped));
+  assert.equal(first.stoppedByUser, true);
+  assert.equal(first.suppressStatusBroadcast, true);
+  stopped -= 1;
+  inFlight -= 1;
+  const second = classifyResultForStop(state(inFlight, stopped));
+  assert.equal(second.stoppedByUser, true);
+  assert.equal(second.suppressStatusBroadcast, false);
+}
+
+console.log('claude-stop-reconcile.test: all assertions passed');
