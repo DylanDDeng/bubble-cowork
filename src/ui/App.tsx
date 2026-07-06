@@ -1338,7 +1338,12 @@ function RightUtilityTabStrip({
 
   return (
     <div
-      className="drag-region relative z-[120] flex h-10 shrink-0 items-center gap-1 overflow-visible bg-[var(--bg-primary)] px-2"
+      // z-[80]: above the utility-panel surfaces (z-20) and resize shields
+      // (z-[70]) but BELOW the modal layer band (overlays start at z-[90]),
+      // so dialog backdrops dim this strip like everything else. The old
+      // z-[120] predates the native launcher popup and let the strip float
+      // above every dialog overlay.
+      className="drag-region relative z-[80] flex h-10 shrink-0 items-center gap-1 overflow-visible bg-[var(--bg-primary)] px-2"
       // In fullscreen with the sidebar collapsed the strip becomes the topmost
       // bar at the window's left edge, so it must clear the traffic lights.
       style={windowControlsInset ? { paddingLeft: 'var(--app-window-controls-inset-left)' } : undefined}
