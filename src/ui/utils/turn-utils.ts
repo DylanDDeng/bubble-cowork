@@ -96,6 +96,11 @@ export function hasRunningToolInMessages(
 ): boolean {
   for (const msg of messages) {
     if (msg.type === 'assistant') {
+      // Subagent (Task) internals are tracked by their parent Task's own
+      // top-level tool_use. A subagent tool whose result never arrives (e.g.
+      // a backgrounded Task stops forwarding messages) must not pin the turn
+      // indicator in tool_active after the Task itself has resolved.
+      if (msg.parentToolUseId) continue;
       for (const block of getMessageContentBlocks(msg)) {
         const normalized = normalizeToolUseBlock(block);
         if (normalized && toolStatusMap.get(normalized.id) === 'pending') {

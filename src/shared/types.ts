@@ -1211,6 +1211,13 @@ export type StreamMessageBase = {
   agentId?: string | null;
   agentRunId?: string | null;
   parentTurnId?: string | null;
+  /**
+   * Claude Agent SDK subagent attribution. Messages emitted while a Task
+   * (subagent) tool call runs carry that Task's tool_use id here; top-level
+   * messages leave it null/undefined. The transcript nests parented messages
+   * under their Task row instead of rendering them inline.
+   */
+  parentToolUseId?: string | null;
 };
 
 export interface CompactMetadata {
