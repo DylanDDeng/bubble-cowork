@@ -5,6 +5,7 @@ import {
   onlyStoppedTurnsInFlight,
   resolveStopFallbackAction,
   shouldDropRunnerErrorSilently,
+  STOP_FALLBACK_MAX_ATTEMPTS,
   type StopStateSnapshot,
 } from '../../src/electron/libs/claude-stop-reconcile';
 
@@ -49,34 +50,53 @@ assert.equal(markTurnStopped(state(2, 1)), 2, 'second stop marks the follow-up t
   assert.equal(c.suppressStatusBroadcast, true, 'follow-up in flight — suppress');
 }
 
-// ── resolveStopFallbackAction (P1: fallback must never kill a follow-up) ─────
+// ── resolveStopFallbackAction (P1: fallback must never silently kill a
+// follow-up; P2: nor stand down permanently on a wedged runner) ──────────────
 
 assert.equal(
-  resolveStopFallbackAction(state(1, 1)),
+  resolveStopFallbackAction(state(1, 1), 1),
   'hard-abort',
   'only the stopped turn in flight — a wedged interrupt is resolved by abort'
 );
 assert.equal(
-  resolveStopFallbackAction(state(2, 1)),
-  'stand-down',
-  'a live follow-up shares the runner — the fallback must not destroy it'
-);
-assert.equal(
-  resolveStopFallbackAction(state(1, 0)),
+  resolveStopFallbackAction(state(1, 0), 1),
   'stand-down',
   'stop already reconciled — nothing left for the fallback to do'
 );
 assert.equal(
-  resolveStopFallbackAction(state(0, 0)),
+  resolveStopFallbackAction(state(0, 0), 1),
   'stand-down',
   'idle runner — the fallback never fires destructively'
 );
 // Escape hatch: the user stopped the follow-up too, so everything in flight
 // is stopped and a renewed fallback may hard-abort the wedged runner.
 assert.equal(
-  resolveStopFallbackAction(state(2, 2)),
+  resolveStopFallbackAction(state(2, 2), 1),
   'hard-abort',
   'every in-flight turn stopped — hard abort recovers the wedged runner'
+);
+
+// With a live follow-up the fallback re-arms while the interrupt may still be
+// merely slow, then reclaims WITH a surfaced failure once the escalation
+// budget is spent: per the serial-stream contract the queued follow-up can
+// never complete behind a missing result, so standing down permanently would
+// strand the session on 'running' with a wedged runner.
+for (let attempt = 1; attempt < STOP_FALLBACK_MAX_ATTEMPTS; attempt += 1) {
+  assert.equal(
+    resolveStopFallbackAction(state(2, 1), attempt),
+    're-arm',
+    `attempt ${attempt}: live follow-up on the runner — wait, never destroy silently`
+  );
+}
+assert.equal(
+  resolveStopFallbackAction(state(2, 1), STOP_FALLBACK_MAX_ATTEMPTS),
+  'reclaim-and-surface',
+  'budget spent — reclaim the wedged runner and surface the failure'
+);
+assert.equal(
+  resolveStopFallbackAction(state(2, 1), STOP_FALLBACK_MAX_ATTEMPTS + 3),
+  'reclaim-and-surface',
+  'past-budget attempts still reclaim'
 );
 
 // ── shouldDropRunnerErrorSilently (P1: onError must not eat a follow-up) ─────
@@ -123,8 +143,9 @@ assert.equal(onlyStoppedTurnsInFlight(state(2, 1)), false);
   // User immediately sends a correction into the same runner.
   inFlight += 1;
 
-  // Fallback timer fires before turn A's result lands: must stand down.
-  assert.equal(resolveStopFallbackAction(state(inFlight, stopped)), 'stand-down');
+  // Fallback timer fires before turn A's result lands: re-arm — never destroy
+  // the runner carrying the correction, but never give up on it either.
+  assert.equal(resolveStopFallbackAction(state(inFlight, stopped), 1), 're-arm');
   // A teardown error now must surface, not vanish.
   assert.equal(shouldDropRunnerErrorSilently(state(inFlight, stopped)), false);
 
@@ -156,7 +177,7 @@ assert.equal(onlyStoppedTurnsInFlight(state(2, 1)), false);
   assert.equal(stopped, 2);
 
   // Everything in flight is stopped: a wedged runner may now be hard-aborted.
-  assert.equal(resolveStopFallbackAction(state(inFlight, stopped)), 'hard-abort');
+  assert.equal(resolveStopFallbackAction(state(inFlight, stopped), 1), 'hard-abort');
 
   // If instead both results land, each maps to idle and only the last one
   // broadcasts (nothing newer remains).
@@ -168,6 +189,29 @@ assert.equal(onlyStoppedTurnsInFlight(state(2, 1)), false);
   const second = classifyResultForStop(state(inFlight, stopped));
   assert.equal(second.stoppedByUser, true);
   assert.equal(second.suppressStatusBroadcast, false);
+}
+
+// ── Scenario walk: stop → send → interrupted result never lands (wedged) ─────
+// The fallback re-arms through its budget and then reclaims with a surfaced
+// failure — the session must never stay stuck on 'running' forever.
+{
+  let stopped = markTurnStopped(state(1, 0)); // stop turn A
+  const inFlight = 2; // correction B queued behind the wedged turn A
+
+  const actions: string[] = [];
+  for (let attempt = 1; attempt <= STOP_FALLBACK_MAX_ATTEMPTS; attempt += 1) {
+    actions.push(resolveStopFallbackAction(state(inFlight, stopped), attempt));
+  }
+  assert.deepEqual(
+    actions,
+    [...Array(STOP_FALLBACK_MAX_ATTEMPTS - 1).fill('re-arm'), 'reclaim-and-surface'],
+    'a wedged runner with a queued follow-up is eventually reclaimed, not orphaned'
+  );
+
+  // If the slow result DOES land mid-escalation, the stop settles normally
+  // and the next fallback firing stands down.
+  stopped -= 1;
+  assert.equal(resolveStopFallbackAction(state(inFlight - 1, stopped), 3), 'stand-down');
 }
 
 console.log('claude-stop-reconcile.test: all assertions passed');

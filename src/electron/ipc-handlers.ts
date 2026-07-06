@@ -3292,6 +3292,8 @@ const runnerHandles = new Map<
     stoppedTurns?: number;
     /** Hard-abort fallback in case an interrupted turn's result never lands. */
     stopFallbackTimer?: NodeJS.Timeout;
+    /** How many times the fallback fired for the current unreconciled stop. */
+    stopFallbackAttempts?: number;
     /** Working directory the runner was spawned with — reuse must match it. */
     cwd?: string | null;
   }
@@ -3300,6 +3302,14 @@ const runnerHandles = new Map<
 let automationScheduler: AutomationScheduler | null = null;
 
 type RunnerEntry = NonNullable<ReturnType<typeof runnerHandles.get>>;
+
+/**
+ * Handles the user pressed stop on. A stopped runner can be replaced before
+ * its stream finishes tearing down (e.g. a follow-up that cannot reuse it);
+ * the replaced handle's late onError is then teardown noise that must never
+ * mark the session — now owned by a different runner — as failed.
+ */
+const userStoppedRunnerHandles = new WeakSet<object>();
 
 /** The entry's stop bookkeeping as the pure reconcile policy consumes it. */
 function stopStateOf(entry: RunnerEntry): StopStateSnapshot {
@@ -8217,7 +8227,21 @@ function startRunner(
         }
       }
 
-      if (sanitizedStreamMessage.message) {
+      // A user-interrupted turn ends with a non-success result by design; it
+      // must read as 'idle', not as a failure. Results land oldest-turn
+      // first, so the arriving result is a stopped turn's iff stopped turns
+      // are still owed a result (see claude-stop-reconcile.ts). Classified
+      // BEFORE the generic persist path: a stopped turn's terminal result
+      // stays out of the transcript entirely — a hard-aborted turn never
+      // produced one, and with a follow-up prompt already persisted it would
+      // be recorded under the wrong turn.
+      const entryForStop = runnerHandles.get(session.id);
+      const stopClassification =
+        message.type === 'result' && entryForStop?.handle === handle
+          ? classifyResultForStop(stopStateOf(entryForStop))
+          : { stoppedByUser: false, suppressStatusBroadcast: false };
+
+      if (sanitizedStreamMessage.message && !stopClassification.stoppedByUser) {
         const activeEntry = runnerHandles.get(session.id);
         const turnAgentId =
           activeEntry?.activeAgentId ||
@@ -8258,14 +8282,6 @@ function startRunner(
         const entryForPrompt = runnerHandles.get(session.id);
         const turnPrompt =
           (entryForPrompt?.handle === handle && entryForPrompt.latestPrompt) || prompt;
-        // A user-interrupted turn ends with a non-success result by design;
-        // it must read as 'idle', not as a failure. Results land oldest-turn
-        // first, so the arriving result is a stopped turn's iff stopped turns
-        // are still owed a result (see claude-stop-reconcile.ts).
-        const stopClassification =
-          entryForPrompt?.handle === handle
-            ? classifyResultForStop(stopStateOf(entryForPrompt))
-            : { stoppedByUser: false, suppressStatusBroadcast: false };
         const stoppedByUser = stopClassification.stoppedByUser;
         const slashFailureMessage =
           provider === 'claude' && !stoppedByUser
@@ -8383,13 +8399,22 @@ function startRunner(
               currentEntry.stoppedTurns = (currentEntry.stoppedTurns ?? 1) - 1 || undefined;
               if (!currentEntry.stoppedTurns) {
                 clearStopFallbackTimer(currentEntry);
+                currentEntry.stopFallbackAttempts = undefined;
               }
             }
             // Keep the runner alive for follow-up turns (streaming-input
             // reuse) — unless its live context is stale/poisoned (doomed) or
-            // it is a one-shot auto-approving automation runner.
+            // it is a one-shot auto-approving automation runner. A doomed
+            // runner is only retired once NO turns remain in flight: a
+            // stopped turn's result can land while a live follow-up is still
+            // running here, and aborting then would kill that follow-up. The
+            // reuse guard already refuses to dispatch new turns into a
+            // doomed entry, so deferring loses nothing.
             currentEntry.inFlightTurns = Math.max(0, (currentEntry.inFlightTurns ?? 1) - 1);
-            if (currentEntry.doomed || currentEntry.autoApprove) {
+            if (
+              (currentEntry.doomed || currentEntry.autoApprove) &&
+              (currentEntry.inFlightTurns ?? 0) === 0
+            ) {
               clearStopFallbackTimer(currentEntry);
               currentEntry.handle.abort();
               runnerHandles.delete(session.id);
@@ -8426,6 +8451,14 @@ function startRunner(
         clearStopFallbackTimer(mappedEntry);
         mappedEntry.handle.abort();
         runnerHandles.delete(session.id);
+        return;
+      }
+
+      // A stale handle (this runner was already retired or replaced) that the
+      // user had stopped: its late teardown noise must not mark the session —
+      // now owned by a different runner, or by none — as failed. There is
+      // nothing to clean up here; the replacement entry is not ours to touch.
+      if (mappedEntry?.handle !== handle && userStoppedRunnerHandles.has(handle)) {
         return;
       }
 
@@ -8639,19 +8672,60 @@ function hardStopClaudeRunner(sessionId: string, entry: RunnerEntry): void {
 /**
  * A soft stop failed to reconcile — `interrupt()` rejected, or the
  * interrupted turn's result never landed within the fallback window. Only
- * hard-abort when every in-flight turn is a stopped one; a follow-up turn the
- * user dispatched after the stop shares this runner and must never be killed
- * by the fallback (it would vanish silently with the session stuck on
- * 'running'). In that case stand down, keeping the stop attribution so a
- * slow interrupted result still maps to idle; a renewed stop re-arms the
- * fallback and hard-aborts once nothing live remains.
+ * hard-abort silently when every in-flight turn is a stopped one; a follow-up
+ * turn the user dispatched after the stop shares this runner and must never
+ * be killed quietly. While a follow-up is live the fallback re-arms (keeping
+ * the stop attribution so a slow interrupted result still maps to idle), and
+ * once the escalation budget is spent — the serial stream is wedged and the
+ * queued follow-up can never complete — it reclaims the runner and SURFACES
+ * the failure so the session never sticks on 'running' with no way out.
  */
-function resolveStopFallback(sessionId: string, entry: RunnerEntry): void {
+function resolveStopFallback(mainWindow: BrowserWindow, sessionId: string, entry: RunnerEntry): void {
   if (runnerHandles.get(sessionId) !== entry) return;
-  if (resolveStopFallbackAction(stopStateOf(entry)) === 'hard-abort') {
-    hardStopClaudeRunner(sessionId, entry);
-  } else {
-    clearStopFallbackTimer(entry);
+  const attempt = (entry.stopFallbackAttempts ?? 0) + 1;
+  entry.stopFallbackAttempts = attempt;
+  const action = resolveStopFallbackAction(stopStateOf(entry), attempt);
+  switch (action) {
+    case 'stand-down':
+      clearStopFallbackTimer(entry);
+      entry.stopFallbackAttempts = undefined;
+      return;
+    case 'hard-abort':
+      // Nothing live on this runner: the stop already reported 'idle'.
+      hardStopClaudeRunner(sessionId, entry);
+      return;
+    case 're-arm':
+      clearStopFallbackTimer(entry);
+      entry.stopFallbackTimer = setTimeout(
+        () => resolveStopFallback(mainWindow, sessionId, entry),
+        STOP_INTERRUPT_FALLBACK_MS
+      );
+      entry.stopFallbackTimer.unref?.();
+      return;
+    case 'reclaim-and-surface': {
+      hardStopClaudeRunner(sessionId, entry);
+      const session = sessions.getSession(sessionId);
+      sessions.updateSessionStatus(sessionId, 'error');
+      broadcast(mainWindow, {
+        type: 'session.status',
+        payload: {
+          sessionId,
+          status: 'error',
+          scope: normalizeSessionScope(session?.conversation_scope),
+          agentId: session?.agent_id || null,
+          hiddenFromThreads: session?.hidden_from_threads === 1,
+        },
+      });
+      broadcast(mainWindow, {
+        type: 'runner.error',
+        payload: {
+          message:
+            'The stopped turn never finished shutting down, so the runner was closed before your queued message could run. Please send it again.',
+          sessionId,
+        },
+      });
+      return;
+    }
   }
 }
 
@@ -8669,20 +8743,24 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
       entry.provider === 'claude' &&
       typeof entry.handle.interrupt === 'function' &&
       (entry.inFlightTurns ?? 0) > 0;
+    // A stopped handle may finish tearing down only after it has been
+    // replaced; remember it so its late onError noise stays silent.
+    userStoppedRunnerHandles.add(entry.handle);
     if (canSoftInterrupt) {
       // Soft stop: interrupt the in-flight turn but keep the runner (and its
       // warm context) alive so the next send skips the cold respawn. The
       // interrupted turn still emits a result; the stopped-turn count makes
       // the result handler report 'idle' instead of an error. Failures to
-      // reconcile go through resolveStopFallback, which never destroys a
-      // runner that carries a live follow-up turn.
+      // reconcile go through resolveStopFallback, which never silently
+      // destroys a runner that carries a live follow-up turn.
       entry.stoppedTurns = markTurnStopped(stopStateOf(entry));
-      entry.handle.interrupt!().catch(() => resolveStopFallback(sessionId, entry));
+      entry.stopFallbackAttempts = undefined;
+      entry.handle.interrupt!().catch(() => resolveStopFallback(mainWindow, sessionId, entry));
       if (entry.stopFallbackTimer) {
         clearTimeout(entry.stopFallbackTimer);
       }
       entry.stopFallbackTimer = setTimeout(
-        () => resolveStopFallback(sessionId, entry),
+        () => resolveStopFallback(mainWindow, sessionId, entry),
         STOP_INTERRUPT_FALLBACK_MS
       );
       entry.stopFallbackTimer.unref?.();

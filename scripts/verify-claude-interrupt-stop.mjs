@@ -31,7 +31,7 @@ const ipcSource = fs.readFileSync(path.join(root, 'src', 'electron', 'ipc-handle
 // process, and every failure to reconcile must route through the guarded
 // fallback (never a direct hard abort that could kill a follow-up turn).
 assert.equal(
-  ipcSource.includes('entry.handle.interrupt!().catch(() => resolveStopFallback(sessionId, entry))'),
+  ipcSource.includes('entry.handle.interrupt!().catch(() => resolveStopFallback(mainWindow, sessionId, entry))'),
   true,
   'handleSessionStop must soft-interrupt and route rejections through the guarded fallback'
 );
@@ -42,7 +42,7 @@ assert.equal(
 );
 assert.match(
   ipcSource,
-  /setTimeout\(\s*\(\) => resolveStopFallback\(sessionId, entry\),\s*STOP_INTERRUPT_FALLBACK_MS\s*\)/,
+  /setTimeout\(\s*\(\) => resolveStopFallback\(mainWindow, sessionId, entry\),\s*STOP_INTERRUPT_FALLBACK_MS\s*\)/,
   'the fallback timer must go through resolveStopFallback, not hard-abort directly'
 );
 assert.match(
@@ -59,9 +59,9 @@ assert.equal(
   'ipc-handlers must use the claude-stop-reconcile policy module'
 );
 assert.equal(
-  ipcSource.includes('resolveStopFallbackAction(stopStateOf(entry))'),
+  ipcSource.includes('resolveStopFallbackAction(stopStateOf(entry), attempt)'),
   true,
-  'the stop fallback must consult resolveStopFallbackAction'
+  'the stop fallback must consult resolveStopFallbackAction with the attempt count'
 );
 assert.equal(
   ipcSource.includes('shouldDropRunnerErrorSilently(stopStateOf(mappedEntry))'),
@@ -69,9 +69,46 @@ assert.equal(
   'onError may only silent-drop per shouldDropRunnerErrorSilently — a follow-up turn must surface errors'
 );
 assert.equal(
-  ipcSource.includes('classifyResultForStop(stopStateOf(entryForPrompt))'),
+  ipcSource.includes('classifyResultForStop(stopStateOf(entryForStop))'),
   true,
   'result attribution must go through classifyResultForStop'
+);
+
+// A wedged stop with a queued follow-up must eventually be reclaimed WITH a
+// surfaced failure (status + toast), never left stuck on 'running'.
+assert.match(
+  ipcSource,
+  /case 'reclaim-and-surface':[\s\S]{0,900}?type: 'runner\.error'/,
+  'the escalated fallback must surface a runner.error after reclaiming'
+);
+
+// A stale (already replaced/retired) handle the user stopped must not mark
+// the session as failed from its late teardown noise.
+assert.equal(
+  ipcSource.includes('userStoppedRunnerHandles.has(handle)'),
+  true,
+  'onError must silence late errors from replaced user-stopped handles'
+);
+assert.equal(
+  ipcSource.includes('userStoppedRunnerHandles.add(entry.handle)'),
+  true,
+  'handleSessionStop must record stopped handles for stale-error silencing'
+);
+
+// A doomed/one-shot runner may only be retired at a result when NO turns
+// remain in flight — a stopped turn's result must not abort a live follow-up.
+assert.match(
+  ipcSource,
+  /\(currentEntry\.doomed \|\| currentEntry\.autoApprove\) &&\s*\(currentEntry\.inFlightTurns \?\? 0\) === 0/,
+  'doomed/automation retire at result must wait for zero in-flight turns'
+);
+
+// A user-stopped turn's terminal result stays out of the transcript: with a
+// follow-up prompt already persisted it would land under the wrong turn.
+assert.match(
+  ipcSource,
+  /sanitizedStreamMessage\.message && !stopClassification\.stoppedByUser/,
+  'stopped-turn results must be kept out of the persisted transcript'
 );
 assert.equal(
   ipcSource.includes('entry.stoppedTurns = markTurnStopped(stopStateOf(entry))'),

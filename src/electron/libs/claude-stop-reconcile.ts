@@ -13,10 +13,11 @@
  * turn's `result` lands before the next turn starts. A stopped turn's result
  * therefore always precedes a follow-up's, which is what makes the
  * oldest-turn-first attribution in `classifyResultForStop` sound. If a
- * stopped turn never produces a result the stream is wedged and the follow-up
- * cannot complete either; recovery then comes from `onError` teardown or a
- * renewed stop (which re-arms the fallback and hard-aborts once nothing live
- * remains), never from guessing which turn an arriving result belongs to.
+ * stopped turn never produces a result the stream is wedged and the queued
+ * follow-up cannot complete either; recovery then comes from `onError`
+ * teardown, a renewed stop, or — once the fallback has re-armed past its
+ * escalation budget — a reclaim that surfaces the failure to the user. Never
+ * from guessing which turn an arriving result belongs to.
  *
  * This module is pure (plain counters in, decisions out) so the policy is
  * unit-testable without Electron.
@@ -47,29 +48,50 @@ export function markTurnStopped(state: StopStateSnapshot): number {
   return Math.min(state.stoppedTurns + 1, Math.max(state.inFlightTurns, 1));
 }
 
-export type StopFallbackAction = 'hard-abort' | 'stand-down';
+export type StopFallbackAction = 'hard-abort' | 'stand-down' | 're-arm' | 'reclaim-and-surface';
 
 /**
- * What the stop fallback (timer expiry, or a rejected `interrupt()`) may do.
- *
- * - `hard-abort`: every in-flight turn was stopped by the user; the runner
- *   owes nothing live, so a wedged interrupt is resolved by killing it.
- * - `stand-down`: either the stop already reconciled (a result/onError landed
- *   first), or a follow-up turn is in flight on this runner. Destroying the
- *   runner would silently kill that live turn with no status update or
- *   replay, so the fallback must do nothing destructive. Stop attribution is
- *   kept so a slow interrupted result still maps to idle.
+ * With the fallback interval at 8s this gives a wedged interrupt ~40s to
+ * deliver its result before the runner is reclaimed out from under a queued
+ * follow-up (which, per the serial-stream contract, cannot run until that
+ * result arrives anyway).
  */
-export function resolveStopFallbackAction(state: StopStateSnapshot): StopFallbackAction {
+export const STOP_FALLBACK_MAX_ATTEMPTS = 5;
+
+/**
+ * What the stop fallback (timer expiry, or a rejected `interrupt()`) may do
+ * on its `attempt`-th firing (1-based) for the same unreconciled stop.
+ *
+ * - `stand-down`: the stop already reconciled (a result/onError landed
+ *   first); drop the timer, nothing left to do.
+ * - `hard-abort`: every in-flight turn was stopped by the user; the runner
+ *   owes nothing live, so a wedged interrupt is resolved by killing it
+ *   silently (the stop already reported 'idle').
+ * - `re-arm`: a follow-up turn is in flight on this runner. Destroying the
+ *   runner now would silently kill that live turn, and a slow interrupt may
+ *   still deliver its result — keep the stop attribution and check again.
+ * - `reclaim-and-surface`: the follow-up is still queued behind a stopped
+ *   turn whose result never came after the full escalation budget; the
+ *   stream is wedged and the follow-up can never complete. Reclaim the
+ *   runner AND surface a failure (status + toast) so the user can resend —
+ *   never leave the session stuck on 'running' with no way out.
+ */
+export function resolveStopFallbackAction(
+  state: StopStateSnapshot,
+  attempt: number
+): StopFallbackAction {
   if (state.stoppedTurns <= 0) return 'stand-down';
-  return onlyStoppedTurnsInFlight(state) ? 'hard-abort' : 'stand-down';
+  if (onlyStoppedTurnsInFlight(state)) return 'hard-abort';
+  return attempt < STOP_FALLBACK_MAX_ATTEMPTS ? 're-arm' : 'reclaim-and-surface';
 }
 
 export interface StopResultClassification {
   /**
    * The arriving `result` belongs to a user-stopped turn (results land
-   * oldest-turn-first): map it to 'idle' — never 'error' — and skip failure
-   * detection for it.
+   * oldest-turn-first): map it to 'idle' — never 'error' — skip failure
+   * detection for it, and keep it out of the transcript (a hard-aborted turn
+   * never produced a terminal result either, and with a follow-up prompt
+   * already persisted it would land under the wrong turn).
    */
   stoppedByUser: boolean;
   /**
