@@ -79,6 +79,11 @@ assert.equal(
   true,
   'the subagent board header must summarize the parallel run'
 );
+assert.equal(
+  workstreamComponent.includes("if (entry.type === 'task')"),
+  true,
+  'EntryRow must route task entries to the subagent lane so nested Task traces stay expandable'
+);
 
 const tscBin = path.join(
   root,

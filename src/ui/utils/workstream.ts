@@ -80,6 +80,13 @@ export type WorkstreamEntry =
       block: ToolUseBlock;
       result?: ToolResultBlock;
       subagent?: SubagentTrace;
+      /**
+       * uuid of the assistant message that issued this Task tool call. Tasks
+       * sharing a source message were fanned out together in one turn step;
+       * the stage builder only merges lanes into a parallel board when the
+       * ids match, so sequential Tasks never read as a parallel run.
+       */
+      sourceMessageUuid?: string;
     }
   | {
       id: string;
@@ -116,9 +123,7 @@ export interface WorkstreamModel {
 type TraceEntry =
   | { type: 'thinking'; id: string; content: string; streaming?: boolean }
   | { type: 'note'; id: string; content: string; streaming?: boolean }
-  | { type: 'tool'; id: string; block: ToolUseBlock };
-
-type TraceToolEntry = Extract<TraceEntry, { type: 'tool' }>;
+  | { type: 'tool'; id: string; block: ToolUseBlock; messageUuid?: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -362,6 +367,7 @@ export function extractTraceEntries(
           type: 'tool',
           id: normalizedTool.id,
           block: normalizedToToolUseBlock(normalizedTool),
+          messageUuid: msg.uuid,
         });
       }
     }
@@ -523,7 +529,11 @@ function createEntryFromTrace(
     };
   }
 
-  if (block.name === 'Task') {
+  // Match classifyToolUse's case-insensitive classification (and
+  // classifyStageKind's `kind === 'subagent'` check) so a provider's
+  // lowercase `task` tool still becomes a task entry instead of a plain
+  // tool row that the subagent stage would drop.
+  if (kind === 'subagent') {
     return {
       id: block.id,
       type: 'task',
@@ -537,6 +547,7 @@ function createEntryFromTrace(
       subagent: subagentContext
         ? buildSubagentTrace(block, status === 'success' || status === 'error', subagentContext)
         : undefined,
+      sourceMessageUuid: entry.messageUuid,
     };
   }
 
@@ -763,20 +774,12 @@ export function createBatchWorkstreamModel(params: {
     partialThinking: params.liveTrace?.partialThinking,
     placePartialBeforeLastToolRun: lastMessageHasPendingTool,
   });
-  const activePendingToolId = params.isSessionRunning
-    ? [...traceEntries]
-        .reverse()
-        .find(
-          (entry): entry is TraceToolEntry => {
-            if (entry.type !== 'tool') return false;
-            return (
-              !params.toolResultsMap.has(entry.block.id) &&
-              params.toolStatusMap.get(entry.block.id) !== 'success' &&
-              params.toolStatusMap.get(entry.block.id) !== 'error'
-            );
-          }
-        )?.block.id || null
-    : null;
+  // While the session runs, every unresolved tool is genuinely in flight —
+  // parallel Task fan-outs leave several tools without results at once, so
+  // they must all stay pending (not just the last one). Once the session
+  // stops, unresolved tools were interrupted; fall back to success so stale
+  // spinners don't linger in finished transcripts.
+  const unresolvedFallbackStatus: ToolStatus = params.isSessionRunning ? 'pending' : 'success';
   const subagentContext: SubagentTraceContext | undefined = params.subagentMessagesByParent
     ? {
         messagesByParent: params.subagentMessagesByParent,
@@ -792,7 +795,7 @@ export function createBatchWorkstreamModel(params: {
         entry,
         params.toolStatusMap,
         params.toolResultsMap,
-        entry.type === 'tool' && entry.block.id === activePendingToolId ? 'pending' : 'success',
+        unresolvedFallbackStatus,
         subagentContext
       )
     )

@@ -576,7 +576,17 @@ function isTaskEntry(entry: WorkstreamEntry): entry is TaskEntry {
 
 function SubagentStage({ stage }: { stage: WorkstreamStage }) {
   const taskEntries = stage.entries.filter(isTaskEntry);
-  if (taskEntries.length === 0) return null;
+  // Anything classified into a task stage that didn't map to a task entry
+  // still renders as a plain row instead of silently disappearing.
+  if (taskEntries.length === 0) {
+    return (
+      <div className="space-y-px">
+        {stage.entries.map((entry) => (
+          <EntryRow key={entry.id} entry={entry} />
+        ))}
+      </div>
+    );
+  }
   if (taskEntries.length === 1) {
     return <SubagentLane entry={taskEntries[0]} standalone />;
   }
@@ -798,6 +808,12 @@ function getTaskDescription(entry: TaskEntry): string | null {
 // ── Entry row dispatcher ────────────────────────────────────────────────────
 
 function EntryRow({ entry, showChangeHint = true }: { entry: WorkstreamEntry; showChangeHint?: boolean }) {
+  if (entry.type === 'task') {
+    // Task entries carry their own nested subagent trace — render them as an
+    // expandable lane (recursively, up to the trace depth cap) rather than a
+    // generic tool row that would hide the trace.
+    return <SubagentLane entry={entry} standalone />;
+  }
   if (entry.type === 'thinking') {
     return <ThinkingRow entry={entry} />;
   }
