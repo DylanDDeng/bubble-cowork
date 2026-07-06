@@ -1170,8 +1170,16 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         }
       }
     } catch (error: unknown) {
-      // 忽略 abort 错误
-      if (error instanceof Error && error.name === 'AbortError') {
+      // Deliberate aborts are teardown, not failures. The SDK does not
+      // always throw DOMException-style AbortErrors: its transport throws a
+      // plain `Error` subclass with message "Operation aborted" (minified
+      // `ot`), whose name is just 'Error' — and once OUR abort() fired, any
+      // error surfacing from the dying stream is abort noise by definition.
+      if (
+        abortController.signal.aborted ||
+        (error instanceof Error &&
+          (error.name === 'AbortError' || /operation aborted/i.test(error.message)))
+      ) {
         return;
       }
       const err = error instanceof Error ? error : new Error(String(error));

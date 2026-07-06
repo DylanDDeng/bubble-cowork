@@ -18,7 +18,7 @@ import {
 } from './libs/util';
 import { ensureProviderService, runAgentLoop } from './libs/agent-loop';
 import { readProjectTree } from './libs/project-tree';
-import { normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
+import { isSameClaudeModelSelection, normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
 import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfigWithCatalog, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
 import { getCodexMcpServers, saveCodexMcpServers } from './libs/codex-mcp-settings';
 import {
@@ -7640,7 +7640,15 @@ async function handleSessionContinue(
   const previousModel = normalizeModel(session.model ?? undefined);
   const providerChanged = nextProvider !== previousProvider;
   const compatibleProviderChanged = nextCompatibleProviderId !== previousCompatibleProviderId;
-  const modelChanged = nextModel !== previousModel;
+  // Claude compares alias-aware: init records the concrete model id the CLI
+  // resolved a family alias to, while the composer keeps sending the alias —
+  // a raw string comparison read that as a model change on EVERY follow-up,
+  // aborting the warm runner (cold respawn + an "Operation aborted" error
+  // toast from the torn-down stream) each message.
+  const modelChanged =
+    nextProvider === 'claude'
+      ? !isSameClaudeModelSelection(nextModel, previousModel)
+      : nextModel !== previousModel;
   const betasChanged = JSON.stringify(nextBetas || []) !== JSON.stringify(previousBetas || []);
   const previousClaudeAccessMode = normalizeClaudeAccessMode(session.claude_access_mode);
   const nextClaudeAccessMode =
@@ -7752,6 +7760,12 @@ async function handleSessionContinue(
     normalizeOpenCodePermissionMode(
       runnerHandles.get(sessionId)?.opencodePermissionMode || previousOpenCodePermissionMode
     ) !== nextOpenCodePermissionMode;
+  // Every live runner is bound to the cwd it spawned with. If the session's
+  // workspace moved since (handoff, worktree move, external mutation), the
+  // handle must never be reused — for any provider — or the next turn would
+  // execute against the old checkout.
+  const runnerCwdChanged =
+    existingEntry !== undefined && (existingEntry.cwd ?? null) !== effectiveRunnerCwd(session);
   // 运行时状态检查已移动到会话状态广播之后，以便前端立即显示 spinning 效果
 
   if (isDev()) {
@@ -7761,13 +7775,19 @@ async function handleSessionContinue(
       previousProvider,
       nextProvider,
       nextModel,
+      previousModel,
       nextCompatibleProviderId,
       nextBetas,
       providerChanged,
       compatibleProviderChanged,
+      modelChanged,
       betasChanged,
       accessModeChanged,
+      executionModeChanged,
       claudeReasoningEffortChanged,
+      runnerCwdChanged,
+      entryDoomed: existingEntry?.doomed === true,
+      entryAutoApprove: existingEntry?.autoApprove === true,
       codexExecutionModeChanged,
       codexPermissionModeChanged,
       codexReasoningEffortChanged,
@@ -7916,13 +7936,6 @@ async function handleSessionContinue(
       return false;
     }
   }
-
-  // Every live runner is bound to the cwd it spawned with. If the session's
-  // workspace moved since (handoff, worktree move, external mutation), the
-  // handle must never be reused — for any provider — or the next turn would
-  // execute against the old checkout.
-  const runnerCwdChanged =
-    existingEntry !== undefined && (existingEntry.cwd ?? null) !== effectiveRunnerCwd(session);
 
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
     if (
@@ -8651,11 +8664,14 @@ function startRunner(
         return;
       }
 
-      // A stale handle (this runner was already retired or replaced) that the
-      // user had stopped: its late teardown noise must not mark the session —
-      // now owned by a different runner, or by none — as failed. There is
-      // nothing to clean up here; the replacement entry is not ours to touch.
-      if (mappedEntry?.handle !== handle && userStoppedRunnerHandles.has(handle)) {
+      // A stale handle — this runner was already retired or replaced for ANY
+      // reason (user stop, model/config change, provider switch, reaper) —
+      // tearing down late is never the live session's failure: the session
+      // is owned by its replacement runner, or by no runner at all. Only the
+      // handle the map currently points at may flip the session to error;
+      // surfacing a replaced runner's abort noise here was wrongly failing
+      // healthy sessions on every reuse-rejected follow-up.
+      if (mappedEntry?.handle !== handle) {
         return;
       }
 

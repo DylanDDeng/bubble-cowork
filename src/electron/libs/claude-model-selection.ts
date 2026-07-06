@@ -71,6 +71,44 @@ export function toClaudeCodeRuntimeModel(
   return wants1m && supportsClaude1mContext(runtimeAlias) ? `${runtimeAlias}[1m]` : runtimeAlias;
 }
 
+/**
+ * Whether a requested model and a stored/display model refer to the same
+ * effective selection. A bare family alias ('opus') resolves server-side to
+ * the newest concrete model of its family, and session init records the
+ * CLI-reported concrete id back into the session — so the composer's alias
+ * compared against that stored concrete id is NOT a model change (treating
+ * it as one made every follow-up message abort the warm runner and cold
+ * respawn). Two different concrete ids remain a real change; family names
+ * come from CLAUDE_FAMILY_ALIASES (no pinned versions).
+ */
+export function isSameClaudeModelSelection(
+  a?: string | null,
+  b?: string | null
+): boolean {
+  const na = normalizeClaudeRequestedModel(a);
+  const nb = normalizeClaudeRequestedModel(b);
+  if (na === nb) return true;
+  if (!na || !nb) return false;
+  const aliasSide = CLAUDE_FAMILY_ALIASES.has(na)
+    ? na
+    : CLAUDE_FAMILY_ALIASES.has(nb)
+      ? nb
+      : undefined;
+  if (!aliasSide) return false;
+  const concreteSide = aliasSide === na ? nb : na;
+  if (CLAUDE_FAMILY_ALIASES.has(concreteSide)) return false;
+  return claudeModelFamily(concreteSide) === aliasSide;
+}
+
+/** 'claude-opus-4-8' → 'opus'; 'sonnet' → 'sonnet'; unknown shapes → undefined. */
+function claudeModelFamily(model: string): string | undefined {
+  const bare = stripContext1mSuffix(model.trim().toLowerCase());
+  if (CLAUDE_FAMILY_ALIASES.has(bare)) return bare;
+  const familyPattern = new RegExp(`^claude-(${[...CLAUDE_FAMILY_ALIASES].join('|')})\\b`);
+  const match = familyPattern.exec(bare);
+  return match?.[1];
+}
+
 export function reconcileClaudeDisplayModel(
   requestedModel?: string | null,
   runtimeModel?: string | null

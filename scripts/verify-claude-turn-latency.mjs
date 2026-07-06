@@ -139,6 +139,36 @@ assert.equal(
   'slash-command failure must doom the kept-alive runner'
 );
 
+// Reuse regression guards (family alias vs init-resolved concrete id made
+// every follow-up abort the warm runner and flip the session to error):
+// - the Claude model-change gate must be alias-aware;
+// - deliberate aborts must be swallowed whatever error shape the SDK throws
+//   (its transport raises a plain Error named 'Error' with message
+//   'Operation aborted', not an AbortError);
+// - a stale (replaced/retired) handle's late teardown error must never flip
+//   the live session to error — only the mapped handle may.
+assert.equal(
+  ipcSource.includes('!isSameClaudeModelSelection(nextModel, previousModel)'),
+  true,
+  'the continue model-change gate must compare alias-aware for Claude'
+);
+{
+  const runnerSourceForAbort = fs.readFileSync(
+    path.join(root, 'src', 'electron', 'libs', 'runner.ts'),
+    'utf8'
+  );
+  assert.match(
+    runnerSourceForAbort,
+    /abortController\.signal\.aborted \|\|\s*\(error instanceof Error &&\s*\(error\.name === 'AbortError' \|\| \/operation aborted\/i\.test\(error\.message\)\)\)/,
+    'the runner must swallow every deliberate-abort error shape'
+  );
+}
+assert.match(
+  ipcSource,
+  /if \(mappedEntry\?\.handle !== handle\) \{\s*return;\s*\}/,
+  'onError must silently drop errors from any stale (replaced) handle'
+);
+
 // Reuse must be cwd-guarded: a live runner is bound to its spawn cwd.
 assert.equal(
   ipcSource.includes('cwd: runnerSession.cwd || null'),
@@ -264,6 +294,7 @@ const compile = spawnSync(
     tmpDir,
     'scripts/tests/claude-runtime-cache.test.ts',
     'scripts/tests/claude-runner-pool.test.ts',
+    'scripts/tests/claude-model-selection.test.ts',
   ],
   { cwd: root, stdio: 'inherit' }
 );
@@ -272,7 +303,11 @@ if (compile.status !== 0) {
   process.exit(compile.status ?? 1);
 }
 
-for (const testFile of ['claude-runtime-cache.test.js', 'claude-runner-pool.test.js']) {
+for (const testFile of [
+  'claude-runtime-cache.test.js',
+  'claude-runner-pool.test.js',
+  'claude-model-selection.test.js',
+]) {
   const testPath = path.join(tmpDir, 'scripts', 'tests', testFile);
   const run = spawnSync(process.execPath, [testPath], { cwd: root, stdio: 'inherit' });
   if (run.status !== 0) {
