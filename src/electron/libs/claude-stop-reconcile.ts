@@ -133,15 +133,23 @@ export function shouldDropRunnerErrorSilently(state: StopStateSnapshot): boolean
  *
  * Attribution rests on the serial-stream contract: no follow-up turn output
  * can appear before the stopped turn's result lands, so everything
- * turn-shaped in that window is the stopped turn's. The only non-drain
- * messages in the window are host-minted user prompt echoes (plain text —
- * never tool_result blocks), which anchor /rewind for the follow-up, and
- * session-level system records; both must be kept.
+ * turn-shaped in that window is the stopped turn's. The non-drain messages
+ * in the window are host-minted user prompt echoes (plain text — never
+ * tool_result blocks), which anchor /rewind for the follow-up, session-level
+ * system records, and subagent (Task) messages: those never render
+ * positionally in the top-level transcript — they nest under their Task row
+ * keyed by parentToolUseId — so they cannot be misfiled under a follow-up
+ * turn, and keeping them completes the nested trace of the Task the
+ * interrupt canceled.
  */
 export function isStoppedTurnDrainMessage(message: {
   type: string;
+  parentToolUseId?: string | null;
   message?: { content?: unknown };
 }): boolean {
+  if (message.parentToolUseId) {
+    return false;
+  }
   if (message.type === 'assistant' || message.type === 'stream_event') {
     return true;
   }

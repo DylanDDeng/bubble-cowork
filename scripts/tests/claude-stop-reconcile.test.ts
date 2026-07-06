@@ -256,5 +256,23 @@ assert.equal(
   false,
   'results are classified by classifyResultForStop, not the drain rule'
 );
+assert.equal(
+  isStoppedTurnDrainMessage({
+    type: 'assistant',
+    parentToolUseId: 'task-1',
+    message: { content: [{ type: 'text', text: 'subagent narration' }] },
+  }),
+  false,
+  'subagent (Task) messages nest by parentToolUseId, never positionally — keep them'
+);
+assert.equal(
+  isStoppedTurnDrainMessage({
+    type: 'user',
+    parentToolUseId: 'task-1',
+    message: { content: [{ type: 'tool_result', tool_use_id: 't2', content: 'x' }] },
+  }),
+  false,
+  'subagent-internal tool results stay with their nested Task trace'
+);
 
 console.log('claude-stop-reconcile.test: all assertions passed');

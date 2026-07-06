@@ -24,6 +24,25 @@ import { extractLatestTodoProgress } from './todo-progress';
 export type ToolUseBlock = ContentBlock & { type: 'tool_use' };
 export type ToolResultBlock = ContentBlock & { type: 'tool_result' };
 
+/**
+ * Nested activity of a subagent (Task tool call), derived from the stream
+ * messages whose parentToolUseId points at the Task's tool_use id.
+ */
+export interface SubagentTrace {
+  /** subagent_type from the Task input (e.g. "Explore", "general-purpose"). */
+  agentType: string | null;
+  /** Short task description from the Task input. */
+  description: string | null;
+  /** The subagent's own workstream entries (tools, thinking, notes). */
+  entries: WorkstreamEntry[];
+  /** Count of tool-ish entries, for the lane stats label. */
+  toolCount: number;
+  /** Earliest child-message timestamp — anchors the live elapsed timer. */
+  startedAt?: number;
+  /** Wall-clock duration once the Task has resolved. */
+  durationMs?: number;
+}
+
 export type WorkstreamEntry =
   | {
       id: string;
@@ -41,7 +60,7 @@ export type WorkstreamEntry =
     }
   | {
       id: string;
-      type: 'tool' | 'task' | 'memory';
+      type: 'tool' | 'memory';
       toolName: string;
       kind: CanonicalToolKind;
       summary: string;
@@ -49,6 +68,25 @@ export type WorkstreamEntry =
       status: ToolStatus;
       block: ToolUseBlock;
       result?: ToolResultBlock;
+    }
+  | {
+      id: string;
+      type: 'task';
+      toolName: string;
+      kind: CanonicalToolKind;
+      summary: string;
+      detail?: string;
+      status: ToolStatus;
+      block: ToolUseBlock;
+      result?: ToolResultBlock;
+      subagent?: SubagentTrace;
+      /**
+       * uuid of the assistant message that issued this Task tool call. Tasks
+       * sharing a source message were fanned out together in one turn step;
+       * the stage builder only merges lanes into a parallel board when the
+       * ids match, so sequential Tasks never read as a parallel run.
+       */
+      sourceMessageUuid?: string;
     }
   | {
       id: string;
@@ -85,9 +123,7 @@ export interface WorkstreamModel {
 type TraceEntry =
   | { type: 'thinking'; id: string; content: string; streaming?: boolean }
   | { type: 'note'; id: string; content: string; streaming?: boolean }
-  | { type: 'tool'; id: string; block: ToolUseBlock };
-
-type TraceToolEntry = Extract<TraceEntry, { type: 'tool' }>;
+  | { type: 'tool'; id: string; block: ToolUseBlock; messageUuid?: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -210,6 +246,29 @@ export function sortMessagesByCreatedAt<T extends StreamMessage>(messages: T[]):
     .map((entry) => entry.message);
 }
 
+/**
+ * Group subagent-emitted messages by the Task tool_use id they belong to.
+ * Feed the result to createBatchWorkstreamModel so Task entries can render
+ * their nested subagent activity.
+ */
+export function groupSubagentMessagesByParent(
+  messages: StreamMessage[]
+): Map<string, StreamMessage[]> {
+  const map = new Map<string, StreamMessage[]>();
+  for (const message of messages) {
+    if (message.type !== 'assistant' && message.type !== 'user') continue;
+    const parentId = message.parentToolUseId;
+    if (typeof parentId !== 'string' || !parentId) continue;
+    const existing = map.get(parentId);
+    if (existing) {
+      existing.push(message);
+    } else {
+      map.set(parentId, [message]);
+    }
+  }
+  return map;
+}
+
 export function extractTraceEntries(
   messages: (StreamMessage & { type: 'assistant' })[],
   partials?: {
@@ -308,6 +367,7 @@ export function extractTraceEntries(
           type: 'tool',
           id: normalizedTool.id,
           block: normalizedToToolUseBlock(normalizedTool),
+          messageUuid: msg.uuid,
         });
       }
     }
@@ -346,11 +406,86 @@ export function extractTraceEntries(
   return entries;
 }
 
+interface SubagentTraceContext {
+  /** Stream messages grouped by their parentToolUseId (Task tool_use id). */
+  messagesByParent: Map<string, StreamMessage[]>;
+  toolStatusMap: Map<string, ToolStatus>;
+  toolResultsMap: Map<string, ToolResultBlock>;
+  depth: number;
+}
+
+/** Subagents can spawn their own Tasks; cap how deep the nested traces go. */
+const MAX_SUBAGENT_TRACE_DEPTH = 3;
+
+function isAssistantStreamMessage(
+  message: StreamMessage
+): message is StreamMessage & { type: 'assistant' } {
+  return message.type === 'assistant';
+}
+
+function buildSubagentTrace(
+  block: ToolUseBlock,
+  taskFinished: boolean,
+  context: SubagentTraceContext
+): SubagentTrace | undefined {
+  const input = isRecord(block.input) ? block.input : {};
+  const agentType = getString(input.subagent_type);
+  const description =
+    getString(input.description) ||
+    (getString(input.prompt) ? truncateSummary(getString(input.prompt)!, 120) : null);
+
+  const childMessages = context.messagesByParent.get(block.id) || [];
+  const assistantMessages = sortMessagesByCreatedAt(
+    childMessages.filter(isAssistantStreamMessage)
+  );
+
+  if (assistantMessages.length === 0 && !agentType && !description) {
+    return undefined;
+  }
+
+  const entries =
+    context.depth < MAX_SUBAGENT_TRACE_DEPTH
+      ? extractTraceEntries(assistantMessages)
+          .filter((entry) => !(entry.type === 'tool' && entry.block.name === 'TodoWrite'))
+          .map((entry) =>
+            createEntryFromTrace(
+              entry,
+              context.toolStatusMap,
+              context.toolResultsMap,
+              taskFinished ? 'success' : 'pending',
+              { ...context, depth: context.depth + 1 }
+            )
+          )
+          .filter((entry): entry is WorkstreamEntry => Boolean(entry))
+      : [];
+
+  const toolCount = entries.filter(
+    (entry) => entry.type === 'tool' || entry.type === 'task' || entry.type === 'memory'
+  ).length;
+
+  let minTs = Number.POSITIVE_INFINITY;
+  let maxTs = Number.NEGATIVE_INFINITY;
+  for (const message of childMessages) {
+    const ts = (message as { createdAt?: unknown }).createdAt;
+    if (typeof ts !== 'number' || !Number.isFinite(ts)) continue;
+    if (ts < minTs) minTs = ts;
+    if (ts > maxTs) maxTs = ts;
+  }
+  const startedAt = Number.isFinite(minTs) ? minTs : undefined;
+  const durationMs =
+    taskFinished && Number.isFinite(minTs) && Number.isFinite(maxTs) && maxTs >= minTs
+      ? maxTs - minTs
+      : undefined;
+
+  return { agentType, description, entries, toolCount, startedAt, durationMs };
+}
+
 function createEntryFromTrace(
   entry: TraceEntry,
   toolStatusMap: Map<string, ToolStatus>,
   toolResultsMap: Map<string, ToolResultBlock>,
-  pendingFallbackStatus: ToolStatus = 'pending'
+  pendingFallbackStatus: ToolStatus = 'pending',
+  subagentContext?: SubagentTraceContext
 ): WorkstreamEntry | null {
   if (entry.type === 'thinking') {
     return {
@@ -394,7 +529,11 @@ function createEntryFromTrace(
     };
   }
 
-  if (block.name === 'Task') {
+  // Match classifyToolUse's case-insensitive classification (and
+  // classifyStageKind's `kind === 'subagent'` check) so a provider's
+  // lowercase `task` tool still becomes a task entry instead of a plain
+  // tool row that the subagent stage would drop.
+  if (kind === 'subagent') {
     return {
       id: block.id,
       type: 'task',
@@ -405,6 +544,10 @@ function createEntryFromTrace(
       status,
       block,
       result,
+      subagent: subagentContext
+        ? buildSubagentTrace(block, status === 'success' || status === 'error', subagentContext)
+        : undefined,
+      sourceMessageUuid: entry.messageUuid,
     };
   }
 
@@ -594,6 +737,11 @@ export function createBatchWorkstreamModel(params: {
   toolResultsMap: Map<string, ToolResultBlock>;
   isSessionRunning: boolean;
   startedAt?: number;
+  /**
+   * Session messages emitted by subagents, grouped by the Task tool_use id
+   * they belong to. When provided, Task entries carry a nested SubagentTrace.
+   */
+  subagentMessagesByParent?: Map<string, StreamMessage[]>;
   liveTrace?: {
     partialText?: string;
     partialThinking?: string;
@@ -626,20 +774,20 @@ export function createBatchWorkstreamModel(params: {
     partialThinking: params.liveTrace?.partialThinking,
     placePartialBeforeLastToolRun: lastMessageHasPendingTool,
   });
-  const activePendingToolId = params.isSessionRunning
-    ? [...traceEntries]
-        .reverse()
-        .find(
-          (entry): entry is TraceToolEntry => {
-            if (entry.type !== 'tool') return false;
-            return (
-              !params.toolResultsMap.has(entry.block.id) &&
-              params.toolStatusMap.get(entry.block.id) !== 'success' &&
-              params.toolStatusMap.get(entry.block.id) !== 'error'
-            );
-          }
-        )?.block.id || null
-    : null;
+  // While the session runs, every unresolved tool is genuinely in flight —
+  // parallel Task fan-outs leave several tools without results at once, so
+  // they must all stay pending (not just the last one). Once the session
+  // stops, unresolved tools were interrupted; fall back to success so stale
+  // spinners don't linger in finished transcripts.
+  const unresolvedFallbackStatus: ToolStatus = params.isSessionRunning ? 'pending' : 'success';
+  const subagentContext: SubagentTraceContext | undefined = params.subagentMessagesByParent
+    ? {
+        messagesByParent: params.subagentMessagesByParent,
+        toolStatusMap: params.toolStatusMap,
+        toolResultsMap: params.toolResultsMap,
+        depth: 0,
+      }
+    : undefined;
   const entries = traceEntries
     .filter((entry) => !(entry.type === 'tool' && entry.block.name === 'TodoWrite'))
     .map((entry) =>
@@ -647,7 +795,8 @@ export function createBatchWorkstreamModel(params: {
         entry,
         params.toolStatusMap,
         params.toolResultsMap,
-        entry.type === 'tool' && entry.block.id === activePendingToolId ? 'pending' : 'success'
+        unresolvedFallbackStatus,
+        subagentContext
       )
     )
     .filter((entry): entry is WorkstreamEntry => Boolean(entry));

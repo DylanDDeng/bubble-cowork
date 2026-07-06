@@ -240,6 +240,11 @@ function shouldPreserveStreamingStateForMessage(
   provider: SessionInfo['provider'],
   message: StreamMessage
 ): boolean {
+  // Subagent (Task) messages commit while the top-level agent may still be
+  // streaming its own partial — they must not reset that buffer.
+  if (message.parentToolUseId) {
+    return true;
+  }
   return (
     provider === 'codex' &&
     ((message.type === 'assistant' && message.streaming === true) ||
@@ -2697,6 +2702,14 @@ function handleStreamMessage(
   set((state) => {
     const currentSession = state.sessions[sessionId];
     if (!currentSession) return state;
+
+    // Subagent (Task) stream events must never touch the top-level streaming
+    // buffer — otherwise subagent text/thinking deltas splice into the main
+    // assistant bubble, and a subagent content_block_stop wipes an in-flight
+    // top-level partial.
+    if (message.type === 'stream_event' && message.parentToolUseId) {
+      return state;
+    }
 
     if (message.type === 'stream_event') {
       const event = message.event;

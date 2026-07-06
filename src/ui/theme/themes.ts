@@ -784,6 +784,13 @@ function buildThemeVariables(
     '--tree-file-accent-bg': accentLight,
     '--tree-file-accent-border': border,
     '--tree-file-accent-fg': pack.theme.accent,
+    '--subagent': pack.theme.semanticColors.skill,
+    '--subagent-bg': variant === 'light'
+      ? formatRgba(parseHexColor(pack.theme.semanticColors.skill), 0.09)
+      : formatRgba(parseHexColor(pack.theme.semanticColors.skill), 0.14),
+    '--subagent-border': variant === 'light'
+      ? formatRgba(parseHexColor(pack.theme.semanticColors.skill), 0.3)
+      : formatRgba(parseHexColor(pack.theme.semanticColors.skill), 0.38),
     '--tree-file-media-bg': variant === 'light'
       ? formatRgba(parseHexColor(pack.theme.semanticColors.skill), 0.08)
       : formatRgba(parseHexColor(pack.theme.semanticColors.skill), 0.12),

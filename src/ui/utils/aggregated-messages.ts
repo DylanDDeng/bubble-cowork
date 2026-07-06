@@ -55,6 +55,11 @@ export function aggregateMessages(messages: StreamMessage[]): AggregatedItem[] {
       continue;
     }
 
+    // Subagent (Task) messages surface inside their Task row, not inline.
+    if (message.parentToolUseId) {
+      continue;
+    }
+
     if (message.type === 'user_prompt') {
       flushTurn();
       items.push({ type: 'message', message, originalIndex: i });

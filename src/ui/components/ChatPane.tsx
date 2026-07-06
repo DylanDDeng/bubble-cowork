@@ -5,7 +5,7 @@ import { Check, ChevronDown, GitBranch, GitFork, Loader2, Monitor, X } from './i
 import { toast } from 'sonner';
 import { sendEvent } from '../hooks/useIPC';
 import { useAppStore } from '../store/useAppStore';
-import { createStreamingWorkstreamModel } from '../utils/workstream';
+import { createStreamingWorkstreamModel, groupSubagentMessagesByParent } from '../utils/workstream';
 import { deriveTurnPhase, hasRunningToolInMessages } from '../utils/turn-utils';
 import {
   getMessageContentBlocks,
@@ -994,7 +994,7 @@ export function ChatPane({
     if (!session) return '';
     for (let i = session.messages.length - 1; i >= 0; i -= 1) {
       const message = session.messages[i];
-      if (message.type !== 'assistant' || message.streaming !== true) {
+      if (message.type !== 'assistant' || message.streaming !== true || message.parentToolUseId) {
         continue;
       }
       return getMessageContentBlocks(message)
@@ -1038,6 +1038,11 @@ export function ChatPane({
 
     return { toolStatusMap: statusMap, toolResultsMap: resultsMap };
   }, [session?.messages]);
+
+  const subagentMessagesByParent = useMemo(
+    () => (session ? groupSubagentMessagesByParent(session.messages) : new Map<string, StreamMessage[]>()),
+    [session?.messages]
+  );
 
   const hasRunningTool = useMemo(
     () => (session ? hasRunningToolInMessages(session.messages, toolStatusMap) : false),
@@ -1726,6 +1731,7 @@ export function ChatPane({
                             isSessionRunning={session.status === 'running'}
                             isLastBatch={item.active}
                             startedAt={item.active ? activeTurnStartedAt : undefined}
+                            subagentMessagesByParent={subagentMessagesByParent}
                             liveTrace={item.group.id === activeTimelineWorkId ? activeLiveTrace : undefined}
                             defaultExpanded={item.defaultExpanded}
                             resetKey={item.disclosureResetKey}
@@ -1762,6 +1768,7 @@ export function ChatPane({
                           message={item.message}
                           toolStatusMap={toolStatusMap}
                           toolResultsMap={toolResultsMap}
+                          subagentMessagesByParent={subagentMessagesByParent}
                           assistantPresentation={item.assistantPresentation}
                           hideAssistantCopyBar={hideAssistantCopyBar}
                           userPromptActions={
@@ -1837,6 +1844,7 @@ export function ChatPane({
                               toolStatusMap={toolStatusMap}
                               toolResultsMap={toolResultsMap}
                               isSessionRunning={false}
+                              subagentMessagesByParent={subagentMessagesByParent}
                               defaultExpanded={false}
                             />
                           </div>

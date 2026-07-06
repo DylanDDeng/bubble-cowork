@@ -421,6 +421,12 @@ export function deriveTranscriptTimelineItems(
       continue;
     }
 
+    // Subagent (Task) messages render nested under their Task row in the
+    // workstream, never inline in the top-level transcript.
+    if (message.parentToolUseId) {
+      continue;
+    }
+
     if (message.type === 'user_prompt') {
       flushPendingWork();
       items.push({ type: 'message', message, originalIndex });
