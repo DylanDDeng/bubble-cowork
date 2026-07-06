@@ -24,6 +24,8 @@ import {
 export interface ComposerPromptEditorHandle {
   focus: () => void;
   setCursorIndex: (index: number) => void;
+  /** Current caret offset in plain-text coordinates (0 when unavailable). */
+  getCursorIndex: () => number;
 }
 
 export interface ComposerPasteContext {
@@ -580,6 +582,9 @@ export const ComposerPromptEditor = forwardRef<
           setCursorIndex(editorRef.current, index);
           syncFakeCaretNow();
         }
+      },
+      getCursorIndex: () => {
+        return editorRef.current ? getCursorIndex(editorRef.current) : 0;
       },
     }),
     [syncFakeCaretNow]

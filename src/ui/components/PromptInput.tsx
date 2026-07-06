@@ -17,6 +17,14 @@ import { AttachmentChips } from './AttachmentChips';
 import { ClaudeSkillMenu } from './ClaudeSkillMenu';
 import { ProjectFileMentionMenu } from './ProjectFileMentionMenu';
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from './ComposerPromptEditor';
+import {
+  EMPTY_PROMPT_HISTORY_NAV,
+  collectPromptHistory,
+  isCursorOnFirstLine,
+  isCursorOnLastLine,
+  stepPromptHistory,
+  type PromptHistoryNav,
+} from '../utils/prompt-history';
 import { ClaudeContextIndicator } from './ClaudeContextIndicator';
 import { CodexContextIndicator } from './CodexContextIndicator';
 import { OpenCodeContextIndicator } from './OpenCodeContextIndicator';
@@ -99,12 +107,50 @@ export function PromptInput({
     handoffSessionToProvider,
   } = useAppStore();
   const [prompt, setPrompt] = useState('');
+  // ArrowUp/ArrowDown history navigation. historyNavRef tracks the browsing
+  // position + stashed draft; historyAppliedTextRef remembers the last text WE
+  // put in the composer, so any user edit detectably exits history mode.
+  const historyNavRef = useRef<PromptHistoryNav>(EMPTY_PROMPT_HISTORY_NAV);
+  const historyAppliedTextRef = useRef<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [cursorIndex, setCursorIndex] = useState(0);
   const editorRef = useRef<ComposerPromptEditorHandle | null>(null);
   const isComposingRef = useRef(false);
   const targetSessionId = sessionId ?? activeSessionId;
   const activeSession = targetSessionId ? sessions[targetSessionId] : null;
+
+  const promptHistory = useMemo(
+    () => collectPromptHistory(activeSession?.messages ?? []),
+    [activeSession?.messages]
+  );
+
+  // Switching sessions or editing the recalled text exits history mode; the
+  // draft only survives an unbroken ArrowUp/ArrowDown browse.
+  useEffect(() => {
+    historyNavRef.current = EMPTY_PROMPT_HISTORY_NAV;
+    historyAppliedTextRef.current = null;
+  }, [targetSessionId]);
+
+  useEffect(() => {
+    if (
+      historyNavRef.current.index !== null &&
+      historyAppliedTextRef.current !== null &&
+      prompt !== historyAppliedTextRef.current
+    ) {
+      historyNavRef.current = EMPTY_PROMPT_HISTORY_NAV;
+      historyAppliedTextRef.current = null;
+    }
+  }, [prompt]);
+
+  const applyPromptHistoryStep = (step: { nav: PromptHistoryNav; text: string }) => {
+    historyNavRef.current = step.nav;
+    historyAppliedTextRef.current = step.nav.index === null ? null : step.text;
+    setPrompt(step.text);
+    window.requestAnimationFrame(() => {
+      editorRef.current?.focus();
+      editorRef.current?.setCursorIndex(step.text.length);
+    });
+  };
 
   const agentSelection = useComposerAgentSelection({
     selectionKey: activeSession?.id || targetSessionId || '__composer__',
@@ -733,6 +779,33 @@ export function PromptInput({
         capabilityMenu.selectCurrentSuggestion();
         window.requestAnimationFrame(() => editorRef.current?.focus());
         return;
+      }
+    }
+
+    // ArrowUp on the first line browses back through this session's sent
+    // prompts; ArrowDown on the last line steps forward and finally restores
+    // the draft. Anywhere else the arrows keep moving the caret normally.
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+      const cursor = editorRef.current?.getCursorIndex() ?? 0;
+      if (e.key === 'ArrowUp' && isCursorOnFirstLine(prompt, cursor)) {
+        const step = stepPromptHistory(promptHistory, historyNavRef.current, 'prev', prompt);
+        if (step) {
+          e.preventDefault();
+          applyPromptHistoryStep(step);
+          return;
+        }
+      }
+      if (
+        e.key === 'ArrowDown' &&
+        historyNavRef.current.index !== null &&
+        isCursorOnLastLine(prompt, cursor)
+      ) {
+        const step = stepPromptHistory(promptHistory, historyNavRef.current, 'next', prompt);
+        if (step) {
+          e.preventDefault();
+          applyPromptHistoryStep(step);
+          return;
+        }
       }
     }
 
