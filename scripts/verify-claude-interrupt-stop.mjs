@@ -177,10 +177,43 @@ assert.match(
   /await promptCancellation\.race\(\s*buildUserMessage\(/,
   'the long prepare step must race cancellation so the chain settles immediately'
 );
+// The model round-trip is raced too: after a zero-turn stop the warm runner
+// has NO fallback armed, so a cancelled enqueue wedged on setModel would
+// otherwise block every follow-up send with no recovery. Model bookkeeping
+// is tri-state (confirmed/pending/unknown): equal models may only skip a
+// switch while CONFIRMED, a pending/unknown state forces the link to issue
+// its own switch (last issued wins on the serial stream), and only the most
+// recently issued switch's outcome may transition the state — so a rejected
+// newer switch cannot be shadowed by an older switch's late success.
 assert.match(
   runnerSource,
-  /await activeQuery\.setModel\(nextRuntimeModel\);[\s\S]{0,900}?promptCancellation\.isCancelled\(seq\)[\s\S]{0,300}?await promptCancellation\.race\(\s*buildUserMessage\(/,
-  'a stop during the model round-trip must bail before starting attachment prep'
+  /const modelSwitch = issueModelSwitch\(normalizedModel, nextRuntimeModel\);\s*const switched = await promptCancellation\.race\(/,
+  'the setModel round-trip must race cancellation so a wedged switch cannot block the chain'
+);
+assert.match(
+  runnerSource,
+  /normalizedModel !== currentModel \|\| modelState !== 'confirmed'/,
+  'equal display models may only skip switching while the bookkeeping is confirmed'
+);
+assert.match(
+  runnerSource,
+  /nextRuntimeModel !== currentRuntimeModel \|\| modelState !== 'confirmed'/,
+  'a pending or unknown model state must force the link to issue its own switch'
+);
+assert.match(
+  runnerSource,
+  /if \(switchSeq === modelSwitchSeq\) \{\s*currentModel = targetDisplayModel;[\s\S]{0,200}?modelState = 'confirmed';/,
+  'only the newest switch may confirm the model bookkeeping'
+);
+assert.match(
+  runnerSource,
+  /if \(switchSeq === modelSwitchSeq\) \{\s*modelState = 'unknown';/,
+  'a rejected newest switch must mark the CLI model unknown'
+);
+assert.match(
+  runnerSource,
+  /promptCancellation\.isCancelled\(seq\)[\s\S]{0,400}?await promptCancellation\.race\(\s*buildUserMessage\(/,
+  'the link must re-check cancellation before starting attachment prep'
 );
 assert.match(
   runnerSource,

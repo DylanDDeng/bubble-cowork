@@ -531,13 +531,57 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
   // a send is still ahead of the input queue. cancelPendingPrompts() marks
   // every enqueue issued so far as cancelled; the enqueue re-checks the mark
   // after each await so a cancelled prompt is never pushed to the CLI, and
-  // the long prepare step races against cancellation so the serial chain
-  // settles immediately — a follow-up send must never wait on the very work
-  // the user just stopped. The model round-trip is deliberately NOT raced:
-  // it is a fast control request whose effect lands on the CLI either way,
-  // so bookkeeping must record it, and a wedged CLI blocks the resend
-  // regardless (the stop fallback reclaims that runner).
+  // every long step (attachment prep AND the setModel round-trip) races
+  // against cancellation so the serial chain settles immediately — a
+  // follow-up send must never wait on the very work the user just stopped,
+  // and after a zero-turn stop the warm runner has no fallback armed to
+  // reclaim a chain wedged on an abandoned control request.
   const promptCancellation = createPromptCancellation();
+
+  // The CLI's model is NOT a settled scalar once switches can be abandoned
+  // mid round-trip: currentModel/currentRuntimeModel describe the CLI only
+  // while modelState is 'confirmed'.
+  //   'confirmed' — bookkeeping matches the CLI; equal models may skip.
+  //   'pending'   — a switch is in flight (possibly cancelled-and-abandoned);
+  //                 its outcome is not known yet, so NO link may trust the
+  //                 scalar comparison: it must issue its own switch. Requests
+  //                 are served in order on the single stream, so the switch
+  //                 issued last always describes the CLI's final state.
+  //   'unknown'   — the most recently issued switch REJECTED; the CLI's
+  //                 model is uncertain until an explicit switch confirms it.
+  // Only the outcome of the most recently issued switch may transition the
+  // state: an older switch that settles late — success or failure — is
+  // superseded and must not clobber newer bookkeeping.
+  let modelState: 'confirmed' | 'pending' | 'unknown' = 'confirmed';
+  let modelSwitchSeq = 0;
+
+  const issueModelSwitch = (
+    targetDisplayModel: string | undefined,
+    targetRuntimeModel: string | undefined
+  ): Promise<void> => {
+    const switchSeq = ++modelSwitchSeq;
+    modelState = 'pending';
+    const modelSwitch = activeQuery!.setModel(targetRuntimeModel);
+    // Attached at issue time so the outcome is recorded no matter which
+    // prompt abandoned it, and so an abandoned rejection can never become an
+    // unhandled rejection (the live link still observes it via its own
+    // raced await on the same promise).
+    modelSwitch.then(
+      () => {
+        if (switchSeq === modelSwitchSeq) {
+          currentModel = targetDisplayModel;
+          currentRuntimeModel = targetRuntimeModel;
+          modelState = 'confirmed';
+        }
+      },
+      () => {
+        if (switchSeq === modelSwitchSeq) {
+          modelState = 'unknown';
+        }
+      }
+    );
+    return modelSwitch;
+  };
 
   const enqueuePrompt = (text: string, promptAttachments?: Attachment[], requestedModel?: string) => {
     const trimmed = text.trim();
@@ -557,27 +601,47 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
         if (abortController.signal.aborted || promptCancellation.isCancelled(seq)) {
           return;
         }
-        if (activeQuery && normalizedModel !== currentModel) {
+        // Equal display models may only short-circuit while the bookkeeping
+        // is CONFIRMED: with a switch pending (possibly abandoned by a stop)
+        // or after a rejected one, the scalar comparison lies about the CLI.
+        if (activeQuery && (normalizedModel !== currentModel || modelState !== 'confirmed')) {
           const nextRuntimeModel = compatibleProviderMatched
             ? currentRuntimeModel
             : toClaudeCodeRuntimeModel(normalizedModel, betas);
           // Only touch the live query when the RESOLVED runtime model actually
           // changes — a display-model spelling (e.g. the reconciled name the
-          // init handler stores) must not trigger a spurious switch on reuse.
-          if (nextRuntimeModel !== currentRuntimeModel) {
-            await activeQuery.setModel(nextRuntimeModel);
+          // init handler stores) must not trigger a spurious switch on reuse —
+          // or when the CLI's model is not confirmed, in which case this link
+          // must issue its own switch: it is the last one issued, so its
+          // outcome describes the CLI's final state no matter what an
+          // abandoned earlier switch does.
+          if (nextRuntimeModel !== currentRuntimeModel || modelState !== 'confirmed') {
+            // Raced against cancellation: a stop that cancels this prompt
+            // must never leave the serial chain parked behind a wedged
+            // control request — after a zero-turn stop the runner stays warm
+            // with no fallback armed, so nothing else would ever release a
+            // follow-up send queued behind it. The state machine attached at
+            // issue time records the outcome (confirmed / unknown) whenever
+            // the round-trip settles, cancelled or not.
+            const modelSwitch = issueModelSwitch(normalizedModel, nextRuntimeModel);
+            const switched = await promptCancellation.race(
+              modelSwitch.then(() => true as const)
+            );
+            if (switched === null) {
+              return;
+            }
+          } else {
+            // Display-spelling refresh only; the CLI model is unchanged.
+            currentModel = normalizedModel;
+            currentRuntimeModel = nextRuntimeModel;
           }
-          // Recorded even if this prompt was cancelled mid-flight: the CLI's
-          // model DID change, and a follow-up send comparing against stale
-          // bookkeeping would skip a needed switch back.
-          currentModel = normalizedModel;
-          currentRuntimeModel = nextRuntimeModel;
         }
-        // A stop can land during the (deliberately unraced) model round-trip
-        // above. Cancellation minted a FRESH signal, so a build started now
-        // could no longer be released by the race — bail before starting the
-        // attachment prep at all, or the abandoned work would block the
-        // serial chain and delay the user's immediate resend.
+        // Cancellation can land in the same tick the model round-trip
+        // resolves (the work may win the race even though the stop already
+        // marked this prompt). Re-check before starting the attachment prep:
+        // cancelPendingPrompts minted a FRESH signal, so a build started now
+        // could no longer be released by the race — the abandoned work would
+        // block the serial chain and delay the user's immediate resend.
         if (abortController.signal.aborted || promptCancellation.isCancelled(seq)) {
           return;
         }
