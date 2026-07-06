@@ -64,6 +64,16 @@ assert.equal(
   true,
   'exiting a browse must put the stashed draft back into the composer'
 );
+assert.equal(
+  promptInput.includes('setAttachments(step.attachments)'),
+  true,
+  'steps must apply attachment changes: cleared on entry, restored on exit — a recalled entry must never send the old draft attachments'
+);
+assert.equal(
+  promptInput.includes('setAttachments(nav.draftAttachments ?? [])'),
+  true,
+  'non-key exits (remap vanish, session switch) must restore the stashed draft attachments'
+);
 
 // Arrow-key priority: while a browse is ACTIVE, history owns the arrows even
 // if the recalled text re-opened the @-mention or slash menu; when idle, the

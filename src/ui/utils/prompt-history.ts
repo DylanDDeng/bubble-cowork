@@ -1,22 +1,27 @@
-import type { StreamMessage } from '../types';
+import type { Attachment, StreamMessage } from '../types';
 
 /**
  * ArrowUp/ArrowDown prompt-history navigation state for the composer.
  *
- * `index === null` means not navigating. While navigating, `draft` holds the
- * text that was in the composer before the first ArrowUp so exiting the
- * browse restores it, and `anchorId` holds the recalled entry's stable id so
- * the browse survives the history array shifting underneath it.
+ * `index === null` means not navigating. While navigating, `draft` and
+ * `draftAttachments` hold what was in the composer before the first ArrowUp
+ * so exiting the browse restores it — recalled history entries are TEXT-ONLY,
+ * so the attachment tray is cleared for the duration of the browse and a sent
+ * or edited recall never inherits the old draft's files. `anchorId` holds the
+ * recalled entry's stable id so the browse survives the history array
+ * shifting underneath it.
  */
 export interface PromptHistoryNav {
   index: number | null;
   draft: string | null;
+  draftAttachments: Attachment[] | null;
   anchorId: string | null;
 }
 
 export const EMPTY_PROMPT_HISTORY_NAV: PromptHistoryNav = {
   index: null,
   draft: null,
+  draftAttachments: null,
   anchorId: null,
 };
 
@@ -138,6 +143,14 @@ export interface PromptHistoryStep {
   nav: PromptHistoryNav;
   text: string;
   /**
+   * When present, the composer attachment tray must be replaced with this
+   * list: `[]` on the step that ENTERS a browse (recalled entries are
+   * text-only; the draft's attachments are stashed in the nav), and the
+   * stashed attachments on the step that exits past the newest entry.
+   * Absent on mid-browse steps.
+   */
+  attachments?: Attachment[];
+  /**
    * True when the browse hit the oldest entry and nothing changed: the caller
    * should swallow the key but must not re-apply the text or move the caret.
    */
@@ -155,19 +168,30 @@ function stepTo(
   };
 }
 
+/** The exit step: restore the stashed draft (text + attachments) and leave. */
+function exitStep(nav: PromptHistoryNav): PromptHistoryStep {
+  return {
+    nav: EMPTY_PROMPT_HISTORY_NAV,
+    text: nav.draft ?? '',
+    attachments: nav.draftAttachments ?? [],
+  };
+}
+
 /**
  * Step through history. Returns null when the key should NOT be consumed
  * (no history, or not navigating on ArrowDown) — the caller lets the caret
  * move normally in that case.
  *
- * 'prev' (ArrowUp) stashes the current composer text as the draft on entry;
+ * 'prev' (ArrowUp) stashes the current composer text AND attachments as the
+ * draft on entry (the tray is cleared — recalled entries are text-only);
  * 'next' (ArrowDown) past the newest entry restores that draft and exits.
  */
 export function stepPromptHistory(
   history: PromptHistoryEntry[],
   nav: PromptHistoryNav,
   direction: 'prev' | 'next',
-  currentText: string
+  currentText: string,
+  currentAttachments: Attachment[]
 ): PromptHistoryStep | null {
   if (direction === 'prev') {
     if (history.length === 0) {
@@ -175,7 +199,14 @@ export function stepPromptHistory(
     }
     if (nav.index === null) {
       const index = history.length - 1;
-      return stepTo(history, { ...nav, draft: currentText }, index);
+      return {
+        ...stepTo(
+          history,
+          { ...nav, draft: currentText, draftAttachments: currentAttachments },
+          index
+        ),
+        attachments: [],
+      };
     }
     // The stored index may briefly be stale if history changed since the last
     // remap — never index out of bounds.
@@ -197,12 +228,12 @@ export function stepPromptHistory(
   }
   if (history.length === 0) {
     // Every entry disappeared mid-browse: restore the draft and exit.
-    return { nav: EMPTY_PROMPT_HISTORY_NAV, text: nav.draft ?? '' };
+    return exitStep(nav);
   }
   const boundedIndex = Math.min(nav.index, history.length - 1);
   if (boundedIndex < history.length - 1) {
     return stepTo(history, nav, boundedIndex + 1);
   }
   // Past the newest entry: restore the stashed draft and exit history mode.
-  return { nav: EMPTY_PROMPT_HISTORY_NAV, text: nav.draft ?? '' };
+  return exitStep(nav);
 }

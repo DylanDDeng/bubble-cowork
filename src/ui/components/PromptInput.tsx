@@ -125,10 +125,11 @@ export function PromptInput({
     [activeSession?.messages]
   );
 
-  // Ends an active browse and restores the stashed draft into the composer,
-  // mirroring the ArrowDown exit — the recalled prompt must never strand in
-  // the composer with the draft unrecoverable. Focus is intentionally not
-  // forced: these exits are not always key-driven.
+  // Ends an active browse and restores the stashed draft (text AND
+  // attachments) into the composer, mirroring the ArrowDown exit — the
+  // recalled prompt must never strand in the composer with the draft
+  // unrecoverable. Focus is intentionally not forced: these exits are not
+  // always key-driven.
   const exitHistoryBrowse = useCallback((nav: PromptHistoryNav) => {
     historyNavRef.current = EMPTY_PROMPT_HISTORY_NAV;
     historyAppliedTextRef.current = null;
@@ -138,6 +139,7 @@ export function PromptInput({
     const draft = nav.draft ?? '';
     setPrompt(draft);
     setCursorIndex(draft.length);
+    setAttachments(nav.draftAttachments ?? []);
   }, []);
 
   // Switching sessions exits history mode (restoring the stashed draft);
@@ -152,6 +154,10 @@ export function PromptInput({
       historyAppliedTextRef.current !== null &&
       prompt !== historyAppliedTextRef.current
     ) {
+      // Editing the recalled text turns it into a new message that
+      // deliberately inherits nothing from the old draft (terminal
+      // semantics): the stashed text AND attachments are discarded, matching
+      // what sending the recalled entry does.
       historyNavRef.current = EMPTY_PROMPT_HISTORY_NAV;
       historyAppliedTextRef.current = null;
     }
@@ -185,6 +191,11 @@ export function PromptInput({
     }
     setPrompt(step.text);
     setCursorIndex(step.text.length);
+    if (step.attachments) {
+      // Cleared on entry (recalled entries are text-only, so a send never
+      // attaches the old draft's files) and restored with the draft on exit.
+      setAttachments(step.attachments);
+    }
     window.requestAnimationFrame(() => {
       editorRef.current?.focus();
       editorRef.current?.setCursorIndex(step.text.length);
@@ -815,7 +826,8 @@ export function PromptInput({
       promptHistory,
       historyNavRef.current,
       e.key === 'ArrowUp' ? 'prev' : 'next',
-      prompt
+      prompt,
+      attachments
     );
     if (!step) {
       return false;
