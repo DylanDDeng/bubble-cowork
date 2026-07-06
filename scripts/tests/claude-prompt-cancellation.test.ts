@@ -64,121 +64,164 @@ void (async () => {
     assert.equal(pc.cancelPending(), 0, 'everything settled; a fresh stop cancels nothing');
   }
 
-  // Cancellation lands during the model round-trip — which, since the
-  // zero-turn stop path leaves the warm runner with NO fallback armed, must
-  // release the chain even if the control request NEVER resolves (a wedged
-  // CLI): the follow-up send queued behind it would otherwise hang with no
-  // recovery. Mirrors runner.ts: the switch is raced, a cancelled link
-  // bails, and the late completion still records the model bookkeeping —
-  // unless a newer link claimed the model since (epoch guard).
+  // ── Model-switch state machine (mirrors runner.ts) ─────────────────────────
+  // The CLI's model is not a settled scalar once switches can be abandoned:
+  // bookkeeping is tri-state — 'confirmed' (scalar matches the CLI, equal
+  // models may skip), 'pending' (a switch is in flight, possibly abandoned;
+  // links must issue their own switch), 'unknown' (the newest switch
+  // rejected; an explicit switch is required). Only the outcome of the most
+  // recently issued switch may transition the state.
+  type ModelState = 'confirmed' | 'pending' | 'unknown';
+  const makeModelHarness = (pc: ReturnType<typeof createPromptCancellation>) => {
+    let chain: Promise<void> = Promise.resolve();
+    const harness = {
+      currentModel: 'model-a' as string | undefined,
+      modelState: 'confirmed' as ModelState,
+      switchesIssued: [] as string[],
+      ran: [] as string[],
+      switchSeq: 0,
+      issueSwitch(target: string | undefined, work: Promise<void>): Promise<void> {
+        const mySeq = ++harness.switchSeq;
+        harness.modelState = 'pending';
+        harness.switchesIssued.push(target ?? '(default)');
+        work.then(
+          () => {
+            if (mySeq === harness.switchSeq) {
+              harness.currentModel = target;
+              harness.modelState = 'confirmed';
+            }
+          },
+          () => {
+            if (mySeq === harness.switchSeq) {
+              harness.modelState = 'unknown';
+            }
+          }
+        );
+        return work;
+      },
+      enqueue(target: string, work: Promise<void>, label: string) {
+        const seq = pc.issueSeq();
+        chain = chain
+          .then(async () => {
+            if (pc.isCancelled(seq)) return;
+            if (target !== harness.currentModel || harness.modelState !== 'confirmed') {
+              const modelSwitch = harness.issueSwitch(target, work);
+              const switched = await pc.race(modelSwitch.then(() => true as const));
+              if (switched === null) return;
+            }
+            if (pc.isCancelled(seq)) return;
+            harness.ran.push(label);
+          })
+          .catch(() => {
+            // a live link's switch rejection surfaces here (runner: onError)
+          })
+          .finally(() => pc.settle(seq));
+      },
+      settled(): Promise<string> {
+        return Promise.race([
+          chain.then(() => 'done'),
+          new Promise<string>((resolve) => setTimeout(resolve, 2_000, 'timeout')),
+        ]);
+      },
+    };
+    return harness;
+  };
+
+  // Wedged cancelled switch: the chain must release even if the control
+  // request NEVER resolves (after a zero-turn stop nothing else would
+  // reclaim it), and — P1 regression — a follow-up requesting the SAME
+  // display model must NOT trust the stale scalar: it issues its own switch,
+  // whose outcome (last issued wins on the serial stream) is the CLI's
+  // final state; the abandoned switch's late success is then ignored.
   {
     const pc = createPromptCancellation();
-    let chain: Promise<void> = Promise.resolve();
-    let buildStarted = false;
-    const ran: string[] = [];
-    let currentModel = 'model-a';
-    let modelSwitchEpoch = 0;
-    let releaseModelSwitch: () => void = () => {};
+    const h = makeModelHarness(pc);
+    let releaseOldSwitch: () => void = () => {};
     const wedgedSwitch = new Promise<void>((resolve) => {
-      releaseModelSwitch = resolve;
+      releaseOldSwitch = resolve;
     });
 
-    const enqueueWithSwitch = (targetModel: string, switchWork: Promise<void>, label: string) => {
-      const seq = pc.issueSeq();
-      chain = chain
-        .then(async () => {
-          if (pc.isCancelled(seq)) return;
-          if (targetModel !== currentModel) {
-            const switchEpoch = ++modelSwitchEpoch;
-            const switched = await pc.race(switchWork.then(() => true as const));
-            if (switched === null) {
-              void switchWork.then(
-                () => {
-                  if (modelSwitchEpoch === switchEpoch) {
-                    currentModel = targetModel;
-                  }
-                },
-                () => {}
-              );
-              return;
-            }
-            currentModel = targetModel;
-          }
-          if (pc.isCancelled(seq)) return;
-          buildStarted = label === 'A' ? true : buildStarted;
-          ran.push(label);
-        })
-        .finally(() => pc.settle(seq));
-    };
-
-    enqueueWithSwitch('model-b', wedgedSwitch, 'A');
-    await tick(); // link A is parked on the wedged setModel round-trip
+    h.enqueue('model-b', wedgedSwitch, 'B-prompt'); // A→B switch, then stop
+    await tick();
     assert.equal(pc.cancelPending(), 1, 'the mid-setModel prompt counts as pending');
 
-    // The user's immediate resend (no model change) must run even though the
-    // cancelled switch NEVER resolves.
-    enqueueWithSwitch('model-a', Promise.resolve(), 'B');
-    const outcome = await Promise.race([
-      chain.then(() => 'done'),
-      new Promise<string>((resolve) => setTimeout(resolve, 2_000, 'timeout')),
-    ]);
-    assert.equal(outcome, 'done', 'a wedged cancelled setModel must not block the chain');
-    assert.equal(buildStarted, false, 'the cancelled prompt never starts its prep');
-    assert.deepEqual(ran, ['B'], 'the resend ran; the cancelled prompt did not');
+    h.enqueue('model-a', Promise.resolve(), 'A-resend'); // same display model!
+    assert.equal(await h.settled(), 'done', 'a wedged cancelled switch must not block the chain');
+    assert.deepEqual(h.ran, ['A-resend'], 'the resend ran; the cancelled prompt did not');
+    assert.deepEqual(
+      h.switchesIssued,
+      ['model-b', 'model-a'],
+      'the same-model resend must issue its own switch — the pending A→B switch means the scalar lies'
+    );
+    assert.equal(h.currentModel, 'model-a', 'the resend confirmed its own model');
+    assert.equal(h.modelState, 'confirmed');
 
-    // If the abandoned switch DOES land later, its bookkeeping is recorded
-    // (the CLI really changed models) — the resend above claimed no epoch.
-    releaseModelSwitch();
+    releaseOldSwitch(); // the abandoned A→B switch lands after the newer one
     await tick();
-    assert.equal(currentModel, 'model-b', 'a late switch completion records the model');
+    assert.equal(h.currentModel, 'model-a', 'a superseded late success must not clobber the state');
   }
 
-  // The epoch guard: when a NEWER link claims the model after the cancelled
-  // one, the late completion must NOT clobber the newer bookkeeping.
+  // Cancelled switch with NO follow-up: the late completion still records
+  // the model — the CLI really changed, and the next send must compare
+  // against reality.
   {
     const pc = createPromptCancellation();
-    let chain: Promise<void> = Promise.resolve();
-    let currentModel = 'model-a';
-    let modelSwitchEpoch = 0;
+    const h = makeModelHarness(pc);
+    let releaseSwitch: () => void = () => {};
+    const slowSwitch = new Promise<void>((resolve) => {
+      releaseSwitch = resolve;
+    });
+    h.enqueue('model-b', slowSwitch, 'B-prompt');
+    await tick();
+    pc.cancelPending();
+    assert.equal(await h.settled(), 'done');
+    assert.equal(h.modelState, 'pending', 'the abandoned switch is still unsettled');
+    releaseSwitch();
+    await tick();
+    assert.equal(h.currentModel, 'model-b', 'the newest switch, however late, confirms the model');
+    assert.equal(h.modelState, 'confirmed');
+  }
+
+  // P2 regression: a NEWER switch that REJECTS must not hide the older
+  // cancelled switch's completion behind stale bookkeeping. The rejection
+  // moves the state to 'unknown', the old success is superseded (ignored),
+  // and the next prompt — even for the ORIGINAL model — must issue an
+  // explicit switch instead of trusting the scalar.
+  {
+    const pc = createPromptCancellation();
+    const h = makeModelHarness(pc);
     let releaseOldSwitch: () => void = () => {};
     const oldSwitch = new Promise<void>((resolve) => {
       releaseOldSwitch = resolve;
     });
+    let rejectNewSwitch: (error: Error) => void = () => {};
+    const doomedSwitch = new Promise<void>((_resolve, reject) => {
+      rejectNewSwitch = reject;
+    });
 
-    const enqueueWithSwitch = (targetModel: string, switchWork: Promise<void>) => {
-      const seq = pc.issueSeq();
-      chain = chain
-        .then(async () => {
-          if (pc.isCancelled(seq)) return;
-          if (targetModel !== currentModel) {
-            const switchEpoch = ++modelSwitchEpoch;
-            const switched = await pc.race(switchWork.then(() => true as const));
-            if (switched === null) {
-              void switchWork.then(
-                () => {
-                  if (modelSwitchEpoch === switchEpoch) {
-                    currentModel = targetModel;
-                  }
-                },
-                () => {}
-              );
-              return;
-            }
-            currentModel = targetModel;
-          }
-        })
-        .finally(() => pc.settle(seq));
-    };
-
-    enqueueWithSwitch('model-b', oldSwitch); // stop lands mid round-trip
+    h.enqueue('model-b', oldSwitch, 'B-prompt'); // A→B, stopped mid round-trip
     await tick();
     pc.cancelPending();
-    enqueueWithSwitch('model-c', Promise.resolve()); // resend claims a newer switch
+    h.enqueue('model-c', doomedSwitch, 'C-prompt'); // live follow-up, will fail
     await tick();
-    assert.equal(currentModel, 'model-c', 'the resend recorded its own switch');
-    releaseOldSwitch(); // the abandoned switch lands after the newer claim
+    rejectNewSwitch(new Error('setModel failed'));
+    assert.equal(await h.settled(), 'done');
+    assert.equal(h.modelState, 'unknown', 'the newest switch rejected — the CLI model is uncertain');
+
+    releaseOldSwitch(); // the old A→B switch lands late
     await tick();
-    assert.equal(currentModel, 'model-c', 'a stale late completion must not clobber it');
+    assert.equal(h.modelState, 'unknown', 'a superseded success must not fake a confirmation');
+
+    h.enqueue('model-a', Promise.resolve(), 'A-prompt'); // original model!
+    assert.equal(await h.settled(), 'done');
+    assert.deepEqual(
+      h.switchesIssued,
+      ['model-b', 'model-c', 'model-a'],
+      'with the model unknown, even the original-model prompt must switch explicitly'
+    );
+    assert.equal(h.currentModel, 'model-a');
+    assert.equal(h.modelState, 'confirmed');
+    assert.deepEqual(h.ran, ['A-prompt'], 'only the healthy prompt ran');
   }
 
   // A cancelled setModel that eventually REJECTS is abandoned work: it must

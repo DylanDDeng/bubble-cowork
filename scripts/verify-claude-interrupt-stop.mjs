@@ -179,18 +179,36 @@ assert.match(
 );
 // The model round-trip is raced too: after a zero-turn stop the warm runner
 // has NO fallback armed, so a cancelled enqueue wedged on setModel would
-// otherwise block every follow-up send with no recovery. The switch's late
-// completion still records the model bookkeeping (epoch-guarded so a newer
-// link's switch wins) and its late rejection is swallowed as abandoned work.
+// otherwise block every follow-up send with no recovery. Model bookkeeping
+// is tri-state (confirmed/pending/unknown): equal models may only skip a
+// switch while CONFIRMED, a pending/unknown state forces the link to issue
+// its own switch (last issued wins on the serial stream), and only the most
+// recently issued switch's outcome may transition the state — so a rejected
+// newer switch cannot be shadowed by an older switch's late success.
 assert.match(
   runnerSource,
-  /const modelSwitch = activeQuery\.setModel\(nextRuntimeModel\);\s*const switched = await promptCancellation\.race\(/,
+  /const modelSwitch = issueModelSwitch\(normalizedModel, nextRuntimeModel\);\s*const switched = await promptCancellation\.race\(/,
   'the setModel round-trip must race cancellation so a wedged switch cannot block the chain'
 );
 assert.match(
   runnerSource,
-  /if \(switched === null\) \{[\s\S]{0,700}?void modelSwitch\.then\([\s\S]{0,400}?modelSwitchEpoch === switchEpoch/,
-  'a cancelled switch must record its late completion under the epoch guard'
+  /normalizedModel !== currentModel \|\| modelState !== 'confirmed'/,
+  'equal display models may only skip switching while the bookkeeping is confirmed'
+);
+assert.match(
+  runnerSource,
+  /nextRuntimeModel !== currentRuntimeModel \|\| modelState !== 'confirmed'/,
+  'a pending or unknown model state must force the link to issue its own switch'
+);
+assert.match(
+  runnerSource,
+  /if \(switchSeq === modelSwitchSeq\) \{\s*currentModel = targetDisplayModel;[\s\S]{0,200}?modelState = 'confirmed';/,
+  'only the newest switch may confirm the model bookkeeping'
+);
+assert.match(
+  runnerSource,
+  /if \(switchSeq === modelSwitchSeq\) \{\s*modelState = 'unknown';/,
+  'a rejected newest switch must mark the CLI model unknown'
 );
 assert.match(
   runnerSource,
