@@ -34,11 +34,56 @@ assert.equal(
 assert.equal(ipcSource.includes('function sweepIdleClaudeRunners'), true, 'idle reaper missing');
 assert.equal(ipcSource.includes('function flushClaudeRunners'), true, 'config flush missing');
 assert.equal(
-  (ipcSource.match(/flushClaudeRunners\(/g) || []).length >= 5,
+  (ipcSource.match(/flushClaudeRunners\(/g) || []).length >= 3,
   true,
-  'flushClaudeRunners must cover provider config, MCP config, worktree move, and handoff'
+  'flushClaudeRunners must cover provider config and MCP config'
 );
 assert.equal(ipcSource.includes('stopClaudeRunnerReaper();'), true, 'cleanup must stop the reaper');
+
+// Workspace changes must retire the session runner for EVERY provider —
+// non-Claude handles persist between turns too and are bound to their spawn
+// cwd, so a Claude-only flush would reuse them against the wrong checkout.
+assert.equal(ipcSource.includes('function retireSessionRunner'), true, 'all-provider retire missing');
+assert.equal(
+  (ipcSource.match(/retireSessionRunner\(/g) || []).length >= 4,
+  true,
+  'retireSessionRunner must cover worktree move, workspace handoff, and git-root flush'
+);
+
+// Branch mutations rewrite the checkout under every session sharing the git
+// root; kept-alive runners must be flushed before checkout/create-branch.
+assert.equal(
+  (ipcSource.match(/await flushRunnersSharingGitRoot\(/g) || []).length >= 2,
+  true,
+  'branch checkout/create must flush runners sharing the git root'
+);
+
+// Reuse must be cwd-guarded: a live runner is bound to its spawn cwd.
+assert.equal(
+  ipcSource.includes('cwd: runnerSession.cwd || null'),
+  true,
+  'runner entries must record their spawn cwd'
+);
+assert.equal(ipcSource.includes('runnerCwdChanged ||'), true, 'continue reuse must reject cwd mismatch');
+
+// Replacing a runner must abort the stale handle BEFORE the new one spawns —
+// provider-service stops are keyed by threadId and would otherwise race the
+// replacement session.
+{
+  const staleAbortAt = ipcSource.indexOf('Never orphan a previous runner');
+  const handleCreateAt = ipcSource.indexOf('const handle = runAgentLoop({');
+  assert.equal(staleAbortAt >= 0 && handleCreateAt >= 0 && staleAbortAt < handleCreateAt, true,
+    'startRunner must retire the stale entry before creating the replacement handle');
+}
+const agentLoopSource = fs.readFileSync(
+  path.join(root, 'src', 'electron', 'libs', 'agent-loop.ts'),
+  'utf8'
+);
+assert.equal(
+  agentLoopSource.includes('pendingSessionStops'),
+  true,
+  'agent loop must serialize startSession behind a pending stop for the same thread'
+);
 
 // The reuse branch must re-fetch the live entry right before dispatch and
 // count the turn before send.
@@ -92,6 +137,11 @@ assert.equal(
   statusSource.includes('deriveClaudeRuntimeStatus(cachedProbe, model'),
   true,
   'cache must decide block-vs-serve on the derived per-model verdict'
+);
+assert.equal(
+  statusSource.includes('generation === startedGeneration'),
+  true,
+  'a probe invalidated while in flight must not repopulate the cache'
 );
 
 // ── Compile + run the unit tests ─────────────────────────────────────────────

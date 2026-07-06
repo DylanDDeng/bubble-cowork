@@ -2611,7 +2611,10 @@ async function handleEditLatestOpenCodePrompt(
   }
 
   const existingEntry = runnerHandles.get(sessionId);
-  if (existingEntry && session.status === 'running') {
+  if (existingEntry) {
+    // Abort even when idle: the kept-alive service session still holds the
+    // pre-edit thread, and the replacement start would otherwise race the
+    // stale handle's stop under the same threadId.
     existingEntry.handle.abort();
     runnerHandles.delete(sessionId);
   }
@@ -2814,7 +2817,10 @@ async function handleEditLatestCodexPrompt(
   }
 
   const existingEntry = runnerHandles.get(sessionId);
-  if (existingEntry && session.status === 'running') {
+  if (existingEntry) {
+    // Abort even when idle: the kept-alive service session still holds the
+    // pre-edit thread, and the replacement start would otherwise race the
+    // stale handle's stop under the same threadId.
     existingEntry.handle.abort();
     runnerHandles.delete(sessionId);
   }
@@ -3270,6 +3276,8 @@ const runnerHandles = new Map<
     autoApprove?: boolean;
     /** Latest dispatched prompt — feeds the slash-command failure check across reuse. */
     latestPrompt?: string;
+    /** Working directory the runner was spawned with — reuse must match it. */
+    cwd?: string | null;
   }
 >();
 
@@ -3342,6 +3350,41 @@ function flushClaudeRunners(sessionId?: string): void {
       runnerHandles.delete(id);
     }
   }
+}
+
+/**
+ * Retire a session's kept-alive runner regardless of provider. Every provider
+ * keeps its handle between turns (connection reuse) and every live session is
+ * bound to the cwd it started with, so a workspace change (handoff, worktree
+ * move) must drop the handle for ALL providers — flushing only Claude would
+ * let a Codex/OpenCode/Kimi/Grok/Pi runner serve the next turn against the
+ * old checkout. Callers gate on DB status, so the handle is idle; a Claude
+ * runner with an in-flight turn (defensive) is doomed like flushClaudeRunners.
+ */
+function retireSessionRunner(sessionId: string): void {
+  const entry = runnerHandles.get(sessionId);
+  if (!entry) return;
+  if (entry.provider === 'claude' && (entry.inFlightTurns ?? 0) > 0) {
+    entry.doomed = true;
+    return;
+  }
+  entry.handle.abort();
+  runnerHandles.delete(sessionId);
+}
+
+/**
+ * The working directory a runner for this session would spawn with — the
+ * same fallback startRunner applies for DM sessions. Reuse decisions compare
+ * against this so a session whose workspace moved never reuses a live runner
+ * bound to the old checkout.
+ */
+function effectiveRunnerCwd(
+  session: NonNullable<ReturnType<typeof sessions.getSession>>
+): string | null {
+  if (session.conversation_scope === 'dm' && !session.cwd) {
+    return getDirectMessageRuntimeCwd();
+  }
+  return session.cwd || null;
 }
 
 // 获取或创建会话状态
@@ -4550,9 +4593,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     if (row.env_mode === 'worktree' && row.worktree_path) {
       return { ok: false, message: 'This thread is already in a worktree.' };
     }
-    // Moving the thread changes its cwd; retire any kept-alive runner that
-    // captured the old directory at spawn.
-    flushClaudeRunners(sessionId);
+    // Moving the thread changes its cwd; retire any kept-alive runner (any
+    // provider) that captured the old directory at spawn.
+    retireSessionRunner(sessionId);
     // 用该 thread 的 provider 给分支起英文名（标题/末条提示词做素材），失败退回本地命名
     const llmSlug = await generateWorktreeBranchSlug({
       prompt: row.title || row.last_prompt || 'worktree',
@@ -6126,6 +6169,32 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     return null;
   };
 
+  // A branch mutation rewrites the files under every session cwd sharing the
+  // git root. Kept-alive runners (any provider) hold live context and file
+  // state from the pre-mutation checkout — retire them so the next turn
+  // spawns fresh against the new checkout. The mutation gate already ensured
+  // none of these sessions is running.
+  const flushRunnersSharingGitRoot = async (cwd: string): Promise<void> => {
+    let targetRoot: string;
+    try {
+      targetRoot = resolve(await getGitTopLevel(cwd));
+    } catch {
+      return;
+    }
+    for (const sessionId of Array.from(runnerHandles.keys())) {
+      const row = sessions.getSession(sessionId);
+      const rowCwd = row?.cwd || row?.project_cwd;
+      if (!rowCwd) continue;
+      try {
+        if (resolve(await getGitTopLevel(rowCwd)) === targetRoot) {
+          retireSessionRunner(sessionId);
+        }
+      } catch {
+        continue;
+      }
+    }
+  };
+
   const getGitBranchMutationBlockMessage = async (
     cwd: string,
     sessionId?: string | null
@@ -6170,6 +6239,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       if (blockMessage) {
         return { ok: false, message: blockMessage };
       }
+      await flushRunnersSharingGitRoot(cwd);
 
       const output = await checkoutBranch({ cwd, branch });
       return { ok: true, output };
@@ -6189,6 +6259,7 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       if (blockMessage) {
         return { ok: false, message: blockMessage };
       }
+      await flushRunnersSharingGitRoot(cwd);
 
       const output = await createBranch({ cwd, branch });
       return { ok: true, output };
@@ -6245,9 +6316,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
           return { ok: false, message: 'Stop the current task before switching workspaces.' };
         }
         // The handoff changes this session's workspace (cwd). A kept-alive
-        // runner captured the old cwd at spawn and must not serve another
-        // turn against the wrong checkout.
-        flushClaudeRunners(input.sessionId);
+        // runner (any provider) captured the old cwd at spawn and must not
+        // serve another turn against the wrong checkout.
+        retireSessionRunner(input.sessionId);
 
         if (input.targetMode === 'local') {
           const sourceCwd = session.worktree_path || session.cwd || projectCwd;
@@ -7677,8 +7748,16 @@ async function handleSessionContinue(
     }
   }
 
+  // Every live runner is bound to the cwd it spawned with. If the session's
+  // workspace moved since (handoff, worktree move, external mutation), the
+  // handle must never be reused — for any provider — or the next turn would
+  // execute against the old checkout.
+  const runnerCwdChanged =
+    existingEntry !== undefined && (existingEntry.cwd ?? null) !== effectiveRunnerCwd(session);
+
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
     if (
+      runnerCwdChanged ||
       ((nextProvider === 'codex' || nextProvider === 'opencode' || nextProvider === 'kimi' || nextProvider === 'grok' || nextProvider === 'pi') && modelChanged) ||
       (nextProvider === 'codex' && codexPermissionModeChanged) ||
       (nextProvider === 'codex' && codexReasoningEffortChanged) ||
@@ -7925,6 +8004,18 @@ function startRunner(
   let initMessage: Extract<StreamMessage, { type: 'system'; subtype: 'init' }> | null = null;
   let sawTurnOutput = false;
   let localFailureMessage: string | null = null;
+
+  // Never orphan a previous runner: overwriting the map entry would leave its
+  // CLI process alive with no owner able to abort it. Abort BEFORE creating
+  // the replacement — provider-service aborts stop by threadId (the session
+  // id), so a stop issued after the new session started could kill it. The
+  // agent loop additionally serializes its start behind any pending stop for
+  // the same thread.
+  const staleEntry = runnerHandles.get(session.id);
+  if (staleEntry) {
+    staleEntry.handle.abort();
+    runnerHandles.delete(session.id);
+  }
 
   const handle = runAgentLoop({
     prompt,
@@ -8378,14 +8469,6 @@ function startRunner(
     },
   });
 
-  // Never orphan a previous runner: overwriting the map entry would leave its
-  // CLI process alive with no owner able to abort it.
-  const staleEntry = runnerHandles.get(session.id);
-  if (staleEntry) {
-    staleEntry.handle.abort();
-    runnerHandles.delete(session.id);
-  }
-
   runnerHandles.set(session.id, {
     handle,
     provider,
@@ -8409,6 +8492,7 @@ function startRunner(
     inFlightTurns: 1,
     latestPrompt: prompt,
     autoApprove: autoApprovePermissions || undefined,
+    cwd: runnerSession.cwd || null,
   });
 
   if (provider === 'claude') {

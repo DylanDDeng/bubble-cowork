@@ -220,6 +220,50 @@ async function main(): Promise<void> {
     await h.cache.get(OFFICIAL_MODEL);
     assert.equal(h.probeCalls(), 1, 'first send after prefetch does not probe');
   }
+
+  {
+    // invalidate() while a probe is in flight: the stale probe (spawned under
+    // the pre-change config) must not repopulate the cache when it resolves,
+    // and a get() after the invalidation starts a fresh probe instead of
+    // joining the stale in-flight one.
+    let calls = 0;
+    const resolvers: Array<(probe: ClaudeRuntimeProbe) => void> = [];
+    const cache = createClaudeRuntimeStatusCache({
+      probe: () => {
+        calls += 1;
+        return new Promise<ClaudeRuntimeProbe>((resolve) => {
+          resolvers.push(resolve);
+        });
+      },
+    });
+
+    const preInvalidateGet = cache.get(OFFICIAL_MODEL);
+    assert.equal(calls, 1);
+    cache.invalidate();
+    const postInvalidateGet = cache.get(OFFICIAL_MODEL);
+    assert.equal(calls, 2, 'get after invalidate spawns a fresh probe, not the stale in-flight one');
+
+    // Resolve the FRESH probe first (logged in), then the STALE one (logged
+    // out): the stale result must not clobber the committed fresh probe.
+    resolvers[1](makeProbe({ checkedAt: Date.now() }));
+    resolvers[0](
+      makeProbe({
+        loggedIn: false,
+        hasClaudeCodeAccount: false,
+        hasApiKeySanitized: false,
+        payloadAuthMethod: null,
+        checkedAt: Date.now(),
+      })
+    );
+    const [stale, fresh] = await Promise.all([preInvalidateGet, postInvalidateGet]);
+    assert.equal(stale.kind, 'login_required', 'the pre-invalidation caller still gets its own probe');
+    assert.equal(fresh.kind, 'ready');
+
+    await flushMicrotasks();
+    const cached = await cache.get(OFFICIAL_MODEL);
+    assert.equal(calls, 2, 'the cached entry survives; no extra probe needed');
+    assert.equal(cached.kind, 'ready', 'the stale probe did not repopulate the cache');
+  }
 }
 
 main()
