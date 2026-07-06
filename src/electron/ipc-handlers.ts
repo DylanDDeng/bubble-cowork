@@ -94,6 +94,7 @@ import {
   isStoppedTurnDrainMessage,
   markTurnsStopped,
   resolveStopFallbackAction,
+  shouldAutoDenyPermission,
   shouldDropRunnerErrorSilently,
   type StopStateSnapshot,
 } from './libs/claude-stop-reconcile';
@@ -8210,6 +8211,15 @@ function startRunner(
     codexMentions: provider === 'codex' ? codexMentions : undefined,
     opencodePermissionMode,
     onMessage: (message) => {
+      // A runner the user stopped that has since been retired or replaced is
+      // dead to this session: NOTHING it emits may touch session state again
+      // — not its drain, not its interrupted result, and especially not a
+      // late `system init`, which would overwrite the replacement runner's
+      // session id/model and broadcast stale status over the new run.
+      if (userStoppedRunnerHandles.has(handle) && runnerHandles.get(session.id)?.handle !== handle) {
+        return;
+      }
+
       // 提取并保存 claude session id
       if (message.type === 'system' && message.subtype === 'init') {
         initMessage = message;
@@ -8350,36 +8360,26 @@ function startRunner(
       // stays out of the transcript entirely — a hard-aborted turn never
       // produced one, and with a follow-up prompt already persisted it would
       // be recorded under the wrong turn.
+      // Messages from a REPLACED stopped runner never get here — the guard
+      // at the top of onMessage drops the whole stale handle — so the stop
+      // classification only needs the live entry's counters.
       const entryForStop = runnerHandles.get(session.id);
       const stopStateForMessage =
         entryForStop?.handle === handle ? stopStateOf(entryForStop) : null;
-      // A stopped runner can be REPLACED before its interrupted result
-      // arrives (stop, then a resend the reuse guard rejects — model or
-      // provider change). The map then points at the replacement, so the old
-      // handle's stopped result must be classified by the handle itself, or
-      // its expected non-success result would persist and clobber the new
-      // run's status.
-      const isStaleStoppedHandle =
-        entryForStop?.handle !== handle && userStoppedRunnerHandles.has(handle);
       const stopClassification =
-        message.type === 'result'
-          ? isStaleStoppedHandle
-            ? { stoppedByUser: true, suppressStatusBroadcast: true }
-            : stopStateForMessage
-              ? classifyResultForStop(stopStateForMessage)
-              : { stoppedByUser: false, suppressStatusBroadcast: false }
+        message.type === 'result' && stopStateForMessage
+          ? classifyResultForStop(stopStateForMessage)
           : { stoppedByUser: false, suppressStatusBroadcast: false };
       // The SDK keeps draining the interrupted turn (truncated assistant
       // output, tool results, stream events) between interrupt() and its
       // result. That drain is canceled work and — after a follow-up dispatch
       // — would be persisted and attributed under the follow-up's turn, so
-      // it stays out of the transcript too (a replaced stopped handle's
-      // drain is equally dead). Serial-stream contract: nothing from a
-      // follow-up turn can arrive before the stopped result lands; the
-      // follow-up's own prompt echo is exempted by shape.
+      // it stays out of the transcript too. Serial-stream contract: nothing
+      // from a follow-up turn can arrive before the stopped result lands;
+      // the follow-up's own prompt echo is exempted by shape.
       const isStoppedTurnDrain =
-        ((stopStateForMessage !== null && stopStateForMessage.stoppedTurns > 0) ||
-          isStaleStoppedHandle) &&
+        stopStateForMessage !== null &&
+        stopStateForMessage.stoppedTurns > 0 &&
         isStoppedTurnDrainMessage(message);
 
       if (
@@ -8744,6 +8744,21 @@ function startRunner(
               : undefined,
           scope: 'session',
         };
+      }
+      // A permission request arriving AFTER the user stopped the turn it
+      // belongs to must never surface a modal. Requests can only come from
+      // the executing (oldest in-flight) turn, and while stopped turns still
+      // owe results that turn is user-stopped and draining toward its
+      // interrupt — deny with the same answer the stop path gives requests
+      // that were already pending. A request from a stopped handle that has
+      // since been replaced is equally dead.
+      const permissionEntry = runnerHandles.get(session.id);
+      if (
+        (permissionEntry?.handle === handle &&
+          shouldAutoDenyPermission(stopStateOf(permissionEntry))) ||
+        (permissionEntry?.handle !== handle && userStoppedRunnerHandles.has(handle))
+      ) {
+        return { behavior: 'deny', message: 'The user stopped this turn.' };
       }
       // 广播权限请求
       broadcast(mainWindow, {

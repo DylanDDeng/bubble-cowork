@@ -131,6 +131,21 @@ export function shouldDropRunnerErrorSilently(state: StopStateSnapshot): boolean
 }
 
 /**
+ * Whether an incoming tool-permission request must be denied immediately
+ * instead of surfacing a modal. Permission requests can only come from the
+ * turn the CLI is currently executing — the oldest in flight — and a stop
+ * press marks every turn in flight at that moment. So while stopped turns
+ * still owe results, the executing turn is by construction a user-stopped
+ * one draining toward its interrupt: prompting the user to approve a tool
+ * for work they just canceled would be wrong, and the pending request would
+ * outlive the turn as stale state. Deny with the same answer the stop path
+ * gives requests that were already pending.
+ */
+export function shouldAutoDenyPermission(state: StopStateSnapshot): boolean {
+  return state.stoppedTurns > 0;
+}
+
+/**
  * Which stream messages belong to a stopped turn's drain — content the SDK
  * still delivers between `interrupt()` and the interrupted turn's terminal
  * `result` (truncated assistant output, tool results, partial stream

@@ -119,8 +119,8 @@ assert.equal(
 );
 assert.match(
   ipcSource,
-  /stopStateForMessage\.stoppedTurns > 0\) \|\|\s*isStaleStoppedHandle\) &&\s*isStoppedTurnDrainMessage\(message\)/,
-  'drain suppression must apply while stopped turns owe a result or the handle is stale-stopped'
+  /stopStateForMessage\.stoppedTurns > 0 &&\s*isStoppedTurnDrainMessage\(message\)/,
+  'drain suppression must apply while stopped turns still owe a result'
 );
 
 // A second stop can mark a QUEUED turn; interrupt() only reaches the active
@@ -179,6 +179,11 @@ assert.match(
 );
 assert.match(
   runnerSource,
+  /await activeQuery\.setModel\(nextRuntimeModel\);[\s\S]{0,900}?promptCancellation\.isCancelled\(seq\)[\s\S]{0,300}?await promptCancellation\.race\(\s*buildUserMessage\(/,
+  'a stop during the model round-trip must bail before starting attachment prep'
+);
+assert.match(
+  runnerSource,
   /promptCancellation\.settle\(seq\)/,
   'every enqueue link must settle its sequence number'
 );
@@ -201,15 +206,27 @@ assert.match(
 // A replaced stopped runner's late result/drain must still classify as
 // user-stopped (by handle, not by the map) so it cannot persist or clobber
 // the replacement run's status.
+// A replaced stopped runner is dead to the session: EVERY message it emits
+// (init, drain, result) is dropped at the top of onMessage, before the init
+// block could overwrite the replacement's session id/model or broadcast
+// stale status.
+assert.match(
+  ipcSource,
+  /onMessage: \(message\) => \{\s*\/\/[\s\S]{0,700}?if \(userStoppedRunnerHandles\.has\(handle\) && runnerHandles\.get\(session\.id\)\?\.handle !== handle\) \{\s*return;/,
+  'onMessage must drop all messages from replaced user-stopped handles before init handling'
+);
+
+// A permission request emitted after the stop (the runner stays alive now)
+// must be auto-denied instead of surfacing a modal for canceled work.
 assert.equal(
-  ipcSource.includes('const isStaleStoppedHandle ='),
+  ipcSource.includes('shouldAutoDenyPermission(stopStateOf(permissionEntry))'),
   true,
-  'stopped results from replaced handles must be classified stale-stopped'
+  'late permission requests from stopped turns must be auto-denied'
 );
 assert.match(
   ipcSource,
-  /isStaleStoppedHandle\s*\?\s*\{ stoppedByUser: true, suppressStatusBroadcast: true \}/,
-  'stale stopped-handle results are suppressed entirely'
+  /shouldAutoDenyPermission[\s\S]{0,300}?\{ behavior: 'deny', message: 'The user stopped this turn\.' \}/,
+  'the auto-deny must answer with the stop deny message'
 );
 
 // The native runtime wrapper must forward the optional soft-stop (and

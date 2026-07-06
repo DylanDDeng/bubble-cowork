@@ -5,6 +5,7 @@ import {
   markTurnsStopped,
   onlyStoppedTurnsInFlight,
   resolveStopFallbackAction,
+  shouldAutoDenyPermission,
   shouldDropRunnerErrorSilently,
   STOP_FALLBACK_MAX_ATTEMPTS,
   type StopStateSnapshot,
@@ -226,6 +227,24 @@ assert.equal(onlyStoppedTurnsInFlight(state(2, 1)), false);
   stopped -= 1;
   assert.equal(resolveStopFallbackAction(state(inFlight - 1, stopped), 3), 'stand-down');
 }
+
+// ── shouldAutoDenyPermission (no modals for canceled work) ───────────────────
+// Permission requests come from the executing (oldest in-flight) turn; while
+// stopped turns still owe results that turn is user-stopped, so its requests
+// are denied immediately instead of surfacing a modal.
+
+assert.equal(shouldAutoDenyPermission(state(1, 0)), false, 'live turn requests surface normally');
+assert.equal(shouldAutoDenyPermission(state(1, 1)), true, 'a draining stopped turn is auto-denied');
+assert.equal(
+  shouldAutoDenyPermission(state(2, 1)),
+  true,
+  'with a follow-up queued, the executing turn is still the stopped one — deny'
+);
+assert.equal(
+  shouldAutoDenyPermission(state(1, 0)) || false,
+  false,
+  'once the stopped results settled, the follow-up owns the stream and may prompt'
+);
 
 // ── isStoppedTurnDrainMessage (post-interrupt drain vs follow-up echo) ───────
 // While stopped turns still owe a result, the serial stream can only carry

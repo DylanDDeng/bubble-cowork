@@ -573,6 +573,14 @@ export function runClaude(options: RunnerOptions): RunnerHandle {
           currentModel = normalizedModel;
           currentRuntimeModel = nextRuntimeModel;
         }
+        // A stop can land during the (deliberately unraced) model round-trip
+        // above. Cancellation minted a FRESH signal, so a build started now
+        // could no longer be released by the race — bail before starting the
+        // attachment prep at all, or the abandoned work would block the
+        // serial chain and delay the user's immediate resend.
+        if (abortController.signal.aborted || promptCancellation.isCancelled(seq)) {
+          return;
+        }
         const message = await promptCancellation.race(
           buildUserMessage(trimmed, currentSessionId, promptAttachments)
         );

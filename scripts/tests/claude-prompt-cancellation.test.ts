@@ -64,6 +64,43 @@ void (async () => {
     assert.equal(pc.cancelPending(), 0, 'everything settled; a fresh stop cancels nothing');
   }
 
+  // Cancellation lands during the (deliberately unraced) model round-trip:
+  // cancelPending() has already minted a FRESH signal, so a build started
+  // after setModel resolves could never be released by the race — the link
+  // must bail via the watermark BEFORE starting the attachment prep, or the
+  // abandoned work blocks the serial chain and delays the resend.
+  {
+    const pc = createPromptCancellation();
+    let chain: Promise<void> = Promise.resolve();
+    let buildStarted = false;
+    let releaseModelSwitch: () => void = () => {};
+    const modelSwitch = new Promise<void>((resolve) => {
+      releaseModelSwitch = resolve;
+    });
+
+    const seq = pc.issueSeq();
+    chain = chain
+      .then(async () => {
+        if (pc.isCancelled(seq)) return;
+        await modelSwitch; // setModel — not raced by design
+        if (pc.isCancelled(seq)) return; // ← the re-check under test
+        buildStarted = true;
+        await pc.race(new Promise<string>(() => {})); // never-finishing prep
+      })
+      .finally(() => pc.settle(seq));
+
+    await tick(); // link is parked on the model round-trip
+    assert.equal(pc.cancelPending(), 1, 'the mid-setModel prompt counts as pending');
+    releaseModelSwitch();
+
+    const outcome = await Promise.race([
+      chain.then(() => 'done'),
+      new Promise<string>((resolve) => setTimeout(resolve, 2_000, 'timeout')),
+    ]);
+    assert.equal(outcome, 'done', 'link bails after the model step; the chain never blocks');
+    assert.equal(buildStarted, false, 'a cancelled prompt must not start attachment prep');
+  }
+
   // Cancellation lands BEFORE the link starts: the entry watermark check
   // catches it without ever entering the race.
   {
