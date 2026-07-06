@@ -5003,7 +5003,15 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
   });
 
   ipcMainHandle('install-skill-from-market', async (_event, id: string) => {
-    return installSkillFromMarket(id);
+    const result = await installSkillFromMarket(id);
+    if (result.ok) {
+      // A live Claude runner fixed its skill list at spawn; retire kept-alive
+      // runners (doom busy ones) so `/<new-skill>` works on the next turn.
+      // (The ipc/skill-market module registration shadows this handler and
+      // does the same via ctx.onClaudeSkillsChanged — keep them in sync.)
+      flushClaudeRunners();
+    }
+    return result;
   });
 
   ipcMainHandle(
@@ -6880,6 +6888,9 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     broadcastFolderChanged,
     ATTACHMENT_MIME_TYPES,
     LOCAL_PREVIEW_MIME_TYPES,
+    // Skill installs change what a Claude CLI process loaded at spawn;
+    // kept-alive runners must be retired so the next turn sees the new skill.
+    onClaudeSkillsChanged: () => flushClaudeRunners(),
   }
   registerTerminal(ipcCtx)
   registerFeishu(ipcCtx)
