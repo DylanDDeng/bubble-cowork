@@ -59,11 +59,25 @@ assert.equal(
   'P0c: first-output must be gated on top-level assistant / text|thinking deltas only'
 );
 // Terminal turn paths must close the latency window (a no-output stop/error
-// would otherwise wedge every later measurement for the session).
+// would otherwise wedge every later measurement for the session), but the
+// result-path clear must be gated on the runner draining its last turn so a
+// queued fast follow-up's fresh window is not deleted before it can log.
 assert.equal(
   (ipcSource.match(/clearClaudeTurnMetrics\(session\.id\)/g) || []).length >= 2,
   true,
   'P0c: result and error paths must clear the latency window'
+);
+assert.equal(
+  /else if \(drained\) \{[\s\S]{0,200}clearClaudeTurnMetrics\(session\.id\)/.test(ipcSource),
+  true,
+  'P0c: result-path latency clear must be gated on the drained branch'
+);
+// An evicted (still-booting) prewarm handle must be quarantined before abort
+// so a late message cannot touch a session a real runner has taken over.
+assert.equal(
+  /userStoppedRunnerHandles\.add\(evicted\.handle\);\s*\n\s*evicted\.handle\.abort\(\)/.test(ipcSource),
+  true,
+  'P3: evicted prewarm handle must be quarantined before abort'
 );
 
 // P0b — SDK import warmed at startup.

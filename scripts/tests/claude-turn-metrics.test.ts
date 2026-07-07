@@ -79,6 +79,24 @@ try {
     assert.equal(outputs.length, 2, 'each turn records its own first-output');
     assert.equal(outputs[1].includes('warm-reuse'), true, 'second window uses the new mode');
   }
+
+  // ── Queued fast follow-up: a dispatch after the current turn's first output
+  //    opens a fresh window that survives until its OWN output. The ipc result
+  //    handler only clears on drain, so turn 1's result must not wipe it — this
+  //    verifies the metrics half: turn 2's dispatch is not blocked by turn 1's
+  //    still-open-but-completed window. ─────────────────────────────────────
+  {
+    reset();
+    const s = 'session-queued-followup';
+    markClaudePromptDispatched(s, 'warm-reuse', false);
+    markClaudeFirstOutput(s); // turn 1 first output
+    // turn 2 queued before turn 1's result — must open its own window
+    markClaudePromptDispatched(s, 'warm-reuse', false);
+    markClaudeFirstOutput(s); // turn 2 first output — must log, not be swallowed
+    const outputs = logs.filter((l) => l.includes('first-output'));
+    assert.equal(outputs.length, 2, 'queued follow-up records its own first-output');
+    clearClaudeTurnMetrics(s);
+  }
 } finally {
   console.log = originalLog;
 }

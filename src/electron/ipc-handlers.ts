@@ -8892,9 +8892,21 @@ function startRunner(
               clearStopFallbackTimer(currentEntry);
               currentEntry.handle.abort();
               runnerHandles.delete(session.id);
+              // Close the latency window only when the live runner has drained
+              // its LAST turn — clearing on every result would delete a fast
+              // follow-up's fresh window (dispatched after this turn's first
+              // output, before its result) before it can log. A no-output
+              // stop/interrupt still lands a result and drains, so a wedged
+              // window is released here too.
+              if (provider === 'claude') {
+                clearClaudeTurnMetrics(session.id);
+              }
             } else if (drained) {
               currentEntry.lastTurnEndedAt = Date.now();
               sweepIdleClaudeRunners();
+              if (provider === 'claude') {
+                clearClaudeTurnMetrics(session.id);
+              }
             }
           }
         }
@@ -8903,13 +8915,6 @@ function startRunner(
         // localFailureMessage marks every later turn as failed).
         localFailureMessage = null;
         sawTurnOutput = false;
-        // Close the latency window for this turn so the next prompt opens a
-        // fresh one. A turn stopped or interrupted before any output still
-        // lands a result; without this the pending window stays half-open
-        // (no first-output) and blocks every later window for the session.
-        if (provider === 'claude') {
-          clearClaudeTurnMetrics(session.id);
-        }
       }
     },
     onError: (error) => {
@@ -9204,6 +9209,13 @@ async function handleRunnerPrewarm(
     const evicted = runnerHandles.get(oldest);
     if (evicted) {
       clearStopFallbackTimer(evicted);
+      // Quarantine the handle before aborting: if this booting prewarm ever
+      // emits a late message (e.g. an init racing the abort) after a real
+      // runner has taken over that session, the onMessage stale-handle guard
+      // must drop it so it can't overwrite the live runner's session id/model.
+      // (A promptless prewarm emits no init today — this is a hard invariant,
+      // not a live race.)
+      userStoppedRunnerHandles.add(evicted.handle);
       evicted.handle.abort();
       runnerHandles.delete(oldest);
     }
