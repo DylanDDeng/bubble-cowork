@@ -89,6 +89,22 @@ assert.ok(
   'browser panel hosts the drawer inline (NOT a sibling utility tab — review blocker #2)'
 );
 
+// Design-mode Apply must never reload Aegis itself: dev-fixtures are excluded
+// from Aegis's own tailwind scan + vite watch, and the main process cleans up
+// orphaned native views when the host renderer reloads for any reason.
+assert.ok(
+  fs.readFileSync(path.join(root, 'src/ui/index.css'), 'utf8').includes('@source not "../../dev-fixtures"'),
+  'index.css excludes dev-fixtures from tailwind content scan'
+);
+assert.ok(
+  fs.readFileSync(path.join(root, 'vite.config.ts'), 'utf8').includes('dev-fixtures/**'),
+  'vite config ignores dev-fixtures in server watch'
+);
+assert.ok(
+  fs.readFileSync(path.join(root, 'src/electron/browserManager.ts'), 'utf8').includes('handleHostRendererReload'),
+  'browserManager resets native views on host renderer reload (orphan WebContentsView fix)'
+);
+
 // ── Behavioral tests (compiled + run) ────────────────────────────────────────
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-design-'));
 const tscBin = path.join(root, 'node_modules', '.bin', process.platform === 'win32' ? 'tsc.cmd' : 'tsc');

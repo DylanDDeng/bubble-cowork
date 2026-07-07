@@ -216,10 +216,27 @@ export class BrowserManager {
   private readonly selectionListeners = new Set<BrowserSendSelectionListener>();
   private readonly suspendTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly closingRuntimeKeys = new Set<string>();
+  private hostReloadCleanup: (() => void) | null = null;
 
   setWindow(window: BrowserWindow | null): void {
+    this.hostReloadCleanup?.();
+    this.hostReloadCleanup = null;
     this.window = window;
     if (window) {
+      // A full host-renderer reload (Cmd+R, dev full-reload) never runs React
+      // unmount cleanup, so nothing hides the native views: the attached
+      // WebContentsView would float orphaned over the fresh UI, and its
+      // session — still the active one — would never suspend. Reset native
+      // state whenever the host renderer navigates; the renderer re-opens
+      // panels on demand after boot.
+      const hostContents = window.webContents;
+      const onHostNavigate = () => this.handleHostRendererReload();
+      hostContents.on('did-navigate', onHostNavigate);
+      this.hostReloadCleanup = () => {
+        if (!hostContents.isDestroyed()) {
+          hostContents.removeListener('did-navigate', onHostNavigate);
+        }
+      };
       if (this.activeSessionId && this.activeBounds) {
         this.attachActiveTab(this.activeSessionId, this.activeBounds);
       }
@@ -227,6 +244,17 @@ export class BrowserManager {
     }
     this.detachAttachedRuntime();
     this.destroyAllRuntimes();
+  }
+
+  private handleHostRendererReload(): void {
+    this.pinnedSessions.clear();
+    this.detachAttachedRuntime();
+    const sessionIds = [...this.states.keys()];
+    this.activeSessionId = null;
+    this.activeBounds = null;
+    for (const sessionId of sessionIds) {
+      this.suspendSession(sessionId);
+    }
   }
 
   subscribe(listener: BrowserStateListener): () => void {
