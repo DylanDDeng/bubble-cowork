@@ -48,6 +48,8 @@ import { BrowserPanel } from './components/browser/BrowserPanel';
 import { TerminalDrawer } from './components/TerminalDrawer';
 import { RightTerminalPanel } from './components/RightTerminalPanel';
 import { SubagentPanel } from './components/SubagentPanel';
+import { SubagentAvatar } from './components/SubagentAvatar';
+import { getSubagentPersona } from './utils/subagent-persona';
 import { WorkspaceHost } from './components/WorkspaceHost';
 import { ChatPane } from './components/ChatPane';
 import { useBrowserStateStore } from './store/useBrowserStateStore';
@@ -106,9 +108,18 @@ function isProjectUtilityBrowserTab(target: ProjectUtilityPanelTarget | null | u
   return target === 'browser' || Boolean(target?.startsWith('browser:'));
 }
 
+function isProjectUtilitySubagentTab(target: ProjectUtilityPanelTarget | null | undefined): boolean {
+  return target === 'subagent' || Boolean(target?.startsWith('subagent:'));
+}
+
+function getProjectUtilitySubagentId(target: ProjectUtilityPanelTarget): string | null {
+  return target.startsWith('subagent:') ? target.slice('subagent:'.length) : null;
+}
+
 function getProjectUtilityTabKind(target: ProjectUtilityPanelTarget): ProjectUtilityPanelKind {
   if (isProjectUtilityFileTab(target)) return 'files';
   if (isProjectUtilityBrowserTab(target)) return 'browser';
+  if (isProjectUtilitySubagentTab(target)) return 'subagent';
   return target;
 }
 
@@ -543,7 +554,14 @@ export function App() {
         return { id: tab, kind, label: 'Side Chat' };
       }
       if (kind === 'subagent') {
-        return { id: tab, kind, label: '子智能体' };
+        // The tab IS the subagent: pixel avatar + persona short name.
+        const subagentId = getProjectUtilitySubagentId(tab);
+        return {
+          id: tab,
+          kind,
+          label: subagentId ? getSubagentPersona(subagentId).persona : 'Subagent',
+          subagentId: subagentId ?? undefined,
+        };
       }
       return { id: tab, kind, label: workspaceLeaf || 'Terminal' };
     });
@@ -574,6 +592,10 @@ export function App() {
   );
   const browserUtilityTabs = useMemo(
     () => rightUtilityTabs.filter(isProjectUtilityBrowserTab),
+    [rightUtilityTabs]
+  );
+  const subagentUtilityTabs = useMemo(
+    () => rightUtilityTabs.filter(isProjectUtilitySubagentTab),
     [rightUtilityTabs]
   );
 
@@ -1031,12 +1053,14 @@ export function App() {
             sessionId={activeSessionId}
             cwd={activeSession?.cwd || projectCwd || null}
           />
-          {rightUtilityTabs.includes('subagent') ? (
+          {subagentUtilityTabs.map((tabId) => (
             <SubagentPanel
-              collapsed={activeRightUtilityTab !== 'subagent'}
+              key={tabId}
+              collapsed={activeRightUtilityTab !== tabId}
               sessionId={activeSessionId}
+              subagentId={getProjectUtilitySubagentId(tabId) ?? ''}
             />
-          ) : null}
+          ))}
         </RightUtilityWorkspace>
       ) : null}
       </AnimatePresence>
@@ -1392,7 +1416,13 @@ function RightUtilityTabStrip({
                   className="flex min-w-0 flex-1 items-center gap-1.5 pl-2.5 pr-1 text-left"
                   title={tab.label}
                 >
-                  {useFileIcon ? (
+                  {tab.kind === 'subagent' && tab.subagentId ? (
+                    <SubagentAvatar
+                      id={tab.subagentId}
+                      hue={getSubagentPersona(tab.subagentId).colorHue}
+                      size={14}
+                    />
+                  ) : useFileIcon ? (
                     <FileTypeIcon
                       name={tab.label}
                       className="h-3.5 w-3.5 flex-shrink-0"

@@ -22,6 +22,7 @@ import { EnvironmentGitActionsSection } from './EnvironmentGitActionsSection';
 import { EnvironmentContextSection } from './EnvironmentContextSection';
 import { useAppStore } from '../../store/useAppStore';
 import { deriveSubagentSummaries } from '../../utils/subagent-registry';
+import { SubagentAvatar } from '../SubagentAvatar';
 import { Users } from '../icons';
 import * as DropdownMenu from '../ui/dropdown-menu';
 
@@ -520,19 +521,11 @@ function EnvironmentSubagentSection({ onNavigate }: { onNavigate: () => void }) 
     <section className="space-y-1 border-t border-[var(--border)] px-3 py-3">
       <div className="flex items-center gap-1.5 px-2 text-[11px] font-medium text-[var(--text-muted)]">
         <Users className="h-3 w-3" />
-        <span>子智能体</span>
+        <span>Subagents</span>
         <span>· {summaries.length}</span>
       </div>
       {summaries.map((s) => {
         const running = s.status === 'pending' && session?.status === 'running';
-        const dotColor =
-          s.status === 'error'
-            ? 'var(--error)'
-            : s.status === 'success'
-              ? 'var(--success, #30a46c)'
-              : running
-                ? 'var(--accent)'
-                : 'var(--text-muted)';
         return (
           <button
             key={s.id}
@@ -544,9 +537,16 @@ function EnvironmentSubagentSection({ onNavigate }: { onNavigate: () => void }) 
             title={s.persona.functionalName}
             className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)]"
           >
-            <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dotColor }} />
-            <span className="min-w-0 flex-1 truncate">{s.persona.functionalName}</span>
-            <span className="shrink-0 text-[11px] text-[var(--text-muted)]">{s.persona.persona}</span>
+            <SubagentAvatar id={s.id} hue={s.persona.colorHue} size={14} />
+            <span className="shrink-0">{s.persona.persona}</span>
+            <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-muted)]">
+              {s.persona.functionalName}
+            </span>
+            {s.status === 'error' ? (
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: 'var(--error)' }} />
+            ) : running ? (
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: 'var(--accent)' }} />
+            ) : null}
           </button>
         );
       })}

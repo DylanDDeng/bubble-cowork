@@ -162,11 +162,16 @@ export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'revie
 export type ProjectUtilityPanelTarget =
   | ProjectUtilityPanelKind
   | `files:${string}`
-  | `browser:${string}`;
+  | `browser:${string}`
+  // One top-level tab PER subagent (the tool_use id after the colon) — there
+  // is no wrapper "subagent" tab; each subagent is its own strip tab.
+  | `subagent:${string}`;
 export type ProjectUtilityTabDescriptor = {
   id: ProjectUtilityPanelTarget;
   kind: ProjectUtilityPanelKind;
   label: string;
+  /** For subagent tabs: the subagent tool_use id (drives the pixel avatar). */
+  subagentId?: string;
 };
 
 export type ReviewDiffSource =
@@ -278,8 +283,6 @@ export interface AppState {
   activeRightUtilityTab: ProjectUtilityPanelTarget | null;
   rightUtilityPanelHidden: boolean;
   reviewDiffSelection: ReviewDiffSelection | null;
-  /** Currently-selected subagent (parentToolUseId) in the subagent detail panel. */
-  activeSubagentId: string | null;
   terminalDrawerOpen: boolean;
   terminalDrawerHeight: number;
   browserPanelOpen: boolean;
@@ -391,9 +394,8 @@ export interface AppActions {
   ) => void;
   setReviewDiffSelection: (selection: ReviewDiffSelectionInput | null) => void;
   openReviewDiff: (selection: ReviewDiffSelectionInput) => void;
-  /** Open the subagent detail panel focused on a subagent (parentToolUseId). */
+  /** Open (or focus) the dedicated top-level tab for a subagent (parentToolUseId). */
   openSubagentPanel: (subagentId: string) => void;
-  setActiveSubagentId: (subagentId: string | null) => void;
   closeRightUtilityTab: (target: ProjectUtilityPanelTarget) => void;
   closeRightUtilityPanels: () => void;
   showRightUtilityPanels: () => void;

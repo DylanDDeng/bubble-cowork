@@ -694,7 +694,7 @@ function SubagentLane({
         <button
           type="button"
           onClick={() => useAppStore.getState().openSubagentPanel(entry.block.id)}
-          title="在子智能体面板中打开"
+          title="Open in subagent panel"
           className={`flex-shrink-0 rounded p-1 text-[var(--text-muted)]/50 opacity-0 transition-opacity hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] group-hover:opacity-100 ${
             standalone ? 'mr-0.5' : 'mr-1.5'
           }`}

@@ -316,11 +316,16 @@ function isRightUtilityBrowserTab(target: ProjectUtilityPanelTarget | null | und
   return target === 'browser' || Boolean(target?.startsWith('browser:'));
 }
 
+function isRightUtilitySubagentTab(target: ProjectUtilityPanelTarget | null | undefined): boolean {
+  return target === 'subagent' || Boolean(target?.startsWith('subagent:'));
+}
+
 function getRightUtilityTabKind(
   target: ProjectUtilityPanelTarget
 ): ProjectUtilityPanelKind {
   if (isRightUtilityFileTab(target)) return 'files';
   if (isRightUtilityBrowserTab(target)) return 'browser';
+  if (isRightUtilitySubagentTab(target)) return 'subagent';
   return target;
 }
 
@@ -848,7 +853,6 @@ export const useAppStore = create<Store>()(
       activeRightUtilityTab: initialRightUtilityTab,
       rightUtilityPanelHidden: false,
       reviewDiffSelection: null,
-      activeSubagentId: null,
       terminalDrawerOpen: resolveInitialTerminalDrawerOpen(initialUiResumeState),
       terminalDrawerHeight: sanitizeTerminalDrawerHeight(initialUiResumeState?.terminalDrawerHeight),
       browserPanelOpen: false,
@@ -1555,19 +1559,16 @@ export const useAppStore = create<Store>()(
     });
   },
 
-  setActiveSubagentId: (subagentId) => set({ activeSubagentId: subagentId }),
-
   openSubagentPanel: (subagentId) => {
     // User-initiated (clicking a subagent in the inline board or env list):
-    // reveal the singleton subagent panel and select the subagent. This is
-    // NOT the auto-steal-on-launch behavior the review rejected — it only
-    // fires on an explicit click, so revealing the panel is expected.
+    // open/focus that subagent's OWN top-level tab (`subagent:<id>` — there is
+    // no wrapper tab). This is NOT the auto-steal-on-launch behavior the
+    // review rejected — it only fires on an explicit click.
     set((state) => {
-      const opened = resolveRightUtilityTabOpen(state.rightUtilityTabs, 'subagent');
+      const target: ProjectUtilityPanelTarget = `subagent:${subagentId}`;
       return {
-        activeSubagentId: subagentId,
-        rightUtilityTabs: opened.tabs,
-        activeRightUtilityTab: opened.activeTab,
+        rightUtilityTabs: addRightUtilityTab(state.rightUtilityTabs, target),
+        activeRightUtilityTab: target,
         rightUtilityPanelHidden: false,
         projectTreeCollapsed: true,
         browserPanelOpen: false,

@@ -73,6 +73,46 @@ export interface SubagentPersona {
   shortId: string;
 }
 
+/**
+ * Deterministic 5×5 pixel sprite for a subagent avatar, derived purely from
+ * the id (same stability guarantee as the persona name). Left/right mirrored
+ * — 3 unique columns reflected to 5 — so it reads as a little creature.
+ * Cell values: 0 = empty, 1 = base color, 2 = darker shade of the same hue.
+ */
+export function getSubagentSprite(parentToolUseId: string): number[] {
+  const fillBits = hashString(`sprite:${parentToolUseId}`);
+  const shadeBits = hashString(`shade:${parentToolUseId}`);
+
+  // 15 unique cells (5 rows × 3 columns), row-major.
+  const unique: number[] = [];
+  let filled = 0;
+  for (let i = 0; i < 15; i += 1) {
+    const on = (fillBits >> i) & 1;
+    if (on) {
+      filled += 1;
+      unique.push(((shadeBits >> i) & 1) ? 2 : 1);
+    } else {
+      unique.push(0);
+    }
+  }
+  // Too sparse to read as a sprite → force a small center-heavy core.
+  if (filled < 5) {
+    for (const i of [4, 7, 10, 13]) {
+      if (unique[i] === 0) unique[i] = ((shadeBits >> i) & 1) ? 2 : 1;
+    }
+  }
+
+  // Mirror: unique cols [0,1,2] → full row [0,1,2,1,0].
+  const grid: number[] = [];
+  for (let row = 0; row < 5; row += 1) {
+    const a = unique[row * 3];
+    const b = unique[row * 3 + 1];
+    const c = unique[row * 3 + 2];
+    grid.push(a, b, c, b, a);
+  }
+  return grid;
+}
+
 export function getSubagentPersona(
   parentToolUseId: string,
   subagentType?: string | null,

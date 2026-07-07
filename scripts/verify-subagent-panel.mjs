@@ -49,14 +49,14 @@ assert.ok(
   'types: subagent must be a ProjectUtilityPanelKind'
 );
 assert.ok(
-  typesSrc.includes('openSubagentPanel') && typesSrc.includes('activeSubagentId'),
-  'types: store must expose openSubagentPanel + activeSubagentId'
+  typesSrc.includes('openSubagentPanel') && typesSrc.includes('subagent:${string}'),
+  'types: store must expose openSubagentPanel + per-subagent `subagent:<id>` tab targets'
 );
 
 const storeSrc = fs.readFileSync(path.join(root, 'src', 'ui', 'store', 'useAppStore.ts'), 'utf8');
 assert.ok(
-  storeSrc.includes('openSubagentPanel:') && storeSrc.includes("resolveRightUtilityTabOpen(state.rightUtilityTabs, 'subagent')"),
-  'store: openSubagentPanel must open the singleton subagent tab'
+  storeSrc.includes('openSubagentPanel:') && storeSrc.includes('`subagent:${subagentId}`'),
+  'store: openSubagentPanel must open/focus that subagent\'s own top-level tab (no wrapper tab)'
 );
 
 const panelSrc = fs.readFileSync(path.join(root, 'src', 'ui', 'components', 'SubagentPanel.tsx'), 'utf8');
@@ -69,14 +69,18 @@ assert.ok(
   'panel: follow-up must inject a visible quote into the MAIN composer, not host a subagent composer'
 );
 assert.ok(
-  panelSrc.includes('已转入后台'),
+  panelSrc.includes('moved to the background'),
   'panel: must show an explicit frozen-state banner for backgrounded subagents'
 );
 
 const appSrc = fs.readFileSync(path.join(root, 'src', 'ui', 'App.tsx'), 'utf8');
 assert.ok(
-  appSrc.includes('<SubagentPanel') && appSrc.includes("rightUtilityTabs.includes('subagent')"),
-  'App: SubagentPanel must render when the subagent tab is open'
+  appSrc.includes('<SubagentPanel') && appSrc.includes('subagentUtilityTabs.map'),
+  'App: one SubagentPanel must mount per open subagent tab'
+);
+assert.ok(
+  appSrc.includes('<SubagentAvatar') && appSrc.includes('getSubagentPersona'),
+  'App: strip tabs must show the pixel avatar + persona short name'
 );
 
 const workstreamCmpSrc = fs.readFileSync(path.join(root, 'src', 'ui', 'components', 'AssistantWorkstream.tsx'), 'utf8');

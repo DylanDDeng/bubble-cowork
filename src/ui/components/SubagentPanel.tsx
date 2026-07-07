@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { useShallow } from 'zustand/react/shallow';
-import { Users, Loader2, MessageSquare } from './icons';
+import { Loader2, MessageSquare } from './icons';
 import type { StreamMessage, ToolStatus } from '../types';
 import {
   getMessageContentBlocks,
@@ -13,6 +12,7 @@ import { deriveTranscriptTimelineItems } from '../utils/transcript-timeline';
 import { deriveSubagentSummaries, type SubagentSummary } from '../utils/subagent-registry';
 import { MessageCard } from './MessageCard';
 import { ToolExecutionBatch } from './ToolExecutionBatch';
+import { SubagentAvatar } from './SubagentAvatar';
 
 type ToolResultBlock = { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
 
@@ -55,42 +55,31 @@ function StatusDot({ state }: { state: SubagentDisplayState }) {
 }
 
 /**
- * Single, per-session subagent detail panel (the reviewed design: one utility
- * tab, an internal list to switch between the session's subagents, read-only
- * full transcript of the selected one). No composer — following up goes to the
+ * Read-only detail view for ONE subagent — each subagent gets its own
+ * top-level utility tab (`subagent:<id>`), so there is no internal switcher
+ * here; the strip tab IS the switcher. No composer — following up goes to the
  * MAIN agent via a visible quote injected into the main composer, because the
  * SDK cannot address a running/finished subagent directly.
  */
 export function SubagentPanel({
   collapsed,
   sessionId,
+  subagentId,
 }: {
   collapsed: boolean;
   sessionId: string | null;
+  subagentId: string;
 }) {
   const session = useAppStore((s) => (sessionId ? s.sessions[sessionId] ?? null : null));
-  const { activeSubagentId, setActiveSubagentId, requestChatInjection } = useAppStore(
-    useShallow((s) => ({
-      activeSubagentId: s.activeSubagentId,
-      setActiveSubagentId: s.setActiveSubagentId,
-      requestChatInjection: s.requestChatInjection,
-    }))
-  );
+  const requestChatInjection = useAppStore((s) => s.requestChatInjection);
 
   const summaries = useMemo(
     () => (session ? deriveSubagentSummaries(session.messages) : []),
     [session?.messages]
   );
 
-  // Validate the selection against the current session's subagents — a
-  // rewound-away or cross-session id falls back to the first available.
-  const selectedId = useMemo(() => {
-    if (activeSubagentId && summaries.some((s) => s.id === activeSubagentId)) {
-      return activeSubagentId;
-    }
-    return summaries[0]?.id ?? null;
-  }, [activeSubagentId, summaries]);
-  const selected = summaries.find((s) => s.id === selectedId) ?? null;
+  const selected = summaries.find((s) => s.id === subagentId) ?? null;
+  const selectedId = selected?.id ?? null;
 
   const { toolStatusMap, toolResultsMap } = useMemo(() => {
     const statusMap = new Map<string, ToolStatus>();
@@ -145,7 +134,7 @@ export function SubagentPanel({
     // not a fake per-subagent input. The user sees exactly what will be sent.
     requestChatInjection({
       sessionId,
-      text: `关于「${label}」子智能体的工作:`,
+      text: `About the "${label}" subagent's work: `,
       mode: 'append',
       source: 'subagent-panel',
     });
@@ -156,74 +145,39 @@ export function SubagentPanel({
       className="absolute inset-0 flex min-h-0 flex-col bg-[var(--bg-primary)]"
       data-subagent-panel
     >
-      {/* Header + subagent switcher */}
-      <div className="flex-shrink-0 border-b border-[var(--border)] px-3 py-2">
-        <div className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]">
-          <Users className="h-3.5 w-3.5" />
-          <span>子智能体</span>
-          {summaries.length > 0 ? (
-            <span className="text-[var(--text-muted)]">· {summaries.length}</span>
-          ) : null}
-        </div>
-        {summaries.length > 0 ? (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {summaries.map((s) => {
-              const st = displayState(s, Boolean(sessionRunning));
-              const active = s.id === selectedId;
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setActiveSubagentId(s.id)}
-                  className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-1 text-xs transition-colors ${
-                    active
-                      ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] text-[var(--text-primary)]'
-                      : 'border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)]'
-                  }`}
-                  title={s.persona.functionalName}
-                >
-                  <StatusDot state={st} />
-                  <span
-                    className="h-2 w-2 flex-shrink-0 rounded-full"
-                    style={{ backgroundColor: `hsl(${s.persona.colorHue} 55% 55%)` }}
-                  />
-                  <span className="truncate">{s.persona.functionalName}</span>
-                  <span className="flex-shrink-0 text-[var(--text-muted)]">{s.persona.persona}</span>
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
-      </div>
-
-      {/* Selected subagent transcript */}
+      {/* This subagent's transcript — the strip tab is the switcher */}
       {selected ? (
         <>
-          <div className="flex flex-shrink-0 items-center justify-between gap-2 px-3 py-2 text-xs text-[var(--text-muted)]">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2 text-xs text-[var(--text-muted)]">
+            <div className="flex min-w-0 items-center gap-2">
+              <SubagentAvatar id={selected.id} hue={selected.persona.colorHue} size={14} />
               <StatusDot state={state} />
-              <span className="text-[var(--text-secondary)]">
-                {state === 'running' ? '运行中' : state === 'error' ? '失败' : state === 'frozen' ? '已转入后台' : '已完成'}
+              <span
+                className="min-w-0 truncate text-[var(--text-secondary)]"
+                title={selected.persona.functionalName}
+              >
+                {selected.persona.functionalName}
               </span>
-              {typeof selected.durationMs === 'number' ? (
-                <span>· {formatDuration(selected.durationMs)}</span>
-              ) : null}
+              <span className="flex-shrink-0">
+                {state === 'running' ? 'Running' : state === 'error' ? 'Failed' : state === 'frozen' ? 'Backgrounded' : 'Done'}
+                {typeof selected.durationMs === 'number' ? ` · ${formatDuration(selected.durationMs)}` : ''}
+              </span>
             </div>
             <button
               type="button"
               onClick={handleFollowUp}
               className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-              title="子智能体不能单独对话;这会在主对话里预填一条引用,由主 agent 决定是否再派子任务"
+              title="Subagents can't be messaged directly — this prefills a quote in the main chat, and the main agent decides whether to spawn a follow-up task"
             >
               <MessageSquare className="h-3 w-3" />
-              在主对话里跟进
+              Follow up in main chat
             </button>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
             {timelineItems.length === 0 ? (
               <div className="mt-6 text-center text-xs text-[var(--text-muted)]">
-                {state === 'running' ? '子智能体启动中…' : '暂无可显示的运行记录。'}
+                {state === 'running' ? 'Subagent starting…' : 'No activity to show yet.'}
               </div>
             ) : (
               timelineItems.map((item, idx) =>
@@ -253,20 +207,20 @@ export function SubagentPanel({
             )}
             {state === 'frozen' ? (
               <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-xs text-[var(--text-muted)]">
-                此子智能体已转入后台,后续过程不再实时回传。最终结果会汇总到主对话。
+                This subagent moved to the background — further progress is not streamed here. Its final result will be reported back in the main chat.
               </div>
             ) : null}
             {state === 'running' ? (
               <div className="mt-3 flex items-center gap-2 text-xs text-[var(--text-muted)]">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                运行中…
+                Running…
               </div>
             ) : null}
           </div>
         </>
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs text-[var(--text-muted)]">
-          本会话还没有子智能体。当主 agent 派生并行子任务时,它们会出现在这里。
+          This subagent isn't part of the current session — switch back to its original session to view it.
         </div>
       )}
     </div>

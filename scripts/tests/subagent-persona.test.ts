@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { getSubagentPersona } from '../../src/ui/utils/subagent-persona';
+import { getSubagentPersona, getSubagentSprite } from '../../src/ui/utils/subagent-persona';
 
 // ── Determinism: same id → identical persona/color, every time ─────────────
 {
@@ -69,6 +69,34 @@ import { getSubagentPersona } from '../../src/ui/utils/subagent-persona';
 {
   const p = getSubagentPersona('toolu_01ABCDEF');
   assert.equal(p.shortId, 'CDEF');
+}
+
+// ── Pixel sprite: deterministic, mirrored, readable across many ids ─────────
+{
+  const ids = ['toolu_01ABC', 'a', 'x'.repeat(30), ...Array.from({ length: 30 }, (_, i) => `toolu_${i}`)];
+  for (const id of ids) {
+    const grid = getSubagentSprite(id);
+    assert.equal(grid.length, 25, '5×5 grid');
+    assert.deepEqual(grid, getSubagentSprite(id), 'same id → identical sprite');
+    for (const cell of grid) {
+      assert.ok(cell === 0 || cell === 1 || cell === 2, 'cells are 0/1/2');
+    }
+    for (let row = 0; row < 5; row += 1) {
+      assert.equal(grid[row * 5], grid[row * 5 + 4], 'cols 0/4 mirror');
+      assert.equal(grid[row * 5 + 1], grid[row * 5 + 3], 'cols 1/3 mirror');
+    }
+    const filled = grid.filter((c) => c !== 0).length;
+    assert.ok(filled >= 4, `sprite never near-empty (got ${filled} for ${id})`);
+  }
+}
+
+// ── Different ids generally get different sprites ────────────────────────────
+{
+  const sprites = new Set<string>();
+  for (let i = 0; i < 20; i += 1) {
+    sprites.add(getSubagentSprite(`toolu_${i}`).join(''));
+  }
+  assert.ok(sprites.size >= 15, 'a spread of ids yields a spread of sprites');
 }
 
 console.log('subagent-persona.test.ts passed');
