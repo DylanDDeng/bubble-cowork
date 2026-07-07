@@ -25,6 +25,7 @@ import {
   ChevronDown,
   RefreshCw,
   Upload,
+  Users,
   X,
 } from './components/icons';
 import { useAppStore } from './store/useAppStore';
@@ -46,6 +47,7 @@ import { AegisDiffPanel } from './components/AegisDiffPanel';
 import { BrowserPanel } from './components/browser/BrowserPanel';
 import { TerminalDrawer } from './components/TerminalDrawer';
 import { RightTerminalPanel } from './components/RightTerminalPanel';
+import { SubagentPanel } from './components/SubagentPanel';
 import { WorkspaceHost } from './components/WorkspaceHost';
 import { ChatPane } from './components/ChatPane';
 import { useBrowserStateStore } from './store/useBrowserStateStore';
@@ -540,6 +542,9 @@ export function App() {
       if (kind === 'side-chat') {
         return { id: tab, kind, label: 'Side Chat' };
       }
+      if (kind === 'subagent') {
+        return { id: tab, kind, label: '子智能体' };
+      }
       return { id: tab, kind, label: workspaceLeaf || 'Terminal' };
     });
   }, [
@@ -1026,6 +1031,12 @@ export function App() {
             sessionId={activeSessionId}
             cwd={activeSession?.cwd || projectCwd || null}
           />
+          {rightUtilityTabs.includes('subagent') ? (
+            <SubagentPanel
+              collapsed={activeRightUtilityTab !== 'subagent'}
+              sessionId={activeSessionId}
+            />
+          ) : null}
         </RightUtilityWorkspace>
       ) : null}
       </AnimatePresence>
@@ -1060,6 +1071,7 @@ function getUtilityTabIcon(target: ProjectUtilityPanelKind) {
   if (target === 'browser') return Globe;
   if (target === 'side-chat') return MessageCircle;
   if (target === 'review') return FileDiff;
+  if (target === 'subagent') return Users;
   return FolderClosed;
 }
 
@@ -1428,7 +1440,10 @@ function RightUtilityTabStrip({
   );
 }
 
-type PanelLauncherKind = 'launcher' | 'files' | 'side-chat' | 'browser' | 'review' | 'terminal';
+// 'subagent' is a valid active panel (opened programmatically from the inline
+// board / environment list), but it is intentionally NOT offered in the
+// launcher menu — it only exists when the main agent has spawned subagents.
+type PanelLauncherKind = 'launcher' | 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent';
 
 function PanelLauncher({
   activePanel,

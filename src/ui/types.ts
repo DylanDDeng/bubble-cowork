@@ -158,7 +158,7 @@ export interface SessionStreamingState {
 export type ActiveWorkspace = 'chat' | 'skills' | 'prompts' | 'automations';
 export type ChatSidebarView = 'threads' | 'prompts' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
-export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal';
+export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent';
 export type ProjectUtilityPanelTarget =
   | ProjectUtilityPanelKind
   | `files:${string}`
@@ -278,6 +278,8 @@ export interface AppState {
   activeRightUtilityTab: ProjectUtilityPanelTarget | null;
   rightUtilityPanelHidden: boolean;
   reviewDiffSelection: ReviewDiffSelection | null;
+  /** Currently-selected subagent (parentToolUseId) in the subagent detail panel. */
+  activeSubagentId: string | null;
   terminalDrawerOpen: boolean;
   terminalDrawerHeight: number;
   browserPanelOpen: boolean;
@@ -389,6 +391,9 @@ export interface AppActions {
   ) => void;
   setReviewDiffSelection: (selection: ReviewDiffSelectionInput | null) => void;
   openReviewDiff: (selection: ReviewDiffSelectionInput) => void;
+  /** Open the subagent detail panel focused on a subagent (parentToolUseId). */
+  openSubagentPanel: (subagentId: string) => void;
+  setActiveSubagentId: (subagentId: string | null) => void;
   closeRightUtilityTab: (target: ProjectUtilityPanelTarget) => void;
   closeRightUtilityPanels: () => void;
   showRightUtilityPanels: () => void;

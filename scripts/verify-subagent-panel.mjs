@@ -42,6 +42,55 @@ assert.ok(
   'scope must keep only the scoped subagent messages'
 );
 
+// ── UI wiring assertions ─────────────────────────────────────────────────────
+const typesSrc = fs.readFileSync(path.join(root, 'src', 'ui', 'types.ts'), 'utf8');
+assert.ok(
+  /ProjectUtilityPanelKind =[^;]*'subagent'/.test(typesSrc),
+  'types: subagent must be a ProjectUtilityPanelKind'
+);
+assert.ok(
+  typesSrc.includes('openSubagentPanel') && typesSrc.includes('activeSubagentId'),
+  'types: store must expose openSubagentPanel + activeSubagentId'
+);
+
+const storeSrc = fs.readFileSync(path.join(root, 'src', 'ui', 'store', 'useAppStore.ts'), 'utf8');
+assert.ok(
+  storeSrc.includes('openSubagentPanel:') && storeSrc.includes("resolveRightUtilityTabOpen(state.rightUtilityTabs, 'subagent')"),
+  'store: openSubagentPanel must open the singleton subagent tab'
+);
+
+const panelSrc = fs.readFileSync(path.join(root, 'src', 'ui', 'components', 'SubagentPanel.tsx'), 'utf8');
+assert.ok(
+  panelSrc.includes('deriveSubagentSummaries') && panelSrc.includes('subagentScopeId'),
+  'panel: must derive per-session subagents and render the scoped transcript'
+);
+assert.ok(
+  panelSrc.includes('requestChatInjection') && !/(<PromptInput|composer.*subagent)/i.test(panelSrc),
+  'panel: follow-up must inject a visible quote into the MAIN composer, not host a subagent composer'
+);
+assert.ok(
+  panelSrc.includes('已转入后台'),
+  'panel: must show an explicit frozen-state banner for backgrounded subagents'
+);
+
+const appSrc = fs.readFileSync(path.join(root, 'src', 'ui', 'App.tsx'), 'utf8');
+assert.ok(
+  appSrc.includes('<SubagentPanel') && appSrc.includes("rightUtilityTabs.includes('subagent')"),
+  'App: SubagentPanel must render when the subagent tab is open'
+);
+
+const workstreamCmpSrc = fs.readFileSync(path.join(root, 'src', 'ui', 'components', 'AssistantWorkstream.tsx'), 'utf8');
+assert.ok(
+  workstreamCmpSrc.includes('openSubagentPanel(entry.block.id)'),
+  'inline board: a lane must open the detail panel'
+);
+
+const envHubSrc = fs.readFileSync(path.join(root, 'src', 'ui', 'components', 'environment', 'EnvironmentHub.tsx'), 'utf8');
+assert.ok(
+  envHubSrc.includes('EnvironmentSubagentSection') && envHubSrc.includes('openSubagentPanel'),
+  'env hub: must list subagents and open the panel on click'
+);
+
 // ── Behavioral tests (compiled + run) ────────────────────────────────────────
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-subagent-'));
 const tscBin = path.join(

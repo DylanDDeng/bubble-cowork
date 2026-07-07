@@ -848,6 +848,7 @@ export const useAppStore = create<Store>()(
       activeRightUtilityTab: initialRightUtilityTab,
       rightUtilityPanelHidden: false,
       reviewDiffSelection: null,
+      activeSubagentId: null,
       terminalDrawerOpen: resolveInitialTerminalDrawerOpen(initialUiResumeState),
       terminalDrawerHeight: sanitizeTerminalDrawerHeight(initialUiResumeState?.terminalDrawerHeight),
       browserPanelOpen: false,
@@ -1550,6 +1551,26 @@ export const useAppStore = create<Store>()(
             : state.rightPanelFullscreen === 'files'
               ? 'review'
               : state.rightPanelFullscreen,
+      };
+    });
+  },
+
+  setActiveSubagentId: (subagentId) => set({ activeSubagentId: subagentId }),
+
+  openSubagentPanel: (subagentId) => {
+    // User-initiated (clicking a subagent in the inline board or env list):
+    // reveal the singleton subagent panel and select the subagent. This is
+    // NOT the auto-steal-on-launch behavior the review rejected — it only
+    // fires on an explicit click, so revealing the panel is expected.
+    set((state) => {
+      const opened = resolveRightUtilityTabOpen(state.rightUtilityTabs, 'subagent');
+      return {
+        activeSubagentId: subagentId,
+        rightUtilityTabs: opened.tabs,
+        activeRightUtilityTab: opened.activeTab,
+        rightUtilityPanelHidden: false,
+        projectTreeCollapsed: true,
+        browserPanelOpen: false,
       };
     });
   },
