@@ -8191,15 +8191,24 @@ async function handleSessionContinue(
       existingEntry.activeAgentId = sessionAgentId;
       existingEntry.activeAgentRunId = createAgentRunId(sessionAgentId, 'continue');
       if (nextProvider === 'claude') {
+        // Only a dispatch into an IDLE runner opens a latency window. A turn
+        // queued while a previous one is still streaming can't be timed with
+        // a session-keyed window — the earlier turn's ongoing deltas would
+        // satisfy its first-output instantly. The metric targets the
+        // idle→busy startup latency (cold / warm-reuse / prewarm-hit), which
+        // is exactly the idle-dispatch case.
+        const wasIdle = (existingEntry.inFlightTurns ?? 0) === 0;
         // Count the dispatched turn BEFORE send so the reaper can never see
         // this entry as idle between dispatch and the first stream message.
         existingEntry.inFlightTurns = (existingEntry.inFlightTurns ?? 0) + 1;
         (existingEntry.pendingTurnPrompts ??= []).push(runnerPrompt);
-        markClaudePromptDispatched(
-          sessionId,
-          existingEntry.prewarmed ? 'prewarm-hit' : 'warm-reuse',
-          false
-        );
+        if (wasIdle) {
+          markClaudePromptDispatched(
+            sessionId,
+            existingEntry.prewarmed ? 'prewarm-hit' : 'warm-reuse',
+            false
+          );
+        }
         existingEntry.prewarmed = false;
       }
       const sendOptions =
@@ -8436,6 +8445,13 @@ function startRunner(
   const staleEntry = runnerHandles.get(session.id);
   if (staleEntry) {
     clearStopFallbackTimer(staleEntry);
+    // Quarantine before abort: the replacement below becomes the session's
+    // owner, so any late message from the retired handle must be dropped by
+    // the onMessage stale-handle guard rather than mutate the new runner's
+    // session id/model. Covers the prewarm-vs-send race where a booting
+    // prewarm entry is installed after the send captured an empty slot and
+    // is torn down here as the stale entry.
+    userStoppedRunnerHandles.add(staleEntry.handle);
     staleEntry.handle.abort();
     runnerHandles.delete(session.id);
   }
@@ -9453,6 +9469,12 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
         entry.stoppedTurns = undefined;
         entry.stopFallbackAttempts = undefined;
         entry.lastTurnEndedAt = Date.now();
+        // A cancelled-before-dispatch turn produces no result, so close its
+        // latency window here — otherwise it stays half-open and blocks every
+        // later measurement for the session.
+        if (entry.provider === 'claude') {
+          clearClaudeTurnMetrics(sessionId);
+        }
       } else {
         // Soft stop: interrupt the in-flight turn but keep the runner (and
         // its warm context) alive so the next send skips the cold respawn.
@@ -9476,6 +9498,11 @@ function handleSessionStop(mainWindow: BrowserWindow, sessionId: string): void {
       clearStopFallbackTimer(entry);
       entry.handle.abort();
       runnerHandles.delete(sessionId);
+      // Hard abort: no result is coming for any open latency window on this
+      // session — close it so it can't wedge later measurements.
+      if (entry.provider === 'claude') {
+        clearClaudeTurnMetrics(sessionId);
+      }
     }
   }
 

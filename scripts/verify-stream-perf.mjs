@@ -79,6 +79,28 @@ assert.equal(
   true,
   'P3: evicted prewarm handle must be quarantined before abort'
 );
+// startRunner's stale-entry replacement must also quarantine before abort
+// (covers the prewarm-installed-after-send-captured-empty race).
+assert.equal(
+  /userStoppedRunnerHandles\.add\(staleEntry\.handle\);\s*\n\s*staleEntry\.handle\.abort\(\)/.test(ipcSource),
+  true,
+  'P2: startRunner must quarantine the stale entry before aborting it'
+);
+// Latency windows open only on dispatch into an IDLE runner, so a queued
+// follow-up's window can't be filled by the previous turn's ongoing deltas.
+assert.equal(
+  ipcSource.includes('const wasIdle = (existingEntry.inFlightTurns ?? 0) === 0;') &&
+    /if \(wasIdle\) \{\s*\n\s*markClaudePromptDispatched/.test(ipcSource),
+  true,
+  'P3: reuse path must only open a latency window when the runner was idle'
+);
+// Stop paths that produce no result (cancelled-before-dispatch, hard abort)
+// must close the latency window so it can't wedge later measurements.
+assert.equal(
+  (ipcSource.match(/clearClaudeTurnMetrics\(sessionId\)/g) || []).length >= 2,
+  true,
+  'P3: stop cancel + hard-abort branches must clear the latency window'
+);
 
 // P0b — SDK import warmed at startup.
 const mainSource = fs.readFileSync(path.join(root, 'src', 'electron', 'main.ts'), 'utf8');
