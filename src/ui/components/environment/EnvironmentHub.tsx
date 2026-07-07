@@ -386,9 +386,13 @@ export function EnvironmentHub({
         <EnvironmentIcon className="h-[14px] w-[14px] shrink-0" />
       </button>
       {open ? (
+        // Anchored to the trigger (the wrapper div is position:relative) so the
+        // card opens under the Environment icon wherever the header ends up —
+        // a viewport-fixed position drifts away from the icon once the right
+        // utility panel shrinks the chat pane.
         <div
           ref={panelRef}
-          className="no-drag fixed right-3 top-11 z-[70] max-h-[min(680px,calc(100vh-64px))] w-[318px] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_20px_50px_rgba(15,23,42,0.18)]"
+          className="no-drag absolute right-0 top-full z-[70] mt-1.5 max-h-[min(680px,calc(100vh-64px))] w-[318px] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_20px_50px_rgba(15,23,42,0.18)]"
         >
           <div className="flex items-start justify-between gap-3 px-4 py-3">
             <div className="min-w-0">
