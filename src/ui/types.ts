@@ -158,15 +158,20 @@ export interface SessionStreamingState {
 export type ActiveWorkspace = 'chat' | 'skills' | 'prompts' | 'automations';
 export type ChatSidebarView = 'threads' | 'prompts' | 'skills';
 export type ProjectPanelView = 'files' | 'changes';
-export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal';
+export type ProjectUtilityPanelKind = 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent';
 export type ProjectUtilityPanelTarget =
   | ProjectUtilityPanelKind
   | `files:${string}`
-  | `browser:${string}`;
+  | `browser:${string}`
+  // One top-level tab PER subagent (the tool_use id after the colon) — there
+  // is no wrapper "subagent" tab; each subagent is its own strip tab.
+  | `subagent:${string}`;
 export type ProjectUtilityTabDescriptor = {
   id: ProjectUtilityPanelTarget;
   kind: ProjectUtilityPanelKind;
   label: string;
+  /** For subagent tabs: the subagent tool_use id (drives the pixel avatar). */
+  subagentId?: string;
 };
 
 export type ReviewDiffSource =
@@ -389,6 +394,8 @@ export interface AppActions {
   ) => void;
   setReviewDiffSelection: (selection: ReviewDiffSelectionInput | null) => void;
   openReviewDiff: (selection: ReviewDiffSelectionInput) => void;
+  /** Open (or focus) the dedicated top-level tab for a subagent (parentToolUseId). */
+  openSubagentPanel: (subagentId: string) => void;
   closeRightUtilityTab: (target: ProjectUtilityPanelTarget) => void;
   closeRightUtilityPanels: () => void;
   showRightUtilityPanels: () => void;

@@ -7,10 +7,12 @@ import {
   FileDiff,
   FolderSearch,
   LoaderCircle,
+  PanelRight,
   ShieldAlert,
   SquareTerminal,
   Workflow,
 } from './icons';
+import { useAppStore } from '../store/useAppStore';
 import {
   type ToolResultBlock,
   type ToolUseBlock,
@@ -651,40 +653,55 @@ function SubagentLane({
   const description = trace?.description || getTaskDescription(entry) || entry.summary;
 
   return (
-    <div className={standalone ? 'group' : undefined}>
-      <button
-        type="button"
-        onClick={() => canExpand && setUserExpanded((value) => !(value ?? autoExpanded))}
-        disabled={!canExpand}
-        title={safeTitle(description)}
-        className={`flex w-full items-center gap-2 text-left text-[12px] leading-5 transition-colors disabled:opacity-100 ${
-          canExpand ? '' : 'cursor-default'
-        } ${standalone ? 'py-0.5' : 'px-2.5 py-1'}`}
-      >
-        <SubagentStatusDot status={entry.status} />
-        <span className="flex-shrink-0 rounded bg-[var(--subagent-bg)] px-1.5 font-mono text-[10.5px] leading-4 text-[var(--subagent)]">
-          {trace?.agentType || 'subagent'}
-        </span>
-        <span
-          className={`min-w-0 flex-1 truncate ${
-            isError
-              ? 'text-[var(--error)]'
-              : isPending
-                ? 'text-[var(--text-secondary)]'
-                : 'text-[var(--text-muted)]/70'
+    <div className="group">
+      <div className="flex items-center">
+        <button
+          type="button"
+          onClick={() => canExpand && setUserExpanded((value) => !(value ?? autoExpanded))}
+          disabled={!canExpand}
+          title={safeTitle(description)}
+          className={`flex min-w-0 flex-1 items-center gap-2 text-left text-[12px] leading-5 transition-colors disabled:opacity-100 ${
+            canExpand ? '' : 'cursor-default'
+          } ${standalone ? 'py-0.5' : 'px-2.5 py-1'}`}
+        >
+          <SubagentStatusDot status={entry.status} />
+          <span className="flex-shrink-0 rounded bg-[var(--subagent-bg)] px-1.5 font-mono text-[10.5px] leading-4 text-[var(--subagent)]">
+            {trace?.agentType || 'subagent'}
+          </span>
+          <span
+            className={`min-w-0 flex-1 truncate ${
+              isError
+                ? 'text-[var(--error)]'
+                : isPending
+                  ? 'text-[var(--text-secondary)]'
+                  : 'text-[var(--text-muted)]/70'
+            }`}
+          >
+            {description}
+          </span>
+          <SubagentLaneStats entry={entry} />
+          {canExpand ? (
+            <ChevronRight
+              className={`h-3 w-3 flex-shrink-0 text-[var(--text-muted)]/45 transition-transform ${
+                expanded ? 'rotate-90' : ''
+              }`}
+            />
+          ) : null}
+        </button>
+        {/* Open this subagent in the roomy right-side detail panel. Kept
+            separate from the inline expand toggle: inline = overview, panel =
+            full read-only transcript. */}
+        <button
+          type="button"
+          onClick={() => useAppStore.getState().openSubagentPanel(entry.block.id)}
+          title="Open in subagent panel"
+          className={`flex-shrink-0 rounded p-1 text-[var(--text-muted)]/50 opacity-0 transition-opacity hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] group-hover:opacity-100 ${
+            standalone ? 'mr-0.5' : 'mr-1.5'
           }`}
         >
-          {description}
-        </span>
-        <SubagentLaneStats entry={entry} />
-        {canExpand ? (
-          <ChevronRight
-            className={`h-3 w-3 flex-shrink-0 text-[var(--text-muted)]/45 transition-transform ${
-              expanded ? 'rotate-90' : ''
-            }`}
-          />
-        ) : null}
-      </button>
+          <PanelRight className="h-3 w-3" />
+        </button>
+      </div>
       {expanded ? <SubagentLaneDetail entry={entry} standalone={standalone} /> : null}
     </div>
   );

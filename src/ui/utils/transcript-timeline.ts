@@ -469,7 +469,19 @@ function collectResolvedToolUseIds(messages: StreamMessage[]): Set<string> {
 
 export function deriveTranscriptTimelineItems(
   messages: StreamMessage[],
-  options: { activeTurnStartIndex?: number; sessionRunning?: boolean } = {}
+  options: {
+    activeTurnStartIndex?: number;
+    sessionRunning?: boolean;
+    /**
+     * Subagent detail scope: when set, render ONLY the messages belonging to
+     * this subagent (parentToolUseId === scope) as the top-level transcript,
+     * instead of the default (skip all parentToolUseId messages). A nested
+     * sub-Task inside the subagent stays a Task block and renders as a nested
+     * board via the subagentMessagesByParent the render layer already holds —
+     * so grandchild activity is not lost. Default (undefined) is unchanged.
+     */
+    subagentScopeId?: string;
+  } = {}
 ): TranscriptTimelineItem[] {
   const items: TranscriptTimelineItem[] = [];
   let pendingWorkMessages: AssistantMessage[] = [];
@@ -527,9 +539,15 @@ export function deriveTranscriptTimelineItems(
       continue;
     }
 
-    // Subagent (Task) messages render nested under their Task row in the
-    // workstream, never inline in the top-level transcript.
-    if (message.parentToolUseId) {
+    // Default: subagent (Task) messages render nested under their Task row in
+    // the workstream, never inline in the top-level transcript. Scoped
+    // (subagent detail panel): keep ONLY this subagent's own direct messages,
+    // skipping the top-level turn and every other subagent.
+    if (options.subagentScopeId) {
+      if (message.parentToolUseId !== options.subagentScopeId) {
+        continue;
+      }
+    } else if (message.parentToolUseId) {
       continue;
     }
 

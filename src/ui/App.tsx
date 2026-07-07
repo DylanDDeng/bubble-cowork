@@ -25,6 +25,7 @@ import {
   ChevronDown,
   RefreshCw,
   Upload,
+  Users,
   X,
 } from './components/icons';
 import { useAppStore } from './store/useAppStore';
@@ -46,6 +47,9 @@ import { AegisDiffPanel } from './components/AegisDiffPanel';
 import { BrowserPanel } from './components/browser/BrowserPanel';
 import { TerminalDrawer } from './components/TerminalDrawer';
 import { RightTerminalPanel } from './components/RightTerminalPanel';
+import { SubagentPanel } from './components/SubagentPanel';
+import { SubagentAvatar } from './components/SubagentAvatar';
+import { getSubagentPersona } from './utils/subagent-persona';
 import { WorkspaceHost } from './components/WorkspaceHost';
 import { ChatPane } from './components/ChatPane';
 import { useBrowserStateStore } from './store/useBrowserStateStore';
@@ -104,9 +108,18 @@ function isProjectUtilityBrowserTab(target: ProjectUtilityPanelTarget | null | u
   return target === 'browser' || Boolean(target?.startsWith('browser:'));
 }
 
+function isProjectUtilitySubagentTab(target: ProjectUtilityPanelTarget | null | undefined): boolean {
+  return target === 'subagent' || Boolean(target?.startsWith('subagent:'));
+}
+
+function getProjectUtilitySubagentId(target: ProjectUtilityPanelTarget): string | null {
+  return target.startsWith('subagent:') ? target.slice('subagent:'.length) : null;
+}
+
 function getProjectUtilityTabKind(target: ProjectUtilityPanelTarget): ProjectUtilityPanelKind {
   if (isProjectUtilityFileTab(target)) return 'files';
   if (isProjectUtilityBrowserTab(target)) return 'browser';
+  if (isProjectUtilitySubagentTab(target)) return 'subagent';
   return target;
 }
 
@@ -540,6 +553,16 @@ export function App() {
       if (kind === 'side-chat') {
         return { id: tab, kind, label: 'Side Chat' };
       }
+      if (kind === 'subagent') {
+        // The tab IS the subagent: pixel avatar + persona short name.
+        const subagentId = getProjectUtilitySubagentId(tab);
+        return {
+          id: tab,
+          kind,
+          label: subagentId ? getSubagentPersona(subagentId).persona : 'Subagent',
+          subagentId: subagentId ?? undefined,
+        };
+      }
       return { id: tab, kind, label: workspaceLeaf || 'Terminal' };
     });
   }, [
@@ -569,6 +592,10 @@ export function App() {
   );
   const browserUtilityTabs = useMemo(
     () => rightUtilityTabs.filter(isProjectUtilityBrowserTab),
+    [rightUtilityTabs]
+  );
+  const subagentUtilityTabs = useMemo(
+    () => rightUtilityTabs.filter(isProjectUtilitySubagentTab),
     [rightUtilityTabs]
   );
 
@@ -1026,6 +1053,14 @@ export function App() {
             sessionId={activeSessionId}
             cwd={activeSession?.cwd || projectCwd || null}
           />
+          {subagentUtilityTabs.map((tabId) => (
+            <SubagentPanel
+              key={tabId}
+              collapsed={activeRightUtilityTab !== tabId}
+              sessionId={activeSessionId}
+              subagentId={getProjectUtilitySubagentId(tabId) ?? ''}
+            />
+          ))}
         </RightUtilityWorkspace>
       ) : null}
       </AnimatePresence>
@@ -1060,6 +1095,7 @@ function getUtilityTabIcon(target: ProjectUtilityPanelKind) {
   if (target === 'browser') return Globe;
   if (target === 'side-chat') return MessageCircle;
   if (target === 'review') return FileDiff;
+  if (target === 'subagent') return Users;
   return FolderClosed;
 }
 
@@ -1380,7 +1416,13 @@ function RightUtilityTabStrip({
                   className="flex min-w-0 flex-1 items-center gap-1.5 pl-2.5 pr-1 text-left"
                   title={tab.label}
                 >
-                  {useFileIcon ? (
+                  {tab.kind === 'subagent' && tab.subagentId ? (
+                    <SubagentAvatar
+                      id={tab.subagentId}
+                      hue={getSubagentPersona(tab.subagentId).colorHue}
+                      size={14}
+                    />
+                  ) : useFileIcon ? (
                     <FileTypeIcon
                       name={tab.label}
                       className="h-3.5 w-3.5 flex-shrink-0"
@@ -1428,7 +1470,10 @@ function RightUtilityTabStrip({
   );
 }
 
-type PanelLauncherKind = 'launcher' | 'files' | 'side-chat' | 'browser' | 'review' | 'terminal';
+// 'subagent' is a valid active panel (opened programmatically from the inline
+// board / environment list), but it is intentionally NOT offered in the
+// launcher menu — it only exists when the main agent has spawned subagents.
+type PanelLauncherKind = 'launcher' | 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent';
 
 function PanelLauncher({
   activePanel,

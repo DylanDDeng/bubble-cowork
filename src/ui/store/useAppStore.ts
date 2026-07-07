@@ -316,11 +316,16 @@ function isRightUtilityBrowserTab(target: ProjectUtilityPanelTarget | null | und
   return target === 'browser' || Boolean(target?.startsWith('browser:'));
 }
 
+function isRightUtilitySubagentTab(target: ProjectUtilityPanelTarget | null | undefined): boolean {
+  return target === 'subagent' || Boolean(target?.startsWith('subagent:'));
+}
+
 function getRightUtilityTabKind(
   target: ProjectUtilityPanelTarget
 ): ProjectUtilityPanelKind {
   if (isRightUtilityFileTab(target)) return 'files';
   if (isRightUtilityBrowserTab(target)) return 'browser';
+  if (isRightUtilitySubagentTab(target)) return 'subagent';
   return target;
 }
 
@@ -1550,6 +1555,23 @@ export const useAppStore = create<Store>()(
             : state.rightPanelFullscreen === 'files'
               ? 'review'
               : state.rightPanelFullscreen,
+      };
+    });
+  },
+
+  openSubagentPanel: (subagentId) => {
+    // User-initiated (clicking a subagent in the inline board or env list):
+    // open/focus that subagent's OWN top-level tab (`subagent:<id>` — there is
+    // no wrapper tab). This is NOT the auto-steal-on-launch behavior the
+    // review rejected — it only fires on an explicit click.
+    set((state) => {
+      const target: ProjectUtilityPanelTarget = `subagent:${subagentId}`;
+      return {
+        rightUtilityTabs: addRightUtilityTab(state.rightUtilityTabs, target),
+        activeRightUtilityTab: target,
+        rightUtilityPanelHidden: false,
+        projectTreeCollapsed: true,
+        browserPanelOpen: false,
       };
     });
   },

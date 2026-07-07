@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import {
   ArrowsSplit,
@@ -20,6 +20,10 @@ import type { ActiveEnvironmentContext } from './useActiveEnvironmentContext';
 import type { GitEnvironmentState } from './useGitEnvironment';
 import { EnvironmentGitActionsSection } from './EnvironmentGitActionsSection';
 import { EnvironmentContextSection } from './EnvironmentContextSection';
+import { useAppStore } from '../../store/useAppStore';
+import { deriveSubagentSummaries } from '../../utils/subagent-registry';
+import { SubagentAvatar } from '../SubagentAvatar';
+import { Users } from '../icons';
 import * as DropdownMenu from '../ui/dropdown-menu';
 
 function getPathLeaf(path: string): string {
@@ -480,6 +484,7 @@ export function EnvironmentHub({
                     onClick={() => void copyPath(context.effectiveCwd)}
                   />
                 </section>
+                <EnvironmentSubagentSection onNavigate={() => setOpen(false)} />
                 <EnvironmentContextSection context={context} />
               </>
             )}
@@ -494,5 +499,57 @@ export function EnvironmentHub({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Navigation index of the active session's top-level subagents. Not a third
+ * place to read a trace — a list that opens the roomy detail panel. Reads the
+ * active session directly from the store so it needs no prop threading.
+ */
+function EnvironmentSubagentSection({ onNavigate }: { onNavigate: () => void }) {
+  const session = useAppStore((s) => (s.activeSessionId ? s.sessions[s.activeSessionId] ?? null : null));
+  const openSubagentPanel = useAppStore((s) => s.openSubagentPanel);
+  const summaries = useMemo(
+    () => (session ? deriveSubagentSummaries(session.messages) : []),
+    [session?.messages]
+  );
+
+  if (summaries.length === 0) return null;
+
+  return (
+    <section className="space-y-1 border-t border-[var(--border)] px-3 py-3">
+      <div className="flex items-center gap-1.5 px-2 text-[11px] font-medium text-[var(--text-muted)]">
+        <Users className="h-3 w-3" />
+        <span>Subagents</span>
+        <span>· {summaries.length}</span>
+      </div>
+      {summaries.map((s) => {
+        const running = s.status === 'pending' && session?.status === 'running';
+        return (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => {
+              openSubagentPanel(s.id);
+              onNavigate();
+            }}
+            title={s.persona.functionalName}
+            className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)]"
+          >
+            <SubagentAvatar id={s.id} hue={s.persona.colorHue} size={14} />
+            <span className="shrink-0">{s.persona.persona}</span>
+            <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-muted)]">
+              {s.persona.functionalName}
+            </span>
+            {s.status === 'error' ? (
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: 'var(--error)' }} />
+            ) : running ? (
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: 'var(--accent)' }} />
+            ) : null}
+          </button>
+        );
+      })}
+    </section>
   );
 }
