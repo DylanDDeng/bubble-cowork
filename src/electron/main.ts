@@ -7,6 +7,7 @@ import { registerBrowserIpc, disposeBrowserIpc } from './browser-ipc';
 import { browserManager } from './browserManager';
 import { isDev, getPreloadPath, getUIPath, DEV_SERVER_URL, ipcMainHandle } from './util';
 import { ensureShellEnvironment } from './libs/shell-environment';
+import { preloadClaudeAgentSdk } from './libs/runner';
 import { listRunningSessions } from './libs/session-store';
 import type { AppUpdateStatus } from '../shared/types';
 
@@ -982,6 +983,9 @@ app.whenReady().then(() => {
   }
 
   latestUiResumeState = loadUiResumeState();
+  // Warm the Claude Agent SDK module import so the first session's first
+  // message doesn't pay it (P0b of the streaming/cold-start optimization).
+  preloadClaudeAgentSdk();
   setupMenu();
   setupAutoUpdater();
   ipcMainHandle('check-for-updates', async () => {

@@ -15,21 +15,33 @@ export interface ClaudeRunnerSnapshot {
   lastTurnEndedAt?: number;
   /** A permission dialog is open for this session. */
   hasPendingPermissions: boolean;
+  /**
+   * Spawned speculatively before any user prompt (prewarm). Holds no
+   * conversation context, so it is the cheapest thing in the pool to lose:
+   * it expires on a shorter TTL and is always cap-evicted BEFORE any runner
+   * that served a real turn (and without grace protection) — a speculative
+   * spawn must never displace a warm runner the user just talked to.
+   */
+  prewarmed?: boolean;
 }
 
 export interface ClaudeRunnerReapOptions {
   /** Idle runners older than this are always retired. */
   idleTtlMs?: number;
+  /** Idle PREWARMED runners older than this are retired (shorter than idleTtlMs). */
+  prewarmIdleTtlMs?: number;
   /** Keep at most this many idle runners; the oldest beyond the cap are retired. */
   maxIdle?: number;
   /**
    * Never cap-evict a runner idle for less than this — protects the entry a
-   * just-completed turn is about to reuse from cap churn.
+   * just-completed turn is about to reuse from cap churn. Does not apply to
+   * prewarmed entries.
    */
   minIdleGraceMs?: number;
 }
 
 export const CLAUDE_RUNNER_IDLE_TTL_MS = 15 * 60 * 1000;
+export const CLAUDE_RUNNER_PREWARM_IDLE_TTL_MS = 5 * 60 * 1000;
 export const CLAUDE_RUNNER_MAX_IDLE = 5;
 export const CLAUDE_RUNNER_MIN_IDLE_GRACE_MS = 2 * 60 * 1000;
 
@@ -48,6 +60,7 @@ export function selectClaudeRunnersToReap(
   options: ClaudeRunnerReapOptions = {}
 ): string[] {
   const idleTtlMs = options.idleTtlMs ?? CLAUDE_RUNNER_IDLE_TTL_MS;
+  const prewarmIdleTtlMs = options.prewarmIdleTtlMs ?? CLAUDE_RUNNER_PREWARM_IDLE_TTL_MS;
   const maxIdle = options.maxIdle ?? CLAUDE_RUNNER_MAX_IDLE;
   const minIdleGraceMs = options.minIdleGraceMs ?? CLAUDE_RUNNER_MIN_IDLE_GRACE_MS;
 
@@ -60,17 +73,28 @@ export function selectClaudeRunnersToReap(
 
   const reap = new Set<string>();
   for (const candidate of candidates) {
-    if (nowMs - candidate.lastTurnEndedAt! > idleTtlMs) {
+    const ttl = candidate.prewarmed ? prewarmIdleTtlMs : idleTtlMs;
+    if (nowMs - candidate.lastTurnEndedAt! > ttl) {
       reap.add(candidate.sessionId);
     }
   }
 
   const surviving = candidates.filter((candidate) => !reap.has(candidate.sessionId));
   if (surviving.length > maxIdle) {
+    // Prewarmed entries first (they hold no context and get no grace
+    // protection — a speculative spawn must never squeeze out a runner with
+    // real conversation state), then least-recently-used past the grace
+    // window.
     const evictable = surviving
-      .filter((candidate) => nowMs - candidate.lastTurnEndedAt! > minIdleGraceMs)
-      // Oldest first (least recently used).
-      .sort((a, b) => a.lastTurnEndedAt! - b.lastTurnEndedAt!);
+      .filter(
+        (candidate) => candidate.prewarmed || nowMs - candidate.lastTurnEndedAt! > minIdleGraceMs
+      )
+      .sort((a, b) => {
+        if (Boolean(a.prewarmed) !== Boolean(b.prewarmed)) {
+          return a.prewarmed ? -1 : 1;
+        }
+        return a.lastTurnEndedAt! - b.lastTurnEndedAt!;
+      });
     let excess = surviving.length - maxIdle;
     for (const candidate of evictable) {
       if (excess <= 0) break;
