@@ -428,7 +428,12 @@ export function classifyToolUse(toolName: string, input: unknown): CanonicalTool
   }
   if (normalized === 'grep' || normalized === 'glob') return 'pattern_search';
   if (normalized === 'websearch' || normalized === 'webfetch' || normalized === 'web_search' || normalized === 'web_fetch') return 'web_search';
-  if (normalized === 'task') return 'subagent';
+  // The subagent-spawning tool is "Task" in the Claude Agent SDK and "Agent"
+  // in this runtime; both carry a subagent_type input. Recognize either name,
+  // or any tool that declares a subagent_type, so every runtime's subagent
+  // runs render as a subagent board (not a generic tool row).
+  if (normalized === 'task' || normalized === 'agent') return 'subagent';
+  if (getStringField(input, 'subagent_type')) return 'subagent';
   if (normalized === 'todowrite' || normalized === 'todo_write') return 'todo_update';
   if (normalized === 'askuserquestion' || normalized === 'question') return 'approval';
   if (

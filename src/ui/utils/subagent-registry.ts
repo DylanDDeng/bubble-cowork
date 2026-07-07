@@ -39,7 +39,11 @@ function getString(value: unknown): string | null {
 function isTaskBlock(block: ContentBlock): boolean {
   const normalized = normalizeToolUseBlock(block);
   if (!normalized) return false;
-  return classifyToolUse(normalized.name, normalized.input) === 'subagent';
+  // Detect by classifyToolUse (Task/Agent) OR a subagent_type input directly —
+  // the input is the most runtime-agnostic signal for a subagent spawn.
+  if (classifyToolUse(normalized.name, normalized.input) === 'subagent') return true;
+  const input = normalized.input as Record<string, unknown> | undefined;
+  return typeof input?.subagent_type === 'string' && input.subagent_type.trim().length > 0;
 }
 
 /** tool_use id → success/error from its matching tool_result (else pending). */

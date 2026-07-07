@@ -100,6 +100,39 @@ function toolResult(toolUseId: string, isError = false) {
   assert.equal(deriveSubagentSummaries(messages).length, 0, 'Read is not a subagent');
 }
 
+// ── The "Agent" tool (this runtime's subagent spawn) is detected, not just
+//    "Task" — regression guard for the real-data bug where the subagent tool
+//    is named Agent and carries a subagent_type input. ─────────────────────
+{
+  const agentBlock = {
+    type: 'tool_use',
+    id: 'toolu_agent',
+    name: 'Agent',
+    input: { subagent_type: 'general-purpose', description: '探查项目架构', prompt: '…' },
+  };
+  const messages: StreamMessage[] = [
+    assistant([agentBlock], { createdAt: 1 }),
+    assistant([toolResult('toolu_agent', false)], { createdAt: 2 }),
+  ];
+  const summaries = deriveSubagentSummaries(messages);
+  assert.equal(summaries.length, 1, 'Agent-named subagent is detected');
+  assert.equal(summaries[0].subagentType, 'general-purpose');
+  assert.equal(summaries[0].status, 'success');
+  assert.equal(summaries[0].persona.functionalName, 'General-purpose · 探查项目架构');
+}
+
+// ── A tool that merely declares subagent_type is treated as a subagent even
+//    under an unknown name (runtime-agnostic fallback). ────────────────────
+{
+  const messages: StreamMessage[] = [
+    assistant(
+      [{ type: 'tool_use', id: 'toolu_x', name: 'SpawnWorker', input: { subagent_type: 'Explore' } }],
+      { createdAt: 1 }
+    ),
+  ];
+  assert.equal(deriveSubagentSummaries(messages).length, 1, 'subagent_type input alone marks a subagent');
+}
+
 // ── Empty / no-subagent sessions return [] ─────────────────────────────────
 assert.deepEqual(deriveSubagentSummaries([]), []);
 
