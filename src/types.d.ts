@@ -346,6 +346,28 @@ declare global {
       onState: (callback: (state: SessionBrowserState) => void) => () => void;
       onSendSelection: (callback: (event: BrowserSendSelectionEvent) => void) => () => void;
     };
+    designMode: {
+      enable: (
+        input: import('./shared/design-mode-types').DesignModeTarget & { projectRoot: string }
+      ) => Promise<import('./shared/design-mode-types').DesignEnableResult>;
+      disable: (input: import('./shared/design-mode-types').DesignModeTarget) => Promise<void>;
+      preview: (
+        input: import('./shared/design-mode-types').DesignModeTarget & { property: string; value: string }
+      ) => Promise<boolean>;
+      clearPreview: (input: import('./shared/design-mode-types').DesignModeTarget) => Promise<void>;
+      apply: (
+        input: import('./shared/design-mode-types').DesignApplyInput
+      ) => Promise<import('./shared/design-mode-types').DesignApplyResult>;
+      undo: (
+        input: import('./shared/design-mode-types').DesignModeTarget
+      ) => Promise<{ ok: boolean; message?: string; remaining: number }>;
+      rollbackLastFailed: (
+        input: import('./shared/design-mode-types').DesignModeTarget
+      ) => Promise<{ ok: boolean; message?: string }>;
+      onEvent: (
+        callback: (event: import('./shared/design-mode-types').DesignModeEvent) => void
+      ) => () => void;
+    };
   }
 
   interface Window {

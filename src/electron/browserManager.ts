@@ -211,6 +211,7 @@ export class BrowserManager {
   private attachedRuntimeKey: string | null = null;
   private readonly states = new Map<string, SessionBrowserState>();
   private readonly runtimes = new Map<string, LiveTabRuntime>();
+  private readonly pinnedSessions = new Set<string>();
   private readonly listeners = new Set<BrowserStateListener>();
   private readonly selectionListeners = new Set<BrowserSendSelectionListener>();
   private readonly suspendTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -590,6 +591,32 @@ export class BrowserManager {
     }
   }
 
+  /**
+   * Live webContents for a tab, or null when suspended/destroyed. Used by the
+   * design-mode service, which injects scripts and must re-check liveness on
+   * every poll (runtimes are destroyed on suspend/newTab/render-process-gone).
+   */
+  getLiveWebContents(sessionId: string, tabId: string) {
+    const runtime = this.runtimes.get(buildRuntimeKey(sessionId, tabId));
+    if (!runtime || runtime.view.webContents.isDestroyed()) return null;
+    return runtime.view.webContents;
+  }
+
+  /**
+   * Design mode pins its session: the suspend timer would otherwise destroy
+   * the WebContentsView (and with it the inspector + preview state) 30s after
+   * the panel loses focus.
+   */
+  setSessionPinned(sessionId: string, pinned: boolean): void {
+    if (pinned) {
+      this.pinnedSessions.add(sessionId);
+      this.clearSuspendTimer(sessionId);
+    } else {
+      this.pinnedSessions.delete(sessionId);
+      if (this.activeSessionId !== sessionId) this.scheduleSessionSuspend(sessionId);
+    }
+  }
+
   // ===== Internals =====
 
   private activateSession(sessionId: string, bounds: BrowserPanelBounds): void {
@@ -629,6 +656,7 @@ export class BrowserManager {
   private scheduleSessionSuspend(sessionId: string): void {
     const state = this.states.get(sessionId);
     if (!state?.open || this.activeSessionId === sessionId) return;
+    if (this.pinnedSessions.has(sessionId)) return;
     this.clearSuspendTimer(sessionId);
     const timer = setTimeout(() => {
       this.suspendSession(sessionId);
@@ -641,6 +669,7 @@ export class BrowserManager {
   private suspendSession(sessionId: string): void {
     const state = this.states.get(sessionId);
     if (!state || this.activeSessionId === sessionId) return;
+    if (this.pinnedSessions.has(sessionId)) return;
     for (const tab of state.tabs) {
       this.destroyRuntime(sessionId, tab.id);
       tab.status = 'suspended';

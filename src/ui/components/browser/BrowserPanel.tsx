@@ -34,9 +34,12 @@ import {
   Maximize2,
   Minimize2,
   MoreHorizontal,
+  Palette,
   RefreshCw,
   X,
 } from '../icons';
+import { DesignDrawer } from './DesignDrawer';
+import type { DesignCapabilities } from '../../../shared/design-mode-types';
 import { toast } from 'sonner';
 import type {
   BrowserReadoutResult,
@@ -172,6 +175,55 @@ export function BrowserPanel({
   const [localError, setLocalError] = useState<string | null>(null);
   const [screenshotBusy, setScreenshotBusy] = useState(false);
   const [readoutBusy, setReadoutBusy] = useState(false);
+
+  // ===== Design mode =====
+  const [designModeTabId, setDesignModeTabId] = useState<string | null>(null);
+  const [designCaps, setDesignCaps] = useState<DesignCapabilities | null>(null);
+  const projectRoot = useAppStore((s) => (sessionId ? s.sessions[sessionId]?.cwd ?? null : null));
+
+  const disableDesignMode = useCallback(() => {
+    setDesignModeTabId((current) => {
+      if (current) {
+        void window.electron.designMode.disable({ sessionId: browserSessionId, tabId: current });
+      }
+      return null;
+    });
+  }, [browserSessionId]);
+
+  const toggleDesignMode = useCallback(async () => {
+    if (designModeTabId) {
+      disableDesignMode();
+      return;
+    }
+    const tab = sessionState.activeTabId
+      ? sessionState.tabs.find((item) => item.id === sessionState.activeTabId) ?? null
+      : null;
+    if (!tab) return;
+    if (!projectRoot) {
+      toast.error('Design mode needs an open project session (it must know where to write).');
+      return;
+    }
+    const enabled = await window.electron.designMode.enable({
+      sessionId: browserSessionId,
+      tabId: tab.id,
+      projectRoot,
+    });
+    if (!enabled.ok) {
+      toast.error(enabled.message || 'Failed to enable design mode');
+      return;
+    }
+    setDesignCaps(enabled.capabilities ?? null);
+    setDesignModeTabId(tab.id);
+  }, [designModeTabId, disableDesignMode, sessionState, projectRoot, browserSessionId]);
+
+  // Design mode is bound to one tab: leaving that tab (switch/close/navigate
+  // away from the panel) ends the design session explicitly.
+  useEffect(() => {
+    if (!designModeTabId) return;
+    if (collapsed || sessionState.activeTabId !== designModeTabId) {
+      disableDesignMode();
+    }
+  }, [collapsed, sessionState.activeTabId, designModeTabId, disableDesignMode]);
 
   // ===== 订阅主进程状态 =====
   useEffect(() => {
@@ -668,6 +720,20 @@ export function BrowserPanel({
           </button>
           <button
             type="button"
+            onClick={() => void toggleDesignMode()}
+            disabled={!activeTab}
+            className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:opacity-40 disabled:hover:bg-transparent ${
+              designModeTabId
+                ? 'bg-[color-mix(in_srgb,var(--accent)_18%,transparent)] text-[var(--accent)]'
+                : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+            }`}
+            title={designModeTabId ? 'Exit design mode' : 'Design mode: click elements, edit styles, write back to source'}
+            aria-label="Toggle design mode"
+          >
+            <Palette className="h-[13px] w-[13px]" />
+          </button>
+          <button
+            type="button"
             onClick={() => {
               if (activeTab?.url) {
                 void navigator.clipboard.writeText(activeTab.url);
@@ -723,20 +789,34 @@ export function BrowserPanel({
 
       </div>
 
-      {/* Viewport placeholder: main process mirrors the native WebContentsView here */}
-      <div className="relative flex-1 min-h-0 bg-[var(--bg-primary)]">
-        <div ref={viewportRef} className="absolute inset-0" />
-        {chromeStatus && (
-          <div
-            className={`pointer-events-none absolute bottom-2 left-2 right-2 rounded-md border px-2 py-1 text-[11px] ${
-              chromeStatus.tone === 'error'
-                ? 'border-red-500/40 bg-red-500/10 text-red-400'
-                : 'border-[var(--border)] bg-[var(--bg-secondary)]/80 text-[var(--text-secondary)]'
-            }`}
-          >
-            {chromeStatus.label}
-          </div>
-        )}
+      {/* Viewport row: native WebContentsView mirror + (optional) design drawer.
+          The drawer shrinks the viewport div; the ResizeObserver above pushes
+          the smaller bounds to the main process automatically. */}
+      <div className="flex min-h-0 flex-1">
+        <div className="relative min-h-0 flex-1 bg-[var(--bg-primary)]">
+          <div ref={viewportRef} className="absolute inset-0" />
+          {chromeStatus && (
+            <div
+              className={`pointer-events-none absolute bottom-2 left-2 right-2 rounded-md border px-2 py-1 text-[11px] ${
+                chromeStatus.tone === 'error'
+                  ? 'border-red-500/40 bg-red-500/10 text-red-400'
+                  : 'border-[var(--border)] bg-[var(--bg-secondary)]/80 text-[var(--text-secondary)]'
+              }`}
+            >
+              {chromeStatus.label}
+            </div>
+          )}
+        </div>
+        {designModeTabId && projectRoot ? (
+          <DesignDrawer
+            browserSessionId={browserSessionId}
+            tabId={designModeTabId}
+            projectRoot={projectRoot}
+            capabilities={designCaps}
+            onClose={disableDesignMode}
+            resolveChatTargetId={resolveChatTargetId}
+          />
+        ) : null}
       </div>
     </div>
   );
