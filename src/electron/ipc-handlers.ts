@@ -90,6 +90,12 @@ import { getMemoryWorkspace, saveMemoryDocument } from './libs/memory-store';
 import { formatClaudeRuntimeBlockingMessage, getClaudeRuntimeStatus, getClaudeRuntimeStatusCached, invalidateClaudeRuntimeCache } from './libs/claude-runtime-status';
 import { selectClaudeRunnersToReap, type ClaudeRunnerSnapshot } from './libs/claude-runner-pool';
 import {
+  markClaudePromptDispatched,
+  markClaudeInit,
+  markClaudeFirstOutput,
+  clearClaudeTurnMetrics,
+} from './libs/claude-turn-metrics';
+import {
   classifyResultForStop,
   isStoppedTurnDrainMessage,
   markTurnsStopped,
@@ -3296,6 +3302,13 @@ const runnerHandles = new Map<
     /** Automation runners auto-approve permissions; never reuse them for human turns. */
     autoApprove?: boolean;
     /**
+     * Spawned speculatively before any user prompt (P3 prewarm). Cleared on
+     * the first real dispatch. Prewarmed entries are evicted first by the
+     * idle reaper's cap pass so they never displace a runner with real
+     * conversation context.
+     */
+    prewarmed?: boolean;
+    /**
      * Prompts dispatched into this runner whose `result` has not arrived yet
      * (FIFO — results come back in dispatch order on the single CLI stream).
      * Feeds the slash-command failure check for the turn each result closes;
@@ -3373,6 +3386,7 @@ function snapshotClaudeRunners(): ClaudeRunnerSnapshot[] {
       lastTurnEndedAt: entry.lastTurnEndedAt,
       hasPendingPermissions:
         (sessionStates.get(sessionId)?.pendingPermissions.size ?? 0) > 0,
+      prewarmed: entry.prewarmed === true,
     });
   }
   return snapshots;
@@ -7246,6 +7260,15 @@ async function handleClientEvent(
       handleSessionStop(mainWindow, event.payload.sessionId);
       break;
 
+    case 'runner.prewarm':
+      // Fire-and-forget speculation; failures must never surface to the user.
+      void handleRunnerPrewarm(mainWindow, event.payload).catch((error) => {
+        if (isDev()) {
+          console.warn('[Runner Prewarm] failed:', error);
+        }
+      });
+      break;
+
     case 'session.delete':
       handleSessionDelete(mainWindow, event.payload.sessionId);
       break;
@@ -8172,6 +8195,12 @@ async function handleSessionContinue(
         // this entry as idle between dispatch and the first stream message.
         existingEntry.inFlightTurns = (existingEntry.inFlightTurns ?? 0) + 1;
         (existingEntry.pendingTurnPrompts ??= []).push(runnerPrompt);
+        markClaudePromptDispatched(
+          sessionId,
+          existingEntry.prewarmed ? 'prewarm-hit' : 'warm-reuse',
+          false
+        );
+        existingEntry.prewarmed = false;
       }
       const sendOptions =
         nextProvider === 'codex'
@@ -8332,7 +8361,17 @@ function startRunner(
   activeAgentId?: string | null,
   onTurnDone?: (status: SessionStatus, message?: string) => void,
   activeAgentRunId?: string | null,
-  autoApprovePermissions = false
+  autoApprovePermissions = false,
+  // P3: spawn speculatively with an EMPTY prompt. runClaude's enqueuePrompt
+  // drops empty prompts before they reach the input queue, but the SDK's
+  // query() spawns the CLI and completes its initialize handshake (settings,
+  // slash-command scan, MCP connections) eagerly — so the expensive boot
+  // happens while the user is still typing. (The SDK's startup()/WarmQuery
+  // primitive was evaluated for this: it pre-warms the same way but requires
+  // splitting runClaude into a warm phase and a query phase, with canUseTool
+  // and the full option set bound at warm time — the empty-prompt path gets
+  // identical behavior through the existing runner plumbing.)
+  prewarmRunner = false
 ): void {
   if (!session) return;
 
@@ -8342,6 +8381,9 @@ function startRunner(
       : session;
   const sessionState = getSessionState(session.id);
   const provider = providerOverride || session.provider || 'claude';
+  if (provider === 'claude' && prompt.trim().length > 0) {
+    markClaudePromptDispatched(session.id, 'cold-start', Boolean(resumeSessionId));
+  }
   const normalizedActiveAgentId = activeAgentId?.trim() || session.agent_id || null;
   const normalizedActiveAgentRunId =
     activeAgentRunId?.trim() || createAgentRunId(normalizedActiveAgentId, 'direct');
@@ -8458,6 +8500,7 @@ function startRunner(
             sessions.updateSessionModel(session.id, message.model);
           }
         } else {
+          markClaudeInit(session.id);
           sessions.updateClaudeSessionId(session.id, message.session_id);
           const resolvedDisplayModel = reconcileClaudeDisplayModel(
             modelOverride || session.model,
@@ -8540,6 +8583,9 @@ function startRunner(
 
       if (message.type !== 'system' && message.type !== 'result') {
         sawTurnOutput = true;
+        if (provider === 'claude') {
+          markClaudeFirstOutput(session.id);
+        }
       }
 
       const sanitizedStreamMessage =
@@ -8623,11 +8669,20 @@ function startRunner(
           sessions.addMessage(session.id, attributedMessage);
         }
 
-        // 广播消息
-        broadcast(mainWindow, {
-          type: 'stream.message',
-          payload: { sessionId: session.id, message: attributedMessage },
-        });
+        // Subagent stream_events have no renderer consumer: the store drops
+        // them before touching state (they never enter messages or the
+        // streaming buffer), so broadcasting them is pure IPC/parse waste —
+        // during parallel Task runs they dominate delta traffic. Subagent
+        // assistant/user messages still flow (nested traces need them).
+        const isSubagentStreamEvent =
+          attributedMessage.type === 'stream_event' && Boolean(attributedMessage.parentToolUseId);
+        if (!isSubagentStreamEvent) {
+          // 广播消息
+          broadcast(mainWindow, {
+            type: 'stream.message',
+            payload: { sessionId: session.id, message: attributedMessage },
+          });
+        }
         // Subagent internals are persisted for the nested traces but must
         // never surface as top-level replies in bridged chats.
         if (shouldPersistMessage && !attributedMessage.parentToolUseId) {
@@ -9032,8 +9087,15 @@ function startRunner(
     activeAgentId: normalizedActiveAgentId,
     activeAgentRunId: normalizedActiveAgentRunId,
     onTurnDone,
-    inFlightTurns: 1,
-    pendingTurnPrompts: [prompt],
+    // A prewarmed runner has NO dispatched turn: the FIFO must stay aligned
+    // with inFlightTurns (a phantom '' entry would let the first real result
+    // shift the wrong prompt into slash-failure detection), and the idle
+    // anchor is stamped now so the reaper's prewarm TTL applies — without it
+    // the entry would never be a reap candidate and would leak.
+    inFlightTurns: prewarmRunner ? 0 : 1,
+    pendingTurnPrompts: prewarmRunner ? [] : [prompt],
+    lastTurnEndedAt: prewarmRunner ? Date.now() : undefined,
+    prewarmed: prewarmRunner || undefined,
     autoApprove: autoApprovePermissions || undefined,
     cwd: runnerSession.cwd || null,
   });
@@ -9041,6 +9103,147 @@ function startRunner(
   if (provider === 'claude') {
     ensureClaudeRunnerReaper();
   }
+}
+
+/** At most this many idle prewarmed runners may exist at once. */
+const MAX_PREWARMED_RUNNERS = 2;
+
+function countIdlePrewarmedRunners(): { count: number; oldest: string | null } {
+  let count = 0;
+  let oldest: string | null = null;
+  let oldestAt = Number.POSITIVE_INFINITY;
+  for (const [sessionId, entry] of runnerHandles) {
+    if (entry.provider !== 'claude' || entry.prewarmed !== true) continue;
+    if ((entry.inFlightTurns ?? 0) > 0) continue;
+    count += 1;
+    const anchor = entry.lastTurnEndedAt ?? 0;
+    if (anchor < oldestAt) {
+      oldestAt = anchor;
+      oldest = sessionId;
+    }
+  }
+  return { count, oldest };
+}
+
+// 预热 Claude runner(P3):在用户开始输入时投机启动 CLI,把 spawn +
+// settings/插件加载 + MCP 连接的冷启动成本移出首条消息的关键路径。
+async function handleRunnerPrewarm(
+  mainWindow: BrowserWindow,
+  payload: import('../shared/types').RunnerPrewarmPayload
+): Promise<void> {
+  const sessionId = payload.sessionId?.trim();
+  if (!sessionId) return;
+
+  const initial = sessions.getSession(sessionId);
+  if (!initial) return;
+  // Claude only — other providers run through adapter sessions with
+  // different lifecycles.
+  if ((initial.provider || 'claude') !== 'claude') return;
+  // External Claude sessions are read-only; never spawn for them.
+  if (initial.session_origin === 'claude_remote') return;
+  if (initial.status === 'running') return;
+  if (runnerHandles.has(sessionId)) return;
+
+  // History-bootstrap guard: a session WITH recorded history but WITHOUT a
+  // live claude_session_id relies on the send path's
+  // bootstrapClaudeSessionFromHistory fall-through. A prewarmed entry would
+  // short-circuit that path and the model would answer with empty context —
+  // silent data loss. Skip those sessions entirely.
+  const resumeCandidate = initial.claude_session_id ?? undefined;
+  if (!resumeCandidate && sessions.getSessionHistory(sessionId).length > 0) {
+    return;
+  }
+
+  const runtimeStatus = await getClaudeRuntimeStatusCached(payload.model || null);
+  if (!runtimeStatus.ready) return;
+
+  // ── SYNC re-check. The await above yielded; a real send may have started a
+  // runner for this session in the meantime, and startRunner unconditionally
+  // aborts an existing entry — prewarming now would KILL the user's live
+  // turn. Nothing below this line may await before startRunner.
+  const session = sessions.getSession(sessionId);
+  if (!session || session.status === 'running') return;
+  if (runnerHandles.has(sessionId)) return;
+  const resumeSessionId = session.claude_session_id ?? undefined;
+  if (!resumeSessionId && resumeCandidate) {
+    // claude_session_id was cleared while we awaited (history sanitize) —
+    // the bootstrap guard above no longer holds. Bail.
+    return;
+  }
+
+  // Cap the speculative fleet: each prewarmed runner is a full CLI process
+  // tree with every global MCP server. Evict the oldest prewarmed entry
+  // (never a real warm runner) to make room.
+  const { count, oldest } = countIdlePrewarmedRunners();
+  if (count >= MAX_PREWARMED_RUNNERS && oldest) {
+    const evicted = runnerHandles.get(oldest);
+    if (evicted) {
+      clearStopFallbackTimer(evicted);
+      evicted.handle.abort();
+      runnerHandles.delete(oldest);
+    }
+  }
+
+  // Merge payload over the session row with the SAME expressions the
+  // session.continue path uses (7849-7866) — the reuse check compares the
+  // entry's normalized values against merged-and-normalized send payloads,
+  // and any asymmetry here turns the prewarm into a net loss (abort + second
+  // cold start on the first real send).
+  const nextModel = normalizeModel(payload.model ?? session.model ?? undefined);
+  const nextCompatibleProviderId =
+    payload.compatibleProviderId ?? (session.compatible_provider_id || undefined);
+  const nextBetas = normalizeBetas(payload.betas ?? parseStoredBetas(session.betas));
+  const previousAccessMode = normalizeClaudeAccessMode(session.claude_access_mode);
+  const nextAccessMode = normalizeClaudeAccessMode(payload.claudeAccessMode || previousAccessMode);
+  const previousExecutionMode = normalizeClaudeExecutionMode(
+    session.claude_execution_mode,
+    previousAccessMode
+  );
+  const nextExecutionMode = normalizeClaudeExecutionMode(
+    payload.claudeExecutionMode || previousExecutionMode,
+    nextAccessMode
+  );
+  const nextReasoningEffort = normalizeClaudeReasoningEffort(
+    payload.claudeReasoningEffort || normalizeClaudeReasoningEffort(session.claude_reasoning_effort)
+  );
+
+  if (isDev()) {
+    console.log('[Runner Prewarm]', {
+      sessionId,
+      hasResume: Boolean(resumeSessionId),
+      model: nextModel,
+    });
+  }
+
+  startRunner(
+    mainWindow,
+    session,
+    '', // empty prompt — boots the CLI without dispatching a turn
+    resumeSessionId,
+    undefined,
+    'claude',
+    nextModel,
+    nextCompatibleProviderId,
+    nextBetas,
+    nextAccessMode,
+    nextExecutionMode,
+    nextReasoningEffort,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    null,
+    undefined,
+    null,
+    false,
+    true // prewarmRunner
+  );
 }
 
 // 获取会话历史
@@ -9276,6 +9479,7 @@ function handleSessionDelete(mainWindow: BrowserWindow, sessionId: string): void
 
   // 清理状态
   sessionStates.delete(sessionId);
+  clearClaudeTurnMetrics(sessionId);
 
   // 删除数据库记录
   sessions.deleteSession(sessionId);

@@ -225,12 +225,29 @@ function buildClaudeToolApprovalInput(
   };
 }
 
+let _claudeAgentSdkPromise: Promise<ClaudeAgentSdkModule> | null = null;
+
 async function loadClaudeAgentSdk(): Promise<ClaudeAgentSdkModule> {
-  const dynamicImport = new Function(
-    'specifier',
-    'return import(specifier);'
-  ) as (specifier: string) => Promise<ClaudeAgentSdkModule>;
-  return dynamicImport('@anthropic-ai/claude-agent-sdk');
+  if (!_claudeAgentSdkPromise) {
+    const dynamicImport = new Function(
+      'specifier',
+      'return import(specifier);'
+    ) as (specifier: string) => Promise<ClaudeAgentSdkModule>;
+    _claudeAgentSdkPromise = dynamicImport('@anthropic-ai/claude-agent-sdk');
+  }
+  return _claudeAgentSdkPromise;
+}
+
+/**
+ * Warm the Claude Agent SDK module at app startup so the first session does
+ * not pay the dynamic-import cost on its first message. Fire-and-forget; a
+ * failure here is non-fatal (runClaude will retry the import and surface the
+ * real error on use).
+ */
+export function preloadClaudeAgentSdk(): void {
+  void loadClaudeAgentSdk().catch(() => {
+    _claudeAgentSdkPromise = null;
+  });
 }
 
 function resolveMaxThinkingTokens(): number {

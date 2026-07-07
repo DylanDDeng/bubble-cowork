@@ -5,6 +5,7 @@ import { Check, ChevronDown, GitBranch, GitFork, Loader2, Monitor, X } from './i
 import { toast } from 'sonner';
 import { sendEvent } from '../hooks/useIPC';
 import { useAppStore } from '../store/useAppStore';
+import { useShallow } from 'zustand/react/shallow';
 import { createStreamingWorkstreamModel, groupSubagentMessagesByParent } from '../utils/workstream';
 import { deriveTurnPhase, hasRunningToolInMessages } from '../utils/turn-utils';
 import {
@@ -941,8 +942,10 @@ export function ChatPane({
   headerActions?: ReactNode;
   onWorkspaceGitChanged?: () => Promise<void>;
 }) {
+  // P2: shallow-picked subscription + a session-scoped selector. A pane must
+  // re-render for ITS session's updates only — with the old whole-store
+  // subscription every streaming delta re-rendered every mounted pane.
   const {
-    sessions,
     historyNavigationTarget,
     loadOlderSessionHistory,
     setHistoryNavigationTarget,
@@ -955,8 +958,23 @@ export function ChatPane({
     removeDraftSession,
     draftStartMode,
     setDraftStartMode,
-  } = useAppStore();
-  const session = sessionId ? sessions[sessionId] : null;
+  } = useAppStore(
+    useShallow((s) => ({
+      historyNavigationTarget: s.historyNavigationTarget,
+      loadOlderSessionHistory: s.loadOlderSessionHistory,
+      setHistoryNavigationTarget: s.setHistoryNavigationTarget,
+      removePermissionRequest: s.removePermissionRequest,
+      openReviewDiff: s.openReviewDiff,
+      requestChatInjection: s.requestChatInjection,
+      setActiveSettingsTab: s.setActiveSettingsTab,
+      setShowSettings: s.setShowSettings,
+      createDraftSession: s.createDraftSession,
+      removeDraftSession: s.removeDraftSession,
+      draftStartMode: s.draftStartMode,
+      setDraftStartMode: s.setDraftStartMode,
+    }))
+  );
+  const session = useAppStore((s) => (sessionId ? s.sessions[sessionId] ?? null : null));
   const scrollPositionKey = sessionId ? getChatScrollPositionKey(paneId, sessionId) : null;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const historyRequested = useRef(new Set<string>());

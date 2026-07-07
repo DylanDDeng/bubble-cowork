@@ -1,4 +1,4 @@
-import { isValidElement, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
+import { isValidElement, memo, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -580,7 +580,7 @@ const components: Components = {
   ),
 };
 
-export function MDContent({ content, className = '', allowHtml = false }: MDContentProps) {
+function MDContentImpl({ content, className = '', allowHtml = false }: MDContentProps) {
   const disallowedElements = ['script', 'style', 'iframe', 'object', 'embed', 'link', 'meta', 'base'];
 
   const rehypePlugins = useMemo(() => {
@@ -617,3 +617,12 @@ export function MDContent({ content, className = '', allowHtml = false }: MDCont
     </div>
   );
 }
+
+/**
+ * Memoized markdown renderer (P2). Props are primitives, so the default
+ * shallow comparison applies: a completed message's markdown never re-parses
+ * when its parent re-renders during streaming — previously every flush
+ * re-ran remark/rehype over the entire visible history. Only the block whose
+ * `content` actually changed (the live streaming tail) re-parses.
+ */
+export const MDContent = memo(MDContentImpl);

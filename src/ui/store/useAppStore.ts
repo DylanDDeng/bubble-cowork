@@ -56,6 +56,12 @@ import {
 } from '../theme/themes';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { loadPreferredProvider } from '../utils/provider';
+import { StreamDeltaCoalescer } from '../utils/stream-delta-coalescer';
+
+// P1: renderer-side coalescing of streaming text/thinking deltas. Lives at
+// module scope (one per renderer); the emitter is bound inside
+// handleServerEvent where set/get are in scope.
+const streamDeltaCoalescer = new StreamDeltaCoalescer();
 
 function applyAppearance({
   theme,
@@ -902,29 +908,53 @@ export const useAppStore = create<Store>()(
   setConnected: (connected) => set({ connected }),
 
   handleServerEvent: (event: ServerEvent) => {
+    // Streaming deltas are coalesced before they hit the store (P1). The
+    // emitter is rebound on every dispatch — set/get are stable, this just
+    // keeps the coalescer decoupled from store construction order.
+    streamDeltaCoalescer.setEmitter((payload) => handleStreamMessage(payload, set, get));
     switch (event.type) {
       case 'session.list':
         handleSessionList(event.payload.sessions, set, get);
         break;
 
       case 'session.status':
+        // A non-running status clears the streaming bubble (stop/idle/error).
+        // A buffered tail flushed AFTER that clear would revive a ghost
+        // bubble nothing ever cleans up — drop it instead. For running
+        // statuses flush first so ordering matches the unbatched world.
+        if (event.payload.status === 'running') {
+          streamDeltaCoalescer.flushSession(event.payload.sessionId);
+        } else {
+          streamDeltaCoalescer.discardSession(event.payload.sessionId);
+        }
         handleSessionStatus(event.payload, set, get);
         break;
 
       case 'session.history':
+        // History reload (rewind/refresh) rebuilds messages and streaming
+        // state — a stale buffered tail must not be appended afterwards.
+        streamDeltaCoalescer.discardSession(event.payload.sessionId);
         handleSessionHistory(event.payload, set);
         break;
 
       case 'session.deleted':
+        streamDeltaCoalescer.discardSession(event.payload.sessionId);
         handleSessionDeleted(event.payload.sessionId, set, get);
         break;
 
       case 'stream.user_prompt':
+        // The prompt echo resets the streaming buffer; deltas buffered from
+        // before the echo belong to the pre-echo world — drop them (same
+        // visible result as today, where the echo wipes them an instant
+        // after they rendered).
+        streamDeltaCoalescer.discardSession(event.payload.sessionId);
         handleUserPrompt(event.payload, set);
         break;
 
       case 'stream.message':
-        handleStreamMessage(event.payload, set, get);
+        if (!streamDeltaCoalescer.push(event.payload)) {
+          handleStreamMessage(event.payload, set, get);
+        }
         break;
 
       case 'permission.request':

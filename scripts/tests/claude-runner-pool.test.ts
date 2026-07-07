@@ -3,6 +3,7 @@ import {
   CLAUDE_RUNNER_IDLE_TTL_MS,
   CLAUDE_RUNNER_MAX_IDLE,
   CLAUDE_RUNNER_MIN_IDLE_GRACE_MS,
+  CLAUDE_RUNNER_PREWARM_IDLE_TTL_MS,
   selectClaudeRunnersToReap,
   type ClaudeRunnerSnapshot,
 } from '../../src/electron/libs/claude-runner-pool';
@@ -111,6 +112,68 @@ const NOW = 100 * 60 * 1000; // 100 minutes
   // survivor ('live5', furthest past grace) is cap-evicted too.
   assert.equal(victims.includes('expired'), true);
   assert.equal(victims.length, 2, 'one TTL reap + one cap eviction');
+}
+
+// ── Prewarm semantics (P3) ───────────────────────────────────────────────────
+
+// Prewarmed entries expire on the shorter prewarm TTL; a real runner of the
+// same age survives.
+{
+  const idleFor = CLAUDE_RUNNER_PREWARM_IDLE_TTL_MS + 1_000;
+  const victims = selectClaudeRunnersToReap(
+    [
+      snapshot('prewarmed', { prewarmed: true, lastTurnEndedAt: NOW - idleFor }),
+      snapshot('real', { lastTurnEndedAt: NOW - idleFor }),
+    ],
+    NOW
+  );
+  assert.deepEqual(victims, ['prewarmed'], 'prewarm TTL is shorter than the normal idle TTL');
+}
+
+// Cap pressure evicts the prewarmed entry FIRST — even when it is the newest
+// thing in the pool — so speculation never displaces a real warm runner.
+{
+  const snapshots = [
+    snapshot('prewarmed-new', { prewarmed: true, lastTurnEndedAt: NOW - 1_000 }),
+    ...Array.from({ length: CLAUDE_RUNNER_MAX_IDLE }, (_, index) =>
+      snapshot(`real${index}`, {
+        lastTurnEndedAt: NOW - CLAUDE_RUNNER_MIN_IDLE_GRACE_MS - (index + 1) * 1_000,
+      })
+    ),
+  ];
+  const victims = selectClaudeRunnersToReap(snapshots, NOW);
+  assert.deepEqual(
+    victims,
+    ['prewarmed-new'],
+    'prewarmed entries are cap-evicted before any real warm runner'
+  );
+}
+
+// Prewarmed entries get no grace protection, but real runners inside the
+// grace window still cannot be cap-evicted.
+{
+  const snapshots = [
+    snapshot('prewarmed', { prewarmed: true, lastTurnEndedAt: NOW - 500 }),
+    ...Array.from({ length: CLAUDE_RUNNER_MAX_IDLE + 1 }, (_, index) =>
+      snapshot(`fresh${index}`, { lastTurnEndedAt: NOW - (index + 1) * 1_000 })
+    ),
+  ];
+  const victims = selectClaudeRunnersToReap(snapshots, NOW);
+  assert.deepEqual(
+    victims,
+    ['prewarmed'],
+    'only the prewarmed entry is evictable while real runners sit inside grace'
+  );
+}
+
+// A prewarmed runner that just received its first turn is untouchable, flag
+// or no flag (defense in depth — the dispatch path clears the flag anyway).
+{
+  const victims = selectClaudeRunnersToReap(
+    [snapshot('busy-prewarm', { prewarmed: true, inFlightTurns: 1, lastTurnEndedAt: 0 })],
+    NOW
+  );
+  assert.deepEqual(victims, [], 'in-flight prewarmed runners are never reaped');
 }
 
 console.log('claude-runner-pool.test.ts passed');

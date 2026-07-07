@@ -676,6 +676,7 @@ export type ClientEvent =
   | { type: 'session.editLatestPrompt'; payload: SessionContinuePayload }
   | { type: 'session.history'; payload: { sessionId: string } }
   | { type: 'session.stop'; payload: { sessionId: string } }
+  | { type: 'runner.prewarm'; payload: RunnerPrewarmPayload }
   | { type: 'session.delete'; payload: { sessionId: string } }
   | { type: 'session.togglePin'; payload: { sessionId: string } }
   | { type: 'permission.response'; payload: PermissionResponsePayload }
@@ -863,6 +864,22 @@ export interface SessionContinuePayload {
   opencodePermissionMode?: OpenCodePermissionMode;
   teamMode?: SessionTeamMode;
   teamId?: string | null;
+}
+
+/**
+ * Composer snapshot for speculative runner prewarm (P3). Carries the SAME
+ * fields the composer would send on `session.continue` — the prewarm entry's
+ * config must normalize identically to the eventual send, or the send-path
+ * reuse check aborts the prewarmed runner and pays a second cold start.
+ */
+export interface RunnerPrewarmPayload {
+  sessionId: string;
+  model?: string;
+  compatibleProviderId?: ClaudeCompatibleProviderId;
+  betas?: string[];
+  claudeAccessMode?: ClaudeAccessMode;
+  claudeExecutionMode?: ClaudeExecutionMode;
+  claudeReasoningEffort?: ClaudeReasoningEffort;
 }
 
 export type SessionScope = 'project' | 'dm';

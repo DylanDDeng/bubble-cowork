@@ -28,6 +28,7 @@ import {
   X,
 } from './components/icons';
 import { useAppStore } from './store/useAppStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useIPC, sendEvent } from './hooks/useIPC';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { Sidebar, SidebarHeaderTrigger } from './components/Sidebar';
@@ -175,9 +176,13 @@ export function App() {
   const browserSessionStates = useBrowserStateStore((s) => s.sessionStatesBySessionId);
   const removeBrowserSessionState = useBrowserStateStore((s) => s.removeSessionState);
 
+  // P2: subscribe with a shallow-picked selector instead of the whole store —
+  // App must NOT re-render for unrelated store changes (most importantly:
+  // streaming deltas of non-active sessions). `sessions` is deliberately NOT
+  // picked here; the active session and the status-transition effect below
+  // use narrower subscriptions.
   const {
     connected,
-    sessions,
     activeSessionId,
     historyNavigationTarget,
     loadOlderSessionHistory,
@@ -220,14 +225,65 @@ export function App() {
     uiFontFamily,
     chatCodeFontFamily,
     setHistoryNavigationTarget,
-  } = useAppStore();
+  } = useAppStore(
+    useShallow((s) => ({
+      connected: s.connected,
+      activeSessionId: s.activeSessionId,
+      historyNavigationTarget: s.historyNavigationTarget,
+      loadOlderSessionHistory: s.loadOlderSessionHistory,
+      activeWorkspace: s.activeWorkspace,
+      chatLayoutMode: s.chatLayoutMode,
+      savedSplitVisible: s.savedSplitVisible,
+      activePaneId: s.activePaneId,
+      chatPanes: s.chatPanes,
+      chatSplitRatio: s.chatSplitRatio,
+      showNewSession: s.showNewSession,
+      newSessionKey: s.newSessionKey,
+      sidebarCollapsed: s.sidebarCollapsed,
+      projectCwd: s.projectCwd,
+      showSettings: s.showSettings,
+      projectTreeCollapsed: s.projectTreeCollapsed,
+      projectPanelView: s.projectPanelView,
+      terminalDrawerOpen: s.terminalDrawerOpen,
+      terminalDrawerHeight: s.terminalDrawerHeight,
+      rightUtilityTabs: s.rightUtilityTabs,
+      activeRightUtilityTab: s.activeRightUtilityTab,
+      rightUtilityPanelHidden: s.rightUtilityPanelHidden,
+      rightPanelFullscreen: s.rightPanelFullscreen,
+      sessionsLoaded: s.sessionsLoaded,
+      setProjectTreeCollapsed: s.setProjectTreeCollapsed,
+      setProjectPanelView: s.setProjectPanelView,
+      setTerminalDrawerOpen: s.setTerminalDrawerOpen,
+      setTerminalDrawerHeight: s.setTerminalDrawerHeight,
+      setBrowserPanelOpen: s.setBrowserPanelOpen,
+      setActiveRightUtilityTab: s.setActiveRightUtilityTab,
+      openRightUtilityTab: s.openRightUtilityTab,
+      closeRightUtilityTab: s.closeRightUtilityTab,
+      closeRightUtilityPanels: s.closeRightUtilityPanels,
+      showRightUtilityPanels: s.showRightUtilityPanels,
+      setRightPanelFullscreen: s.setRightPanelFullscreen,
+      closeSplitChat: s.closeSplitChat,
+      globalError: s.globalError,
+      clearGlobalError: s.clearGlobalError,
+      theme: s.theme,
+      themeState: s.themeState,
+      uiFontFamily: s.uiFontFamily,
+      chatCodeFontFamily: s.chatCodeFontFamily,
+      setHistoryNavigationTarget: s.setHistoryNavigationTarget,
+    }))
+  );
 
   // Track history requests (prevent duplicates)
   const historyRequested = useRef(new Set<string>());
   const sessionStatusSnapshotRef = useRef(new Map<string, SessionStatus>());
   const pendingAutoPreviewSessionsRef = useRef(new Set<string>());
   const autoPreviewedArtifactsRef = useRef(new Set<string>());
-  const activeSession = activeSessionId ? sessions[activeSessionId] : null;
+  // Narrow subscription: re-renders only when the ACTIVE session's object
+  // changes. Background sessions' streaming deltas replace their own entry in
+  // the sessions map but keep this reference intact.
+  const activeSession = useAppStore((s) =>
+    s.activeSessionId ? s.sessions[s.activeSessionId] ?? null : null
+  );
 
   useEffect(() => {
     if (!electronAvailable) {
@@ -606,7 +662,21 @@ export function App() {
     activateRightUtilityContent(activeRightUtilityTab);
   }, [activeRightUtilityTab, activateRightUtilityContent, rightUtilityPanelHidden]);
 
+  // Status-transition watcher (auto-preview of HTML artifacts). Subscribes to
+  // a status fingerprint instead of the sessions map so streaming deltas —
+  // which replace session objects without changing any status — never
+  // re-render App through this path. Message contents are read lazily via
+  // getState() at transition time.
+  const sessionStatusFingerprint = useAppStore((s) => {
+    let fingerprint = '';
+    for (const session of Object.values(s.sessions)) {
+      fingerprint += `${session.id}:${session.status};`;
+    }
+    return fingerprint;
+  });
+
   useEffect(() => {
+    const sessions = useAppStore.getState().sessions;
     const nextStatuses = new Map<string, SessionStatus>();
 
     for (const session of Object.values(sessions)) {
@@ -658,7 +728,7 @@ export function App() {
     }
 
     sessionStatusSnapshotRef.current = nextStatuses;
-  }, [sessions, activeSessionId, openRightUtilityTab]);
+  }, [sessionStatusFingerprint, activeSessionId, openRightUtilityTab]);
 
   useEffect(() => {
     applyThemePreferences({
@@ -1211,7 +1281,15 @@ function RightSideChatPanel({
     openSplitChat,
     setActivePane,
     swapChatPanes,
-  } = useAppStore();
+  } = useAppStore(
+    useShallow((s) => ({
+      activePaneId: s.activePaneId,
+      chatPanes: s.chatPanes,
+      openSplitChat: s.openSplitChat,
+      setActivePane: s.setActivePane,
+      swapChatPanes: s.swapChatPanes,
+    }))
+  );
   const [sideChatDropActive, setSideChatDropActive] = useState(false);
 
   const secondaryControls = (

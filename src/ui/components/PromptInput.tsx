@@ -11,6 +11,7 @@ import {
 import { Plus, Square } from './icons';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
+import { useShallow } from 'zustand/react/shallow';
 import { sendEvent } from '../hooks/useIPC';
 import type { Attachment } from '../types';
 import { AttachmentChips } from './AttachmentChips';
@@ -91,9 +92,10 @@ export function PromptInput({
    * e.g. the project / branch context pills. */
   footer?: ReactNode;
 } = {}) {
+  // P2: shallow-picked subscription (the composer must not re-render for
+  // unrelated store changes); the session itself is a narrow selector below.
   const {
     activeSessionId,
-    sessions,
     activeChannelByProject,
     pendingStart,
     setShowNewSession,
@@ -106,7 +108,23 @@ export function PromptInput({
     consumeChatInjection,
     draftStartMode,
     handoffSessionToProvider,
-  } = useAppStore();
+  } = useAppStore(
+    useShallow((s) => ({
+      activeSessionId: s.activeSessionId,
+      activeChannelByProject: s.activeChannelByProject,
+      pendingStart: s.pendingStart,
+      setShowNewSession: s.setShowNewSession,
+      setShowSettings: s.setShowSettings,
+      setActiveSettingsTab: s.setActiveSettingsTab,
+      setPendingStart: s.setPendingStart,
+      promptLibraryInsertRequest: s.promptLibraryInsertRequest,
+      consumePromptLibraryInsert: s.consumePromptLibraryInsert,
+      pendingChatInjection: s.pendingChatInjection,
+      consumeChatInjection: s.consumeChatInjection,
+      draftStartMode: s.draftStartMode,
+      handoffSessionToProvider: s.handoffSessionToProvider,
+    }))
+  );
   const [prompt, setPrompt] = useState('');
   // ArrowUp/ArrowDown history navigation. historyNavRef tracks the browsing
   // position + stashed draft; historyAppliedTextRef remembers the last text WE
@@ -118,7 +136,9 @@ export function PromptInput({
   const editorRef = useRef<ComposerPromptEditorHandle | null>(null);
   const isComposingRef = useRef(false);
   const targetSessionId = sessionId ?? activeSessionId;
-  const activeSession = targetSessionId ? sessions[targetSessionId] : null;
+  const activeSession = useAppStore((s) =>
+    targetSessionId ? s.sessions[targetSessionId] ?? null : null
+  );
 
   const promptHistory = useMemo(
     () => collectPromptHistory(activeSession?.messages ?? []),
@@ -216,6 +236,48 @@ export function PromptInput({
   });
   const runtimeProvider = agentSelection.provider;
   const selectedModel = agentSelection.model;
+
+  // P3: speculative Claude runner prewarm. The first keystroke for an idle
+  // Claude session boots the CLI (spawn + settings + MCP connect + resume
+  // replay) while the user is still composing, so the eventual send reuses a
+  // live runner instead of paying the cold start in front of the first
+  // token. Fired at most once per session per composer mount; the payload
+  // mirrors the `session.continue` fields so the main process's reuse check
+  // normalizes both identically.
+  const prewarmedSessionRef = useRef<string | null>(null);
+  const hasComposerActivity = prompt.trim().length > 0;
+  useEffect(() => {
+    if (!hasComposerActivity || !targetSessionId) return;
+    if (runtimeProvider !== 'claude') return;
+    if (!activeSession || activeSession.isDraft || activeSession.readOnly) return;
+    if (activeSession.status === 'running') return;
+    if (prewarmedSessionRef.current === targetSessionId) return;
+    const timer = window.setTimeout(() => {
+      prewarmedSessionRef.current = targetSessionId;
+      sendEvent({
+        type: 'runner.prewarm',
+        payload: {
+          sessionId: targetSessionId,
+          model: selectedModel || undefined,
+          compatibleProviderId: agentSelection.compatibleProviderId || undefined,
+          claudeAccessMode: agentSelection.claudePermissionMode,
+          claudeExecutionMode: agentSelection.claudePermissionMode === 'plan' ? 'plan' : 'execute',
+          claudeReasoningEffort: agentSelection.claudeReasoningEffort || undefined,
+        },
+      });
+    }, 300);
+    return () => window.clearTimeout(timer);
+    // Intentionally excludes the model/mode values: they're read at fire time
+    // and a post-prewarm change is handled by the send path's reuse check.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    hasComposerActivity,
+    targetSessionId,
+    runtimeProvider,
+    activeSession?.isDraft,
+    activeSession?.readOnly,
+    activeSession?.status,
+  ]);
 
   // Sessions are locked to their agent once a conversation exists — switching
   // goes through an explicit handoff that carries the transcript to a new
