@@ -245,6 +245,20 @@ export function PromptInput({
   // mirrors the `session.continue` fields so the main process's reuse check
   // normalizes both identically.
   const prewarmedSessionRef = useRef<string | null>(null);
+  // Latest composer config, refreshed every render so the debounced prewarm
+  // timer reads current values at fire time (see the effect below).
+  const prewarmConfigRef = useRef({
+    model: selectedModel,
+    compatibleProviderId: agentSelection.compatibleProviderId,
+    claudeAccessMode: agentSelection.claudePermissionMode,
+    claudeReasoningEffort: agentSelection.claudeReasoningEffort,
+  });
+  prewarmConfigRef.current = {
+    model: selectedModel,
+    compatibleProviderId: agentSelection.compatibleProviderId,
+    claudeAccessMode: agentSelection.claudePermissionMode,
+    claudeReasoningEffort: agentSelection.claudeReasoningEffort,
+  };
   const hasComposerActivity = prompt.trim().length > 0;
   useEffect(() => {
     if (!hasComposerActivity || !targetSessionId) return;
@@ -254,21 +268,28 @@ export function PromptInput({
     if (prewarmedSessionRef.current === targetSessionId) return;
     const timer = window.setTimeout(() => {
       prewarmedSessionRef.current = targetSessionId;
+      // Read config from the ref, not the scheduling render's closure — if the
+      // user changes model/mode during the 300ms debounce, the prewarm must
+      // carry the LATEST values so the eventual send reuses it (or so the
+      // main-process divergence guard skips a doomed prewarm) instead of
+      // warming a stale-config runner that the send then aborts.
+      const cfg = prewarmConfigRef.current;
       sendEvent({
         type: 'runner.prewarm',
         payload: {
           sessionId: targetSessionId,
-          model: selectedModel || undefined,
-          compatibleProviderId: agentSelection.compatibleProviderId || undefined,
-          claudeAccessMode: agentSelection.claudePermissionMode,
-          claudeExecutionMode: agentSelection.claudePermissionMode === 'plan' ? 'plan' : 'execute',
-          claudeReasoningEffort: agentSelection.claudeReasoningEffort || undefined,
+          model: cfg.model || undefined,
+          compatibleProviderId: cfg.compatibleProviderId || undefined,
+          claudeAccessMode: cfg.claudeAccessMode,
+          claudeExecutionMode: cfg.claudeAccessMode === 'plan' ? 'plan' : 'execute',
+          claudeReasoningEffort: cfg.claudeReasoningEffort || undefined,
         },
       });
     }, 300);
     return () => window.clearTimeout(timer);
-    // Intentionally excludes the model/mode values: they're read at fire time
-    // and a post-prewarm change is handled by the send path's reuse check.
+    // Config values are intentionally excluded from deps — they're read from
+    // prewarmConfigRef at fire time (above), so a change during the debounce
+    // does not need to reschedule.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     hasComposerActivity,

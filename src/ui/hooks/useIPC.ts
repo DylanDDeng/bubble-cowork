@@ -4,7 +4,12 @@ import type { ClientEvent, ServerEvent } from '../types';
 
 // IPC 通信 Hook
 export function useIPC() {
-  const { setConnected, handleServerEvent } = useAppStore();
+  // Select the two stable action refs individually — a whole-store
+  // `useAppStore()` here subscribes App (its only caller) to EVERY store
+  // change, which would re-render the top-level tree on every coalesced
+  // streaming update and defeat the selector narrowing done in App itself.
+  const setConnected = useAppStore((s) => s.setConnected);
+  const handleServerEvent = useAppStore((s) => s.handleServerEvent);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.electron?.onServerEvent) {

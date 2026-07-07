@@ -8584,16 +8584,21 @@ function startRunner(
       if (message.type !== 'system' && message.type !== 'result') {
         sawTurnOutput = true;
       }
-      // First-output latency must measure the model's first token, not the
-      // host-minted `type: 'user'` prompt echo (runner emits it at
-      // prompt-enqueue time) or tool-result echoes — otherwise warm/prewarm
-      // comparisons collapse to ~0ms. Only assistant output and streaming
-      // deltas count.
-      if (
-        provider === 'claude' &&
-        (message.type === 'assistant' || message.type === 'stream_event')
-      ) {
-        markClaudeFirstOutput(session.id);
+      // First-output latency must measure the model's first VISIBLE token, not
+      // the host-minted `type: 'user'` prompt echo (emitted at prompt-enqueue
+      // time), nor non-visible stream events (content_block_start, signature
+      // deltas, or filtered subagent deltas) that precede the first rendered
+      // text/thinking. Count a top-level assistant message or a top-level
+      // text/thinking content_block_delta only.
+      if (provider === 'claude' && !message.parentToolUseId) {
+        const isVisibleDelta =
+          message.type === 'stream_event' &&
+          message.event.type === 'content_block_delta' &&
+          (message.event.delta?.type === 'text_delta' ||
+            message.event.delta?.type === 'thinking_delta');
+        if (message.type === 'assistant' || isVisibleDelta) {
+          markClaudeFirstOutput(session.id);
+        }
       }
 
       const sanitizedStreamMessage =
@@ -8898,11 +8903,23 @@ function startRunner(
         // localFailureMessage marks every later turn as failed).
         localFailureMessage = null;
         sawTurnOutput = false;
+        // Close the latency window for this turn so the next prompt opens a
+        // fresh one. A turn stopped or interrupted before any output still
+        // lands a result; without this the pending window stays half-open
+        // (no first-output) and blocks every later window for the session.
+        if (provider === 'claude') {
+          clearClaudeTurnMetrics(session.id);
+        }
       }
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : String(error);
       console.error('Runner error:', error);
+      // A hard error may end the turn without a result — close the latency
+      // window so it doesn't wedge the session's future measurements.
+      if (provider === 'claude') {
+        clearClaudeTurnMetrics(session.id);
+      }
 
       // An idle (between-turns) Claude runner dying — OOM, external kill —
       // must not flip a completed session to error with a toast, and a turn

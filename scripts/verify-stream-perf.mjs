@@ -47,14 +47,23 @@ assert.equal(
   true,
   'P0c: first-output mark missing'
 );
-// first-output must be gated on real model output, NOT the host user echo
-// (which lands at prompt-enqueue time and would zero out the metric).
+// first-output must be gated on real VISIBLE model output — not the host
+// user echo (prompt-enqueue time) and not non-visible stream events
+// (content_block_start, signature deltas, subagent deltas).
 assert.equal(
-  /\(message\.type === 'assistant' \|\| message\.type === 'stream_event'\)\s*\)\s*\{\s*markClaudeFirstOutput/.test(
-    ipcSource
-  ),
+  ipcSource.includes('const isVisibleDelta =') &&
+    ipcSource.includes("message.event.delta?.type === 'text_delta'") &&
+    ipcSource.includes("message.event.delta?.type === 'thinking_delta'") &&
+    ipcSource.includes('if (provider === \'claude\' && !message.parentToolUseId) {'),
   true,
-  'P0c: first-output must be gated on assistant/stream_event, excluding the user echo'
+  'P0c: first-output must be gated on top-level assistant / text|thinking deltas only'
+);
+// Terminal turn paths must close the latency window (a no-output stop/error
+// would otherwise wedge every later measurement for the session).
+assert.equal(
+  (ipcSource.match(/clearClaudeTurnMetrics\(session\.id\)/g) || []).length >= 2,
+  true,
+  'P0c: result and error paths must clear the latency window'
 );
 
 // P0b — SDK import warmed at startup.
@@ -151,6 +160,22 @@ assert.equal(
   true,
   'P2: MDContent must be memoized so unchanged messages skip re-parsing'
 );
+// The only useIPC caller is App; a whole-store subscription there re-renders
+// App on every store change and defeats App's selector narrowing.
+const useIpcSource = fs.readFileSync(
+  path.join(root, 'src', 'ui', 'hooks', 'useIPC.ts'),
+  'utf8'
+);
+assert.equal(
+  (useIpcSource.match(/= useAppStore\(\);/g) || []).length,
+  0,
+  'P2: useIPC must select stable actions, not subscribe to the whole store'
+);
+assert.equal(
+  useIpcSource.includes('useAppStore((s) => s.handleServerEvent)'),
+  true,
+  'P2: useIPC must select handleServerEvent individually'
+);
 
 // P3 — runner prewarm wiring.
 assert.equal(
@@ -226,6 +251,14 @@ assert.equal(
   true,
   'P3: prewarm must fire at most once per session per composer mount'
 );
+// The debounced prewarm must read the LATEST composer config at fire time,
+// not the scheduling render's closure — a model/mode change during the
+// debounce would otherwise warm a stale-config runner the send aborts.
+assert.equal(
+  promptInputSource.includes('const cfg = prewarmConfigRef.current'),
+  true,
+  'P3: prewarm timer must read latest config from a ref at fire time'
+);
 
 // ── Behavioral tests (compiled + run) ────────────────────────────────────────
 
@@ -236,6 +269,11 @@ const tscBin = path.join(
   '.bin',
   process.platform === 'win32' ? 'tsc.cmd' : 'tsc'
 );
+
+const testFiles = [
+  'scripts/tests/stream-delta-coalescer.test.ts',
+  'scripts/tests/claude-turn-metrics.test.ts',
+];
 
 try {
   const compile = spawnSync(
@@ -248,18 +286,17 @@ try {
       '--esModuleInterop',
       '--strict',
       '--outDir', tmpDir,
-      'scripts/tests/stream-delta-coalescer.test.ts',
+      ...testFiles,
     ],
     { cwd: root, stdio: 'inherit' }
   );
-  assert.equal(compile.status, 0, 'coalescer test compile failed');
+  assert.equal(compile.status, 0, 'stream-perf test compile failed');
 
-  const run = spawnSync(
-    process.execPath,
-    [path.join(tmpDir, 'scripts', 'tests', 'stream-delta-coalescer.test.js')],
-    { cwd: root, stdio: 'inherit' }
-  );
-  assert.equal(run.status, 0, 'coalescer tests failed');
+  for (const testFile of testFiles) {
+    const jsPath = path.join(tmpDir, testFile.replace(/\.ts$/, '.js'));
+    const run = spawnSync(process.execPath, [jsPath], { cwd: root, stdio: 'inherit' });
+    assert.equal(run.status, 0, `${testFile} failed`);
+  }
 } finally {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
