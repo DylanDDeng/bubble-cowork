@@ -47,6 +47,15 @@ assert.equal(
   true,
   'P0c: first-output mark missing'
 );
+// first-output must be gated on real model output, NOT the host user echo
+// (which lands at prompt-enqueue time and would zero out the metric).
+assert.equal(
+  /\(message\.type === 'assistant' \|\| message\.type === 'stream_event'\)\s*\)\s*\{\s*markClaudeFirstOutput/.test(
+    ipcSource
+  ),
+  true,
+  'P0c: first-output must be gated on assistant/stream_event, excluding the user echo'
+);
 
 // P0b — SDK import warmed at startup.
 const mainSource = fs.readFileSync(path.join(root, 'src', 'electron', 'main.ts'), 'utf8');
@@ -193,6 +202,14 @@ assert.equal(
   ipcSource.includes('const MAX_PREWARMED_RUNNERS = 2'),
   true,
   'P3: prewarmed fleet cap missing'
+);
+// Prewarm must not fire when composer config diverges from the session row,
+// or the send-path reuse check aborts it (model/provider/betas compare
+// against the row) — a wasted spawn on top of the cold start.
+assert.equal(
+  ipcSource.includes('const configDivergesFromRow ='),
+  true,
+  'P3: prewarm must skip when composer config diverges from the session row'
 );
 // Composer trigger.
 const promptInputSource = fs.readFileSync(

@@ -8583,9 +8583,17 @@ function startRunner(
 
       if (message.type !== 'system' && message.type !== 'result') {
         sawTurnOutput = true;
-        if (provider === 'claude') {
-          markClaudeFirstOutput(session.id);
-        }
+      }
+      // First-output latency must measure the model's first token, not the
+      // host-minted `type: 'user'` prompt echo (runner emits it at
+      // prompt-enqueue time) or tool-result echoes — otherwise warm/prewarm
+      // comparisons collapse to ~0ms. Only assistant output and streaming
+      // deltas count.
+      if (
+        provider === 'claude' &&
+        (message.type === 'assistant' || message.type === 'stream_event')
+      ) {
+        markClaudeFirstOutput(session.id);
       }
 
       const sanitizedStreamMessage =
@@ -9206,6 +9214,25 @@ async function handleRunnerPrewarm(
   const nextReasoningEffort = normalizeClaudeReasoningEffort(
     payload.claudeReasoningEffort || normalizeClaudeReasoningEffort(session.claude_reasoning_effort)
   );
+
+  // The send-path reuse check compares model / compatibleProvider / betas
+  // against the SESSION ROW (not the runner entry — unlike access/execution/
+  // effort, which read the entry). So if the composer carries an unsaved
+  // change to any of those three, the first real send would see it as a
+  // change and abort this prewarmed runner, paying a wasted spawn on top of
+  // the cold start. Skip prewarm entirely in that case — the send then cold-
+  // starts exactly once, as it would with no prewarm. Uses the same
+  // comparators the reuse check uses so the two decisions stay symmetric.
+  const rowModel = normalizeModel(session.model ?? undefined);
+  const rowCompatibleProviderId = session.compatible_provider_id || undefined;
+  const rowBetas = normalizeBetas(parseStoredBetas(session.betas));
+  const configDivergesFromRow =
+    !isSameClaudeModelSelection(nextModel, rowModel) ||
+    nextCompatibleProviderId !== rowCompatibleProviderId ||
+    JSON.stringify(nextBetas || []) !== JSON.stringify(rowBetas || []);
+  if (configDivergesFromRow) {
+    return;
+  }
 
   if (isDev()) {
     console.log('[Runner Prewarm]', {
