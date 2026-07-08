@@ -83,6 +83,10 @@ assert.ok(
   drawerSrc.includes('requestChatInjection') && drawerSrc.includes('Apply via agent'),
   'drawer: agent lane is a first-class Apply variant, not a dead end'
 );
+assert.ok(
+  drawerSrc.includes('composeAnnotationText') && drawerSrc.includes('computeAnnotationCrop') && drawerSrc.includes('measureSelection'),
+  'drawer: annotate lane (free-text + cropped element screenshot at submit-time geometry)'
+);
 const panelSrc = fs.readFileSync(path.join(root, 'src/ui/components/browser/BrowserPanel.tsx'), 'utf8');
 assert.ok(
   panelSrc.includes('<DesignDrawer') && panelSrc.includes('toggleDesignMode'),
@@ -112,6 +116,7 @@ const tscBin = path.join(root, 'node_modules', '.bin', process.platform === 'win
 const testFiles = [
   'scripts/tests/design-writeback.test.ts',
   'scripts/tests/design-verify.test.ts',
+  'scripts/tests/design-annotate.test.ts',
 ];
 
 try {

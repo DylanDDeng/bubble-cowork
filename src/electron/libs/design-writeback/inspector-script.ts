@@ -216,10 +216,14 @@ export const INSPECTOR_SCRIPT = `(() => {
   window.__aegisDesignMeasure = () => {
     const el = relocate();
     const viteOverlay = Boolean(document.querySelector('vite-error-overlay'));
-    if (!el) return JSON.stringify({ found: false, viteErrorOverlay: viteOverlay });
+    const viewport = { w: window.innerWidth, h: window.innerHeight };
+    if (!el) return JSON.stringify({ found: false, viteErrorOverlay: viteOverlay, viewport });
+    const rect = el.getBoundingClientRect();
     return JSON.stringify({
       found: true,
       viteErrorOverlay: viteOverlay,
+      viewport,
+      rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
       classList: typeof el.className === 'string' ? el.className : (el.getAttribute('class') || ''),
       computed: snapshotComputed(el),
       previewActive: el.hasAttribute('data-aegis-preview'),

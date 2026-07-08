@@ -224,6 +224,29 @@ export class DesignModeService {
     }
   }
 
+  /**
+   * Fresh geometry of the selected element (annotate crops the screenshot at
+   * SUBMIT time — the selection-time rect goes stale the moment the page
+   * scrolls or reflows).
+   */
+  async measureSelection(
+    input: DesignModeTarget
+  ): Promise<{ found: boolean; rect?: { x: number; y: number; w: number; h: number }; viewport?: { w: number; h: number } }> {
+    const wc = this.webContentsFor(input);
+    if (!wc) return { found: false };
+    try {
+      const measured = await this.measurePage(wc);
+      if (!measured) return { found: false };
+      return {
+        found: measured.found,
+        rect: (measured as { rect?: { x: number; y: number; w: number; h: number } }).rect,
+        viewport: (measured as { viewport?: { w: number; h: number } }).viewport,
+      };
+    } catch {
+      return { found: false };
+    }
+  }
+
   async preview(input: DesignModeTarget & { property: string; value: string }): Promise<boolean> {
     const wc = this.webContentsFor(input);
     if (!wc) return false;

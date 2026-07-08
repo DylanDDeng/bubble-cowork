@@ -8,6 +8,7 @@ export const DESIGN_CHANNELS = {
   enable: 'desktop:design-mode-enable',
   disable: 'desktop:design-mode-disable',
   preview: 'desktop:design-mode-preview',
+  measureSelection: 'desktop:design-mode-measure-selection',
   clearPreview: 'desktop:design-mode-clear-preview',
   apply: 'desktop:design-mode-apply',
   undo: 'desktop:design-mode-undo',
@@ -47,6 +48,9 @@ export function registerDesignModeIpc(mainWindow: BrowserWindow): void {
   );
   ipcMain.handle(DESIGN_CHANNELS.preview, (_event, input: DesignModeTarget & { property: string; value: string }) =>
     designModeService.preview(input)
+  );
+  ipcMain.handle(DESIGN_CHANNELS.measureSelection, (_event, input: DesignModeTarget) =>
+    designModeService.measureSelection(input)
   );
   ipcMain.handle(DESIGN_CHANNELS.clearPreview, (_event, input: DesignModeTarget) =>
     designModeService.clearPreview(input)

@@ -355,6 +355,13 @@ declare global {
         input: import('./shared/design-mode-types').DesignModeTarget & { property: string; value: string }
       ) => Promise<boolean>;
       clearPreview: (input: import('./shared/design-mode-types').DesignModeTarget) => Promise<void>;
+      measureSelection: (
+        input: import('./shared/design-mode-types').DesignModeTarget
+      ) => Promise<{
+        found: boolean;
+        rect?: { x: number; y: number; w: number; h: number };
+        viewport?: { w: number; h: number };
+      }>;
       apply: (
         input: import('./shared/design-mode-types').DesignApplyInput
       ) => Promise<import('./shared/design-mode-types').DesignApplyResult>;
