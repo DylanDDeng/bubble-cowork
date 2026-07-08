@@ -9,6 +9,11 @@ export default defineConfig({
     host: '127.0.0.1',
     port: parseInt(process.env.PORT || '10087'),
     strictPort: true,
+    watch: {
+      // Design mode writes into dev-fixtures at runtime; Aegis's own dev
+      // server must not react to those files (they have their own server).
+      ignored: ['**/dev-fixtures/**'],
+    },
   },
   optimizeDeps: {
     include: ['sonner'],

@@ -1952,15 +1952,37 @@ export const useAppStore = create<Store>()(
     }),
 
   requestChatInjection: (request) =>
-    set({
-      pendingChatInjection: {
-        sessionId: request.sessionId ?? null,
-        text: request.text,
-        attachments: request.attachments,
-        mode: request.mode ?? 'append',
-        source: request.source,
-        nonce: Date.now(),
-      },
+    set((state) => {
+      const pending = state.pendingChatInjection;
+      const mode = request.mode ?? 'append';
+      // The slot is single-entry; two quick append-mode injections for the
+      // same session (e.g. two design-mode annotations before the composer
+      // consumed the first) must MERGE, not silently overwrite the first.
+      if (
+        pending &&
+        mode === 'append' &&
+        pending.mode === 'append' &&
+        (pending.sessionId ?? null) === (request.sessionId ?? null)
+      ) {
+        return {
+          pendingChatInjection: {
+            ...pending,
+            text: `${pending.text}\n\n${request.text}`,
+            attachments: [...(pending.attachments ?? []), ...(request.attachments ?? [])],
+            nonce: Date.now(),
+          },
+        };
+      }
+      return {
+        pendingChatInjection: {
+          sessionId: request.sessionId ?? null,
+          text: request.text,
+          attachments: request.attachments,
+          mode,
+          source: request.source,
+          nonce: Date.now(),
+        },
+      };
     }),
 
   consumeChatInjection: (nonce) =>

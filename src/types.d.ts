@@ -346,6 +346,24 @@ declare global {
       onState: (callback: (state: SessionBrowserState) => void) => () => void;
       onSendSelection: (callback: (event: BrowserSendSelectionEvent) => void) => () => void;
     };
+    designMode: {
+      enable: (
+        input: import('./shared/design-mode-types').DesignModeTarget & { projectRoot: string }
+      ) => Promise<import('./shared/design-mode-types').DesignEnableResult>;
+      disable: (
+        input: import('./shared/design-mode-types').DesignModeTarget & { token?: number }
+      ) => Promise<void>;
+      measureSelection: (
+        input: import('./shared/design-mode-types').DesignModeTarget
+      ) => Promise<{
+        found: boolean;
+        rect?: { x: number; y: number; w: number; h: number };
+        viewport?: { w: number; h: number };
+      }>;
+      onEvent: (
+        callback: (event: import('./shared/design-mode-types').DesignModeEvent) => void
+      ) => () => void;
+    };
   }
 
   interface Window {

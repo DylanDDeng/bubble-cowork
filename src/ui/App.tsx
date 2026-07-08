@@ -50,6 +50,7 @@ import { TerminalDrawer } from './components/TerminalDrawer';
 import { RightTerminalPanel } from './components/RightTerminalPanel';
 import { SubagentPanel } from './components/SubagentPanel';
 import { SubagentAvatar } from './components/SubagentAvatar';
+import { DesignAnnotateBridge } from './components/browser/DesignAnnotateBridge';
 import { getSubagentPersona } from './utils/subagent-persona';
 import { WorkspaceHost } from './components/WorkspaceHost';
 import { ChatPane } from './components/ChatPane';
@@ -1143,6 +1144,10 @@ export function App() {
           />
         </div>
       ) : null}
+
+      {/* Design-mode annotate delivery: app-level so a note submitted right
+          before the browser panel closes still reaches the composer. */}
+      <DesignAnnotateBridge />
 
       {/* Toast notifications */}
       <Toaster

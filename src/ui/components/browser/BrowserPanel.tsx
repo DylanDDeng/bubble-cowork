@@ -34,6 +34,7 @@ import {
   Maximize2,
   Minimize2,
   MoreHorizontal,
+  Palette,
   RefreshCw,
   X,
 } from '../icons';
@@ -172,6 +173,109 @@ export function BrowserPanel({
   const [localError, setLocalError] = useState<string | null>(null);
   const [screenshotBusy, setScreenshotBusy] = useState(false);
   const [readoutBusy, setReadoutBusy] = useState(false);
+
+  // ===== Design mode =====
+  // The design session is keyed by the (browserSessionId, tabId) it was
+  // ENABLED for — disable must use that stored pair, not the current props:
+  // after a chat-session switch browserSessionId changes and a disable built
+  // from it would miss the service's session map, leaking the pinned
+  // WebContentsView and leaving the page's clicks hijacked by the inspector
+  // (review finding).
+  const [designTarget, setDesignTarget] = useState<{ browserSessionId: string; tabId: string; token?: number } | null>(null);
+  const projectRoot = useAppStore((s) => (sessionId ? s.sessions[sessionId]?.cwd ?? null : null));
+
+  const disableDesignMode = useCallback(() => {
+    setDesignTarget((current) => {
+      if (current) {
+        void window.electron.designMode.disable({
+          sessionId: current.browserSessionId,
+          tabId: current.tabId,
+          token: current.token,
+        });
+      }
+      return null;
+    });
+  }, []);
+
+  // The enable round-trip (inject + probe) is slow enough for the user to
+  // collapse the panel or switch tabs mid-flight; a resolved enable must not
+  // record a target the cleanup effects have already stopped watching, or
+  // the pinned session + click-hijacking inspector leak (codex review).
+  const designContextRef = useRef('');
+  const toggleDesignMode = useCallback(async () => {
+    if (designTarget) {
+      disableDesignMode();
+      return;
+    }
+    const tab = sessionState.activeTabId
+      ? sessionState.tabs.find((item) => item.id === sessionState.activeTabId) ?? null
+      : null;
+    if (!tab) return;
+    if (!projectRoot) {
+      toast.error('Design mode needs an open project session (annotations carry project context).');
+      return;
+    }
+    const contextAtStart = designContextRef.current;
+    const enabled = await window.electron.designMode.enable({
+      sessionId: browserSessionId,
+      tabId: tab.id,
+      projectRoot,
+    });
+    if (!enabled.ok) {
+      toast.error(enabled.message || 'Failed to enable design mode');
+      return;
+    }
+    if (designContextRef.current !== contextAtStart) {
+      // Panel collapsed / tab or session switched while enable was in flight.
+      // Token-scoped: this must tear down OUR stale session only, never a
+      // successor a reopened panel installed under the same key.
+      void window.electron.designMode.disable({ sessionId: browserSessionId, tabId: tab.id, token: enabled.token });
+      return;
+    }
+    setDesignTarget({ browserSessionId, tabId: tab.id, token: enabled.token });
+  }, [designTarget, disableDesignMode, sessionState, projectRoot, browserSessionId]);
+
+  // Design mode is bound to one tab of one browser session: leaving it in
+  // ANY direction (tab switch, chat-session switch, panel collapse) ends the
+  // design session explicitly.
+  useEffect(() => {
+    if (!designTarget) return;
+    if (
+      collapsed ||
+      browserSessionId !== designTarget.browserSessionId ||
+      sessionState.activeTabId !== designTarget.tabId
+    ) {
+      disableDesignMode();
+    }
+  }, [collapsed, browserSessionId, sessionState.activeTabId, designTarget, disableDesignMode]);
+
+  // Unmount cleanup: closing the browser utility tab must release the design
+  // session (pin + poll timer + in-page inspector), not leak it.
+  useEffect(() => () => disableDesignMode(), [disableDesignMode]);
+
+  // Staleness fingerprint for in-flight enables: any change here (or unmount)
+  // invalidates an enable() that resolves afterwards.
+  useEffect(() => {
+    designContextRef.current = `${collapsed}:${browserSessionId}:${sessionState.activeTabId ?? ''}`;
+    return () => {
+      designContextRef.current = '__unmounted__';
+    };
+  }, [collapsed, browserSessionId, sessionState.activeTabId]);
+
+  // The service emits 'disabled' when it tears a session down (page gone,
+  // left localhost, host reload); clear the UI target without re-invoking
+  // IPC (idempotent server-side). Annotate delivery lives in the app-level
+  // DesignAnnotateBridge, independent of this panel's lifetime.
+  useEffect(() => {
+    return window.electron.designMode.onEvent((event) => {
+      if (event.kind !== 'disabled') return;
+      setDesignTarget((current) =>
+        current && current.tabId === event.tabId && current.browserSessionId === event.sessionId
+          ? null
+          : current
+      );
+    });
+  }, []);
 
   // ===== 订阅主进程状态 =====
   useEffect(() => {
@@ -668,6 +772,20 @@ export function BrowserPanel({
           </button>
           <button
             type="button"
+            onClick={() => void toggleDesignMode()}
+            disabled={!activeTab}
+            className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:opacity-40 disabled:hover:bg-transparent ${
+              designTarget
+                ? 'bg-[color-mix(in_srgb,var(--accent)_18%,transparent)] text-[var(--accent)]'
+                : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+            }`}
+            title={designTarget ? 'Exit design mode' : 'Design mode: click an element, describe the change, send it to the agent'}
+            aria-label="Toggle design mode"
+          >
+            <Palette className="h-[13px] w-[13px]" />
+          </button>
+          <button
+            type="button"
             onClick={() => {
               if (activeTab?.url) {
                 void navigator.clipboard.writeText(activeTab.url);
@@ -723,20 +841,24 @@ export function BrowserPanel({
 
       </div>
 
-      {/* Viewport placeholder: main process mirrors the native WebContentsView here */}
-      <div className="relative flex-1 min-h-0 bg-[var(--bg-primary)]">
-        <div ref={viewportRef} className="absolute inset-0" />
-        {chromeStatus && (
-          <div
-            className={`pointer-events-none absolute bottom-2 left-2 right-2 rounded-md border px-2 py-1 text-[11px] ${
-              chromeStatus.tone === 'error'
-                ? 'border-red-500/40 bg-red-500/10 text-red-400'
-                : 'border-[var(--border)] bg-[var(--bg-secondary)]/80 text-[var(--text-secondary)]'
-            }`}
-          >
-            {chromeStatus.label}
-          </div>
-        )}
+      {/* Viewport row: native WebContentsView mirror + (optional) design drawer.
+          The drawer shrinks the viewport div; the ResizeObserver above pushes
+          the smaller bounds to the main process automatically. */}
+      <div className="flex min-h-0 flex-1">
+        <div className="relative min-h-0 flex-1 bg-[var(--bg-primary)]">
+          <div ref={viewportRef} className="absolute inset-0" />
+          {chromeStatus && (
+            <div
+              className={`pointer-events-none absolute bottom-2 left-2 right-2 rounded-md border px-2 py-1 text-[11px] ${
+                chromeStatus.tone === 'error'
+                  ? 'border-red-500/40 bg-red-500/10 text-red-400'
+                  : 'border-[var(--border)] bg-[var(--bg-secondary)]/80 text-[var(--text-secondary)]'
+              }`}
+            >
+              {chromeStatus.label}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

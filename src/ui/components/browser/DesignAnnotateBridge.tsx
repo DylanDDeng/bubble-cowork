@@ -1,0 +1,120 @@
+import { useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
+import { useAppStore } from '../../store/useAppStore';
+import type { DesignSelectionInfo } from '../../../shared/design-mode-types';
+import type { Attachment } from '../../../shared/types';
+import { computeAnnotationCrop, composeAnnotationText } from './design-annotate';
+
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+/** Crop a captured PNG data URL to the annotation region; null → use original. */
+async function cropDataUrl(
+  dataUrl: string,
+  crop: { sx: number; sy: number; sw: number; sh: number } | null
+): Promise<Uint8Array | null> {
+  if (!crop) return null;
+  const image = new Image();
+  await new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error('screenshot decode failed'));
+    image.src = dataUrl;
+  });
+  const canvas = document.createElement('canvas');
+  canvas.width = crop.sw;
+  canvas.height = crop.sh;
+  const context = canvas.getContext('2d');
+  if (!context) return null;
+  context.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, crop.sw, crop.sh);
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) return null;
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+/**
+ * Headless design-mode companion: listens for annotate submissions from the
+ * in-page bubble and lands them in the composer — the user's note, a
+ * screenshot cropped to the element (submit-time geometry), and the element
+ * context. Design mode never writes source files; the agent does.
+ *
+ * Mounted ONCE at the app level, deliberately independent of any browser
+ * panel's lifetime: the service's disable path performs a final queue drain
+ * (a note submitted right before closing the panel), and those last annotate
+ * events arrive while — or after — the panel unmounts. A panel-scoped
+ * listener would be gone by then and the annotation silently lost.
+ */
+export function DesignAnnotateBridge() {
+  const requestChatInjection = useAppStore((s) => s.requestChatInjection);
+
+  const sendAnnotation = useCallback(
+    async (
+      browserSessionId: string,
+      tabId: string,
+      note: string,
+      target: DesignSelectionInfo,
+      viewport: { w: number; h: number } | undefined
+    ) => {
+      // Browser sessions bound to a chat session share its id; extra utility
+      // tabs use a scoped id of the form `${chatId}:browser:*` — route those
+      // to the OWNING chat, not a fresh draft. Drafts only for standalone.
+      const store = useAppStore.getState();
+      const owningChatId = browserSessionId.includes(':') ? browserSessionId.split(':')[0] : browserSessionId;
+      const chatTargetId = store.sessions[browserSessionId]
+        ? browserSessionId
+        : store.sessions[owningChatId]
+          ? owningChatId
+          : store.createDraftSession();
+      const attachments: Attachment[] = [];
+      let pageUrl: string | null = null;
+      try {
+        const captured = await window.electron.browser.capture({ sessionId: browserSessionId, tabId });
+        if (captured.ok && captured.base64 && captured.dataUrl) {
+          pageUrl = captured.pageUrl ?? null;
+          // Geometry travels WITH the annotate event, measured in-page at
+          // submit time — re-measuring "the current selection" here would
+          // race a user who already clicked a different element, pairing
+          // note A with a crop of element B. No viewport → no crop (full
+          // screenshot beats a confidently wrong region).
+          const crop = viewport
+            ? computeAnnotationCrop(target.rect, viewport, {
+                width: captured.width ?? 0,
+                height: captured.height ?? 0,
+              })
+            : null;
+          const cropped = await cropDataUrl(captured.dataUrl, crop).catch(() => null);
+          const bytes = cropped ?? base64ToBytes(captured.base64);
+          const attachment = (await window.electron.createInlineImageAttachment(
+            captured.mimeType || 'image/png',
+            bytes
+          )) as Attachment | null;
+          if (attachment) attachments.push(attachment);
+        }
+      } catch {
+        // Screenshot is best-effort; the annotation still carries the context.
+      }
+      requestChatInjection({
+        sessionId: chatTargetId,
+        text: composeAnnotationText({ note, selection: target, pageUrl, hasScreenshot: attachments.length > 0 }),
+        attachments,
+        mode: 'append',
+        source: 'design-annotate',
+      });
+      toast.success('Annotation sent to the composer — review and send');
+    },
+    [requestChatInjection]
+  );
+
+  useEffect(() => {
+    return window.electron.designMode.onEvent((event) => {
+      if (event.kind === 'annotate') {
+        void sendAnnotation(event.sessionId, event.tabId, event.note, event.info, event.viewport);
+      }
+    });
+  }, [sendAnnotation]);
+
+  return null;
+}

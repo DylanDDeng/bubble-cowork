@@ -66,6 +66,14 @@ const BROWSER_CHANNELS = {
   sendSelection: 'desktop:browser-send-selection',
 } as const;
 
+// 与 design-mode-ipc.ts 中 DESIGN_CHANNELS 保持一致
+const DESIGN_CHANNELS = {
+  enable: 'desktop:design-mode-enable',
+  disable: 'desktop:design-mode-disable',
+  measureSelection: 'desktop:design-mode-measure-selection',
+  event: 'desktop:design-mode-event',
+} as const;
+
 const PROJECT_EDITOR_FLUSH_REQUEST_CHANNEL = 'project-editor-flush-request';
 const PROJECT_EDITOR_FLUSH_RESPONSE_CHANNEL = 'project-editor-flush-response';
 
@@ -936,6 +944,27 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.on(BROWSER_CHANNELS.sendSelection, handler);
       return () => {
         ipcRenderer.removeListener(BROWSER_CHANNELS.sendSelection, handler);
+      };
+    },
+  },
+  designMode: {
+    enable: (input: { sessionId: string; tabId: string; projectRoot: string }) =>
+      ipcRenderer.invoke(DESIGN_CHANNELS.enable, input),
+    disable: (input: { sessionId: string; tabId: string; token?: number }) =>
+      ipcRenderer.invoke(DESIGN_CHANNELS.disable, input),
+    measureSelection: (input: { sessionId: string; tabId: string }) =>
+      ipcRenderer.invoke(DESIGN_CHANNELS.measureSelection, input),
+    onEvent: (callback: (event: unknown) => void) => {
+      const handler = (_: unknown, event: unknown) => {
+        try {
+          callback(event);
+        } catch (error) {
+          console.error('Design mode event handler error:', error);
+        }
+      };
+      ipcRenderer.on(DESIGN_CHANNELS.event, handler);
+      return () => {
+        ipcRenderer.removeListener(DESIGN_CHANNELS.event, handler);
       };
     },
   },

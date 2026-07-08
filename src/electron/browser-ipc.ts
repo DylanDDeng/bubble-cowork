@@ -1,5 +1,6 @@
 import { BrowserWindow, ipcMain } from 'electron';
 import { browserManager } from './browserManager';
+import { designModeService } from './design-mode-service';
 import type {
   BrowserNavigateInput,
   BrowserNewTabInput,
@@ -77,9 +78,12 @@ export function registerBrowserIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle(BROWSER_CHANNELS.open, (_event, input: BrowserOpenInput) =>
     browserManager.open(input)
   );
-  ipcMain.handle(BROWSER_CHANNELS.close, (_event, input: BrowserSessionInput) =>
-    browserManager.close(input)
-  );
+  ipcMain.handle(BROWSER_CHANNELS.close, async (_event, input: BrowserSessionInput) => {
+    // Drain design mode first: close destroys the WebContentsView, and a
+    // just-submitted annotation would die in the in-page queue with it.
+    await designModeService.disableForBrowserSession(input.sessionId);
+    return browserManager.close(input);
+  });
   ipcMain.handle(BROWSER_CHANNELS.hide, (_event, input: BrowserSessionInput) => {
     browserManager.hide(input);
     return browserManager.getState(input);
@@ -90,24 +94,29 @@ export function registerBrowserIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle(BROWSER_CHANNELS.setPanelBounds, (_event, input: BrowserSetPanelBoundsInput) =>
     browserManager.setPanelBounds(input)
   );
-  ipcMain.handle(BROWSER_CHANNELS.navigate, (_event, input: BrowserNavigateInput) =>
-    browserManager.navigate(input)
-  );
-  ipcMain.handle(BROWSER_CHANNELS.reload, (_event, input: BrowserTabInput) =>
-    browserManager.reload(input)
-  );
-  ipcMain.handle(BROWSER_CHANNELS.goBack, (_event, input: BrowserTabInput) =>
-    browserManager.goBack(input)
-  );
-  ipcMain.handle(BROWSER_CHANNELS.goForward, (_event, input: BrowserTabInput) =>
-    browserManager.goForward(input)
-  );
+  ipcMain.handle(BROWSER_CHANNELS.navigate, async (_event, input: BrowserNavigateInput) => {
+    await designModeService.drainForBrowserSession(input.sessionId, input.tabId);
+    return browserManager.navigate(input);
+  });
+  ipcMain.handle(BROWSER_CHANNELS.reload, async (_event, input: BrowserTabInput) => {
+    await designModeService.drainForBrowserSession(input.sessionId, input.tabId);
+    return browserManager.reload(input);
+  });
+  ipcMain.handle(BROWSER_CHANNELS.goBack, async (_event, input: BrowserTabInput) => {
+    await designModeService.drainForBrowserSession(input.sessionId, input.tabId);
+    return browserManager.goBack(input);
+  });
+  ipcMain.handle(BROWSER_CHANNELS.goForward, async (_event, input: BrowserTabInput) => {
+    await designModeService.drainForBrowserSession(input.sessionId, input.tabId);
+    return browserManager.goForward(input);
+  });
   ipcMain.handle(BROWSER_CHANNELS.newTab, (_event, input: BrowserNewTabInput) =>
     browserManager.newTab(input)
   );
-  ipcMain.handle(BROWSER_CHANNELS.closeTab, (_event, input: BrowserTabInput) =>
-    browserManager.closeTab(input)
-  );
+  ipcMain.handle(BROWSER_CHANNELS.closeTab, async (_event, input: BrowserTabInput) => {
+    await designModeService.disableForBrowserSession(input.sessionId, input.tabId);
+    return browserManager.closeTab(input);
+  });
   ipcMain.handle(BROWSER_CHANNELS.selectTab, (_event, input: BrowserTabInput) =>
     browserManager.selectTab(input)
   );

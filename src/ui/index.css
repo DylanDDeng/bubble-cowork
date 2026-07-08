@@ -1,4 +1,8 @@
 @import 'tailwindcss';
+/* Tailwind v4 auto-content-detection scans the whole repo; dev-fixtures are
+   standalone demo apps edited AT RUNTIME by design mode — scanning them makes
+   every design-mode Apply invalidate Aegis's own CSS/build and reload the app. */
+@source not "../../dev-fixtures";
 @import 'tw-animate-css';
 @import 'katex/dist/katex.min.css';
 

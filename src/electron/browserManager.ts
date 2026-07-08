@@ -209,16 +209,35 @@ export class BrowserManager {
   private activeSessionId: string | null = null;
   private activeBounds: BrowserPanelBounds | null = null;
   private attachedRuntimeKey: string | null = null;
+  private attachedView: WebContentsView | null = null;
   private readonly states = new Map<string, SessionBrowserState>();
   private readonly runtimes = new Map<string, LiveTabRuntime>();
+  private readonly pinnedSessions = new Set<string>();
   private readonly listeners = new Set<BrowserStateListener>();
   private readonly selectionListeners = new Set<BrowserSendSelectionListener>();
   private readonly suspendTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly closingRuntimeKeys = new Set<string>();
+  private hostReloadCleanup: (() => void) | null = null;
 
   setWindow(window: BrowserWindow | null): void {
+    this.hostReloadCleanup?.();
+    this.hostReloadCleanup = null;
     this.window = window;
     if (window) {
+      // A full host-renderer reload (Cmd+R, dev full-reload) never runs React
+      // unmount cleanup, so nothing hides the native views: the attached
+      // WebContentsView would float orphaned over the fresh UI, and its
+      // session — still the active one — would never suspend. Reset native
+      // state whenever the host renderer navigates; the renderer re-opens
+      // panels on demand after boot.
+      const hostContents = window.webContents;
+      const onHostNavigate = () => this.handleHostRendererReload();
+      hostContents.on('did-navigate', onHostNavigate);
+      this.hostReloadCleanup = () => {
+        if (!hostContents.isDestroyed()) {
+          hostContents.removeListener('did-navigate', onHostNavigate);
+        }
+      };
       if (this.activeSessionId && this.activeBounds) {
         this.attachActiveTab(this.activeSessionId, this.activeBounds);
       }
@@ -226,6 +245,40 @@ export class BrowserManager {
     }
     this.detachAttachedRuntime();
     this.destroyAllRuntimes();
+  }
+
+  /**
+   * Observers notified when the host renderer reloads (design mode disposes
+   * its sessions here — its poll timers would otherwise re-inject the
+   * inspector into freshly created runtimes while the reloaded UI shows
+   * design mode as off). Registered via callback because designModeService
+   * imports this module.
+   */
+  private readonly hostReloadListeners = new Set<() => void>();
+
+  onHostRendererReload(listener: () => void): () => void {
+    this.hostReloadListeners.add(listener);
+    return () => {
+      this.hostReloadListeners.delete(listener);
+    };
+  }
+
+  private handleHostRendererReload(): void {
+    for (const listener of this.hostReloadListeners) {
+      try {
+        listener();
+      } catch (error) {
+        console.error('[browser] host-reload listener failed:', error);
+      }
+    }
+    this.pinnedSessions.clear();
+    this.detachAttachedRuntime();
+    const sessionIds = [...this.states.keys()];
+    this.activeSessionId = null;
+    this.activeBounds = null;
+    for (const sessionId of sessionIds) {
+      this.suspendSession(sessionId);
+    }
   }
 
   subscribe(listener: BrowserStateListener): () => void {
@@ -590,6 +643,32 @@ export class BrowserManager {
     }
   }
 
+  /**
+   * Live webContents for a tab, or null when suspended/destroyed. Used by the
+   * design-mode service, which injects scripts and must re-check liveness on
+   * every poll (runtimes are destroyed on suspend/newTab/render-process-gone).
+   */
+  getLiveWebContents(sessionId: string, tabId: string) {
+    const runtime = this.runtimes.get(buildRuntimeKey(sessionId, tabId));
+    if (!runtime || runtime.view.webContents.isDestroyed()) return null;
+    return runtime.view.webContents;
+  }
+
+  /**
+   * Design mode pins its session: the suspend timer would otherwise destroy
+   * the WebContentsView (and with it the inspector + preview state) 30s after
+   * the panel loses focus.
+   */
+  setSessionPinned(sessionId: string, pinned: boolean): void {
+    if (pinned) {
+      this.pinnedSessions.add(sessionId);
+      this.clearSuspendTimer(sessionId);
+    } else {
+      this.pinnedSessions.delete(sessionId);
+      if (this.activeSessionId !== sessionId) this.scheduleSessionSuspend(sessionId);
+    }
+  }
+
   // ===== Internals =====
 
   private activateSession(sessionId: string, bounds: BrowserPanelBounds): void {
@@ -629,6 +708,7 @@ export class BrowserManager {
   private scheduleSessionSuspend(sessionId: string): void {
     const state = this.states.get(sessionId);
     if (!state?.open || this.activeSessionId === sessionId) return;
+    if (this.pinnedSessions.has(sessionId)) return;
     this.clearSuspendTimer(sessionId);
     const timer = setTimeout(() => {
       this.suspendSession(sessionId);
@@ -641,6 +721,7 @@ export class BrowserManager {
   private suspendSession(sessionId: string): void {
     const state = this.states.get(sessionId);
     if (!state || this.activeSessionId === sessionId) return;
+    if (this.pinnedSessions.has(sessionId)) return;
     for (const tab of state.tabs) {
       this.destroyRuntime(sessionId, tab.id);
       tab.status = 'suspended';
@@ -675,29 +756,57 @@ export class BrowserManager {
     }
   }
 
+  // Attach/detach bookkeeping is deliberately IDEMPOTENT and keyed by the
+  // view REFERENCE, not just the runtime key. If Electron's contentView child
+  // list ever desyncs from the actual AppKit subviews (double addChildView,
+  // or a webContents destroyed while its view is still a child — the
+  // electron#42077 family), the NEXT window resize throws NSRangeException
+  // inside -[NSView setFrameSize:] and AppKit's exception handler spins the
+  // main thread forever (observed: fullscreen click → permanent beachball).
   private attachRuntime(runtime: LiveTabRuntime, bounds: BrowserPanelBounds): void {
     const window = this.window;
     if (!window) return;
-    if (this.attachedRuntimeKey === runtime.key) {
+    if (this.attachedRuntimeKey === runtime.key && this.attachedView === runtime.view) {
       runtime.view.setBounds(bounds);
       return;
     }
     this.detachAttachedRuntime();
-    window.contentView.addChildView(runtime.view);
-    runtime.view.setBounds(bounds);
+    try {
+      if (!window.contentView.children.includes(runtime.view)) {
+        window.contentView.addChildView(runtime.view);
+      }
+      runtime.view.setBounds(bounds);
+    } catch (error) {
+      console.error('[browser] attach failed:', error);
+      // If addChildView succeeded but setBounds threw, the view would be an
+      // unrecorded child — exactly the orphan this bookkeeping prevents.
+      this.removeViewFromWindow(runtime.view);
+      return;
+    }
     this.attachedRuntimeKey = runtime.key;
+    this.attachedView = runtime.view;
   }
 
   private detachAttachedRuntime(): void {
-    if (!this.window || !this.attachedRuntimeKey) {
-      this.attachedRuntimeKey = null;
-      return;
-    }
-    const runtime = this.runtimes.get(this.attachedRuntimeKey);
-    if (runtime) {
-      this.window.contentView.removeChildView(runtime.view);
-    }
+    const view = this.attachedView;
     this.attachedRuntimeKey = null;
+    this.attachedView = null;
+    if (view) {
+      this.removeViewFromWindow(view);
+    }
+  }
+
+  /** Remove a view from the window's child list, tolerating any state. */
+  private removeViewFromWindow(view: WebContentsView): void {
+    const window = this.window;
+    if (!window || window.isDestroyed()) return;
+    try {
+      if (window.contentView.children.includes(view)) {
+        window.contentView.removeChildView(view);
+      }
+    } catch (error) {
+      console.error('[browser] detach failed:', error);
+    }
   }
 
   private isRuntimeClosing(sessionId: string, tabId: string): boolean {
@@ -924,6 +1033,16 @@ export class BrowserManager {
   }
 
   private closeRuntimeWebContents(runtime: LiveTabRuntime, key: string): void {
+    // Destroying a webContents whose view is still in the window's child list
+    // desyncs Electron's child bookkeeping from the AppKit subviews: the next
+    // window resize throws NSRangeException inside -[NSView setFrameSize:]
+    // and hangs the app in AppKit's exception handler. Unhook defensively,
+    // whatever path led here.
+    this.removeViewFromWindow(runtime.view);
+    if (this.attachedView === runtime.view) {
+      this.attachedView = null;
+      this.attachedRuntimeKey = null;
+    }
     const webContents = runtime.view.webContents;
     if (webContents.isDestroyed()) {
       this.closingRuntimeKeys.delete(key);

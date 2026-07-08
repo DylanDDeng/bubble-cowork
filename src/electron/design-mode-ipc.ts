@@ -1,0 +1,47 @@
+import { BrowserWindow, ipcMain } from 'electron';
+import { designModeService } from './design-mode-service';
+import type { DesignModeTarget } from '../shared/design-mode-types';
+
+// All IPC channels live here so both the main process and the preload bridge
+// reference a single source of truth (mirrors browser-ipc.ts).
+export const DESIGN_CHANNELS = {
+  enable: 'desktop:design-mode-enable',
+  disable: 'desktop:design-mode-disable',
+  measureSelection: 'desktop:design-mode-measure-selection',
+  event: 'desktop:design-mode-event',
+} as const;
+
+let unsubscribe: (() => void) | null = null;
+
+export function registerDesignModeIpc(mainWindow: BrowserWindow): void {
+  if (unsubscribe) {
+    unsubscribe();
+    unsubscribe = null;
+  }
+  for (const channel of Object.values(DESIGN_CHANNELS)) {
+    ipcMain.removeHandler(channel);
+  }
+
+  unsubscribe = designModeService.subscribe((event) => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(DESIGN_CHANNELS.event, event);
+    }
+  });
+
+  mainWindow.on('closed', () => {
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
+    }
+  });
+
+  ipcMain.handle(DESIGN_CHANNELS.enable, (_event, input: DesignModeTarget & { projectRoot: string }) =>
+    designModeService.enable(input)
+  );
+  ipcMain.handle(DESIGN_CHANNELS.disable, (_event, input: DesignModeTarget) =>
+    designModeService.disable(input)
+  );
+  ipcMain.handle(DESIGN_CHANNELS.measureSelection, (_event, input: DesignModeTarget) =>
+    designModeService.measureSelection(input)
+  );
+}

@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { setupIPCHandlers, cleanup } from './ipc-handlers';
 import { registerBrowserIpc, disposeBrowserIpc } from './browser-ipc';
+import { registerDesignModeIpc } from './design-mode-ipc';
 import { browserManager } from './browserManager';
 import { isDev, getPreloadPath, getUIPath, DEV_SERVER_URL, ipcMainHandle } from './util';
 import { ensureShellEnvironment } from './libs/shell-environment';
@@ -608,6 +609,7 @@ function createWindow(): void {
   // 设置 IPC 处理器
   setupIPCHandlers(mainWindow);
   registerBrowserIpc(mainWindow);
+  registerDesignModeIpc(mainWindow);
   registerWindowShellState(mainWindow);
 
   // 后台预热 Claude 运行时状态缓存，避免首次发消息时等待 1-5 秒
