@@ -132,6 +132,31 @@ function base(overrides: Partial<VerificationInput>): VerificationInput {
   assert.ok(verdict.state === 'unverified' && verdict.reason === 'sanity-suspect');
 }
 
+// ── editing `color` legitimately moves currentColor-derived properties ──────
+//    (field report: border-color followed a text-color edit and the verify
+//    loop misreported "Applied but not effective")
+{
+  const verdict = classifyVerification(
+    base({
+      addedClasses: ['text-[#060ef9]'],
+      removedClasses: [],
+      classList: 'text-[#060ef9] bg-blue-500',
+      edits: [{ property: 'color', expected: '#060ef9' }],
+      baseline: {
+        'color': 'rgb(31, 41, 55)',
+        'border-color': 'oklch(0.278 0.033 256.848)',
+        'background-color': 'rgb(59, 130, 246)',
+      },
+      current: {
+        'color': 'rgb(6, 14, 249)',
+        'border-color': 'rgb(6, 14, 249)', // follows currentColor — expected
+        'background-color': 'rgb(59, 130, 246)',
+      },
+    })
+  );
+  assert.equal(verdict.state, 'verified', `currentColor-derived change is not collateral (got ${JSON.stringify(verdict)})`);
+}
+
 // ── geometry consequences of spacing edits are exempt from collateral ────────
 {
   const verdict = classifyVerification(

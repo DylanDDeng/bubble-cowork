@@ -96,6 +96,22 @@ export function valuesMatch(expected: string, measured: string | undefined | nul
 /** Geometry follows from spacing edits legitimately — never collateral. */
 const COLLATERAL_EXEMPT = new Set(['width', 'height', 'rect']);
 
+/**
+ * Properties whose initial value is `currentColor`: editing `color` changes
+ * their computed value as pure CSS semantics, not collateral damage.
+ */
+const CURRENT_COLOR_DERIVED = [
+  'border-color',
+  'border-top-color',
+  'border-right-color',
+  'border-bottom-color',
+  'border-left-color',
+  'caret-color',
+  'outline-color',
+  'text-decoration-color',
+  'column-rule-color',
+];
+
 export function classifyVerification(input: VerificationInput): VerificationVerdict {
   if (input.viteErrorOverlay) {
     return {
@@ -165,6 +181,9 @@ export function classifyVerification(input: VerificationInput): VerificationVerd
     const allowed = new Set<string>(input.alsoAffects);
     for (const edit of input.edits) {
       for (const prop of expandEditProperties(edit.property)) allowed.add(prop);
+    }
+    if (allowed.has('color')) {
+      for (const prop of CURRENT_COLOR_DERIVED) allowed.add(prop);
     }
     const collateral: string[] = [];
     for (const prop of Object.keys(input.baseline)) {
