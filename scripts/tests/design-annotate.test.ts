@@ -89,4 +89,15 @@ import { computeAnnotationCrop, composeAnnotationText } from '../../src/ui/compo
   assert.ok(!text.includes('Component chain:'), 'empty chain omitted');
 }
 
+// ── capture failed: never claim a screenshot that is not attached ────────────
+{
+  const text = composeAnnotationText({
+    note: 'note',
+    selection: { tagName: 'div', className: '', text: '', source: null, chain: [] },
+    hasScreenshot: false,
+  });
+  assert.ok(text.includes('no screenshot available'), 'failure wording used');
+  assert.ok(!text.includes('screenshot attached'), 'no false claim of an attachment');
+}
+
 console.log('design-annotate.test.ts passed');

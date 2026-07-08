@@ -49,6 +49,22 @@ export class DesignModeService {
   private readonly sessions = new Map<string, DesignSessionState>();
   private listener: ((event: DesignModeEvent) => void) | null = null;
 
+  constructor() {
+    // A host renderer reload resets the UI to designTarget=null, but our poll
+    // timers would keep running and re-inject the inspector into freshly
+    // created runtimes — page clicks hijacked while the toolbar shows design
+    // mode as off. Dispose every design session alongside the native views.
+    browserManager.onHostRendererReload(() => this.disposeAll('host-reload'));
+  }
+
+  private disposeAll(reason: string): void {
+    for (const state of this.sessions.values()) {
+      if (state.pollTimer) clearInterval(state.pollTimer);
+      this.emit({ kind: 'disabled', sessionId: state.sessionId, tabId: state.tabId, reason });
+    }
+    this.sessions.clear();
+  }
+
   subscribe(listener: (event: DesignModeEvent) => void): () => void {
     this.listener = listener;
     return () => {

@@ -49,12 +49,14 @@ export function composeAnnotationText(options: {
   note: string;
   selection: Pick<DesignSelectionInfo, 'tagName' | 'className' | 'text' | 'source' | 'chain'>;
   pageUrl?: string | null;
+  /** Only claim a screenshot when one is actually attached — capture is best-effort. */
+  hasScreenshot?: boolean;
 }): string {
-  const { note, selection, pageUrl } = options;
+  const { note, selection, pageUrl, hasScreenshot = true } = options;
   const lines: string[] = [];
   lines.push(note.trim());
   lines.push('');
-  lines.push('Annotated element (screenshot attached):');
+  lines.push(hasScreenshot ? 'Annotated element (screenshot attached):' : 'Annotated element (no screenshot available):');
   const descriptor = selection.className
     ? `<${selection.tagName} class="${selection.className.slice(0, 200)}">`
     : `<${selection.tagName}>`;

@@ -247,7 +247,30 @@ export class BrowserManager {
     this.destroyAllRuntimes();
   }
 
+  /**
+   * Observers notified when the host renderer reloads (design mode disposes
+   * its sessions here — its poll timers would otherwise re-inject the
+   * inspector into freshly created runtimes while the reloaded UI shows
+   * design mode as off). Registered via callback because designModeService
+   * imports this module.
+   */
+  private readonly hostReloadListeners = new Set<() => void>();
+
+  onHostRendererReload(listener: () => void): () => void {
+    this.hostReloadListeners.add(listener);
+    return () => {
+      this.hostReloadListeners.delete(listener);
+    };
+  }
+
   private handleHostRendererReload(): void {
+    for (const listener of this.hostReloadListeners) {
+      try {
+        listener();
+      } catch (error) {
+        console.error('[browser] host-reload listener failed:', error);
+      }
+    }
     this.pinnedSessions.clear();
     this.detachAttachedRuntime();
     const sessionIds = [...this.states.keys()];
@@ -755,6 +778,9 @@ export class BrowserManager {
       runtime.view.setBounds(bounds);
     } catch (error) {
       console.error('[browser] attach failed:', error);
+      // If addChildView succeeded but setBounds threw, the view would be an
+      // unrecorded child — exactly the orphan this bookkeeping prevents.
+      this.removeViewFromWindow(runtime.view);
       return;
     }
     this.attachedRuntimeKey = runtime.key;

@@ -84,7 +84,7 @@ export function DesignAnnotateBridge({
       }
       requestChatInjection({
         sessionId: resolveChatTargetId(),
-        text: composeAnnotationText({ note, selection: target, pageUrl }),
+        text: composeAnnotationText({ note, selection: target, pageUrl, hasScreenshot: attachments.length > 0 }),
         attachments,
         mode: 'append',
         source: 'design-annotate',

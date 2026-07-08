@@ -269,10 +269,11 @@ export const INSPECTOR_SCRIPT = `(() => {
   function submitAnnotation() {
     const note = bubbleInput.value.trim();
     if (!note || !selectedInfo) return;
+    // Hide BEFORE emitting: the main process screenshots the page right after
+    // draining this event, and a still-visible bubble would end up in the
+    // cropped capture, covering the very element the agent needs to see.
+    hideBubble();
     emit({ kind: 'annotate', note, info: selectedInfo });
-    bubbleInput.value = '';
-    bubbleSend.textContent = '✓';
-    setTimeout(() => { bubbleSend.textContent = '↵'; hideBubble(); }, 350);
   }
 
   bubbleInput.addEventListener('keydown', (event) => {
