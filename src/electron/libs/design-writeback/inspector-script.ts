@@ -273,7 +273,22 @@ export const INSPECTOR_SCRIPT = `(() => {
     // draining this event, and a still-visible bubble would end up in the
     // cropped capture, covering the very element the agent needs to see.
     hideBubble();
-    emit({ kind: 'annotate', note, info: selectedInfo });
+    // Geometry travels WITH the event, measured at submit time in this same
+    // tick: the bridge must never re-measure "the current selection" later —
+    // the user may have clicked a different element by then, pairing note A
+    // with a crop of element B.
+    const el = relocate();
+    const info = Object.assign({}, selectedInfo);
+    if (el) {
+      const r = el.getBoundingClientRect();
+      info.rect = { x: r.x, y: r.y, w: r.width, h: r.height };
+    }
+    emit({
+      kind: 'annotate',
+      note,
+      info,
+      viewport: { w: window.innerWidth, h: window.innerHeight },
+    });
   }
 
   bubbleInput.addEventListener('keydown', (event) => {

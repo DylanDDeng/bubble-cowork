@@ -55,9 +55,9 @@ const bridgeSrc = fs.readFileSync(path.join(root, 'src/ui/components/browser/Des
 assert.ok(
   bridgeSrc.includes('composeAnnotationText') &&
     bridgeSrc.includes('computeAnnotationCrop') &&
-    bridgeSrc.includes('measureSelection') &&
+    bridgeSrc.includes('event.viewport') &&
     bridgeSrc.includes('requestChatInjection'),
-  'bridge: annotate pipeline (capture → submit-time crop → composer)'
+  'bridge: annotate pipeline crops from the geometry carried BY the event (submit-time), never a later re-measure'
 );
 const panelSrc = fs.readFileSync(path.join(root, 'src/ui/components/browser/BrowserPanel.tsx'), 'utf8');
 assert.ok(

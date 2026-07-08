@@ -181,7 +181,7 @@ export function BrowserPanel({
   // from it would miss the service's session map, leaking the pinned
   // WebContentsView and leaving the page's clicks hijacked by the inspector
   // (review finding).
-  const [designTarget, setDesignTarget] = useState<{ browserSessionId: string; tabId: string } | null>(null);
+  const [designTarget, setDesignTarget] = useState<{ browserSessionId: string; tabId: string; token?: number } | null>(null);
   const projectRoot = useAppStore((s) => (sessionId ? s.sessions[sessionId]?.cwd ?? null : null));
 
   const disableDesignMode = useCallback(() => {
@@ -190,6 +190,7 @@ export function BrowserPanel({
         void window.electron.designMode.disable({
           sessionId: current.browserSessionId,
           tabId: current.tabId,
+          token: current.token,
         });
       }
       return null;
@@ -226,10 +227,12 @@ export function BrowserPanel({
     }
     if (designContextRef.current !== contextAtStart) {
       // Panel collapsed / tab or session switched while enable was in flight.
-      void window.electron.designMode.disable({ sessionId: browserSessionId, tabId: tab.id });
+      // Token-scoped: this must tear down OUR stale session only, never a
+      // successor a reopened panel installed under the same key.
+      void window.electron.designMode.disable({ sessionId: browserSessionId, tabId: tab.id, token: enabled.token });
       return;
     }
-    setDesignTarget({ browserSessionId, tabId: tab.id });
+    setDesignTarget({ browserSessionId, tabId: tab.id, token: enabled.token });
   }, [designTarget, disableDesignMode, sessionState, projectRoot, browserSessionId]);
 
   // Design mode is bound to one tab of one browser session: leaving it in

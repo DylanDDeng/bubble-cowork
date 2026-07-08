@@ -29,7 +29,11 @@ interface DesignSessionState {
   projectRoot: string;
   pollTimer: NodeJS.Timeout | null;
   capabilities: DesignCapabilities;
+  /** Ownership token — stale disables must not tear down a successor. */
+  token: number;
 }
+
+let nextSessionToken = 1;
 
 function keyOf(target: DesignModeTarget): string {
   return `${target.sessionId}:${target.tabId}`;
@@ -92,7 +96,7 @@ export class DesignModeService {
 
   async enable(
     input: DesignModeTarget & { projectRoot: string }
-  ): Promise<{ ok: boolean; message?: string; capabilities?: DesignCapabilities }> {
+  ): Promise<{ ok: boolean; message?: string; capabilities?: DesignCapabilities; token?: number }> {
     const wc = this.webContentsFor(input);
     if (!wc) return { ok: false, message: 'This browser tab is not active.' };
 
@@ -121,6 +125,7 @@ export class DesignModeService {
       projectRoot: input.projectRoot,
       pollTimer: null,
       capabilities,
+      token: nextSessionToken++,
     };
     state.pollTimer = setInterval(() => {
       void this.pollOnce(state);
@@ -130,7 +135,7 @@ export class DesignModeService {
 
     browserManager.setSessionPinned(input.sessionId, true);
     this.emit({ kind: 'enabled', sessionId: input.sessionId, tabId: input.tabId, capabilities });
-    return { ok: true, capabilities };
+    return { ok: true, capabilities, token: state.token };
   }
 
   private async probeCapabilities(wc: WebContents, url: string): Promise<DesignCapabilities> {
@@ -161,9 +166,13 @@ export class DesignModeService {
     return { reactFiber, hmrClient, localhost: isLocalhostUrl(url) };
   }
 
-  async disable(input: DesignModeTarget, reason = 'user'): Promise<void> {
+  async disable(input: DesignModeTarget & { token?: number }, reason = 'user'): Promise<void> {
     const key = keyOf(input);
     const state = this.sessions.get(key);
+    // Token-scoped disables only tear down the session they own: a stale
+    // disable (outdated enable resolution / late IPC) arriving after a newer
+    // enable installed a successor under the same key must be a no-op.
+    if (typeof input.token === 'number' && (!state || state.token !== input.token)) return;
     if (state?.pollTimer) clearInterval(state.pollTimer);
     this.sessions.delete(key);
     const stillPinned = [...this.sessions.values()].some((s) => s.sessionId === input.sessionId);
@@ -213,9 +222,21 @@ export class DesignModeService {
       raw = null;
     }
     // A disable() that ran while we awaited must win: acting here would
-    // re-enable the inspector on a page the session no longer owns.
-    if (!this.isCurrent(state)) return;
+    // re-enable the inspector on a page the session no longer owns. But the
+    // drain already REMOVED events from the page queue — a just-submitted
+    // annotation must still be forwarded, or it is lost to both paths.
+    if (!this.isCurrent(state)) {
+      if (raw !== null) this.forwardDrainedEvents(state, String(raw));
+      return;
+    }
     if (raw === null) {
+      // The tab may have been closed/suspended while the drain was in
+      // flight; getURL/executeJavaScript on a destroyed WebContents throw
+      // synchronously, outside any try below.
+      if (wc.isDestroyed()) {
+        await this.disable(state, 'page-gone');
+        return;
+      }
       // Injection lost (navigation / reload). Re-inject while still on localhost.
       const url = wc.getURL() || '';
       if (!isLocalhostUrl(url)) {
@@ -242,7 +263,12 @@ export class DesignModeService {
 
   private forwardDrainedEvents(state: DesignSessionState, raw: string): void {
     try {
-      const events = JSON.parse(raw) as Array<{ kind: string; info?: DesignSelectionInfo; note?: string }>;
+      const events = JSON.parse(raw) as Array<{
+        kind: string;
+        info?: DesignSelectionInfo;
+        note?: string;
+        viewport?: { w: number; h: number };
+      }>;
       for (const event of events) {
         if (event.kind === 'selected' && event.info) {
           this.emit({ kind: 'selection', sessionId: state.sessionId, tabId: state.tabId, info: event.info });
@@ -254,11 +280,25 @@ export class DesignModeService {
             tabId: state.tabId,
             note: event.note,
             info: event.info,
+            viewport: event.viewport,
           });
         }
       }
     } catch {
       // Malformed drain payload — ignore.
+    }
+  }
+
+  /**
+   * Drain + tear down design sessions for a browser session/tab BEFORE its
+   * WebContentsView is destroyed — close paths would otherwise kill the page
+   * while a just-submitted annotation still sits in the in-page queue.
+   */
+  async disableForBrowserSession(sessionId: string, tabId?: string): Promise<void> {
+    for (const state of [...this.sessions.values()]) {
+      if (state.sessionId !== sessionId) continue;
+      if (tabId && state.tabId !== tabId) continue;
+      await this.disable(state, 'browser-closed');
     }
   }
 

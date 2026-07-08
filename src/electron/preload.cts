@@ -950,7 +950,7 @@ contextBridge.exposeInMainWorld('electron', {
   designMode: {
     enable: (input: { sessionId: string; tabId: string; projectRoot: string }) =>
       ipcRenderer.invoke(DESIGN_CHANNELS.enable, input),
-    disable: (input: { sessionId: string; tabId: string }) =>
+    disable: (input: { sessionId: string; tabId: string; token?: number }) =>
       ipcRenderer.invoke(DESIGN_CHANNELS.disable, input),
     measureSelection: (input: { sessionId: string; tabId: string }) =>
       ipcRenderer.invoke(DESIGN_CHANNELS.measureSelection, input),

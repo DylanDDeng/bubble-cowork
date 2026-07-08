@@ -350,7 +350,9 @@ declare global {
       enable: (
         input: import('./shared/design-mode-types').DesignModeTarget & { projectRoot: string }
       ) => Promise<import('./shared/design-mode-types').DesignEnableResult>;
-      disable: (input: import('./shared/design-mode-types').DesignModeTarget) => Promise<void>;
+      disable: (
+        input: import('./shared/design-mode-types').DesignModeTarget & { token?: number }
+      ) => Promise<void>;
       measureSelection: (
         input: import('./shared/design-mode-types').DesignModeTarget
       ) => Promise<{

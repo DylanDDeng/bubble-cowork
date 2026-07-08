@@ -36,7 +36,15 @@ export interface DesignCapabilities {
 
 export type DesignModeEvent =
   | { kind: 'selection'; sessionId: string; tabId: string; info: DesignSelectionInfo }
-  | { kind: 'annotate'; sessionId: string; tabId: string; note: string; info: DesignSelectionInfo }
+  | {
+      kind: 'annotate';
+      sessionId: string;
+      tabId: string;
+      note: string;
+      info: DesignSelectionInfo;
+      /** Page viewport at SUBMIT time — crop geometry travels with the event. */
+      viewport?: { w: number; h: number };
+    }
   | { kind: 'enabled'; sessionId: string; tabId: string; capabilities: DesignCapabilities }
   | { kind: 'disabled'; sessionId: string; tabId: string; reason: string }
   | { kind: 'reinjected'; sessionId: string; tabId: string };
@@ -45,4 +53,10 @@ export interface DesignEnableResult {
   ok: boolean;
   message?: string;
   capabilities?: DesignCapabilities;
+  /**
+   * Ownership token for this design session. disable() with a token is a
+   * no-op unless the current session still carries it — a stale disable
+   * (from an outdated enable resolution) must never tear down a successor.
+   */
+  token?: number;
 }
