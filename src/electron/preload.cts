@@ -70,12 +70,7 @@ const BROWSER_CHANNELS = {
 const DESIGN_CHANNELS = {
   enable: 'desktop:design-mode-enable',
   disable: 'desktop:design-mode-disable',
-  preview: 'desktop:design-mode-preview',
   measureSelection: 'desktop:design-mode-measure-selection',
-  clearPreview: 'desktop:design-mode-clear-preview',
-  apply: 'desktop:design-mode-apply',
-  undo: 'desktop:design-mode-undo',
-  rollbackLastFailed: 'desktop:design-mode-rollback-last-failed',
   event: 'desktop:design-mode-event',
 } as const;
 
@@ -957,17 +952,8 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke(DESIGN_CHANNELS.enable, input),
     disable: (input: { sessionId: string; tabId: string }) =>
       ipcRenderer.invoke(DESIGN_CHANNELS.disable, input),
-    preview: (input: { sessionId: string; tabId: string; property: string; value: string }) =>
-      ipcRenderer.invoke(DESIGN_CHANNELS.preview, input),
     measureSelection: (input: { sessionId: string; tabId: string }) =>
       ipcRenderer.invoke(DESIGN_CHANNELS.measureSelection, input),
-    clearPreview: (input: { sessionId: string; tabId: string }) =>
-      ipcRenderer.invoke(DESIGN_CHANNELS.clearPreview, input),
-    apply: (input: unknown) => ipcRenderer.invoke(DESIGN_CHANNELS.apply, input),
-    undo: (input: { sessionId: string; tabId: string }) =>
-      ipcRenderer.invoke(DESIGN_CHANNELS.undo, input),
-    rollbackLastFailed: (input: { sessionId: string; tabId: string }) =>
-      ipcRenderer.invoke(DESIGN_CHANNELS.rollbackLastFailed, input),
     onEvent: (callback: (event: unknown) => void) => {
       const handler = (_: unknown, event: unknown) => {
         try {

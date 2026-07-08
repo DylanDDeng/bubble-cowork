@@ -1,4 +1,8 @@
 // Renderer ↔ main contracts for design mode.
+//
+// Design mode is WRITE-FREE by product decision: the agent is the only
+// writer of user source files. These types cover selection, annotate intent
+// capture, and screenshot geometry only.
 
 export interface DesignModeTarget {
   /** Browser session id (owns the WebContentsView). */
@@ -30,48 +34,9 @@ export interface DesignCapabilities {
   localhost: boolean;
 }
 
-export interface DesignCssEdit {
-  property: string;
-  value: string;
-}
-
-export interface DesignApplyInput extends DesignModeTarget {
-  projectRoot: string;
-  filePath: string;
-  anchor: {
-    line: number;
-    tagName: string;
-    siblingIndex: number;
-    classNameSnapshot: string | null;
-    /** Fiber debugSource column (toolchain-dependent convention) for sourcemap remap. */
-    column?: number | null;
-  };
-  edits: DesignCssEdit[];
-  variantHint?: string | null;
-}
-
-export interface DesignApplyResult {
-  outcome: 'refused' | 'verified' | 'unverified' | 'failed' | 'rolled-back' | 'error';
-  reason?: string;
-  detail?: string;
-  strategy?: string;
-  addedClasses?: string[];
-  /**
-   * The element's className after a KEPT write (measured from the DOM when
-   * available, else the merged source value). The drawer must adopt this as
-   * the new selection snapshot or the next Apply is refused as stale-anchor.
-   */
-  updatedSnapshot?: string;
-  /** Authoritative undo-stack depth after this transaction. */
-  undoDepth: number;
-  canUndo: boolean;
-  canRollback: boolean;
-}
-
 export type DesignModeEvent =
   | { kind: 'selection'; sessionId: string; tabId: string; info: DesignSelectionInfo }
   | { kind: 'annotate'; sessionId: string; tabId: string; note: string; info: DesignSelectionInfo }
-  | { kind: 'open-styles'; sessionId: string; tabId: string }
   | { kind: 'enabled'; sessionId: string; tabId: string; capabilities: DesignCapabilities }
   | { kind: 'disabled'; sessionId: string; tabId: string; reason: string }
   | { kind: 'reinjected'; sessionId: string; tabId: string };

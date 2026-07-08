@@ -19,7 +19,6 @@ export const INSPECTOR_SCRIPT = `(() => {
     enabled: true,
     queue: [],
     selected: null,
-    previewProps: new Map(),
     baseline: null,
   };
   window.__aegisDesign = state;
@@ -180,39 +179,6 @@ export const INSPECTOR_SCRIPT = `(() => {
     return state.selected;
   }
 
-  // ── preview (path 1/3): marked inline patches ───────────────────────────
-  window.__aegisDesignPreview = (property, value) => {
-    const el = relocate();
-    if (!el) return false;
-    if (!state.previewProps.has(property)) {
-      // Remember the original priority too: restoring "red" without its
-      // original !important flag would permanently demote the declaration.
-      state.previewProps.set(property, {
-        value: el.style.getPropertyValue(property) || null,
-        priority: el.style.getPropertyPriority(property) || '',
-      });
-    }
-    el.style.setProperty(property, value, 'important');
-    el.setAttribute('data-aegis-preview', [...state.previewProps.keys()].join(','));
-    positionOverlay(selectOverlay, el);
-    return true;
-  };
-
-  // Verification step 0 (red-team A1): strip EVERY preview patch before
-  // measuring, or the measurement reads our own preview back.
-  window.__aegisDesignStripPreview = () => {
-    const el = relocate();
-    if (el) {
-      for (const [property, original] of state.previewProps) {
-        if (original.value) el.style.setProperty(property, original.value, original.priority);
-        else el.style.removeProperty(property);
-      }
-      el.removeAttribute('data-aegis-preview');
-    }
-    state.previewProps.clear();
-    return Boolean(el);
-  };
-
   window.__aegisDesignMeasure = () => {
     const el = relocate();
     const viteOverlay = Boolean(document.querySelector('vite-error-overlay'));
@@ -226,7 +192,6 @@ export const INSPECTOR_SCRIPT = `(() => {
       rect: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
       classList: typeof el.className === 'string' ? el.className : (el.getAttribute('class') || ''),
       computed: snapshotComputed(el),
-      previewActive: el.hasAttribute('data-aegis-preview'),
     });
   };
 
@@ -240,7 +205,6 @@ export const INSPECTOR_SCRIPT = `(() => {
   };
 
   window.__aegisDesignClearSelection = () => {
-    window.__aegisDesignStripPreview();
     state.selected = null;
     selectedInfo = null;
     selectOverlay.style.display = 'none';
@@ -271,17 +235,8 @@ export const INSPECTOR_SCRIPT = `(() => {
   bubbleSend.style.cssText =
     'border:none;background:#111827;color:#fff;border-radius:6px;width:22px;height:22px;' +
     'cursor:pointer;flex-shrink:0;font:inherit;';
-  // Opens the (hidden-by-default) style drawer for slider-level tuning.
-  const bubbleStyles = document.createElement('button');
-  bubbleStyles.type = 'button';
-  bubbleStyles.textContent = 'Aa';
-  bubbleStyles.title = 'Tune styles';
-  bubbleStyles.style.cssText =
-    'border:1px solid rgba(0,0,0,0.12);background:#f9fafb;color:#374151;border-radius:6px;' +
-    'width:24px;height:22px;cursor:pointer;flex-shrink:0;font:10px/1 -apple-system,sans-serif;font-weight:600;';
   bubble.appendChild(bubbleChip);
   bubble.appendChild(bubbleInput);
-  bubble.appendChild(bubbleStyles);
   bubble.appendChild(bubbleSend);
   document.documentElement.appendChild(bubble);
 
@@ -336,10 +291,6 @@ export const INSPECTOR_SCRIPT = `(() => {
     event.stopPropagation();
     submitAnnotation();
   });
-  bubbleStyles.addEventListener('click', (event) => {
-    event.stopPropagation();
-    emit({ kind: 'open-styles' });
-  });
 
   // ── event wiring ────────────────────────────────────────────────────────
   function eligible(target) {
@@ -364,7 +315,6 @@ export const INSPECTOR_SCRIPT = `(() => {
     if (!el) return;
     event.preventDefault();
     event.stopPropagation();
-    window.__aegisDesignStripPreview();
     state.selected = el;
     const info = describe(el);
     selectedInfo = info;

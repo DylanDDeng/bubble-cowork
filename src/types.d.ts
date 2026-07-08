@@ -351,10 +351,6 @@ declare global {
         input: import('./shared/design-mode-types').DesignModeTarget & { projectRoot: string }
       ) => Promise<import('./shared/design-mode-types').DesignEnableResult>;
       disable: (input: import('./shared/design-mode-types').DesignModeTarget) => Promise<void>;
-      preview: (
-        input: import('./shared/design-mode-types').DesignModeTarget & { property: string; value: string }
-      ) => Promise<boolean>;
-      clearPreview: (input: import('./shared/design-mode-types').DesignModeTarget) => Promise<void>;
       measureSelection: (
         input: import('./shared/design-mode-types').DesignModeTarget
       ) => Promise<{
@@ -362,15 +358,6 @@ declare global {
         rect?: { x: number; y: number; w: number; h: number };
         viewport?: { w: number; h: number };
       }>;
-      apply: (
-        input: import('./shared/design-mode-types').DesignApplyInput
-      ) => Promise<import('./shared/design-mode-types').DesignApplyResult>;
-      undo: (
-        input: import('./shared/design-mode-types').DesignModeTarget
-      ) => Promise<{ ok: boolean; message?: string; remaining: number }>;
-      rollbackLastFailed: (
-        input: import('./shared/design-mode-types').DesignModeTarget
-      ) => Promise<{ ok: boolean; message?: string; remaining: number }>;
       onEvent: (
         callback: (event: import('./shared/design-mode-types').DesignModeEvent) => void
       ) => () => void;

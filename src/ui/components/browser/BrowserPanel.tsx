@@ -38,8 +38,7 @@ import {
   RefreshCw,
   X,
 } from '../icons';
-import { DesignDrawer } from './DesignDrawer';
-import type { DesignCapabilities } from '../../../shared/design-mode-types';
+import { DesignAnnotateBridge } from './DesignAnnotateBridge';
 import { toast } from 'sonner';
 import type {
   BrowserReadoutResult,
@@ -184,16 +183,9 @@ export function BrowserPanel({
   // WebContentsView and leaving the page's clicks hijacked by the inspector
   // (review finding).
   const [designTarget, setDesignTarget] = useState<{ browserSessionId: string; tabId: string } | null>(null);
-  const [designCaps, setDesignCaps] = useState<DesignCapabilities | null>(null);
-  // The style drawer is HIDDEN by default — the in-page bubble is the primary
-  // interaction; the drawer opens on demand (bubble's "Aa" button) for
-  // slider-level tuning with instant write-back. It stays MOUNTED while
-  // design mode is on because it also executes the annotate pipeline.
-  const [designDrawerOpen, setDesignDrawerOpen] = useState(false);
   const projectRoot = useAppStore((s) => (sessionId ? s.sessions[sessionId]?.cwd ?? null : null));
 
   const disableDesignMode = useCallback(() => {
-    setDesignDrawerOpen(false);
     setDesignTarget((current) => {
       if (current) {
         void window.electron.designMode.disable({
@@ -205,15 +197,6 @@ export function BrowserPanel({
     });
   }, []);
 
-  // The in-page bubble's "Aa" button summons the style drawer.
-  useEffect(() => {
-    if (!designTarget) return;
-    return window.electron.designMode.onEvent((event) => {
-      if (event.sessionId !== designTarget.browserSessionId || event.tabId !== designTarget.tabId) return;
-      if (event.kind === 'open-styles') setDesignDrawerOpen(true);
-    });
-  }, [designTarget]);
-
   const toggleDesignMode = useCallback(async () => {
     if (designTarget) {
       disableDesignMode();
@@ -224,7 +207,7 @@ export function BrowserPanel({
       : null;
     if (!tab) return;
     if (!projectRoot) {
-      toast.error('Design mode needs an open project session (it must know where to write).');
+      toast.error('Design mode needs an open project session (annotations carry project context).');
       return;
     }
     const enabled = await window.electron.designMode.enable({
@@ -236,7 +219,6 @@ export function BrowserPanel({
       toast.error(enabled.message || 'Failed to enable design mode');
       return;
     }
-    setDesignCaps(enabled.capabilities ?? null);
     setDesignTarget({ browserSessionId, tabId: tab.id });
   }, [designTarget, disableDesignMode, sessionState, projectRoot, browserSessionId]);
 
@@ -760,7 +742,7 @@ export function BrowserPanel({
                 ? 'bg-[color-mix(in_srgb,var(--accent)_18%,transparent)] text-[var(--accent)]'
                 : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
             }`}
-            title={designTarget ? 'Exit design mode' : 'Design mode: click elements, edit styles, write back to source'}
+            title={designTarget ? 'Exit design mode' : 'Design mode: click an element, describe the change, send it to the agent'}
             aria-label="Toggle design mode"
           >
             <Palette className="h-[13px] w-[13px]" />
@@ -840,14 +822,10 @@ export function BrowserPanel({
             </div>
           )}
         </div>
-        {designTarget && projectRoot ? (
-          <DesignDrawer
+        {designTarget ? (
+          <DesignAnnotateBridge
             browserSessionId={designTarget.browserSessionId}
             tabId={designTarget.tabId}
-            projectRoot={projectRoot}
-            capabilities={designCaps}
-            visible={designDrawerOpen}
-            onClose={() => setDesignDrawerOpen(false)}
             onExitDesignMode={disableDesignMode}
             resolveChatTargetId={resolveChatTargetId}
           />

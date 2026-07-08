@@ -213,27 +213,20 @@ Apply 事务(逐 intent 粒度,批量 Apply 按条结案而非整批回滚——
 
 ## 实现状态(feat/design-mode 分支)
 
-M1 + M1.5 + M2 已落地并通过测试;两个实现决策与 v2 文本有偏差(都更保守),两块 M2 项顺延:
+**产品决策(2026-07-08):确定性写回已整体移除。** 实测后判断:design mode 直接写源文件与
+agent 写文件迟早竞态("打架"),调解成本(写队列/验证环/回滚语义)高于价值。最终形态收敛为
+**agent 是用户源文件的唯一写入者**,design mode 只做"指哪打哪"的意图捕获:
 
-**已实现**:inspector 注入/重注入、A 档 fiber 定位、B 档 data-aegis-src 读取、组件链、
-实时预览(`data-aegis-preview` 标记)、DesignDrawer(BrowserPanel 内抽屉,间距/字号/字重/圆角/颜色)、
-Apply 统一按钮(即时 ↔ via agent)、路径 1 写回全量(scale+arbitrary+twMerge+var() 保留)、
-验证环 v2(剥离预览→settle 轮询→全属性差分→三态)、file-write-queue、逆向 patch undo/rollback、
-localhost + 项目根安全门禁、suspend pin、能力探针(fiber/HMR)。
-测试:`verify:design-writeback`(纯逻辑 + wiring,进 npm test)、`verify:design-e2e`
-(真实 Vite+React18+Tailwind4 页面全闭环,独立入口)、fixture 项目 `dev-fixtures/design-mode-demo`。
+- **保留**:inspector 注入/重注入、A 档 fiber 定位 + B 档 data-aegis-src、组件链、页面内
+  annotate 气泡(点选元素 → 气泡输入 → Enter → composer,带提交时几何的元素局部截图 +
+  源码/组件链上下文)、能力探针、localhost 门禁、suspend pin、宿主 reload 原生视图清理。
+- **移除**:tailwind-map/write-plan/source-locator/patch/file-write-queue/verify-loop/
+  sourcemap 六个纯库、DesignDrawer(样式滑块/Apply/undo)、apply/undo/rollback IPC。
+  完整实现(含 4 轮评审修复与测试)保留在 git 历史 bb12123^..1c49c77,如需复活从那里起步。
+- 本文档 §3-§5(写回引擎/验证环/撤销)保留为设计档案;若未来重启写回,先重读 §9 风险表。
 
-**实现偏差(比 v2 文本更保守)**:
-1. **事件通道用页内队列轮询,不用 CDP `Runtime.addBinding`**——不 attach debugger,
-   DevTools/Inspect element 互斥问题整类消失,代价是 ~300ms 轮询(仅 design mode 开启时)。
-2. **anchor 解析为指纹优先**:实测(fixture)发现现代 @vitejs/plugin-react 的 fiber 行号是
-   **中间转换阶段**坐标,连 served sourcemap 都无法正确回映(阶段错位)。解析链改为:
-   直击 → className 指纹唯一匹配(命中即精确,歧义即拒)→ sourcemap 回映(best-effort)。
-   静态 className 由快照校验兜底,动态 className 由验证环 "classes landed" 断言兜底。
-
-**顺延项**:cva 感知写回(动态 className 阶梯的第 2 级,shadcn 关键)、变体感知的运行时推导
-(接口已留 variantHint,drawer 暂传 null)、React 19 A' 档(`_debugStack`)、路径 2 CSS 文件写回(M3)、
-文本写回、Review 面板 refresh nonce(写回 diff 需手动刷新/重开 Review 才可见)。
+测试:`verify:design-mode`(annotate 纯逻辑 + 写回禁令 + wiring,进 npm test)、
+`verify:design-e2e`(真实 Vite+React18 页面:注入 → 点选 → 气泡 → annotate 事件,独立入口)。
 
 ## 附录:v1 → v2 变更摘要
 
