@@ -271,8 +271,17 @@ export const INSPECTOR_SCRIPT = `(() => {
   bubbleSend.style.cssText =
     'border:none;background:#111827;color:#fff;border-radius:6px;width:22px;height:22px;' +
     'cursor:pointer;flex-shrink:0;font:inherit;';
+  // Opens the (hidden-by-default) style drawer for slider-level tuning.
+  const bubbleStyles = document.createElement('button');
+  bubbleStyles.type = 'button';
+  bubbleStyles.textContent = 'Aa';
+  bubbleStyles.title = 'Tune styles';
+  bubbleStyles.style.cssText =
+    'border:1px solid rgba(0,0,0,0.12);background:#f9fafb;color:#374151;border-radius:6px;' +
+    'width:24px;height:22px;cursor:pointer;flex-shrink:0;font:10px/1 -apple-system,sans-serif;font-weight:600;';
   bubble.appendChild(bubbleChip);
   bubble.appendChild(bubbleInput);
+  bubble.appendChild(bubbleStyles);
   bubble.appendChild(bubbleSend);
   document.documentElement.appendChild(bubble);
 
@@ -326,6 +335,10 @@ export const INSPECTOR_SCRIPT = `(() => {
   bubbleSend.addEventListener('click', (event) => {
     event.stopPropagation();
     submitAnnotation();
+  });
+  bubbleStyles.addEventListener('click', (event) => {
+    event.stopPropagation();
+    emit({ kind: 'open-styles' });
   });
 
   // ── event wiring ────────────────────────────────────────────────────────

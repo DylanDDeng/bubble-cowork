@@ -119,14 +119,20 @@ export function DesignDrawer({
   tabId,
   projectRoot,
   capabilities,
+  visible,
   onClose,
+  onExitDesignMode,
   resolveChatTargetId,
 }: {
   browserSessionId: string;
   tabId: string;
   projectRoot: string;
   capabilities: DesignCapabilities | null;
+  /** Hidden by default — the in-page bubble is the primary surface. The
+   *  drawer must stay MOUNTED regardless: it executes the annotate pipeline. */
+  visible: boolean;
   onClose: () => void;
+  onExitDesignMode: () => void;
   resolveChatTargetId: () => string;
 }) {
   const requestChatInjection = useAppStore((s) => s.requestChatInjection);
@@ -297,9 +303,9 @@ export function DesignDrawer({
         setEdits({});
         setResult(null);
       }
-      if (event.kind === 'disabled') onClose();
+      if (event.kind === 'disabled') onExitDesignMode();
     });
-  }, [browserSessionId, tabId, onClose, sendAnnotation]);
+  }, [browserSessionId, tabId, onExitDesignMode, sendAnnotation]);
 
   const handleUndo = useCallback(async () => {
     const undone = await window.electron.designMode.undo({ sessionId: browserSessionId, tabId });
@@ -357,7 +363,9 @@ export function DesignDrawer({
   return (
     <div
       data-design-drawer
-      className="flex w-[248px] flex-shrink-0 flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--bg-primary)]"
+      className={`flex-shrink-0 flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--bg-primary)] ${
+        visible ? 'flex w-[248px]' : 'hidden w-0'
+      }`}
     >
       <div className="flex flex-shrink-0 items-center justify-between border-b border-[var(--border)] px-2.5 py-1.5">
         <span className="text-[11px] font-medium text-[var(--text-primary)]">Design</span>
@@ -376,7 +384,7 @@ export function DesignDrawer({
             type="button"
             onClick={onClose}
             className="inline-flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-            title="Exit design mode"
+            title="Hide style panel (design mode stays on — exit via the palette icon)"
           >
             <X className="h-3 w-3" />
           </button>

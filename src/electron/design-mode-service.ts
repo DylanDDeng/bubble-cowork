@@ -227,6 +227,9 @@ export class DesignModeService {
             info: event.info,
           });
         }
+        if (event.kind === 'open-styles') {
+          this.emit({ kind: 'open-styles', sessionId: state.sessionId, tabId: state.tabId });
+        }
       }
     } catch {
       // Malformed drain payload — ignore this tick.

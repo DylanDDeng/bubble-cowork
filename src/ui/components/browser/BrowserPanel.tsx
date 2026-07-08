@@ -185,9 +185,15 @@ export function BrowserPanel({
   // (review finding).
   const [designTarget, setDesignTarget] = useState<{ browserSessionId: string; tabId: string } | null>(null);
   const [designCaps, setDesignCaps] = useState<DesignCapabilities | null>(null);
+  // The style drawer is HIDDEN by default — the in-page bubble is the primary
+  // interaction; the drawer opens on demand (bubble's "Aa" button) for
+  // slider-level tuning with instant write-back. It stays MOUNTED while
+  // design mode is on because it also executes the annotate pipeline.
+  const [designDrawerOpen, setDesignDrawerOpen] = useState(false);
   const projectRoot = useAppStore((s) => (sessionId ? s.sessions[sessionId]?.cwd ?? null : null));
 
   const disableDesignMode = useCallback(() => {
+    setDesignDrawerOpen(false);
     setDesignTarget((current) => {
       if (current) {
         void window.electron.designMode.disable({
@@ -198,6 +204,15 @@ export function BrowserPanel({
       return null;
     });
   }, []);
+
+  // The in-page bubble's "Aa" button summons the style drawer.
+  useEffect(() => {
+    if (!designTarget) return;
+    return window.electron.designMode.onEvent((event) => {
+      if (event.sessionId !== designTarget.browserSessionId || event.tabId !== designTarget.tabId) return;
+      if (event.kind === 'open-styles') setDesignDrawerOpen(true);
+    });
+  }, [designTarget]);
 
   const toggleDesignMode = useCallback(async () => {
     if (designTarget) {
@@ -831,7 +846,9 @@ export function BrowserPanel({
             tabId={designTarget.tabId}
             projectRoot={projectRoot}
             capabilities={designCaps}
-            onClose={disableDesignMode}
+            visible={designDrawerOpen}
+            onClose={() => setDesignDrawerOpen(false)}
+            onExitDesignMode={disableDesignMode}
             resolveChatTargetId={resolveChatTargetId}
           />
         ) : null}
