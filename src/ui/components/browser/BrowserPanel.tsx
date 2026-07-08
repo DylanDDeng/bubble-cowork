@@ -197,6 +197,11 @@ export function BrowserPanel({
     });
   }, []);
 
+  // The enable round-trip (inject + probe) is slow enough for the user to
+  // collapse the panel or switch tabs mid-flight; a resolved enable must not
+  // record a target the cleanup effects have already stopped watching, or
+  // the pinned session + click-hijacking inspector leak (codex review).
+  const designContextRef = useRef('');
   const toggleDesignMode = useCallback(async () => {
     if (designTarget) {
       disableDesignMode();
@@ -210,6 +215,7 @@ export function BrowserPanel({
       toast.error('Design mode needs an open project session (annotations carry project context).');
       return;
     }
+    const contextAtStart = designContextRef.current;
     const enabled = await window.electron.designMode.enable({
       sessionId: browserSessionId,
       tabId: tab.id,
@@ -217,6 +223,11 @@ export function BrowserPanel({
     });
     if (!enabled.ok) {
       toast.error(enabled.message || 'Failed to enable design mode');
+      return;
+    }
+    if (designContextRef.current !== contextAtStart) {
+      // Panel collapsed / tab or session switched while enable was in flight.
+      void window.electron.designMode.disable({ sessionId: browserSessionId, tabId: tab.id });
       return;
     }
     setDesignTarget({ browserSessionId, tabId: tab.id });
@@ -239,6 +250,26 @@ export function BrowserPanel({
   // Unmount cleanup: closing the browser utility tab must release the design
   // session (pin + poll timer + in-page inspector), not leak it.
   useEffect(() => () => disableDesignMode(), [disableDesignMode]);
+
+  // Staleness fingerprint for in-flight enables: any change here (or unmount)
+  // invalidates an enable() that resolves afterwards.
+  useEffect(() => {
+    designContextRef.current = `${collapsed}:${browserSessionId}:${sessionState.activeTabId ?? ''}`;
+    return () => {
+      designContextRef.current = '__unmounted__';
+    };
+  }, [collapsed, browserSessionId, sessionState.activeTabId]);
+
+  // The service's disable path emits 'disabled' after a final annotate drain;
+  // clear the UI target without re-invoking IPC (idempotent server-side).
+  const handleDesignDisabled = useCallback(
+    (tabId: string) => {
+      setDesignTarget((current) =>
+        current && current.tabId === tabId && current.browserSessionId === browserSessionId ? null : current
+      );
+    },
+    [browserSessionId]
+  );
 
   // ===== 订阅主进程状态 =====
   useEffect(() => {
@@ -822,14 +853,11 @@ export function BrowserPanel({
             </div>
           )}
         </div>
-        {designTarget ? (
-          <DesignAnnotateBridge
-            browserSessionId={designTarget.browserSessionId}
-            tabId={designTarget.tabId}
-            onExitDesignMode={disableDesignMode}
-            resolveChatTargetId={resolveChatTargetId}
-          />
-        ) : null}
+        <DesignAnnotateBridge
+          browserSessionId={browserSessionId}
+          onDesignDisabled={handleDesignDisabled}
+          resolveChatTargetId={resolveChatTargetId}
+        />
       </div>
     </div>
   );

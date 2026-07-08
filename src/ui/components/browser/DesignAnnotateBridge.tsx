@@ -40,22 +40,25 @@ async function cropDataUrl(
  * in-page bubble and lands them in the composer — the user's note, a
  * screenshot cropped to the element (submit-time geometry), and the element
  * context. Design mode never writes source files; the agent does.
+ *
+ * Mounted for the PANEL's browser session (not gated on the design target):
+ * the service's disable path performs a final queue drain, and those last
+ * annotate events arrive after the UI already cleared its design state — a
+ * target-gated bridge would unmount and drop them.
  */
 export function DesignAnnotateBridge({
   browserSessionId,
-  tabId,
-  onExitDesignMode,
+  onDesignDisabled,
   resolveChatTargetId,
 }: {
   browserSessionId: string;
-  tabId: string;
-  onExitDesignMode: () => void;
+  onDesignDisabled: (tabId: string) => void;
   resolveChatTargetId: () => string;
 }) {
   const requestChatInjection = useAppStore((s) => s.requestChatInjection);
 
   const sendAnnotation = useCallback(
-    async (note: string, target: DesignSelectionInfo) => {
+    async (tabId: string, note: string, target: DesignSelectionInfo) => {
       const attachments: Attachment[] = [];
       let pageUrl: string | null = null;
       try {
@@ -63,14 +66,17 @@ export function DesignAnnotateBridge({
         if (captured.ok && captured.base64 && captured.dataUrl) {
           pageUrl = captured.pageUrl ?? null;
           // Fresh geometry at submit time — the selection-time rect is stale
-          // the moment the page scrolls.
+          // the moment the page scrolls. When the element cannot be measured
+          // any more (removed / inspector lost), do NOT crop from stale
+          // coordinates: a full screenshot beats a confidently wrong region.
           const measured = await window.electron.designMode.measureSelection({ sessionId: browserSessionId, tabId });
-          const rect = measured.found && measured.rect ? measured.rect : target.rect;
-          const viewport = measured.viewport ?? { w: rect.w, h: rect.h };
-          const crop = computeAnnotationCrop(rect, viewport, {
-            width: captured.width ?? 0,
-            height: captured.height ?? 0,
-          });
+          const crop =
+            measured.found && measured.rect && measured.viewport
+              ? computeAnnotationCrop(measured.rect, measured.viewport, {
+                  width: captured.width ?? 0,
+                  height: captured.height ?? 0,
+                })
+              : null;
           const cropped = await cropDataUrl(captured.dataUrl, crop).catch(() => null);
           const bytes = cropped ?? base64ToBytes(captured.base64);
           const attachment = (await window.electron.createInlineImageAttachment(
@@ -91,16 +97,16 @@ export function DesignAnnotateBridge({
       });
       toast.success('Annotation sent to the composer — review and send');
     },
-    [browserSessionId, tabId, requestChatInjection, resolveChatTargetId]
+    [browserSessionId, requestChatInjection, resolveChatTargetId]
   );
 
   useEffect(() => {
     return window.electron.designMode.onEvent((event) => {
-      if (event.sessionId !== browserSessionId || event.tabId !== tabId) return;
-      if (event.kind === 'annotate') void sendAnnotation(event.note, event.info);
-      if (event.kind === 'disabled') onExitDesignMode();
+      if (event.sessionId !== browserSessionId) return;
+      if (event.kind === 'annotate') void sendAnnotation(event.tabId, event.note, event.info);
+      if (event.kind === 'disabled') onDesignDisabled(event.tabId);
     });
-  }, [browserSessionId, tabId, sendAnnotation, onExitDesignMode]);
+  }, [browserSessionId, sendAnnotation, onDesignDisabled]);
 
   return null;
 }

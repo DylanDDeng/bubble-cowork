@@ -159,6 +159,20 @@ export class DesignModeService {
     const stillPinned = [...this.sessions.values()].some((s) => s.sessionId === input.sessionId);
     if (!stillPinned) browserManager.setSessionPinned(input.sessionId, false);
     const wc = this.webContentsFor(input);
+    if (wc && state) {
+      // Final drain: an annotation submitted moments before disable (Enter →
+      // immediately collapse/switch) would otherwise be lost in the in-page
+      // queue — or replayed weirdly the next time design mode is enabled.
+      try {
+        const raw = await wc.executeJavaScript(
+          'window.__aegisDesignDrain ? window.__aegisDesignDrain() : null',
+          true
+        );
+        if (raw !== null) this.forwardDrainedEvents(state, String(raw));
+      } catch {
+        // Best-effort; the page may already be gone.
+      }
+    }
     if (wc) {
       await wc
         .executeJavaScript(
@@ -197,8 +211,12 @@ export class DesignModeService {
       }
       return;
     }
+    this.forwardDrainedEvents(state, String(raw));
+  }
+
+  private forwardDrainedEvents(state: DesignSessionState, raw: string): void {
     try {
-      const events = JSON.parse(String(raw)) as Array<{ kind: string; info?: DesignSelectionInfo; note?: string }>;
+      const events = JSON.parse(raw) as Array<{ kind: string; info?: DesignSelectionInfo; note?: string }>;
       for (const event of events) {
         if (event.kind === 'selected' && event.info) {
           this.emit({ kind: 'selection', sessionId: state.sessionId, tabId: state.tabId, info: event.info });
@@ -214,7 +232,7 @@ export class DesignModeService {
         }
       }
     } catch {
-      // Malformed drain payload — ignore this tick.
+      // Malformed drain payload — ignore.
     }
   }
 
