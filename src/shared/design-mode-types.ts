@@ -56,6 +56,14 @@ export interface DesignApplyResult {
   detail?: string;
   strategy?: string;
   addedClasses?: string[];
+  /**
+   * The element's className after a KEPT write (measured from the DOM when
+   * available, else the merged source value). The drawer must adopt this as
+   * the new selection snapshot or the next Apply is refused as stale-anchor.
+   */
+  updatedSnapshot?: string;
+  /** Authoritative undo-stack depth after this transaction. */
+  undoDepth: number;
   canUndo: boolean;
   canRollback: boolean;
 }

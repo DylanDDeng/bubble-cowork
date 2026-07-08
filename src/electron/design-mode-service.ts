@@ -22,56 +22,26 @@ import {
   valuesMatch,
   type VerificationVerdict,
 } from './libs/design-writeback/verify-loop';
+// The renderer↔main contract lives in ONE place — shared/design-mode-types —
+// same convention as browser-ipc/browser-types. Do not re-declare it here.
+import type {
+  DesignApplyInput,
+  DesignApplyResult,
+  DesignCapabilities,
+  DesignModeEvent,
+  DesignModeTarget,
+  DesignSelectionInfo,
+} from '../shared/design-mode-types';
+
+export type {
+  DesignApplyInput,
+  DesignApplyResult,
+  DesignModeTarget,
+} from '../shared/design-mode-types';
 
 const POLL_INTERVAL_MS = 300;
 const SETTLE_POLL_MS = 150;
 const SETTLE_TIMEOUT_MS = 4000;
-
-export interface DesignModeTarget {
-  sessionId: string;
-  tabId: string;
-}
-
-export interface DesignSelectionInfo {
-  tagName: string;
-  className: string;
-  text: string;
-  source: { file: string; line: number; column: number | null; tier: 'fiber' | 'attr' } | null;
-  siblingIndex: number;
-  chain: string[];
-  computed: Record<string, string>;
-  rect: { x: number; y: number; w: number; h: number };
-}
-
-export interface DesignApplyInput extends DesignModeTarget {
-  projectRoot: string;
-  filePath: string;
-  anchor: ElementAnchor & { column?: number | null };
-  edits: CssEdit[];
-  variantHint?: string | null;
-}
-
-export interface DesignApplyResult {
-  outcome: 'refused' | 'verified' | 'unverified' | 'failed' | 'rolled-back' | 'error';
-  reason?: string;
-  detail?: string;
-  strategy?: string;
-  addedClasses?: string[];
-  canUndo: boolean;
-  canRollback: boolean;
-}
-
-export type DesignModeEvent =
-  | { kind: 'selection'; sessionId: string; tabId: string; info: DesignSelectionInfo }
-  | { kind: 'enabled'; sessionId: string; tabId: string; capabilities: DesignCapabilities }
-  | { kind: 'disabled'; sessionId: string; tabId: string; reason: string }
-  | { kind: 'reinjected'; sessionId: string; tabId: string };
-
-export interface DesignCapabilities {
-  reactFiber: boolean;
-  hmrClient: boolean;
-  localhost: boolean;
-}
 
 interface DesignSessionState {
   sessionId: string;
@@ -99,6 +69,11 @@ function isLocalhostUrl(rawUrl: string): boolean {
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+interface PreWriteMeasurement {
+  computed: Record<string, string>;
+  sanitySuspect: boolean;
 }
 
 export class DesignModeService {
@@ -294,20 +269,43 @@ export class DesignModeService {
   async apply(input: DesignApplyInput): Promise<DesignApplyResult> {
     const key = keyOf(input);
     const state = this.sessions.get(key);
-    if (!state) return { outcome: 'error', detail: 'design mode is not enabled for this tab', canUndo: false, canRollback: false };
+    if (!state) {
+      return {
+        outcome: 'error',
+        detail: 'design mode is not enabled for this tab',
+        undoDepth: 0,
+        canUndo: false,
+        canRollback: false,
+      };
+    }
+    const depth = () => state.undoStack.length;
 
     const pathCheck = this.validatePath(input.projectRoot, input.filePath);
     if (!pathCheck.ok) {
-      return { outcome: 'refused', reason: 'unsafe-path', detail: pathCheck.message, canUndo: false, canRollback: false };
+      return {
+        outcome: 'refused',
+        reason: 'unsafe-path',
+        detail: pathCheck.message,
+        undoDepth: depth(),
+        canUndo: depth() > 0,
+        canRollback: false,
+      };
     }
 
     // 0. Resolve the anchor: fiber line numbers from modern toolchains
     //    (esbuild jsxDev) are TRANSFORMED-module coordinates. Try the raw
-    //    line, then sourcemap-remap via the dev server, then the className
-    //    fingerprint. Refusals keep their precise reason downstream.
+    //    line, then the className fingerprint, then sourcemap remap.
     const anchor = await this.resolveAnchor(input, pathCheck.resolved);
 
-    // 1. Plan + write, atomically per file (read-verify-write in one job).
+    // 1. PRE-WRITE measurement (verification step 0): strip the preview and
+    //    capture the baseline BEFORE the file changes — measuring after the
+    //    write races HMR on fast dev servers and misreports a successful
+    //    apply as sanity-suspect (review finding).
+    const wc = this.webContentsFor(input);
+    let baseline: PreWriteMeasurement | null = null;
+    if (wc) baseline = await this.measureBeforeWrite(wc, input.edits);
+
+    // 2. Plan + write, atomically per file (read-verify-write in one job).
     const writeResult = await enqueueFileWrite(pathCheck.resolved, () => {
       const content = readFileSync(pathCheck.resolved, 'utf8');
       const plan = computeWritebackPlan({
@@ -328,14 +326,15 @@ export class DesignModeService {
         outcome: 'refused',
         reason: plan.reason,
         detail: plan.detail,
-        canUndo: state.undoStack.length > 0,
+        undoDepth: depth(),
+        canUndo: depth() > 0,
         canRollback: false,
       };
     }
 
-    // 2. Strip preview + sanity measurement (verification step 0).
-    const wc = this.webContentsFor(input);
+    // 3. Settle + classify.
     let verdict: VerificationVerdict;
+    let measuredClassList: string | null = null;
     if (!wc) {
       verdict = {
         state: 'unverified',
@@ -343,10 +342,12 @@ export class DesignModeService {
         detail: 'page went away during apply — write kept',
       };
     } else {
-      verdict = await this.verify(wc, plan, input.edits);
+      const verified = await this.verify(wc, plan, input.edits, baseline);
+      verdict = verified.verdict;
+      measuredClassList = verified.lastClassList;
     }
 
-    // 3. Act on the verdict.
+    // 4. Act on the verdict.
     if (verdict.state === 'failed' && verdict.autoRollback) {
       const rolledBack = await this.rollback(pathCheck.resolved, plan.reversePatch);
       return {
@@ -354,7 +355,8 @@ export class DesignModeService {
         reason: verdict.reason,
         detail: `${verdict.detail}${rolledBack ? '' : ' (rollback also failed — file left as written)'}`,
         strategy: plan.strategy,
-        canUndo: state.undoStack.length > 0,
+        undoDepth: depth(),
+        canUndo: depth() > 0,
         canRollback: false,
       };
     }
@@ -376,7 +378,11 @@ export class DesignModeService {
       detail: verdict.detail,
       strategy: plan.strategy,
       addedClasses: plan.addedClasses,
-      canUndo: state.undoStack.length > 0,
+      // The source changed — the drawer must adopt the new className as its
+      // selection snapshot or the NEXT apply is refused as stale-anchor.
+      updatedSnapshot: measuredClassList ?? plan.mergedClassName ?? undefined,
+      undoDepth: depth(),
+      canUndo: depth() > 0,
       canRollback: verdict.state === 'failed',
     };
   }
@@ -442,40 +448,52 @@ export class DesignModeService {
     return anchor;
   }
 
+  private async measurePage(wc: WebContents) {
+    const raw = (await wc.executeJavaScript(
+      'window.__aegisDesignMeasure ? window.__aegisDesignMeasure() : null',
+      true
+    )) as string | null;
+    if (!raw) return null;
+    return JSON.parse(raw) as {
+      found: boolean;
+      viteErrorOverlay: boolean;
+      classList?: string;
+      computed?: Record<string, string>;
+      previewActive?: boolean;
+    };
+  }
+
+  /**
+   * Verification step 0, taken BEFORE the file write: strip every preview
+   * patch (red-team A1 — otherwise the measurement reads our preview back)
+   * and capture the true pre-edit baseline. Measuring after the write races
+   * HMR and can misreport a fast successful apply as sanity-suspect.
+   */
+  private async measureBeforeWrite(wc: WebContents, edits: CssEdit[]): Promise<PreWriteMeasurement | null> {
+    try {
+      await wc.executeJavaScript('window.__aegisDesignStripPreview ? window.__aegisDesignStripPreview() : false', true);
+      const initial = await this.measurePage(wc);
+      if (!initial?.found || !initial.computed) return null;
+      return {
+        computed: initial.computed,
+        sanitySuspect: edits.every((edit) =>
+          expandEditProperties(edit.property).every((prop) => valuesMatch(edit.value, initial.computed?.[prop]))
+        ),
+      };
+    } catch {
+      return null;
+    }
+  }
+
   private async verify(
     wc: WebContents,
     plan: Extract<ReturnType<typeof computeWritebackPlan>, { ok: true }>,
-    edits: CssEdit[]
-  ): Promise<VerificationVerdict> {
-    const measure = async () => {
-      const raw = (await wc.executeJavaScript(
-        'window.__aegisDesignMeasure ? window.__aegisDesignMeasure() : null',
-        true
-      )) as string | null;
-      if (!raw) return null;
-      return JSON.parse(raw) as {
-        found: boolean;
-        viteErrorOverlay: boolean;
-        classList?: string;
-        computed?: Record<string, string>;
-        previewActive?: boolean;
-      };
-    };
-
-    let baseline: Record<string, string> | null = null;
-    let sanitySuspect = false;
-    try {
-      await wc.executeJavaScript('window.__aegisDesignStripPreview ? window.__aegisDesignStripPreview() : false', true);
-      const initial = await measure();
-      if (initial?.found && initial.computed) {
-        baseline = initial.computed;
-        sanitySuspect = edits.every((edit) =>
-          expandEditProperties(edit.property).every((prop) => valuesMatch(edit.value, initial.computed?.[prop]))
-        );
-      }
-    } catch {
-      // Measurement failures degrade to unverified below.
-    }
+    edits: CssEdit[],
+    preWrite: PreWriteMeasurement | null
+  ): Promise<{ verdict: VerificationVerdict; lastClassList: string | null }> {
+    const measure = () => this.measurePage(wc);
+    const baseline = preWrite?.computed ?? null;
+    const sanitySuspect = preWrite?.sanitySuspect ?? false;
 
     // Settle poll: wait for the written classes to reach the DOM and for two
     // consecutive stable readings (covers HMR latency AND css transitions).
@@ -508,7 +526,7 @@ export class DesignModeService {
       timedOut = !plan.addedClasses.every((token) => classTokens.has(token));
     }
 
-    return classifyVerification({
+    const verdict = classifyVerification({
       found: Boolean(last?.found),
       timedOut,
       viteErrorOverlay: Boolean(last?.viteErrorOverlay),
@@ -521,6 +539,7 @@ export class DesignModeService {
       current: last?.computed ?? null,
       alsoAffects: plan.alsoAffects,
     });
+    return { verdict, lastClassList: last?.found ? last.classList ?? null : null };
   }
 
   private async rollback(filePath: string, patch: ReversePatch): Promise<boolean> {
@@ -534,17 +553,25 @@ export class DesignModeService {
   }
 
   /** Roll back the most recent kept-but-failed write (user-invoked). */
-  async rollbackLastFailed(input: DesignModeTarget): Promise<{ ok: boolean; message?: string }> {
+  async rollbackLastFailed(
+    input: DesignModeTarget
+  ): Promise<{ ok: boolean; message?: string; remaining: number }> {
     const state = this.sessions.get(keyOf(input));
-    if (!state?.lastRollbackable) return { ok: false, message: 'nothing to roll back' };
+    if (!state?.lastRollbackable) {
+      return { ok: false, message: 'nothing to roll back', remaining: state?.undoStack.length ?? 0 };
+    }
     const pathCheck = this.validatePath(state.projectRoot, state.lastRollbackable.patch.filePath);
-    if (!pathCheck.ok) return { ok: false, message: pathCheck.message };
+    if (!pathCheck.ok) return { ok: false, message: pathCheck.message, remaining: state.undoStack.length };
     const ok = await this.rollback(pathCheck.resolved, state.lastRollbackable.patch);
     if (ok) {
       state.lastRollbackable = null;
       state.undoStack.pop();
     }
-    return ok ? { ok } : { ok: false, message: 'the edited region changed — refused to overwrite it' };
+    return {
+      ok,
+      message: ok ? undefined : 'the edited region changed — refused to overwrite it',
+      remaining: state.undoStack.length,
+    };
   }
 
   async undo(input: DesignModeTarget): Promise<{ ok: boolean; message?: string; remaining: number }> {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { mapEditToClass, mergeClassName, applyVariantHint } from '../../src/electron/libs/design-writeback/tailwind-map';
-import { locateJsxElement } from '../../src/electron/libs/design-writeback/source-locator';
+import { locateJsxElement, locateLineByFingerprint } from '../../src/electron/libs/design-writeback/source-locator';
 import { computeWritebackPlan } from '../../src/electron/libs/design-writeback/write-plan';
 import { applyReversePatch } from '../../src/electron/libs/design-writeback/patch';
 import { enqueueFileWrite, drainFileWrites } from '../../src/electron/libs/design-writeback/file-write-queue';
@@ -26,9 +26,11 @@ import { enqueueFileWrite, drainFileWrites } from '../../src/electron/libs/desig
   const scaled = mapEditToClass('font-size', '18px')!;
   assert.equal(scaled.className, 'text-lg');
   assert.deepEqual(scaled.alsoAffects, ['line-height']);
+  // Arbitrary font-size ALSO whitelists line-height: it removes the old
+  // text-* scale token whose line-height then falls away (review finding).
   const arb = mapEditToClass('font-size', '17px')!;
   assert.equal(arb.className, 'text-[17px]');
-  assert.deepEqual(arb.alsoAffects, []);
+  assert.deepEqual(arb.alsoAffects, ['line-height']);
 }
 
 // ── font-weight / radius / opacity / unsupported ────────────────────────────
@@ -298,6 +300,28 @@ const BARE_FIXTURE = `export const Bare = () => <section>\n  <p>text</p>\n</sect
     assert.ok(line.includes('md:px-6'), line);
     assert.ok(line.includes('px-4'), 'base class untouched when editing the md variant');
     assert.ok(!line.includes('md:px-8'), 'old md variant replaced');
+  }
+}
+
+// ── fingerprint index space matches locateJsxElement (review finding):
+//    a dynamic-className same-tag twin BEFORE the target on the same line ────
+{
+  const fixture = `export const Z = (c: string) => (<div className={c}><div className="card p-2">inner</div></div>);`;
+  const fp = locateLineByFingerprint(fixture, 'div', 'card p-2');
+  assert.ok(fp.ok);
+  if (fp.ok) {
+    assert.equal(fp.siblingIndex, 1, 'index counts ALL same-tag elements, dynamic ones included');
+    const plan = computeWritebackPlan({
+      filePath: 'Z.tsx',
+      fileContent: fixture,
+      anchor: { line: fp.line, tagName: 'div', siblingIndex: fp.siblingIndex, classNameSnapshot: 'card p-2' },
+      edits: [{ property: 'padding', value: '24px' }],
+    });
+    assert.ok(plan.ok, `plan ok (${!plan.ok ? plan.detail : ''})`);
+    if (plan.ok) {
+      assert.ok(plan.newContent.includes('className={c}'), 'outer dynamic div untouched');
+      assert.ok(/className="[^"]*p-6[^"]*">inner/.test(plan.newContent), 'inner static div edited');
+    }
   }
 }
 

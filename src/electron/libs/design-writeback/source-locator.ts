@@ -254,18 +254,22 @@ export function locateLineByFingerprint(
     return { ok: false, reason: 'parse-error', detail: error instanceof Error ? error.message : String(error) };
   }
   const matches: Array<{ line: number; sameLineIndex: number }> = [];
+  // sameLineIndex must live in the SAME index space locateJsxElement uses:
+  // the position among ALL same-tag elements on the line (walk order =
+  // document order for both), not just the static-className ones — otherwise
+  // a dynamic-className twin earlier on the line shifts the pick.
   const perLineCounts = new Map<number, number>();
   walk(ast.program as AnyNode, (node) => {
     if (node.type !== 'JSXOpeningElement') return;
     if (jsxTagName(node) !== tagName) return;
     const line = node.loc?.start?.line as number | undefined;
     if (!line) return;
+    const indexAmongAll = perLineCounts.get(line) ?? 0;
+    perLineCounts.set(line, indexAmongAll + 1);
     const shape = classifyClassName(node);
     if (shape.kind !== 'static') return;
     if (!classSetsEqual(shape.value, classNameSnapshot)) return;
-    const sameLineIndex = perLineCounts.get(line) ?? 0;
-    perLineCounts.set(line, sameLineIndex + 1);
-    matches.push({ line, sameLineIndex });
+    matches.push({ line, sameLineIndex: indexAmongAll });
   });
   if (matches.length === 0) {
     return { ok: false, reason: 'not-found', detail: `no <${tagName}> with className "${classNameSnapshot}"` };

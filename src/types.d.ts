@@ -363,7 +363,7 @@ declare global {
       ) => Promise<{ ok: boolean; message?: string; remaining: number }>;
       rollbackLastFailed: (
         input: import('./shared/design-mode-types').DesignModeTarget
-      ) => Promise<{ ok: boolean; message?: string }>;
+      ) => Promise<{ ok: boolean; message?: string; remaining: number }>;
       onEvent: (
         callback: (event: import('./shared/design-mode-types').DesignModeEvent) => void
       ) => () => void;

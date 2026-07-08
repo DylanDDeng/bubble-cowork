@@ -112,12 +112,15 @@ export function mapEditToClass(property: string, value: string): ClassMapping | 
   if (prop === 'font-size') {
     const px = parsePx(value);
     const scaled = px !== null ? FONT_SIZE_PX.get(px) : undefined;
+    // line-height legitimately co-changes for EVERY font-size edit: scale
+    // tokens set their own line-height, and an arbitrary text-[Npx] still
+    // removes the old text-* scale token (twMerge conflict) whose line-height
+    // then falls away. Without the whitelist the verify loop misreads the
+    // co-change as collateral damage.
     if (scaled) {
-      // Scale tokens also set line-height — declare it so the verify loop
-      // whitelists the co-change instead of flagging collateral damage.
       return { className: scaled, alsoAffects: ['line-height'] };
     }
-    return { className: arbitrary('text', value), alsoAffects: [] };
+    return { className: arbitrary('text', value), alsoAffects: ['line-height'] };
   }
 
   if (prop === 'font-weight') {

@@ -153,20 +153,30 @@ export const INSPECTOR_SCRIPT = `(() => {
 
   // ── selection & relocation ──────────────────────────────────────────────
   let selectedInfo = null;
+  // Index among the RENDERED same-source instances (document order) at
+  // selection time. siblingIndex is a SOURCE-space index and is 0 for every
+  // item of a .map()-rendered list (one JSX element, N instances) — using it
+  // for relocation always snapped to the first instance.
+  let selectedInstanceIndex = 0;
 
-  function relocate() {
-    if (state.selected && document.contains(state.selected)) return state.selected;
-    if (!selectedInfo || !selectedInfo.source) return null;
+  function sameSourceCandidates(info) {
     const candidates = [];
-    const all = document.querySelectorAll(selectedInfo.tagName);
+    if (!info || !info.source) return candidates;
+    const all = document.querySelectorAll(info.tagName);
     for (const candidate of all) {
       const src = sourceOf(candidate);
-      if (src && src.file === selectedInfo.source.file && src.line === selectedInfo.source.line) {
+      if (src && src.file === info.source.file && src.line === info.source.line) {
         candidates.push(candidate);
       }
     }
+    return candidates;
+  }
+
+  function relocate() {
+    if (state.selected && document.contains(state.selected)) return state.selected;
+    const candidates = sameSourceCandidates(selectedInfo);
     if (candidates.length === 0) return null;
-    state.selected = candidates[Math.min(selectedInfo.siblingIndex, candidates.length - 1)];
+    state.selected = candidates[Math.min(selectedInstanceIndex, candidates.length - 1)];
     return state.selected;
   }
 
@@ -175,7 +185,12 @@ export const INSPECTOR_SCRIPT = `(() => {
     const el = relocate();
     if (!el) return false;
     if (!state.previewProps.has(property)) {
-      state.previewProps.set(property, el.style.getPropertyValue(property) || null);
+      // Remember the original priority too: restoring "red" without its
+      // original !important flag would permanently demote the declaration.
+      state.previewProps.set(property, {
+        value: el.style.getPropertyValue(property) || null,
+        priority: el.style.getPropertyPriority(property) || '',
+      });
     }
     el.style.setProperty(property, value, 'important');
     el.setAttribute('data-aegis-preview', [...state.previewProps.keys()].join(','));
@@ -189,7 +204,7 @@ export const INSPECTOR_SCRIPT = `(() => {
     const el = relocate();
     if (el) {
       for (const [property, original] of state.previewProps) {
-        if (original) el.style.setProperty(property, original);
+        if (original.value) el.style.setProperty(property, original.value, original.priority);
         else el.style.removeProperty(property);
       }
       el.removeAttribute('data-aegis-preview');
@@ -252,6 +267,7 @@ export const INSPECTOR_SCRIPT = `(() => {
     state.selected = el;
     const info = describe(el);
     selectedInfo = info;
+    selectedInstanceIndex = Math.max(0, sameSourceCandidates(info).indexOf(el));
     state.baseline = info.computed;
     positionOverlay(selectOverlay, el);
     emit({ kind: 'selected', info });

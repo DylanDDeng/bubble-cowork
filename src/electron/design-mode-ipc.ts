@@ -1,5 +1,6 @@
 import { BrowserWindow, ipcMain } from 'electron';
-import { designModeService, type DesignApplyInput, type DesignModeTarget } from './design-mode-service';
+import { designModeService } from './design-mode-service';
+import type { DesignApplyInput, DesignModeTarget } from '../shared/design-mode-types';
 
 // All IPC channels live here so both the main process and the preload bridge
 // reference a single source of truth (mirrors browser-ipc.ts).

@@ -37,6 +37,8 @@ export type WritebackPlan =
       alsoAffects: string[];
       /** Ambiguous var() arbitrary tokens deliberately preserved (red-team B4). */
       preservedTokens: string[];
+      /** Full merged className written to source (static shapes only). */
+      mergedClassName: string | null;
     }
   | {
       ok: false;
@@ -103,5 +105,11 @@ export function computeWritebackPlan(request: WritebackRequest): WritebackPlan {
     removedClasses,
     alsoAffects: [...alsoAffects],
     preservedTokens,
+    mergedClassName:
+      shape.kind === 'static' || shape.kind === 'cn-first-static'
+        ? mergedClassName
+        : shape.kind === 'none'
+          ? additionClasses
+          : null,
   };
 }

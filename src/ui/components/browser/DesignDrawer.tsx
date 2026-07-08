@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useAppStore } from '../../store/useAppStore';
 import { Loader2, MessageSquare, Undo2, X } from '../icons';
@@ -112,6 +112,13 @@ export function DesignDrawer({
         setEdits({});
         setResult(null);
       }
+      if (event.kind === 'reinjected') {
+        // The guest page fully reloaded: the fresh inspector has NO selection,
+        // so a kept stale one would make every preview call silently no-op.
+        setSelection(null);
+        setEdits({});
+        setResult(null);
+      }
       if (event.kind === 'disabled') onClose();
     });
   }, [browserSessionId, tabId, onClose]);
@@ -179,7 +186,16 @@ export function DesignDrawer({
         edits: coalesceEdits(edits),
       });
       setResult(applied);
-      if (applied.canUndo) setUndoCount((count) => count + 1);
+      // The service is authoritative for undo depth — canUndo alone reflects
+      // OLDER stack entries and must not bump the counter (review finding).
+      setUndoCount(applied.undoDepth);
+      if (applied.updatedSnapshot !== undefined) {
+        // The source's className changed; without adopting it as the new
+        // snapshot the NEXT apply on this selection is refused as stale.
+        setSelection((current) =>
+          current ? { ...current, className: applied.updatedSnapshot ?? current.className } : current
+        );
+      }
       if (applied.outcome === 'verified' || applied.outcome === 'unverified') {
         setEdits({});
       }
@@ -187,6 +203,7 @@ export function DesignDrawer({
       setResult({
         outcome: 'error',
         detail: error instanceof Error ? error.message : String(error),
+        undoDepth: undoCount,
         canUndo: undoCount > 0,
         canRollback: false,
       });
@@ -206,10 +223,8 @@ export function DesignDrawer({
   const handleRollback = useCallback(async () => {
     const rolled = await window.electron.designMode.rollbackLastFailed({ sessionId: browserSessionId, tabId });
     if (!rolled.ok) toast.error(rolled.message || 'Rollback failed');
-    else {
-      setResult(null);
-      setUndoCount((count) => Math.max(0, count - 1));
-    }
+    else setResult(null);
+    setUndoCount(rolled.remaining);
   }, [browserSessionId, tabId]);
 
   const computed = selection?.computed ?? {};

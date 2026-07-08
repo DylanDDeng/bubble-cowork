@@ -177,21 +177,30 @@ export function BrowserPanel({
   const [readoutBusy, setReadoutBusy] = useState(false);
 
   // ===== Design mode =====
-  const [designModeTabId, setDesignModeTabId] = useState<string | null>(null);
+  // The design session is keyed by the (browserSessionId, tabId) it was
+  // ENABLED for — disable must use that stored pair, not the current props:
+  // after a chat-session switch browserSessionId changes and a disable built
+  // from it would miss the service's session map, leaking the pinned
+  // WebContentsView and leaving the page's clicks hijacked by the inspector
+  // (review finding).
+  const [designTarget, setDesignTarget] = useState<{ browserSessionId: string; tabId: string } | null>(null);
   const [designCaps, setDesignCaps] = useState<DesignCapabilities | null>(null);
   const projectRoot = useAppStore((s) => (sessionId ? s.sessions[sessionId]?.cwd ?? null : null));
 
   const disableDesignMode = useCallback(() => {
-    setDesignModeTabId((current) => {
+    setDesignTarget((current) => {
       if (current) {
-        void window.electron.designMode.disable({ sessionId: browserSessionId, tabId: current });
+        void window.electron.designMode.disable({
+          sessionId: current.browserSessionId,
+          tabId: current.tabId,
+        });
       }
       return null;
     });
-  }, [browserSessionId]);
+  }, []);
 
   const toggleDesignMode = useCallback(async () => {
-    if (designModeTabId) {
+    if (designTarget) {
       disableDesignMode();
       return;
     }
@@ -213,17 +222,26 @@ export function BrowserPanel({
       return;
     }
     setDesignCaps(enabled.capabilities ?? null);
-    setDesignModeTabId(tab.id);
-  }, [designModeTabId, disableDesignMode, sessionState, projectRoot, browserSessionId]);
+    setDesignTarget({ browserSessionId, tabId: tab.id });
+  }, [designTarget, disableDesignMode, sessionState, projectRoot, browserSessionId]);
 
-  // Design mode is bound to one tab: leaving that tab (switch/close/navigate
-  // away from the panel) ends the design session explicitly.
+  // Design mode is bound to one tab of one browser session: leaving it in
+  // ANY direction (tab switch, chat-session switch, panel collapse) ends the
+  // design session explicitly.
   useEffect(() => {
-    if (!designModeTabId) return;
-    if (collapsed || sessionState.activeTabId !== designModeTabId) {
+    if (!designTarget) return;
+    if (
+      collapsed ||
+      browserSessionId !== designTarget.browserSessionId ||
+      sessionState.activeTabId !== designTarget.tabId
+    ) {
       disableDesignMode();
     }
-  }, [collapsed, sessionState.activeTabId, designModeTabId, disableDesignMode]);
+  }, [collapsed, browserSessionId, sessionState.activeTabId, designTarget, disableDesignMode]);
+
+  // Unmount cleanup: closing the browser utility tab must release the design
+  // session (pin + poll timer + in-page inspector), not leak it.
+  useEffect(() => () => disableDesignMode(), [disableDesignMode]);
 
   // ===== 订阅主进程状态 =====
   useEffect(() => {
@@ -723,11 +741,11 @@ export function BrowserPanel({
             onClick={() => void toggleDesignMode()}
             disabled={!activeTab}
             className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:opacity-40 disabled:hover:bg-transparent ${
-              designModeTabId
+              designTarget
                 ? 'bg-[color-mix(in_srgb,var(--accent)_18%,transparent)] text-[var(--accent)]'
                 : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
             }`}
-            title={designModeTabId ? 'Exit design mode' : 'Design mode: click elements, edit styles, write back to source'}
+            title={designTarget ? 'Exit design mode' : 'Design mode: click elements, edit styles, write back to source'}
             aria-label="Toggle design mode"
           >
             <Palette className="h-[13px] w-[13px]" />
@@ -807,10 +825,10 @@ export function BrowserPanel({
             </div>
           )}
         </div>
-        {designModeTabId && projectRoot ? (
+        {designTarget && projectRoot ? (
           <DesignDrawer
-            browserSessionId={browserSessionId}
-            tabId={designModeTabId}
+            browserSessionId={designTarget.browserSessionId}
+            tabId={designTarget.tabId}
             projectRoot={projectRoot}
             capabilities={designCaps}
             onClose={disableDesignMode}
