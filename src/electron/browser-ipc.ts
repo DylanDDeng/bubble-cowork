@@ -94,18 +94,22 @@ export function registerBrowserIpc(mainWindow: BrowserWindow): void {
   ipcMain.handle(BROWSER_CHANNELS.setPanelBounds, (_event, input: BrowserSetPanelBoundsInput) =>
     browserManager.setPanelBounds(input)
   );
-  ipcMain.handle(BROWSER_CHANNELS.navigate, (_event, input: BrowserNavigateInput) =>
-    browserManager.navigate(input)
-  );
-  ipcMain.handle(BROWSER_CHANNELS.reload, (_event, input: BrowserTabInput) =>
-    browserManager.reload(input)
-  );
-  ipcMain.handle(BROWSER_CHANNELS.goBack, (_event, input: BrowserTabInput) =>
-    browserManager.goBack(input)
-  );
-  ipcMain.handle(BROWSER_CHANNELS.goForward, (_event, input: BrowserTabInput) =>
-    browserManager.goForward(input)
-  );
+  ipcMain.handle(BROWSER_CHANNELS.navigate, async (_event, input: BrowserNavigateInput) => {
+    await designModeService.drainForBrowserSession(input.sessionId, input.tabId);
+    return browserManager.navigate(input);
+  });
+  ipcMain.handle(BROWSER_CHANNELS.reload, async (_event, input: BrowserTabInput) => {
+    await designModeService.drainForBrowserSession(input.sessionId, input.tabId);
+    return browserManager.reload(input);
+  });
+  ipcMain.handle(BROWSER_CHANNELS.goBack, async (_event, input: BrowserTabInput) => {
+    await designModeService.drainForBrowserSession(input.sessionId, input.tabId);
+    return browserManager.goBack(input);
+  });
+  ipcMain.handle(BROWSER_CHANNELS.goForward, async (_event, input: BrowserTabInput) => {
+    await designModeService.drainForBrowserSession(input.sessionId, input.tabId);
+    return browserManager.goForward(input);
+  });
   ipcMain.handle(BROWSER_CHANNELS.newTab, (_event, input: BrowserNewTabInput) =>
     browserManager.newTab(input)
   );

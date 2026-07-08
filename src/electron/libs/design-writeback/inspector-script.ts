@@ -270,9 +270,11 @@ export const INSPECTOR_SCRIPT = `(() => {
     const note = bubbleInput.value.trim();
     if (!note || !selectedInfo) return;
     // Hide BEFORE emitting: the main process screenshots the page right after
-    // draining this event, and a still-visible bubble would end up in the
-    // cropped capture, covering the very element the agent needs to see.
+    // draining this event, and a still-visible bubble (or the hover
+    // highlight) would end up in the cropped capture, covering the very
+    // element the agent needs to see.
     hideBubble();
+    hoverOverlay.style.display = 'none';
     // Geometry travels WITH the event, measured at submit time in this same
     // tick: the bridge must never re-measure "the current selection" later —
     // the user may have clicked a different element by then, pairing note A

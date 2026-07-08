@@ -290,6 +290,30 @@ export class DesignModeService {
   }
 
   /**
+   * Drain (and forward) pending in-page events WITHOUT disabling — used by
+   * navigation-family actions (navigate/reload/back/forward) that replace the
+   * page context while design mode stays on. A note submitted right before
+   * navigating would otherwise die with the old document.
+   */
+  async drainForBrowserSession(sessionId: string, tabId?: string): Promise<void> {
+    for (const state of [...this.sessions.values()]) {
+      if (state.sessionId !== sessionId) continue;
+      if (tabId && state.tabId !== tabId) continue;
+      const wc = this.webContentsFor(state);
+      if (!wc || wc.isDestroyed()) continue;
+      try {
+        const raw = await wc.executeJavaScript(
+          'window.__aegisDesignDrain ? window.__aegisDesignDrain() : null',
+          true
+        );
+        if (raw !== null) this.forwardDrainedEvents(state, String(raw));
+      } catch {
+        // Best-effort.
+      }
+    }
+  }
+
+  /**
    * Drain + tear down design sessions for a browser session/tab BEFORE its
    * WebContentsView is destroyed — close paths would otherwise kill the page
    * while a just-submitted annotation still sits in the in-page queue.
