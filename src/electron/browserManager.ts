@@ -209,6 +209,7 @@ export class BrowserManager {
   private activeSessionId: string | null = null;
   private activeBounds: BrowserPanelBounds | null = null;
   private attachedRuntimeKey: string | null = null;
+  private attachedView: WebContentsView | null = null;
   private readonly states = new Map<string, SessionBrowserState>();
   private readonly runtimes = new Map<string, LiveTabRuntime>();
   private readonly pinnedSessions = new Set<string>();
@@ -732,29 +733,54 @@ export class BrowserManager {
     }
   }
 
+  // Attach/detach bookkeeping is deliberately IDEMPOTENT and keyed by the
+  // view REFERENCE, not just the runtime key. If Electron's contentView child
+  // list ever desyncs from the actual AppKit subviews (double addChildView,
+  // or a webContents destroyed while its view is still a child — the
+  // electron#42077 family), the NEXT window resize throws NSRangeException
+  // inside -[NSView setFrameSize:] and AppKit's exception handler spins the
+  // main thread forever (observed: fullscreen click → permanent beachball).
   private attachRuntime(runtime: LiveTabRuntime, bounds: BrowserPanelBounds): void {
     const window = this.window;
     if (!window) return;
-    if (this.attachedRuntimeKey === runtime.key) {
+    if (this.attachedRuntimeKey === runtime.key && this.attachedView === runtime.view) {
       runtime.view.setBounds(bounds);
       return;
     }
     this.detachAttachedRuntime();
-    window.contentView.addChildView(runtime.view);
-    runtime.view.setBounds(bounds);
+    try {
+      if (!window.contentView.children.includes(runtime.view)) {
+        window.contentView.addChildView(runtime.view);
+      }
+      runtime.view.setBounds(bounds);
+    } catch (error) {
+      console.error('[browser] attach failed:', error);
+      return;
+    }
     this.attachedRuntimeKey = runtime.key;
+    this.attachedView = runtime.view;
   }
 
   private detachAttachedRuntime(): void {
-    if (!this.window || !this.attachedRuntimeKey) {
-      this.attachedRuntimeKey = null;
-      return;
-    }
-    const runtime = this.runtimes.get(this.attachedRuntimeKey);
-    if (runtime) {
-      this.window.contentView.removeChildView(runtime.view);
-    }
+    const view = this.attachedView;
     this.attachedRuntimeKey = null;
+    this.attachedView = null;
+    if (view) {
+      this.removeViewFromWindow(view);
+    }
+  }
+
+  /** Remove a view from the window's child list, tolerating any state. */
+  private removeViewFromWindow(view: WebContentsView): void {
+    const window = this.window;
+    if (!window || window.isDestroyed()) return;
+    try {
+      if (window.contentView.children.includes(view)) {
+        window.contentView.removeChildView(view);
+      }
+    } catch (error) {
+      console.error('[browser] detach failed:', error);
+    }
   }
 
   private isRuntimeClosing(sessionId: string, tabId: string): boolean {
@@ -981,6 +1007,16 @@ export class BrowserManager {
   }
 
   private closeRuntimeWebContents(runtime: LiveTabRuntime, key: string): void {
+    // Destroying a webContents whose view is still in the window's child list
+    // desyncs Electron's child bookkeeping from the AppKit subviews: the next
+    // window resize throws NSRangeException inside -[NSView setFrameSize:]
+    // and hangs the app in AppKit's exception handler. Unhook defensively,
+    // whatever path led here.
+    this.removeViewFromWindow(runtime.view);
+    if (this.attachedView === runtime.view) {
+      this.attachedView = null;
+      this.attachedRuntimeKey = null;
+    }
     const webContents = runtime.view.webContents;
     if (webContents.isDestroyed()) {
       this.closingRuntimeKeys.delete(key);
