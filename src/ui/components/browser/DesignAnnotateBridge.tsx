@@ -41,24 +41,21 @@ async function cropDataUrl(
  * screenshot cropped to the element (submit-time geometry), and the element
  * context. Design mode never writes source files; the agent does.
  *
- * Mounted for the PANEL's browser session (not gated on the design target):
- * the service's disable path performs a final queue drain, and those last
- * annotate events arrive after the UI already cleared its design state — a
- * target-gated bridge would unmount and drop them.
+ * Mounted ONCE at the app level, deliberately independent of any browser
+ * panel's lifetime: the service's disable path performs a final queue drain
+ * (a note submitted right before closing the panel), and those last annotate
+ * events arrive while — or after — the panel unmounts. A panel-scoped
+ * listener would be gone by then and the annotation silently lost.
  */
-export function DesignAnnotateBridge({
-  browserSessionId,
-  onDesignDisabled,
-  resolveChatTargetId,
-}: {
-  browserSessionId: string;
-  onDesignDisabled: (tabId: string) => void;
-  resolveChatTargetId: () => string;
-}) {
+export function DesignAnnotateBridge() {
   const requestChatInjection = useAppStore((s) => s.requestChatInjection);
 
   const sendAnnotation = useCallback(
-    async (tabId: string, note: string, target: DesignSelectionInfo) => {
+    async (browserSessionId: string, tabId: string, note: string, target: DesignSelectionInfo) => {
+      // Browser sessions bound to a chat session share its id; standalone
+      // browsing gets a draft session, same as the panel's own send-to-chat.
+      const store = useAppStore.getState();
+      const chatTargetId = store.sessions[browserSessionId] ? browserSessionId : store.createDraftSession();
       const attachments: Attachment[] = [];
       let pageUrl: string | null = null;
       try {
@@ -89,7 +86,7 @@ export function DesignAnnotateBridge({
         // Screenshot is best-effort; the annotation still carries the context.
       }
       requestChatInjection({
-        sessionId: resolveChatTargetId(),
+        sessionId: chatTargetId,
         text: composeAnnotationText({ note, selection: target, pageUrl, hasScreenshot: attachments.length > 0 }),
         attachments,
         mode: 'append',
@@ -97,16 +94,14 @@ export function DesignAnnotateBridge({
       });
       toast.success('Annotation sent to the composer — review and send');
     },
-    [browserSessionId, requestChatInjection, resolveChatTargetId]
+    [requestChatInjection]
   );
 
   useEffect(() => {
     return window.electron.designMode.onEvent((event) => {
-      if (event.sessionId !== browserSessionId) return;
-      if (event.kind === 'annotate') void sendAnnotation(event.tabId, event.note, event.info);
-      if (event.kind === 'disabled') onDesignDisabled(event.tabId);
+      if (event.kind === 'annotate') void sendAnnotation(event.sessionId, event.tabId, event.note, event.info);
     });
-  }, [browserSessionId, sendAnnotation, onDesignDisabled]);
+  }, [sendAnnotation]);
 
   return null;
 }

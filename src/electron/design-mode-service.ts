@@ -80,6 +80,16 @@ export class DesignModeService {
     return browserManager.getLiveWebContents(target.sessionId, target.tabId);
   }
 
+  /**
+   * Ownership guard for async continuations: disable/enable interleave with
+   * in-flight polls and drains, and a stale continuation must never touch
+   * the page (re-inject, clear helpers) on behalf of a session that has been
+   * replaced or removed.
+   */
+  private isCurrent(state: DesignSessionState): boolean {
+    return this.sessions.get(keyOf(state)) === state;
+  }
+
   async enable(
     input: DesignModeTarget & { projectRoot: string }
   ): Promise<{ ok: boolean; message?: string; capabilities?: DesignCapabilities }> {
@@ -173,6 +183,11 @@ export class DesignModeService {
         // Best-effort; the page may already be gone.
       }
     }
+    // Toggle-off-then-on race: if a NEW session was installed under the same
+    // key while we awaited the drain, the page now belongs to it — do not
+    // strip its helpers or emit a 'disabled' that would clear the fresh UI
+    // target.
+    if (this.sessions.has(key)) return;
     if (wc) {
       await wc
         .executeJavaScript(
@@ -185,6 +200,7 @@ export class DesignModeService {
   }
 
   private async pollOnce(state: DesignSessionState): Promise<void> {
+    if (!this.isCurrent(state)) return;
     const wc = this.webContentsFor(state);
     if (!wc) {
       await this.disable(state, 'page-gone');
@@ -196,6 +212,9 @@ export class DesignModeService {
     } catch {
       raw = null;
     }
+    // A disable() that ran while we awaited must win: acting here would
+    // re-enable the inspector on a page the session no longer owns.
+    if (!this.isCurrent(state)) return;
     if (raw === null) {
       // Injection lost (navigation / reload). Re-inject while still on localhost.
       const url = wc.getURL() || '';
@@ -205,6 +224,13 @@ export class DesignModeService {
       }
       try {
         await wc.executeJavaScript(INSPECTOR_SCRIPT, true);
+        if (!this.isCurrent(state)) {
+          // Disabled mid-injection: the fresh inspector must not stay active.
+          await wc
+            .executeJavaScript('window.__aegisDesignSetEnabled && window.__aegisDesignSetEnabled(false)', true)
+            .catch(() => undefined);
+          return;
+        }
         this.emit({ kind: 'reinjected', sessionId: state.sessionId, tabId: state.tabId });
       } catch {
         // Try again next tick.

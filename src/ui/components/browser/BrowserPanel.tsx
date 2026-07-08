@@ -38,7 +38,6 @@ import {
   RefreshCw,
   X,
 } from '../icons';
-import { DesignAnnotateBridge } from './DesignAnnotateBridge';
 import { toast } from 'sonner';
 import type {
   BrowserReadoutResult,
@@ -260,16 +259,20 @@ export function BrowserPanel({
     };
   }, [collapsed, browserSessionId, sessionState.activeTabId]);
 
-  // The service's disable path emits 'disabled' after a final annotate drain;
-  // clear the UI target without re-invoking IPC (idempotent server-side).
-  const handleDesignDisabled = useCallback(
-    (tabId: string) => {
+  // The service emits 'disabled' when it tears a session down (page gone,
+  // left localhost, host reload); clear the UI target without re-invoking
+  // IPC (idempotent server-side). Annotate delivery lives in the app-level
+  // DesignAnnotateBridge, independent of this panel's lifetime.
+  useEffect(() => {
+    return window.electron.designMode.onEvent((event) => {
+      if (event.kind !== 'disabled') return;
       setDesignTarget((current) =>
-        current && current.tabId === tabId && current.browserSessionId === browserSessionId ? null : current
+        current && current.tabId === event.tabId && current.browserSessionId === event.sessionId
+          ? null
+          : current
       );
-    },
-    [browserSessionId]
-  );
+    });
+  }, []);
 
   // ===== 订阅主进程状态 =====
   useEffect(() => {
@@ -853,11 +856,6 @@ export function BrowserPanel({
             </div>
           )}
         </div>
-        <DesignAnnotateBridge
-          browserSessionId={browserSessionId}
-          onDesignDisabled={handleDesignDisabled}
-          resolveChatTargetId={resolveChatTargetId}
-        />
       </div>
     </div>
   );

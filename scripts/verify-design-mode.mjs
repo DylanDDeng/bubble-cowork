@@ -61,8 +61,12 @@ assert.ok(
 );
 const panelSrc = fs.readFileSync(path.join(root, 'src/ui/components/browser/BrowserPanel.tsx'), 'utf8');
 assert.ok(
-  panelSrc.includes('<DesignAnnotateBridge') && panelSrc.includes('toggleDesignMode'),
-  'browser panel hosts the headless annotate bridge'
+  panelSrc.includes('toggleDesignMode') && panelSrc.includes('designContextRef'),
+  'browser panel guards in-flight enables against context changes'
+);
+assert.ok(
+  fs.readFileSync(path.join(root, 'src/ui/App.tsx'), 'utf8').includes('<DesignAnnotateBridge'),
+  'annotate bridge is app-level so panel unmount cannot drop final-drain annotations'
 );
 assert.ok(
   fs.readFileSync(path.join(root, 'src/electron/main.ts'), 'utf8').includes('registerDesignModeIpc'),
