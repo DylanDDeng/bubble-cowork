@@ -135,27 +135,7 @@ export function DesignDrawer({
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<DesignApplyResult | null>(null);
   const [undoCount, setUndoCount] = useState(0);
-  const [annotation, setAnnotation] = useState('');
   const [annotating, setAnnotating] = useState(false);
-
-  useEffect(() => {
-    return window.electron.designMode.onEvent((event) => {
-      if (event.sessionId !== browserSessionId || event.tabId !== tabId) return;
-      if (event.kind === 'selection') {
-        setSelection(event.info);
-        setEdits({});
-        setResult(null);
-      }
-      if (event.kind === 'reinjected') {
-        // The guest page fully reloaded: the fresh inspector has NO selection,
-        // so a kept stale one would make every preview call silently no-op.
-        setSelection(null);
-        setEdits({});
-        setResult(null);
-      }
-      if (event.kind === 'disabled') onClose();
-    });
-  }, [browserSessionId, tabId, onClose]);
 
   const setEdit = useCallback(
     (property: string, value: string) => {
@@ -247,51 +227,79 @@ export function DesignDrawer({
   }, [selection, pendingCount, applying, browserSessionId, tabId, projectRoot, edits, handleAskAgent, undoCount]);
 
   // Annotate: free-text intent + a screenshot cropped to the element,
-  // attached to the composer. Works for EVERY selection tier — including
-  // source-less ones where deterministic write-back is impossible.
-  const handleAnnotate = useCallback(async () => {
-    if (!selection || !annotation.trim() || annotating) return;
-    setAnnotating(true);
-    try {
-      const attachments: Attachment[] = [];
-      let pageUrl: string | null = null;
+  // attached to the composer. Triggered from the IN-PAGE bubble the inspector
+  // shows next to the selected element (Cursor-style); works for EVERY
+  // selection tier — including source-less ones where deterministic
+  // write-back is impossible.
+  const sendAnnotation = useCallback(
+    async (note: string, target: DesignSelectionInfo) => {
+      if (!note.trim() || annotating) return;
+      setAnnotating(true);
       try {
-        const captured = await window.electron.browser.capture({ sessionId: browserSessionId, tabId });
-        if (captured.ok && captured.base64 && captured.dataUrl) {
-          pageUrl = captured.pageUrl ?? null;
-          // Fresh geometry at submit time — the selection-time rect is stale
-          // the moment the page scrolls.
-          const measured = await window.electron.designMode.measureSelection({ sessionId: browserSessionId, tabId });
-          const rect = measured.found && measured.rect ? measured.rect : selection.rect;
-          const viewport = measured.viewport ?? { w: rect.w, h: rect.h };
-          const crop = computeAnnotationCrop(rect, viewport, {
-            width: captured.width ?? 0,
-            height: captured.height ?? 0,
-          });
-          const cropped = await cropDataUrl(captured.dataUrl, crop).catch(() => null);
-          const bytes = cropped ?? base64ToBytes(captured.base64);
-          const attachment = (await window.electron.createInlineImageAttachment(
-            captured.mimeType || 'image/png',
-            bytes
-          )) as Attachment | null;
-          if (attachment) attachments.push(attachment);
+        const attachments: Attachment[] = [];
+        let pageUrl: string | null = null;
+        try {
+          const captured = await window.electron.browser.capture({ sessionId: browserSessionId, tabId });
+          if (captured.ok && captured.base64 && captured.dataUrl) {
+            pageUrl = captured.pageUrl ?? null;
+            // Fresh geometry at submit time — the selection-time rect is stale
+            // the moment the page scrolls.
+            const measured = await window.electron.designMode.measureSelection({ sessionId: browserSessionId, tabId });
+            const rect = measured.found && measured.rect ? measured.rect : target.rect;
+            const viewport = measured.viewport ?? { w: rect.w, h: rect.h };
+            const crop = computeAnnotationCrop(rect, viewport, {
+              width: captured.width ?? 0,
+              height: captured.height ?? 0,
+            });
+            const cropped = await cropDataUrl(captured.dataUrl, crop).catch(() => null);
+            const bytes = cropped ?? base64ToBytes(captured.base64);
+            const attachment = (await window.electron.createInlineImageAttachment(
+              captured.mimeType || 'image/png',
+              bytes
+            )) as Attachment | null;
+            if (attachment) attachments.push(attachment);
+          }
+        } catch {
+          // Screenshot is best-effort; the annotation still carries the context.
         }
-      } catch {
-        // Screenshot is best-effort; the annotation still carries the context.
+        requestChatInjection({
+          sessionId: resolveChatTargetId(),
+          text: composeAnnotationText({ note, selection: target, pageUrl }),
+          attachments,
+          mode: 'append',
+          source: 'design-annotate',
+        });
+        toast.success('Annotation sent to the composer — review and send');
+      } finally {
+        setAnnotating(false);
       }
-      requestChatInjection({
-        sessionId: resolveChatTargetId(),
-        text: composeAnnotationText({ note: annotation, selection, pageUrl }),
-        attachments,
-        mode: 'append',
-        source: 'design-annotate',
-      });
-      setAnnotation('');
-      toast.success('Annotation sent to the composer — review and send');
-    } finally {
-      setAnnotating(false);
-    }
-  }, [selection, annotation, annotating, browserSessionId, tabId, requestChatInjection, resolveChatTargetId]);
+    },
+    [annotating, browserSessionId, tabId, requestChatInjection, resolveChatTargetId]
+  );
+
+  useEffect(() => {
+    return window.electron.designMode.onEvent((event) => {
+      if (event.sessionId !== browserSessionId || event.tabId !== tabId) return;
+      if (event.kind === 'selection') {
+        setSelection(event.info);
+        setEdits({});
+        setResult(null);
+      }
+      if (event.kind === 'annotate') {
+        // Submitted from the in-page bubble next to the element.
+        setSelection(event.info);
+        void sendAnnotation(event.note, event.info);
+      }
+      if (event.kind === 'reinjected') {
+        // The guest page fully reloaded: the fresh inspector has NO selection,
+        // so a kept stale one would make every preview call silently no-op.
+        setSelection(null);
+        setEdits({});
+        setResult(null);
+      }
+      if (event.kind === 'disabled') onClose();
+    });
+  }, [browserSessionId, tabId, onClose, sendAnnotation]);
 
   const handleUndo = useCallback(async () => {
     const undone = await window.electron.designMode.undo({ sessionId: browserSessionId, tabId });
@@ -377,7 +385,10 @@ export function DesignDrawer({
 
       {!selection ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center text-[11px] text-[var(--text-muted)]">
-          <span>Click an element in the page to inspect and edit it.</span>
+          <span>
+            Click an element in the page — describe the change in the bubble next
+            to it, or fine-tune styles here.
+          </span>
           {capabilities && !capabilities.reactFiber ? (
             <span className="text-amber-500">
               No React dev build detected — source locations unavailable; edits go through the agent.
@@ -407,34 +418,12 @@ export function DesignDrawer({
             </div>
           </div>
 
-          {/* Annotate: point at the element, say what you want in words */}
-          <div className="space-y-1">
-            <textarea
-              value={annotation}
-              onChange={(event) => setAnnotation(event.target.value)}
-              onKeyDown={(event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                  event.preventDefault();
-                  void handleAnnotate();
-                }
-              }}
-              placeholder="Annotate: tell the agent what to change here…"
-              rows={2}
-              className="w-full resize-none rounded-md border border-[var(--border)] bg-[var(--bg-tertiary)] px-2 py-1.5 text-[11px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none"
-            />
-            {annotation.trim() ? (
-              <button
-                type="button"
-                onClick={() => void handleAnnotate()}
-                disabled={annotating}
-                className="inline-flex h-6 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--border)] text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] disabled:opacity-40"
-                title="Send this note + a cropped screenshot of the element to the composer (⌘↵)"
-              >
-                {annotating ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageSquare className="h-3 w-3" />}
-                Annotate → agent
-              </button>
-            ) : null}
-          </div>
+          {annotating ? (
+            <div className="flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--bg-secondary)]/60 px-2 py-1.5 text-[10px] text-[var(--text-muted)]">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Sending annotation to the composer…
+            </div>
+          ) : null}
 
           {spacingGroup('padding')}
           {spacingGroup('margin')}

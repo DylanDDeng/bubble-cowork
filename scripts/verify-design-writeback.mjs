@@ -87,6 +87,18 @@ assert.ok(
   drawerSrc.includes('composeAnnotationText') && drawerSrc.includes('computeAnnotationCrop') && drawerSrc.includes('measureSelection'),
   'drawer: annotate lane (free-text + cropped element screenshot at submit-time geometry)'
 );
+assert.ok(
+  inspectorSrc.includes("kind: 'annotate'") && inspectorSrc.includes('data-aegis-ui'),
+  'inspector: Cursor-style in-page annotate bubble emits through the drain queue'
+);
+assert.ok(
+  serviceSrc.includes("kind: 'annotate'"),
+  'service: forwards in-page annotate submissions to the renderer'
+);
+assert.ok(
+  drawerSrc.includes("event.kind === 'annotate'"),
+  'drawer: handles in-page annotate events (capture → crop → composer)'
+);
 const panelSrc = fs.readFileSync(path.join(root, 'src/ui/components/browser/BrowserPanel.tsx'), 'utf8');
 assert.ok(
   panelSrc.includes('<DesignDrawer') && panelSrc.includes('toggleDesignMode'),

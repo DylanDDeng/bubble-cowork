@@ -213,10 +213,19 @@ export class DesignModeService {
       return;
     }
     try {
-      const events = JSON.parse(String(raw)) as Array<{ kind: string; info?: DesignSelectionInfo }>;
+      const events = JSON.parse(String(raw)) as Array<{ kind: string; info?: DesignSelectionInfo; note?: string }>;
       for (const event of events) {
         if (event.kind === 'selected' && event.info) {
           this.emit({ kind: 'selection', sessionId: state.sessionId, tabId: state.tabId, info: event.info });
+        }
+        if (event.kind === 'annotate' && event.info && typeof event.note === 'string' && event.note.trim()) {
+          this.emit({
+            kind: 'annotate',
+            sessionId: state.sessionId,
+            tabId: state.tabId,
+            note: event.note,
+            info: event.info,
+          });
         }
       }
     } catch {

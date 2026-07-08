@@ -70,6 +70,7 @@ export interface DesignApplyResult {
 
 export type DesignModeEvent =
   | { kind: 'selection'; sessionId: string; tabId: string; info: DesignSelectionInfo }
+  | { kind: 'annotate'; sessionId: string; tabId: string; note: string; info: DesignSelectionInfo }
   | { kind: 'enabled'; sessionId: string; tabId: string; capabilities: DesignCapabilities }
   | { kind: 'disabled'; sessionId: string; tabId: string; reason: string }
   | { kind: 'reinjected'; sessionId: string; tabId: string };
