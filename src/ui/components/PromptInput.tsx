@@ -233,6 +233,8 @@ export function PromptInput({
       activeSession?.provider === 'opencode' ? activeSession.opencodePermissionMode || null : null,
     claudeReasoningEffort:
       activeSession?.provider === 'claude' ? activeSession.claudeReasoningEffort || null : null,
+    grokReasoningEffort:
+      activeSession?.provider === 'grok' ? activeSession.grokReasoningEffort || null : null,
   });
   const runtimeProvider = agentSelection.provider;
   const selectedModel = agentSelection.model;
@@ -658,6 +660,14 @@ export function PromptInput({
             runtimeProvider === 'kimi' || runtimeProvider === 'grok'
               ? agentSelection.kimiPermissionMode
               : undefined,
+          grokPermissionMode:
+            runtimeProvider === 'grok'
+              ? agentSelection.kimiPermissionMode
+              : undefined,
+          grokReasoningEffort:
+            runtimeProvider === 'grok'
+              ? agentSelection.grokReasoningEffort || undefined
+              : undefined,
           opencodePermissionMode:
             runtimeProvider === 'opencode'
               ? agentSelection.opencodePermissionMode
@@ -703,6 +713,14 @@ export function PromptInput({
         kimiPermissionMode:
           runtimeProvider === 'kimi' || runtimeProvider === 'grok'
             ? agentSelection.kimiPermissionMode
+            : undefined,
+        grokPermissionMode:
+          runtimeProvider === 'grok'
+            ? agentSelection.kimiPermissionMode
+            : undefined,
+        grokReasoningEffort:
+          runtimeProvider === 'grok'
+            ? agentSelection.grokReasoningEffort || undefined
             : undefined,
         opencodePermissionMode:
           runtimeProvider === 'opencode'
@@ -1156,6 +1174,8 @@ export function PromptInput({
                 onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
                 codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
                 onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
+                grokReasoningEffort={agentSelection.grokReasoningEffort ?? undefined}
+                onGrokReasoningEffortChange={agentSelection.setGrokReasoningEffort}
                 codexFastMode={agentSelection.codexFastMode}
                 onCodexFastModeChange={agentSelection.setCodexFastMode}
                 menuSide={menuSide}

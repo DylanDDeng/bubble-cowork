@@ -500,7 +500,8 @@ export class GrokAcpAdapter implements ProviderAdapter {
       provider: 'grok',
       supportsSkillMentions: false,
       supportsSkillDiscovery: false,
-      supportsNativeSlashCommandDiscovery: false,
+      // Grok ACP pushes available_commands_update (builtins + skills) after session/new.
+      supportsNativeSlashCommandDiscovery: true,
       supportsPluginMentions: false,
       supportsPluginDiscovery: false,
       supportsRuntimeModelList: false,
@@ -1096,14 +1097,26 @@ export class GrokAcpAdapter implements ProviderAdapter {
     const availableCommands = getArray(update.availableCommands)
       .map((command) => {
         const record = getRecord(command);
-        const name = getString(record?.name);
+        const name = getString(record?.name).replace(/^\//, '').trim();
         if (!name) return null;
+        const description = getString(record?.description) || 'Grok Build slash command';
+        const inputRecord = getRecord(record?.input);
+        const hint = getString(inputRecord?.hint);
         return {
           name,
-          description: getString(record?.description),
+          description,
+          ...(hint ? { input: { hint } } : {}),
         };
       })
-      .filter((command): command is { name: string; description: string } => Boolean(command));
+      .filter(
+        (
+          command
+        ): command is {
+          name: string;
+          description: string;
+          input?: { hint: string };
+        } => Boolean(command)
+      );
     this.emit({
       type: 'message',
       threadId,

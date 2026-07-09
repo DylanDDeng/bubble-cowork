@@ -120,6 +120,252 @@ const OPENCODE_COMMAND_DEFINITIONS: Record<string, { title: string; description:
   unshare: { title: '/unshare', description: 'Unshare the current session' },
 };
 
+// Grok Build shell builtins advertised over ACP (plus a few documented agent
+// commands users expect). Skills also arrive at runtime via
+// available_commands_update and are merged on top of this catalog.
+type GrokCommandDefinition = {
+  title: string;
+  description: string;
+  submitOnSelect?: boolean;
+  inputHint?: string;
+};
+
+const GROK_COMMAND_DEFINITIONS: Record<string, GrokCommandDefinition> = {
+  compact: {
+    title: '/compact',
+    description: 'Compress conversation history to save context window',
+    inputHint: 'optional context about what to preserve',
+  },
+  context: {
+    title: '/context',
+    description: 'Show context window usage and session stats',
+    submitOnSelect: true,
+  },
+  'session-info': {
+    title: '/session-info',
+    description: 'Show session details (model, turns, context usage)',
+    submitOnSelect: true,
+  },
+  model: {
+    title: '/model',
+    description: 'Switch the Grok Build model for this session',
+    inputHint: 'model name or id',
+  },
+  effort: {
+    title: '/effort',
+    description: 'Set reasoning effort on the current model',
+    inputHint: 'low | medium | high | xhigh',
+  },
+  'always-approve': {
+    title: '/always-approve',
+    description: 'Toggle always-approve mode (skip all permission prompts)',
+    inputHint: 'on|off',
+  },
+  auto: {
+    title: '/auto',
+    description: 'Enable auto permission mode (classifier approves safe tools)',
+  },
+  yolo: {
+    title: '/yolo',
+    description: 'Alias for always-approve (skip permission prompts)',
+    inputHint: 'on|off',
+  },
+  plan: {
+    title: '/plan',
+    description: 'Enter plan mode for the next turn',
+    inputHint: 'optional plan description',
+  },
+  'view-plan': {
+    title: '/view-plan',
+    description: 'Open the current saved plan preview',
+    submitOnSelect: true,
+  },
+  'show-plan': {
+    title: '/show-plan',
+    description: 'Alias for /view-plan',
+    submitOnSelect: true,
+  },
+  memory: {
+    title: '/memory',
+    description: 'Browse or toggle cross-session memory',
+    inputHint: 'on|off',
+  },
+  flush: {
+    title: '/flush',
+    description: 'Save current session knowledge to memory now',
+    submitOnSelect: true,
+  },
+  dream: {
+    title: '/dream',
+    description: 'Run memory consolidation across session logs',
+    submitOnSelect: true,
+  },
+  remember: {
+    title: '/remember',
+    description: 'Save a note to memory immediately',
+    inputHint: 'note text',
+  },
+  hooks: {
+    title: '/hooks',
+    description: 'Manage project hooks',
+  },
+  'hooks-list': {
+    title: '/hooks-list',
+    description: 'Show hooks loaded in this session',
+    submitOnSelect: true,
+  },
+  'hooks-trust': {
+    title: '/hooks-trust',
+    description: 'Trust this project for hook execution',
+    submitOnSelect: true,
+  },
+  'hooks-untrust': {
+    title: '/hooks-untrust',
+    description: 'Remove trust for the current project',
+    submitOnSelect: true,
+  },
+  'hooks-add': {
+    title: '/hooks-add',
+    description: 'Add a custom hook file or directory',
+    inputHint: 'path to hook file or directory',
+  },
+  'hooks-remove': {
+    title: '/hooks-remove',
+    description: 'Remove a custom hook file or directory path',
+    inputHint: 'path to hook file or directory',
+  },
+  plugins: {
+    title: '/plugins',
+    description: 'Manage plugins (list, reload, trust, add, remove)',
+    inputHint: 'list | reload | trust <path> | add <path> | remove <path>',
+  },
+  'reload-plugins': {
+    title: '/reload-plugins',
+    description: 'Reload plugins from disk',
+    submitOnSelect: true,
+  },
+  marketplace: {
+    title: '/marketplace',
+    description: 'Browse and install plugins from the marketplace',
+  },
+  skills: {
+    title: '/skills',
+    description: 'View installed skills',
+  },
+  mcps: {
+    title: '/mcps',
+    description: 'Manage MCP server connections',
+  },
+  imagine: {
+    title: '/imagine',
+    description: 'Generate an image from a text description',
+    inputHint: 'image description',
+  },
+  'imagine-video': {
+    title: '/imagine-video',
+    description: 'Generate a video from text or image guidance',
+    inputHint: 'video description',
+  },
+  loop: {
+    title: '/loop',
+    description: 'Run a prompt on a recurring interval',
+    inputHint: '[interval] <prompt>',
+  },
+  goal: {
+    title: '/goal',
+    description: 'Set, manage, or check an autonomous goal',
+    inputHint: '<objective> | status | pause | resume | clear',
+  },
+  feedback: {
+    title: '/feedback',
+    description: 'Send feedback about the current session',
+    inputHint: 'feedback text',
+  },
+  help: {
+    title: '/help',
+    description: 'Show Grok Build help for config, MCP, auth, and commands',
+  },
+  btw: {
+    title: '/btw',
+    description: 'Send an aside without interrupting the current task',
+    inputHint: 'aside message',
+  },
+  rename: {
+    title: '/rename',
+    description: 'Rename the current session',
+    inputHint: 'new session title',
+  },
+  fork: {
+    title: '/fork',
+    description: 'Branch the current session into a new agent',
+    submitOnSelect: true,
+  },
+  rewind: {
+    title: '/rewind',
+    description: 'Rewind the conversation to an earlier turn',
+  },
+  export: {
+    title: '/export',
+    description: 'Export the current conversation',
+  },
+  'code-review': {
+    title: '/code-review',
+    description: 'Run a strict maintainability review of the current changes',
+    submitOnSelect: true,
+  },
+  'terminal-setup': {
+    title: '/terminal-setup',
+    description: 'Show terminal capability detection and setup info',
+    submitOnSelect: true,
+  },
+  'release-notes': {
+    title: '/release-notes',
+    description: 'View Grok Build release notes',
+    submitOnSelect: true,
+  },
+  docs: {
+    title: '/docs',
+    description: 'Browse Grok Build docs and how-to guides',
+    inputHint: 'web | guide title',
+  },
+  usage: {
+    title: '/usage',
+    description: 'View credit usage or manage billing',
+    submitOnSelect: true,
+  },
+  login: {
+    title: '/login',
+    description: 'Log in or re-authenticate with Grok Build',
+    submitOnSelect: true,
+  },
+  logout: {
+    title: '/logout',
+    description: 'Log out of Grok Build',
+    submitOnSelect: true,
+  },
+  privacy: {
+    title: '/privacy',
+    description: 'Show or toggle privacy and data-retention status',
+  },
+  settings: {
+    title: '/settings',
+    description: 'Open Grok Build settings',
+  },
+  'config-agents': {
+    title: '/config-agents',
+    description: 'Manage agent definitions and the active agent',
+  },
+  personas: {
+    title: '/personas',
+    description: 'Create and manage subagent personas',
+  },
+  'import-claude': {
+    title: '/import-claude',
+    description: 'Import Claude Code settings into Grok Build',
+    submitOnSelect: true,
+  },
+};
+
 function rankCommand(command: ClaudeSlashCommand, query: string): number {
   const lowerName = command.name.toLowerCase();
   const lowerTitle = command.title.toLowerCase();
@@ -139,13 +385,61 @@ function fromAvailableCommand(command: AvailableCommand): ClaudeSlashCommand | n
     return null;
   }
 
+  const grokFallback = GROK_COMMAND_DEFINITIONS[normalized];
   return {
     name: normalized,
-    title: `/${normalized}`,
-    description: command.description || 'ACP slash command',
-    source: 'acp',
-    inputHint: command.input?.hint,
+    title: grokFallback?.title || `/${normalized}`,
+    description: command.description || grokFallback?.description || 'ACP slash command',
+    // Known Grok builtins use the same "Built-in" group as Claude/OpenCode defaults.
+    source: grokFallback ? 'default' : 'acp',
+    submitOnSelect: grokFallback?.submitOnSelect,
+    inputHint: command.input?.hint || grokFallback?.inputHint,
   };
+}
+
+function buildDefaultCommandList(
+  definitions: Record<string, { title: string; description: string; submitOnSelect?: boolean; inputHint?: string }>
+): ClaudeSlashCommand[] {
+  return Object.entries(definitions)
+    .map(([name, definition]) => ({
+      name,
+      title: definition.title,
+      description: definition.description,
+      source: 'default' as const,
+      submitOnSelect: definition.submitOnSelect,
+      inputHint: definition.inputHint,
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function enrichCommandsWithDefinitions(
+  commands: ClaudeSlashCommand[],
+  definitions: Record<string, { title: string; description: string; submitOnSelect?: boolean; inputHint?: string }>
+): ClaudeSlashCommand[] {
+  return commands.map((command) => {
+    const definition = definitions[command.name];
+    if (!definition) {
+      return command;
+    }
+    return {
+      ...command,
+      title: definition.title || command.title,
+      description: command.description || definition.description,
+      submitOnSelect: command.submitOnSelect ?? definition.submitOnSelect,
+      inputHint: command.inputHint || definition.inputHint,
+    };
+  });
+}
+
+function mergeMissingDefaultCommands(
+  commands: ClaudeSlashCommand[],
+  definitions: Record<string, { title: string; description: string; submitOnSelect?: boolean; inputHint?: string }>
+): ClaudeSlashCommand[] {
+  const existing = new Set(commands.map((command) => command.name.toLowerCase()));
+  const missing = buildDefaultCommandList(definitions).filter(
+    (command) => !existing.has(command.name.toLowerCase())
+  );
+  return [...commands, ...missing].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 export function getSessionSlashCommands(messages: StreamMessage[]): ClaudeSlashCommand[] {
@@ -224,7 +518,18 @@ export function buildProviderSlashCommands(
 ): ClaudeSlashCommand[] {
   if (sessionCommands && sessionCommands.length > 0) {
     const commands = buildClaudeSlashCommands(sessionCommands);
-    return provider === 'claude' ? withLocalClaudeUiCommands(commands) : commands;
+    if (provider === 'claude') {
+      return withLocalClaudeUiCommands(commands);
+    }
+    if (provider === 'grok') {
+      // ACP may advertise skills as slash commands at runtime; keep them and
+      // backfill any static Grok builtins that have not arrived yet.
+      return mergeMissingDefaultCommands(
+        enrichCommandsWithDefinitions(commands, GROK_COMMAND_DEFINITIONS),
+        GROK_COMMAND_DEFINITIONS
+      );
+    }
+    return commands;
   }
 
   if (provider === 'claude') {
@@ -232,14 +537,11 @@ export function buildProviderSlashCommands(
   }
 
   if (provider === 'opencode') {
-    return Object.entries(OPENCODE_COMMAND_DEFINITIONS)
-      .map(([name, definition]) => ({
-        name,
-        title: definition.title,
-        description: definition.description,
-        source: 'default' as const,
-      }))
-      .sort((left, right) => left.name.localeCompare(right.name));
+    return buildDefaultCommandList(OPENCODE_COMMAND_DEFINITIONS);
+  }
+
+  if (provider === 'grok') {
+    return buildDefaultCommandList(GROK_COMMAND_DEFINITIONS);
   }
 
   return [];

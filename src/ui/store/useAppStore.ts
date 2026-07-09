@@ -539,6 +539,9 @@ function freshSessionViewFromInfo(info: import('../shared/types').SessionInfo): 
     codexPermissionMode: info.codexPermissionMode,
     codexReasoningEffort: info.codexReasoningEffort,
     codexFastMode: info.codexFastMode,
+    kimiPermissionMode: info.kimiPermissionMode,
+    grokPermissionMode: info.grokPermissionMode,
+    grokReasoningEffort: info.grokReasoningEffort,
     opencodePermissionMode: info.opencodePermissionMode,
     pinned: info.pinned || false,
     folderPath: info.folderPath || null,
@@ -2277,6 +2280,8 @@ function handleSessionList(
       codexReasoningEffort: session.codexReasoningEffort,
       codexFastMode: session.codexFastMode,
       kimiPermissionMode: session.kimiPermissionMode,
+      grokPermissionMode: session.grokPermissionMode,
+      grokReasoningEffort: session.grokReasoningEffort,
       opencodePermissionMode: session.opencodePermissionMode,
       pinned: session.pinned || false,
       folderPath: session.folderPath || null,
@@ -2376,6 +2381,8 @@ function handleSessionStatus(
     codexReasoningEffort?: SessionInfo['codexReasoningEffort'];
     codexFastMode?: SessionInfo['codexFastMode'];
     kimiPermissionMode?: SessionInfo['kimiPermissionMode'];
+    grokPermissionMode?: SessionInfo['grokPermissionMode'];
+    grokReasoningEffort?: SessionInfo['grokReasoningEffort'];
     opencodePermissionMode?: SessionInfo['opencodePermissionMode'];
     hiddenFromThreads?: boolean;
     channelId?: string;
@@ -2410,6 +2417,8 @@ function handleSessionStatus(
     codexReasoningEffort,
     codexFastMode,
     kimiPermissionMode,
+    grokPermissionMode,
+    grokReasoningEffort,
     opencodePermissionMode,
     hiddenFromThreads,
     channelId,
@@ -2492,6 +2501,10 @@ function handleSessionStatus(
             codexFastMode !== undefined ? codexFastMode : session.codexFastMode,
           kimiPermissionMode:
             kimiPermissionMode !== undefined ? kimiPermissionMode : session.kimiPermissionMode,
+          grokPermissionMode:
+            grokPermissionMode !== undefined ? grokPermissionMode : session.grokPermissionMode,
+          grokReasoningEffort:
+            grokReasoningEffort !== undefined ? grokReasoningEffort : session.grokReasoningEffort,
           opencodePermissionMode:
             opencodePermissionMode !== undefined
               ? opencodePermissionMode
@@ -2552,6 +2565,8 @@ function handleSessionStatus(
       codexReasoningEffort,
       codexFastMode,
       kimiPermissionMode,
+      grokPermissionMode,
+      grokReasoningEffort,
       opencodePermissionMode,
       hiddenFromThreads: hiddenFromThreads === true,
       channelId: normalizeWorkspaceChannelId(channelId),

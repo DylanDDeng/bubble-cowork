@@ -5,7 +5,16 @@ import { Check, ChevronDown, ChevronRight, Copy, Search, Zap } from './icons';
 import type { AgentProvider } from '../types';
 import type { ComposerModelOption } from '../hooks/useComposerAgentSelection';
 import { PROVIDERS } from '../utils/provider';
-import type { ClaudeReasoningEffort, CodexReasoningEffort, CodexModelConfig } from '../../shared/types';
+import type {
+  ClaudeReasoningEffort,
+  CodexReasoningEffort,
+  CodexModelConfig,
+  GrokReasoningEffort,
+} from '../../shared/types';
+import {
+  GROK_REASONING_EFFORT_LABELS,
+  GROK_REASONING_EFFORT_OPTIONS,
+} from '../utils/grok-reasoning';
 import {
   useAgentReadiness,
   type AgentReadinessEntry,
@@ -215,6 +224,7 @@ export function ComposerAgentPicker({
 
 const codexEffortOptions: CodexReasoningEffort[] = ['low', 'medium', 'high', 'xhigh'];
 const claudeEffortOptions: ClaudeReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+const grokEffortOptions: GrokReasoningEffort[] = GROK_REASONING_EFFORT_OPTIONS;
 
 export function ComposerModelPicker({
   value,
@@ -543,6 +553,8 @@ const claudeEffortLabels: Record<ClaudeReasoningEffort, string> = {
   max: 'Max',
 };
 
+const grokEffortLabels = GROK_REASONING_EFFORT_LABELS;
+
 function ModelSubContent({
   modelOptions,
   selectedValue,
@@ -615,6 +627,72 @@ const ClaudeAgentSubContent: FC<{
           >
             <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
               {claudeEffortLabels[effort]}
+            </span>
+            {isSelected ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
+          </DropdownMenu.Item>
+        );
+      })}
+
+      <DropdownMenu.Separator className="my-1 h-px bg-[var(--border)]" />
+
+      <DropdownMenu.Sub>
+        <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[popup-open]:bg-[var(--bg-tertiary)]">
+          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
+            Model
+          </span>
+          <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+        </DropdownMenu.SubTrigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.SubContent
+            sideOffset={6}
+            alignOffset={-4}
+            className="z-50 w-[200px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)]"
+          >
+            <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
+              Models
+            </div>
+            <div className="max-h-[240px] overflow-y-auto">
+              <ModelSubContent
+                modelOptions={modelOptions}
+                selectedValue={selectedModel}
+                onSelectModel={onSelectModel}
+              />
+            </div>
+          </DropdownMenu.SubContent>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Sub>
+    </>
+  );
+};
+
+const GrokAgentSubContent: FC<{
+  modelOptions: ComposerModelOption[];
+  selectedModel: string | null;
+  grokReasoningEffort: GrokReasoningEffort | null;
+  onSelectModel: (option: ComposerModelOption) => void;
+  onGrokReasoningEffortChange: (effort: GrokReasoningEffort) => void;
+}> = ({
+  modelOptions,
+  selectedModel,
+  grokReasoningEffort,
+  onSelectModel,
+  onGrokReasoningEffortChange,
+}) => {
+  return (
+    <>
+      <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
+        Reasoning
+      </div>
+      {grokEffortOptions.map((effort) => {
+        const isSelected = grokReasoningEffort === effort;
+        return (
+          <DropdownMenu.Item
+            key={effort}
+            onSelect={() => onGrokReasoningEffortChange(effort)}
+            className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
+          >
+            <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
+              {grokEffortLabels[effort]}
             </span>
             {isSelected ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
           </DropdownMenu.Item>
@@ -818,6 +896,8 @@ export function ComposerAgentModelPicker({
   onClaudeReasoningEffortChange,
   codexReasoningEffort,
   onCodexReasoningEffortChange,
+  grokReasoningEffort,
+  onGrokReasoningEffortChange,
   codexFastMode,
   onCodexFastModeChange,
   menuSide = 'top',
@@ -834,6 +914,8 @@ export function ComposerAgentModelPicker({
   onClaudeReasoningEffortChange?: (effort: ClaudeReasoningEffort) => void;
   codexReasoningEffort?: CodexReasoningEffort | null;
   onCodexReasoningEffortChange?: (effort: CodexReasoningEffort) => void;
+  grokReasoningEffort?: GrokReasoningEffort | null;
+  onGrokReasoningEffortChange?: (effort: GrokReasoningEffort) => void;
   codexFastMode?: boolean;
   onCodexFastModeChange?: (enabled: boolean) => void;
   /** Which side the menu opens toward. Bottom-anchored composers open 'top'
@@ -865,7 +947,10 @@ export function ComposerAgentModelPicker({
   const claudeEffortSuffix = agentProvider === 'claude' && claudeReasoningEffort
     ? ` ${claudeEffortLabels[claudeReasoningEffort]}`
     : '';
-  const effortSuffix = claudeEffortSuffix || codexEffortSuffix;
+  const grokEffortSuffix = agentProvider === 'grok' && grokReasoningEffort
+    ? ` ${grokEffortLabels[grokReasoningEffort]}`
+    : '';
+  const effortSuffix = claudeEffortSuffix || codexEffortSuffix || grokEffortSuffix;
 
   return (
     <DropdownMenu.Root>
@@ -997,7 +1082,48 @@ export function ComposerAgentModelPicker({
               );
             }
 
-            // Non-Codex agents: simple submenu with model list
+            // Grok Build: same Reasoning + Model layout as Claude/Codex
+            if (provider === 'grok') {
+              return (
+                <DropdownMenu.Sub key={provider}>
+                  <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]">
+                    <AgentIcon provider={provider} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12px] font-medium text-[var(--text-primary)]">
+                        {agentLabel(provider)}
+                      </span>
+                      {hint ? (
+                        <span className="block truncate text-[11px] text-[var(--text-muted)]">{hint}</span>
+                      ) : null}
+                    </span>
+                    {readiness && readiness.state !== 'ready' && readiness.state !== 'checking' ? (
+                      <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${readinessDotClass(readiness.state)}`} aria-hidden="true" />
+                    ) : null}
+                    <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+                  </DropdownMenu.SubTrigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.SubContent
+                      sideOffset={6}
+                      alignOffset={-4}
+                      className="z-50 w-[220px] overflow-hidden rounded-[14px] border border-[var(--border)] bg-[var(--bg-primary)] p-1.5 shadow-[0_8px_30px_rgba(15,23,42,0.12)]"
+                    >
+                      <GrokAgentSubContent
+                        modelOptions={modelOptions}
+                        selectedModel={modelValue}
+                        grokReasoningEffort={grokReasoningEffort ?? null}
+                        onSelectModel={(option) => handleAgentAndModelChange(provider, option)}
+                        onGrokReasoningEffortChange={(effort) => {
+                          onAgentChange(provider);
+                          onGrokReasoningEffortChange?.(effort);
+                        }}
+                      />
+                    </DropdownMenu.SubContent>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Sub>
+              );
+            }
+
+            // Other agents: simple submenu with model list
             return (
               <DropdownMenu.Sub key={provider}>
                 <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-2 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]">

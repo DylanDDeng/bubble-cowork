@@ -28,7 +28,11 @@ function commandTitle(command: ClaudeSlashCommand): string {
       return 'Clear';
     case 'compact':
       return 'Compact Context';
+    case 'context':
+    case 'session-info':
+      return 'Session Info';
     case 'cost':
+    case 'usage':
       return 'Cost';
     case 'details':
       return 'Details';
@@ -43,17 +47,26 @@ function commandTitle(command: ClaudeSlashCommand): string {
     case 'fork':
       return 'Fork';
     case 'help':
+    case 'docs':
       return 'Help';
     case 'init':
       return 'Init';
     case 'model':
     case 'models':
+    case 'effort':
       return 'Model';
+    case 'always-approve':
+    case 'auto':
+    case 'yolo':
+      return 'Permissions';
     case 'new':
       return 'New Thread';
     case 'plan':
+    case 'view-plan':
+    case 'show-plan':
       return 'Plan Mode';
     case 'review':
+    case 'code-review':
       return 'Code Review';
     case 'sessions':
       return 'Sessions';
@@ -62,9 +75,36 @@ function commandTitle(command: ClaudeSlashCommand): string {
     case 'status':
       return 'Status';
     case 'subagents':
+    case 'config-agents':
+    case 'personas':
       return 'Subagents';
     case 'thinking':
       return 'Thinking';
+    case 'imagine':
+    case 'imagine-video':
+      return 'Imagine';
+    case 'memory':
+    case 'flush':
+    case 'dream':
+    case 'remember':
+      return 'Memory';
+    case 'plugins':
+    case 'marketplace':
+    case 'skills':
+    case 'mcps':
+    case 'hooks':
+    case 'hooks-list':
+    case 'hooks-trust':
+    case 'hooks-untrust':
+    case 'hooks-add':
+    case 'hooks-remove':
+    case 'reload-plugins':
+      return 'Extensions';
+    case 'rewind':
+      return 'Rewind';
+    case 'loop':
+    case 'goal':
+      return 'Automation';
     default:
       return command.name
         .split(/[-_]/)
@@ -79,23 +119,59 @@ function commandIcon(command: ClaudeSlashCommand): LucideIcon {
     case 'clear':
       return Trash2;
     case 'compact':
+    case 'rewind':
       return RotateCcw;
     case 'cost':
     case 'status':
+    case 'usage':
+    case 'context':
+    case 'session-info':
       return CircleGauge;
     case 'fast':
+    case 'always-approve':
+    case 'auto':
+    case 'yolo':
       return Zap;
     case 'fork':
       return GitFork;
     case 'model':
     case 'models':
+    case 'effort':
       return Brain;
     case 'plan':
+    case 'view-plan':
+    case 'show-plan':
+    case 'goal':
+    case 'loop':
       return ListTodo;
     case 'review':
+    case 'code-review':
       return Bug;
     case 'subagents':
+    case 'config-agents':
+    case 'personas':
       return Workflow;
+    case 'plugins':
+    case 'marketplace':
+    case 'skills':
+    case 'mcps':
+    case 'hooks':
+    case 'hooks-list':
+    case 'hooks-trust':
+    case 'hooks-untrust':
+    case 'hooks-add':
+    case 'hooks-remove':
+    case 'reload-plugins':
+      return Plug;
+    case 'help':
+    case 'docs':
+    case 'release-notes':
+      return BookOpenText;
+    case 'memory':
+    case 'flush':
+    case 'dream':
+    case 'remember':
+      return Brain;
     case 'default':
     case 'new':
       return MessageSquare;

@@ -1,5 +1,5 @@
 import { rendererStateStorage } from '../utils/renderer-state-storage';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AgentProvider, ClaudeCompatibleProviderId, SettingsTab } from '../types';
 import { useClaudeModelConfig } from './useClaudeModelConfig';
 import { useCodexModelConfig } from './useCodexModelConfig';
@@ -32,6 +32,7 @@ import {
   ClaudeReasoningEffort,
   CodexReasoningEffort,
   CodexPermissionMode,
+  GrokReasoningEffort,
   KimiPermissionMode,
   OpenCodePermissionMode,
 } from '../../shared/types';
@@ -45,6 +46,11 @@ import {
   loadPreferredClaudeReasoningEffort,
   savePreferredClaudeReasoningEffort,
 } from '../utils/claude-reasoning';
+import {
+  getDefaultGrokReasoningEffort,
+  loadPreferredGrokReasoningEffort,
+  savePreferredGrokReasoningEffort,
+} from '../utils/grok-reasoning';
 import {
   loadPreferredCodexFastMode,
   savePreferredCodexFastMode,
@@ -241,20 +247,52 @@ function formatKimiModelLabel(value: string, config: ReturnType<typeof useKimiMo
   return match?.label || value;
 }
 
+/**
+ * Resolve a model id for picker/session state.
+ * - Prefer explicit session model, then preferred, then config default.
+ * - While the model list is still empty (config loading), still accept those
+ *   candidates so the composer does not flash the empty "Default" option.
+ * - If the list is loaded and an explicit session model is missing from it
+ *   (stale list), keep the session model instead of clearing to null.
+ */
+export function resolveListedOrPendingModel(
+  requestedModel: string | null | undefined,
+  preferredModel: string | null | undefined,
+  defaultModel: string | null | undefined,
+  listedValues: Iterable<string>
+): string | null {
+  const nonEmptyListed = new Set(
+    Array.from(listedValues)
+      .map((value) => value.trim())
+      .filter(Boolean)
+  );
+  const candidates = [requestedModel, preferredModel, defaultModel]
+    .map((value) => value?.trim() || null)
+    .filter((value): value is string => Boolean(value));
+
+  for (const candidate of candidates) {
+    if (nonEmptyListed.size === 0 || nonEmptyListed.has(candidate)) {
+      return candidate;
+    }
+  }
+
+  if (requestedModel?.trim()) {
+    return requestedModel.trim();
+  }
+  return null;
+}
+
 function resolveConfiguredKimiModel(
   requestedModel: string | null | undefined,
   config: ReturnType<typeof useKimiModelConfig>
 ): string | null {
   const options = buildKimiModelOptions(config);
-  const optionValues = new Set(options.map((option) => option.value.trim()));
-  const candidates = [requestedModel, loadPreferredKimiModel()];
-  for (const candidate of candidates) {
-    const normalized = candidate?.trim() || null;
-    if (normalized && optionValues.has(normalized)) {
-      return normalized;
-    }
-  }
-  return null;
+  return resolveListedOrPendingModel(
+    requestedModel,
+    loadPreferredKimiModel(),
+    config.defaultModel,
+    options.map((option) => option.value)
+  );
 }
 
 function buildGrokModelOptions(config: ReturnType<typeof useGrokModelConfig>): ComposerModelOption[] {
@@ -292,15 +330,12 @@ function resolveConfiguredGrokModel(
   config: ReturnType<typeof useGrokModelConfig>
 ): string | null {
   const options = buildGrokModelOptions(config);
-  const optionValues = new Set(options.map((option) => option.value.trim()));
-  const candidates = [requestedModel, loadPreferredGrokModel()];
-  for (const candidate of candidates) {
-    const normalized = candidate?.trim() || null;
-    if (normalized && optionValues.has(normalized)) {
-      return normalized;
-    }
-  }
-  return null;
+  return resolveListedOrPendingModel(
+    requestedModel,
+    loadPreferredGrokModel(),
+    config.defaultModel,
+    options.map((option) => option.value)
+  );
 }
 
 function buildOpencodeComposerModelOptions(config: ReturnType<typeof useOpencodeModelConfig>): ComposerModelOption[] {
@@ -375,6 +410,7 @@ export function useComposerAgentSelection(input?: {
   claudePermissionMode?: ClaudeAccessMode | null;
   opencodePermissionMode?: OpenCodePermissionMode | null;
   claudeReasoningEffort?: ClaudeReasoningEffort | null;
+  grokReasoningEffort?: GrokReasoningEffort | null;
 }) {
   const claudeModelConfig = useClaudeModelConfig();
   const codexModelConfig = useCodexModelConfig();
@@ -384,11 +420,29 @@ export function useComposerAgentSelection(input?: {
   const piModelConfig = usePiModelConfig();
   const { compatibleOptions } = useCompatibleProviderConfig();
   const [provider, setProviderState] = useState<AgentProvider>(() => input?.provider || loadPreferredProvider());
-  const [model, setModelState] = useState<string | null>(() => input?.model?.trim() || null);
+  const [model, setModelState] = useState<string | null>(() => {
+    const explicit = input?.model?.trim() || null;
+    if (explicit) return explicit;
+    // Draft/new sessions often have no model field yet — seed from preferred
+    // so the first paint never flashes the empty "Default" option.
+    const initialProvider = input?.provider || loadPreferredProvider();
+    if (initialProvider === 'grok') return loadPreferredGrokModel();
+    if (initialProvider === 'kimi') return loadPreferredKimiModel();
+    if (initialProvider === 'codex') return loadPreferredCodexModel();
+    if (initialProvider === 'opencode') return loadPreferredOpencodeModel();
+    if (initialProvider === 'pi') return loadPreferredPiModel();
+    if (initialProvider === 'claude') return loadPreferredClaudeModel();
+    return null;
+  });
   const [compatibleProviderId, setCompatibleProviderId] = useState<ClaudeCompatibleProviderId | null>(
     () => input?.compatibleProviderId || null
   );
-  const lastSelectionKeyRef = useRef<string | null>(null);
+  // Tracks which selectionKey the provider/model state currently belongs to.
+  // Initialized to the current key so the first paint of a fresh composer does
+  // not wait a frame for useEffect before applying session/preferred model.
+  const [appliedSelectionKey, setAppliedSelectionKey] = useState<string>(
+    () => input?.selectionKey ?? '__default__'
+  );
 
   const allAgentModelOptions = useMemo(() => {
     return {
@@ -546,12 +600,12 @@ export function useComposerAgentSelection(input?: {
     [claudeModelConfig, codexModelConfig, compatibleOptions, opencodeModelConfig, kimiModelConfig, grokModelConfig, piModelConfig]
   );
 
-  useEffect(() => {
-    const selectionKey = input?.selectionKey ?? '__default__';
-    if (lastSelectionKeyRef.current === selectionKey) {
-      return;
-    }
-    lastSelectionKeyRef.current = selectionKey;
+  // Apply session switches during render so the first painted frame already
+  // shows the target session's provider/model (avoids a one-frame "Default"
+  // flash after switching threads).
+  const selectionKey = input?.selectionKey ?? '__default__';
+  if (appliedSelectionKey !== selectionKey) {
+    setAppliedSelectionKey(selectionKey);
     const nextProvider = input?.provider || loadPreferredProvider();
     const nextSelection = resolveModelForProvider(
       nextProvider,
@@ -561,12 +615,40 @@ export function useComposerAgentSelection(input?: {
     setProviderState(nextProvider);
     setModelState(nextSelection.model);
     setCompatibleProviderId(nextSelection.compatibleProviderId);
+  }
+
+  // Keep provider/model in sync when the active session's own fields change
+  // without a selectionKey change (e.g. server assigns model after start).
+  useEffect(() => {
+    if ((input?.selectionKey ?? '__default__') !== appliedSelectionKey) {
+      return;
+    }
+    if (input?.provider && input.provider !== provider) {
+      setProviderState(input.provider);
+    }
+    if (input?.model !== undefined) {
+      const nextSelection = resolveModelForProvider(
+        input?.provider || provider,
+        input.model,
+        input.compatibleProviderId
+      );
+      if (
+        nextSelection.model !== model ||
+        nextSelection.compatibleProviderId !== (compatibleProviderId || null)
+      ) {
+        setModelState(nextSelection.model);
+        setCompatibleProviderId(nextSelection.compatibleProviderId);
+      }
+    }
   }, [
+    appliedSelectionKey,
+    compatibleProviderId,
     input?.compatibleProviderId,
-    input?.claudePermissionMode,
     input?.model,
     input?.provider,
     input?.selectionKey,
+    model,
+    provider,
     resolveModelForProvider,
   ]);
 
@@ -574,23 +656,36 @@ export function useComposerAgentSelection(input?: {
     if (model) {
       return;
     }
-    const nextSelection = resolveModelForProvider(provider);
-    setModelState(nextSelection.model);
-    setCompatibleProviderId(nextSelection.compatibleProviderId);
-  }, [model, provider, resolveModelForProvider]);
+    const nextSelection = resolveModelForProvider(provider, input?.model, input?.compatibleProviderId);
+    if (nextSelection.model) {
+      setModelState(nextSelection.model);
+      setCompatibleProviderId(nextSelection.compatibleProviderId);
+    }
+  }, [input?.compatibleProviderId, input?.model, model, provider, resolveModelForProvider]);
 
   useEffect(() => {
     const normalizedModel = model?.trim() || null;
+    // Only treat a model as "configured" when it matches a non-empty option.
+    // Matching the empty "Default" option while model is null was preventing
+    // preferred-model resolution and left the trigger stuck on "Default".
     const selectedModelStillConfigured = modelOptions.some(
-      (option) =>
-        (option.value.trim() || null) === normalizedModel &&
-        (option.compatibleProviderId || null) === (compatibleProviderId || null)
+      (option) => {
+        const optionValue = option.value.trim() || null;
+        if (!optionValue) return false;
+        return (
+          optionValue === normalizedModel &&
+          (option.compatibleProviderId || null) === (compatibleProviderId || null)
+        );
+      }
     );
-    if (selectedModelStillConfigured || (!model && modelOptions.length === 0)) {
+    if (selectedModelStillConfigured) {
+      return;
+    }
+    if (!normalizedModel && modelOptions.every((option) => !(option.value.trim()))) {
       return;
     }
 
-    const nextSelection = resolveModelForProvider(provider);
+    const nextSelection = resolveModelForProvider(provider, input?.model, input?.compatibleProviderId);
     if (
       nextSelection.model !== model ||
       nextSelection.compatibleProviderId !== (compatibleProviderId || null)
@@ -598,7 +693,15 @@ export function useComposerAgentSelection(input?: {
       setModelState(nextSelection.model);
       setCompatibleProviderId(nextSelection.compatibleProviderId);
     }
-  }, [compatibleProviderId, model, modelOptions, provider, resolveModelForProvider]);
+  }, [
+    compatibleProviderId,
+    input?.compatibleProviderId,
+    input?.model,
+    model,
+    modelOptions,
+    provider,
+    resolveModelForProvider,
+  ]);
 
   const selectAgent = useCallback(
     (nextProvider: AgentProvider) => {
@@ -637,7 +740,12 @@ export function useComposerAgentSelection(input?: {
   );
 
   const selectedModelOption = useMemo(() => {
-    const normalizedModel = model?.trim() || null;
+    // Unresolved (null) must not bind to the empty-value "Default" option —
+    // that was the visible one-frame "Default" flash on session switches.
+    if (model == null) {
+      return null;
+    }
+    const normalizedModel = model.trim() || null;
     return (
       modelOptions.find(
         (option) =>
@@ -650,7 +758,9 @@ export function useComposerAgentSelection(input?: {
   }, [compatibleProviderId, model, modelOptions]);
 
   const modelSetup = useMemo<ComposerModelSetupState | null>(() => {
-    if (modelOptions.length > 0) {
+    // Only show setup CTA when there is no resolvable model to display.
+    const hasConcreteModels = modelOptions.some((option) => Boolean(option.value.trim()));
+    if (hasConcreteModels || model) {
       return null;
     }
 
@@ -687,7 +797,7 @@ export function useComposerAgentSelection(input?: {
     }
 
     return null;
-  }, [modelOptions.length, provider]);
+  }, [model, modelOptions, provider]);
 
   const selectedModelLabel =
     modelSetup?.label ||
@@ -698,7 +808,12 @@ export function useComposerAgentSelection(input?: {
         : provider === 'grok'
           ? formatGrokModelLabel(model, grokModelConfig)
           : model
-      : 'Default');
+      : provider === 'grok'
+        ? formatGrokModelLabel(
+            resolveConfiguredGrokModel(null, grokModelConfig) || '',
+            grokModelConfig
+          ) || 'Grok'
+        : 'Default');
 
   const [claudeReasoningEffort, setClaudeReasoningEffortState] = useState<ClaudeReasoningEffort | null>(() => {
     if (provider !== 'claude') return null;
@@ -751,6 +866,38 @@ export function useComposerAgentSelection(input?: {
       setCodexReasoningEffortState(effort);
       if (model) {
         savePreferredCodexReasoningEffort(model, effort);
+      }
+    },
+    [model]
+  );
+
+  const [grokReasoningEffort, setGrokReasoningEffortState] = useState<GrokReasoningEffort | null>(() => {
+    if (provider !== 'grok') return null;
+    return (
+      input?.grokReasoningEffort ||
+      loadPreferredGrokReasoningEffort(model) ||
+      getDefaultGrokReasoningEffort(model)
+    );
+  });
+
+  // Sync Grok reasoning effort when model/provider changes
+  useEffect(() => {
+    if (provider === 'grok') {
+      setGrokReasoningEffortState(
+        input?.grokReasoningEffort ||
+          loadPreferredGrokReasoningEffort(model) ||
+          getDefaultGrokReasoningEffort(model)
+      );
+    } else {
+      setGrokReasoningEffortState(null);
+    }
+  }, [provider, model, input?.grokReasoningEffort]);
+
+  const setGrokReasoningEffort = useCallback(
+    (effort: GrokReasoningEffort) => {
+      setGrokReasoningEffortState(effort);
+      if (model) {
+        savePreferredGrokReasoningEffort(model, effort);
       }
     },
     [model]
@@ -846,6 +993,8 @@ export function useComposerAgentSelection(input?: {
     setClaudeReasoningEffort,
     codexReasoningEffort,
     setCodexReasoningEffort,
+    grokReasoningEffort,
+    setGrokReasoningEffort,
     codexFastMode,
     setCodexFastMode,
     claudePermissionMode,

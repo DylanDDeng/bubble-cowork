@@ -102,7 +102,11 @@ const slash = read('src/ui/utils/claude-slash.ts');
 assert.ok(slash.includes("title: '/rewind'"), '/rewind must appear in the Claude slash menu');
 assert.ok(
   slash.includes('LOCAL_CLAUDE_UI_COMMANDS') &&
-    /withLocalClaudeUiCommands\(buildClaudeSlashCommands\(sessionCommands\)\)|provider === 'claude' \? withLocalClaudeUiCommands/.test(slash),
+    (
+      /withLocalClaudeUiCommands\(buildClaudeSlashCommands\(sessionCommands\)\)/.test(slash) ||
+      /provider === 'claude' \? withLocalClaudeUiCommands/.test(slash) ||
+      /if \(provider === 'claude'\)[\s\S]*withLocalClaudeUiCommands\(commands\)/.test(slash)
+    ),
   '/rewind must be merged even when the session reports its own command list'
 );
 

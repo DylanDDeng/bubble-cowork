@@ -445,6 +445,30 @@ function normalizeKimiPermissionMode(
   return value === 'plan' || value === 'auto' || value === 'yolo' ? value : 'default';
 }
 
+function normalizeGrokPermissionMode(
+  value?: string | null
+): import('../shared/types').GrokPermissionMode | undefined {
+  return value === 'plan' || value === 'auto' || value === 'yolo' || value === 'default'
+    ? value
+    : undefined;
+}
+
+function normalizeGrokReasoningEffort(
+  value?: string | null
+): import('../shared/types').GrokReasoningEffort | undefined {
+  switch ((value || '').trim().toLowerCase()) {
+    case 'none':
+    case 'minimal':
+    case 'low':
+    case 'medium':
+    case 'high':
+    case 'xhigh':
+      return value!.trim().toLowerCase() as import('../shared/types').GrokReasoningEffort;
+    default:
+      return undefined;
+  }
+}
+
 function normalizeClaudeAccessMode(
   value?: string | null
 ): import('../shared/types').ClaudeAccessMode {
@@ -3289,6 +3313,8 @@ const runnerHandles = new Map<
 	    codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
 	    codexFastMode?: boolean;
 	    kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
+	    grokPermissionMode?: import('../shared/types').GrokPermissionMode;
+	    grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
 	    opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
     activeAgentId?: string | null;
     activeAgentRunId?: string | null;
@@ -7520,6 +7546,13 @@ async function handleSessionStart(
     chosenProvider === 'claude' ? normalizeClaudeReasoningEffort(claudeReasoningEffort) : undefined;
   const selectedKimiPermissionMode =
     chosenProvider === 'kimi' ? normalizeKimiPermissionMode(kimiPermissionMode) : undefined;
+  // Composer currently reuses the kimi permission control for Grok; accept either field.
+  const selectedGrokPermissionMode =
+    chosenProvider === 'grok'
+      ? normalizeGrokPermissionMode(grokPermissionMode || kimiPermissionMode)
+      : undefined;
+  const selectedGrokReasoningEffort =
+    chosenProvider === 'grok' ? normalizeGrokReasoningEffort(grokReasoningEffort) : undefined;
   const normalizedTeamMode = normalizeSessionTeamMode(teamMode);
   const normalizedTeamId =
     normalizedTeamMode === 'team' || normalizedTeamMode === 'manual'
@@ -7761,8 +7794,8 @@ async function handleSessionStart(
     chosenProvider === 'codex' ? normalizeCodexFastMode(codexFastMode) : undefined,
     chosenProvider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
     selectedKimiPermissionMode,
-    undefined,
-    undefined,
+    selectedGrokPermissionMode,
+    selectedGrokReasoningEffort,
     chosenProvider === 'codex' ? codexSkills : undefined,
     chosenProvider === 'codex' ? codexMentions : undefined,
     sessionAgentId,
@@ -7937,6 +7970,12 @@ async function handleSessionContinue(
   const nextKimiPermissionMode = nextProvider === 'kimi'
     ? normalizeKimiPermissionMode(kimiPermissionMode)
     : undefined;
+  const nextGrokPermissionMode = nextProvider === 'grok'
+    ? normalizeGrokPermissionMode(grokPermissionMode || kimiPermissionMode)
+    : undefined;
+  const nextGrokReasoningEffort = nextProvider === 'grok'
+    ? normalizeGrokReasoningEffort(grokReasoningEffort)
+    : undefined;
   const nextTeamMode = teamMode !== undefined
     ? normalizeSessionTeamMode(teamMode)
     : normalizeSessionTeamMode(session.team_mode);
@@ -7974,6 +8013,10 @@ async function handleSessionContinue(
     nextProvider === 'codex' &&
     normalizeCodexFastMode(runnerHandles.get(sessionId)?.codexFastMode ?? previousCodexFastMode) !==
       nextCodexFastMode;
+  const grokReasoningEffortChanged =
+    nextProvider === 'grok' &&
+    normalizeGrokReasoningEffort(runnerHandles.get(sessionId)?.grokReasoningEffort) !==
+      nextGrokReasoningEffort;
   const opencodePermissionModeChanged =
     nextProvider === 'opencode' &&
     normalizeOpenCodePermissionMode(
@@ -8163,6 +8206,7 @@ async function handleSessionContinue(
       (nextProvider === 'codex' && codexPermissionModeChanged) ||
       (nextProvider === 'codex' && codexReasoningEffortChanged) ||
       (nextProvider === 'codex' && codexFastModeChanged) ||
+      (nextProvider === 'grok' && grokReasoningEffortChanged) ||
       (nextProvider === 'opencode' && opencodePermissionModeChanged) ||
       (nextProvider === 'claude' &&
         (
@@ -8334,8 +8378,8 @@ async function handleSessionContinue(
     nextProvider === 'codex' ? nextCodexFastMode : undefined,
     nextProvider === 'opencode' ? (nextOpenCodePermissionMode || 'defaultPermissions') : undefined,
     nextProvider === 'kimi' ? nextKimiPermissionMode : undefined,
-    undefined,
-    undefined,
+    nextProvider === 'grok' ? nextGrokPermissionMode : undefined,
+    nextProvider === 'grok' ? nextGrokReasoningEffort : undefined,
     nextProvider === 'codex' ? codexSkills : undefined,
     nextProvider === 'codex' ? codexMentions : undefined,
     sessionAgentId
@@ -9130,6 +9174,10 @@ function startRunner(
 	    opencodePermissionMode:
 	      provider === 'opencode' ? normalizeOpenCodePermissionMode(opencodePermissionMode) : undefined,
 	    kimiPermissionMode: provider === 'kimi' ? normalizeKimiPermissionMode(kimiPermissionMode) : undefined,
+    grokPermissionMode:
+      provider === 'grok' ? normalizeGrokPermissionMode(grokPermissionMode) : undefined,
+    grokReasoningEffort:
+      provider === 'grok' ? normalizeGrokReasoningEffort(grokReasoningEffort) : undefined,
     activeAgentId: normalizedActiveAgentId,
     activeAgentRunId: normalizedActiveAgentRunId,
     onTurnDone,

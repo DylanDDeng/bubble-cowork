@@ -13,6 +13,8 @@ import type {
   ClaudeCompatibleProvidersConfig,
   ClaudeReasoningEffort,
   CodexReasoningEffort,
+  GrokReasoningEffort,
+  GrokPermissionMode,
   ProjectTreeNode,
   FolderConfig,
   GitPatchScope,
@@ -62,6 +64,8 @@ export type {
   CodexPermissionMode,
   CodexReasoningEffort,
   CodexReasoningLevelOption,
+  GrokReasoningEffort,
+  GrokPermissionMode,
   PlanStep,
   PlanStepStatus,
   OpenCodePermissionMode,
@@ -226,6 +230,8 @@ export interface SessionView {
   codexReasoningEffort?: import('../shared/types').CodexReasoningEffort;
   codexFastMode?: boolean;
   kimiPermissionMode?: import('../shared/types').KimiPermissionMode;
+  grokPermissionMode?: import('../shared/types').GrokPermissionMode;
+  grokReasoningEffort?: import('../shared/types').GrokReasoningEffort;
   opencodePermissionMode?: import('../shared/types').OpenCodePermissionMode;
   pinned?: boolean;
   folderPath?: string | null;

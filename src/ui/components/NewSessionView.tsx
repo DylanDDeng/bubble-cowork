@@ -288,6 +288,14 @@ export function NewSessionView() {
           agentSelection.provider === 'kimi' || agentSelection.provider === 'grok'
             ? agentSelection.kimiPermissionMode
             : undefined,
+        grokPermissionMode:
+          agentSelection.provider === 'grok'
+            ? agentSelection.kimiPermissionMode
+            : undefined,
+        grokReasoningEffort:
+          agentSelection.provider === 'grok'
+            ? agentSelection.grokReasoningEffort || undefined
+            : undefined,
         opencodePermissionMode:
           agentSelection.provider === 'opencode'
             ? agentSelection.opencodePermissionMode
@@ -632,6 +640,8 @@ export function NewSessionView() {
                       onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
                       codexReasoningEffort={agentSelection.codexReasoningEffort ?? undefined}
                       onCodexReasoningEffortChange={agentSelection.setCodexReasoningEffort}
+                      grokReasoningEffort={agentSelection.grokReasoningEffort ?? undefined}
+                      onGrokReasoningEffortChange={agentSelection.setGrokReasoningEffort}
                       codexFastMode={agentSelection.codexFastMode}
                       onCodexFastModeChange={agentSelection.setCodexFastMode}
                       menuSide="bottom"
