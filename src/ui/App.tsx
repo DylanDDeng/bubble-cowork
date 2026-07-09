@@ -643,6 +643,14 @@ export function App() {
     });
   }, []);
 
+  const toggleFilesPanelFullscreen = useCallback(() => {
+    setRightPanelFullscreen(rightPanelFullscreen === 'files' ? null : 'files');
+  }, [rightPanelFullscreen, setRightPanelFullscreen]);
+
+  const toggleReviewPanelFullscreen = useCallback(() => {
+    setRightPanelFullscreen(rightPanelFullscreen === 'review' ? null : 'review');
+  }, [rightPanelFullscreen, setRightPanelFullscreen]);
+
   const fileUtilityTabs = useMemo(
     () => rightUtilityTabs.filter(isProjectUtilityFileTab),
     [rightUtilityTabs]
@@ -1082,9 +1090,7 @@ export function App() {
               sharedPanelWidth={rightUtilityPanelWidth}
               onSharedPanelWidthChange={setRightUtilityPanelWidth}
               isFullscreen={rightPanelFullscreen === 'files' && activeRightUtilityTab === tabId}
-              onToggleFullscreen={() =>
-                setRightPanelFullscreen(rightPanelFullscreen === 'files' ? null : 'files')
-              }
+              onToggleFullscreen={toggleFilesPanelFullscreen}
             />
           ))}
           {rightUtilityTabs.includes('review') ? (
@@ -1094,9 +1100,7 @@ export function App() {
               session={activeSession}
               onClose={() => closeRightUtilityTab('review')}
               isFullscreen={rightPanelFullscreen === 'review' && activeRightUtilityTab === 'review'}
-              onToggleFullscreen={() =>
-                setRightPanelFullscreen(rightPanelFullscreen === 'review' ? null : 'review')
-              }
+              onToggleFullscreen={toggleReviewPanelFullscreen}
             />
           ) : null}
           {browserUtilityTabs.map((tabId) => (

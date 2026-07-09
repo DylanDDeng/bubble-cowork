@@ -784,14 +784,23 @@ export function ProjectTreePanel({
     activeFileTabIdRef.current = activeFileTabId;
   }, [activeFileTabId]);
 
+  // Keep the latest callbacks in refs so identity changes from the parent
+  // (inline arrows in App) do not re-fire effects. Re-running on every parent
+  // render + setState was a Maximum update depth (#185) risk.
+  const onActiveFileTabChangeRef = useRef(onActiveFileTabChange);
+  onActiveFileTabChangeRef.current = onActiveFileTabChange;
+  const onToggleFullscreenRef = useRef(onToggleFullscreen);
+  onToggleFullscreenRef.current = onToggleFullscreen;
+
   useEffect(() => {
-    if (!onActiveFileTabChange) return;
-    onActiveFileTabChange(
+    const notify = onActiveFileTabChangeRef.current;
+    if (!notify) return;
+    notify(
       selectedFilePath
         ? { filePath: selectedFilePath, name: basenameOfPath(selectedFilePath) }
         : null
     );
-  }, [onActiveFileTabChange, selectedFilePath]);
+  }, [selectedFilePath]);
 
   const captureActiveEditorViewState = useCallback(() => {
     if (!activeFileTabId) return;
@@ -1701,8 +1710,8 @@ export function ProjectTreePanel({
     setSaveStateSynced('idle');
     setSaveErrorSynced(null);
     setPptxSlideIndex(0);
-    if (isFullscreen && onToggleFullscreen) onToggleFullscreen();
-  }, [isFullscreen, onToggleFullscreen, setDraftTextSynced, setSaveStateSynced]);
+    if (isFullscreen) onToggleFullscreenRef.current?.();
+  }, [isFullscreen, setDraftTextSynced, setSaveStateSynced]);
 
   const closeProjectFileTab = useCallback(async (tabId: string) => {
     const tab = openFileTabs.find((item) => item.id === tabId);
@@ -1972,13 +1981,15 @@ export function ProjectTreePanel({
 
   useEffect(() => {
     if (!activeFileTabId) return;
-    updateOpenFileTabs((current) =>
-      current.map((tab) =>
-        tab.id === activeFileTabId
-          ? { ...tab, viewMode }
-          : tab
-      )
-    );
+    updateOpenFileTabs((current) => {
+      let changed = false;
+      const next = current.map((tab) => {
+        if (tab.id !== activeFileTabId || tab.viewMode === viewMode) return tab;
+        changed = true;
+        return { ...tab, viewMode };
+      });
+      return changed ? next : current;
+    });
   }, [activeFileTabId, updateOpenFileTabs, viewMode]);
 
   useEffect(() => {
@@ -2455,26 +2466,26 @@ export function ProjectTreePanel({
   // Esc exits fullscreen. Only binds when in fullscreen so we don't swallow
   // Escape elsewhere.
   useEffect(() => {
-    if (!isFullscreen || !onToggleFullscreen) return;
+    if (!isFullscreen) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.stopPropagation();
-        onToggleFullscreen();
+        onToggleFullscreenRef.current?.();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isFullscreen, onToggleFullscreen]);
+  }, [isFullscreen]);
 
   // Fullscreen is only meaningful while a preview is open. If the preview goes
   // away for any reason (e.g. active session change resets selection), exit
   // fullscreen so the panel collapses back to its rail width instead of sitting
   // expanded with just the file tree.
   useEffect(() => {
-    if (isFullscreen && !selectedFilePath && onToggleFullscreen) {
-      onToggleFullscreen();
+    if (isFullscreen && !selectedFilePath) {
+      onToggleFullscreenRef.current?.();
     }
-  }, [isFullscreen, selectedFilePath, onToggleFullscreen]);
+  }, [isFullscreen, selectedFilePath]);
 
   const handlePanelResizeStart = (event: React.MouseEvent) => {
     event.preventDefault();
