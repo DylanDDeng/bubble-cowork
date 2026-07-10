@@ -8,9 +8,13 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from 'react';
-import { Plus, Square } from './icons';
+import { Plus, Redo2, Square, Trash2 } from './icons';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
+import {
+  selectQueuedMessages,
+  useComposerQueueStore,
+} from '../store/useComposerQueueStore';
 import { useShallow } from 'zustand/react/shallow';
 import { sendEvent } from '../hooks/useIPC';
 import type { Attachment } from '../types';
@@ -42,7 +46,10 @@ import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
-import { buildCodexReferencePayload } from '../utils/codex-composer';
+import {
+  buildCodexReferencePayload,
+  type CodexReferencePayload,
+} from '../utils/codex-composer';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
 import { buildPromptWithProjectFileMentions } from '../utils/project-file-mention-context';
 import {
@@ -396,6 +403,14 @@ export function PromptInput({
   );
   const isRunning = activeSession?.status === 'running';
   const isBusy = isRunning || pendingStart || approvalPending;
+  // Codex app-server supports turn/steer: a message sent while a turn is
+  // streaming is injected into that turn instead of waiting for it to finish,
+  // so the composer stays live for codex sessions while they run.
+  const canSteerWhileRunning =
+    runtimeProvider === 'codex' && isRunning && !approvalPending && !modelSetupRequired;
+  const queuedMessages = useComposerQueueStore((state) =>
+    selectQueuedMessages(state, targetSessionId)
+  );
 
   const capabilityMenu = useComposerCapabilityMenu({
     enabled: Boolean(activeSession),
@@ -680,13 +695,49 @@ export function PromptInput({
       return;
     }
 
+    // While a codex turn is streaming, Enter queues the message instead of
+    // dispatching it (Codex-Desktop-style): the chip above the composer can
+    // steer it into the running turn on demand, otherwise it auto-sends when
+    // the turn completes.
+    if (canSteerWhileRunning) {
+      useComposerQueueStore.getState().enqueue(activeSession.id, {
+        id: crypto.randomUUID(),
+        displayPrompt: outgoingPrompt,
+        effectivePrompt: outgoingEffectivePrompt,
+        attachments: outgoingAttachments,
+        references: codexReferences,
+      });
+      resetComposer();
+      return;
+    }
+
+    sendContinueEvent(activeSession.id, {
+      displayPrompt: outgoingPrompt,
+      effectivePrompt: outgoingEffectivePrompt,
+      attachments: outgoingAttachments,
+      references: codexReferences,
+    });
+    resetComposer();
+  };
+
+  // One payload builder for all three continue paths: direct send, chip
+  // "Steer" (mid-turn injection), and the queue auto-flush on turn end.
+  const sendContinueEvent = (
+    sessionId: string,
+    outgoing: {
+      displayPrompt: string;
+      effectivePrompt: string;
+      attachments: Attachment[];
+      references: CodexReferencePayload;
+    }
+  ) => {
     sendEvent({
       type: 'session.continue',
       payload: {
-        sessionId: activeSession.id,
-        prompt: outgoingPrompt,
-        effectivePrompt: outgoingEffectivePrompt,
-        attachments: outgoingAttachments.length > 0 ? outgoingAttachments : undefined,
+        sessionId,
+        prompt: outgoing.displayPrompt,
+        effectivePrompt: outgoing.effectivePrompt,
+        attachments: outgoing.attachments.length > 0 ? outgoing.attachments : undefined,
         provider: runtimeProvider,
         model: selectedModel || undefined,
         compatibleProviderId:
@@ -705,7 +756,7 @@ export function PromptInput({
           runtimeProvider === 'claude'
             ? agentSelection.claudeReasoningEffort || undefined
             : undefined,
-        ...codexReferences,
+        ...outgoing.references,
         codexPermissionMode:
           runtimeProvider === 'codex'
             ? agentSelection.codexPermissionMode
@@ -730,8 +781,51 @@ export function PromptInput({
         teamId: null,
       },
     });
-    resetComposer();
   };
+
+  // Chip action: inject a queued message into the still-running turn.
+  const steerQueuedMessage = (itemId: string) => {
+    if (!targetSessionId) return;
+    const item = useComposerQueueStore.getState().takeOne(targetSessionId, itemId);
+    if (!item) return;
+    sendContinueEvent(targetSessionId, item);
+  };
+
+  const removeQueuedMessage = (itemId: string) => {
+    if (!targetSessionId) return;
+    useComposerQueueStore.getState().remove(targetSessionId, itemId);
+  };
+
+  // Auto-flush: when the running turn finishes normally, queued messages are
+  // sent as the next turn (in queue order, combined into one dispatch). An
+  // error outcome keeps them queued so they aren't fired into a broken session.
+  // Tracked per session — a pane switch from a running session to a completed
+  // one must not read as a "turn just finished" transition.
+  const prevStatusRef = useRef<{ sessionId: string | null; status: string | undefined }>({
+    sessionId: targetSessionId ?? null,
+    status: activeSession?.status,
+  });
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    const current = activeSession?.status;
+    prevStatusRef.current = { sessionId: targetSessionId ?? null, status: current };
+    if (!targetSessionId || prev.sessionId !== targetSessionId) return;
+    if (prev.status !== 'running' || current !== 'completed') return;
+    const items = useComposerQueueStore.getState().takeAll(targetSessionId);
+    if (items.length === 0) return;
+    sendContinueEvent(targetSessionId, {
+      displayPrompt: items.map((item) => item.displayPrompt).join('\n\n'),
+      effectivePrompt: items.map((item) => item.effectivePrompt).join('\n\n'),
+      attachments: items.flatMap((item) => item.attachments),
+      references: {
+        codexSkills: items.flatMap((item) => item.references.codexSkills ?? []),
+        codexMentions: items.flatMap((item) => item.references.codexMentions ?? []),
+      },
+    });
+    // Config for the flushed turn is read from the CURRENT composer selection,
+    // matching what a manual send at this moment would use.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSession?.status, targetSessionId]);
 
   const handleStop = () => {
     if (targetSessionId) {
@@ -1009,7 +1103,13 @@ export function PromptInput({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (isRunning) {
-        handleStop();
+        // Steer-capable providers queue mid-turn (handleSend routes to the
+        // queue); Enter on an empty composer keeps the old stop shortcut.
+        if (canSteerWhileRunning && (prompt.trim() || attachments.length > 0)) {
+          handleSend();
+        } else {
+          handleStop();
+        }
       } else if (!isBusy && !modelSetupRequired) {
         handleSend();
       }
@@ -1080,6 +1180,48 @@ export function PromptInput({
             </Dialog.Content>
           </Dialog.Portal>
         </Dialog.Root>
+        {queuedMessages.length > 0 ? (
+          <div className="mb-2 flex flex-col gap-1.5 px-1">
+            {queuedMessages.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)] py-1.5 pl-3 pr-1.5 shadow-[0_2px_8px_rgba(15,23,42,0.04)]"
+              >
+                <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--text-primary)]">
+                  {item.displayPrompt || 'Queued message'}
+                </span>
+                {item.attachments.length > 0 ? (
+                  <span className="flex-shrink-0 text-[11px] text-[var(--text-muted)]">
+                    +{item.attachments.length} file{item.attachments.length > 1 ? 's' : ''}
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => steerQueuedMessage(item.id)}
+                  disabled={approvalPending}
+                  title={
+                    canSteerWhileRunning
+                      ? 'Send into the running turn now'
+                      : 'Send as the next message'
+                  }
+                  className="flex flex-shrink-0 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-primary)] px-2.5 py-1 text-[11.5px] font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Redo2 className="h-3 w-3" />
+                  {canSteerWhileRunning ? 'Steer' : 'Send'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeQueuedMessage(item.id)}
+                  title="Remove from queue"
+                  aria-label="Remove queued message"
+                  className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <div className={composerOuterClass}>
           {projectFileMentions.hasMentionQuery ? (
             <div className="absolute inset-x-0 bottom-full z-40">
@@ -1148,6 +1290,8 @@ export function PromptInput({
             placeholder={
               approvalPending
                 ? 'Resolve this approval request to continue'
+                : canSteerWhileRunning
+                ? 'Ask for follow-up changes'
                 : isRunning
                 ? 'Press Enter to stop...'
                 : pendingStart
@@ -1247,13 +1391,19 @@ export function PromptInput({
                   providerLabel="Pi"
                 />
               ) : null}
-              {isRunning && !approvalPending ? (
+              {/* While a steer-capable turn runs, the slot flips with composer
+                  content: empty → stop square; typing → the normal send arrow
+                  (which queues the follow-up), so the user sees they can send
+                  without stopping the agent. */}
+              {isRunning &&
+              !approvalPending &&
+              !(canSteerWhileRunning && (prompt.trim() || attachments.length > 0)) ? (
                 <button
-                onClick={handleStop}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105"
-                title="Stop"
-                aria-label="Stop"
-              >
+                  onClick={handleStop}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105"
+                  title="Stop"
+                  aria-label="Stop"
+                >
                   <Square className="h-2.5 w-2.5" fill="currentColor" />
                 </button>
               ) : (
@@ -1261,8 +1411,10 @@ export function PromptInput({
                 onClick={handleSend}
                 disabled={
                   (!prompt.trim() && attachments.length === 0) ||
-                  isBusy ||
-                  modelSetupRequired
+                  modelSetupRequired ||
+                  pendingStart ||
+                  approvalPending ||
+                  (isRunning && !canSteerWhileRunning)
                 }
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-primary)] transition-all duration-150 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-20 disabled:hover:scale-100"
                 title="Send"

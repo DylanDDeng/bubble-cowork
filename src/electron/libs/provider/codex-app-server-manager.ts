@@ -458,6 +458,12 @@ export class CodexAppServerManager extends EventEmitter {
     )) as Record<string, unknown>;
   }
 
+  /** True while the thread has a live turn we could steer instead of starting a new one. */
+  hasActiveTurn(threadId: string): boolean {
+    const session = this.sessions.get(threadId);
+    return Boolean(session && session.status === 'running' && session.activeTurnId);
+  }
+
   async sendTurn(
     threadId: string,
     prompt: string,
@@ -470,6 +476,10 @@ export class CodexAppServerManager extends EventEmitter {
     if (!session) {
       throw new Error(`No session found for thread "${threadId}"`);
     }
+    // Captured before the status mutation below: a send that lands while a
+    // turn is still streaming becomes a `turn/steer` into that turn.
+    const steerTurnId =
+      session.status === 'running' && session.activeTurnId ? session.activeTurnId : null;
     this.lastActiveThreadId = threadId;
     session.status = 'running';
     session.model = options.model || session.model;
@@ -527,6 +537,34 @@ export class CodexAppServerManager extends EventEmitter {
       content.push({ type: 'text', text: '' });
     }
 
+    // Steer the in-flight turn instead of starting a new one. `expectedTurnId`
+    // is a server-side precondition: if the turn finished in the race window
+    // the request fails and we fall through to a normal turn/start.
+    if (steerTurnId) {
+      try {
+        await this.sendRequest(
+          'turn/steer',
+          {
+            threadId: session.providerThreadId,
+            expectedTurnId: steerTurnId,
+            input: content,
+          },
+          REQUEST_TIMEOUT_MS
+        );
+        if (isDev()) {
+          console.log('[Codex AppServer] steered active turn', {
+            threadId,
+            turnId: steerTurnId,
+          });
+        }
+        return;
+      } catch (error) {
+        if (isDev()) {
+          console.log('[Codex AppServer] turn/steer fell back to turn/start:', error);
+        }
+      }
+    }
+
     const response = (await this.sendRequest(
       'turn/start',
       {
@@ -563,11 +601,13 @@ export class CodexAppServerManager extends EventEmitter {
       return;
     }
 
-    // Try to abort active turn
+    // Interrupt the active turn. (`turn/abort` was the pre-0.144 name and is
+    // no longer in the protocol — sending it is a no-op error, which left the
+    // server-side turn running after the user pressed stop.)
     if (session.activeTurnId) {
       try {
         await this.sendRequest(
-          'turn/abort',
+          'turn/interrupt',
           {
             threadId: session.providerThreadId,
             turnId: session.activeTurnId,

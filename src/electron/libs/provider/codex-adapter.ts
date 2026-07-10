@@ -853,8 +853,15 @@ export class CodexAdapter implements ProviderAdapter {
     }
 
     session.status = 'running';
-    this.finalizedStreamingText.delete(input.threadId);
-    this.clearStreamingState(input.threadId);
+    // A send that lands mid-turn becomes a turn/steer: the assistant stream
+    // and tool-call dedupe state belong to the still-running turn, so they
+    // must survive. (If the steer races a just-finished turn, the completion
+    // handlers have already cleared this state.)
+    const steering = this.manager.hasActiveTurn(input.threadId);
+    if (!steering) {
+      this.finalizedStreamingText.delete(input.threadId);
+      this.clearStreamingState(input.threadId);
+    }
     this.emit({
       type: 'status_change',
       threadId: input.threadId,

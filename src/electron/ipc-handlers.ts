@@ -8199,13 +8199,20 @@ async function handleSessionContinue(
     }
   }
 
+  // While a codex turn is still streaming, a follow-up send becomes a
+  // turn/steer injection into that turn. Composer config drift (model /
+  // effort / permission mode) must NOT abort the live runner then — that
+  // would kill the running turn instead of steering it. The manager records
+  // the new values on the session, so they apply from the next turn/start.
+  const codexMidTurn = nextProvider === 'codex' && session.status === 'running';
+
   if (existingEntry && !providerChanged && existingEntry.provider === nextProvider) {
     if (
       runnerCwdChanged ||
-      ((nextProvider === 'codex' || nextProvider === 'opencode' || nextProvider === 'kimi' || nextProvider === 'grok' || nextProvider === 'pi') && modelChanged) ||
-      (nextProvider === 'codex' && codexPermissionModeChanged) ||
-      (nextProvider === 'codex' && codexReasoningEffortChanged) ||
-      (nextProvider === 'codex' && codexFastModeChanged) ||
+      (((nextProvider === 'codex' && !codexMidTurn) || nextProvider === 'opencode' || nextProvider === 'kimi' || nextProvider === 'grok' || nextProvider === 'pi') && modelChanged) ||
+      (nextProvider === 'codex' && !codexMidTurn && codexPermissionModeChanged) ||
+      (nextProvider === 'codex' && !codexMidTurn && codexReasoningEffortChanged) ||
+      (nextProvider === 'codex' && !codexMidTurn && codexFastModeChanged) ||
       (nextProvider === 'grok' && grokReasoningEffortChanged) ||
       (nextProvider === 'opencode' && opencodePermissionModeChanged) ||
       (nextProvider === 'claude' &&
