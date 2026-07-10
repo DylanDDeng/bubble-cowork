@@ -17,6 +17,7 @@ import type {
   CodexRateLimitReport,
   CodexRateLimitSnapshot,
   CodexRateLimitWindow,
+  GrokPlanUsageReport,
 } from '../../types';
 import type { UserProfile } from '../../../shared/types';
 import { useUserProfile } from '../../hooks/useUserProfile';
@@ -65,6 +66,9 @@ export function ClaudeUsageSettingsContent() {
   const [claudePlanUsage, setClaudePlanUsage] = useState<ClaudePlanUsageReport | null>(null);
   const [claudePlanUsageLoading, setClaudePlanUsageLoading] = useState(true);
   const [claudePlanUsageError, setClaudePlanUsageError] = useState<string | null>(null);
+  const [grokPlanUsage, setGrokPlanUsage] = useState<GrokPlanUsageReport | null>(null);
+  const [grokPlanUsageLoading, setGrokPlanUsageLoading] = useState(true);
+  const [grokPlanUsageError, setGrokPlanUsageError] = useState<string | null>(null);
   const userProfile = useUserProfile();
 
   useEffect(() => {
@@ -182,6 +186,48 @@ export function ClaudeUsageSettingsContent() {
     };
   }, [activeProvider]);
 
+  useEffect(() => {
+    // The Grok probe spawns a short-lived CLI session, so only poll while
+    // the Grok provider is in view (main process caches between ticks).
+    if (activeProvider !== 'grok') {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadPlanUsage = async () => {
+      setGrokPlanUsageLoading(true);
+      setGrokPlanUsageError(null);
+
+      try {
+        const report = await window.electron.getGrokPlanUsage();
+        if (cancelled) {
+          return;
+        }
+        setGrokPlanUsage(report);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setGrokPlanUsageError(normalizeUsageLoadError(error, 'get-grok-plan-usage'));
+      } finally {
+        if (!cancelled) {
+          setGrokPlanUsageLoading(false);
+        }
+      }
+    };
+
+    void loadPlanUsage();
+    const refreshTimer = window.setInterval(() => {
+      void loadPlanUsage();
+    }, 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(refreshTimer);
+    };
+  }, [activeProvider]);
+
   const providers = useMemo<UsageProviderCard[]>(
     () =>
       USAGE_PROVIDERS.map((provider) => ({
@@ -237,6 +283,14 @@ export function ClaudeUsageSettingsContent() {
           report={codexRateLimits}
           loading={codexRateLimitsLoading}
           error={codexRateLimitsError}
+        />
+      ) : null}
+
+      {activeProviderCard.id === 'grok' ? (
+        <GrokPlanUsagePanel
+          report={grokPlanUsage}
+          loading={grokPlanUsageLoading}
+          error={grokPlanUsageError}
         />
       ) : null}
     </div>
@@ -1000,6 +1054,117 @@ function formatClaudeCredits(value: number, currency: string): string {
   } catch {
     return `${value.toFixed(2)} ${currency}`;
   }
+}
+
+function GrokPlanUsagePanel({
+  report,
+  loading,
+  error,
+}: {
+  report: GrokPlanUsageReport | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  return (
+    <SettingsGroup title="Grok plan limits">
+      {renderGrokPlanUsageState(report, loading, error) || (
+        <div>
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <img src={grokLogo} alt="" className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                <span className="truncate text-[13px] font-medium text-[var(--text-primary)]">
+                  Grok Build
+                </span>
+              </div>
+              <div className="mt-0.5 text-[11.5px] text-[var(--text-muted)]">
+                Updated {formatLocalTime(report!.fetchedAt)}
+              </div>
+            </div>
+            {report!.subscriptionTier ? (
+              <span className="rounded-[6px] border border-[var(--border)] px-2 py-1 text-[11.5px] font-medium text-[var(--text-secondary)]">
+                {report!.subscriptionTier}
+              </span>
+            ) : null}
+          </div>
+
+          <div className="grid grid-cols-1 gap-px border-t border-[var(--border)] bg-[var(--border)] sm:grid-cols-3">
+            <CodexRateLimitWindowTile
+              title={`${grokPeriodLabel(report!.currentPeriod)} remaining`}
+              window={grokPlanWindowToTile(report!)}
+            />
+            <MetricTile
+              title="On-demand"
+              value={report!.onDemandUsed === null ? '—' : formatCurrency(report!.onDemandUsed)}
+              subtitle={
+                report!.onDemandCap && report!.onDemandCap > 0
+                  ? `of ${formatCurrency(report!.onDemandCap)} cap`
+                  : 'Not enabled'
+              }
+            />
+            <MetricTile
+              title="Prepaid balance"
+              value={report!.prepaidBalance === null ? '—' : formatCurrency(report!.prepaidBalance)}
+              subtitle="Credits"
+            />
+          </div>
+        </div>
+      )}
+    </SettingsGroup>
+  );
+}
+
+function renderGrokPlanUsageState(
+  report: GrokPlanUsageReport | null,
+  loading: boolean,
+  error: string | null
+) {
+  if (loading && !report) {
+    return <InlineEmpty label="Loading Grok plan usage…" />;
+  }
+
+  if (error && !report) {
+    return (
+      <div className="px-4 py-4 text-[12px] text-[var(--error)]">
+        <span className="font-medium">Unable to load Grok plan usage.</span> {error}
+      </div>
+    );
+  }
+
+  if (!report) {
+    return <InlineEmpty label="No Grok plan usage data available." />;
+  }
+
+  return null;
+}
+
+function grokPeriodLabel(period: GrokPlanUsageReport['currentPeriod']): string {
+  if (period?.type === 'USAGE_PERIOD_TYPE_WEEKLY') return 'Weekly';
+  if (period?.type === 'USAGE_PERIOD_TYPE_MONTHLY') return 'Monthly';
+  if (period?.startsAt && period.endsAt) {
+    const days = Math.round((period.endsAt - period.startsAt) / 86_400_000);
+    if (days === 7) return 'Weekly';
+    if (days >= 28 && days <= 31) return 'Monthly';
+    if (days > 0) return `${days}-day`;
+  }
+  return 'Period';
+}
+
+function grokPlanWindowToTile(report: GrokPlanUsageReport): CodexRateLimitWindow | null {
+  if (report.creditUsagePercent === null) {
+    return null;
+  }
+  const period = report.currentPeriod;
+  const windowDurationMins =
+    period?.startsAt && period.endsAt && period.endsAt > period.startsAt
+      ? Math.round((period.endsAt - period.startsAt) / 60_000)
+      : null;
+  return {
+    usedPercent: report.creditUsagePercent,
+    remainingPercent: 100 - report.creditUsagePercent,
+    windowDurationMins,
+    resetsAt: period?.endsAt ?? null,
+  };
 }
 
 function CodexRateLimitsPanel({

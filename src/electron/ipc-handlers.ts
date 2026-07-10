@@ -59,6 +59,7 @@ import { getAgentRuntimeDirectory } from './libs/agent-runtime-directory';
 import { getCodexModelConfig, saveCodexModelVisibility } from './libs/codex-settings';
 import { getCodexRuntimeStatus } from './libs/codex-runtime-status';
 import { getClaudePlanUsage } from './libs/claude-plan-usage';
+import { getGrokPlanUsage } from './libs/grok-plan-usage';
 import { getOpencodeModelConfig, saveOpencodeModelVisibility } from './libs/opencode-settings';
 import { getOpencodeRuntimeStatus } from './libs/opencode-runtime-status';
 import { getKimiModelConfig } from './libs/kimi-settings';
@@ -5241,6 +5242,10 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
 
   ipcMainHandle('get-claude-plan-usage', async () => {
     return getClaudePlanUsage();
+  });
+
+  ipcMainHandle('get-grok-plan-usage', async () => {
+    return getGrokPlanUsage();
   });
 
   ipcMainHandle('codex-get-composer-capabilities', async () => {

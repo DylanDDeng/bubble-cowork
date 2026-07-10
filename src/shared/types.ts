@@ -1549,6 +1549,28 @@ export interface ClaudePlanUsageReport {
   extraUsage: ClaudePlanExtraUsage | null;
 }
 
+export interface GrokPlanUsagePeriod {
+  /** Server period kind, e.g. 'USAGE_PERIOD_TYPE_WEEKLY'. */
+  type: string | null;
+  /** Epoch ms when the current period started. */
+  startsAt: number | null;
+  /** Epoch ms when the current period ends (usage resets). */
+  endsAt: number | null;
+}
+
+export interface GrokPlanUsageReport {
+  source: 'grok-acp';
+  fetchedAt: number;
+  /** grok.com subscription tier (e.g. 'X Premium+') or null when unknown. */
+  subscriptionTier: string | null;
+  /** Percentage of the current period's included credits used, 0-100. */
+  creditUsagePercent: number | null;
+  currentPeriod: GrokPlanUsagePeriod | null;
+  onDemandCap: number | null;
+  onDemandUsed: number | null;
+  prepaidBalance: number | null;
+}
+
 export interface ChatMessageSearchMatch {
   snippet: string;
   messageType: 'user_prompt' | 'assistant' | 'user';

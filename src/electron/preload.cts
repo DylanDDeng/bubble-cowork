@@ -463,6 +463,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-claude-plan-usage');
   },
 
+  getGrokPlanUsage: () => {
+    return ipcRenderer.invoke('get-grok-plan-usage');
+  },
+
   getAgentUsageReport: (provider: string, days?: ClaudeUsageRangeDays) => {
     return ipcRenderer.invoke('get-agent-usage-report', provider, days);
   },

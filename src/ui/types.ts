@@ -79,6 +79,7 @@ export type {
   ClaudePlanUsageReport,
   ClaudePlanUsageWindow,
   ClaudePlanModelWindow,
+  GrokPlanUsageReport,
   ChatSessionSearchResult,
   SessionHistoryPayload,
   ClaudeModelUsage,
