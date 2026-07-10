@@ -189,15 +189,10 @@ function normalizeCodexExecutionMode(
 function normalizeCodexReasoningEffort(
   value?: string | null
 ): CodexReasoningEffort | null {
-  switch ((value || '').trim().toLowerCase()) {
-    case 'low':
-    case 'medium':
-    case 'high':
-    case 'xhigh':
-      return value!.trim().toLowerCase() as CodexReasoningEffort;
-    default:
-      return null;
-  }
+  // Open vocabulary — Codex defines the valid set per model (models_cache),
+  // so persist any non-empty slug instead of whitelisting and dropping it.
+  const normalized = (value || '').trim().toLowerCase();
+  return normalized || null;
 }
 
 function normalizeOpenCodePermissionMode(

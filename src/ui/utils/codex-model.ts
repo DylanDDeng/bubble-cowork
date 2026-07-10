@@ -20,7 +20,13 @@ export function savePreferredCodexModel(model: string | null): void {
   rendererStateStorage.setItem(STORAGE_KEY, model);
 }
 
-export function formatCodexModelLabel(model: string): string {
+export function formatCodexModelLabel(model: string, displayName?: string | null): string {
+  const fromCache = displayName?.trim();
+  if (fromCache) {
+    // Codex display_name is often "GPT-5.6-Sol" — keep it readable.
+    return fromCache.replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
   const normalized = model.trim();
   if (!normalized) return 'Codex model';
 
@@ -35,10 +41,21 @@ export function formatCodexModelLabel(model: string): string {
     .replace(/-Codex/g, ' Codex')
     .replace(/-Spark/g, ' Spark')
     .replace(/-Mini/g, ' Mini')
-    .replace(/-Max/g, ' Max');
+    .replace(/-Max/g, ' Max')
+    .replace(/-Sol\b/g, ' Sol')
+    .replace(/-Terra\b/g, ' Terra')
+    .replace(/-Luna\b/g, ' Luna');
 }
 
 export function buildCodexModelOptions(config: CodexModelConfig): string[] {
+  // Prefer enabled models only; fall back to full list if nothing is enabled.
+  const enabled = config.availableModels
+    .filter((model) => model.enabled !== false)
+    .map((model) => model.name)
+    .filter((value): value is string => Boolean(value));
+  if (enabled.length > 0) {
+    return Array.from(new Set(enabled));
+  }
   return Array.from(new Set(config.options.filter((value): value is string => Boolean(value))));
 }
 

@@ -15,6 +15,8 @@ import {
   GROK_REASONING_EFFORT_LABELS,
   GROK_REASONING_EFFORT_OPTIONS,
 } from '../utils/grok-reasoning';
+import { formatCodexModelLabel } from '../utils/codex-model';
+import { formatCodexReasoningEffortLabel } from '../utils/codex-reasoning';
 import {
   useAgentReadiness,
   type AgentReadinessEntry,
@@ -222,7 +224,20 @@ export function ComposerAgentPicker({
   );
 }
 
+// Fallback only — real options come from the selected model's cached
+// supported_reasoning_levels (see codexEffortOptionsForModel).
 const codexEffortOptions: CodexReasoningEffort[] = ['low', 'medium', 'high', 'xhigh'];
+
+function codexEffortOptionsForModel(
+  models: CodexModelConfig['availableModels'] | undefined,
+  model: string | null | undefined
+): CodexReasoningEffort[] {
+  const matched = (models ?? []).find((entry) => entry.name === model);
+  const supported = (matched?.supportedReasoningLevels ?? [])
+    .map((level) => level.effort)
+    .filter(Boolean);
+  return supported.length > 0 ? supported : codexEffortOptions;
+}
 const claudeEffortOptions: ClaudeReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 const grokEffortOptions: GrokReasoningEffort[] = GROK_REASONING_EFFORT_OPTIONS;
 
@@ -276,12 +291,7 @@ export function ComposerModelPicker({
 
   // Cascading Codex picker — ChatGPT-style compact cascading menu
   if (codexModelConfig && codexModels) {
-    const codexEffortLabels: Record<CodexReasoningEffort, string> = {
-      low: 'Low',
-      medium: 'Medium',
-      high: 'High',
-      xhigh: 'X-High',
-    };
+    const effortOptions = codexEffortOptionsForModel(codexModels, value);
 
     return (
       <DropdownMenu.Root onOpenChange={(open) => !open && setQuery('')}>
@@ -297,7 +307,7 @@ export function ComposerModelPicker({
               {codexFastMode && <Zap className="h-3 w-3 flex-shrink-0 text-[var(--accent)]" />}
               <span className="truncate">
                 {codexReasoningEffort
-                  ? `${label} ${codexEffortLabels[codexReasoningEffort]}`
+                  ? `${label} ${formatCodexReasoningEffortLabel(codexReasoningEffort)}`
                   : (label || value || 'Default model')}
               </span>
             </span>
@@ -316,7 +326,7 @@ export function ComposerModelPicker({
             <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
               Reasoning
             </div>
-            {codexEffortOptions.map((effort) => {
+            {effortOptions.map((effort) => {
               const isSelected = codexReasoningEffort === effort;
               return (
                 <DropdownMenu.Item
@@ -325,7 +335,7 @@ export function ComposerModelPicker({
                   className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
                 >
                   <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
-                    {codexEffortLabels[effort]}
+                    {formatCodexReasoningEffortLabel(effort)}
                   </span>
                   {isSelected ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
                 </DropdownMenu.Item>
@@ -538,13 +548,6 @@ export function ComposerModelPicker({
 
 // ─── Merged Agent+Model cascading picker ───
 
-const codexEffortLabels: Record<CodexReasoningEffort, string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'X-High',
-};
-
 const claudeEffortLabels: Record<ClaudeReasoningEffort, string> = {
   low: 'Low',
   medium: 'Medium',
@@ -755,7 +758,7 @@ const CodexAgentSubContent: FC<{
       <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-[var(--text-muted)]">
         Reasoning
       </div>
-      {codexEffortOptions.map((effort) => {
+      {codexEffortOptionsForModel(models, selectedModel).map((effort) => {
         const isSelected = codexReasoningEffort === effort;
         return (
           <DropdownMenu.Item
@@ -764,7 +767,7 @@ const CodexAgentSubContent: FC<{
             className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)]"
           >
             <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-primary)]">
-              {codexEffortLabels[effort]}
+              {formatCodexReasoningEffortLabel(effort)}
             </span>
             {isSelected ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
           </DropdownMenu.Item>
@@ -793,10 +796,11 @@ const CodexAgentSubContent: FC<{
             </div>
             <div className="max-h-[240px] overflow-y-auto">
               {models.map((codexModel) => {
+                const label = formatCodexModelLabel(codexModel.name, codexModel.label);
                 const option: ComposerModelOption = {
                   key: codexModel.name,
                   value: codexModel.name,
-                  label: codexModel.name,
+                  label,
                 };
                 const isSelected = selectedModel === codexModel.name;
                 return (
@@ -810,10 +814,10 @@ const CodexAgentSubContent: FC<{
                         {codexFastMode ? (
                           <>
                             <Zap className="mr-1 inline h-3 w-3 text-[var(--accent)]" />
-                            {codexModel.name}
+                            {label}
                           </>
                         ) : (
-                          codexModel.name
+                          label
                         )}
                       </span>
                     </span>
@@ -942,7 +946,7 @@ export function ComposerAgentModelPicker({
 
   // Determine which model option is currently selected for the trigger label
   const codexEffortSuffix = agentProvider === 'codex' && codexReasoningEffort
-    ? ` ${codexEffortLabels[codexReasoningEffort]}`
+    ? ` ${formatCodexReasoningEffortLabel(codexReasoningEffort)}`
     : '';
   const claudeEffortSuffix = agentProvider === 'claude' && claudeReasoningEffort
     ? ` ${claudeEffortLabels[claudeReasoningEffort]}`

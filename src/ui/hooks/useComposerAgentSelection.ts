@@ -469,11 +469,14 @@ export function useComposerAgentSelection(input?: {
         }));
         return [defaultOption, ...officialOptions, ...compatible];
       })(),
-      codex: buildCodexModelOptions(codexModelConfig).map((option) => ({
-        key: `codex:${option}`,
-        value: option,
-        label: formatCodexModelLabel(option),
-      })),
+      codex: buildCodexModelOptions(codexModelConfig).map((option) => {
+        const meta = codexModelConfig.availableModels.find((entry) => entry.name === option);
+        return {
+          key: `codex:${option}`,
+          value: option,
+          label: formatCodexModelLabel(option, meta?.label),
+        };
+      }),
       opencode: buildOpencodeComposerModelOptions(opencodeModelConfig),
       kimi: buildKimiModelOptions(kimiModelConfig),
       grok: buildGrokModelOptions(grokModelConfig),
@@ -507,11 +510,14 @@ export function useComposerAgentSelection(input?: {
     }
 
     if (provider === 'codex') {
-      return buildCodexModelOptions(codexModelConfig).map((option) => ({
-        key: `codex:${option}`,
-        value: option,
-        label: formatCodexModelLabel(option),
-      }));
+      return buildCodexModelOptions(codexModelConfig).map((option) => {
+        const meta = codexModelConfig.availableModels.find((entry) => entry.name === option);
+        return {
+          key: `codex:${option}`,
+          value: option,
+          label: formatCodexModelLabel(option, meta?.label),
+        };
+      });
     }
 
     if (provider === 'opencode') {
@@ -905,7 +911,9 @@ export function useComposerAgentSelection(input?: {
 
   const codexModels = useMemo(() => {
     if (!codexModelConfig) return [];
-    return codexModelConfig.availableModels;
+    // Keep enabled models in Codex cache order (already priority-sorted server-side).
+    const enabled = codexModelConfig.availableModels.filter((model) => model.enabled !== false);
+    return enabled.length > 0 ? enabled : codexModelConfig.availableModels;
   }, [codexModelConfig]);
 
   // Fast mode state

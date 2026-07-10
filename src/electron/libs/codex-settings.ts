@@ -7,14 +7,26 @@ import type {
   CodexReasoningEffort,
   CodexReasoningLevelOption,
 } from '../../shared/types';
+import {
+  expandCodexModelFamilies,
+  seedLabelForCodexModel,
+  seedPriorityForCodexModel,
+  unionCodexModelNames,
+} from '../../shared/codex-model-catalog';
 
 const CODEX_CONFIG_PATH = join(homedir(), '.codex', 'config.toml');
 const CODEX_MODELS_CACHE_PATH = join(homedir(), '.codex', 'models_cache.json');
 const CODEX_MODEL_VISIBILITY_PATH = () => join(app.getPath('userData'), 'codex-model-visibility.json');
+/** Sticky union of catalog models so incomplete online refreshes cannot shrink the picker. */
+const CODEX_MODEL_CATALOG_MEMORY_PATH = () =>
+  join(app.getPath('userData'), 'codex-model-catalog-memory.json');
 
 type CodexCachedModel = {
   slug?: string;
+  /** Codex uses "list" / "hide" (not always "hidden"). */
   visibility?: string;
+  display_name?: string;
+  name?: string;
   default_reasoning_level?: string;
   supported_in_api?: boolean;
   priority?: number;
@@ -31,6 +43,23 @@ type CodexModelsCache = {
 
 type CodexModelVisibilityConfig = {
   hiddenModels?: string[];
+};
+
+type CodexCatalogMemoryEntry = {
+  name: string;
+  label?: string;
+  priority?: number | null;
+  defaultReasoningEffort?: string | null;
+  supportedReasoningLevels?: Array<{
+    effort?: string;
+    description?: string;
+  }>;
+  supportsFastMode?: boolean;
+};
+
+type CodexCatalogMemory = {
+  models?: CodexCatalogMemoryEntry[];
+  updatedAt?: number;
 };
 
 function readCodexConfigText(): string {
@@ -83,33 +112,90 @@ function writeCodexModelVisibility(hiddenModels: string[]): void {
   }
 }
 
-function getDetectedCodexModels(defaultModel: string | null): string[] {
+function readCodexCatalogMemory(): CodexCatalogMemory {
+  try {
+    const path = CODEX_MODEL_CATALOG_MEMORY_PATH();
+    if (!existsSync(path)) {
+      return {};
+    }
+    return JSON.parse(readFileSync(path, 'utf-8')) as CodexCatalogMemory;
+  } catch (error) {
+    console.warn('Failed to read Codex model catalog memory:', error);
+    return {};
+  }
+}
+
+function writeCodexCatalogMemory(models: CodexCatalogMemoryEntry[]): void {
+  try {
+    writeFileSync(
+      CODEX_MODEL_CATALOG_MEMORY_PATH(),
+      JSON.stringify({ models, updatedAt: Date.now() } satisfies CodexCatalogMemory, null, 2),
+      'utf-8'
+    );
+  } catch (error) {
+    console.warn('Failed to save Codex model catalog memory:', error);
+  }
+}
+
+function isCodexModelVisibleInCache(model: CodexCachedModel): boolean {
+  const visibility = (model.visibility || 'list').trim().toLowerCase();
+  // Codex cache uses "list" for picker entries and "hide" for internal-only
+  // models (e.g. codex-auto-review). Older builds sometimes used "hidden".
+  return visibility !== 'hide' && visibility !== 'hidden';
+}
+
+function sortCodexModelsByPriority(
+  names: string[],
+  priorityByName: Map<string, number | null | undefined>
+): string[] {
+  return names.slice().sort((left, right) => {
+    const leftPriority =
+      typeof priorityByName.get(left) === 'number'
+        ? (priorityByName.get(left) as number)
+        : Number.MAX_SAFE_INTEGER;
+    const rightPriority =
+      typeof priorityByName.get(right) === 'number'
+        ? (priorityByName.get(right) as number)
+        : Number.MAX_SAFE_INTEGER;
+    if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+    return left.localeCompare(right);
+  });
+}
+
+function getDetectedCodexModels(
+  defaultModel: string | null,
+  priorityByName: Map<string, number | null | undefined>
+): string[] {
   const cache = readCodexModelsCache();
-  return Array.from(
-    new Set(
-      [
-        defaultModel,
-        ...(cache.models || [])
-          .filter((model) => model.visibility !== 'hidden')
-          .map((model) => model.slug?.trim())
-          .filter((slug): slug is string => Boolean(slug)),
-      ].filter((value): value is string => Boolean(value))
+  const listed = (cache.models || [])
+    .filter(isCodexModelVisibleInCache)
+    .map((model) => model.slug?.trim())
+    .filter((slug): slug is string => Boolean(slug));
+
+  const remembered = (readCodexCatalogMemory().models || [])
+    .map((model) => model.name?.trim())
+    .filter((name): name is string => Boolean(name));
+
+  // Union: config default + live cache + sticky memory, then expand known families.
+  // We intentionally never shrink on incomplete online refreshes.
+  const merged = expandCodexModelFamilies(
+    unionCodexModelNames(
+      [defaultModel || ''].filter(Boolean),
+      unionCodexModelNames(listed, remembered)
     )
   );
+
+  return sortCodexModelsByPriority(merged, priorityByName);
 }
 
 function normalizeCodexReasoningEffort(
   value?: string | null
 ): CodexReasoningEffort | null {
-  switch ((value || '').trim().toLowerCase()) {
-    case 'low':
-    case 'medium':
-    case 'high':
-    case 'xhigh':
-      return value!.trim().toLowerCase() as CodexReasoningEffort;
-    default:
-      return null;
-  }
+  // Open vocabulary: the valid set is model-specific and comes from
+  // models_cache `supported_reasoning_levels`, so pass any non-empty slug
+  // through (a whitelist here silently dropped config "ultra"/"max").
+  const normalized = (value || '').trim().toLowerCase();
+  return normalized || null;
 }
 
 function normalizeSupportedReasoningLevels(
@@ -137,29 +223,103 @@ export function getCodexModelConfig(): CodexModelConfig {
   const defaultReasoningEffortMatch = configText.match(/^model_reasoning_effort\s*=\s*"([^"]+)"/m);
   const defaultReasoningEffort = normalizeCodexReasoningEffort(defaultReasoningEffortMatch?.[1] || null);
   const cache = readCodexModelsCache();
-  const detectedModels = getDetectedCodexModels(defaultModel);
+  const memoryEntries = readCodexCatalogMemory().models || [];
+  const localHidden = new Set(
+    (readCodexModelVisibility().hiddenModels || [])
+      .map((model) => model.trim())
+      .filter(Boolean)
+  );
+
   const cachedModelsBySlug = new Map(
     (cache.models || [])
       .map((model) => [model.slug?.trim(), model] as const)
       .filter((entry): entry is [string, CodexCachedModel] => Boolean(entry[0]))
   );
+  const memoryByName = new Map(
+    memoryEntries
+      .map((entry) => [entry.name?.trim(), entry] as const)
+      .filter((entry): entry is [string, CodexCatalogMemoryEntry] => Boolean(entry[0]))
+  );
+
+  const priorityByName = new Map<string, number | null | undefined>();
+  for (const [slug, cached] of cachedModelsBySlug) {
+    priorityByName.set(slug, typeof cached.priority === 'number' ? cached.priority : null);
+  }
+  for (const [name, remembered] of memoryByName) {
+    if (!priorityByName.has(name) && typeof remembered.priority === 'number') {
+      priorityByName.set(name, remembered.priority);
+    }
+  }
+  for (const seedName of expandCodexModelFamilies(defaultModel ? [defaultModel] : [])) {
+    if (!priorityByName.has(seedName)) {
+      priorityByName.set(seedName, seedPriorityForCodexModel(seedName));
+    }
+  }
+
+  const detectedModels = getDetectedCodexModels(defaultModel, priorityByName);
+
   const availableModels = detectedModels.map((name) => {
     const cached = cachedModelsBySlug.get(name);
+    const remembered = memoryByName.get(name);
+    const displayName =
+      cached?.display_name?.trim() ||
+      cached?.name?.trim() ||
+      remembered?.label?.trim() ||
+      seedLabelForCodexModel(name) ||
+      null;
+    const cachedReasoningLevels = normalizeSupportedReasoningLevels(
+      cached?.supported_reasoning_levels
+    );
+    const rememberedReasoningLevels = normalizeSupportedReasoningLevels(
+      remembered?.supportedReasoningLevels
+    );
+    const supportedReasoningLevels =
+      cachedReasoningLevels.length > 0 ? cachedReasoningLevels : rememberedReasoningLevels;
+    const priority =
+      (typeof cached?.priority === 'number' ? cached.priority : null) ??
+      (typeof remembered?.priority === 'number' ? remembered.priority : null) ??
+      seedPriorityForCodexModel(name);
+    const supportsFastMode =
+      cached?.supported_in_api === true &&
+      typeof cached?.priority === 'number' &&
+      cached.priority === 1 &&
+      !cached?.upgrade
+        ? true
+        : remembered?.supportsFastMode === true;
+
     return {
       name,
-      enabled: true,
+      label: displayName || undefined,
+      enabled: !localHidden.has(name),
       isDefault: defaultModel === name,
       defaultReasoningEffort:
-        normalizeCodexReasoningEffort(cached?.default_reasoning_level) || defaultReasoningEffort,
-      supportedReasoningLevels: normalizeSupportedReasoningLevels(cached?.supported_reasoning_levels),
-      supportsFastMode:
-        cached?.supported_in_api === true &&
-        typeof cached?.priority === 'number' &&
-        cached.priority === 1 &&
-        !cached?.upgrade,
+        normalizeCodexReasoningEffort(cached?.default_reasoning_level) ||
+        normalizeCodexReasoningEffort(remembered?.defaultReasoningEffort) ||
+        defaultReasoningEffort,
+      supportedReasoningLevels,
+      supportsFastMode,
+      priority,
     };
   });
-  const options = availableModels.map((model) => model.name);
+
+  // Persist sticky union so a later incomplete models_cache rewrite cannot
+  // drop Sol/Terra/Luna (or any other model we have already observed).
+  writeCodexCatalogMemory(
+    availableModels.map((model) => ({
+      name: model.name,
+      label: model.label,
+      priority: model.priority ?? null,
+      defaultReasoningEffort: model.defaultReasoningEffort || null,
+      supportedReasoningLevels: (model.supportedReasoningLevels || []).map((level) => ({
+        effort: level.effort,
+        description: level.description,
+      })),
+      supportsFastMode: model.supportsFastMode === true,
+    }))
+  );
+
+  // Picker options only include models the user has not hidden in Aegis.
+  const options = availableModels.filter((model) => model.enabled).map((model) => model.name);
 
   return { defaultModel, defaultReasoningEffort, options, availableModels };
 }
@@ -170,7 +330,8 @@ export function saveCodexModelVisibility(enabledModels: string[]): CodexModelCon
       .map((model) => model.trim())
       .filter((model) => model.length > 0)
   );
-  const detectedModels = getDetectedCodexModels(getCodexModelConfig().defaultModel);
+  const current = getCodexModelConfig();
+  const detectedModels = current.availableModels.map((model) => model.name);
   const hiddenModels = detectedModels.filter((model) => !nextEnabledModels.has(model));
   writeCodexModelVisibility(hiddenModels);
   return getCodexModelConfig();

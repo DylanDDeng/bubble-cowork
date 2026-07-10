@@ -698,7 +698,15 @@ export class CodexAppServerManager extends EventEmitter {
   ): Record<string, unknown> {
     const normalizedMode = this.normalizeCodexExecutionMode(executionMode);
     const selectedModel = model?.trim();
-    if (!selectedModel && normalizedMode !== 'plan') {
+
+    // A client-supplied collaborationMode whose settings lack reasoning_effort
+    // makes codex run the turn with NO effort — it does not fall back to the
+    // config.toml `model_reasoning_effort` default (verified against
+    // codex-cli 0.143.0 via rollout turn_context). The top-level `model`
+    // param alone is enough for model override, so in default mode only send
+    // collaborationMode when we have an explicit effort to convey; plan mode
+    // always needs the envelope for its mode switch.
+    if (normalizedMode !== 'plan' && !reasoningEffort) {
       return {};
     }
 
@@ -706,8 +714,8 @@ export class CodexAppServerManager extends EventEmitter {
       collaborationMode: {
         mode: normalizedMode === 'plan' ? 'plan' : 'default',
         settings: {
-          model: selectedModel || model || '',
-          reasoning_effort: normalizedMode === 'plan' ? reasoningEffort || 'medium' : reasoningEffort || null,
+          ...(selectedModel ? { model: selectedModel } : {}),
+          ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
           developer_instructions: null,
         },
       },

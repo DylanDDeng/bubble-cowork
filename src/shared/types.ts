@@ -123,7 +123,13 @@ export type KimiPermissionMode = 'default' | 'plan' | 'auto' | 'yolo';
 export type GrokPermissionMode = 'default' | 'plan' | 'auto' | 'yolo';
 export type GrokReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 export type OpenCodePermissionMode = 'defaultPermissions' | 'plan' | 'fullAccess';
-export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
+/**
+ * Codex reasoning effort slug (e.g. "low", "medium", "high", "xhigh", "max",
+ * "ultra"). Deliberately an open string: the valid set is model-specific and
+ * comes from Codex's models_cache `supported_reasoning_levels`, so Aegis must
+ * not maintain its own whitelist — new levels should work without code changes.
+ */
+export type CodexReasoningEffort = string;
 export type PlanStepStatus = 'pending' | 'inProgress' | 'completed';
 
 export interface PlanStep {
@@ -147,11 +153,15 @@ export interface CodexModelConfig {
   options: string[];
   availableModels: Array<{
     name: string;
+    /** Human label from Codex cache (e.g. "GPT-5.6-Sol"); falls back to formatted slug. */
+    label?: string;
     enabled: boolean;
     isDefault: boolean;
     defaultReasoningEffort?: CodexReasoningEffort | null;
     supportedReasoningLevels?: CodexReasoningLevelOption[];
     supportsFastMode?: boolean;
+    /** Lower numbers are higher priority in Codex's own listing. */
+    priority?: number | null;
   }>;
 }
 
