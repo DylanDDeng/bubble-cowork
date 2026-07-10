@@ -18,6 +18,11 @@ import {
 } from './libs/util';
 import { ensureProviderService, runAgentLoop } from './libs/agent-loop';
 import { readProjectTree } from './libs/project-tree';
+import {
+  isTextLikeForOpenWith,
+  openWithDisplayName,
+  rankOpenWithAppPaths,
+} from './libs/open-with-ranking';
 import { isSameClaudeModelSelection, normalizeClaudeRequestedModel, reconcileClaudeDisplayModel } from './libs/claude-model-selection';
 import { loadClaudeSettings, getClaudeSettings, getClaudeModelConfigWithCatalog, getMcpServers, getGlobalMcpServers, getProjectMcpServers, saveMcpServers, saveProjectMcpServers, type McpServerConfig } from './libs/claude-settings';
 import { getCodexMcpServers, saveCodexMcpServers } from './libs/codex-mcp-settings';
@@ -3738,35 +3743,66 @@ interface OpenWithApp {
 const openWithIconCache = new Map<string, string | null>();
 
 // Query Launch Services for every app that can open `targetPath`, default
-// first. URLsForApplicationsToOpenURL requires macOS 12+; on older systems the
-// JXA throws and the caller degrades to an empty list. The path is passed via
-// argv ($.NSProcessInfo arguments), never interpolated into the script.
-async function queryLaunchServicesApps(targetPath: string): Promise<string[]> {
+// first. For text-like files a second query against a plain-text probe file
+// separates real editors from extension-collision handlers (see
+// open-with-ranking.ts). URLsForApplicationsToOpenURL requires macOS 12+; on
+// older systems the JXA throws and the caller degrades to an empty list. The
+// paths are passed via argv ($.NSProcessInfo arguments), never interpolated
+// into the script.
+async function queryLaunchServicesApps(
+  targetPath: string
+): Promise<{ fileApps: string[]; textApps: string[] }> {
   const script = `
     ObjC.import('AppKit');
     function run(argv) {
-      const path = argv[0];
-      const url = $.NSURL.fileURLWithPath(path);
       const ws = $.NSWorkspace.sharedWorkspace;
-      const ordered = [];
-      const seen = {};
-      const push = (p) => { if (p && !seen[p]) { seen[p] = true; ordered.push(p); } };
-      const def = ws.URLForApplicationToOpenURL(url);
-      if (def && !def.isNil()) push(def.path.js);
-      const arr = ws.URLsForApplicationsToOpenURL(url);
-      if (arr && !arr.isNil()) {
-        for (let i = 0; i < arr.count; i++) push(arr.objectAtIndex(i).path.js);
-      }
-      return JSON.stringify(ordered);
+      const collect = (path, includeDefault) => {
+        if (!path) return [];
+        const url = $.NSURL.fileURLWithPath(path);
+        const ordered = [];
+        const seen = {};
+        const push = (p) => { if (p && !seen[p]) { seen[p] = true; ordered.push(p); } };
+        if (includeDefault) {
+          const def = ws.URLForApplicationToOpenURL(url);
+          if (def && !def.isNil()) push(def.path.js);
+        }
+        const arr = ws.URLsForApplicationsToOpenURL(url);
+        if (arr && !arr.isNil()) {
+          for (let i = 0; i < arr.count; i++) push(arr.objectAtIndex(i).path.js);
+        }
+        return ordered;
+      };
+      return JSON.stringify({
+        fileApps: collect(argv[0], true),
+        textApps: collect(argv[1], false),
+      });
     }
   `;
+
+  let probePath = '';
+  if (isTextLikeForOpenWith(targetPath)) {
+    probePath = join(tmpdir(), 'aegis-open-with-probe.txt');
+    try {
+      await fsPromises.writeFile(probePath, '', { flag: 'wx' });
+    } catch {
+      // Already exists (or unwritable — the query then degrades gracefully).
+    }
+  }
+
   const { stdout } = await execFileAsync(
     'osascript',
-    ['-l', 'JavaScript', '-e', script, targetPath],
+    ['-l', 'JavaScript', '-e', script, targetPath, probePath],
     { timeout: 5000, maxBuffer: 1024 * 1024 }
   );
-  const parsed = JSON.parse(stdout.trim() || '[]');
-  return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === 'string' && !!p) : [];
+  const parsed = JSON.parse(stdout.trim() || '{}') as {
+    fileApps?: unknown;
+    textApps?: unknown;
+  };
+  const asPaths = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value.filter((p): p is string => typeof p === 'string' && !!p)
+      : [];
+  return { fileApps: asPaths(parsed.fileApps), textApps: asPaths(parsed.textApps) };
 }
 
 // Electron's app.getFileIcon resolves icons by file EXTENSION, so on macOS
@@ -3844,20 +3880,16 @@ async function extractAppIconDataUrls(appPaths: string[]): Promise<void> {
   }
 }
 
-function appDisplayNameFromPath(appPath: string): string {
-  const base = basename(appPath);
-  return base.toLowerCase().endsWith('.app') ? base.slice(0, -'.app'.length) : base;
-}
-
 // The dropdown shows at most a handful of apps; don't extract icons for the
 // long tail Launch Services returns.
 const OPEN_WITH_APP_LIMIT = 8;
 
 async function listOpenWithApps(targetPath: string): Promise<OpenWithApp[]> {
-  const appPaths = (await queryLaunchServicesApps(targetPath)).slice(0, OPEN_WITH_APP_LIMIT);
+  const { fileApps, textApps } = await queryLaunchServicesApps(targetPath);
+  const appPaths = rankOpenWithAppPaths({ fileApps, textApps, limit: OPEN_WITH_APP_LIMIT });
   await extractAppIconDataUrls(appPaths);
   return appPaths.map((appPath) => ({
-    name: appDisplayNameFromPath(appPath),
+    name: openWithDisplayName(appPath),
     appPath,
     iconDataUrl: openWithIconCache.get(appPath) ?? null,
   }));
