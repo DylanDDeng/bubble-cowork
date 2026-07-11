@@ -1723,7 +1723,7 @@ function RightPanelLauncherContent({
       aria-hidden={hidden}
     >
       <div className="flex min-h-0 flex-1 items-center justify-center px-6 pb-16">
-        <div className="flex w-full max-w-[420px] flex-col gap-2">
+        <div className="flex w-full max-w-[420px] flex-col">
           {items.map((item) => {
             const Icon = item.icon;
             const disabled = item.disabled === true;
@@ -1734,9 +1734,9 @@ function RightPanelLauncherContent({
                 disabled={disabled}
                 onClick={item.onSelect}
                 title={disabled ? item.disabledReason : item.label}
-                className={`group flex h-12 min-w-0 items-center gap-3 rounded-lg border px-4 text-left transition-colors ${
-                  'border-transparent bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:border-[var(--border)] hover:bg-[var(--sidebar-item-active)] hover:text-[var(--text-primary)]'
-                } ${disabled ? 'cursor-not-allowed opacity-45 hover:border-transparent hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-secondary)]' : ''}`}
+                className={`group flex h-10 min-w-0 items-center gap-3 rounded-lg px-4 text-left text-[var(--text-secondary)] transition-colors hover:bg-[#EFEFED] hover:text-[var(--text-primary)] ${
+                  disabled ? 'cursor-not-allowed opacity-45 hover:bg-transparent hover:text-[var(--text-secondary)]' : ''
+                }`}
               >
                 <Icon className="h-[18px] w-[18px] shrink-0 text-[var(--text-muted)] transition-colors group-hover:text-[var(--text-primary)]" />
                 <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[var(--text-primary)]">
