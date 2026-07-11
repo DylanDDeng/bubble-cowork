@@ -236,6 +236,8 @@ export function PromptInput({
     compatibleProviderId: activeSession?.compatibleProviderId || null,
     claudePermissionMode:
       activeSession?.provider === 'claude' ? activeSession.claudeAccessMode || null : null,
+    codexPermissionMode:
+      activeSession?.provider === 'codex' ? activeSession.codexPermissionMode || null : null,
     opencodePermissionMode:
       activeSession?.provider === 'opencode' ? activeSession.opencodePermissionMode || null : null,
     claudeReasoningEffort:
