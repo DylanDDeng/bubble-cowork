@@ -155,7 +155,7 @@ export function ChatOutlineRail({
             >
               <span
                 className={`h-[2px] rounded-full transition-all duration-150 ${
-                  active ? 'w-4 bg-[var(--text-secondary)]' : 'w-2.5 bg-[color-mix(in_srgb,var(--text-muted)_38%,transparent)]'
+                  active ? 'w-3 bg-[var(--text-secondary)]' : 'w-2 bg-[color-mix(in_srgb,var(--text-muted)_38%,transparent)]'
                 }`}
               />
             </button>
