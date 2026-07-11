@@ -1007,7 +1007,7 @@ export function App() {
                   title="Bottom terminal"
                   aria-label="Toggle bottom terminal drawer"
                 >
-                  <SquareTerminal className="h-[13px] w-[13px] shrink-0" />
+                  <BottomTerminalToggleIcon />
                 </button>
                 <EnvironmentEditorPicker context={environmentContext} />
                 <EnvironmentHub
@@ -1564,6 +1564,24 @@ function RightUtilityTabStrip({
 // board / environment list), but it is intentionally NOT offered in the
 // launcher menu — it only exists when the main agent has spawned subagents.
 type PanelLauncherKind = 'launcher' | 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent';
+
+function BottomTerminalToggleIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-[14px] w-[14px] shrink-0"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect width="18" height="16" x="3" y="4" rx="4" />
+      <path d="M9 16h6" />
+    </svg>
+  );
+}
 
 function RightPanelToggleIcon() {
   return (
