@@ -993,13 +993,19 @@ export function App() {
                 {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
               </div>
               <div className="flex items-center justify-end gap-1 pr-10">
+                <EnvironmentEditorPicker context={environmentContext} />
+                <EnvironmentHub
+                  context={environmentContext}
+                  git={gitEnvironment}
+                  onOpenProjectPanel={openEnvironmentProjectPanel}
+                />
                 <button
                   type="button"
                   onClick={() => {
                     setTerminalDrawerOpen(!terminalDrawerOpen);
                     setTerminalFullscreen(false);
                   }}
-                  className={`no-drag inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] font-medium transition-colors ${
+                  className={`no-drag inline-flex h-7 w-7 items-center justify-center rounded-lg text-[11px] font-medium transition-colors ${
                     terminalDrawerOpen
                       ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
                       : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
@@ -1007,14 +1013,8 @@ export function App() {
                   title="Bottom terminal"
                   aria-label="Toggle bottom terminal drawer"
                 >
-                  <SquareTerminal className="h-[13px] w-[13px] shrink-0" />
+                  <BottomTerminalToggleIcon />
                 </button>
-                <EnvironmentEditorPicker context={environmentContext} />
-                <EnvironmentHub
-                  context={environmentContext}
-                  git={gitEnvironment}
-                  onOpenProjectPanel={openEnvironmentProjectPanel}
-                />
               </div>
             </div>
           </div>
@@ -1565,6 +1565,24 @@ function RightUtilityTabStrip({
 // launcher menu — it only exists when the main agent has spawned subagents.
 type PanelLauncherKind = 'launcher' | 'files' | 'side-chat' | 'browser' | 'review' | 'terminal' | 'subagent';
 
+function BottomTerminalToggleIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-[14px] w-[14px] shrink-0"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect width="18" height="16" x="3" y="4" rx="4" />
+      <path d="M9 16h6" />
+    </svg>
+  );
+}
+
 function RightPanelToggleIcon() {
   return (
     <svg
@@ -1578,7 +1596,7 @@ function RightPanelToggleIcon() {
       strokeLinejoin="round"
     >
       <rect width="18" height="16" x="3" y="4" rx="4" />
-      <path d="M15 7v10" />
+      <path d="M15 8v8" />
     </svg>
   );
 }
@@ -1596,7 +1614,7 @@ function PanelLauncher({
     <button
       type="button"
       onClick={onToggle}
-      className={`no-drag inline-flex h-7 min-w-7 items-center justify-center rounded-lg px-1.5 text-[11px] font-medium transition-colors ${
+      className={`no-drag inline-flex h-7 w-7 items-center justify-center rounded-lg text-[11px] font-medium transition-colors ${
         active
           ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
           : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'

@@ -161,7 +161,11 @@ export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmen
     };
   }, []);
 
-  const primaryEditor = editorLaunchers.find((editor) => editor.available) ?? editorLaunchers[0] ?? null;
+  const primaryEditor =
+    editorLaunchers.find((editor) => editor.available && editor.id !== 'finder')
+    ?? editorLaunchers.find((editor) => editor.available)
+    ?? editorLaunchers[0]
+    ?? null;
   const primaryEditorVisual = primaryEditor ? getEditorVisual(primaryEditor) : null;
 
   const openEditor = async (editor: EnvironmentEditorLauncher) => {
@@ -189,29 +193,48 @@ export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmen
 
   return (
     <DropdownMenu.Root>
-      <DropdownMenu.Trigger asChild>
+      <div
+        className={`no-drag inline-flex h-6 overflow-hidden rounded-[9px] border border-[var(--border)] bg-[var(--bg-primary)] text-[var(--text-secondary)] ${
+          disabled ? 'opacity-45' : ''
+        }`}
+      >
         <button
           type="button"
           disabled={disabled}
-          className={`no-drag inline-flex h-7 min-w-7 items-center justify-center rounded-md px-1.5 text-[11px] font-medium transition-colors ${
-            disabled
-              ? 'cursor-not-allowed opacity-45'
-              : 'cursor-pointer text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] data-[popup-open]:bg-[var(--sidebar-item-active)] data-[popup-open]:text-[var(--text-primary)]'
+          onClick={() => {
+            if (primaryEditor) void openEditor(primaryEditor);
+          }}
+          className={`inline-flex h-full w-[26px] items-center justify-center transition-colors ${
+            disabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
           }`}
           title={primaryEditor ? `Open in ${primaryEditor.label}` : 'No editor detected'}
-          aria-label="Open workspace in editor"
+          aria-label={primaryEditor ? `Open workspace in ${primaryEditor.label}` : 'No editor detected'}
         >
           {triggerVisual}
         </button>
-      </DropdownMenu.Trigger>
+        <DropdownMenu.Trigger asChild>
+          <button
+            type="button"
+            disabled={disabled}
+            className={`inline-flex h-full w-[18px] items-center justify-center transition-colors ${
+              disabled
+                ? 'cursor-not-allowed'
+                : 'cursor-pointer hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] data-[popup-open]:bg-[var(--sidebar-item-active)] data-[popup-open]:text-[var(--text-primary)]'
+            }`}
+            title="Choose application"
+            aria-label="Choose application to open workspace"
+          >
+            <ChevronDown className="h-3 w-3" />
+          </button>
+        </DropdownMenu.Trigger>
+      </div>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           align="end"
           sideOffset={6}
-          className="z-[9999] min-w-[200px] rounded-[var(--popover-radius)] border border-[var(--popover-border)] bg-[var(--popover-bg)] p-1 shadow-[var(--popover-shadow)]"
+          className="z-[9999] w-[220px] rounded-[18px] !border-0 bg-[var(--popover-bg)] [background-image:none] p-2 shadow-[0_18px_42px_-12px_rgba(15,23,42,0.16)]"
         >
           <DropdownMenu.Group>
-            <DropdownMenu.Label>Open in…</DropdownMenu.Label>
             {editorLaunchers.map((editor) => {
             const visual = getEditorVisual(editor);
             const itemDisabled = !editor.available || !context.effectiveCwd;
@@ -223,12 +246,12 @@ export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmen
                   event.preventDefault();
                   void openEditor(editor);
                 }}
-                className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-[var(--text-primary)] outline-none data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
+                className="flex h-9 cursor-default items-center gap-3 rounded-xl px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
               >
                 {editor.iconDataUrl ? (
-                  <img src={editor.iconDataUrl} alt="" className="h-4 w-4 shrink-0 rounded-[4px]" />
+                  <img src={editor.iconDataUrl} alt="" className="h-[18px] w-[18px] shrink-0 rounded-[5px]" />
                 ) : (
-                  <span className={`flex h-4 w-4 items-center justify-center rounded-[4px] text-[9px] font-semibold ${visual.tone}`}>
+                  <span className={`flex h-[18px] w-[18px] items-center justify-center rounded-[5px] text-[9px] font-semibold ${visual.tone}`}>
                     {visual.mark}
                   </span>
                 )}
@@ -397,7 +420,7 @@ export function EnvironmentHub({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className={`no-drag relative inline-flex h-7 min-w-7 items-center justify-center rounded-lg px-1.5 text-[11px] font-medium transition-colors ${
+        className={`no-drag relative inline-flex h-7 w-7 items-center justify-center rounded-lg text-[11px] font-medium transition-colors ${
           open
             ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
