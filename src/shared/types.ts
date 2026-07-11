@@ -1571,6 +1571,19 @@ export interface GrokPlanUsageReport {
   prepaidBalance: number | null;
 }
 
+/** Lightweight index entry for the chat outline rail: one per user prompt. */
+export interface SessionUserPromptSummary {
+  /** Epoch ms; matches the message's createdAt for history navigation. */
+  createdAt: number;
+  /** Prompt text truncated for preview display. */
+  text: string;
+  attachmentNames: string[];
+  /** The turn's last top-level assistant text, truncated ('' while pending). */
+  replyText: string;
+  /** File names touched by the turn's mutating tool calls, in first-touch order. */
+  changedFiles: string[];
+}
+
 export interface ChatMessageSearchMatch {
   snippet: string;
   messageType: 'user_prompt' | 'assistant' | 'user';

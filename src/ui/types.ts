@@ -80,6 +80,7 @@ export type {
   ClaudePlanUsageWindow,
   ClaudePlanModelWindow,
   GrokPlanUsageReport,
+  SessionUserPromptSummary,
   ChatSessionSearchResult,
   SessionHistoryPayload,
   ClaudeModelUsage,
@@ -307,6 +308,8 @@ export interface AppState {
     sessionId: string;
     messageCreatedAt: number;
     nonce: number;
+    /** Set false to scroll without the locate-flash highlight (outline rail). */
+    highlight?: boolean;
   } | null;
   // MCP 状态
   mcpServers: Record<string, import('../shared/types').McpServerConfig>;

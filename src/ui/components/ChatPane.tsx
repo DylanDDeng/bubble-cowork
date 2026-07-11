@@ -16,6 +16,8 @@ import {
 import { deriveTranscriptTimelineItems } from '../utils/transcript-timeline';
 import { resolveCodexModel } from '../utils/codex-model';
 import { AssistantCopyAction, MessageCard, getAssistantMarkdownToCopy } from './MessageCard';
+import { ChatOutlineRail } from './ChatOutlineRail';
+import { buildSessionUserPromptSummaries } from '../../shared/outline-summary';
 import { ToolExecutionBatch, WorkstreamDisclosure } from './ToolExecutionBatch';
 import { StructuredResponse } from './StructuredResponse';
 import { WorkingFooter } from './AssistantWorkstream';
@@ -38,6 +40,7 @@ import type { ChangeRecord } from '../utils/change-records';
 import type {
   ContentBlock,
   PermissionResult,
+  SessionUserPromptSummary,
   SessionView,
   StreamMessage,
   ToolStatus,
@@ -1298,6 +1301,14 @@ export function ChatPane({
     [changeRecordByToolUseId, changeRecordsByToolUseId, handleOpenDiff]
   );
 
+  // Loaded turns feeding the outline rail; the rail merges these with its
+  // full-history index so fresh prompts, streaming replies, and just-edited
+  // files show up without a refetch.
+  const outlineLivePrompts = useMemo<SessionUserPromptSummary[]>(
+    () => buildSessionUserPromptSummaries(session?.messages || []),
+    [session?.messages]
+  );
+
   const historyNavigationAnchor = useMemo(() => {
     if (!sessionId || !historyNavigationTarget || historyNavigationTarget.sessionId !== sessionId) {
       return null;
@@ -1480,8 +1491,12 @@ export function ChatPane({
     }
 
     messageEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    setHighlightedHistoryAnchor(historyNavigationAnchor);
+    const wantsHighlight = historyNavigationTarget.highlight !== false;
     setHistoryNavigationTarget(null);
+    if (!wantsHighlight) {
+      return;
+    }
+    setHighlightedHistoryAnchor(historyNavigationAnchor);
 
     if (historyHighlightTimerRef.current !== null) {
       window.clearTimeout(historyHighlightTimerRef.current);
@@ -1691,6 +1706,21 @@ export function ChatPane({
             </NewThreadLanding>
           ) : (
           <>
+          <div className="relative flex min-h-0 flex-1 flex-col">
+          {sessionId ? (
+            <ChatOutlineRail
+              sessionId={sessionId}
+              livePrompts={outlineLivePrompts}
+              onNavigate={(createdAt) =>
+                setHistoryNavigationTarget({
+                  sessionId,
+                  messageCreatedAt: createdAt,
+                  nonce: Date.now(),
+                  highlight: false,
+                })
+              }
+            />
+          ) : null}
           <div ref={scrollContainerRef} className="flex-1 overflow-auto p-4 relative">
             {isActive ? <InSessionSearch /> : null}
 
@@ -1915,6 +1945,7 @@ export function ChatPane({
 
               <div />
             </div>
+          </div>
           </div>
 
           {session.readOnly ? null : (

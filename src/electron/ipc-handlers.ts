@@ -168,6 +168,7 @@ import type {
   ClaudeRewindFilesOutcome,
   ClaudeRewindResult,
 } from '../shared/types';
+import { buildSessionUserPromptSummaries } from '../shared/outline-summary';
 import { getProviderService } from './libs/provider/service';
 import { disposeTerminalRuntime } from './libs/terminal-runtime';
 import { disposeTerminalTransportServer } from './libs/terminal-transport-server';
@@ -5062,6 +5063,21 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
       cursor: page.cursor,
       hasMore: page.hasMore,
     };
+  });
+
+  // Full-history index of user prompts for the chat outline rail. Kept
+  // lightweight (truncated texts + file/attachment names) so long sessions do
+  // not ship their entire transcripts to the renderer twice.
+  ipcMainHandle('get-session-user-prompts', async (_event, sessionId: string) => {
+    const session = sessions.getSession(sessionId);
+    if (!session) {
+      throw new Error('Unknown session');
+    }
+
+    const unifiedSession = toUnifiedSessionRecord(session);
+    const source = getHistorySourceForSession(unifiedSession);
+    const messages = await source.loadAll(unifiedSession);
+    return buildSessionUserPromptSummaries(messages);
   });
 
   ipcMainHandle(

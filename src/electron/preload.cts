@@ -467,6 +467,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('get-grok-plan-usage');
   },
 
+  getSessionUserPrompts: (sessionId: string) => {
+    return ipcRenderer.invoke('get-session-user-prompts', sessionId);
+  },
+
   getAgentUsageReport: (provider: string, days?: ClaudeUsageRangeDays) => {
     return ipcRenderer.invoke('get-agent-usage-report', provider, days);
   },

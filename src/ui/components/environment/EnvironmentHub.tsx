@@ -6,7 +6,6 @@ import {
   ChevronDown,
   Code2,
   Copy,
-  EnvironmentIcon,
   ExternalLink,
   FileDiff,
   FolderClosed,
@@ -37,6 +36,26 @@ function formatTime(value: number | null): string {
   if (seconds < 5) return 'just now';
   if (seconds < 60) return `${seconds}s ago`;
   return `${Math.floor(seconds / 60)}m ago`;
+}
+
+function EnvironmentListIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4 shrink-0"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="5" cy="8" r="2" />
+      <circle cx="5" cy="16" r="2" />
+      <path d="M10 8h8" />
+      <path d="M10 16h8" />
+    </svg>
+  );
 }
 
 function SectionRow({
@@ -387,7 +406,7 @@ export function EnvironmentHub({
         aria-label="Open environment panel"
         aria-expanded={open}
       >
-        <EnvironmentIcon className="h-[14px] w-[14px] shrink-0" />
+        <EnvironmentListIcon />
       </button>
       {open ? (
         // Anchored to the trigger (the wrapper div is position:relative) so the
