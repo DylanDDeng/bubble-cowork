@@ -429,6 +429,10 @@ body {
   font-size: 13px !important;
 }
 
+.aegis-sidebar .aegis-sidebar-brand {
+  font-size: 18px !important;
+}
+
 .aegis-sidebar button[aria-expanded] > span {
   font-weight: 400 !important;
 }

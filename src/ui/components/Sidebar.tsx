@@ -395,7 +395,11 @@ export function Sidebar() {
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col">
-              <div className="px-2 py-3">
+              <div className="aegis-sidebar-brand px-3 pb-2 pt-1 font-semibold leading-none tracking-[-0.04em] text-[var(--text-primary)]">
+                Aegis
+              </div>
+
+              <div className="px-2 pb-3 pt-1">
                 <div className="space-y-1">
                   <SidebarNavRow
                     icon={<SquarePen className="h-[15px] w-[15px]" />}
