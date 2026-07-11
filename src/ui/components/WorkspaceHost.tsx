@@ -125,6 +125,7 @@ const LeafPane = memo(function LeafPane({
         onActivate={() => setActivePaneById(leaf.id)}
         codexModelConfig={codexModelConfig}
         onClose={canClose ? () => closePaneById(leaf.id) : undefined}
+        showHeader={canClose}
         onWorkspaceGitChanged={onWorkspaceGitChanged}
       />
       {dropFill ? (

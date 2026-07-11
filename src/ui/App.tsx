@@ -989,8 +989,17 @@ export function App() {
           {/* Top drag region */}
           <div className="h-12 drag-region flex-shrink-0 bg-[var(--bg-primary)]">
             <div className="flex h-full items-center justify-between px-3">
-              <div className="flex items-center gap-0.5">
-                {sidebarCollapsed ? <SidebarHeaderTrigger className="ml-[72px]" /> : null}
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="ml-[72px] flex h-7 w-7 shrink-0 items-center justify-center">
+                  {sidebarCollapsed ? <SidebarHeaderTrigger /> : null}
+                </div>
+                <span
+                  className={`truncate text-[12px] font-medium text-[var(--text-primary)] transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                    sidebarCollapsed ? 'translate-x-0' : '-translate-x-[108px]'
+                  }`}
+                >
+                  {activeSession?.title || 'Chat'}
+                </span>
               </div>
               <div className="flex items-center justify-end gap-1 pr-10">
                 <EnvironmentEditorPicker context={environmentContext} />

@@ -932,6 +932,7 @@ export function ChatPane({
   onDropSession,
   onClose,
   headerActions,
+  showHeader = true,
   onWorkspaceGitChanged,
 }: {
   paneId: string;
@@ -943,6 +944,7 @@ export function ChatPane({
   onDropSession?: (sessionId: string) => void;
   onClose?: () => void;
   headerActions?: ReactNode;
+  showHeader?: boolean;
   onWorkspaceGitChanged?: () => Promise<void>;
 }) {
   // P2: shallow-picked subscription + a session-scoped selector. A pane must
@@ -1650,29 +1652,31 @@ export function ChatPane({
         </div>
       ) : (
         <>
-          <div className="flex h-9 items-center justify-between bg-[var(--bg-primary)] px-3">
-            <div className="flex min-w-0 items-center gap-2 text-[12px] text-[var(--text-secondary)]">
-              <span className="truncate font-medium text-[var(--text-primary)]">
-                {session.title || 'Chat'}
-              </span>
+          {showHeader ? (
+            <div className="flex h-9 items-center justify-between bg-[var(--bg-primary)] px-3">
+              <div className="flex min-w-0 items-center gap-2 text-[12px] text-[var(--text-secondary)]">
+                <span className="truncate font-medium text-[var(--text-primary)]">
+                  {session.title || 'Chat'}
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                {headerActions}
+                {onClose ? (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onClose();
+                    }}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
+                    aria-label="Close pane"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+              </div>
             </div>
-            <div className="flex items-center gap-1">
-              {headerActions}
-              {onClose ? (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onClose();
-                  }}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]"
-                  aria-label="Close pane"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              ) : null}
-            </div>
-          </div>
+          ) : null}
           {showThreadStarter ? (
             <NewThreadLanding
               heading={threadStarterHeading}
