@@ -161,7 +161,11 @@ export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmen
     };
   }, []);
 
-  const primaryEditor = editorLaunchers.find((editor) => editor.available) ?? editorLaunchers[0] ?? null;
+  const primaryEditor =
+    editorLaunchers.find((editor) => editor.available && editor.id !== 'finder')
+    ?? editorLaunchers.find((editor) => editor.available)
+    ?? editorLaunchers[0]
+    ?? null;
   const primaryEditorVisual = primaryEditor ? getEditorVisual(primaryEditor) : null;
 
   const openEditor = async (editor: EnvironmentEditorLauncher) => {
