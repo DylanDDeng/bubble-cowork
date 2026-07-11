@@ -47,6 +47,7 @@ import type {
 import {
   DEFAULT_THEME_STATE,
   DEFAULT_UI_FONT_FAMILY,
+  LEGACY_DEFAULT_UI_FONT_FAMILY,
   applyThemePreferences,
   normalizeThemeState,
   resetThemeVariant as resetThemeVariantState,
@@ -2115,9 +2116,11 @@ export const useAppStore = create<Store>()(
         } | undefined;
         const theme = persisted?.theme || currentState.theme;
         const themeState = normalizeThemeState(persisted?.themeState || currentState.themeState);
-        const uiFontFamily = persisted?.uiFontFamily?.trim()
-          ? persisted.uiFontFamily
-          : DEFAULT_UI_FONT_FAMILY;
+        const persistedUiFontFamily = persisted?.uiFontFamily?.trim();
+        const uiFontFamily =
+          persistedUiFontFamily && persistedUiFontFamily !== LEGACY_DEFAULT_UI_FONT_FAMILY
+            ? persistedUiFontFamily
+            : DEFAULT_UI_FONT_FAMILY;
         const chatCodeFontFamily = persisted?.chatCodeFontFamily ?? currentState.chatCodeFontFamily;
         // workspaceLayout is the source of truth; derive the legacy pane fields.
         const workspaceLayout = repairLayout(

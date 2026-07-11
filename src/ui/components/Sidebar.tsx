@@ -406,7 +406,7 @@ export function Sidebar() {
                   aria-label="Search"
                   title="Search"
                 >
-                  <Search className="h-4 w-4" />
+                  <Search className="h-4 w-4" strokeWidth={1.4} />
                 </button>
               </div>
 

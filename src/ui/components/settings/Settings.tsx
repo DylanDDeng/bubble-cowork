@@ -332,7 +332,7 @@ function GeneralSettingsContent({
             type="text"
             value={uiFontFamily}
             onChange={(event) => setUiFontFamily(event.target.value)}
-            placeholder='"IBM Plex Serif Var", serif'
+            placeholder='-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
             spellCheck={false}
             className="h-8 w-[280px] rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-primary)] px-3 text-right text-[12px] text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent)]"
           />
@@ -541,4 +541,3 @@ function NotificationSettingsGroup() {
     </SettingsGroup>
   );
 }
-

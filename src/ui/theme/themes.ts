@@ -55,8 +55,10 @@ const PANEL_CONTRAST_STEP: Record<ThemeVariant, number> = {
 
 const BASE_DISPLAY_FONT =
   'ui-serif, "New York", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, Cambria, "Times New Roman", Times, serif';
-export const DEFAULT_UI_FONT_FAMILY =
+export const LEGACY_DEFAULT_UI_FONT_FAMILY =
   '"IBM Plex Serif Var", "IBM Plex Serif", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif';
+export const DEFAULT_UI_FONT_FAMILY =
+  '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif';
 const BASE_UI_FONT = DEFAULT_UI_FONT_FAMILY;
 const BASE_MONO_FONT =
   '"JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace';
