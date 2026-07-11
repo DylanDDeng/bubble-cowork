@@ -395,8 +395,19 @@ export function Sidebar() {
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col">
-              <div className="aegis-sidebar-brand px-3 pb-2 pt-1 font-semibold leading-none tracking-[-0.04em] text-[var(--text-primary)]">
-                Aegis
+              <div className="flex items-center justify-between px-3 pb-2 pt-1">
+                <div className="aegis-sidebar-brand font-semibold leading-none tracking-[-0.04em] text-[var(--text-primary)]">
+                  Aegis
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSearchPaletteOpen(true)}
+                  className={SIDEBAR_TRIGGER_CLASS}
+                  aria-label="Search"
+                  title="Search"
+                >
+                  <Search className="h-4 w-4" />
+                </button>
               </div>
 
               <div className="px-2 pb-3 pt-1">
@@ -410,12 +421,6 @@ export function Sidebar() {
                       setChatSidebarView('threads');
                       createDraftSession(newThreadCwd, getActiveChannelIdForProject(newThreadCwd));
                     }}
-                  />
-                  <SidebarNavRow
-                    icon={<Search className="h-[15px] w-[15px]" />}
-                    label="Search"
-                    active={searchPaletteOpen}
-                    onClick={() => setSearchPaletteOpen(true)}
                   />
                   <SidebarNavRow
                     icon={<Clock className="h-[15px] w-[15px]" />}

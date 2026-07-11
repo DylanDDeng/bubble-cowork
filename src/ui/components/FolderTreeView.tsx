@@ -29,6 +29,8 @@ type ProjectGroup = {
   sessions: SessionView[];
 };
 
+const DEFAULT_VISIBLE_SESSIONS_PER_PROJECT = 5;
+
 function getProjectLabel(fullPath: string | null): string {
   return fullPath
     ? fullPath.split('/').filter(Boolean).pop() || fullPath
@@ -82,6 +84,9 @@ export function FolderTreeView({
     setProjectCwd,
   } = useAppStore();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  const [expandedSessionGroups, setExpandedSessionGroups] = useState<Set<string>>(
+    () => new Set()
+  );
   const isChatWorkspaceActive = activeWorkspace === 'chat';
 
   // Sessions currently mounted in any workspace pane. With recursive tiling
@@ -276,6 +281,9 @@ export function FolderTreeView({
 
       {projectGroups.map((group) => {
         const expanded = isExpanded(group.key);
+        const sessionListExpanded = expandedSessionGroups.has(group.key);
+        const hasMoreSessions =
+          group.sessions.length > DEFAULT_VISIBLE_SESSIONS_PER_PROJECT;
         return (
           <div key={group.key} className="mb-3">
             <div className="group/project flex items-center gap-1 px-1">
@@ -349,14 +357,17 @@ export function FolderTreeView({
                   </div>
                 ) : (
                   (() => {
+                    const visibleSessions = sessionListExpanded
+                      ? group.sessions
+                      : group.sessions.slice(0, DEFAULT_VISIBLE_SESSIONS_PER_PROJECT);
                     // 项目 → worktree（分支）→ threads 的三层结构：worktree thread
                     // 的 cwd 已指向隔离检出，挂在分支小节下如实呈现，而不是提为
                     // 顶层"假项目"或混在项目本体的 thread 里。
-                    const regularSessions = group.sessions.filter(
+                    const regularSessions = visibleSessions.filter(
                       (session) => !(session.envMode === 'worktree' && session.worktreePath)
                     );
                     const worktreeGroups = new Map<string, SessionView[]>();
-                    for (const session of group.sessions) {
+                    for (const session of visibleSessions) {
                       if (session.envMode === 'worktree' && session.worktreePath) {
                         const list = worktreeGroups.get(session.worktreePath) ?? [];
                         list.push(session);
@@ -428,6 +439,26 @@ export function FolderTreeView({
                     );
                   })()
                 )}
+                {hasMoreSessions ? (
+                  <button
+                    type="button"
+                    className="ml-8 px-2 py-1.5 text-left text-[12px] text-[var(--text-muted)] transition-colors duration-150 hover:text-[var(--text-primary)] focus-visible:text-[var(--text-primary)] focus-visible:outline-none"
+                    aria-expanded={sessionListExpanded}
+                    onClick={() => {
+                      setExpandedSessionGroups((current) => {
+                        const next = new Set(current);
+                        if (next.has(group.key)) {
+                          next.delete(group.key);
+                        } else {
+                          next.add(group.key);
+                        }
+                        return next;
+                      });
+                    }}
+                  >
+                    {sessionListExpanded ? 'Show less' : 'Show more'}
+                  </button>
+                ) : null}
               </div>
             )}
           </div>
