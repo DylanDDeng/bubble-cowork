@@ -21,6 +21,7 @@ import { allLeaves } from '../store/layout-tree';
 import { sendEvent } from '../hooks/useIPC';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import type { AgentProvider, SessionView } from '../types';
+import { AgentIcon } from './ComposerAgentControls';
 
 type ProjectGroup = {
   key: string;
@@ -66,8 +67,8 @@ interface ProjectTreeViewProps {
   projectCwd: string | null;
 }
 
-function ProviderGlyph({ provider: _provider }: { provider?: AgentProvider }) {
-  return null;
+function ProviderGlyph({ provider }: { provider?: AgentProvider }) {
+  return <AgentIcon provider={provider ?? 'claude'} />;
 }
 
 export function FolderTreeView({
@@ -619,6 +620,7 @@ function SessionItem({
       </button>
 
       <div className="flex min-h-[22px] items-center gap-2">
+        <ProviderGlyph provider={session.provider} />
         <span className="flex-1 truncate text-[13px] font-normal leading-[1.3]">{session.title}</span>
         {showWorktreeBadge && session.envMode === 'worktree' && session.worktreePath ? (
           <span
