@@ -1,6 +1,10 @@
 import { rendererStateStorage } from '../utils/renderer-state-storage';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AgentProvider, ClaudeCompatibleProviderId, SettingsTab } from '../types';
+import {
+  resolveListedOrPendingModel,
+  type AgentModelSelection,
+} from '../utils/session-model';
 import { useClaudeModelConfig } from './useClaudeModelConfig';
 import { useCodexModelConfig } from './useCodexModelConfig';
 import { useOpencodeModelConfig } from './useOpencodeModelConfig';
@@ -251,41 +255,6 @@ function formatKimiModelLabel(value: string, config: ReturnType<typeof useKimiMo
   return match?.label || value;
 }
 
-/**
- * Resolve a model id for picker/session state.
- * - Prefer explicit session model, then preferred, then config default.
- * - While the model list is still empty (config loading), still accept those
- *   candidates so the composer does not flash the empty "Default" option.
- * - If the list is loaded and an explicit session model is missing from it
- *   (stale list), keep the session model instead of clearing to null.
- */
-export function resolveListedOrPendingModel(
-  requestedModel: string | null | undefined,
-  preferredModel: string | null | undefined,
-  defaultModel: string | null | undefined,
-  listedValues: Iterable<string>
-): string | null {
-  const nonEmptyListed = new Set(
-    Array.from(listedValues)
-      .map((value) => value.trim())
-      .filter(Boolean)
-  );
-  const candidates = [requestedModel, preferredModel, defaultModel]
-    .map((value) => value?.trim() || null)
-    .filter((value): value is string => Boolean(value));
-
-  for (const candidate of candidates) {
-    if (nonEmptyListed.size === 0 || nonEmptyListed.has(candidate)) {
-      return candidate;
-    }
-  }
-
-  if (requestedModel?.trim()) {
-    return requestedModel.trim();
-  }
-  return null;
-}
-
 function resolveConfiguredKimiModel(
   requestedModel: string | null | undefined,
   config: ReturnType<typeof useKimiModelConfig>
@@ -416,6 +385,7 @@ export function useComposerAgentSelection(input?: {
   opencodePermissionMode?: OpenCodePermissionMode | null;
   claudeReasoningEffort?: ClaudeReasoningEffort | null;
   grokReasoningEffort?: GrokReasoningEffort | null;
+  onSelectionChange?: (selection: AgentModelSelection) => void;
 }) {
   const claudeModelConfig = useClaudeModelConfig();
   const codexModelConfig = useCodexModelConfig();
@@ -721,33 +691,49 @@ export function useComposerAgentSelection(input?: {
       setProviderState(nextProvider);
       setModelState(nextSelection.model);
       setCompatibleProviderId(nextSelection.compatibleProviderId);
+      input?.onSelectionChange?.({
+        provider: nextProvider,
+        model: nextSelection.model,
+        compatibleProviderId: nextSelection.compatibleProviderId,
+      });
     },
-    [resolveModelForProvider]
+    [input?.onSelectionChange, resolveModelForProvider]
   );
 
   const selectModel = useCallback(
-    (option: ComposerModelOption) => {
+    (option: ComposerModelOption, targetProvider: AgentProvider = provider) => {
       const nextModel = option.value.trim() || null;
-      const nextCompatibleProviderId = option.compatibleProviderId || null;
+      const nextCompatibleProviderId =
+        targetProvider === 'claude' ? option.compatibleProviderId || null : null;
+      if (targetProvider !== provider) {
+        savePreferredProvider(targetProvider);
+        setProviderState(targetProvider);
+      }
       setModelState(nextModel);
       setCompatibleProviderId(nextCompatibleProviderId);
 
-      if (provider === 'claude') {
+      if (targetProvider === 'claude') {
         savePreferredClaudeModel(nextModel);
         savePreferredClaudeCompatibleProviderId(nextCompatibleProviderId);
-      } else if (provider === 'codex') {
+      } else if (targetProvider === 'codex') {
         savePreferredCodexModel(nextModel);
-      } else if (provider === 'opencode') {
+      } else if (targetProvider === 'opencode') {
         savePreferredOpencodeModel(nextModel);
-      } else if (provider === 'kimi') {
+      } else if (targetProvider === 'kimi') {
         savePreferredKimiModel(nextModel);
-      } else if (provider === 'grok') {
+      } else if (targetProvider === 'grok') {
         savePreferredGrokModel(nextModel);
-      } else if (provider === 'pi') {
+      } else if (targetProvider === 'pi') {
         savePreferredPiModel(nextModel);
       }
+
+      input?.onSelectionChange?.({
+        provider: targetProvider,
+        model: nextModel,
+        compatibleProviderId: nextCompatibleProviderId,
+      });
     },
-    [provider]
+    [input?.onSelectionChange, provider]
   );
 
   const selectedModelOption = useMemo(() => {

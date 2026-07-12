@@ -58,6 +58,7 @@ import {
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { loadPreferredProvider } from '../utils/provider';
 import { StreamDeltaCoalescer } from '../utils/stream-delta-coalescer';
+import { applySessionAgentSelection } from '../utils/session-model';
 
 // P1: renderer-side coalescing of streaming text/thinking deltas. Lives at
 // module scope (one per renderer); the emitter is bound inside
@@ -1790,6 +1791,20 @@ export const useAppStore = create<Store>()(
   clearGlobalError: () => set({ globalError: null }),
 
   setPendingStart: (pending) => set({ pendingStart: pending }),
+
+  setSessionAgentSelection: (sessionId, selection) =>
+    set((state) => {
+      const session = state.sessions[sessionId];
+      if (!session) {
+        return state;
+      }
+      return {
+        sessions: {
+          ...state.sessions,
+          [sessionId]: applySessionAgentSelection(session, selection),
+        },
+      };
+    }),
 
   createDraftSession: (cwd, channelId, workspace) => {
     const draftCwd = cwd ?? get().projectCwd;

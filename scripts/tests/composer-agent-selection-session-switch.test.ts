@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { resolveListedOrPendingModel } from '../../src/ui/hooks/useComposerAgentSelection.ts';
+import {
+  applySessionAgentSelection,
+  resolveListedOrPendingModel,
+} from '../../src/ui/utils/session-model';
+import type { SessionView } from '../../src/ui/types';
 
 function testPrefersSessionModelWhenListLoaded() {
   const resolved = resolveListedOrPendingModel(
@@ -83,10 +87,57 @@ function testSessionSwitchDoesNotPassThroughDefaultLabel() {
   assert.notEqual(selectedOption?.label, 'Default');
 }
 
+function testCurrentSessionSelectionUpdatesImmediately() {
+  const session = {
+    id: 'draft-1',
+    title: 'New Chat',
+    status: 'idle',
+    provider: 'claude',
+    model: 'claude-old',
+    compatibleProviderId: 'custom-provider',
+  } as unknown as SessionView;
+
+  const updated = applySessionAgentSelection(session, {
+    provider: 'codex',
+    model: 'gpt-5.6-terra',
+    compatibleProviderId: null,
+  });
+
+  assert.equal(updated.provider, 'codex');
+  assert.equal(updated.model, 'gpt-5.6-terra');
+  assert.equal(
+    updated.compatibleProviderId,
+    undefined,
+    'switching away from Claude must clear the compatible-provider selection'
+  );
+  assert.equal(session.model, 'claude-old', 'session updates must remain immutable');
+}
+
+function testDefaultModelClearsSessionOverride() {
+  const session = {
+    id: 'draft-2',
+    title: 'New Chat',
+    status: 'idle',
+    provider: 'claude',
+    model: 'claude-explicit',
+  } as unknown as SessionView;
+
+  const updated = applySessionAgentSelection(session, {
+    provider: 'claude',
+    model: null,
+    compatibleProviderId: null,
+  });
+
+  assert.equal(updated.model, undefined);
+  assert.equal(updated.compatibleProviderId, undefined);
+}
+
 testPrefersSessionModelWhenListLoaded();
 testUsesPreferredWhileConfigStillLoading();
 testKeepsSessionModelMissingFromStaleList();
 testFallsBackToConfigDefault();
 testReturnsNullOnlyWhenNothingKnown();
 testSessionSwitchDoesNotPassThroughDefaultLabel();
+testCurrentSessionSelectionUpdatesImmediately();
+testDefaultModelClearsSessionOverride();
 console.log('composer-agent-selection-session-switch.test.ts: ok');

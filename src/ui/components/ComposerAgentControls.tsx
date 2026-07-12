@@ -912,7 +912,7 @@ export function ComposerAgentModelPicker({
   allAgentModelOptions: Record<string, ComposerModelOption[]>;
   disabled?: boolean;
   onAgentChange: (provider: AgentProvider) => void;
-  onModelChange: (option: ComposerModelOption) => void;
+  onModelChange: (option: ComposerModelOption, provider?: AgentProvider) => void;
   codexModels?: CodexModelConfig['availableModels'];
   claudeReasoningEffort?: ClaudeReasoningEffort | null;
   onClaudeReasoningEffortChange?: (effort: ClaudeReasoningEffort) => void;
@@ -938,10 +938,11 @@ export function ComposerAgentModelPicker({
     if (provider !== agentProvider) {
       notifySetupNeeded(readinessByProvider.get(provider));
     }
-    onAgentChange(provider);
     if (option) {
-      onModelChange(option);
+      onModelChange(option, provider);
+      return;
     }
+    onAgentChange(provider);
   };
 
   // Determine which model option is currently selected for the trigger label

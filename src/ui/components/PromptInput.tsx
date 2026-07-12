@@ -42,7 +42,10 @@ import { ClaudePermissionModePicker } from './ClaudePermissionModePicker';
 import { CodexPermissionModePicker } from './CodexPermissionModePicker';
 import { KimiPermissionModePicker } from './KimiPermissionModePicker';
 import { OpenCodePermissionModePicker } from './OpenCodePermissionModePicker';
-import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
+import {
+  useComposerAgentSelection,
+  type ComposerModelOption,
+} from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
@@ -115,6 +118,7 @@ export function PromptInput({
     consumeChatInjection,
     draftStartMode,
     handoffSessionToProvider,
+    setSessionAgentSelection,
   } = useAppStore(
     useShallow((s) => ({
       activeSessionId: s.activeSessionId,
@@ -130,6 +134,7 @@ export function PromptInput({
       consumeChatInjection: s.consumeChatInjection,
       draftStartMode: s.draftStartMode,
       handoffSessionToProvider: s.handoffSessionToProvider,
+      setSessionAgentSelection: s.setSessionAgentSelection,
     }))
   );
   const [prompt, setPrompt] = useState('');
@@ -229,6 +234,15 @@ export function PromptInput({
     });
   };
 
+  const handleSessionAgentSelectionChange = useCallback(
+    (selection: import('../utils/session-model').AgentModelSelection) => {
+      if (activeSession) {
+        setSessionAgentSelection(activeSession.id, selection);
+      }
+    },
+    [activeSession?.id, setSessionAgentSelection]
+  );
+
   const agentSelection = useComposerAgentSelection({
     selectionKey: activeSession?.id || targetSessionId || '__composer__',
     provider: activeSession?.provider || null,
@@ -244,6 +258,7 @@ export function PromptInput({
       activeSession?.provider === 'claude' ? activeSession.claudeReasoningEffort || null : null,
     grokReasoningEffort:
       activeSession?.provider === 'grok' ? activeSession.grokReasoningEffort || null : null,
+    onSelectionChange: handleSessionAgentSelectionChange,
   });
   const runtimeProvider = agentSelection.provider;
   const selectedModel = agentSelection.model;
@@ -332,6 +347,20 @@ export function PromptInput({
       agentSelection.selectAgent(nextProvider);
     },
     [activeSession?.provider, agentSelection, sessionProviderLocked]
+  );
+  const handleModelChange = useCallback(
+    (option: ComposerModelOption, targetProvider: AgentProvider = runtimeProvider) => {
+      if (
+        sessionProviderLocked &&
+        activeSession?.provider &&
+        targetProvider !== activeSession.provider
+      ) {
+        setHandoffTarget(targetProvider);
+        return;
+      }
+      agentSelection.selectModel(option, targetProvider);
+    },
+    [activeSession?.provider, agentSelection, runtimeProvider, sessionProviderLocked]
   );
   const confirmHandoff = useCallback(async () => {
     if (!activeSession || !handoffTarget || handoffBusy) {
@@ -1314,7 +1343,7 @@ export function PromptInput({
                 allAgentModelOptions={agentSelection.allAgentModelOptions}
                 disabled={isBusy}
                 onAgentChange={handleAgentChange}
-                onModelChange={agentSelection.selectModel}
+                onModelChange={handleModelChange}
                 codexModels={agentSelection.codexModels.length > 0 ? agentSelection.codexModels : undefined}
                 claudeReasoningEffort={agentSelection.claudeReasoningEffort ?? undefined}
                 onClaudeReasoningEffortChange={agentSelection.setClaudeReasoningEffort}
