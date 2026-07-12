@@ -1743,12 +1743,15 @@ function RightPanelLauncherContent({
                 disabled={disabled}
                 onClick={item.onSelect}
                 title={disabled ? item.disabledReason : item.label}
-                className={`group flex h-10 min-w-0 items-center gap-3 rounded-lg px-4 text-left text-[var(--text-secondary)] transition-colors hover:bg-[#EFEFED] hover:text-[var(--text-primary)] ${
+                className={`flex h-10 min-w-0 items-center gap-3 rounded-lg px-4 text-left text-[var(--text-secondary)] transition-colors hover:bg-[#EFEFED] hover:text-[var(--text-primary)] ${
                   disabled ? 'cursor-not-allowed opacity-45 hover:bg-transparent hover:text-[var(--text-secondary)]' : ''
                 }`}
               >
-                <Icon className="h-[18px] w-[18px] shrink-0 text-[var(--text-muted)] transition-colors group-hover:text-[var(--text-primary)]" />
-                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[var(--text-primary)]">
+                <Icon
+                  className="h-[18px] w-[18px] shrink-0 text-[var(--text-secondary)]"
+                  strokeWidth={1.5}
+                />
+                <span className="min-w-0 flex-1 truncate text-[13px] font-normal text-[var(--text-primary)]">
                   {item.label}
                 </span>
               </button>
