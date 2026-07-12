@@ -872,6 +872,10 @@ function lineIsActive(state: EditorState, lineFrom: number, lineTo: number): boo
   return state.selection.ranges.some((range) => range.from <= lineTo && range.to >= lineFrom);
 }
 
+function isMarkdownHorizontalRule(text: string): boolean {
+  return /^ {0,3}(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/.test(text);
+}
+
 function selectionTouchesSourceRange(state: EditorState, from: number, to: number): boolean {
   return state.selection.ranges.some((range) => {
     if (range.empty) {
@@ -924,20 +928,20 @@ function scrollEditorPositionIntoMainView(view: EditorView, host: HTMLElement | 
   if (!scroller) return;
 
   window.requestAnimationFrame(() => {
-    const coords = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
-    const scrollerRect = scroller.getBoundingClientRect();
-    const contentRect = view.contentDOM.getBoundingClientRect();
-    const lineBlock = view.lineBlockAt(pos);
-    const targetTop = coords?.top ?? contentRect.top + lineBlock.top;
-    const topOffset = Math.min(
-      OUTLINE_TARGET_MAX_TOP_OFFSET_PX,
-      Math.max(OUTLINE_TARGET_MIN_TOP_OFFSET_PX, scroller.clientHeight * OUTLINE_TARGET_VIEWPORT_RATIO)
-    );
-    const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-    const nextScrollTop = scroller.scrollTop + targetTop - scrollerRect.top - topOffset;
-    scroller.scrollTo({
-      top: Math.min(maxScrollTop, Math.max(0, nextScrollTop)),
-      behavior: 'smooth',
+    window.requestAnimationFrame(() => {
+      const coords = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
+      if (!coords) return;
+      const scrollerRect = scroller.getBoundingClientRect();
+      const topOffset = Math.min(
+        OUTLINE_TARGET_MAX_TOP_OFFSET_PX,
+        Math.max(OUTLINE_TARGET_MIN_TOP_OFFSET_PX, scroller.clientHeight * OUTLINE_TARGET_VIEWPORT_RATIO)
+      );
+      const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+      const nextScrollTop = scroller.scrollTop + coords.top - scrollerRect.top - topOffset;
+      scroller.scrollTo({
+        top: Math.min(maxScrollTop, Math.max(0, nextScrollTop)),
+        behavior: 'auto',
+      });
     });
   });
 }
@@ -1284,6 +1288,38 @@ class CodeBlockPreviewWidget extends MeasuredBlockWidget {
   }
 }
 
+class HorizontalRulePreviewWidget extends MeasuredBlockWidget {
+  constructor(private readonly sourcePos: number) {
+    super();
+  }
+
+  eq(other: HorizontalRulePreviewWidget) {
+    return other.sourcePos === this.sourcePos;
+  }
+
+  toDOM(view: EditorView) {
+    const wrapper = createMeasuredMarkdownBlock(
+      view,
+      'div',
+      'aegis-cm-horizontal-rule',
+      this.sourcePos
+    );
+    wrapper.setAttribute('role', 'separator');
+    const rule = document.createElement('span');
+    rule.className = 'aegis-cm-horizontal-rule-line';
+    wrapper.appendChild(rule);
+    wrapper.addEventListener('click', () => {
+      view.dispatch({ selection: EditorSelection.cursor(this.sourcePos) });
+      view.focus();
+    });
+    return wrapper;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
 class TablePreviewWidget extends MeasuredBlockWidget {
   constructor(
     private readonly rows: string[][],
@@ -1444,6 +1480,18 @@ function addInlineMarkdownDecorations(
     );
     if (!activeLine) {
       addHiddenRange(decorations, lineFrom, lineFrom + heading[0].length);
+    }
+  }
+
+  const blockquote = /^(\s*>\s?)/.exec(lineText);
+  if (blockquote) {
+    decorations.push(
+      Decoration.line({
+        class: `aegis-cm-blockquote-line${activeLine ? ' is-source' : ''}`,
+      }).range(lineFrom)
+    );
+    if (!activeLine) {
+      addHiddenRange(decorations, lineFrom, lineFrom + blockquote[0].length);
     }
   }
 
@@ -1613,6 +1661,14 @@ function buildLivePreviewDecorations(state: EditorState, cwd: string, filePath: 
     if (blockLines.has(lineNumber)) continue;
     const line = state.doc.line(lineNumber);
     const activeLine = lineIsActive(state, line.from, line.to);
+
+    if (!activeLine && isMarkdownHorizontalRule(line.text)) {
+      decorations.push(Decoration.replace({
+        widget: new HorizontalRulePreviewWidget(line.from),
+        block: true,
+      }).range(line.from, line.to));
+      continue;
+    }
 
     const image = findImageInLine(line.text, line.from);
     if (image && line.text.trim() === `![${image.alt}](${image.src})`) {

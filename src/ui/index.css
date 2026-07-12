@@ -1175,19 +1175,18 @@ button.md-inline-file-code:hover {
   --project-md-muted: color-mix(in srgb, var(--text-secondary) 86%, #787774);
   --project-md-soft: color-mix(in srgb, var(--text-muted) 72%, transparent);
   --project-md-rule: color-mix(in srgb, var(--border) 82%, transparent);
-  --project-md-callout-bg: color-mix(in srgb, var(--bg-tertiary) 48%, var(--preview-surface));
   --project-md-table-head: color-mix(in srgb, var(--bg-tertiary) 58%, var(--preview-surface));
   --project-md-row-hover: color-mix(in srgb, var(--bg-tertiary) 36%, transparent);
   --project-md-blue: #2563eb;
 
   box-sizing: border-box;
-  width: min(100%, 780px);
+  width: min(100%, 900px);
   min-height: 100%;
   margin: 0 auto;
-  padding: 30px 34px 48px;
+  padding: 18px 20px 48px;
   color: var(--project-md-text);
   font-size: 14px;
-  line-height: 1.65;
+  line-height: 1.62;
 }
 
 .project-markdown-preview > :first-child {
@@ -1200,31 +1199,40 @@ button.md-inline-file-code:hover {
 
 .project-markdown-preview h1,
 .project-markdown-preview h2,
-.project-markdown-preview h3 {
+.project-markdown-preview h3,
+.project-markdown-preview h4,
+.project-markdown-preview h5,
+.project-markdown-preview h6 {
+  border-bottom: 0;
   color: var(--text-primary);
   letter-spacing: 0;
+  text-decoration: none;
+}
+
+.project-markdown-preview :is(h1, h2, h3, h4, h5, h6) a {
+  border-bottom: 0;
+  text-decoration: none;
 }
 
 .project-markdown-preview h1 {
-  margin: 0 0 0.85rem;
-  font-size: 34px;
-  line-height: 1.16;
-  font-weight: 760;
-  letter-spacing: -0.01em;
+  margin: 0 0 0.9rem;
+  font-size: 22px;
+  line-height: 1.3;
+  font-weight: 650;
 }
 
 .project-markdown-preview h2 {
-  margin: 1.35rem 0 0.65rem;
-  font-size: 20px;
-  line-height: 1.35;
-  font-weight: 720;
+  margin: 1.5rem 0 0.7rem;
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 650;
 }
 
 .project-markdown-preview h3 {
-  margin: 1.35rem 0 0.45rem;
+  margin: 1.25rem 0 0.45rem;
   font-size: 15px;
   line-height: 1.45;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .project-markdown-preview p {
@@ -1355,31 +1363,17 @@ button.md-inline-file-code:hover {
 }
 
 .project-markdown-preview blockquote {
-  position: relative;
-  margin: 0.9rem 0;
-  padding: 0.72rem 0.9rem 0.72rem 2.25rem;
-  border: 1px solid var(--project-md-rule);
-  border-left: 2px solid var(--project-md-blue);
-  border-radius: 5px;
-  background: var(--project-md-callout-bg);
+  margin: 0.75rem 0 1.4rem;
+  padding: 0.08rem 0 0.08rem 0.85rem;
+  border: 0;
+  border-left: 3px solid var(--project-md-rule);
+  border-radius: 0;
+  background: transparent;
   color: color-mix(in srgb, var(--project-md-text) 78%, var(--project-md-muted));
 }
 
 .project-markdown-preview blockquote::before {
-  content: "“";
-  position: absolute;
-  left: 0.85rem;
-  top: 0.68rem;
-  width: 1rem;
-  height: 1rem;
-  border: 1px solid var(--project-md-rule);
-  border-radius: 999px;
-  color: var(--project-md-muted);
-  background: var(--preview-surface);
-  font-family: Georgia, serif;
-  font-size: 16px;
-  line-height: 1rem;
-  text-align: center;
+  content: none;
 }
 
 .project-markdown-preview blockquote > :first-child {
@@ -2026,13 +2020,13 @@ button.aegis-mdx-metadata-key:hover {
 .aegis-md-editor {
   --aegis-md-editor-surface: var(--workbench-surface, var(--bg-primary));
   --aegis-md-editor-chrome-surface: color-mix(in srgb, var(--aegis-md-editor-surface) 96%, var(--bg-primary));
-  --aegis-md-page-width: 780px;
-  --aegis-md-page-padding-x: 34px;
+  --aegis-md-page-width: 900px;
+  --aegis-md-page-padding-x: 20px;
   --aegis-md-body-width: calc(var(--aegis-md-page-width) - (var(--aegis-md-page-padding-x) * 2));
   --aegis-md-prose-font: var(--font-sans), -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
-  --aegis-md-prose-font-size: 16px;
-  --aegis-md-prose-line-height: 1.78;
-  --aegis-md-paragraph-gap: 0.82em;
+  --aegis-md-prose-font-size: 14px;
+  --aegis-md-prose-line-height: 1.62;
+  --aegis-md-paragraph-gap: 0.62em;
   display: flex;
   min-height: 100%;
   height: 100%;
@@ -2238,7 +2232,7 @@ button.aegis-mdx-metadata-key:hover {
   width: min(100%, var(--aegis-md-page-width));
   min-height: 100%;
   margin: 0 auto;
-  padding: 30px var(--aegis-md-page-padding-x) 120px;
+  padding: 18px var(--aegis-md-page-padding-x) 100px;
 }
 
 .aegis-md-codemirror-root .cm-editor {
@@ -2296,10 +2290,26 @@ button.aegis-mdx-metadata-key:hover {
 }
 
 .aegis-cm-heading-line {
+  border-bottom: 0;
   color: var(--text-primary);
   letter-spacing: 0;
   line-height: 1.25;
-  font-weight: 720;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.aegis-cm-heading-line > span {
+  font-weight: inherit !important;
+}
+
+.aegis-cm-heading-line,
+.aegis-cm-heading-line * {
+  text-decoration: none !important;
+}
+
+.aegis-cm-heading-line .aegis-cm-link {
+  border-bottom: 0;
+  text-decoration: none;
 }
 
 .aegis-cm-heading-line.is-source {
@@ -2307,22 +2317,49 @@ button.aegis-mdx-metadata-key:hover {
 }
 
 .aegis-cm-heading-line.level-1 {
-  padding: 0 0 0.85rem;
-  font-size: 34px;
-  font-weight: 760;
+  padding: 0 0 0.9rem;
+  font-size: 22px;
+  line-height: 1.3;
+  font-weight: 650;
 }
 
 .aegis-cm-heading-line.level-2 {
-  padding: 1.35rem 0 0.65rem;
-  font-size: 20px;
+  padding: 1.5rem 0 0.7rem;
+  font-size: 18px;
+  line-height: 1.4;
 }
 
 .aegis-cm-heading-line.level-3,
 .aegis-cm-heading-line.level-4,
 .aegis-cm-heading-line.level-5,
 .aegis-cm-heading-line.level-6 {
-  padding: 1.15rem 0 0.42rem;
-  font-size: 17px;
+  padding: 1.25rem 0 0.45rem;
+  font-size: 15px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+.aegis-md-codemirror-root .cm-line.aegis-cm-blockquote-line {
+  border-left: 3px solid color-mix(in srgb, var(--border) 82%, transparent);
+  padding-left: 0.85rem;
+  color: color-mix(in srgb, var(--text-primary) 78%, var(--text-secondary));
+}
+
+.aegis-md-codemirror-root .cm-line.aegis-cm-blockquote-line.is-source {
+  color: var(--text-secondary);
+}
+
+.aegis-cm-horizontal-rule {
+  display: block;
+  box-sizing: border-box;
+  padding: 1.35rem 0;
+  cursor: text;
+}
+
+.aegis-cm-horizontal-rule-line {
+  display: block;
+  height: 1px;
+  background: color-mix(in srgb, var(--border) 82%, transparent);
 }
 
 .aegis-cm-link {

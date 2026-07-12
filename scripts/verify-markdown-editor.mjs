@@ -67,7 +67,7 @@ import '/src/ui/index.css';
 
 const remoteImage = window.location.origin + ${JSON.stringify(remoteImagePath)};
 const filler = Array.from({ length: 48 }, (_, index) => \`Filler paragraph \${index + 1}: keep the outline target below the first viewport.\`).join('\\n\\n');
-const tailFiller = Array.from({ length: 12 }, (_, index) => \`Tail paragraph \${index + 1}: leave enough room after the outline target.\`).join('\\n\\n');
+const tailFiller = Array.from({ length: 32 }, (_, index) => \`Tail paragraph \${index + 1}: leave enough room after the outline target.\`).join('\\n\\n');
 const initialMarkdown = \`---
 title: Harness
 tags:
@@ -88,6 +88,8 @@ Reverse selection paragraph below heading.
 Inline probe: anchor
 
 Inline \\\`code\\\`, **bold**, *italic*, and ~~strike~~.
+
+---
 
 - [ ] todo item
 
@@ -435,6 +437,9 @@ function Harness() {
           url: node.getAttribute('data-aegis-url'),
         }));
         const inlineCodeTexts = Array.from(document.querySelectorAll('.aegis-cm-inline-code')).map((node) => node.textContent || '');
+        const headingTextDecorations = Array.from(
+          document.querySelectorAll('.aegis-cm-heading-line, .aegis-cm-heading-line *')
+        ).map((node) => window.getComputedStyle(node).textDecorationLine);
         const images = Array.from(document.querySelectorAll('.aegis-cm-image-widget img')).map((node) => ({
           alt: node.getAttribute('alt'),
           src: node.getAttribute('src'),
@@ -479,11 +484,13 @@ function Harness() {
           frontmatterWidgetText: document.querySelector('.aegis-cm-frontmatter-widget')?.textContent || '',
           links,
           inlineCodeTexts,
+          headingTextDecorations,
           bodyText: document.body.innerText,
           codeHeader: document.querySelector('.aegis-cm-code-header')?.textContent || '',
           codeLineText: Array.from(document.querySelectorAll('.aegis-cm-code-body, .aegis-cm-code-line')).map((node) => node.textContent).join('\\n'),
           codeSourceLineTexts: Array.from(document.querySelectorAll('.aegis-cm-code-source-line')).map((node) => node.textContent || ''),
           codeWidgetCount: document.querySelectorAll('.aegis-cm-code-widget').length,
+          horizontalRuleCount: document.querySelectorAll('.aegis-cm-horizontal-rule').length,
           tableHeader: document.querySelector('.aegis-cm-table-widget th')?.textContent || '',
           taskCount: document.querySelectorAll('.aegis-cm-task-checkbox').length,
           outlineTriggerTexts: Array.from(document.querySelectorAll('.aegis-md-outline-trigger span')).map((node) => node.textContent || ''),
@@ -934,6 +941,12 @@ async function main() {
     assert(initialSnapshot.codeHeader.includes('ts'), 'Code block header did not render.');
     assert(initialSnapshot.codeLineText.includes('const value = 1;'), 'Code block body did not render.');
     assert(initialSnapshot.codeWidgetCount >= 1, 'Code block preview widget did not render as a single block.');
+    assert(initialSnapshot.horizontalRuleCount === 1, 'Markdown horizontal rule did not render in live preview.');
+    assert(
+      initialSnapshot.headingTextDecorations.length > 0
+        && initialSnapshot.headingTextDecorations.every((value) => value === 'none'),
+      `Markdown headings should not render underlines: ${JSON.stringify(initialSnapshot.headingTextDecorations)}`
+    );
     assert(initialSnapshot.tableHeader === 'Name', 'Markdown table preview did not render.');
     assert(initialSnapshot.taskCount === 1, 'Task checkbox widget did not render.');
     assert(
