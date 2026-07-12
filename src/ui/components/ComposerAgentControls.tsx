@@ -347,8 +347,7 @@ export function ComposerModelPicker({
             {/* Model submenu trigger */}
             <DropdownMenu.Sub>
               <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[popup-open]:bg-[var(--bg-tertiary)]">
-                <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                  {codexFastMode && <FastModeIcon className="h-3 w-3 flex-shrink-0 text-[var(--text-primary)]" />}
+                <span className="flex min-w-0 flex-1 items-center">
                   <span className="truncate text-[12px] text-[var(--text-primary)]">
                     {label || value || 'Model'}
                   </span>
@@ -380,14 +379,7 @@ export function ComposerModelPicker({
                         >
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-[12px] text-[var(--text-primary)]">
-                              {codexFastMode ? (
-                                <>
-                                  <FastModeIcon className="mr-1 inline h-3 w-3 text-[var(--text-primary)]" />
-                                  {codexModel.name}
-                                </>
-                              ) : (
-                                codexModel.name
-                              )}
+                              {codexModel.name}
                             </span>
                           </span>
                           {isSelected ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
@@ -779,8 +771,7 @@ const CodexAgentSubContent: FC<{
       {/* Model submenu */}
       <DropdownMenu.Sub>
         <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[popup-open]:bg-[var(--bg-tertiary)]">
-          <span className="flex min-w-0 flex-1 items-center gap-1.5">
-            {codexFastMode && <FastModeIcon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-primary)]" />}
+          <span className="flex min-w-0 flex-1 items-center">
             <span className="truncate text-[12px] text-[var(--text-primary)]">Model</span>
           </span>
           <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
@@ -811,14 +802,7 @@ const CodexAgentSubContent: FC<{
                   >
                     <span className="min-w-0 flex-1">
                       <span className="truncate text-[12px] text-[var(--text-primary)]">
-                        {codexFastMode ? (
-                          <>
-                            <FastModeIcon className="mr-1 inline h-3 w-3 text-[var(--text-primary)]" />
-                            {label}
-                          </>
-                        ) : (
-                          label
-                        )}
+                        {label}
                       </span>
                     </span>
                     {isSelected ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[var(--accent)]" /> : null}
