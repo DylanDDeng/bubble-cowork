@@ -5529,6 +5529,28 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     }
   });
 
+  // RPC: 将附件下载到系统 Downloads 目录，重名时自动添加序号。
+  ipcMainHandle('download-attachment', async (_event, filePath: string, suggestedName?: string) => {
+    const spec = getAttachmentSpec(filePath);
+    if (!spec || !existsSync(filePath) || !statSync(filePath).isFile()) {
+      return { filePath: null, error: 'Attachment is no longer available.' };
+    }
+
+    const downloadsDir = app.getPath('downloads');
+    const safeName = basename(suggestedName?.trim() || basename(filePath));
+    const extension = extname(safeName);
+    const stem = extension ? safeName.slice(0, -extension.length) : safeName;
+    let targetPath = join(downloadsDir, safeName);
+    let suffix = 2;
+    while (existsSync(targetPath)) {
+      targetPath = join(downloadsDir, `${stem} (${suffix})${extension}`);
+      suffix += 1;
+    }
+
+    await fsPromises.copyFile(filePath, targetPath);
+    return { filePath: targetPath };
+  });
+
   // RPC: 获取项目文件树
   ipcMainHandle('get-project-tree', async (_event, cwd: string) => {
     if (!cwd) {

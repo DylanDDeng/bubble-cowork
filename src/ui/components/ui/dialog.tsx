@@ -53,7 +53,10 @@ const Content = React.forwardRef<HTMLDivElement, ContentProps>(
   ({ className, ...props }, ref) => (
     <Dialog.Popup
       ref={ref}
-      className={cn(className)}
+      // no-drag: popups portal above the window's -webkit-app-region: drag
+      // titlebar strips; without it, clicks near the top edge hit the native
+      // drag region instead of the dialog.
+      className={cn('no-drag', className)}
       {...props}
     />
   )

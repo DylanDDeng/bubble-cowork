@@ -234,6 +234,7 @@ declare global {
     selectDirectory: () => Promise<string | null>;
     selectAttachments: () => Promise<Attachment[]>;
     readAttachmentPreview: (filePath: string) => Promise<string | null>;
+    downloadAttachment: (filePath: string, suggestedName?: string) => Promise<{ filePath: string | null; error?: string }>;
     readProjectFilePreview: (cwd: string, filePath: string) => Promise<unknown>;
     createProjectAttachment: (cwd: string, filePath: string) => Promise<Attachment | null>;
     createProjectFile: (cwd: string, parentPath: string, name: string) => Promise<{ ok: boolean; path?: string; tree?: ProjectTreeNode; message?: string }>;

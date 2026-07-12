@@ -649,6 +649,10 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('read-attachment-preview', filePath);
   },
 
+  downloadAttachment: (filePath: string, suggestedName?: string) => {
+    return ipcRenderer.invoke('download-attachment', filePath, suggestedName);
+  },
+
   // 读取项目文件预览
   readProjectFilePreview: (cwd: string, filePath: string) => {
     return ipcRenderer.invoke('read-project-file-preview', cwd, filePath);
