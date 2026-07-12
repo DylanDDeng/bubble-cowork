@@ -351,6 +351,7 @@ function MarkdownAnchor({
           name={projectFile.path}
           className="md-file-link-icon"
           fallbackClassName="md-file-link-fallback-icon"
+          useCurrentColor
         />
         <span className="md-link-label">{children}</span>
         {showLine && <span className="md-file-link-line">(line {projectFile.line})</span>}
@@ -405,6 +406,7 @@ function InlineProjectFileCode({ projectFile }: { projectFile: ProjectFileLink }
         name={projectFile.path}
         className="md-inline-file-code-icon"
         fallbackClassName="md-inline-file-code-fallback-icon"
+        useCurrentColor
       />
       <span className="md-inline-file-code-label">{projectFile.path}</span>
       {projectFile.line ? (

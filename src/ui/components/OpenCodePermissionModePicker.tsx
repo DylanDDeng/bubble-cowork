@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { ChevronUp, ChevronDown } from './icons';
 import type { OpenCodePermissionMode } from '../types';
 
 export function OpenCodePermissionModePicker({
@@ -17,7 +16,6 @@ export function OpenCodePermissionModePicker({
 }) {
   const [open, setOpen] = useState(false);
   const current = MODE_META[value];
-  const Chevron = menuSide === 'bottom' ? ChevronDown : ChevronUp;
 
   return (
     <div className="relative no-drag">
@@ -27,16 +25,13 @@ export function OpenCodePermissionModePicker({
         disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`inline-flex items-center gap-1 rounded-md py-1 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+        className={`inline-flex items-center rounded-lg px-1.5 py-1 text-[12px] font-medium transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50 ${
           value === 'fullAccess'
             ? 'text-[#b42318] hover:text-[#991b1b]'
-            : value === 'plan'
-              ? 'text-[#7c3aed] hover:text-[#6d28d9]'
-              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
         }`}
       >
         <span>{current.label}</span>
-        <Chevron className={`h-3.5 w-3.5 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && !disabled && (

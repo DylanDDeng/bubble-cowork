@@ -85,16 +85,38 @@ export function FileTypeIcon({
   name,
   className = 'h-4 w-4',
   fallbackClassName = 'h-3.5 w-3.5 text-[var(--text-secondary)]',
+  useCurrentColor = false,
 }: {
   name: string;
   className?: string;
   fallbackClassName?: string;
+  useCurrentColor?: boolean;
 }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const iconUrl = useMemo(() => getFileTypeIconUrl(name), [name]);
 
   if (failedUrl === iconUrl) {
     return <File className={fallbackClassName} strokeWidth={1.9} />;
+  }
+
+  if (useCurrentColor) {
+    return (
+      <span
+        aria-hidden="true"
+        className={className}
+        style={{
+          backgroundColor: 'currentColor',
+          WebkitMaskImage: `url("${iconUrl}")`,
+          WebkitMaskPosition: 'center',
+          WebkitMaskRepeat: 'no-repeat',
+          WebkitMaskSize: 'contain',
+          maskImage: `url("${iconUrl}")`,
+          maskPosition: 'center',
+          maskRepeat: 'no-repeat',
+          maskSize: 'contain',
+        }}
+      />
+    );
   }
 
   return (

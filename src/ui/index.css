@@ -749,6 +749,7 @@ button.md-inline-file-code:hover {
   width: 1em;
   height: 1em;
   flex: 0 0 auto;
+  color: var(--accent);
 }
 
 .markdown-content .md-inline-file-code-label {
@@ -1106,6 +1107,11 @@ button.md-inline-file-code:hover {
   width: 1em;
   height: 1em;
   flex: 0 0 auto;
+}
+
+.markdown-content .md-file-link-icon,
+.markdown-content .md-file-link-fallback-icon {
+  color: var(--accent);
 }
 
 .markdown-content .md-file-link-icon {

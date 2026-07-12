@@ -22,6 +22,16 @@ for (const file of [
   assert.ok(src.includes("menuSide = 'top'"), `${file}: menuSide should default to 'top'`);
   assert.ok(src.includes("'top-full mt-2'"), `${file}: missing downward (top-full mt-2) class`);
   assert.ok(src.includes("'bottom-full mb-2'"), `${file}: missing upward (bottom-full mb-2) class`);
+  assert.ok(!src.includes('Chevron'), `${file}: permission trigger should not show a dropdown arrow`);
+  assert.ok(
+    src.includes('text-[var(--text-muted)] hover:text-[var(--text-secondary)]'),
+    `${file}: non-full-access modes should use muted trigger text`
+  );
+  assert.ok(
+    src.includes('hover:bg-[var(--bg-tertiary)]'),
+    `${file}: permission trigger should show a subtle hover background`
+  );
+  assert.ok(src.includes('rounded-lg'), `${file}: permission hover background should have rounded corners`);
 }
 
 // 2. The merged agent/model picker uses the prop instead of a hardcoded side.
