@@ -1,13 +1,6 @@
 import type { ReactNode } from 'react';
 import { MessageCircle, Plug } from './icons';
-
-// Shared starter prompts shown on the new-thread landing (first entry + empty draft).
-export const STARTER_PROMPTS = [
-  'Explain how this project is structured and where to start',
-  'Find and fix a bug in the current code',
-  'Add tests for the most important module',
-  'Review my recent changes and suggest improvements',
-];
+import { DEFAULT_PROJECT_STARTER_PROMPTS } from '../utils/project-starter-prompts';
 
 /**
  * Centered landing chrome used both on first app entry (NewSessionView) and on a
@@ -16,11 +9,13 @@ export const STARTER_PROMPTS = [
  */
 export function NewThreadLanding({
   heading,
+  prompts = DEFAULT_PROJECT_STARTER_PROMPTS,
   children,
   onPickSuggestion,
   onConnectApps,
 }: {
   heading: string;
+  prompts?: string[];
   children: ReactNode;
   onPickSuggestion: (text: string) => void;
   onConnectApps: () => void;
@@ -35,7 +30,7 @@ export function NewThreadLanding({
         <div className="no-drag">{children}</div>
 
         <div className="mt-7 no-drag">
-          {STARTER_PROMPTS.map((text) => (
+          {prompts.map((text) => (
             <button
               key={text}
               type="button"

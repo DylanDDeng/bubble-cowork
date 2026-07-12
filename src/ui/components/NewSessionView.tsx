@@ -27,6 +27,7 @@ import { ComposerContextPills } from './ComposerContextPills';
 import { useComposerAgentSelection } from '../hooks/useComposerAgentSelection';
 import { useComposerCapabilityMenu } from '../hooks/useClaudeSkillAutocomplete';
 import { useProjectFileMentions } from '../hooks/useProjectFileMentions';
+import { useProjectStarterPrompts } from '../hooks/useProjectStarterPrompts';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { buildCodexReferencePayload } from '../utils/codex-composer';
 import { insertProjectFileMention } from '../utils/project-file-mentions';
@@ -73,6 +74,7 @@ export function NewSessionView() {
   const isComposingRef = useRef(false);
   const cwd = projectCwd || '';
   const hasSelectedCwd = cwd.trim().length > 0;
+  const starterPrompts = useProjectStarterPrompts(cwd);
   const agentSelection = useComposerAgentSelection({ selectionKey: '__new_session__' });
   const modelSetupRequired = Boolean(agentSelection.modelSetup);
   const capabilityMenu = useComposerCapabilityMenu({
@@ -552,6 +554,7 @@ export function NewSessionView() {
 
       <NewThreadLanding
         heading={heading}
+        prompts={starterPrompts}
         onPickSuggestion={handleUseStarter}
         onConnectApps={handleConnectApps}
       >

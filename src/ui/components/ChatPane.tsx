@@ -23,6 +23,7 @@ import { StructuredResponse } from './StructuredResponse';
 import { WorkingFooter } from './AssistantWorkstream';
 import { PromptInput } from './PromptInput';
 import { NewThreadLanding } from './NewThreadLanding';
+import { useProjectStarterPrompts } from '../hooks/useProjectStarterPrompts';
 import { ComposerContextPills } from './ComposerContextPills';
 import { InSessionSearch } from './search/InSessionSearch';
 import { ComposerPendingPermissionPanel } from './ComposerPendingPermissionPanel';
@@ -1562,6 +1563,7 @@ export function ChatPane({
       !activePermissionRequest
   );
   const threadStarterCwd = session?.projectCwd || session?.cwd || '';
+  const threadStarterPrompts = useProjectStarterPrompts(threadStarterCwd);
   const threadStarterProject = threadStarterCwd
     ? threadStarterCwd.split('/').filter(Boolean).pop() || threadStarterCwd
     : '';
@@ -1680,6 +1682,7 @@ export function ChatPane({
           {showThreadStarter ? (
             <NewThreadLanding
               heading={threadStarterHeading}
+              prompts={threadStarterPrompts}
               onPickSuggestion={(text) =>
                 requestChatInjection({ sessionId, text, mode: 'replace' })
               }

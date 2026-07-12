@@ -53,10 +53,10 @@ export function ComposerContextPills({
   const newBranchValidationMessage = useMemo(() => {
     const name = newBranchName.trim();
     if (!name) return null;
-    if (name.endsWith('/')) return '分支名不能以“/”结尾。';
-    if (name.includes('..')) return '分支名不能包含“..”。';
+    if (name.endsWith('/')) return 'Branch names cannot end with "/".';
+    if (name.includes('..')) return 'Branch names cannot contain "..".';
     if (localBranches.some((entry) => entry.name === name)) {
-      return `分支 ${name} 已存在。`;
+      return `Branch ${name} already exists.`;
     }
     return null;
   }, [localBranches, newBranchName]);
@@ -278,12 +278,12 @@ export function ComposerContextPills({
                     <input
                       value={branchQuery}
                       onChange={(event) => setBranchQuery(event.target.value)}
-                      placeholder="搜索分支"
+                      placeholder="Search branches"
                       className="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
                     />
                   </div>
                   <div className="px-2 pb-1 pt-2 text-[11px] font-medium text-[var(--text-muted)]">
-                    分支
+                    Branches
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto">
                     {branchesLoading && localBranches.length === 0 ? (
@@ -318,7 +318,7 @@ export function ComposerContextPills({
                       className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-[13px] text-[var(--text-secondary)] outline-none data-[highlighted]:bg-[var(--bg-tertiary)] data-[highlighted]:text-[var(--text-primary)]"
                     >
                       <Plus className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
-                      <span className="min-w-0 truncate">创建并检出新分支...</span>
+                      <span className="min-w-0 truncate">Create and checkout new branch…</span>
                     </DropdownMenu.Item>
                   </div>
                 </DropdownMenu.Content>
@@ -333,13 +333,13 @@ export function ComposerContextPills({
           <Dialog.Content className="fixed left-1/2 top-1/2 z-[91] w-[min(420px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-[22px] border border-[var(--border)] bg-[var(--bg-primary)] p-6 shadow-[0_24px_80px_rgba(15,23,42,0.22)] outline-none">
             <div className="mb-7 flex items-start justify-between gap-4">
               <Dialog.Title className="text-[20px] font-semibold leading-7 tracking-[-0.02em] text-[var(--text-primary)]">
-                创建并检出分支
+                Create and checkout branch
               </Dialog.Title>
               <Dialog.Close asChild>
                 <button
                   type="button"
                   className="-mr-1 flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-                  aria-label="关闭"
+                  aria-label="Close"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -353,7 +353,7 @@ export function ComposerContextPills({
             >
               <div className="mb-3 flex items-center justify-between gap-3">
                 <label htmlFor="composer-new-branch-name" className="text-[13px] font-semibold text-[var(--text-primary)]">
-                  分支名称
+                  Branch name
                 </label>
               </div>
               <input
@@ -376,7 +376,7 @@ export function ComposerContextPills({
                     type="button"
                     className="rounded-[12px] bg-[var(--bg-tertiary)] px-5 py-2.5 text-[14px] font-semibold text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-secondary)]"
                   >
-                    关闭
+                    Cancel
                   </button>
                 </Dialog.Close>
                 <button
@@ -384,7 +384,7 @@ export function ComposerContextPills({
                   disabled={!canCreateBranch}
                   className="rounded-[12px] bg-[var(--text-primary)] px-5 py-2.5 text-[14px] font-semibold text-[var(--bg-primary)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  {creatingBranch ? '创建中...' : '创建并检出'}
+                  {creatingBranch ? 'Creating…' : 'Create and checkout'}
                 </button>
               </div>
             </form>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { CodexPermissionMode } from '../types';
+import { FullAccessPermissionIcon } from './FullAccessPermissionIcon';
 
 export function CodexPermissionModePicker({
   value,
@@ -25,12 +26,15 @@ export function CodexPermissionModePicker({
         disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`inline-flex items-center rounded-lg px-1.5 py-1 text-[12px] font-medium transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50 ${
+        className={`inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-[12px] font-medium transition-colors hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50 ${
           value === 'fullAccess'
-            ? 'text-[#b42318] hover:text-[#991b1b]'
+            ? 'text-[#E97E4F] hover:text-[#D96E42]'
             : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
         }`}
       >
+        {value === 'fullAccess' ? (
+          <FullAccessPermissionIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
+        ) : null}
         <span>{current.label}</span>
       </button>
 
