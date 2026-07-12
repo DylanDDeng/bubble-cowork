@@ -1,7 +1,7 @@
 import { type FC, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import * as DropdownMenu from '@/ui/components/ui/dropdown-menu';
-import { Check, ChevronDown, ChevronRight, Copy, Search, Zap } from './icons';
+import { Check, ChevronDown, ChevronRight, Copy, FastModeIcon, Search } from './icons';
 import type { AgentProvider } from '../types';
 import type { ComposerModelOption } from '../hooks/useComposerAgentSelection';
 import { PROVIDERS } from '../utils/provider';
@@ -304,7 +304,7 @@ export function ComposerModelPicker({
             aria-label="Select model"
           >
             <span className="flex min-w-0 items-center gap-1 truncate">
-              {codexFastMode && <Zap className="h-3 w-3 flex-shrink-0 text-[var(--accent)]" />}
+              {codexFastMode && <FastModeIcon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-primary)]" />}
               <span className="truncate">
                 {codexReasoningEffort
                   ? `${label} ${formatCodexReasoningEffortLabel(codexReasoningEffort)}`
@@ -348,7 +348,7 @@ export function ComposerModelPicker({
             <DropdownMenu.Sub>
               <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[popup-open]:bg-[var(--bg-tertiary)]">
                 <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                  {codexFastMode && <Zap className="h-3 w-3 flex-shrink-0 text-[var(--accent)]" />}
+                  {codexFastMode && <FastModeIcon className="h-3 w-3 flex-shrink-0 text-[var(--text-primary)]" />}
                   <span className="truncate text-[12px] text-[var(--text-primary)]">
                     {label || value || 'Model'}
                   </span>
@@ -382,7 +382,7 @@ export function ComposerModelPicker({
                             <span className="block truncate text-[12px] text-[var(--text-primary)]">
                               {codexFastMode ? (
                                 <>
-                                  <Zap className="mr-1 inline h-3 w-3 text-[var(--accent)]" />
+                                  <FastModeIcon className="mr-1 inline h-3 w-3 text-[var(--text-primary)]" />
                                   {codexModel.name}
                                 </>
                               ) : (
@@ -438,7 +438,7 @@ export function ComposerModelPicker({
                   >
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5">
-                        <Zap className="h-3 w-3 text-[var(--accent)]" />
+                        <FastModeIcon className="h-3 w-3 text-[var(--text-primary)]" />
                         <span className="truncate text-[12px] text-[var(--text-primary)]">
                           Fast
                         </span>
@@ -780,7 +780,7 @@ const CodexAgentSubContent: FC<{
       <DropdownMenu.Sub>
         <DropdownMenu.SubTrigger className="flex cursor-default items-center gap-2 rounded-[var(--radius-lg)] px-2.5 py-1.5 outline-none transition-colors data-[highlighted]:bg-[var(--bg-tertiary)] data-[popup-open]:bg-[var(--bg-tertiary)]">
           <span className="flex min-w-0 flex-1 items-center gap-1.5">
-            {codexFastMode && <Zap className="h-3 w-3 flex-shrink-0 text-[var(--accent)]" />}
+            {codexFastMode && <FastModeIcon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-primary)]" />}
             <span className="truncate text-[12px] text-[var(--text-primary)]">Model</span>
           </span>
           <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
@@ -813,7 +813,7 @@ const CodexAgentSubContent: FC<{
                       <span className="truncate text-[12px] text-[var(--text-primary)]">
                         {codexFastMode ? (
                           <>
-                            <Zap className="mr-1 inline h-3 w-3 text-[var(--accent)]" />
+                            <FastModeIcon className="mr-1 inline h-3 w-3 text-[var(--text-primary)]" />
                             {label}
                           </>
                         ) : (
@@ -867,7 +867,7 @@ const CodexAgentSubContent: FC<{
             >
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5">
-                  <Zap className="h-3 w-3 text-[var(--accent)]" />
+                  <FastModeIcon className="h-3 w-3 text-[var(--text-primary)]" />
                   <span className="truncate text-[12px] text-[var(--text-primary)]">
                     Fast
                   </span>
@@ -975,7 +975,7 @@ export function ComposerAgentModelPicker({
         >
           <AgentIcon provider={agentProvider} />
           {agentProvider === 'codex' && codexFastMode ? (
-            <Zap className="h-3 w-3 flex-shrink-0 text-[var(--accent)]" aria-hidden="true" />
+            <FastModeIcon className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-primary)]" aria-hidden="true" />
           ) : null}
           <span className="min-w-0 truncate">{modelLabel}{effortSuffix}</span>
           {currentReadiness && currentReadiness.state !== 'ready' && currentReadiness.state !== 'checking' ? (

@@ -11,6 +11,7 @@ import {
   IconArrowsSplit2,
   IconArrowUp,
   IconBolt,
+  IconBoltFilled,
   IconBook2,
   IconBookmark,
   IconBookmarkPlus,
@@ -268,6 +269,7 @@ export {
   IconSitemap as Workflow,
   IconX as X,
   IconSquareX as XSquare,
+  IconBoltFilled as FastModeIcon,
   IconBolt as Zap,
   IconLayoutSidebarLeftCollapse as PanelLeft,
 };

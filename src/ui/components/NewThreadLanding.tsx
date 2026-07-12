@@ -28,7 +28,7 @@ export function NewThreadLanding({
   return (
     <div className="flex-1 overflow-y-auto px-8 pb-16">
       <div className="mx-auto flex min-h-full w-full max-w-[720px] flex-col justify-center py-12">
-        <h1 className="mb-8 text-center text-[28px] font-semibold leading-tight tracking-[-0.01em] text-[var(--text-primary)] no-drag">
+        <h1 className="mb-8 text-center text-[28px] font-normal leading-tight tracking-[-0.01em] text-[var(--text-primary)] no-drag">
           {heading}
         </h1>
 
