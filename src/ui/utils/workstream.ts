@@ -746,6 +746,8 @@ export function createBatchWorkstreamModel(params: {
   toolResultsMap: Map<string, ToolResultBlock>;
   isSessionRunning: boolean;
   startedAt?: number;
+  /** Turn-level completed duration supplied by the transcript timeline. */
+  durationMs?: number;
   /**
    * Session messages emitted by subagents, grouped by the Task tool_use id
    * they belong to. When provided, Task entries carry a nested SubagentTrace.
@@ -824,7 +826,13 @@ export function createBatchWorkstreamModel(params: {
   const noteCount = allEntries.filter(
     (entry) => entry.type === 'note' || entry.type === 'thinking'
   ).length;
-  const durationMs = computeBatchDurationMs(params.messages, state);
+  const providedDurationMs = params.durationMs;
+  const durationMs =
+    typeof providedDurationMs === 'number' &&
+    Number.isFinite(providedDurationMs) &&
+    providedDurationMs > 0
+      ? providedDurationMs
+      : computeBatchDurationMs(params.messages, state);
   const startedAt = params.startedAt ?? computeBatchStartedAt(params.messages);
 
   return {
@@ -876,7 +884,7 @@ function computeBatchDurationMs(
   }
 
   const duration = max - min;
-  return duration >= 0 ? duration : undefined;
+  return duration > 0 ? duration : undefined;
 }
 
 export function createStreamingWorkstreamModel(params: {

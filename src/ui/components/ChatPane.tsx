@@ -1784,6 +1784,7 @@ export function ChatPane({
                             isSessionRunning={session.status === 'running'}
                             isLastBatch={item.active}
                             startedAt={item.active ? activeTurnStartedAt : undefined}
+                            durationMs={item.group.durationMs}
                             subagentMessagesByParent={subagentMessagesByParent}
                             liveTrace={item.group.id === activeTimelineWorkId ? activeLiveTrace : undefined}
                             defaultExpanded={item.defaultExpanded}
@@ -1900,6 +1901,7 @@ export function ChatPane({
                               toolStatusMap={toolStatusMap}
                               toolResultsMap={toolResultsMap}
                               isSessionRunning={false}
+                              durationMs={item.inlineWorkGroup.durationMs}
                               subagentMessagesByParent={subagentMessagesByParent}
                               defaultExpanded={false}
                             />

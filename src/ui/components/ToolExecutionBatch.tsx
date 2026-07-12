@@ -27,6 +27,8 @@ interface ToolExecutionBatchProps {
    * WorkingFooter. */
   isLastBatch?: boolean;
   startedAt?: number;
+  /** Final duration for a completed turn, resolved by the transcript timeline. */
+  durationMs?: number;
   /** Subagent messages keyed by Task tool_use id — nests them under Task rows. */
   subagentMessagesByParent?: Map<string, StreamMessage[]>;
   liveTrace?: {
@@ -47,6 +49,7 @@ export function ToolExecutionBatch({
   isSessionRunning,
   isLastBatch = false,
   startedAt,
+  durationMs,
   subagentMessagesByParent,
   liveTrace,
   expanded,
@@ -63,10 +66,11 @@ export function ToolExecutionBatch({
         toolResultsMap,
         isSessionRunning: batchIsRunning,
         startedAt: batchIsRunning ? startedAt : undefined,
+        durationMs,
         subagentMessagesByParent,
         liveTrace: batchIsRunning ? liveTrace : undefined,
       }),
-    [messages, toolResultsMap, toolStatusMap, batchIsRunning, startedAt, subagentMessagesByParent, liveTrace]
+    [messages, toolResultsMap, toolStatusMap, batchIsRunning, startedAt, durationMs, subagentMessagesByParent, liveTrace]
   );
 
   const disclosureResetKey = resetKey ?? messages.map((message) => message.uuid).join(':');
@@ -165,7 +169,10 @@ function WorkstreamToggle({
     () => summarizeWorkstreamEntries(model.entries, { changeRecordsByToolUseId }),
     [changeRecordsByToolUseId, model.entries]
   );
-  const workSummary = formatWorkstreamStageSummary(stages);
+  const workSummary =
+    stages.length === 0 && model.noteCount > 0
+      ? 'Reasoning'
+      : formatWorkstreamStageSummary(stages);
   const elapsedMs = model.durationMs ?? estimateElapsedMs(model.startedAt, now);
   const elapsedLabel = typeof elapsedMs === 'number' ? formatElapsed(elapsedMs) : null;
   const stateLabel = isRunning ? 'Working' : 'Worked';

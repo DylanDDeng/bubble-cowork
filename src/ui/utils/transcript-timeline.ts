@@ -14,6 +14,8 @@ export interface TimelineWorkGroup {
   id: string;
   messages: AssistantMessage[];
   originalIndices: number[];
+  /** Completed turn duration resolved from provider metadata or turn timestamps. */
+  durationMs?: number;
 }
 
 export type TranscriptTimelineItem =
@@ -264,6 +266,8 @@ function turnHasUnresolvedToolUse(
 interface CollapseTurnOptions {
   activeTurnStartIndex?: number;
   sessionRunning?: boolean;
+  /** Timestamp of the user prompt that opened this turn, when available. */
+  turnStartedAt?: number;
   /**
    * True for the transcript's final turn. Only that turn can be the one a
    * stop press just interrupted, and only it freezes in place.
@@ -351,10 +355,20 @@ function collapseTurnWorkBeforeAnswer(
     return visibleItems;
   }
 
-  const activeWork = isActiveWorkGroup(combinedWorkGroup, options) && !hasTerminalAnswer;
+  const durationMs = resolveCompletedTurnDurationMs(
+    turnItems,
+    options.turnStartedAt,
+    hasTerminalAnswer
+  );
+  const completedWorkGroup: TimelineWorkGroup =
+    typeof durationMs === 'number'
+      ? { ...combinedWorkGroup, durationMs }
+      : combinedWorkGroup;
+
+  const activeWork = isActiveWorkGroup(completedWorkGroup, options) && !hasTerminalAnswer;
   const workItem: TranscriptTimelineItem = {
     type: 'work',
-    group: combinedWorkGroup,
+    group: completedWorkGroup,
     active: activeWork,
     // An interrupted turn keeps its trace open: it froze mid-run, and
     // collapsing it on the stop press would make the work the user was
@@ -377,6 +391,64 @@ function collapseTurnWorkBeforeAnswer(
   return visibleItems;
 }
 
+function getMessageCreatedAt(message: StreamMessage): number | undefined {
+  const createdAt = (message as { createdAt?: unknown }).createdAt;
+  return typeof createdAt === 'number' && Number.isFinite(createdAt)
+    ? createdAt
+    : undefined;
+}
+
+function resolveCompletedTurnDurationMs(
+  turnItems: TranscriptTimelineItem[],
+  turnStartedAt: number | undefined,
+  hasTerminalAnswer: boolean
+): number | undefined {
+  const messages = turnItems
+    .filter((item): item is Extract<TranscriptTimelineItem, { type: 'message' }> => item.type === 'message')
+    .map((item) => item.message);
+  const result = [...messages]
+    .reverse()
+    .find((message): message is Extract<StreamMessage, { type: 'result' }> => message.type === 'result');
+  const reportedDuration = result?.duration_ms;
+  if (
+    typeof reportedDuration === 'number' &&
+    Number.isFinite(reportedDuration) &&
+    reportedDuration > 0
+  ) {
+    return reportedDuration;
+  }
+
+  if (!result && !hasTerminalAnswer) {
+    return undefined;
+  }
+
+  const terminalAssistant = [...messages]
+    .reverse()
+    .find((message) => message.type === 'assistant');
+  const completedAt = result
+    ? getMessageCreatedAt(result)
+    : terminalAssistant
+      ? getMessageCreatedAt(terminalAssistant)
+      : undefined;
+  const fallbackStartedAt =
+    typeof turnStartedAt === 'number' && Number.isFinite(turnStartedAt)
+      ? turnStartedAt
+      : messages
+          .map(getMessageCreatedAt)
+          .filter((timestamp): timestamp is number => typeof timestamp === 'number')
+          .reduce<number | undefined>(
+            (earliest, timestamp) =>
+              earliest === undefined || timestamp < earliest ? timestamp : earliest,
+            undefined
+          );
+
+  if (completedAt === undefined || fallbackStartedAt === undefined) {
+    return undefined;
+  }
+  const durationMs = completedAt - fallbackStartedAt;
+  return durationMs > 0 ? durationMs : undefined;
+}
+
 function collapseWorkBeforeTerminalAnswers(
   items: TranscriptTimelineItem[],
   options: CollapseTurnOptions
@@ -385,15 +457,16 @@ function collapseWorkBeforeTerminalAnswers(
   // only the final turn can be the one a stop press interrupted.
   type Chunk =
     | { kind: 'passthrough'; item: TranscriptTimelineItem }
-    | { kind: 'turn'; items: TranscriptTimelineItem[] };
+    | { kind: 'turn'; items: TranscriptTimelineItem[]; startedAt?: number };
   const chunks: Chunk[] = [];
   let currentTurnItems: TranscriptTimelineItem[] = [];
+  let currentTurnStartedAt: number | undefined;
 
   const flushTurn = () => {
     if (currentTurnItems.length === 0) {
       return;
     }
-    chunks.push({ kind: 'turn', items: currentTurnItems });
+    chunks.push({ kind: 'turn', items: currentTurnItems, startedAt: currentTurnStartedAt });
     currentTurnItems = [];
   };
 
@@ -403,6 +476,7 @@ function collapseWorkBeforeTerminalAnswers(
   for (const item of items) {
     if (item.type === 'message' && item.message.type === 'user_prompt') {
       flushTurn();
+      currentTurnStartedAt = getMessageCreatedAt(item.message);
       currentRunBoundaryKey = null;
       hasAssistantRunBoundary = false;
       chunks.push({ kind: 'passthrough', item });
@@ -445,6 +519,7 @@ function collapseWorkBeforeTerminalAnswers(
     result.push(
       ...collapseTurnWorkBeforeAnswer(chunk.items, {
         ...options,
+        turnStartedAt: chunk.startedAt,
         trailingTurn: index === lastTurnChunkIndex,
       })
     );
