@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type RefObject } from 'react';
 import { Paperclip } from './icons';
 import { FileTypeIcon } from './FileTypeIcon';
 import type { SessionUserPromptSummary } from '../types';
@@ -56,15 +56,18 @@ const MIN_TICKS = 2;
 export function ChatOutlineRail({
   sessionId,
   livePrompts,
+  scrollContainerRef,
   onNavigate,
 }: {
   sessionId: string;
   livePrompts: SessionUserPromptSummary[];
+  scrollContainerRef: RefObject<HTMLDivElement | null>;
   onNavigate: (createdAt: number) => void;
 }) {
   const [fetched, setFetched] = useState<SessionUserPromptSummary[]>([]);
   const [fetchedSessionId, setFetchedSessionId] = useState<string | null>(null);
   const [hoveredCreatedAt, setHoveredCreatedAt] = useState<number | null>(null);
+  const [activeCreatedAt, setActiveCreatedAt] = useState<number | null>(null);
 
   // Refetch on session switch and when the loaded prompt count changes (new
   // prompt sent, rewind) so the index never drifts far from the DB.
@@ -108,6 +111,59 @@ export function ChatOutlineRail({
     return [...byCreatedAt.values()].sort((left, right) => left.createdAt - right.createdAt);
   }, [fetched, fetchedSessionId, livePrompts, sessionId]);
 
+  const itemKey = items.map((item) => item.createdAt).join(':');
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || items.length === 0) {
+      setActiveCreatedAt(null);
+      return;
+    }
+
+    let frame = 0;
+    const updateActiveItem = () => {
+      frame = 0;
+      const anchors = Array.from(
+        container.querySelectorAll<HTMLElement>('[data-outline-created-at]')
+      );
+      if (anchors.length === 0) return;
+
+      const distanceFromBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+      if (distanceFromBottom <= 32) {
+        const latest = Number(anchors[anchors.length - 1].dataset.outlineCreatedAt);
+        if (Number.isFinite(latest)) {
+          setActiveCreatedAt(latest);
+        }
+        return;
+      }
+
+      const activationLine = container.getBoundingClientRect().top + Math.min(140, container.clientHeight * 0.24);
+      let active = Number(anchors[0].dataset.outlineCreatedAt);
+      for (const anchor of anchors) {
+        if (anchor.getBoundingClientRect().top > activationLine) break;
+        active = Number(anchor.dataset.outlineCreatedAt);
+      }
+      if (Number.isFinite(active)) {
+        setActiveCreatedAt(active);
+      }
+    };
+    const scheduleUpdate = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(updateActiveItem);
+    };
+
+    updateActiveItem();
+    container.addEventListener('scroll', scheduleUpdate, { passive: true });
+    const resizeObserver = new ResizeObserver(scheduleUpdate);
+    resizeObserver.observe(container);
+    return () => {
+      container.removeEventListener('scroll', scheduleUpdate);
+      resizeObserver.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [itemKey, items.length, scrollContainerRef]);
+
   useEffect(() => {
     setHoveredCreatedAt(null);
   }, [sessionId]);
@@ -141,7 +197,8 @@ export function ChatOutlineRail({
         aria-label="Conversation outline"
       >
         {items.map((item, index) => {
-          const active = item.createdAt === hoveredCreatedAt;
+          const hovered = item.createdAt === hoveredCreatedAt;
+          const active = item.createdAt === activeCreatedAt;
           return (
             <button
               key={item.createdAt}
@@ -155,7 +212,11 @@ export function ChatOutlineRail({
             >
               <span
                 className={`h-[2px] rounded-full transition-all duration-150 ${
-                  active ? 'w-3 bg-[var(--text-secondary)]' : 'w-2 bg-[color-mix(in_srgb,var(--text-muted)_38%,transparent)]'
+                  hovered
+                    ? 'w-3 bg-[var(--text-primary)]'
+                    : active
+                      ? 'w-3 bg-[var(--text-secondary)]'
+                      : 'w-2 bg-[color-mix(in_srgb,var(--text-muted)_38%,transparent)]'
                 }`}
               />
             </button>

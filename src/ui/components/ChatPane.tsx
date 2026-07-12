@@ -1715,6 +1715,7 @@ export function ChatPane({
             <ChatOutlineRail
               sessionId={sessionId}
               livePrompts={outlineLivePrompts}
+              scrollContainerRef={scrollContainerRef}
               onNavigate={(createdAt) =>
                 setHistoryNavigationTarget({
                   sessionId,
@@ -1805,6 +1806,9 @@ export function ChatPane({
                     <div key={`message-${item.originalIndex}`} className={copyActionText ? 'group' : undefined}>
                       <div
                         data-message-index={item.originalIndex}
+                        data-outline-created-at={
+                          item.message.type === 'user_prompt' ? item.message.createdAt : undefined
+                        }
                         className={highlighted ? 'rounded-2xl transition-colors duration-300' : undefined}
                         style={
                           highlighted
