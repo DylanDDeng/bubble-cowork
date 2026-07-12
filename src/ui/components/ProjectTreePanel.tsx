@@ -20,12 +20,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import {
-  copyMarkdownAsWechatAiHtml,
-  copyMarkdownAsWechatHtml,
-  type WeChatAiThemeId,
-  type WeChatStaticThemeId,
-} from '../lib/wechatMarkdown';
 import type { ProjectTreeNode, ProjectUtilityPanelKind } from '../types';
 
 type ProjectPanelTab = 'files';
@@ -631,7 +625,6 @@ export function ProjectTreePanel({
   const selectedEditableTextPreviewRef = useRef<ProjectFilePreview | null>(null);
   const activeMarkdownBridgeRef = useRef<ProjectMarkdownEditorBridge | null>(null);
   const activeTextEditorBridgeRef = useRef<ProjectTextEditorHandle | null>(null);
-  const [wechatAiGeneratingTheme, setWechatAiGeneratingTheme] = useState<WeChatAiThemeId | null>(null);
   const normalizedSharedPanelWidth =
     typeof sharedPanelWidth === 'number' && Number.isFinite(sharedPanelWidth)
       ? sharedPanelWidth
@@ -1882,70 +1875,6 @@ export function ProjectTreePanel({
     }
   };
 
-  const showWechatCopyResult = useCallback((
-    result: Awaited<ReturnType<typeof copyMarkdownAsWechatHtml>>,
-    toastId?: string | number,
-  ) => {
-    const modelDescription = result.ok && result.model
-      ? `使用：${result.runtime || 'aegis'} · ${result.model}`
-      : undefined;
-    const resultToastOptions = {
-      closeButton: true,
-      dismissible: true,
-      ...(modelDescription ? { description: modelDescription } : {}),
-    };
-    const toastOptions = toastId === undefined
-      ? resultToastOptions
-      : { ...resultToastOptions, id: toastId };
-    if (result.ok) {
-      if (result.format === 'html') {
-        toast.success('已复制到公众号剪贴板', toastOptions);
-      } else if (result.format === 'source-html') {
-        toast.success('富文本复制不可用，已复制生成的 HTML 源码', toastOptions);
-      } else {
-        toast.success('富文本复制不可用，已复制原始 Markdown', toastOptions);
-      }
-    } else {
-      toast.error(`复制失败: ${result.error}`, toastOptions);
-    }
-  }, []);
-
-  const handleCopyWechatHtml = useCallback(async (themeId: WeChatStaticThemeId = 'bubblebrain') => {
-    activeMarkdownBridgeRef.current?.flush();
-    const result = await copyMarkdownAsWechatHtml(draftTextRef.current, themeId);
-    showWechatCopyResult(result);
-  }, [showWechatCopyResult]);
-
-  const handleCopyAiWechatHtml = useCallback(async (
-    themeId: WeChatAiThemeId,
-    themeLabel: string,
-  ) => {
-    if (wechatAiGeneratingTheme) return;
-    activeMarkdownBridgeRef.current?.flush();
-    setWechatAiGeneratingTheme(themeId);
-    const loadingToastId = toast.loading(`Generating ${themeLabel} HTML...`, {
-      description: 'It will be copied to the WeChat clipboard when ready',
-      duration: Infinity,
-      dismissible: false,
-    });
-    try {
-      const result = await copyMarkdownAsWechatAiHtml(
-        draftTextRef.current,
-        themeId,
-        selectedFilePath || undefined,
-      );
-      showWechatCopyResult(result, loadingToastId);
-    } catch (error) {
-      toast.error(`复制失败: ${error instanceof Error ? error.message : String(error)}`, {
-        id: loadingToastId,
-        closeButton: true,
-        dismissible: true,
-      });
-    } finally {
-      setWechatAiGeneratingTheme(null);
-    }
-  }, [selectedFilePath, showWechatCopyResult, wechatAiGeneratingTheme]);
-
   useEffect(() => {
     return () => {
       if (copiedTimerRef.current) {
@@ -2561,10 +2490,6 @@ export function ProjectTreePanel({
     : null;
   const showProjectFileTabs = openFileTabs.length > 0;
   const showFilePreviewSurface = activeTab === 'files' && !!selectedFilePath;
-  const canCopyWechat =
-    selectedPreview?.kind === 'markdown' &&
-    selectedPreview.editable &&
-    !!selectedFilePath;
   const projectRootDropHoverId = visibleTree ? getNodeDropHoverId(visibleTree.path) : null;
   const isProjectRootDropTarget =
     !!projectRootDropHoverId && projectDropHoverId === projectRootDropHoverId;
@@ -2573,51 +2498,6 @@ export function ProjectTreePanel({
   const projectRootName = visibleTree
     ? visibleTree.name || basenameOfPath(visibleTree.path)
     : cwd ? basenameOfPath(cwd) : 'Project';
-
-  const wechatThemeMenu = canCopyWechat ? (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-2 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-          title="WeChat Theme"
-          aria-label="WeChat Theme"
-        >
-          <span>WeChat Theme</span>
-          <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={6}>
-        <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('bubblebrain')}>
-          <span>BubbleBrain</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => void handleCopyWechatHtml('lapis')}>
-          <span>Lapis</span>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          disabled={wechatAiGeneratingTheme !== null}
-          onSelect={() => void handleCopyAiWechatHtml('black-red-imprint', 'Black Red Imprint')}
-        >
-          <span>
-            {wechatAiGeneratingTheme === 'black-red-imprint'
-              ? 'Black Red Imprint generating...'
-              : 'Black Red Imprint (AI)'}
-          </span>
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={wechatAiGeneratingTheme !== null}
-          onSelect={() => void handleCopyAiWechatHtml('black-orange-imprint', 'Black Orange Imprint')}
-        >
-          <span>
-            {wechatAiGeneratingTheme === 'black-orange-imprint'
-              ? 'Black Orange Imprint generating...'
-              : 'Black Orange Imprint (AI)'}
-          </span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  ) : null;
 
   return (
     <>
@@ -2969,7 +2849,6 @@ export function ProjectTreePanel({
                   }
                 />
               )}
-              {wechatThemeMenu}
               <span className="mx-0.5 h-4 w-px bg-[var(--border)]" aria-hidden="true" />
               <IconButton
                 onClick={toggleFilesRail}
@@ -3086,8 +2965,6 @@ export function ProjectTreePanel({
                         }
                       />
 	                    )}
-
-	                    {wechatThemeMenu}
 
                     {!useEmbeddedFilesGrid && onToggleFullscreen && (
                       <IconButton
@@ -3408,7 +3285,7 @@ const openWithAppsCache = new Map<string, OpenWithApp[]>();
 // Header "打开 ∨" split-button. The primary side shows the DEFAULT app's icon
 // and opens the file with it; the chevron opens a short menu — the top apps
 // that can open the file (Launch Services order, capped) plus
-// "打开所在文件夹". The app list (and thus the default-app icon) is fetched
+// "Show in Finder". The app list (and thus the default-app icon) is fetched
 // eagerly when the file is selected. On non-macOS, or when Launch Services
 // fails or knows no app, the list settles empty and the control hides.
 function OpenWithButton({
@@ -3531,7 +3408,7 @@ function OpenWithButton({
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={revealFolder} className="rounded-md px-2 py-1.5 text-[13px]">
             <FolderClosed className="mr-2.5 h-4 w-4 flex-shrink-0 text-[var(--text-secondary)]" aria-hidden="true" />
-            <span>打开所在文件夹</span>
+            <span>Show in Finder</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

@@ -57,6 +57,12 @@ import {
 } from '../theme/themes';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../../shared/types';
 import { loadPreferredProvider } from '../utils/provider';
+import {
+  DEFAULT_SIDEBAR_WIDTH,
+  SIDEBAR_WIDTH_VERSION,
+  restorePersistedSidebarWidth,
+  sanitizeSidebarWidth,
+} from '../utils/sidebar-width';
 import { StreamDeltaCoalescer } from '../utils/stream-delta-coalescer';
 import { applySessionAgentSelection } from '../utils/session-model';
 
@@ -258,11 +264,6 @@ function shouldPreserveStreamingStateForMessage(
     ((message.type === 'assistant' && message.streaming === true) ||
       (message.type === 'system' && message.subtype === 'token_usage'))
   );
-}
-
-function sanitizeSidebarWidth(width: number | undefined, fallback: number): number {
-  if (typeof width !== 'number' || Number.isNaN(width)) return fallback;
-  return Math.min(420, Math.max(220, Math.round(width)));
 }
 
 function sanitizeTerminalDrawerHeight(height: number | undefined, fallback = 280): number {
@@ -791,7 +792,8 @@ export const useAppStore = create<Store>()(
       showNewSession: initialUiResumeState?.showNewSession ?? true,
       newSessionKey: 0,
       sidebarCollapsed: false,
-      sidebarWidth: 256,
+      sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
+      sidebarWidthVersion: SIDEBAR_WIDTH_VERSION,
       globalError: null,
       pendingStart: false,
       pendingDraftSessionId: null,
@@ -2090,6 +2092,7 @@ export const useAppStore = create<Store>()(
         chatSplitRatio: state.chatSplitRatio,
         sidebarCollapsed: state.sidebarCollapsed,
         sidebarWidth: state.sidebarWidth,
+        sidebarWidthVersion: state.sidebarWidthVersion,
         projectTreeCollapsed: state.projectTreeCollapsed,
         projectPanelView: state.projectPanelView,
         terminalDrawerOpen: state.terminalDrawerOpen,
@@ -2119,6 +2122,7 @@ export const useAppStore = create<Store>()(
           chatSplitRatio?: number;
           sidebarCollapsed?: boolean;
           sidebarWidth?: number;
+          sidebarWidthVersion?: number;
           projectTreeCollapsed?: boolean;
           projectPanelView?: import('../types').ProjectPanelView;
           terminalDrawerOpen?: boolean;
@@ -2195,7 +2199,12 @@ export const useAppStore = create<Store>()(
           chatPanes,
           chatSplitRatio: derivedPaneFields.chatSplitRatio,
           sidebarCollapsed: persisted?.sidebarCollapsed ?? currentState.sidebarCollapsed,
-          sidebarWidth: sanitizeSidebarWidth(persisted?.sidebarWidth, currentState.sidebarWidth),
+          sidebarWidth: restorePersistedSidebarWidth(
+            persisted?.sidebarWidth,
+            persisted?.sidebarWidthVersion,
+            currentState.sidebarWidth
+          ),
+          sidebarWidthVersion: SIDEBAR_WIDTH_VERSION,
           projectTreeCollapsed: persisted?.projectTreeCollapsed ?? currentState.projectTreeCollapsed,
           projectPanelView: normalizeProjectPanelView(
             (persisted?.projectPanelView as import('../types').ProjectPanelView | 'git' | undefined) ||

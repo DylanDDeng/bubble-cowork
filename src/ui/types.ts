@@ -279,6 +279,7 @@ export interface AppState {
   newSessionKey: number;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
+  sidebarWidthVersion: number;
   globalError: string | null;
   pendingStart: boolean;
   pendingDraftSessionId: string | null;

@@ -469,6 +469,12 @@ function Harness() {
           };
         });
         const main = document.querySelector('.aegis-md-main');
+        const editor = document.querySelector('.aegis-md-editor');
+        const backgroundProbe = document.createElement('span');
+        backgroundProbe.style.backgroundColor = 'var(--bg-primary)';
+        document.body.appendChild(backgroundProbe);
+        const primaryBackground = window.getComputedStyle(backgroundProbe).backgroundColor;
+        backgroundProbe.remove();
         const cmScroller = document.querySelector('.aegis-md-codemirror-root .cm-scroller');
         const scrollState = {
           mainOverflowY: main ? window.getComputedStyle(main).overflowY : '',
@@ -497,6 +503,9 @@ function Harness() {
           images,
           blockWidgetMetrics,
           scrollState,
+          editorBackground: editor ? window.getComputedStyle(editor).backgroundColor : '',
+          mainBackground: main ? window.getComputedStyle(main).backgroundColor : '',
+          primaryBackground,
         };
       },
     };
@@ -888,6 +897,15 @@ async function main() {
       logs,
     } = result;
     assert(initialSnapshot.hasEditor, 'CodeMirror editor did not mount.');
+    assert(
+      initialSnapshot.editorBackground === initialSnapshot.primaryBackground
+        && initialSnapshot.mainBackground === initialSnapshot.primaryBackground,
+      `Markdown surfaces should match the primary background: ${JSON.stringify({
+        editor: initialSnapshot.editorBackground,
+        main: initialSnapshot.mainBackground,
+        primary: initialSnapshot.primaryBackground,
+      })}`
+    );
     assert(initialSnapshot.oldRoots === 0, 'Old Milkdown/ProseMirror roots are still present.');
     assert(
       initialSnapshot.scrollState?.mainOverflowY === 'auto' || initialSnapshot.scrollState?.mainOverflowY === 'scroll',

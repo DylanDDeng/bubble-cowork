@@ -2018,8 +2018,8 @@ button.aegis-mdx-metadata-key:hover {
 }
 
 .aegis-md-editor {
-  --aegis-md-editor-surface: var(--workbench-surface, var(--bg-primary));
-  --aegis-md-editor-chrome-surface: color-mix(in srgb, var(--aegis-md-editor-surface) 96%, var(--bg-primary));
+  --aegis-md-editor-surface: var(--bg-primary);
+  --aegis-md-editor-chrome-surface: var(--bg-primary);
   --aegis-md-page-width: 900px;
   --aegis-md-page-padding-x: 20px;
   --aegis-md-body-width: calc(var(--aegis-md-page-width) - (var(--aegis-md-page-padding-x) * 2));
