@@ -4300,6 +4300,11 @@ const EDITOR_CANDIDATES: EditorCandidate[] = [
   { id: 'intellij', label: 'IntelliJ IDEA', appNames: ['IntelliJ IDEA', 'IntelliJ IDEA CE'], commands: ['idea'] },
   { id: 'webstorm', label: 'WebStorm', appNames: ['WebStorm'], commands: ['webstorm'] },
   { id: 'sublime', label: 'Sublime Text', appNames: ['Sublime Text'], commands: ['subl'] },
+  { id: 'xcode', label: 'Xcode', appNames: ['Xcode'], commands: ['xed'] },
+  { id: 'terminal', label: 'Terminal', appNames: ['Terminal'] },
+  { id: 'iterm', label: 'iTerm2', appNames: ['iTerm'] },
+  { id: 'ghostty', label: 'Ghostty', appNames: ['Ghostty'] },
+  { id: 'warp', label: 'Warp', appNames: ['Warp'] },
 ];
 
 function getDarwinAppPath(appName: string): string | null {
@@ -4307,6 +4312,9 @@ function getDarwinAppPath(appName: string): string | null {
   const candidates = [
     `/Applications/${appName}.app`,
     join(homedir(), 'Applications', `${appName}.app`),
+    // System apps (Terminal.app lives under /System/Applications/Utilities).
+    `/System/Applications/${appName}.app`,
+    `/System/Applications/Utilities/${appName}.app`,
   ];
   return candidates.find((appPath) => existsSync(appPath)) ?? null;
 }

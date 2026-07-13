@@ -120,6 +120,16 @@ function getEditorVisual(editor: EnvironmentEditorLauncher): { mark: ReactNode; 
       return { mark: 'WS', tone: 'bg-gradient-to-br from-cyan-400 to-blue-700 text-white' };
     case 'sublime':
       return { mark: 'S', tone: 'bg-orange-50 text-orange-700 shadow-[inset_0_0_0_1px_rgba(249,115,22,0.2)]' };
+    case 'xcode':
+      return { mark: 'X', tone: 'bg-gradient-to-br from-sky-400 to-blue-600 text-white' };
+    case 'terminal':
+      return { mark: '>_', tone: 'bg-zinc-950 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.12)]' };
+    case 'iterm':
+      return { mark: '>_', tone: 'bg-emerald-950 text-emerald-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.12)]' };
+    case 'ghostty':
+      return { mark: 'G', tone: 'bg-indigo-950 text-indigo-200 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.12)]' };
+    case 'warp':
+      return { mark: 'W', tone: 'bg-slate-950 text-sky-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.12)]' };
     case 'finder':
       return { mark: '⌘', tone: 'bg-gradient-to-br from-sky-100 to-blue-200 text-blue-700' };
     case 'system':
@@ -233,7 +243,7 @@ export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmen
         <DropdownMenu.Content
           align="end"
           sideOffset={6}
-          className="z-[9999] w-[220px] rounded-[18px] !border-0 bg-[var(--popover-bg)] [background-image:none] p-2 shadow-[0_18px_42px_-12px_rgba(15,23,42,0.16)]"
+          className="z-[9999] w-[200px] rounded-[14px] !border-0 bg-[var(--popover-bg)] [background-image:none] p-1.5 shadow-[0_18px_42px_-12px_rgba(15,23,42,0.16)]"
         >
           <DropdownMenu.Group>
             {editorLaunchers.map((editor) => {
@@ -247,12 +257,12 @@ export function EnvironmentEditorPicker({ context }: { context: ActiveEnvironmen
                   event.preventDefault();
                   void openEditor(editor);
                 }}
-                className="flex h-9 cursor-default items-center gap-3 rounded-xl px-3 text-[13px] text-[var(--text-primary)] outline-none transition-colors data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
+                className="flex h-7 cursor-default items-center gap-2 rounded-lg px-2 text-[12px] text-[var(--text-primary)] outline-none transition-colors data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--sidebar-item-hover)]"
               >
                 {editor.iconDataUrl ? (
-                  <img src={editor.iconDataUrl} alt="" className="h-[18px] w-[18px] shrink-0 rounded-[5px]" />
+                  <img src={editor.iconDataUrl} alt="" className="h-4 w-4 shrink-0 rounded-[4px]" />
                 ) : (
-                  <span className={`flex h-[18px] w-[18px] items-center justify-center rounded-[5px] text-[9px] font-semibold ${visual.tone}`}>
+                  <span className={`flex h-4 w-4 items-center justify-center rounded-[4px] text-[8px] font-semibold ${visual.tone}`}>
                     {visual.mark}
                   </span>
                 )}

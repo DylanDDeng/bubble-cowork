@@ -996,7 +996,12 @@ export type EnvironmentEditorId =
   | 'trae'
   | 'intellij'
   | 'webstorm'
-  | 'sublime';
+  | 'sublime'
+  | 'xcode'
+  | 'terminal'
+  | 'iterm'
+  | 'ghostty'
+  | 'warp';
 
 export interface EnvironmentEditorLauncher {
   id: EnvironmentEditorId;
