@@ -665,7 +665,7 @@ export function getThemePreviewPalette(themeState: ThemeState, variant: ThemeVar
   return [pack.theme.surface, pack.theme.ink, pack.theme.accent, pack.theme.semanticColors.skill];
 }
 
-function buildThemeVariables(
+export function buildThemeVariables(
   pack: ThemePack,
   variant: ThemeVariant,
   uiFontFamily: string,
@@ -702,11 +702,14 @@ function buildThemeVariables(
   const contextPanelSurface = variant === 'light'
     ? mixHex(panel, '#ffffff', 0.2)
     : mixHex(panel, '#ffffff', 0.02 + theme.contrast * 0.02);
-  const sidebarSurface = variant === 'light'
-    ? '#FCFCFC'
-    : pack.theme.opaqueWindows
-      ? mixHex(surfaceUnder, '#000000', 0.08)
-      : `color-mix(in srgb, ${surfaceUnder} 72%, transparent)`;
+  const sidebarBase = variant === 'light'
+    ? mixHex(surfaceUnder, pack.theme.ink, 0.01 + theme.contrast * 0.005)
+    : mixHex(surfaceUnder, '#000000', 0.08);
+  const sidebarSurface = pack.theme.opaqueWindows
+    ? sidebarBase
+    : `color-mix(in srgb, ${sidebarBase} 72%, transparent)`;
+  const sidebarItemHover = formatRgba(theme.ink, variant === 'light' ? 0.05 : 0.08);
+  const sidebarItemActive = formatRgba(theme.ink, variant === 'light' ? 0.08 : 0.13);
   const accentForeground = getReadableTextColor(pack.theme.accent);
   const userBubbleBg = '#EBEBEB';
   const userBubbleText = '#111214';
@@ -807,8 +810,8 @@ function buildThemeVariables(
     '--tree-file-neutral-border': border,
     '--tree-file-neutral-fg': textSecondary,
     '--preview-surface': panel,
-    '--sidebar-item-hover': variant === 'light' ? 'rgba(17, 24, 39, 0.05)' : 'rgba(255, 255, 255, 0.08)',
-    '--sidebar-item-active': variant === 'light' ? 'rgba(17, 24, 39, 0.08)' : 'rgba(255, 255, 255, 0.13)',
+    '--sidebar-item-hover': sidebarItemHover,
+    '--sidebar-item-active': sidebarItemActive,
     '--sidebar-item-border': borderLight,
     '--app-canvas': appCanvas,
     '--workbench-surface': workbenchSurface,
