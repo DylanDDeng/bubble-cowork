@@ -668,6 +668,42 @@ body {
   color: var(--text-secondary);
 }
 
+.markdown-content.environment-recap-markdown {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.markdown-content.environment-recap-markdown h1,
+.markdown-content.environment-recap-markdown h2,
+.markdown-content.environment-recap-markdown h3 {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0.7rem 0 0.2rem;
+}
+
+.markdown-content.environment-recap-markdown h1:first-child,
+.markdown-content.environment-recap-markdown h2:first-child,
+.markdown-content.environment-recap-markdown h3:first-child,
+.markdown-content.environment-recap-markdown p:first-child {
+  margin-top: 0;
+}
+
+.markdown-content.environment-recap-markdown p {
+  margin: 0.3rem 0;
+}
+
+.markdown-content.environment-recap-markdown ul,
+.markdown-content.environment-recap-markdown ol {
+  margin: 0.25rem 0;
+  padding-left: 1.1rem;
+}
+
+.markdown-content.environment-recap-markdown strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 .markdown-content ul,
 .markdown-content ol {
   margin: 0.42rem 0;

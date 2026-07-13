@@ -306,7 +306,7 @@ export function buildSessionSummaryPrompt(params: {
     ...SUMMARY_REQUIREMENTS,
     '',
     'Use the dominant language of the conversation.',
-    'Use short plain-text section headings and concise bullets where useful.',
+    'Use short **bold** markdown section headings and concise "- " bullets where useful.',
     'Aim for 800-1600 characters, but preserve critical technical facts over brevity.',
     'Do not mention that you are summarizing and do not invent missing information.',
     'Return only the summary wrapped in <summary></summary>.',
