@@ -1,9 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
-import { Bookmark, ChevronRight, Pin, RefreshCw } from '../icons';
+import { Brain, ChevronRight, RefreshCw } from '../icons';
 import { MDContent } from '../../render/markdown';
-import { sendEvent } from '../../hooks/useIPC';
 import type { SessionEnvironmentContext } from '../../../shared/types';
 import type { ActiveEnvironmentContext } from './useActiveEnvironmentContext';
 
@@ -177,21 +176,7 @@ export function EnvironmentContextSection({ context }: { context: ActiveEnvironm
 
   return (
     <section className="space-y-1 border-t border-[var(--border)] px-3 py-3">
-      <div className="flex items-center justify-between gap-2 px-2 pb-1">
-        <div className="text-[11px] font-medium text-[var(--text-muted)]">Context</div>
-        <button
-          type="button"
-          onClick={() => sendEvent({ type: 'session.togglePin', payload: { sessionId } })}
-          className={`inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] transition-colors ${
-            context.session?.pinned
-              ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
-              : 'text-[var(--text-muted)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-          }`}
-        >
-          <Pin className="h-3 w-3" />
-          <span>{context.session?.pinned ? 'Pinned' : 'Pin'}</span>
-        </button>
-      </div>
+      <div className="px-2 pb-1 text-[11px] font-medium text-[var(--text-muted)]">Context</div>
       <button
         ref={rowRef}
         type="button"
@@ -206,7 +191,7 @@ export function EnvironmentContextSection({ context }: { context: ActiveEnvironm
         }}
         className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)]"
       >
-        <Bookmark className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
+        <Brain className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
         <span className="min-w-0 flex-1 truncate">Recap</span>
         {rowDetail ? (
           <span className="max-w-[120px] truncate text-[11px] text-[var(--text-muted)]">{rowDetail}</span>
