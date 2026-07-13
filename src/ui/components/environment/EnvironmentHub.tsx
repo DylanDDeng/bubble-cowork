@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import {
   ArrowsSplit,
-  BrandGithub,
+  BrandGithubFilled,
   ChevronDown,
   Code2,
   Copy,
@@ -59,6 +59,7 @@ function EnvironmentListIcon() {
 
 function SectionRow({
   icon: Icon,
+  iconClassName,
   label,
   detail,
   trailing,
@@ -66,6 +67,7 @@ function SectionRow({
   onClick,
 }: {
   icon: typeof FileDiff;
+  iconClassName?: string;
   label: string;
   detail?: string;
   trailing?: ReactNode;
@@ -79,7 +81,7 @@ function SectionRow({
       onClick={onClick}
       className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[12px] text-[var(--text-primary)] transition-colors hover:bg-[var(--sidebar-item-hover)] disabled:cursor-not-allowed disabled:opacity-50"
     >
-      <Icon className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
+      <Icon className={`h-3.5 w-3.5 shrink-0 ${iconClassName ?? 'text-[var(--text-muted)]'}`} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {detail ? <span className="max-w-[96px] truncate text-[11px] text-[var(--text-muted)]">{detail}</span> : null}
       {trailing}
@@ -440,7 +442,7 @@ export function EnvironmentHub({
           className="no-drag absolute right-0 top-full z-[70] mt-1.5 max-h-[min(680px,calc(100vh-64px))] w-[318px] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_20px_50px_rgba(15,23,42,0.18)]"
         >
           <div className="flex items-center justify-between gap-3 px-4 py-3">
-            <div className="text-[13px] font-semibold text-[var(--text-primary)]">Environment</div>
+            <div className="text-[13px] font-normal text-[var(--text-secondary)]">Environment</div>
             <div className="flex shrink-0 items-center gap-1">
               <button
                 type="button"
@@ -496,7 +498,8 @@ export function EnvironmentHub({
                 <section className="space-y-1 border-t border-[var(--border)] px-3 py-3">
                   <div className="px-2 text-[11px] font-medium text-[var(--text-muted)]">Source</div>
                   <SectionRow
-                    icon={overview.repository?.webUrl ? BrandGithub : Monitor}
+                    icon={overview.repository?.webUrl ? BrandGithubFilled : Monitor}
+                    iconClassName={overview.repository?.webUrl ? 'text-[var(--text-primary)]' : undefined}
                     label={overview.repository?.fullName || 'No source'}
                     detail={overview.repository?.defaultBranch || undefined}
                     disabled={!overview.repository?.webUrl}
