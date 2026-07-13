@@ -8,7 +8,6 @@ import {
   Copy,
   ExternalLink,
   FileDiff,
-  FolderClosed,
   Monitor,
   RefreshCw,
   X,
@@ -440,13 +439,8 @@ export function EnvironmentHub({
           ref={panelRef}
           className="no-drag absolute right-0 top-full z-[70] mt-1.5 max-h-[min(680px,calc(100vh-64px))] w-[318px] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-primary)] shadow-[0_20px_50px_rgba(15,23,42,0.18)]"
         >
-          <div className="flex items-start justify-between gap-3 px-4 py-3">
-            <div className="min-w-0">
-              <div className="text-[13px] font-semibold text-[var(--text-primary)]">Environment</div>
-              <div className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">
-                {context.paneLabel} · {context.session ? context.title : 'Empty'}
-              </div>
-            </div>
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <div className="text-[13px] font-semibold text-[var(--text-primary)]">Environment</div>
             <div className="flex shrink-0 items-center gap-1">
               <button
                 type="button"
@@ -475,11 +469,6 @@ export function EnvironmentHub({
                       variant="panel"
                     />
                   ) : null}
-                  {context.effectiveCwd ? (
-                    <div className="truncate px-2 pt-1 text-[10px] text-[var(--text-muted)]" title={context.effectiveCwd}>
-                      {getPathLeaf(context.effectiveCwd)} · {context.envMode}
-                    </div>
-                  ) : null}
                   {context.session &&
                   context.sessionId &&
                   context.session.envMode === 'worktree' &&
@@ -491,10 +480,6 @@ export function EnvironmentHub({
                       onDone={() => void git.refresh()}
                     />
                   ) : null}
-                </section>
-                <section className="space-y-1 border-t border-[var(--border)] px-3 py-3">
-                  <div className="px-2 text-[11px] font-medium text-[var(--text-muted)]">Project</div>
-                  <SectionRow icon={FolderClosed} label="Files" detail="Project" onClick={() => onOpenProjectPanel('files')} />
                   <SectionRow
                     icon={FileDiff}
                     label="Changes"
@@ -530,13 +515,6 @@ export function EnvironmentHub({
                 <EnvironmentContextSection context={context} />
               </>
             )}
-          </div>
-          <div className="flex items-center justify-between border-t border-[var(--border)] px-4 py-2 text-[10px] text-[var(--text-muted)]">
-            <span>{formatTime(git.lastUpdatedAt)}</span>
-            <span className="inline-flex items-center gap-1">
-              <ChevronDown className="h-3 w-3 -rotate-90" />
-              <span>{overview.repoRoot ? getPathLeaf(overview.repoRoot) : 'No repo'}</span>
-            </span>
           </div>
         </div>
       ) : null}
