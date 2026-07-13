@@ -729,6 +729,10 @@ export type ServerEvent =
   | { type: 'session.deleted'; payload: { sessionId: string } }
   | { type: 'session.pinned'; payload: { sessionId: string; pinned: boolean } }
   | {
+      type: 'session.environmentRecap';
+      payload: { sessionId: string; recap: SessionEnvironmentRecap };
+    }
+  | {
       type: 'stream.user_prompt';
       payload: { sessionId: string; prompt: string; attachments?: Attachment[]; createdAt?: number };
     }

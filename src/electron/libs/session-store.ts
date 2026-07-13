@@ -2372,34 +2372,89 @@ export function saveSessionEnvironmentNote(sessionId: string, note: string): Ses
   };
 }
 
-export function getSessionEnvironmentRecap(sessionId: string): SessionEnvironmentRecap {
+export interface SessionEnvironmentRecapGenerationState {
+  sessionId: string;
+  summary: string;
+  updatedAt: number;
+  model: string | null;
+  sourceIds: string[];
+}
+
+export function getSessionEnvironmentRecapGenerationState(
+  sessionId: string
+): SessionEnvironmentRecapGenerationState | null {
   const row = getDb().prepare(`
-    SELECT session_id, summary, updated_at
+    SELECT session_id, summary, model, source_ids, updated_at
     FROM derived_summaries
     WHERE session_id = ? AND scope = 'environment-recap'
     ORDER BY updated_at DESC
     LIMIT 1
-  `).get(sessionId) as { session_id: string; summary: string; updated_at: number } | undefined;
+  `).get(sessionId) as {
+    session_id: string;
+    summary: string;
+    model: string | null;
+    source_ids: string | null;
+    updated_at: number;
+  } | undefined;
+
+  if (!row) return null;
+
+  let sourceIds: string[] = [];
+  if (row.source_ids) {
+    try {
+      const parsed = JSON.parse(row.source_ids);
+      if (Array.isArray(parsed)) {
+        sourceIds = parsed.filter((value): value is string => typeof value === 'string');
+      }
+    } catch {
+      sourceIds = [];
+    }
+  }
 
   return {
     sessionId,
-    summary: row?.summary || '',
-    updatedAt: row?.updated_at ?? null,
-    source: row ? 'derived' : 'empty',
+    summary: row.summary,
+    updatedAt: row.updated_at,
+    model: row.model,
+    sourceIds,
   };
 }
 
-export function saveSessionEnvironmentRecap(sessionId: string, summary: string): SessionEnvironmentRecap {
-  const row = upsertDerivedSummary({
-    sessionId,
-    scope: 'environment-recap',
-    summary,
-    sourceIds: ['environment-hub'],
-    model: 'local',
-  });
+export function getSessionEnvironmentRecap(sessionId: string): SessionEnvironmentRecap {
+  const state = getSessionEnvironmentRecapGenerationState(sessionId);
+  const isLegacyExcerpt = state?.model === 'local';
 
   return {
     sessionId,
+    summary: isLegacyExcerpt ? '' : state?.summary || '',
+    updatedAt: isLegacyExcerpt ? null : state?.updatedAt ?? null,
+    source: state && !isLegacyExcerpt ? 'derived' : 'empty',
+  };
+}
+
+export function saveSessionEnvironmentRecap(params: {
+  sessionId: string;
+  summary: string;
+  sourceIds: string[];
+  model: string | null;
+}): SessionEnvironmentRecap {
+  const row = getDb().transaction(() => {
+    getDb().prepare(`
+      DELETE FROM derived_summaries
+      WHERE session_id = ? AND scope = 'environment-recap'
+    `).run(params.sessionId);
+
+    return upsertDerivedSummary({
+      sessionId: params.sessionId,
+      scope: 'environment-recap',
+      summary: params.summary,
+      sourceIds: params.sourceIds,
+      model: params.model,
+    });
+  })();
+
+  return {
+    sessionId: params.sessionId,
     summary: row.summary,
     updatedAt: row.updated_at,
     source: 'generated',

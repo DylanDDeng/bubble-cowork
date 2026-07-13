@@ -1,26 +1,26 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Bookmark, Pin, RefreshCw } from '../icons';
 import { sendEvent } from '../../hooks/useIPC';
 import type { SessionEnvironmentContext } from '../../../shared/types';
 import type { ActiveEnvironmentContext } from './useActiveEnvironmentContext';
 
+function formatRecapUpdatedAt(value: number | null): string {
+  if (!value) return '';
+  const seconds = Math.max(0, Math.floor((Date.now() - value) / 1000));
+  if (seconds < 5) return 'Updated just now';
+  if (seconds < 60) return `Updated ${seconds}s ago`;
+  return `Updated ${Math.floor(seconds / 60)}m ago`;
+}
+
 export function EnvironmentContextSection({ context }: { context: ActiveEnvironmentContext }) {
   const [environmentContext, setEnvironmentContext] = useState<SessionEnvironmentContext | null>(null);
-  const [noteDraft, setNoteDraft] = useState('');
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [recapRefreshing, setRecapRefreshing] = useState(false);
-  const saveTimerRef = useRef<number | null>(null);
   const sessionId = context.sessionId;
 
   useEffect(() => {
-    if (saveTimerRef.current) {
-      window.clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
     setEnvironmentContext(null);
-    setNoteDraft('');
     if (!sessionId || context.unavailableReason) return;
 
     let cancelled = false;
@@ -33,7 +33,6 @@ export function EnvironmentContextSection({ context }: { context: ActiveEnvironm
           return;
         }
         setEnvironmentContext(result.context);
-        setNoteDraft(result.context.note.note);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -45,37 +44,25 @@ export function EnvironmentContextSection({ context }: { context: ActiveEnvironm
   }, [context.unavailableReason, sessionId]);
 
   useEffect(() => {
-    if (!sessionId || !environmentContext) return;
-    if (noteDraft === environmentContext.note.note) return;
-    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = window.setTimeout(() => {
-      setSaving(true);
-      void window.electron.saveSessionEnvironmentNote(sessionId, noteDraft)
-        .then((result) => {
-          if (!result.ok || !result.note) {
-            toast.error(result.message || 'Failed to save note.');
-            return;
-          }
-          const note = result.note;
-          setEnvironmentContext((current) =>
-            current
-              ? {
-                  ...current,
-                  note,
-                }
-              : current
-          );
-        })
-        .finally(() => setSaving(false));
-    }, 500);
+    if (!sessionId || !window.electron?.onServerEvent) return;
 
-    return () => {
-      if (saveTimerRef.current) {
-        window.clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
+    const unsubscribe = window.electron.onServerEvent((event) => {
+      if (event.type !== 'session.environmentRecap' || event.payload.sessionId !== sessionId) {
+        return;
       }
-    };
-  }, [environmentContext, noteDraft, sessionId]);
+      setEnvironmentContext((current) =>
+        current
+          ? {
+              ...current,
+              recap: event.payload.recap,
+            }
+          : current
+      );
+      setRecapRefreshing(false);
+    });
+
+    return unsubscribe;
+  }, [sessionId]);
 
   const refreshRecap = async () => {
     if (!sessionId) return;
@@ -103,6 +90,9 @@ export function EnvironmentContextSection({ context }: { context: ActiveEnvironm
   if (!sessionId || context.unavailableReason) {
     return null;
   }
+
+  const recapSummary = environmentContext?.recap.summary;
+  const recapUpdatedAt = environmentContext?.recap.updatedAt ?? null;
 
   return (
     <section className="space-y-2 border-t border-[var(--border)] px-3 py-3">
@@ -137,24 +127,18 @@ export function EnvironmentContextSection({ context }: { context: ActiveEnvironm
             <span>Refresh</span>
           </button>
         </div>
-        <div className="max-h-20 overflow-y-auto whitespace-pre-wrap text-[11px] leading-4 text-[var(--text-muted)]">
+        <div className="max-h-56 overflow-y-auto whitespace-pre-wrap text-[11px] leading-4 text-[var(--text-muted)]">
           {loading
             ? 'Loading recap...'
-            : environmentContext?.recap.summary || 'No recap yet.'}
+            : recapRefreshing
+              ? 'Generating summary...'
+              : recapSummary || 'No recap yet.'}
         </div>
-      </div>
-      <div className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] p-2">
-        <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[11px] font-medium text-[var(--text-secondary)]">Notepad</span>
-          <span className="text-[10px] text-[var(--text-muted)]">{saving ? 'Saving...' : 'Saved'}</span>
-        </div>
-        <textarea
-          value={noteDraft}
-          onChange={(event) => setNoteDraft(event.target.value)}
-          placeholder="Type here"
-          rows={3}
-          className="w-full resize-none border-0 bg-transparent text-[12px] leading-5 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-        />
+        {recapUpdatedAt ? (
+          <div className="mt-1.5 text-[10px] text-[var(--text-muted)]">
+            {formatRecapUpdatedAt(recapUpdatedAt)}
+          </div>
+        ) : null}
       </div>
     </section>
   );

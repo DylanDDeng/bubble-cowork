@@ -119,6 +119,19 @@ import {
 import * as folderConfig from './libs/folder-config';
 import { ipcMainHandle, isDev } from './util';
 import { getHistorySourceForSession, toUnifiedSessionRecord } from './libs/history/registry';
+import {
+  SESSION_SUMMARY_CHUNK_MAX_CHARS,
+  SESSION_SUMMARY_MAX_INCREMENTAL_UPDATES,
+  buildSessionSummaryChunkPrompt,
+  buildSessionSummaryPrompt,
+  buildSessionSummarySourceIds,
+  chunkSessionSummaryEntries,
+  collectSessionSummaryEntries,
+  isAppendOnlySessionSummaryUpdate,
+  isSessionSummaryCurrent,
+  parseSessionSummarySourceIds,
+  type SessionSummaryEntry,
+} from './libs/session-summary';
 import { DEFAULT_WORKSPACE_CHANNEL_ID } from '../shared/types';
 import type {
   ClientEvent,
@@ -130,6 +143,7 @@ import type {
   PermissionResult,
   SessionStartPayload,
   SessionContinuePayload,
+  SessionRow,
   PermissionRequestInput,
   PermissionResponsePayload,
   Attachment,
@@ -167,6 +181,7 @@ import type {
   ClaudeRewindInput,
   ClaudeRewindFilesOutcome,
   ClaudeRewindResult,
+  SessionEnvironmentRecap,
 } from '../shared/types';
 import { buildSessionUserPromptSummaries } from '../shared/outline-summary';
 import { getProviderService } from './libs/provider/service';
@@ -4414,35 +4429,235 @@ async function openInEnvironmentEditor(input: OpenInEditorInput): Promise<{ ok: 
   }
 }
 
-function extractEnvironmentRecapText(message: StreamMessage): string {
-  if (message.type === 'user_prompt') {
-    return message.prompt.trim();
+function packSessionSummaryMaterials(
+  materials: string[],
+  maxChars = SESSION_SUMMARY_CHUNK_MAX_CHARS
+): string[] {
+  const packed: string[] = [];
+  let current = '';
+
+  const append = (value: string) => {
+    const next = current ? `${current}\n\n${value}` : value;
+    if (next.length > maxChars && current) {
+      packed.push(current);
+      current = value;
+    } else {
+      current = next;
+    }
+  };
+
+  for (const material of materials) {
+    const trimmed = material.trim();
+    if (!trimmed) continue;
+    if (trimmed.length <= maxChars) {
+      append(trimmed);
+      continue;
+    }
+    for (let offset = 0; offset < trimmed.length; offset += maxChars) {
+      append(trimmed.slice(offset, offset + maxChars));
+    }
   }
-  if (message.type === 'assistant' || message.type === 'proposed_plan') {
-    return extractAssistantText(message).trim();
-  }
-  if (message.type === 'result') {
-    return message.subtype === 'success' ? 'Task completed.' : 'Task ended with an error.';
-  }
-  return '';
+
+  if (current) packed.push(current);
+  return packed;
 }
 
-function buildEnvironmentRecap(sessionId: string): string {
-  const history = sessions.getSessionHistory(sessionId);
-  const snippets = history
-    .filter((message) => !message.parentToolUseId)
-    .map(extractEnvironmentRecapText)
-    .map((text) => text.replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-    .slice(-6);
+async function runSessionSummaryOneShot(
+  session: SessionRow,
+  prompt: string
+): Promise<{ text: string; model: string | null }> {
+  const cwd = session.worktree_path || session.cwd || session.project_cwd || process.cwd();
+  const model = session.model || undefined;
 
-  if (snippets.length === 0) {
-    return 'No recap is available for this thread yet.';
+  if (session.provider === 'claude') {
+    const result = await runClaudeOneShot({
+      prompt,
+      cwd,
+      model,
+      compatibleProviderId: session.compatible_provider_id || undefined,
+      betas: parseStoredBetas(session.betas),
+      claudeReasoningEffort: 'low',
+    });
+    return { text: result.text, model: result.model || model || 'claude' };
   }
 
-  return snippets
-    .map((snippet, index) => `${index + 1}. ${snippet.length > 180 ? `${snippet.slice(0, 177)}...` : snippet}`)
-    .join('\n');
+  if (session.provider === 'codex') {
+    const result = await runCodexOneShot({
+      prompt,
+      cwd,
+      model,
+      codexExecutionMode: 'plan',
+      codexPermissionMode: 'defaultPermissions',
+      codexReasoningEffort: 'low',
+      codexFastMode: false,
+    });
+    return { text: result.text, model: result.model || model || 'codex' };
+  }
+
+  if (session.provider === 'opencode') {
+    const result = await runOpenCodeOneShot({
+      prompt,
+      cwd,
+      model,
+      opencodePermissionMode: session.opencode_permission_mode || undefined,
+    });
+    return { text: result.text, model: result.model || model || 'opencode' };
+  }
+
+  ensureProviderService();
+  const result = await getProviderService().runOneShot({
+    provider: session.provider,
+    threadId: `environment-summary-${session.id}-${uuidv4()}`,
+    cwd,
+    prompt,
+    model,
+  });
+  return { text: result.text, model: result.model || model || session.provider };
+}
+
+async function condenseSessionSummaryMaterial(
+  session: SessionRow,
+  entries: SessionSummaryEntry[]
+): Promise<string> {
+  let materials = chunkSessionSummaryEntries(entries);
+  if (materials.length <= 1) return materials[0] || '';
+
+  for (let round = 0; round < 5 && materials.length > 1; round += 1) {
+    const notes: string[] = [];
+    for (let index = 0; index < materials.length; index += 1) {
+      const result = await runSessionSummaryOneShot(
+        session,
+        buildSessionSummaryChunkPrompt({
+          sessionTitle: session.title,
+          transcriptChunk: materials[index],
+          part: index + 1,
+          totalParts: materials.length,
+        })
+      );
+      const note = extractSummaryContent(result.text);
+      if (!note) {
+        throw new Error('The summary model returned empty notes for part of the session.');
+      }
+      notes.push(note);
+    }
+    materials = packSessionSummaryMaterials(notes);
+  }
+
+  if (materials.length !== 1) {
+    throw new Error('The session is too large to condense into a safe summary request.');
+  }
+  return materials[0];
+}
+
+async function generateSessionWideSummary(params: {
+  session: SessionRow;
+  entries: SessionSummaryEntry[];
+  previousSummary?: string | null;
+  incremental?: boolean;
+}): Promise<{ summary: string; model: string | null }> {
+  const sourceText = await condenseSessionSummaryMaterial(params.session, params.entries);
+  const result = await runSessionSummaryOneShot(
+    params.session,
+    buildSessionSummaryPrompt({
+      sessionTitle: params.session.title,
+      sourceText,
+      previousSummary: params.previousSummary,
+      incremental: params.incremental,
+    })
+  );
+  const summary = extractSummaryContent(result.text);
+  if (!summary) {
+    throw new Error('The summary model returned an empty session summary.');
+  }
+  return { summary, model: result.model };
+}
+
+const sessionSummaryRefreshes = new Map<string, Promise<SessionEnvironmentRecap>>();
+
+async function refreshSessionEnvironmentSummary(
+  session: SessionRow
+): Promise<SessionEnvironmentRecap> {
+  const history = sessions.getSessionHistory(session.id);
+  const entries = collectSessionSummaryEntries(history);
+  if (entries.length === 0) {
+    throw new Error('This session does not have enough conversation to summarize yet.');
+  }
+
+  const previousState = sessions.getSessionEnvironmentRecapGenerationState(session.id);
+  const previousMetadata = parseSessionSummarySourceIds(previousState?.sourceIds);
+  if (
+    previousState &&
+    previousState.model !== 'local' &&
+    isSessionSummaryCurrent(entries, previousMetadata)
+  ) {
+    return sessions.getSessionEnvironmentRecap(session.id);
+  }
+
+  const canIncrement = Boolean(
+    previousState?.summary &&
+      previousState.model !== 'local' &&
+      previousMetadata &&
+      previousMetadata.incrementalUpdates < SESSION_SUMMARY_MAX_INCREMENTAL_UPDATES &&
+      isAppendOnlySessionSummaryUpdate(entries, previousMetadata)
+  );
+  const entriesToSummarize = canIncrement
+    ? entries.slice(previousMetadata!.entryCount)
+    : entries;
+  const generated = await generateSessionWideSummary({
+    session,
+    entries: entriesToSummarize,
+    previousSummary: canIncrement ? previousState!.summary : null,
+    incremental: canIncrement,
+  });
+  const incrementalUpdates = canIncrement
+    ? previousMetadata!.incrementalUpdates + 1
+    : 0;
+
+  return sessions.saveSessionEnvironmentRecap({
+    sessionId: session.id,
+    summary: generated.summary,
+    sourceIds: buildSessionSummarySourceIds(entries, incrementalUpdates),
+    model: generated.model || session.model || session.provider,
+  });
+}
+
+async function refreshSessionEnvironmentRecapDeduped(
+  session: SessionRow,
+  mainWindow: BrowserWindow | null
+): Promise<SessionEnvironmentRecap> {
+  const existing = sessionSummaryRefreshes.get(session.id);
+  if (existing) return existing;
+
+  const promise = refreshSessionEnvironmentSummary(session)
+    .then((recap) => {
+      if (mainWindow) {
+        broadcast(mainWindow, {
+          type: 'session.environmentRecap',
+          payload: { sessionId: session.id, recap },
+        });
+      }
+      return recap;
+    })
+    .catch((error) => {
+      console.error('[session-recap]', session.id, error);
+      throw error;
+    })
+    .finally(() => {
+      sessionSummaryRefreshes.delete(session.id);
+    });
+
+  sessionSummaryRefreshes.set(session.id, promise);
+  return promise;
+}
+
+function scheduleSessionEnvironmentRecapRefresh(
+  session: SessionRow,
+  mainWindow: BrowserWindow
+): void {
+  // Auto-generation only fills missing recaps; refreshing an existing one is
+  // reserved for the manual Refresh action.
+  if (sessions.getSessionEnvironmentRecap(session.id).summary.trim()) return;
+  void refreshSessionEnvironmentRecapDeduped(session, mainWindow).catch(() => {});
 }
 
 // 初始化 IPC 处理器
@@ -7243,11 +7458,12 @@ export function setupIPCHandlers(mainWindow: BrowserWindow): void {
     if (!session) {
       return { ok: false, message: 'Session not found.' };
     }
-    const summary = buildEnvironmentRecap(sessionId);
-    return {
-      ok: true,
-      recap: sessions.saveSessionEnvironmentRecap(sessionId, summary),
-    };
+    try {
+      const recap = await refreshSessionEnvironmentRecapDeduped(session, mainWindow);
+      return { ok: true, recap };
+    } catch (error) {
+      return { ok: false, message: String(error) };
+    }
   });
 
   ipcMainHandle('open-external-url', async (_event, url: string) => {
@@ -8981,6 +9197,12 @@ function startRunner(
             hiddenFromThreads: sessions.getSession(session.id)?.hidden_from_threads === 1,
           },
         });
+        if (!suppressStatusBroadcast && !stoppedByUser && !hasQueuedTurns) {
+          const latestSession = sessions.getSession(session.id);
+          if (latestSession) {
+            scheduleSessionEnvironmentRecapRefresh(latestSession, mainWindow);
+          }
+        }
         const currentEntry = runnerHandles.get(session.id);
         if (currentEntry?.handle === handle) {
           const turnDone = currentEntry.onTurnDone;
