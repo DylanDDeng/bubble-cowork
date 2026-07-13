@@ -1,7 +1,7 @@
 export const MIN_SIDEBAR_WIDTH = 220;
-export const DEFAULT_SIDEBAR_WIDTH = 245;
+export const DEFAULT_SIDEBAR_WIDTH = 250;
 export const MAX_SIDEBAR_WIDTH = 420;
-export const SIDEBAR_WIDTH_VERSION = 8;
+export const SIDEBAR_WIDTH_VERSION = 9;
 
 export function sanitizeSidebarWidth(
   width: number | undefined,
