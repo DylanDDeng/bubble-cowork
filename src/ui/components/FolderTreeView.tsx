@@ -1,8 +1,10 @@
 import { useMemo, useState, type DragEvent } from 'react';
+import { Tooltip as TooltipPrimitive } from '@base-ui-components/react/tooltip';
 import {
   ArrowsSplit,
   FolderClosed,
   FolderOpen,
+  GitBranch,
   MoreHorizontal,
   Pin,
   Plus,
@@ -31,6 +33,15 @@ type ProjectGroup = {
 };
 
 const DEFAULT_VISIBLE_SESSIONS_PER_PROJECT = 5;
+const SESSION_BRANCH_CACHE_TTL_MS = 30_000;
+
+type SessionBranchCacheEntry = {
+  branch: string | null;
+  expiresAt: number;
+};
+
+const sessionBranchCache = new Map<string, SessionBranchCacheEntry>();
+const pendingSessionBranchRequests = new Map<string, Promise<string | null>>();
 
 function getProjectLabel(fullPath: string | null): string {
   return fullPath
@@ -52,6 +63,42 @@ function formatSidebarTime(timestamp: number): string {
   const months = Math.floor(days / 30);
   if (months < 12) return `${months}mo`;
   return `${Math.floor(months / 12)}y`;
+}
+
+function getSessionProjectPath(session: SessionView): string | null {
+  return session.projectCwd?.trim() || session.cwd?.trim() || null;
+}
+
+function getSessionBranchCwd(session: SessionView): string | null {
+  return session.worktreePath?.trim() || session.cwd?.trim() || session.projectCwd?.trim() || null;
+}
+
+async function readSessionBranch(cwd: string): Promise<string | null> {
+  const cached = sessionBranchCache.get(cwd);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.branch;
+  }
+
+  const pending = pendingSessionBranchRequests.get(cwd);
+  if (pending) return pending;
+
+  const request = window.electron
+    .getGitBranch(cwd)
+    .then((result) => (result.ok ? result.branch?.trim() || null : null))
+    .catch(() => null)
+    .then((branch) => {
+      sessionBranchCache.set(cwd, {
+        branch,
+        expiresAt: Date.now() + SESSION_BRANCH_CACHE_TTL_MS,
+      });
+      return branch;
+    })
+    .finally(() => {
+      pendingSessionBranchRequests.delete(cwd);
+    });
+
+  pendingSessionBranchRequests.set(cwd, request);
+  return request;
 }
 
 function setSessionDragData(event: DragEvent<HTMLElement>, session: SessionView) {
@@ -495,7 +542,25 @@ function SessionItem({
 }) {
   const forkSessionToPane = useAppStore((s) => s.forkSessionToPane);
   const createDraftSession = useAppStore((s) => s.createDraftSession);
+  const [branchLookup, setBranchLookup] = useState<{
+    cwd: string;
+    branch: string | null;
+    loading: boolean;
+    expiresAt: number;
+  } | null>(null);
   const inWorktree = session.envMode === 'worktree' && Boolean(session.worktreePath);
+  const projectPath = getSessionProjectPath(session);
+  const projectLabel = getProjectLabel(projectPath);
+  const branchCwd = getSessionBranchCwd(session);
+  const storedWorktreeBranch = session.associatedWorktreeBranch?.trim() || null;
+  const lookedUpBranch = branchLookup?.cwd === branchCwd ? branchLookup.branch : null;
+  const branch = storedWorktreeBranch || lookedUpBranch;
+  const branchLoading = Boolean(
+    !storedWorktreeBranch &&
+      branchCwd &&
+      branchLookup?.cwd === branchCwd &&
+      branchLookup.loading
+  );
   // Fork branches the provider-side conversation: Claude via the SDK's native
   // fork (bootstrapped from history if needed), Codex via app-server
   // `thread/fork`, OpenCode via the SDK's `session.fork`. Other providers have
@@ -511,6 +576,37 @@ function SessionItem({
     : providerSupportsFork
       ? 'Fork into a new pane (send a message first)'
       : 'Fork into a new pane (not supported for this provider)';
+
+  const handlePreviewOpenChange = (open: boolean) => {
+    if (!open || storedWorktreeBranch || !branchCwd) return;
+    if (
+      branchLookup?.cwd === branchCwd &&
+      (branchLookup.loading || branchLookup.expiresAt > Date.now())
+    ) {
+      return;
+    }
+
+    const cached = sessionBranchCache.get(branchCwd);
+    if (cached && cached.expiresAt > Date.now()) {
+      setBranchLookup({
+        cwd: branchCwd,
+        branch: cached.branch,
+        loading: false,
+        expiresAt: cached.expiresAt,
+      });
+      return;
+    }
+
+    setBranchLookup({ cwd: branchCwd, branch: null, loading: true, expiresAt: 0 });
+    void readSessionBranch(branchCwd).then((nextBranch) => {
+      setBranchLookup({
+        cwd: branchCwd,
+        branch: nextBranch,
+        loading: false,
+        expiresAt: sessionBranchCache.get(branchCwd)?.expiresAt ?? Date.now(),
+      });
+    });
+  };
 
   const handleContextMenu = async (event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -585,75 +681,119 @@ function SessionItem({
   };
 
   return (
-    <div
-      onContextMenu={handleContextMenu}
-      className={`group/session relative cursor-pointer rounded-lg py-1.5 pl-8 pr-3 transition-colors duration-150 ${
-        isActive
-          ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
-          : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
-      }`}
-      style={{
-        marginLeft: `${depth * 16}px`,
-        marginBottom: '3px',
-      }}
-      draggable
-      onDragStart={(event) => {
-        setSessionDragData(event, session);
-      }}
-      onClick={onClick}
+    <TooltipPrimitive.Root
+      disableHoverablePopup
+      onOpenChange={handlePreviewOpenChange}
     >
-      <button
-        type="button"
-        draggable={false}
-        onClick={(event) => {
-          event.stopPropagation();
-          onTogglePin();
-        }}
-        className={`absolute left-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md opacity-0 transition-all duration-150 hover:text-[var(--text-primary)] focus:opacity-100 group-hover/session:opacity-100 ${
-          session.pinned ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'
-        }`}
-        aria-label={session.pinned ? 'Unpin conversation' : 'Pin conversation'}
-        aria-pressed={session.pinned}
-        title={session.pinned ? 'Unpin conversation' : 'Pin conversation'}
-      >
-        <Pin className="h-3.5 w-3.5" fill={session.pinned ? 'currentColor' : 'none'} />
-      </button>
-
-      <div className="flex min-h-[22px] items-center gap-2">
-        <ProviderGlyph provider={session.provider} />
-        <span className="flex-1 truncate text-[13px] font-normal leading-[1.3]">{session.title}</span>
-        {showWorktreeBadge && session.envMode === 'worktree' && session.worktreePath ? (
-          <span
-            className="flex-shrink-0"
-            title={`Runs in a worktree${session.associatedWorktreeBranch ? ` · ${session.associatedWorktreeBranch}` : ''}`}
+      <TooltipPrimitive.Trigger
+        delay={420}
+        closeDelay={80}
+        render={
+          <div
+            onContextMenu={handleContextMenu}
+            className={`group/session relative cursor-pointer rounded-lg py-1.5 pl-8 pr-3 transition-colors duration-150 ${
+              isActive
+                ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
+                : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
+            }`}
+            style={{
+              marginLeft: `${depth * 16}px`,
+              marginBottom: '3px',
+            }}
+            draggable
+            onDragStart={(event) => {
+              setSessionDragData(event, session);
+            }}
+            onClick={onClick}
           >
-            <ArrowsSplit className="h-3.5 w-3.5 text-[var(--text-muted)]" aria-label="Runs in a worktree" />
-          </span>
-        ) : null}
-        <span className="flex-shrink-0 text-[12px] text-[var(--text-muted)]">
-          {formatSidebarTime(session.updatedAt)}
-        </span>
-        {runtimeBadge && (
-          <span
-            className={`status-dot ${runtimeBadge} flex-shrink-0`}
-            title={
-              runtimeBadge === 'running'
-                ? 'Session is running'
-                : runtimeBadge === 'completed'
-                  ? 'Session completed'
-                  : 'Session failed'
-            }
-            aria-label={
-              runtimeBadge === 'running'
-                ? 'Session is running'
-                : runtimeBadge === 'completed'
-                  ? 'Session completed'
-                  : 'Session failed'
-            }
-          />
-        )}
-      </div>
-    </div>
+            <button
+              type="button"
+              draggable={false}
+              onClick={(event) => {
+                event.stopPropagation();
+                onTogglePin();
+              }}
+              className={`absolute left-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md opacity-0 transition-all duration-150 hover:text-[var(--text-primary)] focus:opacity-100 group-hover/session:opacity-100 ${
+                session.pinned ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'
+              }`}
+              aria-label={session.pinned ? 'Unpin conversation' : 'Pin conversation'}
+              aria-pressed={session.pinned}
+              title={session.pinned ? 'Unpin conversation' : 'Pin conversation'}
+            >
+              <Pin className="h-3.5 w-3.5" fill={session.pinned ? 'currentColor' : 'none'} />
+            </button>
+
+            <div className="flex min-h-[22px] items-center gap-2">
+              <ProviderGlyph provider={session.provider} />
+              <span className="flex-1 truncate text-[13px] font-normal leading-[1.3]">{session.title}</span>
+              {showWorktreeBadge && session.envMode === 'worktree' && session.worktreePath ? (
+                <span
+                  className="flex-shrink-0"
+                  title={`Runs in a worktree${session.associatedWorktreeBranch ? ` · ${session.associatedWorktreeBranch}` : ''}`}
+                >
+                  <ArrowsSplit className="h-3.5 w-3.5 text-[var(--text-muted)]" aria-label="Runs in a worktree" />
+                </span>
+              ) : null}
+              {runtimeBadge && (
+                <span
+                  className={`status-dot ${runtimeBadge} flex-shrink-0`}
+                  title={
+                    runtimeBadge === 'running'
+                      ? 'Session is running'
+                      : runtimeBadge === 'completed'
+                        ? 'Session completed'
+                        : 'Session failed'
+                  }
+                  aria-label={
+                    runtimeBadge === 'running'
+                      ? 'Session is running'
+                      : runtimeBadge === 'completed'
+                        ? 'Session completed'
+                        : 'Session failed'
+                  }
+                />
+              )}
+            </div>
+          </div>
+        }
+      />
+
+      <TooltipPrimitive.Portal>
+        <TooltipPrimitive.Positioner
+          side="right"
+          align="start"
+          sideOffset={8}
+          collisionPadding={12}
+          className="z-[90]"
+        >
+          <TooltipPrimitive.Popup className="w-[224px] rounded-[var(--popover-radius)] border border-[var(--popover-border)] bg-[var(--popover-bg)] px-3 py-2.5 text-left text-[12px] text-[var(--text-secondary)] shadow-[var(--popover-shadow-lg)] outline-none transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] data-[starting-style]:translate-x-1 data-[starting-style]:opacity-0 data-[ending-style]:translate-x-1 data-[ending-style]:opacity-0">
+            <div className="flex min-w-0 items-baseline gap-3">
+              <div className="min-w-0 flex-1 truncate text-[13px] font-medium leading-5 text-[var(--text-primary)]">
+                {session.title}
+              </div>
+              <div className="flex-shrink-0 text-[11px] tabular-nums text-[var(--text-muted)]">
+                {formatSidebarTime(session.updatedAt)}
+              </div>
+            </div>
+
+            <div className="mt-2 space-y-1.5">
+              <div className="flex min-w-0 items-center gap-2" title={projectPath || undefined}>
+                <FolderClosed className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+                <span className="min-w-0 flex-1 truncate">{projectLabel}</span>
+              </div>
+              {branch || branchLoading ? (
+                <div className="flex min-w-0 items-center gap-2">
+                  <GitBranch className="h-3.5 w-3.5 flex-shrink-0 text-[var(--text-muted)]" />
+                  <span className={`min-w-0 flex-1 truncate font-mono text-[11px] ${branchLoading ? 'text-[var(--text-muted)]' : ''}`}>
+                    {branchLoading ? 'Checking branch…' : branch}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          </TooltipPrimitive.Popup>
+        </TooltipPrimitive.Positioner>
+      </TooltipPrimitive.Portal>
+    </TooltipPrimitive.Root>
   );
 }
 

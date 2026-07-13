@@ -1,7 +1,7 @@
 export const MIN_SIDEBAR_WIDTH = 220;
-export const DEFAULT_SIDEBAR_WIDTH = 255;
+export const DEFAULT_SIDEBAR_WIDTH = 245;
 export const MAX_SIDEBAR_WIDTH = 420;
-export const SIDEBAR_WIDTH_VERSION = 3;
+export const SIDEBAR_WIDTH_VERSION = 8;
 
 export function sanitizeSidebarWidth(
   width: number | undefined,
@@ -16,6 +16,8 @@ export function restorePersistedSidebarWidth(
   persistedVersion: number | undefined,
   fallback = DEFAULT_SIDEBAR_WIDTH
 ): number {
-  if (persistedVersion !== SIDEBAR_WIDTH_VERSION) return DEFAULT_SIDEBAR_WIDTH;
-  return sanitizeSidebarWidth(width, fallback);
+  if (persistedVersion === SIDEBAR_WIDTH_VERSION) {
+    return sanitizeSidebarWidth(width, fallback);
+  }
+  return DEFAULT_SIDEBAR_WIDTH;
 }

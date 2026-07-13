@@ -8,9 +8,24 @@ import {
   sanitizeSidebarWidth,
 } from '../../src/ui/utils/sidebar-width';
 
-assert.equal(DEFAULT_SIDEBAR_WIDTH, 255, 'sidebar should default to the compact width');
-assert.equal(restorePersistedSidebarWidth(undefined, undefined), 255, 'missing width should use the default');
-assert.equal(restorePersistedSidebarWidth(343, undefined), 255, 'legacy saved width should migrate once');
+assert.equal(DEFAULT_SIDEBAR_WIDTH, 245, 'sidebar should default to the compact width');
+assert.equal(restorePersistedSidebarWidth(undefined, undefined), 245, 'missing width should use the default');
+assert.equal(restorePersistedSidebarWidth(343, undefined), 245, 'legacy saved width should migrate once');
+assert.equal(
+  restorePersistedSidebarWidth(240, SIDEBAR_WIDTH_VERSION - 1),
+  245,
+  'the previous default width should migrate to the new default'
+);
+assert.equal(
+  restorePersistedSidebarWidth(300, SIDEBAR_WIDTH_VERSION - 1),
+  245,
+  'a previous-version custom width should reset during the compact-width migration'
+);
+assert.equal(
+  restorePersistedSidebarWidth(255, SIDEBAR_WIDTH_VERSION - 5),
+  245,
+  'the older 255px default should also migrate to the new default'
+);
 assert.equal(
   restorePersistedSidebarWidth(300, SIDEBAR_WIDTH_VERSION),
   300,
