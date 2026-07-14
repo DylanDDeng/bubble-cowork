@@ -868,20 +868,6 @@ contextBridge.exposeInMainWorld('electron', {
     return ipcRenderer.invoke('open-external-url', url);
   },
 
-  showNativeMenu: (input: {
-    x?: number;
-    y?: number;
-    items?: Array<{
-      id: string;
-      label?: string;
-      type?: 'normal' | 'separator';
-      enabled?: boolean;
-      accelerator?: string | null;
-    }>;
-  }) => {
-    return ipcRenderer.invoke('show-native-menu', input);
-  },
-
   // 订阅系统统计（预留）
   subscribeStatistics: (callback: (data: unknown) => void) => {
     const handler = (_: unknown, data: unknown) => {

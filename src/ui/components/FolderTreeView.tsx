@@ -18,6 +18,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from './ui/context-menu';
 import { toast } from 'sonner';
 import { useAppStore } from '../store/useAppStore';
 import { allLeaves } from '../store/layout-tree';
@@ -581,11 +588,10 @@ function SessionItem({
   const canFork = !session.isDraft && providerSupportsFork;
   const canMoveToWorktree =
     !session.isDraft && session.envMode !== 'worktree' && session.status !== 'running';
+  // provider 不支持 fork 时整项隐藏（不显示置灰的解释文案）
   const forkLabel = canFork
     ? 'Fork into a new pane'
-    : providerSupportsFork
-      ? 'Fork into a new pane (send a message first)'
-      : 'Fork into a new pane (not supported for this provider)';
+    : 'Fork into a new pane (send a message first)';
 
   const handlePreviewOpenChange = (open: boolean) => {
     if (!open || storedWorktreeBranch || !branchCwd) return;
@@ -618,116 +624,67 @@ function SessionItem({
     });
   };
 
-  const handleContextMenu = async (event: React.MouseEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const result = await window.electron.showNativeMenu({
-      x: event.clientX,
-      y: event.clientY,
-      items: [
-        {
-          id: 'fork',
-          label: forkLabel,
-          enabled: canFork,
-        },
-        // worktree 内外互斥的动作：在外可以搬进去；在内可以再开一条，
-        // 或走 Environment 卡片同款的收尾动作（收下 / 扔掉）
-        ...(inWorktree
-          ? [
-              {
-                id: 'new-in-worktree',
-                label: `New thread in this worktree${
-                  session.associatedWorktreeBranch ? ` (${session.associatedWorktreeBranch})` : ''
-                }`,
-              },
-              {
-                id: 'apply-worktree',
-                label:
-                  session.status === 'running'
-                    ? 'Squash-merge back into project (agent is running)'
-                    : 'Squash-merge back into project',
-                enabled: session.status !== 'running' && worktreeAction === null,
-              },
-              {
-                id: 'discard-worktree',
-                label:
-                  session.status === 'running'
-                    ? 'Discard worktree… (agent is running)'
-                    : 'Discard worktree…',
-                enabled: session.status !== 'running' && worktreeAction === null,
-              },
-            ]
-          : [
-              {
-                id: 'move-worktree',
-                // 不 fork 对话、provider 无关：同一条 thread 挪进隔离 worktree 继续
-                label:
-                  worktreeAction === 'move'
-                    ? 'Move into a new worktree (moving…)'
-                    : canMoveToWorktree
-                      ? 'Move into a new worktree'
-                      : 'Move into a new worktree (agent is running)',
-                enabled: canMoveToWorktree && worktreeAction === null,
-              },
-            ]),
-        { id: 'sep', type: 'separator' },
-        { id: 'pin', label: session.pinned ? 'Unpin' : 'Pin' },
-        { id: 'sep2', type: 'separator' },
-        { id: 'delete', label: 'Delete' },
-      ],
+  // 右键菜单动作（菜单本体是应用内 Base UI ContextMenu，与其它下拉菜单同款视觉）
+  const handleFork = () => {
+    void forkSessionToPane(session.id);
+  };
+
+  const handleNewInWorktree = () => {
+    if (!session.worktreePath) return;
+    createDraftSession(session.worktreePath, session.channelId || null, {
+      title: `New Chat - ${session.associatedWorktreeBranch || 'Worktree'}`,
+      projectCwd: session.projectCwd ?? null,
+      envMode: 'worktree',
+      worktreePath: session.worktreePath,
+      associatedWorktreePath: session.worktreePath,
+      associatedWorktreeBranch: session.associatedWorktreeBranch ?? null,
+      associatedWorktreeRef: session.associatedWorktreeRef ?? null,
     });
-    if (!result.ok || !result.id) return;
-    if (result.id === 'fork') {
-      void forkSessionToPane(session.id);
-    } else if (result.id === 'new-in-worktree') {
-      if (session.worktreePath) {
-        createDraftSession(session.worktreePath, session.channelId || null, {
-          title: `New Chat - ${session.associatedWorktreeBranch || 'Worktree'}`,
-          projectCwd: session.projectCwd ?? null,
-          envMode: 'worktree',
-          worktreePath: session.worktreePath,
-          associatedWorktreePath: session.worktreePath,
-          associatedWorktreeBranch: session.associatedWorktreeBranch ?? null,
-          associatedWorktreeRef: session.associatedWorktreeRef ?? null,
-        });
+  };
+
+  const handleMoveToWorktree = () => {
+    void (async () => {
+      setWorktreeAction('move');
+      const toastId = toast.loading('Moving thread into a new worktree…');
+      try {
+        const result = await window.electron.moveSessionToWorktree(session.id);
+        if (result.ok) {
+          toast.success('Thread moved into a new worktree — changes stay on its own branch.', {
+            id: toastId,
+          });
+        } else {
+          toast.error(result.message || 'Could not move the thread into a worktree.', {
+            id: toastId,
+          });
+        }
+      } finally {
+        setWorktreeAction(null);
       }
-    } else if (result.id === 'move-worktree') {
-      void (async () => {
-        setWorktreeAction('move');
-        const toastId = toast.loading('Moving thread into a new worktree…');
-        try {
-          const result = await window.electron.moveSessionToWorktree(session.id);
-          if (result.ok) {
-            toast.success('Thread moved into a new worktree — changes stay on its own branch.', {
-              id: toastId,
-            });
-          } else {
-            toast.error(result.message || 'Could not move the thread into a worktree.', {
-              id: toastId,
-            });
-          }
-        } finally {
-          setWorktreeAction(null);
+    })();
+  };
+
+  const handleApplyWorktree = () => {
+    void (async () => {
+      setWorktreeAction('apply');
+      const toastId = toast.loading('Squash-merging worktree changes into the project…');
+      try {
+        const applied = await window.electron.applyWorktreeChanges(session.id);
+        if (applied.ok) {
+          toast.success('Squash-merged — changes are staged in your project for review.', {
+            id: toastId,
+          });
+        } else {
+          toast.error(applied.message || 'Squash-merge failed.', { id: toastId });
         }
-      })();
-    } else if (result.id === 'apply-worktree') {
-      void (async () => {
-        setWorktreeAction('apply');
-        const toastId = toast.loading('Squash-merging worktree changes into the project…');
-        try {
-          const applied = await window.electron.applyWorktreeChanges(session.id);
-          if (applied.ok) {
-            toast.success('Squash-merged — changes are staged in your project for review.', {
-              id: toastId,
-            });
-          } else {
-            toast.error(applied.message || 'Squash-merge failed.', { id: toastId });
-          }
-        } finally {
-          setWorktreeAction(null);
-        }
-      })();
-    } else if (result.id === 'discard-worktree') {
+      } finally {
+        setWorktreeAction(null);
+      }
+    })();
+  };
+
+  const handleDiscardWorktree = () => {
+    // confirm 推迟到菜单关闭之后，避免阻塞时菜单残留在弹窗背后
+    window.setTimeout(() => {
       const branchName = session.associatedWorktreeBranch;
       if (
         !window.confirm(
@@ -749,17 +706,20 @@ function SessionItem({
           setWorktreeAction(null);
         }
       })();
-    } else if (result.id === 'pin') {
-      onTogglePin();
-    } else if (result.id === 'delete') {
+    }, 0);
+  };
+
+  const handleDelete = () => {
+    window.setTimeout(() => {
       const detail = session.status === 'running' ? ' The running task will be stopped.' : '';
       if (window.confirm(`Delete "${session.title}"? This permanently removes the conversation.${detail}`)) {
         sendEvent({ type: 'session.delete', payload: { sessionId: session.id } });
       }
-    }
+    }, 0);
   };
 
   return (
+    <ContextMenu>
     <TooltipPrimitive.Root
       disableHoverablePopup
       onOpenChange={handlePreviewOpenChange}
@@ -768,16 +728,17 @@ function SessionItem({
         delay={420}
         closeDelay={80}
         render={
+          <ContextMenuTrigger
+            render={
           <div
-            onContextMenu={handleContextMenu}
-            className={`group/session relative cursor-pointer rounded-lg py-1.5 pl-8 pr-3 transition-colors duration-150 ${
+            className={`group/session relative cursor-pointer rounded-lg py-1 pl-8 pr-3 transition-colors duration-150 ${
               isActive
                 ? 'bg-[var(--sidebar-item-active)] text-[var(--text-primary)]'
                 : 'text-[var(--text-secondary)] hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)]'
             }`}
             style={{
               marginLeft: `${depth * 16}px`,
-              marginBottom: '3px',
+              marginBottom: '1px',
             }}
             draggable
             onDragStart={(event) => {
@@ -842,6 +803,8 @@ function SessionItem({
               )}
             </div>
           </div>
+            }
+          />
         }
       />
 
@@ -881,6 +844,53 @@ function SessionItem({
         </TooltipPrimitive.Positioner>
       </TooltipPrimitive.Portal>
     </TooltipPrimitive.Root>
+
+    <ContextMenuContent className="min-w-[176px]">
+      {providerSupportsFork ? (
+        <ContextMenuItem disabled={!canFork} onClick={handleFork}>
+          {forkLabel}
+        </ContextMenuItem>
+      ) : null}
+      {/* worktree 内外互斥的动作：在外可以搬进去；在内可以再开一条，
+          或走 Environment 卡片同款的收尾动作（收下 / 扔掉） */}
+      {inWorktree ? (
+        <>
+          {/* 分支名由侧栏的 worktree 分组头展示，菜单里不再重复（会把菜单撑得很宽） */}
+          <ContextMenuItem onClick={handleNewInWorktree}>New thread in this worktree</ContextMenuItem>
+          <ContextMenuItem
+            disabled={session.status === 'running' || worktreeAction !== null}
+            onClick={handleApplyWorktree}
+          >
+            {session.status === 'running'
+              ? 'Squash-merge back into project (agent is running)'
+              : 'Squash-merge back into project'}
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={session.status === 'running' || worktreeAction !== null}
+            onClick={handleDiscardWorktree}
+          >
+            {session.status === 'running' ? 'Discard worktree… (agent is running)' : 'Discard worktree…'}
+          </ContextMenuItem>
+        </>
+      ) : (
+        <ContextMenuItem
+          // 不 fork 对话、provider 无关：同一条 thread 挪进隔离 worktree 继续
+          disabled={!canMoveToWorktree || worktreeAction !== null}
+          onClick={handleMoveToWorktree}
+        >
+          {worktreeAction === 'move'
+            ? 'Move into a new worktree (moving…)'
+            : canMoveToWorktree
+              ? 'Move into a new worktree'
+              : 'Move into a new worktree (agent is running)'}
+        </ContextMenuItem>
+      )}
+      <ContextMenuSeparator />
+      <ContextMenuItem onClick={onTogglePin}>{session.pinned ? 'Unpin' : 'Pin'}</ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onClick={handleDelete}>Delete</ContextMenuItem>
+    </ContextMenuContent>
+    </ContextMenu>
   );
 }
 

@@ -124,6 +124,8 @@
 
   /* Popover / dropdown surface (unified) */
   --popover-bg: #FFFFFF;
+  /* Right-click context menus use a warm off-white, one step below --popover-bg */
+  --context-menu-bg: #F7F7F5;
   --popover-border: rgba(17, 24, 39, 0.08);
   --popover-ring: rgba(255, 255, 255, 0.72);
   --popover-radius: 10px;
@@ -230,6 +232,7 @@
 
   /* Popover / dropdown surface (unified) */
   --popover-bg: #1E2025;
+  --context-menu-bg: #1E2025;
   --popover-border: rgba(255, 255, 255, 0.08);
   --popover-ring: rgba(255, 255, 255, 0.04);
   --popover-shadow:
@@ -265,6 +268,11 @@
 
 .popover-surface--lg {
   box-shadow: var(--popover-shadow-lg);
+}
+
+/* Context-menu variant: warm off-white surface (see --context-menu-bg) */
+.popover-surface--menu {
+  background-color: var(--context-menu-bg);
 }
 
 :where(button):focus {

@@ -1443,33 +1443,11 @@ function RightUtilityTabStrip({
   onTogglePanel: () => void;
 }) {
   const items = [
-    { id: 'files' as const, label: 'Files', shortcut: '⌘P', accelerator: 'CommandOrControl+P', disabled: false },
-    { id: 'browser' as const, label: 'Browser', shortcut: '⌘T', accelerator: 'CommandOrControl+T', disabled: !browserAvailable },
-    { id: 'review' as const, label: 'Review', shortcut: '⌃⌘G', accelerator: 'Control+CommandOrControl+G', disabled: false },
-    { id: 'terminal' as const, label: 'Terminal', shortcut: '⌃`', accelerator: 'Control+`', disabled: false },
+    { id: 'files' as const, label: 'Files', shortcut: '⌘P', disabled: false },
+    { id: 'browser' as const, label: 'Browser', shortcut: '⌘T', disabled: !browserAvailable },
+    { id: 'review' as const, label: 'Review', shortcut: '⌃⌘G', disabled: false },
+    { id: 'terminal' as const, label: 'Terminal', shortcut: '⌃`', disabled: false },
   ];
-
-  const handleOpenMenu = async (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    const rect = event.currentTarget.getBoundingClientRect();
-    const result = await window.electron.showNativeMenu({
-      x: rect.left,
-      y: rect.bottom + 6,
-      items: items.map((item) => ({
-        id: item.id,
-        label: item.label,
-        enabled: !item.disabled,
-        accelerator: item.accelerator,
-      })),
-    });
-    if (!result.ok || !result.id) return;
-    const selected = items.find((item) => item.id === result.id);
-    if (!selected || selected.disabled) return;
-    onOpenTab(
-      selected.id,
-      selected.id === 'files' || selected.id === 'browser' ? { newTab: true } : undefined
-    );
-  };
 
   return (
     <div
@@ -1551,14 +1529,36 @@ function RightUtilityTabStrip({
             </div>
           );
         })}
-        <button
-          type="button"
-          onClick={handleOpenMenu}
-          className="ml-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-          aria-label="Open another panel"
-        >
-          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button
+              type="button"
+              className="ml-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--sidebar-item-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] data-[popup-open]:bg-[var(--sidebar-item-hover)] data-[popup-open]:text-[var(--text-primary)]"
+              aria-label="Open another panel"
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content align="start" sideOffset={6} className="min-w-[190px]">
+              {items.map((item) => (
+                <DropdownMenu.Item
+                  key={item.id}
+                  disabled={item.disabled}
+                  onSelect={() =>
+                    onOpenTab(
+                      item.id,
+                      item.id === 'files' || item.id === 'browser' ? { newTab: true } : undefined
+                    )
+                  }
+                >
+                  {item.label}
+                  <DropdownMenu.Shortcut>{item.shortcut}</DropdownMenu.Shortcut>
+                </DropdownMenu.Item>
+              ))}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
       </div>
       <div className="min-w-4 flex-1 self-stretch" aria-hidden="true" />
 

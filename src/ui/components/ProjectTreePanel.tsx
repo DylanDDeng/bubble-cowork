@@ -20,6 +20,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import {
+  ContextMenuAtPoint,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from './ui/context-menu';
 import type { ProjectTreeNode, ProjectUtilityPanelKind } from '../types';
 
 type ProjectPanelTab = 'files';
@@ -1791,45 +1796,26 @@ export function ProjectTreePanel({
     }
   }, [closePreview, cwd, selectedFilePath, setProjectTree, updateOpenFileTabs]);
 
-  const openProjectTreeContextMenu = useCallback(async (event: React.MouseEvent, node?: ProjectTreeNode) => {
+  // 单实例右键菜单：树的容器/根/每一行都调这里，只记录坐标和目标节点，
+  // 菜单本体是应用统一样式的 ContextMenuAtPoint（不再走原生系统菜单）
+  const [treeMenu, setTreeMenu] = useState<{
+    x: number;
+    y: number;
+    node?: ProjectTreeNode;
+  } | null>(null);
+
+  const openProjectTreeContextMenu = useCallback((event: React.MouseEvent, node?: ProjectTreeNode) => {
     if (!cwd) return;
     event.preventDefault();
     event.stopPropagation();
+    setTreeMenu({ x: event.clientX + 2, y: event.clientY + 2, node });
+  }, [cwd]);
 
-    const parentPath = node
-      ? node.kind === 'dir'
-        ? node.path
-        : dirnameOfPath(node.path)
-      : visibleTree?.path || cwd;
-    const result = await window.electron.showNativeMenu({
-      x: event.clientX + 2,
-      y: event.clientY + 2,
-      items: [
-        { id: 'new-file', label: 'New File' },
-        { id: 'new-folder', label: 'New Folder' },
-        ...(node?.kind === 'file'
-          ? [
-              { id: 'file-actions-separator', type: 'separator' as const },
-              { id: 'delete-file', label: 'Delete File' },
-            ]
-          : []),
-      ],
-    });
-
-    if (!result.ok || !result.id) return;
-
-    if (result.id === 'new-file') {
-      startCreateEntry(parentPath, 'file');
-      return;
-    }
-    if (result.id === 'new-folder') {
-      startCreateEntry(parentPath, 'folder');
-      return;
-    }
-    if (result.id === 'delete-file' && node?.kind === 'file') {
-      void deleteEntry(node);
-    }
-  }, [cwd, deleteEntry, startCreateEntry, visibleTree?.path]);
+  const treeMenuParentPath = treeMenu?.node
+    ? treeMenu.node.kind === 'dir'
+      ? treeMenu.node.path
+      : dirnameOfPath(treeMenu.node.path)
+    : visibleTree?.path || cwd;
 
   useEffect(() => {
     const handleOpenProjectFile = (event: Event) => {
@@ -2811,6 +2797,40 @@ export function ProjectTreePanel({
             )}
           </div>
         </div>
+
+        <ContextMenuAtPoint
+          point={treeMenu}
+          onClose={() => setTreeMenu(null)}
+          className="min-w-[160px]"
+        >
+          <ContextMenuItem
+            onClick={() => {
+              if (treeMenuParentPath) startCreateEntry(treeMenuParentPath, 'file');
+            }}
+          >
+            New File
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              if (treeMenuParentPath) startCreateEntry(treeMenuParentPath, 'folder');
+            }}
+          >
+            New Folder
+          </ContextMenuItem>
+          {treeMenu?.node?.kind === 'file' ? (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                onClick={() => {
+                  const node = treeMenu.node;
+                  if (node) void deleteEntry(node);
+                }}
+              >
+                Delete File
+              </ContextMenuItem>
+            </>
+          ) : null}
+        </ContextMenuAtPoint>
 
         {useEmbeddedFilesGrid && showFilePreviewSurface && selectedFilePath ? (
           // Full-width header row: breadcrumb on the left, rail toggle at the
