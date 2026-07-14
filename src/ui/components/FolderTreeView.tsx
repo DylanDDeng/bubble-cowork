@@ -325,7 +325,7 @@ export function FolderTreeView({
       )}
 
       <div className="mb-2 flex items-center justify-between gap-2 px-1">
-        <div className="rounded-md px-1 text-[13px] text-[var(--text-primary)] transition-colors">
+        <div className="rounded-md px-1 text-[13px] text-[var(--text-muted)] transition-colors">
           Projects
         </div>
         <button
